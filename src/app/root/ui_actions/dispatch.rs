@@ -302,6 +302,15 @@ impl KooladeApp {
                     &readiness_path,
                     expected_manifest_revision,
                 ),
+                TaskDetailCommand::ApplyRuntimeTestAdapter {
+                    ticket,
+                    target_id,
+                    expected_manifest_revision,
+                } => self.apply_runtime_test_adapter(
+                    &ticket,
+                    &target_id,
+                    expected_manifest_revision,
+                ),
                 TaskDetailCommand::AddRuntimeTarget {
                     ticket,
                     app_surface,

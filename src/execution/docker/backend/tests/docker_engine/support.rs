@@ -28,6 +28,7 @@ pub(super) const OPT_IN: &str = "KOOLADE_DOCKER_BACKEND_INTEGRATION";
 
 pub(super) struct Fixture {
     pub(super) root: PathBuf,
+    home: PathBuf,
     _home: crate::test_support::KooladeHomeGuard,
 }
 
@@ -38,6 +39,11 @@ impl Fixture {
             uuid::Uuid::new_v4()
         ));
         fs::create_dir_all(&root).unwrap();
+        let home = std::env::temp_dir().join(format!(
+            "koolade-docker-backend-home-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&home).unwrap();
         let git_init = Command::new("git")
             .args(["init", "--quiet"])
             .current_dir(&root)
@@ -47,16 +53,20 @@ impl Fixture {
             git_init.success(),
             "initialize the Docker backend fixture repository"
         );
-        let home = crate::test_support::KooladeHomeGuard::set(&root.join("koolade-home"));
-        Self { root, _home: home }
+        let home_guard = crate::test_support::KooladeHomeGuard::set(&home);
+        Self {
+            root,
+            home,
+            _home: home_guard,
+        }
     }
 
     pub(super) fn task_clone(&self, workspace: &WorkspaceRef) -> PathBuf {
         let project = format!("{}-integration", workspace.project_id);
         let task = format!("task-{}", workspace.task_id);
         let path = self
-            .root
-            .join("koolade-home/projects")
+            .home
+            .join("projects")
             .join(project)
             .join("task-repositories")
             .join("integration")
@@ -72,6 +82,7 @@ impl Fixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
+        let _ = fs::remove_dir_all(&self.home);
     }
 }
 

@@ -86,8 +86,21 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
     };
     let mut reservation = WorkspaceStartReservation::new(prepared);
     workspace.revalidate()?;
+    let reviewed_source = request.mode == crate::execution::contract::ExecutionModeV1::Verification;
     let writable = super::super::execute::workspace_write_enabled(request);
-    let snapshot = if let Some(scope) = request.policy.workspace_write_scope() {
+    let snapshot = if reviewed_source {
+        staging::capture_reviewed(
+            &workspace,
+            &request.workspace.source_sha,
+            request.policy.source_output_paths(),
+            request
+                .policy
+                .workspace_write_scope()
+                .map(|scope| scope.root_relative.as_str()),
+            request.resource_budget.temporary_disk_bytes,
+            !writable,
+        )?
+    } else if let Some(scope) = request.policy.workspace_write_scope() {
         staging::capture_scoped(
             &workspace,
             &scope.root_relative,

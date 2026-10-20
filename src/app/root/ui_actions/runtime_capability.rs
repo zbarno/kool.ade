@@ -9,6 +9,7 @@ use crate::{
 
 mod recipe_artifacts;
 mod target_override;
+mod trusted_adapter;
 
 impl KooladeApp {
     #[allow(clippy::too_many_arguments)]
@@ -97,6 +98,21 @@ impl KooladeApp {
                     .map_err(|error| error.to_string())
             })(),
             Screen::Welcome => Err("Connect a project before discovering runtime targets.".into()),
+        };
+        self.runtime_capability_result(result);
+    }
+
+    pub(super) fn apply_runtime_test_adapter(
+        &mut self,
+        ticket: &str,
+        target_id: &str,
+        expected_revision: u64,
+    ) {
+        let result = match &self.screen {
+            Screen::Connected(project) => {
+                trusted_adapter::apply(project, ticket, target_id, expected_revision)
+            }
+            Screen::Welcome => Err("Connect a project before applying a runtime adapter.".into()),
         };
         self.runtime_capability_result(result);
     }

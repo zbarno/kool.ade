@@ -174,6 +174,9 @@ impl ExecutionSession {
             }
         }
         .map_err(|_| policy_error("Scoped recipe authorization is invalid"))?;
+        let policy = policy
+            .with_source_output_paths(recipe.allowed_output_paths.clone())
+            .map_err(|_| policy_error("Scoped recipe output authorization is invalid"))?;
         if self
             .busy
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)

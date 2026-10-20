@@ -16,6 +16,44 @@ use crate::{
 
 use super::support::{Fixture, backend, workspace};
 
+// Production boundary: discovery persists operator-local target provenance
+// alongside shared planning metadata. This catches invalid state-root layout
+// across the real store path, which a path helper unit test cannot prove.
+// Dependencies: Git executable for a synthetic checkout; no Docker or network.
+// Setup cost: low; creates and removes two temporary directories.
+#[test]
+fn stack_recipe_discovery_persists_provenance_outside_fixture_repository() {
+    let fixture = Fixture::new();
+    let workspace = workspace();
+    let clone = fixture.task_clone(&workspace);
+    write_stack_fixture(&clone.join("apps/web"), "node");
+    let planning = PlanningStore::legacy_embedded(
+        uuid::Uuid::parse_str(&workspace.project_id).unwrap(),
+        &fixture.root,
+    );
+    let runtime_store = ProjectRuntimeStore::new(&planning);
+    let context = DiscoveryContext {
+        workspace_id: workspace.project_id.clone(),
+        repository_id: "integration-repository".into(),
+        owning_task_id: workspace.task_id.clone(),
+        source_sha: workspace.source_sha.clone(),
+    };
+
+    let manifest = runtime_store
+        .discover_and_save(&clone, &context, 0)
+        .expect("test project capability discovery");
+
+    assert!(!manifest.candidate_targets.is_empty());
+    let state_root = crate::persistence::state_root()
+        .canonicalize()
+        .expect("operator state root should exist");
+    let repository_root = fixture
+        .root
+        .canonicalize()
+        .expect("fixture repository should exist");
+    assert!(!state_root.starts_with(repository_root));
+}
+
 #[test]
 fn approved_stack_recipes_execute_across_runtime_profiles() {
     const OPT_IN: &str = "KOOLADE_DOCKER_BACKEND_INTEGRATION";

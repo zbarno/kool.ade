@@ -40,4 +40,8 @@ impl ExecutionPolicyV1 {
     pub fn artifact_paths(&self) -> &[String] {
         &self.artifact_paths
     }
+
+    pub fn source_output_paths(&self) -> &[String] {
+        &self.source_output_paths
+    }
 }

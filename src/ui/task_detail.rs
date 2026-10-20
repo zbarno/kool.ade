@@ -165,8 +165,10 @@ pub struct RuntimeCapabilityView {
 pub struct RuntimeTargetChoice {
     pub target_id: String,
     pub label: String,
+    pub surface: crate::project_runtime::AppSurface,
     pub selected: bool,
     pub state: String,
+    pub diagnostics: Vec<String>,
     pub recipes: String,
 }
 
@@ -282,6 +284,11 @@ pub enum Command {
         artifact_paths: String,
         readiness_port: String,
         readiness_path: String,
+        expected_manifest_revision: u64,
+    },
+    ApplyRuntimeTestAdapter {
+        ticket: String,
+        target_id: String,
         expected_manifest_revision: u64,
     },
     AddRuntimeTarget {

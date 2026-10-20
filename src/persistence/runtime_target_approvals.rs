@@ -14,11 +14,9 @@ mod origin;
 mod tests;
 use files::{check_private_file, ensure_private_dir, set_private_file};
 pub(crate) use origin::{
-    has_custom_target_origin, has_trusted_adapter_recipe_origin, save_custom_target_origin,
-    save_discovered_target_origin,
+    has_custom_target_origin, has_discovered_target_origin, has_trusted_adapter_recipe_origin,
+    save_custom_target_origin, save_discovered_target_origin, save_trusted_adapter_recipe_origin,
 };
-#[cfg(test)]
-pub(crate) use origin::{has_discovered_target_origin, save_trusted_adapter_recipe_origin};
 
 const MAX_BYTES: u64 = 16 * 1024;
 

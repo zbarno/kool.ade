@@ -16,6 +16,7 @@ pub(super) type ApprovedCandidate = (
     std::path::PathBuf,
     WorkspaceRef,
     Vec<String>,
+    Vec<String>,
 );
 
 pub(super) fn approved_candidate(
@@ -37,10 +38,10 @@ pub(super) fn approved_candidate(
                 .ok_or("approved target recipe is missing")
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if recipes
-        .iter()
-        .any(|recipe| !recipe.is_explicitly_user_approved())
-    {
+    if recipes.iter().any(|recipe| {
+        recipe.source != crate::project_runtime::RecipeSource::TrustedAdapter
+            && !recipe.is_explicitly_user_approved()
+    }) {
         return Ok(None);
     }
     let required_tools = recipes
@@ -53,13 +54,40 @@ pub(super) fn approved_candidate(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
+    let mut allowed_untracked_outputs = target
+        .artifact_spec_ref
+        .as_ref()
+        .and_then(|id| manifest.artifact_specs.get(id))
+        .into_iter()
+        .flatten()
+        .map(|path| workspace_output_path(&target.project_relative_root, path))
+        .collect::<Vec<_>>();
+    allowed_untracked_outputs.extend(recipes.iter().flat_map(|recipe| {
+        recipe
+            .allowed_output_paths
+            .iter()
+            .map(|path| workspace_output_path(&target.project_relative_root, path))
+    }));
+    allowed_untracked_outputs.sort();
+    allowed_untracked_outputs.dedup();
     Ok(Some((
         target.target_id.clone(),
         operation,
         clone_path.to_owned(),
         workspace,
         required_tools,
+        allowed_untracked_outputs,
     )))
+}
+
+fn workspace_output_path(target_root: &str, path: &str) -> String {
+    if target_root == "." || target_root == "./" {
+        path.to_owned()
+    } else if path == "." {
+        target_root.to_owned()
+    } else {
+        format!("{target_root}/{path}")
+    }
 }
 
 pub(super) fn latest_receipt<'a>(

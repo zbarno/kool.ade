@@ -4,7 +4,7 @@ use tar::{Builder, Header};
 
 use crate::execution::docker::sandbox::ValidatedWorkspace;
 
-use super::{capture, capture_scoped, synchronize};
+use super::{capture, capture_reviewed, capture_scoped, synchronize};
 
 #[path = "tests/artifacts.rs"]
 mod artifacts;
@@ -72,6 +72,70 @@ fn traversal_returned(path: &str, bytes: &[u8]) -> Vec<u8> {
     header.set_cksum();
     builder.append(&header, Cursor::new(bytes)).unwrap();
     builder.into_inner().unwrap()
+}
+
+#[test]
+fn reviewed_capture_binds_staged_bytes_to_the_pinned_git_tree() {
+    let fixture = Fixture::new();
+    git(&fixture.0, &["init", "--quiet"]);
+    git(&fixture.0, &["config", "user.name", "Fixture"]);
+    git(
+        &fixture.0,
+        &["config", "user.email", "fixture@example.invalid"],
+    );
+    git(&fixture.0, &["add", "source.txt"]);
+    git(&fixture.0, &["commit", "--quiet", "-m", "reviewed source"]);
+    let source_sha = git(&fixture.0, &["rev-parse", "HEAD"]);
+    let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();
+    let snapshot = capture_reviewed(&workspace, &source_sha, &[], None, 1024 * 1024, true)
+        .expect("clean reviewed source should stage");
+
+    let mut changed_content = snapshot.clone();
+    changed_content.manifest.insert(
+        "source.txt".into(),
+        super::archive::Fingerprint::File {
+            sha256: super::archive::hash(b"transient edit"),
+            size: b"transient edit".len() as u64,
+            mode: 0o644,
+        },
+    );
+    assert!(
+        super::verify_snapshot_matches_git_tree(&changed_content, &fixture.0, &source_sha, &[],)
+            .is_err()
+    );
+
+    let mut missing_file = snapshot.clone();
+    missing_file.manifest.remove(Path::new("source.txt"));
+    assert!(
+        super::verify_snapshot_matches_git_tree(&missing_file, &fixture.0, &source_sha, &[],)
+            .is_err()
+    );
+
+    let mut changed_mode = snapshot;
+    if let Some(super::archive::Fingerprint::File { mode, .. }) =
+        changed_mode.manifest.get_mut(Path::new("source.txt"))
+    {
+        *mode |= 0o111;
+    }
+    assert!(
+        super::verify_snapshot_matches_git_tree(&changed_mode, &fixture.0, &source_sha, &[],)
+            .is_err()
+    );
+}
+
+fn git(root: &Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
 #[cfg(unix)]

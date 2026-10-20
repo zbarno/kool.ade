@@ -16,7 +16,6 @@ impl<'a> ProjectRuntimeStore<'a> {
         approval::discovered_target_origin_sha256(target)
     }
 
-    #[cfg(test)]
     pub(crate) fn trusted_adapter_recipe_sha256(
         workspace_id: &str,
         source_sha: &str,

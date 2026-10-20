@@ -279,4 +279,23 @@ fn queue_dispatch_requires_explicit_recipe_approval() {
         .unwrap()
         .is_none()
     );
+
+    manifest.recipes[0].source = RecipeSource::TrustedAdapter;
+    let adapter = approved_candidate(
+        &manifest,
+        &target,
+        std::path::Path::new("task-clone"),
+        WorkspaceRef {
+            project_id: "project".into(),
+            task_id: "planning-item".into(),
+            source_sha: "a".repeat(40),
+        },
+        RuntimeOperation::Build,
+        vec!["web-build"],
+    )
+    .unwrap();
+    assert!(
+        adapter.is_some(),
+        "verified adapters must reach executor provenance checks"
+    );
 }
