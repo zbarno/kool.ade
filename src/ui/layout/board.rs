@@ -3,6 +3,7 @@ use super::*;
 mod cancellation;
 mod columns;
 mod empty_lane;
+mod lifecycle_summary;
 mod opportunities;
 mod planning_modal;
 pub(super) mod presentation;
@@ -52,6 +53,7 @@ pub(super) fn paint(
         );
     }
     opportunities::paint(ui, s, board, &mut planning_selection);
+    lifecycle_summary::paint(ui, board);
     columns::paint(ui, s, board, &mut selected_path, &mut planning_selection);
 
     // Opening or switching a task is an interaction, not a rendering side
