@@ -28,8 +28,8 @@ pub(crate) use deployment::DeploymentObservation;
 use records::{
     EventProjection, create_pair, event_path, event_record, feature_path, now_unix_ms, task_path,
 };
-pub use task_transition::PullRequestPreparation;
 pub use task_transition::PullRequestPublicationState;
+pub use task_transition::{PrPublicationRecoveryV1, PullRequestPreparation};
 
 /// Stores mutable lifecycle snapshots and append-only transition records in the planning repo.
 pub struct LifecycleStore<'a> {

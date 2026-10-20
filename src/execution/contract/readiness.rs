@@ -10,6 +10,7 @@ pub enum HarnessRole {
     PlanningAnalyst,
     #[serde(alias = "decision_explanation")]
     PlanReviewer,
+    DecisionExplainer,
     #[serde(alias = "task_generation")]
     TaskDecomposer,
     #[serde(alias = "implementation")]
@@ -27,10 +28,11 @@ pub enum HarnessRole {
 impl HarnessRole {
     /// Every provider capability snapshot must state readiness for each role.
     /// `Unavailable` is explicit; omitting a role is never treated as support.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Manager,
         Self::PlanningAnalyst,
         Self::PlanReviewer,
+        Self::DecisionExplainer,
         Self::TaskDecomposer,
         Self::Implementer,
         Self::CodeReviewer,
@@ -46,6 +48,7 @@ impl HarnessRole {
             Self::Manager => ExecutionMode::Planning,
             Self::PlanningAnalyst => ExecutionMode::Planning,
             Self::PlanReviewer | Self::CodeReviewer => ExecutionMode::Investigation,
+            Self::DecisionExplainer => ExecutionMode::DecisionExplanation,
             Self::RuntimeQaReviewer => ExecutionMode::ReadOnlyAnalysis,
             Self::TaskDecomposer => ExecutionMode::TaskGeneration,
             Self::Implementer | Self::RepairWorker => ExecutionMode::Implementation,
@@ -63,6 +66,7 @@ impl HarnessRole {
             Self::Manager
             | Self::PlanningAnalyst
             | Self::PlanReviewer
+            | Self::DecisionExplainer
             | Self::TaskDecomposer
             | Self::CodeReviewer
             | Self::SpecReconciler => ExecutionModeV1::PlanningReadOnly,

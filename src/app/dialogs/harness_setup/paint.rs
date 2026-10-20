@@ -62,13 +62,17 @@ pub(super) use super::tools::paint_tools;
 fn route_available(
     id: &str,
     harness: &crate::persistence::harness_settings::DetectedHarness,
+    category: &str,
 ) -> bool {
-    super::has_current_provider_capabilities(
-        id,
-        harness,
-        crate::persistence::harness_settings::current_unix_ms(),
-    ) && harness.implementation_available
-        && crate::harness::implementation_route_available(id)
+    let Some(role) = crate::app::root::role_for_work_category(category) else {
+        return false;
+    };
+    let now = crate::persistence::harness_settings::current_unix_ms();
+    harness.has_current_authenticated_capability(id, now)
+        && harness.supports_role_at(role, now)
+        && (category != crate::persistence::harness_settings::IMPLEMENTATION
+            || (harness.implementation_available
+                && crate::harness::implementation_route_available(id)))
 }
 
 pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) {
@@ -82,6 +86,30 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
     ui.label(RichText::new("Repository commands run through Kool.ad/e's application-owned Docker ExecutionSession. Supported provider CLIs keep their model connection; their native repository tools are disabled.").size(10.5).weak());
     let categories = [
         (
+            crate::persistence::harness_settings::PLANNING,
+            "General planning",
+        ),
+        (
+            crate::persistence::harness_settings::SPECIFICATION,
+            "Specification",
+        ),
+        (
+            crate::persistence::harness_settings::FEATURE_PLANNING,
+            "Feature planning",
+        ),
+        (
+            crate::persistence::harness_settings::TASK_GENERATION,
+            "Task generation",
+        ),
+        (
+            crate::persistence::harness_settings::INVESTIGATION,
+            "Investigation / analysis",
+        ),
+        (
+            crate::persistence::harness_settings::PLAN_REVIEW,
+            "Independent plan review",
+        ),
+        (
             crate::persistence::harness_settings::IMPLEMENTATION,
             "Implementation",
         ),
@@ -94,8 +122,24 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
             "QA / Verification",
         ),
         (
+            crate::persistence::harness_settings::RUNTIME_QA,
+            "Runtime QA",
+        ),
+        (
             crate::persistence::harness_settings::DOCUMENTATION,
             "Documentation",
+        ),
+        (
+            crate::persistence::harness_settings::RECONCILIATION,
+            "Reconciliation",
+        ),
+        (
+            crate::persistence::harness_settings::DECISION_EXPLANATION,
+            "Decision explanation",
+        ),
+        (
+            crate::persistence::harness_settings::REPAIR,
+            "Repair worker",
         ),
     ];
     for (key, label) in categories {
@@ -103,7 +147,7 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
             .settings
             .discovered
             .iter()
-            .filter(|(id, harness)| route_available(id, harness))
+            .filter(|(id, harness)| route_available(id, harness, key))
             .map(|(id, _)| id.clone())
             .collect::<Vec<_>>();
         let current = dialog
@@ -139,7 +183,7 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
                 .settings
                 .discovered
                 .get(id)
-                .is_some_and(|harness| route_available(id, harness))
+                .is_some_and(|harness| route_available(id, harness, key))
         {
             let detail = if dialog.settings.discovered.get(id).is_some_and(|harness| {
                 !harness.is_fresh_at(crate::persistence::harness_settings::current_unix_ms())

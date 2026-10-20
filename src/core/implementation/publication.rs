@@ -4,8 +4,8 @@ mod payload;
 mod pr_preparer;
 mod pull_request;
 pub(super) use lifecycle::{
-    LifecyclePublicationGate, finish_lifecycle_publication, prepare_lifecycle_publication,
-    reconcile_lifecycle_pr_state,
+    LifecyclePublicationGate, finish_lifecycle_publication, implementation_is_done,
+    prepare_lifecycle_publication, preserve_done_after_failure, reconcile_lifecycle_pr_state,
 };
 #[cfg(test)]
 pub(super) use payload::remote_repository;

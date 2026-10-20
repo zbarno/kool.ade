@@ -209,7 +209,11 @@ impl KooladeApp {
                 .or_default()
                 .activity = Some("Investigating repository evidence…".into());
             project.activity.mark_ticket_dirty(&item_id);
-            let harness = configured_harness(&mut self.task_harness);
+            let harness = crate::app::root::configured_harness_for_project(
+                &mut self.task_harness,
+                Some(crate::persistence::harness_settings::INVESTIGATION),
+                &project.state.harness_routes.routes,
+            );
             project.investigation = Some(crate::core::investigation::Controller::start(
                 project.state.clone(),
                 item_id,

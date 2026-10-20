@@ -96,3 +96,37 @@ synthesizing a pass. The application still lacks one end-to-end lifecycle
 coordinator across all legacy entry points; the local replay tests validate
 store recovery, while interactive browser/desktop behavior is covered by the
 separate runtime-QA acceptance path.
+
+## PR publication and recovery
+
+The explicit Task Details action authorizes publication of the completed task.
+The application compares the verified publication head with the persisted
+independently reviewed head before granting or reusing authorization. A Done
+task enters PR preparation directly, preserving its completed implementation
+and review/QA/specification evidence. When the fetched destination still equals
+the reviewed base, preparation preserves the exact reviewed commit. Destination
+drift uses the existing isolated integration controller; a changed candidate
+cannot inherit the old approval and requires fresh review, QA and specification
+evidence. The destination SHA is checked again before pushing.
+
+The read-only PR Preparer's validated description is written to the body file
+consumed by the provider controller, alongside application-derived scope
+identifiers, commits and changed files. Reusing its receipt rebuilds that body,
+including after a crash between receipt persistence and body creation. The raw
+evidence bundle is not uploaded as a PR description.
+
+A publication error records `NeedsAttention` on the existing PR work item with
+a bounded, redacted blocker and attempt counter. The implementation remains
+Done. Task Details offers **Retry PR publication**; retries retain the original
+user receipt, recheck current specification/head gates, and query existing
+provider PRs before creating one. A lost creation response is an unknown remote
+outcome, not proof of failure. Duplicate retry clicks reuse the same publishing
+attempt. Failure and retry events retain their snapshots for replay and record
+an explicit no-new-specification-evidence disposition. New requirements or
+other pending specification triggers continue to block authorization.
+
+Older PR records without recovery metadata remain readable. This recovery
+contract does not yet provide the full publication-generation/lease snapshot
+specified by issue #164. The separate Generate PR board task and dry-run
+Details flow, automatic integrated-head gate renewal, and verified child-commit
+aggregation also remain incomplete; child integration depends on issue #162.

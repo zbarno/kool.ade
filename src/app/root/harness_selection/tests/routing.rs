@@ -1,8 +1,14 @@
 use super::*;
 #[path = "routing/authentication.rs"]
 pub(super) mod authentication;
+#[path = "routing/configured_consumers.rs"]
+mod configured_consumers;
 #[path = "routing/model_catalog.rs"]
 mod model_catalog;
+#[path = "routing/model_provenance.rs"]
+mod model_provenance;
+#[path = "routing/role_categories.rs"]
+mod role_categories;
 #[test]
 fn saved_supported_harness_ids_resolve_to_their_adapters() {
     assert!(resolve(Some("pi")).label().starts_with("pi "));
@@ -13,6 +19,19 @@ fn saved_supported_harness_ids_resolve_to_their_adapters() {
         resolve(Some("antigravity"))
             .label()
             .starts_with("Antigravity")
+    );
+}
+
+#[test]
+fn missing_user_default_does_not_silently_select_pi() {
+    let harness = resolve(None);
+    assert!(harness.label().contains("No CLI is selected"));
+    assert!(
+        harness
+            .check_available()
+            .unwrap_err()
+            .detail()
+            .contains("Choose a default in Coding tools")
     );
 }
 
@@ -260,15 +279,22 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
         &std::collections::BTreeMap::from([(IMPLEMENTATION.into(), route(Some("available")))]),
     )
     .unwrap();
-    assert!(
-        validate_task_routes(
-            &settings,
-            &std::collections::BTreeMap::from([(
-                crate::persistence::harness_settings::DOCUMENTATION.into(),
-                route(Some("available")),
-            )])
-        )
-        .unwrap_err()
-        .contains("application-owned Docker execution session")
-    );
+    let mut context_only = settings.clone();
+    let capabilities = context_only
+        .discovered
+        .get_mut("codex")
+        .unwrap()
+        .capability_snapshot
+        .as_mut()
+        .unwrap();
+    capabilities.docker_mcp_bridge = crate::execution::contract::ReadinessState::Unavailable;
+    capabilities.execution_target = crate::execution::contract::ReadinessState::Unavailable;
+    validate_task_routes(
+        &context_only,
+        &std::collections::BTreeMap::from([(
+            crate::persistence::harness_settings::DOCUMENTATION.into(),
+            route(Some("available")),
+        )]),
+    )
+    .expect("context-only documentation does not require an implementation sandbox");
 }

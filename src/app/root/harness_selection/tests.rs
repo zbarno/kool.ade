@@ -40,12 +40,13 @@ impl AiHarness for CountHarness {
 }
 
 #[test]
-fn implementation_repairs_after_verification_failure_use_the_independent_qa_harness() {
+fn implementation_qa_verification_uses_the_independent_qa_harness() {
     let implementation_calls = Arc::new(AtomicUsize::new(0));
     let qa_calls = Arc::new(AtomicUsize::new(0));
     let harness = ImplementationQaHarness {
         implementation: Box::new(CountHarness(implementation_calls.clone(), "implementation")),
         qa: Box::new(CountHarness(qa_calls.clone(), "qa")),
+        repair: None,
     };
     let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
     let request = crate::harness::PlanningRequest {
@@ -70,6 +71,41 @@ fn implementation_repairs_after_verification_failure_use_the_independent_qa_harn
     harness.execute(&request).unwrap();
     assert_eq!(implementation_calls.load(Ordering::SeqCst), 0);
     assert_eq!(qa_calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn implementation_repair_attempt_uses_repair_route() {
+    let implementation_calls = Arc::new(AtomicUsize::new(0));
+    let qa_calls = Arc::new(AtomicUsize::new(0));
+    let repair_calls = Arc::new(AtomicUsize::new(0));
+    let harness = ImplementationQaHarness {
+        implementation: Box::new(CountHarness(implementation_calls.clone(), "implementation")),
+        qa: Box::new(CountHarness(qa_calls.clone(), "qa")),
+        repair: Some(Box::new(CountHarness(repair_calls.clone(), "repair"))),
+    };
+    let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
+    let request = crate::harness::PlanningRequest {
+        prompt_manifest: None,
+        mode: crate::harness::ExecutionMode::Implementation,
+        task_id: None,
+        reasoning_level: "medium".into(),
+        telemetry_phase: Some("repair".into()),
+        repo_root: std::path::PathBuf::from("/synthetic/project"),
+        runtime_config_source: None,
+        prompt_body: String::new(),
+        system_instructions: String::new(),
+        timeout: std::time::Duration::from_secs(1),
+        progress_tx,
+        cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        execution_workspace: None,
+        destination_sha: None,
+        authorization_verifier: None,
+        review_identity: None,
+    };
+    harness.execute(&request).unwrap();
+    assert_eq!(implementation_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(qa_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(repair_calls.load(Ordering::SeqCst), 1);
 }
 
 #[path = "tests/dependency_authorization.rs"]

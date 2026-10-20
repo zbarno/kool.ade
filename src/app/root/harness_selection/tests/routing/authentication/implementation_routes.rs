@@ -19,7 +19,8 @@ fn explicit_implementation_route_rejects_unsupported_provider_capability() {
     crate::persistence::harness_settings::with_settings_path(path.clone(), || {
         crate::persistence::harness_settings::save(&settings).unwrap();
         let mut override_harness = None;
-        let harness = configured_harness_for_task(&mut override_harness, None, &routes);
+        let harness =
+            configured_harness_for_task(&mut override_harness, Some(IMPLEMENTATION), &routes);
         let error = harness.check_available().unwrap_err().detail();
         assert!(error.contains("no supported application-owned implementation route"));
     });
@@ -50,7 +51,8 @@ fn uncategorized_implementation_route_rejects_runtime_unavailable_provider() {
     crate::persistence::harness_settings::with_settings_path(path.clone(), || {
         crate::persistence::harness_settings::save(&settings).unwrap();
         let mut override_harness = None;
-        let harness = configured_harness_for_task(&mut override_harness, None, &routes);
+        let harness =
+            configured_harness_for_task(&mut override_harness, Some(IMPLEMENTATION), &routes);
         let error = harness.check_available().unwrap_err().detail();
         assert!(error.contains("not currently available for implementation"));
     });

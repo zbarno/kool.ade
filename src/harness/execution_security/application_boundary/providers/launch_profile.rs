@@ -186,9 +186,10 @@ impl ValidatedProviderLaunch {
             .iter()
             .filter(|token| {
                 if token.ends_with('=') {
-                    !self.argv.iter().any(|argument| {
-                        argument.starts_with(**token) && argument.len() > token.len()
-                    })
+                    !self
+                        .argv
+                        .iter()
+                        .any(|argument| argument.starts_with(**token))
                 } else {
                     !self.argv.iter().any(|argument| argument == **token)
                 }

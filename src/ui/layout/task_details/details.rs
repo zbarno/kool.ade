@@ -1,5 +1,6 @@
 use super::*;
 mod lifecycle_pr;
+mod lifecycle_publication;
 mod lifecycle_spec;
 mod linkage;
 mod metrics;
@@ -67,13 +68,20 @@ pub(super) fn paint(
                         );
                     });
                 }
-            } else if let Some(url) = record.and_then(|record| record.pr_url.as_ref()) {
+            } else if let Some(url) = record.and_then(|record| record.pr_url.as_ref()).filter(|_| {
+                view.lifecycle_pr_status != Some(crate::core::lifecycle::PullRequestPreparationStatus::NeedsAttention)
+            }) {
                 ui.label(if presentation.pull_request_closed {
                     "Reopen the pull request on GitHub to continue review."
                 } else {
                     "Review the published changes."
                 });
                 ui.hyperlink_to("Open PR", url);
+            } else if matches!(view.lifecycle_pr_status,
+                Some(crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization
+                    | crate::core::lifecycle::PullRequestPreparationStatus::NeedsAttention))
+            {
+                lifecycle_publication::paint(ui, s, ticket, view, record);
             } else if let Some(status) = view.lifecycle_pr_status {
                 lifecycle_pr::paint(ui, s, ticket, view, record, status);
             } else if view

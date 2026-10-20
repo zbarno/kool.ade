@@ -30,6 +30,7 @@ impl AiHarness for ClaudeHarness {
         request: &PlanningRequest,
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
+        crate::harness::validate_reasoning_level("claude", &request.reasoning_level)?;
         crate::harness::require_application_implementation_boundary("Claude Code", request)?;
         let boundary = crate::harness::execution_security::ApplicationBoundary::new(request)
             .map_err(|error| {
@@ -220,7 +221,9 @@ pub(in crate::harness) fn developer_instructions(
 fn normalize_effort(value: &str) -> &'static str {
     match value.to_ascii_lowercase().as_str() {
         "low" => "low",
-        "high" | "xhigh" => "high",
+        "high" => "high",
+        "xhigh" => "xhigh",
+        "max" => "max",
         _ => "medium",
     }
 }

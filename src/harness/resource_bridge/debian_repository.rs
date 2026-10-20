@@ -38,15 +38,7 @@ pub(crate) struct SignedRelease {
 }
 
 pub(crate) fn verify_bookworm_inrelease(bytes: &[u8]) -> anyhow::Result<SignedRelease> {
-    verify_inrelease_with_keyring(bytes, BOOKWORM_KEYRING, BOOKWORM_FINGERPRINTS)
-}
-
-fn verify_inrelease_with_keyring(
-    bytes: &[u8],
-    keyring: &[u8],
-    expected_fingerprints: &[&str],
-) -> anyhow::Result<SignedRelease> {
-    verify_inrelease_with_keyring_at(bytes, keyring, expected_fingerprints, Utc::now())
+    verify_inrelease_with_keyring_at(bytes, BOOKWORM_KEYRING, BOOKWORM_FINGERPRINTS, Utc::now())
 }
 
 fn verify_inrelease_with_keyring_at(
@@ -87,11 +79,6 @@ fn verify_inrelease_with_keyring_at(
         anyhow::anyhow!("Debian InRelease signature did not verify with an approved archive key")
     })?;
     parse_release_body_at(&body, now)
-}
-
-#[cfg(test)]
-fn parse_release_body(body: &str) -> anyhow::Result<SignedRelease> {
-    parse_release_body_at(body, Utc::now())
 }
 
 fn parse_release_body_at(body: &str, now: DateTime<Utc>) -> anyhow::Result<SignedRelease> {

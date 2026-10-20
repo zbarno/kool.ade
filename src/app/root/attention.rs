@@ -62,7 +62,11 @@ impl KooladeApp {
                         project.state.repo_root.clone(),
                         ticket.into(),
                         report_path,
-                        super::configured_harness(&mut self.task_harness),
+                        crate::app::root::configured_harness_for_project(
+                            &mut self.task_harness,
+                            Some(crate::persistence::harness_settings::DECISION_EXPLANATION),
+                            &project.state.harness_routes.routes,
+                        ),
                     )
                 } else {
                     Controller::start_detail_with_store(
@@ -70,7 +74,11 @@ impl KooladeApp {
                         project.state.repo_root.clone(),
                         ticket.into(),
                         detail.into(),
-                        super::configured_harness(&mut self.task_harness),
+                        crate::app::root::configured_harness_for_project(
+                            &mut self.task_harness,
+                            Some(crate::persistence::harness_settings::DECISION_EXPLANATION),
+                            &project.state.harness_routes.routes,
+                        ),
                     )
                 };
                 self.attention.insert(path, Status::Pending(controller));
