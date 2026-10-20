@@ -94,12 +94,31 @@ pub(super) fn paint(
             .and_then(|id| runtime.targets.iter().find(|target| target.target_id == id))
         {
             ui.label(format!("Capability: {}", target.state));
+            if let Some(diagnostic) = target_surface_diagnostic(target.surface) {
+                ui.label(egui::RichText::new(diagnostic).small().weak());
+            }
             ui.label(if target.recipes.is_empty() {
                 "No approved build, test, or start recipes.".into()
             } else {
                 target.recipes.clone()
             });
             if target.selected {
+                if target.recipes.is_empty()
+                    && runtime.languages.iter().any(|language| {
+                        crate::project_runtime::trusted_adapter_template(
+                            Some(language),
+                            crate::project_runtime::RuntimeOperation::Test,
+                        )
+                        .is_some()
+                    })
+                    && ui.button("Apply trusted test adapter").clicked()
+                {
+                    dispatch(surface, task_detail::Command::ApplyRuntimeTestAdapter {
+                        ticket: ticket.to_owned(),
+                        target_id: target.target_id.clone(),
+                        expected_manifest_revision: revision,
+                    });
+                }
                 for operation in [
                     task_detail::RuntimeRecipeOperation::Build,
                     task_detail::RuntimeRecipeOperation::Test,
@@ -115,6 +134,19 @@ pub(super) fn paint(
             "Approved recipes run as bounded argv inside the task's Docker execution session. Discovery never executes project scripts.",
         ).small().weak());
     });
+}
+
+fn target_surface_diagnostic(surface: crate::project_runtime::AppSurface) -> Option<&'static str> {
+    match surface {
+        crate::project_runtime::AppSurface::HeadlessService => Some(
+            "Headless service: browser and desktop visual QA do not apply. API and integration evidence is not yet connected.",
+        ),
+        crate::project_runtime::AppSurface::UnsupportedTarget => Some(
+            "This target is unsupported by the current Linux web and desktop drivers. Planning and static review remain available.",
+        ),
+        crate::project_runtime::AppSurface::Web
+        | crate::project_runtime::AppSurface::LinuxDesktop => None,
+    }
 }
 
 fn recipe_form(
@@ -196,4 +228,23 @@ pub(in crate::ui::layout::task_details) fn seed_custom_target_repository_root_dr
     app_surface: crate::project_runtime::AppSurface,
 ) {
     target_override::seed_test_repository_root_draft(context, ticket, app_surface);
+}
+
+#[cfg(test)]
+mod surface_diagnostic_tests {
+    use super::target_surface_diagnostic;
+    use crate::project_runtime::AppSurface;
+
+    #[test]
+    fn headless_and_unsupported_targets_explain_qa_applicability() {
+        let headless = target_surface_diagnostic(AppSurface::HeadlessService).unwrap();
+        assert!(headless.contains("API and integration evidence is not yet connected"));
+        assert!(
+            target_surface_diagnostic(AppSurface::UnsupportedTarget)
+                .unwrap()
+                .contains("Planning and static review remain available")
+        );
+        assert_eq!(target_surface_diagnostic(AppSurface::Web), None);
+        assert_eq!(target_surface_diagnostic(AppSurface::LinuxDesktop), None);
+    }
 }

@@ -139,9 +139,19 @@ fn approved_recipe_request_binds_exact_command_arguments_and_target_scope() {
         BTreeSet::new(),
     )
     .unwrap()
+    .with_source_output_paths(vec!["apps/odin/dist".into()])
+    .unwrap()
     .with_artifact_paths(vec!["dist/index.html".into()])
     .unwrap();
     assert_eq!(request.policy.artifact_paths(), &["dist/index.html"]);
+    assert_eq!(request.policy.source_output_paths(), &["apps/odin/dist"]);
+    assert!(
+        request
+            .policy
+            .clone()
+            .with_source_output_paths(vec!["apps/other/dist".into()])
+            .is_err()
+    );
     request.validate_at(1).unwrap();
 
     let ceiling = ExecutionPolicyV1::for_mode(

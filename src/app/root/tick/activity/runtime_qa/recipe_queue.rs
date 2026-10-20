@@ -22,13 +22,20 @@ use crate::{
 mod candidate;
 use candidate::{approved_candidate, next_operation, now_unix_ms};
 
-type RecipeCandidate = (String, RuntimeOperation, PathBuf, WorkspaceRef, Vec<String>);
+type RecipeCandidate = (
+    String,
+    RuntimeOperation,
+    PathBuf,
+    WorkspaceRef,
+    Vec<String>,
+    Vec<String>,
+);
 
 pub(crate) fn start(
     project: &Project,
     task: &TaskRecord,
 ) -> Result<crate::runtime_qa::RuntimeRecipeWorkerHandle, String> {
-    let (target_id, operation, clone_path, workspace, required_tools) =
+    let (target_id, operation, clone_path, workspace, required_tools, allowed_untracked_outputs) =
         candidate(project, task)?
             .ok_or_else(|| "no approved runtime recipe operation is ready".to_owned())?;
     let planning_store = project.state.planning_store.clone();
@@ -95,6 +102,12 @@ pub(crate) fn start(
                     temporary_disk_bytes: 2 * 1024 * 1024 * 1024,
                     output_bytes: 64 * 1024 * 1024,
                 };
+                let expected_source_sha = workspace.source_sha.clone();
+                crate::project_runtime::verify_source_checkout(
+                    &clone_path,
+                    &workspace.source_sha,
+                    &allowed_untracked_outputs,
+                )?;
                 let session = Arc::new(
                     ExecutionSession::connect_local_with_tools(
                         workspace,
@@ -115,6 +128,11 @@ pub(crate) fn start(
                     let _ = session.cancel();
                     return Err("runtime recipe was cancelled before execution".into());
                 }
+                crate::project_runtime::verify_source_checkout(
+                    &clone_path,
+                    &expected_source_sha,
+                    &allowed_untracked_outputs,
+                )?;
                 let store = ProjectRuntimeStore::new(&planning_store);
                 let executor = ProjectRuntimeExecutor::new(&store);
                 let receipts = executor
@@ -232,12 +250,23 @@ fn candidate(project: &Project, task: &TaskRecord) -> Result<Option<RecipeCandid
             return Ok(None);
         }
     }
-    approved_candidate(
+    let candidate = approved_candidate(
         &manifest,
         target,
         &implementation.task_repository,
         workspace,
         operation,
         recipe_ids.iter().map(String::as_str).collect(),
-    )
+    )?;
+    if candidate.as_ref().is_some_and(|candidate| {
+        crate::project_runtime::verify_source_checkout(
+            &implementation.task_repository,
+            source_sha,
+            &candidate.5,
+        )
+        .is_err()
+    }) {
+        return Ok(None);
+    }
+    Ok(candidate)
 }

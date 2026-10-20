@@ -60,6 +60,11 @@ pub(super) fn run(
         prepared.readiness_probe.as_ref(),
         &prepared.artifact_paths,
     )?;
+    crate::project_runtime::verify_source_checkout(
+        &prepared.task_clone,
+        &request.code_head_sha,
+        &prepared.artifact_paths,
+    )?;
     let (artifact_upload, artifact_sha) = snapshot_selected_files(
         &prepared.task_clone,
         &prepared.artifact_paths,
@@ -154,7 +159,13 @@ fn run_reviewed(
     task_clone: &std::path::Path,
     store: &RuntimeQaStore,
     cancelled: Arc<AtomicBool>,
+    allowed_untracked_outputs: &[String],
 ) -> Result<(), String> {
+    crate::project_runtime::verify_source_checkout(
+        task_clone,
+        &request.code_head_sha,
+        allowed_untracked_outputs,
+    )?;
     let reviewer_run = uuid::Uuid::new_v4().hyphenated().to_string();
     let reviewer_session = uuid::Uuid::new_v4().hyphenated().to_string();
     let prompt = reviewer::manifest(request, &reviewer_run, &reviewer_session)?;

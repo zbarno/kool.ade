@@ -60,6 +60,7 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
                 "{:?} · {}",
                 target.app_surface, target.project_relative_root
             ),
+            surface: target.app_surface,
             selected: manifest.is_active_target(&identity.uid, &target.target_id),
             state: if target
                 .build_recipe_ref

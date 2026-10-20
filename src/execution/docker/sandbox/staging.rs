@@ -1,6 +1,7 @@
 //! Bounded task-clone staging and optimistic change synchronization.
 mod archive;
 mod artifacts;
+mod reviewed;
 mod sync;
 
 use super::ValidatedWorkspace;
@@ -9,6 +10,9 @@ use std::path::PathBuf;
 
 pub(crate) const MAX_STAGED_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_ENTRIES: usize = 100_000;
+pub(crate) use reviewed::capture_reviewed;
+#[cfg(test)]
+pub(crate) use reviewed::verify_snapshot_matches_git_tree;
 
 #[derive(Clone, Debug)]
 pub(crate) struct WorkspaceSnapshot {

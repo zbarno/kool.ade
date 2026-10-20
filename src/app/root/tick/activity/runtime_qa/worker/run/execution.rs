@@ -106,6 +106,7 @@ pub(super) fn run_web(
         &prepared.task_clone,
         store,
         cancelled,
+        &prepared.artifact_paths,
     );
     let cleanup = session
         .cleanup_qa_web_preview(&preview.service_lease, &preview.relay_binding)
@@ -152,6 +153,7 @@ pub(super) fn run_desktop(
         &prepared.task_clone,
         store,
         cancelled,
+        &prepared.artifact_paths,
     )
 }
 

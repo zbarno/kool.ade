@@ -61,7 +61,6 @@ pub(crate) fn save_discovered_target_origin(
     )
 }
 
-#[cfg(test)]
 pub(crate) fn has_discovered_target_origin(
     workspace_id: &str,
     task_id: &str,
@@ -75,7 +74,6 @@ pub(crate) fn has_discovered_target_origin(
     )
 }
 
-#[cfg(test)]
 pub(crate) fn save_trusted_adapter_recipe_origin(
     workspace_id: &str,
     task_id: &str,

@@ -54,7 +54,10 @@ root. Start recipes also save a surface-appropriate readiness probe (HTTP for
 Web, local health for services, process alive for Linux desktop). The new
 target remains `ReadyButUntested`; approval is not QA evidence. Target
 selection remains an explicit Task Details action when the manifest has
-multiple targets.
+multiple targets. Task Details states that visual QA does not apply to
+headless services and that API/integration evidence is not yet connected. It
+also identifies unsupported targets as outside the current Linux web/desktop
+drivers while preserving planning and static review.
 
 `ExecutionRecipeV1` stores a logical executor tool ID and discrete arguments.
 It rejects shell-evaluation switches, absolute or parent-traversing paths,
@@ -110,8 +113,9 @@ The generic start executor requires a passing Build receipt for the same task,
 target, source SHA, and recipe. It launches the approved process in the Docker
 workspace, captures the exact build artifact paths again, and requires their
 hashes to match before recording readiness. The bounded in-session process is
-then terminated and reaped. Start is not yet dispatched by the normal task
-queue.
+then terminated and reaped. The task queue runs approved Build, declared Test,
+and Start recipes in order, and visual QA requests require a matching passed
+Start/readiness receipt.
 HTTP readiness uses an application-generated loopback request through a declared
 Node or Python standard-library prerequisite in the selected executor image;
 it never downloads or invokes curl. Targets without that approved prerequisite
