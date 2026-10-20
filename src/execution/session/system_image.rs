@@ -8,6 +8,12 @@ impl ExecutionSession {
         &self,
         need: &crate::harness::DependencyNeed,
     ) -> anyhow::Result<Vec<crate::harness::DependencyPackageIdentity>> {
+        if let Some(destination) = self
+            .retry_destination()
+            .map_err(|error| anyhow::anyhow!("{error}"))?
+        {
+            return destination.resolve_system_dependency_manifest(need);
+        }
         anyhow::ensure!(
             need.ecosystem == crate::harness::PackageEcosystem::System
                 && need.kind == crate::harness::DependencyKind::SystemTool,
@@ -56,6 +62,9 @@ impl ExecutionSession {
         need: &crate::harness::DependencyNeed,
         decision: crate::harness::DependencyDecision,
     ) -> Result<crate::execution::docker::image_extension::DerivedImage, ExecutionError> {
+        if let Some(destination) = self.retry_destination()? {
+            return destination.prepare_authorized_system_dependency(need, decision);
+        }
         if decision != crate::harness::DependencyDecision::UserAuthorizeForTask {
             return Err(policy_error(
                 "System image derivation requires explicit task-scoped user approval",

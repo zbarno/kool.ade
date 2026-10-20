@@ -46,6 +46,15 @@ fn verify_inrelease_with_keyring(
     keyring: &[u8],
     expected_fingerprints: &[&str],
 ) -> anyhow::Result<SignedRelease> {
+    verify_inrelease_with_keyring_at(bytes, keyring, expected_fingerprints, Utc::now())
+}
+
+fn verify_inrelease_with_keyring_at(
+    bytes: &[u8],
+    keyring: &[u8],
+    expected_fingerprints: &[&str],
+    now: DateTime<Utc>,
+) -> anyhow::Result<SignedRelease> {
     anyhow::ensure!(
         !bytes.is_empty() && bytes.len() <= MAX_INRELEASE_BYTES,
         "Debian InRelease size is invalid"
@@ -77,10 +86,10 @@ fn verify_inrelease_with_keyring(
     let body = verified.ok_or_else(|| {
         anyhow::anyhow!("Debian InRelease signature did not verify with an approved archive key")
     })?;
-    parse_release_body(&body)
+    parse_release_body_at(&body, now)
 }
 
-fn parse_release_body(body: &str) -> anyhow::Result<SignedRelease> {
+fn parse_release_body_at(body: &str, now: DateTime<Utc>) -> anyhow::Result<SignedRelease> {
     let mut fields = BTreeMap::<String, String>::new();
     let mut continuation: Option<String> = None;
     for line in body.lines() {
@@ -119,9 +128,10 @@ fn parse_release_body(body: &str) -> anyhow::Result<SignedRelease> {
         label: field(&fields, "Label")?,
         suite: field(&fields, "Suite")?,
         codename: field(&fields, "Codename")?,
-        valid_until_unix: validate_release_window(
+        valid_until_unix: validate_release_window_at(
             field(&fields, "Date")?.as_str(),
             fields.get("Valid-Until").map(String::as_str),
+            now,
         )?,
         architectures: field(&fields, "Architectures")?
             .split_ascii_whitespace()
@@ -152,7 +162,11 @@ fn parse_release_body(body: &str) -> anyhow::Result<SignedRelease> {
     Ok(release)
 }
 
-fn validate_release_window(date: &str, valid_until: Option<&str>) -> anyhow::Result<i64> {
+fn validate_release_window_at(
+    date: &str,
+    valid_until: Option<&str>,
+    now: DateTime<Utc>,
+) -> anyhow::Result<i64> {
     let date = parse_debian_date(date)?.with_timezone(&Utc);
     // Debian stable Release files can omit Valid-Until and may be published
     // infrequently. Accept at most 180 days from the signed Date in that case;
@@ -166,7 +180,6 @@ fn validate_release_window(date: &str, valid_until: Option<&str>) -> anyhow::Res
         .map(|date| date.with_timezone(&Utc))
         .unwrap_or_else(|| date + chrono::Duration::days(180));
     let max_span = if supplied_expiry { 10 } else { 180 };
-    let now = Utc::now();
     anyhow::ensure!(
         date <= now + chrono::Duration::minutes(5)
             && valid_until > now

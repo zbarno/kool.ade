@@ -172,7 +172,7 @@ fn stale_claim_takeover_requires_the_observed_session_and_rechecks_expiry() {
         current.base_commit,
         "1111111111111111111111111111111111111111"
     );
-    assert_eq!(current.schema_version, 3);
+    assert_eq!(current.schema_version, 4);
     assert_eq!(current.takeover_history.len(), 1);
     assert_eq!(current.takeover_history[0].session_id, "stale-session");
     assert_eq!(current.takeover_history[0].claimed_at, 1);

@@ -13,6 +13,8 @@ mod claim_state;
 mod concurrent_verification;
 #[path = "tests/core_claims.rs"]
 mod core_claims;
+#[path = "tests/execution_attempt.rs"]
+mod execution_attempt;
 #[path = "tests/legacy_cutover.rs"]
 mod legacy_cutover;
 #[path = "tests/remote_configuration.rs"]
@@ -168,5 +170,6 @@ fn record(
         issued_at_utc: 1,
         expires_at_utc,
         takeover_history: Box::default(),
+        execution_attempt: None,
     }
 }

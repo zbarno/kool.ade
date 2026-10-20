@@ -6,11 +6,35 @@ mod release;
 mod results;
 mod system_image;
 use crate::execution::{
-    backend::{BackendFuture, BackendProbeV1, ExecutionBackend, WorkspaceLeaseV1},
+    backend::{
+        BackendFuture, BackendProbeV1, ExecutionBackend, ExecutionHandleV1, WorkspaceLeaseV1,
+    },
     contract::{EventPageRequestV1, ExecutionEventV1, ExecutionResultV1, TargetLocation},
 };
 
 impl ExecutionBackend for RemoteExecutionBackend {
+    fn discard_interrupted_result<'a>(
+        &'a self,
+        handle: &'a ExecutionHandleV1,
+    ) -> BackendFuture<'a, ()> {
+        Box::pin(async move {
+            let result = self
+                .verified_results
+                .lock()
+                .map_err(|_| disconnected())?
+                .get(&handle.execution_id)
+                .cloned();
+            if let Some(result) = result {
+                private_files::remove_result_transfer(&self.result_root, result.transfer_id())?;
+                self.verified_results
+                    .lock()
+                    .map_err(|_| disconnected())?
+                    .remove(&handle.execution_id);
+            }
+            Ok(())
+        })
+    }
+
     #[allow(private_interfaces)]
     fn inspect_system_package_state<'a>(
         &'a self,

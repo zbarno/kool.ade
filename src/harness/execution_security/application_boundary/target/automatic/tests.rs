@@ -1,4 +1,4 @@
-use super::{local_target_eligible, worker_target_allowed};
+use super::{local_target_eligible, worker_retry_eligible, worker_target_allowed};
 use crate::execution::contract::TargetPreference;
 
 #[test]
@@ -24,4 +24,14 @@ fn auto_worker_pool_obeys_the_task_target_allowlist() {
     assert!(worker_target_allowed("worker-east", &allowed));
     assert!(!worker_target_allowed("worker-west", &allowed));
     assert!(worker_target_allowed("worker-west", &[]));
+}
+
+#[test]
+fn confirmed_lost_worker_is_excluded_from_automatic_retry_candidates() {
+    let excluded = vec!["worker-east".into()];
+    assert!(!worker_retry_eligible("worker-east", &[], &excluded));
+    assert!(worker_retry_eligible("worker-west", &[], &excluded));
+    let allowed = [TargetPreference::Worker("worker-north".into())];
+    assert!(!worker_retry_eligible("worker-west", &allowed, &[]));
+    assert!(worker_retry_eligible("worker-north", &allowed, &[]));
 }

@@ -46,13 +46,14 @@ pub(super) fn connect(
                 requirements,
             )
         }
-        TargetPreference::Auto => automatic::auto_session(
+        TargetPreference::Auto => automatic::auto_session_excluding(
             request,
             workspace,
             profile,
             resources,
             requirements,
             allowed_targets,
+            Vec::new(),
         ),
     }
 }

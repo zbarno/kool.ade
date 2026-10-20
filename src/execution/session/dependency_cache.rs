@@ -105,6 +105,14 @@ impl ExecutionSession {
             .is_some())
     }
 
+    pub(crate) fn release_remote_capacity_lease(&self) -> Result<(), ExecutionError> {
+        self.remote_capacity_lease
+            .lock()
+            .map_err(|_| internal_error())?
+            .take();
+        Ok(())
+    }
+
     pub(crate) fn prepare_remote_capacity_start(
         &self,
         max_jobs: u32,
@@ -150,6 +158,9 @@ impl ExecutionSession {
         &self,
         snapshot: crate::harness::resource_bridge::CacheSnapshot,
     ) -> Result<(), ExecutionError> {
+        if let Some(destination) = self.retry_destination()? {
+            return destination.stage_dependency_cache(snapshot);
+        }
         snapshot
             .manifest
             .validate_ref(&snapshot.cache_ref, &snapshot.archive)

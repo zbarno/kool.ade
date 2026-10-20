@@ -21,6 +21,42 @@ pub struct ClaimRecord {
     pub expires_at_utc: i64,
     #[serde(default)]
     pub takeover_history: Box<Vec<ClaimHistoryEntry>>,
+    /// Current remote worker attempt. Replacing it fences sessions from the prior attempt.
+    #[serde(default)]
+    pub execution_attempt: Option<ClaimExecutionAttempt>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ClaimExecutionAttempt {
+    pub attempt_id: String,
+    pub started_at_utc: i64,
+    #[serde(default)]
+    pub status: ClaimExecutionAttemptStatus,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaimExecutionAttemptStatus {
+    #[default]
+    Prepared,
+    Running,
+    Finished,
+    ConfirmedLost,
+}
+
+impl ClaimExecutionAttempt {
+    pub(crate) fn validate(&self) -> Result<(), ClaimError> {
+        if !uuid::Uuid::parse_str(&self.attempt_id)
+            .is_ok_and(|id| id.hyphenated().to_string() == self.attempt_id)
+            || self.started_at_utc <= 0
+        {
+            return Err(ClaimError::CoordinationRejected(
+                "Remote execution attempt metadata is invalid".into(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

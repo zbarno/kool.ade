@@ -19,6 +19,7 @@ use crate::{
 };
 
 use super::{ExecutionSession, can_fallback_for_preference, local_session};
+mod retry;
 
 #[cfg(test)]
 #[path = "automatic/tests.rs"]
@@ -29,13 +30,14 @@ struct ObservedWorker {
     capabilities: BackendCapabilitiesV1,
 }
 
-pub(super) fn auto_session(
+pub(super) fn auto_session_excluding(
     request: &PlanningRequest,
     workspace: crate::execution::contract::WorkspaceRef,
     profile: RuntimeProfile,
     resources: ResourceBudgetV1,
     requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
     allowed_targets: Vec<TargetPreference>,
+    excluded_workers: Vec<String>,
 ) -> anyhow::Result<ExecutionSession> {
     let local_eligible =
         local_target_eligible(DockerEnvironmentStatus::detect().ready(), &allowed_targets);
@@ -53,7 +55,8 @@ pub(super) fn auto_session(
     let registrations = remote_workers::list().unwrap_or_default();
     let mut observed = Vec::new();
     for registration in registrations.into_iter().filter(|worker| {
-        worker.enabled && worker_target_allowed(&worker.worker_id, &allowed_targets)
+        worker.enabled
+            && worker_retry_eligible(&worker.worker_id, &allowed_targets, &excluded_workers)
     }) {
         let Ok(config) = super::remote::worker_config(&registration) else {
             continue;
@@ -222,9 +225,25 @@ pub(super) fn auto_session(
             requirements,
             Some(capacity),
         ) {
-            Ok(session) => return Ok(session),
+            Ok(session) => {
+                retry::install_factory(
+                    &session,
+                    request,
+                    &workspace,
+                    profile,
+                    &resources,
+                    requirements,
+                    &allowed_targets,
+                    &excluded_workers,
+                    worker_id,
+                )?;
+                return Ok(session);
+            }
             Err(_) => continue,
         }
+    }
+    if !excluded_workers.is_empty() {
+        anyhow::bail!("No alternate trusted remote worker is eligible after confirmed worker loss");
     }
     auto_local_fallback(
         request,
@@ -264,4 +283,15 @@ fn worker_target_allowed(worker_id: &str, allowed_targets: &[TargetPreference]) 
         allowed_targets,
     )
     .is_ok()
+}
+
+fn worker_retry_eligible(
+    worker_id: &str,
+    allowed_targets: &[TargetPreference],
+    excluded_workers: &[String],
+) -> bool {
+    !excluded_workers
+        .iter()
+        .any(|excluded| excluded == worker_id)
+        && worker_target_allowed(worker_id, allowed_targets)
 }
