@@ -109,6 +109,7 @@ fn every_provider_role_calls_only_its_application_owned_mcp_authority() {
                 None,
                 &env,
                 provider,
+                &case_dir,
             )
             .unwrap();
             loop {

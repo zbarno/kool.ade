@@ -161,12 +161,13 @@ pub(crate) fn spawn_with_input_provider_env(
     input: Option<String>,
     env: &[(String, String)],
     provider: crate::harness::execution_security::CliProvider,
+    workspace_root: &Path,
 ) -> anyhow::Result<ChildTask> {
     spawn_with_input_clear_env(
         argv,
         cwd,
         input,
-        &launch_environment::provider_environment(provider, cwd, env),
+        &launch_environment::provider_environment(provider, cwd, workspace_root, env)?,
     )
 }
 

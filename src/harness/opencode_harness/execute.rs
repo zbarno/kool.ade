@@ -76,13 +76,17 @@ impl AiHarness for OpenCodeHarness {
             provider, &binary, version,
         )
         .map_err(AppError::from_provider_profile_error)?;
-        let launch = crate::harness::execution_security::ValidatedProviderLaunch::bind(
-            evidence,
-            argv,
-            boundary.working_directory(),
-            env,
-        )
-        .map_err(|error| AppError::Other(format!("OpenCode launch profile is invalid: {error}")))?;
+        let launch =
+            crate::harness::execution_security::ValidatedProviderLaunch::bind_for_workspace(
+                evidence,
+                argv,
+                boundary.working_directory(),
+                env,
+                &request.repo_root,
+            )
+            .map_err(|error| {
+                AppError::Other(format!("OpenCode launch profile is invalid: {error}"))
+            })?;
         let launch_profile = launch.telemetry(
             request
                 .prompt_manifest
