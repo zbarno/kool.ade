@@ -22,12 +22,13 @@ impl KooladeApp {
                                     .load_pr_preparation(work_uid)
                                     .map_err(|error| error.to_string())
                                     .and_then(|work| {
-                                        if work.status
-                                            == crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization
+                                        if matches!(work.status,
+                                            crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization
+                                            | crate::core::lifecycle::PullRequestPreparationStatus::NeedsAttention)
                                         {
                                             Ok(())
                                         } else {
-                                            Err(format!("PR work item is {:?}, not awaiting authorization", work.status))
+                                            Err(format!("PR work item is {:?}, not awaiting authorization or retry", work.status))
                                         }
                                     }),
                                 None => Err("completed lifecycle task has no PR work item".into()),

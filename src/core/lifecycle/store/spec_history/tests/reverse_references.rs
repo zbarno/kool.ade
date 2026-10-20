@@ -183,6 +183,7 @@ fn reverse_lookup_resolves_decision_task_review_qa_and_pr_state_references() {
             reviewer_session_id: None,
             author_session_id: None,
         }),
+        recovery: None,
         provider_pr_id: Some(11),
         provider_pr_url: Some("https://github.com/example/trace-fixture/pull/11".into()),
         head_sha: Some("3".repeat(40)),

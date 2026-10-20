@@ -18,6 +18,13 @@ pub(super) fn execute(
     let planning_store = context.planning_store;
     let publication_mode = policy.publication_mode;
     let auto_publish_gate = policy.auto_publish_gate;
+    if publication_mode == PublicationMode::CreatePullRequest
+        && publication::implementation_is_done(planning_store, state)?
+    {
+        // PR work resumes from frozen Done evidence. Re-running an author and
+        // reviewer here would attempt to mutate an already completed task.
+        return prepare_and_publish(planning_store, repo, dir, state, harness, runner, &policy);
+    }
     if dir.join("base-reconciliation.json").exists() {
         super::initial_reconciliation::prepare(
             repo,
@@ -89,29 +96,50 @@ pub(super) fn execute(
             integration::auto_publish(repo, dir, state, harness, runner, &policy)
         }
         PublicationMode::CreatePullRequest => {
-            integration::prepare_for_pull_request(repo, dir, state, harness, runner, &policy)?;
-            publication::prepare_lifecycle_pr_proposal(
-                planning_store,
-                dir,
-                state,
-                harness,
-                runner,
-            )?;
-            match publication::prepare_lifecycle_publication(planning_store, state)? {
-                publication::LifecyclePublicationGate::Legacy => {
-                    publication::create_pull_request(dir, state, runner, policy.claim_lease)
-                }
-                publication::LifecyclePublicationGate::Blocked(reason) => {
-                    runner.update(format!(
+            prepare_and_publish(planning_store, repo, dir, state, harness, runner, &policy)
+        }
+    }
+}
+
+fn prepare_and_publish(
+    planning_store: &PlanningStore,
+    repo: &Path,
+    dir: &Path,
+    state: &mut Implementation,
+    harness: &dyn AiHarness,
+    runner: &Runner,
+    policy: &ExecutionPolicy<'_>,
+) -> anyhow::Result<()> {
+    let done = publication::implementation_is_done(planning_store, state)?;
+    if done {
+        integration::prepare_reviewed_for_pull_request(repo, dir, state, harness, runner, policy)?;
+    } else {
+        integration::prepare_for_pull_request(repo, dir, state, harness, runner, policy)?;
+    }
+    publication::prepare_lifecycle_pr_proposal(planning_store, dir, state, harness, runner)?;
+    match publication::prepare_lifecycle_publication(planning_store, state)? {
+        publication::LifecyclePublicationGate::Legacy => {
+            publication::create_pull_request(dir, state, runner, policy.claim_lease)
+        }
+        publication::LifecyclePublicationGate::Blocked(reason) => {
+            runner.update(format!(
                         "PR preparation remains blocked: {reason}. Verified code and review are preserved; no remote changes were made."
                     ));
-                    publication::hold_for_review(dir, state)
-                }
-                publication::LifecyclePublicationGate::Authorized(binding) => {
-                    publication::create_pull_request(dir, state, runner, policy.claim_lease)?;
-                    publication::finish_lifecycle_publication(planning_store, state, Some(binding))
-                }
+            if done {
+                publication::preserve_done_after_failure(
+                    planning_store,
+                    dir,
+                    state,
+                    &anyhow::anyhow!(reason),
+                )?;
+                Ok(())
+            } else {
+                publication::hold_for_review(dir, state)
             }
+        }
+        publication::LifecyclePublicationGate::Authorized(binding) => {
+            publication::create_pull_request(dir, state, runner, policy.claim_lease)?;
+            publication::finish_lifecycle_publication(planning_store, state, Some(binding))
         }
     }
 }

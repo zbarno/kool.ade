@@ -2,8 +2,10 @@ use super::*;
 use crate::core::implementation::repository_cache::RepositoryCache;
 mod change_set;
 mod prepare;
+mod reviewed;
 mod subtasks;
 use prepare::prepare_integration;
+pub(super) use reviewed::prepare_reviewed_for_pull_request;
 pub(super) use subtasks::integrate_subtasks;
 
 pub(super) fn validate_subtasks_for_pr(

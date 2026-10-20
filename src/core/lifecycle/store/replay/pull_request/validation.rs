@@ -14,8 +14,9 @@ pub(super) fn same_pr_identity(
         && left.task_uid == right.task_uid
         && left.included_task_uids == right.included_task_uids
         && left.created_at_ms == right.created_at_ms
-        && if left.status == PullRequestPreparationStatus::AwaitingAuthorization {
-            right.publication_authorization.is_some()
+        && if left.publication_authorization.is_none() {
+            right.publication_authorization.is_none()
+                || right.status == PullRequestPreparationStatus::Publishing
         } else {
             left.publication_authorization == right.publication_authorization
         }
@@ -31,8 +32,17 @@ pub(super) fn allowed_transition(
             PullRequestPreparationStatus::AwaitingAuthorization,
             PullRequestPreparationStatus::Publishing
         ) | (
+            PullRequestPreparationStatus::AwaitingAuthorization,
+            PullRequestPreparationStatus::NeedsAttention
+        ) | (
+            PullRequestPreparationStatus::NeedsAttention,
+            PullRequestPreparationStatus::NeedsAttention
+        ) | (
             PullRequestPreparationStatus::Publishing,
             PullRequestPreparationStatus::Opened
+        ) | (
+            PullRequestPreparationStatus::Publishing,
+            PullRequestPreparationStatus::ClosedUnmerged
         ) | (
             PullRequestPreparationStatus::Publishing,
             PullRequestPreparationStatus::NeedsAttention
@@ -53,6 +63,36 @@ pub(super) fn allowed_transition(
             PullRequestPreparationStatus::Opened
         )
     )
+}
+
+pub(super) fn valid_recovery_transition(
+    left: &PullRequestPreparation,
+    right: &PullRequestPreparation,
+) -> bool {
+    let Some(next) = right.recovery.as_ref() else {
+        return left.recovery.is_none(); // Historical records remain replayable.
+    };
+    let previous_attempt = left
+        .recovery
+        .as_ref()
+        .map(|recovery| recovery.attempt)
+        .unwrap_or_else(|| u64::from(left.publication_authorization.is_some()));
+    let begins_attempt = right.status == PullRequestPreparationStatus::Publishing
+        && left.status != PullRequestPreparationStatus::Publishing;
+    let expected_attempt = previous_attempt.checked_add(u64::from(begins_attempt));
+    expected_attempt == Some(next.attempt)
+        && if right.status == PullRequestPreparationStatus::NeedsAttention {
+            next.last_failure.is_some()
+                || left
+                    .recovery
+                    .as_ref()
+                    .is_some_and(|recovery| recovery.last_failure.is_none())
+        } else {
+            left.recovery
+                .as_ref()
+                .and_then(|recovery| recovery.last_failure.as_ref())
+                == next.last_failure.as_ref()
+        }
 }
 
 pub(super) fn ensure_pr_task_binding(
