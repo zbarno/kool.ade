@@ -1,6 +1,15 @@
 use super::*;
 
 impl ExecutionSession {
+    pub(crate) fn dependency_cache_refs(
+        &self,
+    ) -> Result<Vec<crate::execution::contract::DependencyCacheRefV1>, ExecutionError> {
+        self.dependency_cache_refs
+            .lock()
+            .map(|refs| refs.clone())
+            .map_err(|_| internal_error())
+    }
+
     pub(crate) fn record_prepared_dependency_ids(
         &self,
         ids: &[String],

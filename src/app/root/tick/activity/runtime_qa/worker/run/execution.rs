@@ -17,7 +17,7 @@ use crate::{
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_web(
-    session: &ExecutionSession,
+    session: &Arc<ExecutionSession>,
     prepared: &PreparedRequest,
     request: &QaRunRequestV1,
     scenarios: &[QaScenarioV1],
@@ -30,6 +30,7 @@ pub(super) fn run_web(
     harness: Box<dyn crate::harness::AiHarness>,
     cancel: &mut tokio::sync::watch::Receiver<bool>,
     cancelled: Arc<AtomicBool>,
+    progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
 ) -> Result<(), String> {
     let (port, health_path) = web_readiness(prepared)?;
     session.recover_qa_web_preview(request).map_err(|error| {
@@ -38,6 +39,15 @@ pub(super) fn run_web(
             error.message
         )
     })?;
+    let _dependency_bridge = crate::app::root::tick::activity::runtime_qa::recipe_queue::prerequisites::prepare_qa_dependency_caches(
+        Arc::clone(session),
+        &prepared.task_clone,
+        &prepared.target.project_relative_root,
+        &prepared.target.target_id,
+        &prepared.target.required_dependencies,
+        Arc::clone(&cancelled),
+        progress,
+    )?;
     let image_lock = ImageLock::bundled().map_err(|error| error.message)?;
     let required_tools = std::iter::once(prepared.startup_recipe.executable_id.clone())
         .chain(
@@ -62,6 +72,9 @@ pub(super) fn run_web(
             &required_tools,
         )
         .map_err(|error| error.message)?;
+    let dependency_cache_refs = session
+        .dependency_cache_refs()
+        .map_err(|error| error.message)?;
     let preview = session
         .start_qa_web_preview(
             crate::execution::docker::qa_container::QaWebPreviewSpec {
@@ -70,6 +83,7 @@ pub(super) fn run_web(
                 service_image: &service_image,
                 recipe: &prepared.startup_recipe,
                 artifact_upload,
+                dependency_cache_refs: &dependency_cache_refs,
                 preview_port: port,
                 health_path: &health_path,
                 resources,

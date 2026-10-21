@@ -257,6 +257,7 @@ fn worker_rejects_revoked_prepared_start_after_selection_changes_to_new_target()
         task_routes: Default::default(),
     };
     let (_cancel_sender, cancel_receiver) = tokio::sync::watch::channel(false);
+    let (progress, _progress_receiver) = std::sync::mpsc::channel();
     let error = run(
         prepared,
         Vec::new(),
@@ -264,6 +265,7 @@ fn worker_rejects_revoked_prepared_start_after_selection_changes_to_new_target()
         root.path().join("runtime-qa"),
         Arc::new(AtomicBool::new(false)),
         cancel_receiver,
+        progress,
     )
     .unwrap_err();
     assert!(error.contains("runtime target is no longer the active selection"));

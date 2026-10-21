@@ -107,6 +107,7 @@ fn web_preview_uses_the_locked_recipe_runtime_image_instead_of_a_node_only_contr
         service_image: &image,
         recipe: &recipe,
         artifact_upload: &upload,
+        dependency_cache_refs: &[],
         preview_port: 4173,
         health_path: "/",
         resources: &resources,
@@ -147,9 +148,51 @@ fn web_preview_rejects_a_recipe_tool_absent_from_its_pinned_runtime_profile() {
         service_image: &image,
         recipe: &recipe,
         artifact_upload: &upload,
+        dependency_cache_refs: &[],
         preview_port: 4173,
         health_path: "/",
         resources: &resources,
     };
     assert!(validate_spec(&spec).is_err());
+}
+
+#[test]
+fn service_cache_environment_points_only_at_staged_tmpfs_caches() {
+    let (request, recipe, image, upload, resources) = fixture();
+    let refs = [
+        crate::execution::contract::DependencyCacheRefV1 {
+            ecosystem: crate::execution::contract::DependencyCacheEcosystemV1::Npm,
+            task_id: request.parent_task_uid.clone(),
+            project_id: "project-fixture".into(),
+            resolved_integrity: "lock-sha256".into(),
+            target_arch: "amd64".into(),
+            target_id: "local".into(),
+            manifest_sha256: "a".repeat(64),
+            size_bytes: 1,
+        },
+        crate::execution::contract::DependencyCacheRefV1 {
+            ecosystem: crate::execution::contract::DependencyCacheEcosystemV1::Cargo,
+            task_id: request.parent_task_uid.clone(),
+            project_id: "project-fixture".into(),
+            resolved_integrity: "lock-sha256".into(),
+            target_arch: "amd64".into(),
+            target_id: "local".into(),
+            manifest_sha256: "b".repeat(64),
+            size_bytes: 1,
+        },
+    ];
+    let spec = QaWebPreviewSpec {
+        request: &request,
+        browser_image: &image,
+        service_image: &image,
+        recipe: &recipe,
+        artifact_upload: &upload,
+        dependency_cache_refs: &refs,
+        preview_port: 4173,
+        health_path: "/",
+        resources: &resources,
+    };
+    let environment = service_body(&spec, &"f".repeat(64)).unwrap().env.unwrap();
+    assert!(environment.contains(&"npm_config_cache=/tmp/.npm".into()));
+    assert!(environment.contains(&"CARGO_HOME=/tmp/.cargo".into()));
 }

@@ -18,6 +18,7 @@ use helpers::{remove_named, wait_healthy};
 pub async fn start_web_preview(
     docker: &Docker,
     spec: QaWebPreviewSpec<'_>,
+    cache_uploads: &[super::super::super::QaContainerUpload],
     cancel: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<QaWebPreview, ExecutionError> {
     validate_spec(&spec)?;
@@ -87,10 +88,13 @@ pub async fn start_web_preview(
         docker,
         &spec,
         cancel,
-        &task_network,
-        &browser_network,
-        &task_name,
-        &relay_name,
+        ContainerNames {
+            task_network: &task_network,
+            browser_network: &browser_network,
+            task: &task_name,
+            relay: &relay_name,
+        },
+        cache_uploads,
     )
     .await;
     match result {
@@ -161,21 +165,26 @@ pub async fn start_web_preview(
     }
 }
 
+struct ContainerNames<'a> {
+    task_network: &'a str,
+    browser_network: &'a str,
+    task: &'a str,
+    relay: &'a str,
+}
+
 async fn launch_containers(
     docker: &Docker,
     spec: &QaWebPreviewSpec<'_>,
     cancel: &mut tokio::sync::watch::Receiver<bool>,
-    task_network: &str,
-    browser_network: &str,
-    task_name: &str,
-    relay_name: &str,
+    names: ContainerNames<'_>,
+    cache_uploads: &[super::super::super::QaContainerUpload],
 ) -> Result<(String, String), ExecutionError> {
-    let body = service_body(spec, task_network)?;
+    let body = service_body(spec, names.task_network)?;
     let task_id = docker
         .create_container(
             Some(
                 CreateContainerOptionsBuilder::default()
-                    .name(task_name)
+                    .name(names.task)
                     .build(),
             ),
             body,
@@ -196,6 +205,21 @@ async fn launch_containers(
         )
         .await
         .map_err(|_| denied("Receipt-verified QA build snapshot could not be uploaded"))?;
+    for upload in cache_uploads {
+        docker
+            .upload_to_container(
+                &task_id,
+                Some(
+                    bollard::query_parameters::UploadToContainerOptionsBuilder::default()
+                        .path(&upload.target)
+                        .copy_uidgid("1")
+                        .build(),
+                ),
+                bollard::body_full(upload.archive.clone().into()),
+            )
+            .await
+            .map_err(|_| denied("Broker-authorized QA dependency cache could not be uploaded"))?;
+    }
     if *cancel.borrow() {
         return Err(denied("QA web preview was cancelled before service start"));
     }
@@ -203,12 +227,12 @@ async fn launch_containers(
         .start_container(&task_id, None)
         .await
         .map_err(|_| denied("Approved QA task service could not start"))?;
-    let relay_body = relay_body(spec, task_network);
+    let relay_body = relay_body(spec, names.task_network);
     let relay_id = docker
         .create_container(
             Some(
                 CreateContainerOptionsBuilder::default()
-                    .name(relay_name)
+                    .name(names.relay)
                     .build(),
             ),
             relay_body,
@@ -217,7 +241,10 @@ async fn launch_containers(
         .map_err(|_| denied("QA preview relay container could not be created"))?
         .id;
     docker
-        .connect_network(browser_network, connect_request(&relay_id, "qa-preview"))
+        .connect_network(
+            names.browser_network,
+            connect_request(&relay_id, "qa-preview"),
+        )
         .await
         .map_err(|_| denied("QA preview relay could not join the private browser network"))?;
     if *cancel.borrow() {

@@ -33,6 +33,7 @@ pub(super) fn run(
     store_root: PathBuf,
     cancelled: Arc<AtomicBool>,
     mut docker_cancel: tokio::sync::watch::Receiver<bool>,
+    progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
 ) -> Result<(), String> {
     let request = prepared.request.clone();
     let store = RuntimeQaStore::new(store_root);
@@ -92,19 +93,21 @@ pub(super) fn run(
         temporary_disk_bytes: 2 * 1024 * 1024 * 1024,
         output_bytes: 64 * 1024 * 1024,
     };
-    let session = ExecutionSession::connect_local(
-        prepared.workspace.clone(),
-        &prepared.task_clone,
-        ExecutionModeV1::RuntimeQa,
-        profile,
-        resources.clone(),
-    )
-    .map_err(|error| {
-        format!(
-            "isolated Runtime QA Docker session is unavailable: {}",
-            error.message
+    let session = Arc::new(
+        ExecutionSession::connect_local(
+            prepared.workspace.clone(),
+            &prepared.task_clone,
+            ExecutionModeV1::RuntimeQa,
+            profile,
+            resources.clone(),
         )
-    })?;
+        .map_err(|error| {
+            format!(
+                "isolated Runtime QA Docker session is unavailable: {}",
+                error.message
+            )
+        })?,
+    );
     let architecture = session.cache_target_arch().ok_or_else(|| {
         "selected QA image architecture is not in the reviewed image lock".to_owned()
     })?;
@@ -129,6 +132,7 @@ pub(super) fn run(
             harness,
             &mut docker_cancel,
             cancelled,
+            progress,
         ),
         RuntimeProfile::DesktopQa => execution::run_desktop(
             &session,

@@ -10,7 +10,7 @@ use candidate::{ApprovedCandidate as RecipeCandidate, approved_candidate, next_o
 mod start;
 pub(crate) use start::start;
 mod completion;
-mod prerequisites;
+pub(crate) mod prerequisites;
 
 pub(crate) fn ready(project: &Project, task: &TaskRecord) -> Result<bool, String> {
     candidate(project, task).map(|candidate| candidate.is_some())

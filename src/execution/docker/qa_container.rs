@@ -66,6 +66,7 @@ pub struct QaWebPreviewSpec<'a> {
     pub service_image: &'a SelectedImage,
     pub recipe: &'a crate::project_runtime::ExecutionRecipeV1,
     pub artifact_upload: &'a QaContainerUpload,
+    pub dependency_cache_refs: &'a [crate::execution::contract::DependencyCacheRefV1],
     pub preview_port: u16,
     pub health_path: &'a str,
     pub resources: &'a ResourceBudgetV1,

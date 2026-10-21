@@ -62,6 +62,7 @@ pub(super) fn validate_spec(spec: &QaWebPreviewSpec<'_>) -> Result<(), Execution
         || spec.artifact_upload.target != "/workspace"
         || spec.artifact_upload.archive.is_empty()
         || spec.artifact_upload.archive.len() as u64 > spec.resources.temporary_disk_bytes
+        || spec.dependency_cache_refs.len() > 2
     {
         return Err(denied(
             "QA web preview inputs do not match an approved task runtime recipe and bounded internal target",
@@ -131,6 +132,22 @@ pub(super) fn service_body(
     };
     let mut env = vec!["HOME=/tmp".into(), "CI=true".into(), "LANG=C.UTF-8".into()];
     env.push(format!("PORT={}", spec.preview_port));
+    if spec.dependency_cache_refs.iter().any(|cache_ref| {
+        matches!(
+            cache_ref.ecosystem,
+            crate::execution::contract::DependencyCacheEcosystemV1::Npm
+        )
+    }) {
+        env.push("npm_config_cache=/tmp/.npm".into());
+    }
+    if spec.dependency_cache_refs.iter().any(|cache_ref| {
+        matches!(
+            cache_ref.ecosystem,
+            crate::execution::contract::DependencyCacheEcosystemV1::Cargo
+        )
+    }) {
+        env.push("CARGO_HOME=/tmp/.cargo".into());
+    }
     if spec.recipe.allowed_env_keys.iter().any(|key| key == "HOST") {
         env.push("HOST=0.0.0.0".into());
     }
