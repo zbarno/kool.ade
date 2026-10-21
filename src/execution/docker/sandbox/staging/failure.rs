@@ -125,6 +125,10 @@ fn operation_io_failure_reason(reason: &str, error: &anyhow::Error) -> Option<St
             "workspace archive could not be finalized",
             "finalizing the workspace archive failed",
         ),
+        (
+            "workspace archive entry could not be encoded",
+            "encoding a workspace archive entry failed",
+        ),
     ];
     let description = OPERATIONS
         .iter()

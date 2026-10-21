@@ -230,14 +230,15 @@ fn append_header(
 ) -> anyhow::Result<()> {
     let mut header = Header::new_gnu();
     header.set_entry_type(kind);
-    header.set_path(path)?;
     header.set_size(size);
     header.set_mode(mode);
     header.set_uid(if mode & 0o200 != 0 { 10001 } else { 0 });
     header.set_gid(if mode & 0o200 != 0 { 10001 } else { 0 });
     header.set_mtime(0);
     header.set_cksum();
-    builder.append(&header, bytes)?;
+    builder
+        .append_data(&mut header, path, bytes)
+        .map_err(|error| io_failure("workspace archive entry could not be encoded", error))?;
     Ok(())
 }
 
