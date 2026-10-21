@@ -63,6 +63,10 @@ fn public_description_rejects_name_echoes_from_unstructured_context() {
             "customer jane doe asked for a change.",
             "Adds the change requested by jane doe.",
         ),
+        (
+            "The customer jane doe asked for a change.",
+            "Adds the change requested by jane doe.",
+        ),
     ] {
         let scope = scope_with_private_context(private);
         assert!(
@@ -85,11 +89,34 @@ fn public_description_allows_technical_prose_after_a_context_word() {
             "client API requests should be documented.",
             "Documents the API requests endpoint.",
         ),
+        (
+            "The customer portal should be documented.",
+            "Documents the customer portal.",
+        ),
     ] {
         let scope = scope_with_private_context(source);
         assert!(
             validate_public_description(description, &scope).is_ok(),
             "ordinary technical prose was rejected for {source}"
+        );
+    }
+}
+
+#[test]
+fn contextual_name_detection_does_not_capture_customer_portal_prose() {
+    for source in [
+        "The customer portal supports offline mode.",
+        "The customer support team asked for a change.",
+        "The customer contact center reported an outage.",
+    ] {
+        let fragments = contextual_value_fragments(source);
+        assert!(
+            !fragments.iter().any(|fragment| {
+                fragment.contains("portal supports")
+                    || fragment.contains("supportteam")
+                    || fragment.contains("contactcenter")
+            }),
+            "generic technical context was treated as a name: {source}"
         );
     }
 }

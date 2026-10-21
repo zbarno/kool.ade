@@ -230,6 +230,20 @@ fn publication_body_rejects_model_generated_spaced_phone_number() {
 }
 
 #[test]
+fn publication_body_rejects_lowercase_name_after_context_marker() {
+    let mut scope = scope();
+    scope.feature_plan = "The customer jane doe asked for a change.".into();
+    let mut prepared = receipt(&scope);
+    prepared.proposal.description = "Adds the change requested by jane doe.".into();
+    let temp = tempfile::tempdir().unwrap();
+
+    let error = super::body::write(temp.path(), &prepared, &scope).unwrap_err();
+
+    assert!(super::privacy::is_sensitive_content_error(&error));
+    assert!(!temp.path().join("pr-body.md").exists());
+}
+
+#[test]
 fn publication_body_rejects_private_values_in_rendered_scope_metadata() {
     let mut scope = scope();
     scope.feature_plan = "Customer contact: synthetic.user@example.invalid".into();

@@ -1,6 +1,7 @@
 use super::ProposalScope;
 use std::collections::BTreeSet;
 
+mod context;
 mod model;
 pub(super) use model::validate_model_description;
 
@@ -191,7 +192,8 @@ fn contextual_value_fragments(line: &str) -> Vec<String> {
                 && value_words.len() >= 2
                 && value_words
                     .iter()
-                    .all(|word| word.chars().all(|character| character.is_ascii_lowercase())));
+                    .all(|word| word.chars().all(|character| character.is_ascii_lowercase())))
+            || context::has_lowercase_name_after_context(&words, index, value_words.len());
         if value_words.len() >= 2 && has_name_cue {
             for start in 0..value_words.len() {
                 for end in start + 2..=value_words.len() {
