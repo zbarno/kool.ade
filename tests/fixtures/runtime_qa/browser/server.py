@@ -37,7 +37,7 @@ if(params.get('defect')==='iframe') { const frame=document.createElement('iframe
 if(params.get('defect')==='localhost') fetch('http://127.0.0.1:4173/').catch(()=>{});
 if(params.get('defect')==='alternate-port') fetch('http://qa-preview:8081/').catch(()=>{});
 if(params.get('defect')==='websocket') { const socket=new WebSocket('ws://example.com/socket'); socket.onerror=()=>{}; }
-if(params.get('defect')==='wrong-action') document.querySelector('#open-dialog').addEventListener('click',()=>{status.textContent='Wrong destination'});
+if(params.get('defect')==='wrong-action') document.querySelector('#open-dialog').addEventListener('click',()=>{status.textContent='Wrong destination';history.pushState({},'', '/?page=wrong')});
 document.querySelector('#save').addEventListener('submit',async event=>{event.preventDefault();const input=document.querySelector('#message');
 if(!input.value.trim()){status.textContent='Message is required';status.className='error';return}
 const response=await fetch('/save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:input.value})});
@@ -96,8 +96,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("QA_FIXTURE_PORT", "4173"))
-    host = os.environ.get("QA_FIXTURE_HOST", "127.0.0.1")
+    port = int(os.environ.get("PORT", os.environ.get("QA_FIXTURE_PORT", "4173")))
+    host = os.environ.get("HOST", os.environ.get("QA_FIXTURE_HOST", "127.0.0.1"))
     udp = UdpServer((host, int(os.environ.get("QA_FIXTURE_UDP_PORT", "4174"))), UdpHandler)
     threading.Thread(target=udp.serve_forever, daemon=True).start()
     ThreadingHTTPServer((host, port), Handler).serve_forever()

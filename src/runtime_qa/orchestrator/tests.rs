@@ -26,9 +26,13 @@ impl QaScenarioDriver for FakeDriver {
     ) -> Result<QaDriverOutputV1, String> {
         self.calls += 1;
         let mut png = Cursor::new(Vec::new());
-        image::DynamicImage::new_rgba8(16, 12)
-            .write_to(&mut png, image::ImageFormat::Png)
-            .map_err(|error| error.to_string())?;
+        image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            16,
+            12,
+            image::Rgba([240, 120, 60, 255]),
+        ))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .map_err(|error| error.to_string())?;
         let bytes = png.into_inner();
         let screenshot_id = uuid::Uuid::new_v4().hyphenated().to_string();
         let hash = format!("{:x}", sha2::Sha256::digest(&bytes));
@@ -109,6 +113,7 @@ fn fixture() -> (QaRunRequestV1, Vec<QaScenarioV1>, QaTaskServiceLeaseV1) {
         schema_version: 1,
         qa_run_id: uid(),
         parent_task_uid: uid(),
+        planning_item_uid: None,
         feature_uid: uid(),
         code_head_sha: sha(),
         build_artifact_sha256: sha(),
@@ -123,6 +128,7 @@ fn fixture() -> (QaRunRequestV1, Vec<QaScenarioV1>, QaTaskServiceLeaseV1) {
         execution_session_id: uid(),
         driver_profile_version: "web-driver/v1".into(),
         test_data_fixture_ref: None,
+        dependency_cache_refs: Vec::new(),
         bounded_limits: super::super::QaBoundedLimitsV1 {
             max_scenarios: 8,
             max_actions_per_scenario: 16,
@@ -149,6 +155,7 @@ fn fixture() -> (QaRunRequestV1, Vec<QaScenarioV1>, QaTaskServiceLeaseV1) {
         expected_results: vec!["View visible".into()],
         negative_paths: vec![],
         visual_expectations: vec![],
+        redaction_regions: vec![],
         priority: 1,
     };
     let lease = QaTaskServiceLeaseV1 {
@@ -203,7 +210,13 @@ fn reviewer_prompt(
 
 #[test]
 fn immutable_approved_run_persists_report_and_returns_gate_receipt() {
-    let (request, scenarios, lease) = fixture();
+    let (request, mut scenarios, lease) = fixture();
+    scenarios[0].redaction_regions = vec![crate::runtime_qa::QaRedactionRegionV1 {
+        x: 2,
+        y: 3,
+        width: 4,
+        height: 2,
+    }];
     let reviewer_run = uuid::Uuid::new_v4().hyphenated().to_string();
     let reviewer_session = uuid::Uuid::new_v4().hyphenated().to_string();
     let prompt = reviewer_prompt(&request, &reviewer_run, &reviewer_session);
@@ -231,6 +244,24 @@ fn immutable_approved_run_persists_report_and_returns_gate_receipt() {
     );
     assert_eq!(driver.calls, 1);
     assert_eq!(store.load_run(&request.qa_run_id).unwrap().3, result);
+    let persisted = store.load_run_with_screenshots(&request.qa_run_id).unwrap();
+    assert_eq!(
+        persisted.evidence.screenshots[0].redaction_masks,
+        ["rect:2,3,4,2"]
+    );
+    let image = image::load_from_memory(&persisted.screenshots[0].bytes)
+        .unwrap()
+        .to_rgba8();
+    assert_eq!(image.get_pixel(2, 3), &image::Rgba([0, 0, 0, 255]));
+    assert_eq!(image.get_pixel(5, 4), &image::Rgba([0, 0, 0, 255]));
+    assert_eq!(image.get_pixel(0, 0), &image::Rgba([240, 120, 60, 255]));
+    assert_eq!(
+        persisted.evidence.screenshots[0].sha256,
+        format!(
+            "{:x}",
+            sha2::Sha256::digest(&persisted.screenshots[0].bytes)
+        )
+    );
     assert_eq!(
         Some(store.load_gate_receipt(&request.qa_run_id).unwrap()),
         receipt

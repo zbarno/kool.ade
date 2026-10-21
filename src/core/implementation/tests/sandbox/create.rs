@@ -108,6 +108,7 @@ elif [ "$2" = create ]; then
  fi
  printf '%s\n' "$@" > "$root/pr-args"
  echo created >> "$root/pr-created"
+ if [ -f "$root/timeout-after-create" ]; then exit 1; fi
  echo 'https://github.com/fixture/repo/pull/1'
 else
  printf '%s\n' "$@" > "$root/pr-args"

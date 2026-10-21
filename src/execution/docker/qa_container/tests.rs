@@ -1,11 +1,17 @@
 use super::*;
 
+#[path = "tests/browser_rootless.rs"]
+mod browser_rootless;
+#[path = "tests/desktop_rootless.rs"]
+mod desktop_rootless;
+
 fn request() -> crate::runtime_qa::QaRunRequestV1 {
     let uid = || uuid::Uuid::new_v4().hyphenated().to_string();
     crate::runtime_qa::QaRunRequestV1 {
         schema_version: 1,
         qa_run_id: uid(),
         parent_task_uid: uid(),
+        planning_item_uid: None,
         feature_uid: uid(),
         code_head_sha: "a".repeat(64),
         build_artifact_sha256: "b".repeat(64),
@@ -20,6 +26,7 @@ fn request() -> crate::runtime_qa::QaRunRequestV1 {
         execution_session_id: uid(),
         driver_profile_version: "browser-1".into(),
         test_data_fixture_ref: None,
+        dependency_cache_refs: Vec::new(),
         bounded_limits: crate::runtime_qa::QaBoundedLimitsV1 {
             max_scenarios: 1,
             max_actions_per_scenario: 8,
@@ -151,6 +158,7 @@ fn container_spec_rejects_missing_artifacts() {
         request: &request,
         image: &selected,
         artifacts: &[],
+        dependency_caches: &[],
         network: QaDriverNetwork::Disabled,
         service_lease: None,
         relay_binding: None,
@@ -161,12 +169,109 @@ fn container_spec_rejects_missing_artifacts() {
 }
 
 #[test]
-fn image_lock_keeps_unpromoted_browser_profile_unavailable() {
+fn desktop_driver_requires_the_exact_integrity_checked_dependency_cache_set() {
+    use crate::execution::contract::DependencyCacheEcosystemV1;
+
+    let mut request = request();
+    request.relevant_platforms = vec![crate::runtime_qa::QaPlatform::LinuxDesktop];
+    let planning_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    request.planning_item_uid = Some(planning_uid.clone());
+    let project_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("package.tgz"), b"approved offline package").unwrap();
+    let cache = crate::harness::resource_bridge::CacheSnapshot::capture(
+        root.path(),
+        &planning_uid,
+        DependencyCacheEcosystemV1::Npm,
+        &project_uid,
+        "sha256:synthetic-lockfile",
+        "amd64",
+        "local",
+    )
+    .unwrap();
+    request.dependency_cache_refs = vec![crate::runtime_qa::QaDependencyCacheRefV1 {
+        dependency_request_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        cache_ref: cache.cache_ref.clone(),
+    }];
+    let image = selected_qa_image(RuntimeProfile::DesktopQa);
+    let resources = resources();
+
+    assert!(
+        super::driver_cache::validate_for_driver(
+            "desktop",
+            &request,
+            std::slice::from_ref(&cache),
+            &image,
+            &resources,
+        )
+        .is_ok()
+    );
+    assert!(
+        super::driver_cache::validate_for_driver("desktop", &request, &[], &image, &resources,)
+            .is_err()
+    );
+
+    let mut tampered_cache = cache.clone();
+    tampered_cache.archive.push(0);
+    assert!(
+        super::driver_cache::validate_for_driver(
+            "desktop",
+            &request,
+            &[tampered_cache],
+            &image,
+            &resources,
+        )
+        .is_err()
+    );
+
+    let mut wrong_arch = cache.clone();
+    wrong_arch.cache_ref.target_arch = "arm64".into();
+    assert!(
+        super::driver_cache::validate_for_driver(
+            "desktop",
+            &request,
+            &[wrong_arch],
+            &image,
+            &resources,
+        )
+        .is_err()
+    );
+
+    let mut tmpfs = HashMap::new();
+    let mut env = Vec::new();
+    super::driver_cache::configure_desktop_cache_mounts(
+        "desktop",
+        std::slice::from_ref(&cache),
+        &image,
+        &resources,
+        &mut tmpfs,
+        &mut env,
+    )
+    .unwrap();
+    assert!(tmpfs.contains_key("/home/executor/.npm"));
+    assert!(env.contains(&"NPM_CONFIG_OFFLINE=true".into()));
+}
+
+#[test]
+fn rootless_qa_candidates_are_locked_but_runtime_stays_disabled_until_approved() {
     let lock = ImageLock::bundled().unwrap();
-    assert!(!lock.profiles.contains_key("browser_qa"));
-    assert!(lock.select(RuntimeProfile::BrowserQa, "amd64").is_err());
-    assert!(!lock.profiles.contains_key("desktop_qa"));
-    assert!(lock.select(RuntimeProfile::DesktopQa, "amd64").is_err());
+    for (name, profile) in [
+        ("browser_qa", RuntimeProfile::BrowserQa),
+        ("desktop_qa", RuntimeProfile::DesktopQa),
+    ] {
+        let variant = lock
+            .profiles
+            .get(name)
+            .and_then(|variants| variants.first())
+            .expect("rootless candidate is recorded in the image lock");
+        assert_eq!(variant.platform, "linux/amd64");
+        assert!(!variant.runtime_enabled);
+        assert!(variant.build_recipe_sha256.is_some());
+        assert_eq!(
+            lock.select(profile, "amd64").unwrap_err().code,
+            crate::execution::docker::discovery::PrerequisiteCode::ProfileUnsupported
+        );
+    }
 }
 
 #[test]
@@ -186,6 +291,7 @@ fn desktop_driver_accepts_only_desktop_image_and_exact_platform() {
         driver: "desktop",
         image: &image,
         artifacts: &[mount],
+        dependency_caches: &[],
         network: QaDriverNetwork::Disabled,
         service_lease: None,
         relay_binding: None,
@@ -217,6 +323,7 @@ fn desktop_driver_accepts_only_desktop_image_and_exact_platform() {
         request: &desktop_request,
         image: &browser_image,
         artifacts: &[mount],
+        dependency_caches: &[],
         network: QaDriverNetwork::Disabled,
         service_lease: None,
         relay_binding: None,

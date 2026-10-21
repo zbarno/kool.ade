@@ -51,14 +51,11 @@ pub(super) fn execute(
         } => {
             let id = window::require(display, window_id, owner_pids)?;
             let visible = display.region_has_visible_content(id, *x, *y, *width, *height)?;
-            Ok(ActionResult::State(
-                if visible {
-                    "region visible"
-                } else {
-                    "region not visible"
-                }
-                .into(),
-            ))
+            Ok(ActionResult::State(if visible {
+                format!("window {id}: region visible")
+            } else {
+                format!("window {id}: region not visible")
+            }))
         }
         QaDriverActionV1::FocusWindow { window_id } => {
             let window = window::require(display, window_id, owner_pids)?;
@@ -68,7 +65,7 @@ pub(super) fn execute(
                 .map_err(x_error)?
                 .check()
                 .map_err(x_error)?;
-            Ok(ActionResult::State(format!("focused window {window_id}")))
+            Ok(ActionResult::State(format!("focused window {window}")))
         }
         QaDriverActionV1::ResizeWindow {
             window_id,
@@ -93,7 +90,7 @@ pub(super) fn execute(
                 .check()
                 .map_err(x_error)?;
             Ok(ActionResult::State(format!(
-                "resized window {window_id} to {width}x{height}"
+                "resized window {window} to {width}x{height}"
             )))
         }
         QaDriverActionV1::Click { window_id, x, y } => {
@@ -117,9 +114,7 @@ pub(super) fn execute(
             input(display, 6, 0, start)?;
             input(display, 6, 0, end)?;
             input(display, 5, 1, end)?;
-            Ok(ActionResult::State(format!(
-                "dragged in window {window_id}"
-            )))
+            Ok(ActionResult::State(format!("dragged in window {window}")))
         }
         QaDriverActionV1::TypeText { text } => {
             for character in text.chars() {
@@ -154,7 +149,7 @@ pub(super) fn execute(
                 input(display, 5, button, point)?;
             }
             Ok(ActionResult::State(format!(
-                "scrolled window {window_id} by {delta_y}"
+                "scrolled window {window} by {delta_y}"
             )))
         }
         QaDriverActionV1::Screenshot => Ok(ActionResult::Screenshot),
@@ -169,7 +164,7 @@ pub(super) fn execute(
                 .map_err(x_error)?
                 .check()
                 .map_err(x_error)?;
-            Ok(ActionResult::State(format!("closed window {window_id}")))
+            Ok(ActionResult::State(format!("closed window {window}")))
         }
         _ => Err("scenario contains an action unsupported by the Linux desktop driver".into()),
     }
@@ -196,7 +191,7 @@ fn click(
         }
     }
     Ok(ActionResult::State(format!(
-        "{}clicked window {window_id} at {x},{y}",
+        "{}clicked window {window} at {x},{y}",
         if double { "double-" } else { "" }
     )))
 }

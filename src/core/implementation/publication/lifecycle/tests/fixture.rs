@@ -17,7 +17,7 @@ pub(super) fn id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-pub(super) struct Fixture {
+pub(in crate::core::implementation) struct Fixture {
     root: tempfile::TempDir,
     pub store: PlanningStore,
     pub work_uid: String,
@@ -27,6 +27,33 @@ pub(super) struct Fixture {
 
 impl Fixture {
     pub fn new(oid_length: usize) -> Self {
+        Self::with_reviewed_head(oid_length, &"a".repeat(oid_length), id())
+    }
+
+    pub fn with_reviewed_head(
+        oid_length: usize,
+        reviewed_head: &str,
+        planning_item_uid: String,
+    ) -> Self {
+        Self::build(oid_length, reviewed_head, planning_item_uid, false)
+    }
+
+    pub fn with_subtask_head(
+        oid_length: usize,
+        reviewed_head: &str,
+        planning_item_uid: String,
+    ) -> Self {
+        Self::build(oid_length, reviewed_head, planning_item_uid, true)
+    }
+
+    fn build(
+        oid_length: usize,
+        reviewed_head: &str,
+        planning_item_uid: String,
+        include_subtask: bool,
+    ) -> Self {
+        assert!(matches!(reviewed_head.len(), 40 | 64));
+        assert_eq!(reviewed_head.len(), oid_length);
         let root = tempfile::tempdir().unwrap();
         assert!(
             std::process::Command::new("git")
@@ -94,18 +121,31 @@ impl Fixture {
             )
             .unwrap();
         let work_uid = id();
-        let reviewed_head = "a".repeat(oid_length);
         // Validated synthetic prior-stage evidence: this fixture does not claim
         // to run independent review or interactive runtime QA itself.
-        let task = task::completed(&feature_uid, &work_uid, &reviewed_head);
+        let mut task = task::completed(&feature_uid, &work_uid, reviewed_head);
+        task.planning_item_uid = Some(planning_item_uid);
+        let child = include_subtask.then(|| {
+            let mut child = task::completed(&feature_uid, &work_uid, reviewed_head);
+            child.parent_task_uid = Some(task.task_uid.clone());
+            child.planning_item_uid = None;
+            child.pr_work_item_uid = None;
+            task.subtask_uids.push(child.task_uid.clone());
+            child.validate().unwrap();
+            child
+        });
         task.validate().unwrap();
+        let mut included_task_uids = vec![task.task_uid.clone()];
+        if let Some(child) = &child {
+            included_task_uids.push(child.task_uid.clone());
+        }
         let work = PullRequestPreparation {
             schema_version: 1,
             uid: work_uid.clone(),
             work_item_uid: work_uid.clone(),
             feature_uid,
             task_uid: task.task_uid.clone(),
-            included_task_uids: vec![task.task_uid.clone()],
+            included_task_uids,
             revision: 1,
             created_at_ms: 1,
             updated_at_ms: 1,
@@ -118,20 +158,24 @@ impl Fixture {
             base_sha: None,
             merged_commit_sha: None,
         };
-        store
-            .transaction(
-                &[
-                    snapshot("lifecycle_tasks", &task.task_uid, task.revision, &task),
-                    snapshot("lifecycle_pr_work_items", &work_uid, 1, &work),
-                ],
-                None,
-            )
-            .unwrap();
+        let mut records = vec![
+            snapshot("lifecycle_tasks", &task.task_uid, task.revision, &task),
+            snapshot("lifecycle_pr_work_items", &work_uid, 1, &work),
+        ];
+        if let Some(child) = &child {
+            records.push(snapshot(
+                "lifecycle_tasks",
+                &child.task_uid,
+                child.revision,
+                child,
+            ));
+        }
+        store.transaction(&records, None).unwrap();
         Self {
             root,
             store,
             work_uid,
-            reviewed_head,
+            reviewed_head: reviewed_head.to_owned(),
             task,
         }
     }

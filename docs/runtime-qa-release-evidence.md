@@ -1,0 +1,33 @@
+# Runtime QA release evidence
+
+Evidence snapshot: 2026-10-21 for PR head
+[`930f1a6`](https://github.com/zbarno/kool.ade/commit/930f1a64a23edd5830b65eba4a55103bffd77c0c)
+on PR [#264](https://github.com/zbarno/kool.ade/pull/264); candidate image provenance
+binds to merge revision
+[`ac540ac`](https://github.com/zbarno/kool.ade/commit/ac540acf1dc5f2b9b3cdd7570171f6441570911c).
+This table tracks the
+mandatory release matrix in issue [#171](https://github.com/zbarno/kool.ade/issues/171).
+“Partial” means the cited evidence proves only the listed slice. Candidate image
+tests and local lifecycle tests do not satisfy the end-to-end release gate.
+
+| #171 requirement | Evidence on this revision | Status and remaining acceptance |
+| --- | --- | --- |
+| 1. Docker RuntimeQa security matrix across local/remote Linux | [Trusted image run 39522095369](https://github.com/zbarno/kool.ade/actions/runs/39522095369) rebuilt both rootless QA candidates and verified the reviewed digests. The browser candidate job exercised metadata redirect/fetch/iframe, external WebSocket, localhost, alternate-port denial, host TCP/UDP and WebRTC escape probes. | **Partial.** No complete RuntimeQa security matrix covering remote workers, credentials, every host resource, full role parity, and all network/filesystem boundaries. |
+| 2. Pinned rootless Linux desktop and browser QA images | [Trusted image run 39522095369](https://github.com/zbarno/kool.ade/actions/runs/39522095369) passed rootless `browser_qa` and `desktop_qa` candidate builds, app-owned lifecycle exercises, and exact reviewed-lock verification on PR head `930f1a6`. Candidate digests are browser `sha256:cde309ff57c1c8454b18d06b4c6e3165df2184d0caafd0ff06d37ef6e9675a83` and desktop `sha256:5240b227566d9b69187420972bc0941be6e12adf940ef867ff6237defbb13041`; their provenance source revision is `ac540acf1dc5f2b9b3cdd7570171f6441570911c`. | **Partial.** Publication jobs were skipped; both profiles remain `runtime_enabled: false`. Trusted published images and release approval are absent. |
+| 3. Real desktop and browser fixtures detect seeded defects | In [trusted image run 39522095369](https://github.com/zbarno/kool.ade/actions/runs/39522095369), the desktop candidate job ran the native egui and packaged Chromium fixtures through mouse/keyboard interaction, screenshot evidence, foreign-window exclusion, and seeded failure detection. The browser candidate job ran Playwright against the isolated preview fixture and exercised viewport, console, origin-policy, and seeded defect cases. | **Partial.** The complete matrix (resize, clipping, crash/hang, responsive browser states, console exceptions, disabled controls, and defect detection for each) is not yet accepted as a release suite. |
+| 4. Approved-plan-to-PR lifecycle repair loop | [Quality run 39522095404](https://github.com/zbarno/kool.ade/actions/runs/39522095404) passed `qa_finding_repairs_new_code_repasses_and_reconciles_once_to_pr_work_item`, a deterministic in-process lifecycle acceptance test. Scenario generation and persistence also revalidate current lifecycle task/spec state, approved recipes, and successful build receipts. | **Partial.** This does not run the full lifecycle against the pinned browser and desktop images or prove the complete application interaction and PR path in CI. |
+| 5. Negative runtime security tests | [Trusted image run 39522095369](https://github.com/zbarno/kool.ade/actions/runs/39522095369) includes rootless browser origin and host/private network escape denial; the app-owned browser job also verifies preview, browser run, evidence, and cleanup. | **Partial.** Remaining runtime-denial attempts include host credentials/HOME, Docker socket, host display/DBus, arbitrary executables, package installs, internet/cloud metadata variants, forged lifecycle evidence, and shell escalation. |
+| 6. Runtime failure and recovery matrix | [Quality run 39338374505](https://github.com/zbarno/kool.ade/actions/runs/39338374505) passed Docker runtime checks. One existing recovery integration test timed out on its first attempt and passed on retry (attempt 2). | **Partial.** The complete QA-specific failure matrix (daemon loss/restart, missing tools, driver/preview crash, full storage, cancellation, remote worker loss, concurrency, and restart recovery) is not yet evidenced. |
+| 7. Reviewer prompt evaluations | Prompt versions and evidence-bound reviewer records are implemented and covered by deterministic tests in the quality workflow. | **Partial.** No measurable model-recall evaluation set covering the listed hidden ambiguity, malicious DOM instructions, overengineering, failed acceptance, and visual regression cases is attached to this release record. |
+| 8. Setup diagnostics and Task Details evidence | Settings currently shows Docker/image/reviewer/relay readiness, evidence-folder readability and free space, the per-run 2 GiB cap, and the no-expiry policy. Task Details projects validated screenshots, traces, coverage, and findings. | **Partial.** There is no global evidence quota or automatic expiry; manual retention and storage management remain limited. The setup and repair-timeline UI still needs full acceptance review. |
+| 9. Architecture, runbook, privacy, recovery, and support docs | `docs/runtime-qa-contract.md`, `docs/project-runtime-contract.md`, the [operator guide](runtime-qa-operations.md), and the README roadmap document current boundaries, readiness checks, evidence review, recovery limits, post-release smoke steps, and unsupported environments. | **Partial.** The operator guide is source-checked, but performance/startup measurements and live manual smoke evidence remain outstanding. |
+| 10. Required CI and release checklist gate | On exact PR head `930f1a6`, [quality run 39522095404](https://github.com/zbarno/kool.ade/actions/runs/39522095404) passed format, tests, Clippy, docs, Docker runtime, and Windows discovery checks. [Trusted image run 39522095369](https://github.com/zbarno/kool.ade/actions/runs/39522095369) passed candidate verification and reviewed-lock checks. | **Partial.** The full QA security/lifecycle matrix is not yet a required release gate. Runtime QA remains unavailable and image publication remains disabled. |
+
+## Acceptance rule
+
+Do not enable either QA image profile, describe Runtime QA as shipped, close
+issues #166, #167, #168, #169, #171, or #173, or mark PR #264 ready until every
+row above has a passing, reviewable artifact for the supported platform matrix.
+For each update, record the exact commit, workflow run or manual smoke artifact,
+image digest, fixture/scenario, and observed failure result. A passing source
+test or candidate-image smoke only changes the row it directly covers.

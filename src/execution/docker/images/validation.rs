@@ -158,6 +158,18 @@ fn validate_variant(
             false,
         ));
     }
+    if profile == "desktop_qa"
+        && variant.runtime_enabled
+        && ["chromium", "dbus"]
+            .iter()
+            .any(|key| !variant.tool_versions.contains_key(*key))
+    {
+        return Err(failure(
+            PrerequisiteCode::ImageUnavailable,
+            "Enabled Linux desktop QA image is missing Chromium or D-Bus version metadata",
+            false,
+        ));
+    }
     if (profile == "rust"
         && (variant.tool_versions.get("rustc").map(String::as_str) != Some(PINNED_RUST_TOOLCHAIN)
             || variant.tool_versions.get("cargo").map(String::as_str)

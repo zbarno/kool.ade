@@ -1,6 +1,7 @@
 mod opportunity;
 mod planner;
 mod review;
+mod runtime_qa;
 mod task_graph;
 mod validation;
 mod work;
@@ -20,6 +21,7 @@ pub use review::{
     CoverageStatus, CoverageV1, FindingKind, FindingScopeV1, ReviewFindingActionV1,
     ReviewFindingV1, ReviewLocationV1, ReviewOutcomeV1, ReviewVerdictV1, Severity,
 };
+pub use runtime_qa::QaScenarioDraftV1;
 pub use task_graph::{SubtaskDraftV1, TaskDraftV1, TaskGraphV1};
 pub use validation::{
     OutputValidationContext, RoleOutputV1, validate_output, validate_output_with_context,

@@ -10,6 +10,9 @@ use crate::{
     },
 };
 
+#[path = "tests/custom_target_execution.rs"]
+mod custom_target_execution;
+
 fn approved_manifest() -> (ProjectCapabilityManifestV1, WorkspaceRef) {
     let project_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let task_id = uuid::Uuid::new_v4().hyphenated().to_string();
@@ -83,6 +86,21 @@ fn target_working_directory_is_scoped_to_the_application_root() {
         "apps/web/packages/client"
     );
     assert_eq!(join_workspace_path(".", ".").unwrap(), ".");
+    assert_eq!(
+        join_workspace_path("./", "dist/index.html").unwrap(),
+        "dist/index.html"
+    );
+    let hashes = receipt_artifact_hashes(
+        "./",
+        &[crate::execution::contract::ArtifactManifestEntryV1 {
+            relative_path: "dist/index.html".into(),
+            size_bytes: 1,
+            sha256: "a".repeat(64),
+            media_type: "text/html".into(),
+        }],
+    )
+    .unwrap();
+    assert!(hashes.contains_key("dist/index.html"));
 }
 
 #[test]
@@ -95,8 +113,14 @@ fn target_working_directory_rejects_absolute_and_parent_paths() {
 fn recipe_candidate_requires_exact_task_source_and_user_approval() {
     let (manifest, workspace) = approved_manifest();
     assert!(
-        validate_manifest_candidate(&manifest, &workspace, "web-app", RuntimeOperation::Build)
-            .is_ok()
+        validate_manifest_candidate(
+            &manifest,
+            &workspace,
+            "web-app",
+            RuntimeOperation::Build,
+            false
+        )
+        .is_ok()
     );
 
     let mut stale_workspace = workspace.clone();
@@ -106,7 +130,8 @@ fn recipe_candidate_requires_exact_task_source_and_user_approval() {
             &manifest,
             &stale_workspace,
             "web-app",
-            RuntimeOperation::Build
+            RuntimeOperation::Build,
+            false,
         )
         .unwrap_err()
         .to_string()
@@ -116,19 +141,31 @@ fn recipe_candidate_requires_exact_task_source_and_user_approval() {
     let mut another_task = workspace.clone();
     another_task.task_id = uuid::Uuid::new_v4().hyphenated().to_string();
     assert!(
-        validate_manifest_candidate(&manifest, &another_task, "web-app", RuntimeOperation::Build)
-            .unwrap_err()
-            .to_string()
-            .contains("different task")
+        validate_manifest_candidate(
+            &manifest,
+            &another_task,
+            "web-app",
+            RuntimeOperation::Build,
+            false
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("different task")
     );
 
     let mut unapproved = manifest;
     unapproved.recipes[0].evidence_refs.clear();
     assert!(
-        validate_manifest_candidate(&unapproved, &workspace, "web-app", RuntimeOperation::Build)
-            .unwrap_err()
-            .to_string()
-            .contains("explicit approval")
+        validate_manifest_candidate(
+            &unapproved,
+            &workspace,
+            "web-app",
+            RuntimeOperation::Build,
+            false
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("explicit approval")
     );
 
     let mut forged_adapter = unapproved;
@@ -139,7 +176,8 @@ fn recipe_candidate_requires_exact_task_source_and_user_approval() {
             &forged_adapter,
             &workspace,
             "web-app",
-            RuntimeOperation::Build
+            RuntimeOperation::Build,
+            false,
         )
         .is_err()
     );

@@ -8,6 +8,7 @@ use crate::{
 };
 
 mod artifacts;
+mod provenance;
 mod start;
 
 use artifacts::{artifact_capture_paths, receipt_artifact_hashes};
@@ -134,45 +135,6 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
         }
         Ok(receipts)
     }
-
-    /// Checks whether a persisted recipe is eligible for dispatch against this
-    /// exact task workspace. Queue callers must still obtain an approved
-    /// ExecutionSession; this method never creates or widens one.
-    pub fn validate_candidate(
-        &self,
-        session: &ExecutionSession,
-        target_id: &str,
-        operation: RuntimeOperation,
-    ) -> anyhow::Result<(
-        crate::project_runtime::ProjectCapabilityManifestV1,
-        crate::project_runtime::AppTargetV1,
-    )> {
-        let manifest = self
-            .store
-            .load_manifest()?
-            .ok_or_else(|| anyhow::anyhow!("project runtime manifest is missing"))?;
-        let target =
-            validate_manifest_candidate(&manifest, session.workspace(), target_id, operation)?;
-        let recipe_ids = match operation {
-            RuntimeOperation::Build => target.build_recipe_ref.iter().collect::<Vec<_>>(),
-            RuntimeOperation::Test => target.test_recipe_refs.iter().collect::<Vec<_>>(),
-            RuntimeOperation::Start => target.start_recipe_ref.iter().collect::<Vec<_>>(),
-        };
-        for recipe_id in recipe_ids {
-            let recipe = manifest
-                .recipes
-                .iter()
-                .chain(manifest.user_overrides.iter())
-                .find(|recipe| recipe.recipe_id == recipe_id.as_str())
-                .ok_or_else(|| anyhow::anyhow!("runtime target recipe is missing"))?;
-            anyhow::ensure!(
-                self.store
-                    .recipe_is_locally_approved(&manifest, &target, recipe),
-                "project recipe has no matching local approval record"
-            );
-        }
-        Ok((manifest, target))
-    }
 }
 
 fn validate_manifest_candidate(
@@ -180,6 +142,7 @@ fn validate_manifest_candidate(
     workspace: &crate::execution::contract::WorkspaceRef,
     target_id: &str,
     operation: RuntimeOperation,
+    allow_verified_adapter: bool,
 ) -> anyhow::Result<crate::project_runtime::AppTargetV1> {
     anyhow::ensure!(
         manifest.workspace_id == workspace.project_id
@@ -224,8 +187,10 @@ fn validate_manifest_candidate(
             .find(|recipe| recipe.recipe_id == recipe_id.as_str())
             .ok_or_else(|| anyhow::anyhow!("runtime target recipe is missing"))?;
         anyhow::ensure!(
-            recipe.is_explicitly_user_approved(),
-            "project metadata recipes require explicit approval before execution"
+            recipe.is_explicitly_user_approved()
+                || (allow_verified_adapter
+                    && recipe.source == crate::project_runtime::RecipeSource::TrustedAdapter),
+            "project metadata recipes require explicit approval or verified adapter provenance before execution"
         );
     }
     Ok(target.clone())
