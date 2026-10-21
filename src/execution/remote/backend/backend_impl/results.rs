@@ -24,19 +24,25 @@ pub(super) fn collect_artifacts<'a>(
             .execution_started_at
             .lock()
             .ok()
-            .and_then(|mut started| started.remove(&handle.execution_id))
-            .map(|started| started.elapsed().as_millis().min(u64::MAX as u128) as u64)
-            .unwrap_or(0);
-        let _ = crate::persistence::remote_execution_telemetry::record_execution_result(
-            &handle.execution_id,
-            match &backend.target.location {
-                TargetLocation::Remote { worker_id } => worker_id,
-                TargetLocation::Local => return Err(incompatible()),
-            },
-            execution_wall_ms,
-            result.metrics.cpu_millis,
-            result.metrics.peak_memory_bytes,
-        );
+            .and_then(|started| started.get(&handle.execution_id).copied())
+            .map(|started| started.elapsed().as_millis().min(u64::MAX as u128) as u64);
+        let telemetry_result =
+            crate::persistence::remote_execution_telemetry::record_execution_result(
+                &handle.execution_id,
+                match &backend.target.location {
+                    TargetLocation::Remote { worker_id } => worker_id,
+                    TargetLocation::Local => return Err(incompatible()),
+                },
+                execution_wall_ms,
+                result.metrics.cpu_millis,
+                result.metrics.peak_memory_bytes,
+            );
+        if execution_wall_ms.is_some()
+            && telemetry_result.is_ok()
+            && let Ok(mut started) = backend.execution_started_at.lock()
+        {
+            started.remove(&handle.execution_id);
+        }
         backend.stop_if_private_grant_revoked(handle).await?;
         let workspace = backend
             .execution_snapshots

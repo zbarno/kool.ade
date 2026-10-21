@@ -16,7 +16,7 @@ fn merges_upload_and_download_metrics_without_sensitive_fields() {
     .unwrap();
     update_at(home.path(), &id, "worker-1", |record| {
         record.image_digest = Some(format!("sha256:{}", "a".repeat(64)));
-        record.execution_wall_ms = 90;
+        record.execution_wall_ms = Some(90);
         record.execution_cpu_millis = 12;
         record.execution_peak_memory_bytes = 4096;
     })
@@ -31,7 +31,7 @@ fn merges_upload_and_download_metrics_without_sensitive_fields() {
         ),
         (12, 34, 56, 78)
     );
-    assert_eq!(record.execution_wall_ms, 90);
+    assert_eq!(record.execution_wall_ms, Some(90));
     assert_eq!(record.execution_cpu_millis, 12);
     assert_eq!(record.execution_peak_memory_bytes, 4096);
     assert_eq!(

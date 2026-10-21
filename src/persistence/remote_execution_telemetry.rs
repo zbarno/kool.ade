@@ -20,7 +20,7 @@ pub struct RemoteExecutionTelemetryV1 {
     pub result_download_bytes: u64,
     pub result_download_ms: u64,
     #[serde(default)]
-    pub execution_wall_ms: u64,
+    pub execution_wall_ms: Option<u64>,
     #[serde(default)]
     pub execution_cpu_millis: u64,
     #[serde(default)]
@@ -66,12 +66,14 @@ pub fn record_execution_started(
 pub fn record_execution_result(
     execution_id: &str,
     worker_id: &str,
-    wall_ms: u64,
+    wall_ms: Option<u64>,
     cpu_millis: u64,
     peak_memory_bytes: u64,
 ) -> anyhow::Result<()> {
     update(execution_id, worker_id, |record| {
-        record.execution_wall_ms = wall_ms;
+        if wall_ms.is_some() {
+            record.execution_wall_ms = wall_ms;
+        }
         record.execution_cpu_millis = cpu_millis;
         record.execution_peak_memory_bytes = peak_memory_bytes;
     })
@@ -142,7 +144,7 @@ fn update_at(
             workspace_upload_ms: 0,
             result_download_bytes: 0,
             result_download_ms: 0,
-            execution_wall_ms: 0,
+            execution_wall_ms: None,
             execution_cpu_millis: 0,
             execution_peak_memory_bytes: 0,
             image_digest: None,
@@ -250,7 +252,7 @@ fn validate(record: &RemoteExecutionTelemetryV1) -> anyhow::Result<()> {
             && [record.workspace_upload_ms, record.result_download_ms]
                 .iter()
                 .all(|v| *v <= MAX_MS)
-            && record.execution_wall_ms <= MAX_MS
+            && record.execution_wall_ms.is_none_or(|value| value <= MAX_MS)
             && record.execution_cpu_millis <= MAX_MS * 16
             && record.execution_peak_memory_bytes <= 64 * 1024 * 1024 * 1024,
         "remote execution telemetry is invalid"
