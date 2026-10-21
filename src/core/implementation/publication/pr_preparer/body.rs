@@ -17,6 +17,7 @@ pub(super) fn render(
     receipt: &PreparedProposalV1,
     scope: &ProposalScope,
 ) -> anyhow::Result<String> {
+    privacy::validate_model_description(&receipt.proposal.description)?;
     anyhow::ensure!(
         validation::validate_receipt(receipt, scope)?,
         "PR description is stale for the current publication scope"

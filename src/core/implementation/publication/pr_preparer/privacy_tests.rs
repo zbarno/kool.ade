@@ -106,3 +106,33 @@ fn public_description_allows_a_summary_without_private_values() {
         .is_ok()
     );
 }
+
+#[test]
+fn model_description_rejects_unattributed_contacts_and_identifiers() {
+    for description in [
+        "Contact synthetic.user@example.invalid for details.",
+        "Contact synthetic.user@example.invalid.",
+        "Use the callback number 202-555-0199 for confirmation.",
+        "Contact at 202 555 0199 for confirmation.",
+        "Contact at +1 202 555 0199 for confirmation.",
+        "The customer reference is account_4f27a981d6a84b2f.",
+    ] {
+        assert!(
+            validate_model_description(description).is_err(),
+            "model output unexpectedly passed: {description}"
+        );
+    }
+}
+
+#[test]
+fn model_description_allows_ordinary_technical_identifiers() {
+    for description in [
+        "Adds retry handling for API clients after a 404 response.",
+        "Updates the OAuth flow and tests the v2 adapter.",
+    ] {
+        assert!(
+            validate_model_description(description).is_ok(),
+            "ordinary technical output was rejected: {description}"
+        );
+    }
+}

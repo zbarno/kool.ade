@@ -1,6 +1,9 @@
 use super::ProposalScope;
 use std::collections::BTreeSet;
 
+mod model;
+pub(super) use model::validate_model_description;
+
 const SENSITIVE_CONTEXT: [&str; 16] = [
     "address",
     "account",
@@ -74,6 +77,29 @@ pub(super) fn validate_public_description(
     leaked_fragment.map_or(Ok(()), |_| Err(SensitiveContentError.into()))
 }
 
+pub(super) fn trim_token(token: &str) -> &str {
+    token.trim_matches(|character: char| {
+        matches!(
+            character,
+            '<' | '>'
+                | '('
+                | ')'
+                | '['
+                | ']'
+                | '{'
+                | '}'
+                | '"'
+                | '\''
+                | ','
+                | ';'
+                | ':'
+                | '!'
+                | '?'
+                | '.'
+        )
+    })
+}
+
 #[derive(Debug)]
 pub(super) struct SensitiveContentError;
 
@@ -94,12 +120,7 @@ pub(super) fn is_sensitive_content_error(error: &anyhow::Error) -> bool {
 fn sensitive_fragments(source: &str) -> Vec<String> {
     let mut fragments = Vec::new();
     for token in source.split_whitespace() {
-        let trimmed = token.trim_matches(|character: char| {
-            matches!(
-                character,
-                '<' | '>' | '(' | ')' | '[' | ']' | '{' | '}' | '"' | '\''
-            )
-        });
+        let trimmed = trim_token(token);
         if email_like(trimmed) {
             fragments.push(normalize(trimmed));
         }
