@@ -276,6 +276,11 @@ pub(super) fn run_opportunity_acceptance(scenario: OpportunityScenario) {
     );
     assert_eq!(run.phase, Phase::MergedNotActivated);
     assert!(run.activated_version.is_none());
+    let planning = restarts::verify_merged_restart(planning, &run);
+    let runs = SelfImprovementStore::new(&planning);
+    run = runs.load(&run.run_uid).unwrap();
+    assert_eq!(run.phase, Phase::MergedNotActivated);
+    assert!(run.installed_version.is_none());
     assert_activation_requires_probe(&runs, &run);
 
     assert_eq!(

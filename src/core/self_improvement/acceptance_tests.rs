@@ -12,6 +12,7 @@ mod support;
 
 const RESTART_CHILD: &str = "KOOLADE_SELF_IMPROVEMENT_RESTART_CHILD";
 const PR_RESTART_CHILD: &str = "KOOLADE_SELF_IMPROVEMENT_PR_RESTART_CHILD";
+const MERGED_RESTART_CHILD: &str = "KOOLADE_SELF_IMPROVEMENT_MERGED_RESTART_CHILD";
 
 fn verify_restart_child() -> bool {
     let Some(root) = std::env::var_os(RESTART_CHILD) else {
@@ -84,6 +85,40 @@ fn verify_pr_restart_child() -> bool {
     // Exit immediately so the parent proves PR publication state survived an
     // OS-process boundary while the controller is waiting for provider input.
     std::process::exit(87)
+}
+
+fn verify_merged_restart_child() -> bool {
+    let Some(root) = std::env::var_os(MERGED_RESTART_CHILD) else {
+        return false;
+    };
+    let project_id =
+        uuid::Uuid::parse_str(&std::env::var("KOOLADE_SELF_IMPROVEMENT_PROJECT_ID").unwrap())
+            .unwrap();
+    let store = crate::artifacts::planning_store::PlanningStore::new(
+        project_id,
+        root,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
+    let run_uid = std::env::var("KOOLADE_SELF_IMPROVEMENT_RUN_UID").unwrap();
+    let run = crate::core::self_improvement::SelfImprovementStore::new(&store)
+        .load(&run_uid)
+        .unwrap();
+    assert_eq!(
+        run.phase,
+        crate::core::self_improvement::SelfImprovementPhaseV1::MergedNotActivated
+    );
+    assert_eq!(
+        run.merged_sha.as_deref(),
+        Some(
+            std::env::var("KOOLADE_SELF_IMPROVEMENT_MERGED_SHA")
+                .unwrap()
+                .as_str()
+        )
+    );
+    assert!(run.installed_version.is_none());
+    // A process restart after merge must preserve the activation boundary:
+    // a merged PR is not proof that an authorized update installed the build.
+    std::process::exit(88)
 }
 
 #[derive(Clone, Copy)]

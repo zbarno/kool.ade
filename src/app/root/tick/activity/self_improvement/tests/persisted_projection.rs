@@ -8,13 +8,33 @@ use super::*;
 /// receipt exists. Uses temporary local stores and Git only; no Docker or network. Setup cost is
 /// one headless project fixture and local writes.
 #[test]
+#[cfg(unix)]
 fn synchronize_requires_persisted_user_and_independent_plan_approval_before_ready() {
+    use std::os::unix::fs::PermissionsExt;
+
     use crate::core::{
         lifecycle::{FeatureEvent, FeatureGoal, LifecycleStore, TaskPhase, TaskRecord},
         opportunity::{OpportunityDecisionKindV1, OpportunityStore},
         self_improvement::{SelfImprovementPhaseV1 as Phase, SelfImprovementStore},
         workflow::BranchTargets,
     };
+
+    // Pursue now probes the authenticated GitHub account. Serialize this
+    // process-wide PATH override with other environment-sensitive tests and
+    // provide a deterministic synthetic identity instead of depending on the
+    // runner's GitHub login.
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    let temp = tempfile::tempdir().unwrap();
+    let bin = temp.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let gh = bin.join("gh");
+    std::fs::write(&gh, "#!/bin/sh\nprintf '987654321\\n'\n").unwrap();
+    std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let original_path = std::env::var_os("PATH").unwrap_or_default();
+    let path = std::iter::once(bin.clone())
+        .chain(std::env::split_paths(&original_path))
+        .collect::<Vec<_>>();
+    environment.set("PATH", std::env::join_paths(path).unwrap());
 
     let mut app = crate::app::root::board_tests::fixture();
     let uid = {
