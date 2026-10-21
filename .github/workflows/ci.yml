@@ -236,7 +236,10 @@ jobs:
           --manifest-path tests/windows-process-tree/Cargo.toml
           launch_environment::tests::windows_provider_path_keeps_only_system_root_and_system32
           -- --exact --nocapture
-
+      - name: Verify Copilot machine policy hook discovery
+        run: >-
+          cargo +1.98.1 test --locked
+          --manifest-path tests/windows-copilot-policy-hooks/Cargo.toml
   # Supersedes the Fedora 44 Pi host-runtime smoke test: runtime availability
   # now comes from the pinned executor image, exercised by rootless Docker E2E.
   docker-only-check:
