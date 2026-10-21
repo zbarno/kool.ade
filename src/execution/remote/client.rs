@@ -145,36 +145,6 @@ impl RemoteWorkerClient {
         self.refresh_health_if_due()?;
         self.exchange(kind, execution_id, payload)
     }
-
-    pub fn heartbeat(&mut self) -> Result<(), ExecutionError> {
-        let nonce = uuid::Uuid::new_v4().to_string();
-        self.exchange(
-            Kind::Heartbeat,
-            CONTROL_ID,
-            serde_json::json!({"nonce": nonce}),
-        )?;
-        Ok(())
-    }
-
-    pub fn pending_request_ids(&self) -> Result<Vec<String>, ExecutionError> {
-        remote_requests::pending(&self.worker_id)
-            .map(|items| {
-                items
-                    .into_iter()
-                    .map(|item| item.envelope.request_id)
-                    .collect()
-            })
-            .map_err(|_| unavailable())
-    }
-
-    pub fn take_reconciled_response(
-        &self,
-        request_id: &str,
-    ) -> Result<Option<EnvelopeV1>, ExecutionError> {
-        remote_requests::take_completion(&self.worker_id, request_id)
-            .map(|item| item.map(|record| record.response))
-            .map_err(|_| unavailable())
-    }
 }
 
 #[cfg(test)]

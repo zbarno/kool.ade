@@ -1,5 +1,38 @@
 use super::*;
 
+#[test]
+fn public_remote_constructor_fails_closed_without_claim_authority() {
+    let worker = crate::execution::remote::ssh::SshWorkerConfig {
+        stable_id: "worker-test".into(),
+        host_alias: "worker.test".into(),
+        ssh_principal: "test-user".into(),
+        verified_host_key_fingerprint: format!("SHA256:{}", "A".repeat(43)),
+        known_hosts_path: "known_hosts".into(),
+        ssh_binary: "ssh".into(),
+    };
+    let error = ExecutionSession::connect_remote(
+        WorkspaceRef {
+            project_id: "00000000-0000-4000-8000-000000000001".into(),
+            task_id: "00000000-0000-4000-8000-000000000002".into(),
+            source_sha: "a".repeat(40),
+        },
+        ExecutionTarget::remote("worker-test"),
+        &worker,
+        crate::execution::contract::ExecutionModeV1::Implementation,
+        crate::execution::docker::images::RuntimeProfile::General,
+        ResourceBudgetV1::default(),
+    )
+    .err()
+    .expect("remote execution must require global claim authority");
+
+    assert_eq!(error.kind, ExecutionErrorKind::PolicyDenied);
+    assert!(
+        error
+            .message
+            .contains("active task claim authorization verifier")
+    );
+}
+
 #[derive(Debug)]
 struct RevocableAuthorization {
     revoked: Arc<AtomicBool>,
