@@ -40,6 +40,8 @@ fn worker(id: &str, running_jobs: u32, observed_at_unix_ms: u64) -> RemoteWorker
             available_memory_bytes: Some(1024 * 1024 * 1024),
             cpu_pressure_some_avg10_basis_points: Some(running_jobs * 100),
             load_millis: Some(running_jobs * 500),
+            gpu_available: Some(false),
+            display_available: Some(false),
         }),
         policy_revision: "sha256:policy".into(),
     }
