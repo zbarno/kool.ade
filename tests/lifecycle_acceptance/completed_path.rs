@@ -21,6 +21,7 @@ mod parent_subtasks;
 /// adapters are deterministic and in-process; there is no Docker or model API
 /// dependency, and setup is the normal test fixture cost. Real UI interaction
 /// is covered separately by rootless browser and desktop candidate-image runs.
+
 #[test]
 fn qa_finding_repairs_new_code_repasses_and_reconciles_once_to_pr_work_item() {
     let temp = tempfile::tempdir().unwrap();

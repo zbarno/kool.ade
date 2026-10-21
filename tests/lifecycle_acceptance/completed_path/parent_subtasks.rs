@@ -59,13 +59,14 @@ pub(super) fn complete_subtask(
     let (_request, outcome, report_receipt) =
         qa_report::execute_reviewed_run(root, lifecycle, &mut child, QaAssertionStatus::Passed);
     assert_eq!(outcome, QaOutcome::Pass);
+    let report_receipt = report_receipt.expect("accepted QA run returns a review receipt");
     child = lifecycle
         .record_runtime_qa_report(
             task_uid,
             child.revision,
             &id(),
             &RuntimeQaStore::new(root.join("qa-records")),
-            report_receipt,
+            Some(report_receipt),
         )
         .unwrap();
     reconcile_no_change(
