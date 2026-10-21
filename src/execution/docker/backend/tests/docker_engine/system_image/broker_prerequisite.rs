@@ -1,4 +1,6 @@
-use super::super::support::{Fixture, OPT_IN, backend, native_docker_arch, request, workspace};
+use super::super::support::{
+    Fixture, OPT_IN, backend, committed_workspace, native_docker_arch, request,
+};
 use crate::execution::{
     contract::{ExecutionModeV1, ExecutionTarget},
     docker::images::{ImageLock, RuntimeProfile},
@@ -30,7 +32,7 @@ fn recipe_system_tool_prerequisite_flows_through_authorized_broker_before_execut
     }
 
     let fixture = Fixture::new();
-    let task = workspace();
+    let (task, _task_clone) = committed_workspace(&fixture);
     let (backend, task_clone) = backend(&fixture, task.clone());
     let base = ImageLock::bundled()
         .unwrap()
