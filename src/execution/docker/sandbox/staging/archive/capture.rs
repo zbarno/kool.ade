@@ -1,10 +1,9 @@
 use std::{
-    fs, io,
+    fs,
     io::Read,
     path::{Component, Path},
 };
 
-use anyhow::Context;
 use tar::{Builder, EntryType, Header};
 
 use super::super::archive::{Fingerprint, Manifest, hash, validate_relative};
@@ -62,11 +61,8 @@ fn append_directory(
         fd::{AsRawFd, FromRawFd},
         unix::{ffi::OsStrExt, fs::MetadataExt},
     };
-    let before = directory
-        .metadata()
-        .context("workspace directory metadata could not be read")?;
-    let mut children =
-        read_child_names(directory).context("workspace directory entries could not be read")?;
+    let before = directory.metadata()?;
+    let mut children = read_child_names(directory)?;
     children.sort();
     for name in children {
         let child_relative = relative.join(&name);
@@ -89,8 +85,10 @@ fn append_directory(
             )
         };
         if stat_result != 0 {
-            return Err(io::Error::last_os_error())
-                .context("workspace entry could not be inspected safely");
+            anyhow::bail!(
+                "workspace entry could not be inspected safely: {:?}",
+                std::io::Error::last_os_error().kind()
+            );
         }
         let stat = unsafe { stat.assume_init() };
         let kind = stat.st_mode & libc::S_IFMT;
@@ -104,13 +102,13 @@ fn append_directory(
                 )
             };
             if fd < 0 {
-                return Err(io::Error::last_os_error())
-                    .context("workspace directory could not be opened safely");
+                anyhow::bail!(
+                    "workspace directory could not be opened safely: {:?}",
+                    std::io::Error::last_os_error().kind()
+                );
             }
             let child = unsafe { fs::File::from_raw_fd(fd) };
-            let metadata = child
-                .metadata()
-                .context("workspace directory entry metadata could not be read")?;
+            let metadata = child.metadata()?;
             let mode = mode_for(&metadata, true, read_only);
             append_header(builder, &child_relative, EntryType::Directory, 0, mode, &[])?;
             manifest.insert(child_relative.clone(), Fingerprint::Directory);
@@ -133,13 +131,13 @@ fn append_directory(
                 )
             };
             if fd < 0 {
-                return Err(io::Error::last_os_error())
-                    .context("workspace file could not be opened safely");
+                anyhow::bail!(
+                    "workspace file could not be opened safely: {:?}",
+                    std::io::Error::last_os_error().kind()
+                );
             }
             let mut file = unsafe { fs::File::from_raw_fd(fd) };
-            let metadata = file
-                .metadata()
-                .context("workspace file metadata could not be read")?;
+            let metadata = file.metadata()?;
             anyhow::ensure!(
                 metadata.is_file() && metadata.nlink() == 1,
                 "workspace contains a hard link or special file"
@@ -157,11 +155,8 @@ fn append_directory(
                         .saturating_add(metadata.len())
                         .saturating_add(1),
                 )
-                .read_to_end(&mut bytes)
-                .context("workspace file contents could not be read")?;
-            let after = file
-                .metadata()
-                .context("workspace file metadata could not be rechecked")?;
+                .read_to_end(&mut bytes)?;
+            let after = file.metadata()?;
             anyhow::ensure!(
                 bytes.len() as u64 == metadata.len()
                     && after.len() == metadata.len()
@@ -195,9 +190,7 @@ fn append_directory(
             anyhow::bail!("workspace contains a special file");
         }
     }
-    let after = directory
-        .metadata()
-        .context("workspace directory metadata could not be rechecked")?;
+    let after = directory.metadata()?;
     anyhow::ensure!(
         before.dev() == after.dev()
             && before.ino() == after.ino()

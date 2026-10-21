@@ -29,6 +29,18 @@ fn scoped_capture_failure_categories_are_safe_and_specific() {
         "a filesystem entry disappeared while being captured"
     );
     assert_eq!(
+        scoped_capture_failure_reason(&anyhow!(
+            "workspace directory could not be opened safely: NotADirectory"
+        )),
+        "a workspace path component is not a directory"
+    );
+    assert_eq!(
+        scoped_capture_failure_reason(&anyhow!(
+            "workspace file could not be opened safely: FilesystemLoop"
+        )),
+        "a symbolic link or loop was encountered"
+    );
+    assert_eq!(
         scoped_capture_failure_reason(&anyhow!("host path /secret/customer/data was rejected")),
         "a filesystem safety check failed"
     );
