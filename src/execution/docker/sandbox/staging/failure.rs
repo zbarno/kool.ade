@@ -16,15 +16,34 @@ pub(crate) fn scoped_capture_failure_reason(error: &anyhow::Error) -> &'static s
         || reason.contains("exceeds its staging budget")
     {
         "the workspace exceeds its byte limit"
-    } else if let Some(error) = error.downcast_ref::<std::io::Error>() {
-        match error.kind() {
-            std::io::ErrorKind::PermissionDenied => {
-                "the operating system denied access to a filesystem entry"
+    } else if let Some(error) = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<std::io::Error>())
+    {
+        match error.raw_os_error() {
+            #[cfg(unix)]
+            Some(code) if code == libc::EMFILE => {
+                "the process file descriptor limit was reached during capture"
             }
-            std::io::ErrorKind::NotFound => "a filesystem entry disappeared during capture",
-            std::io::ErrorKind::NotADirectory => "a filesystem entry changed type during capture",
-            std::io::ErrorKind::WouldBlock => "a filesystem entry was busy during capture",
-            _ => "an operating system filesystem operation failed",
+            #[cfg(unix)]
+            Some(code) if code == libc::ENFILE => {
+                "the system file descriptor limit was reached during capture"
+            }
+            #[cfg(unix)]
+            Some(code) if code == libc::EIO => {
+                "the filesystem reported an input/output error during capture"
+            }
+            _ => match error.kind() {
+                std::io::ErrorKind::PermissionDenied => {
+                    "the operating system denied access to a filesystem entry"
+                }
+                std::io::ErrorKind::NotFound => "a filesystem entry disappeared during capture",
+                std::io::ErrorKind::NotADirectory => {
+                    "a filesystem entry changed type during capture"
+                }
+                std::io::ErrorKind::WouldBlock => "a filesystem entry was busy during capture",
+                _ => "an operating system filesystem operation failed",
+            },
         }
     } else {
         "a filesystem safety check failed"

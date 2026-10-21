@@ -35,3 +35,14 @@ fn scoped_capture_failure_categories_are_safe_and_specific() {
         "a filesystem safety check failed"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn nested_operating_system_errors_keep_safe_resource_diagnostics() {
+    let error = anyhow::Error::new(std::io::Error::from_raw_os_error(libc::EMFILE))
+        .context("capture failed");
+    assert_eq!(
+        scoped_capture_failure_reason(&error),
+        "the process file descriptor limit was reached during capture"
+    );
+}
