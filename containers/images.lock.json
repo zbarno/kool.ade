@@ -101,8 +101,8 @@
       {
         "platform": "linux/amd64",
         "runtime_enabled": false,
-        "reference": "ghcr.io/zbarno/koolade-runtime-qa-browser@sha256:689eeb311ae738159a0eaae2daf5cd78e4213107a24bc01cc46bb861e0647f80",
-        "digest": "sha256:689eeb311ae738159a0eaae2daf5cd78e4213107a24bc01cc46bb861e0647f80",
+        "reference": "ghcr.io/zbarno/koolade-runtime-qa-browser@sha256:9c4d8c4422a88ea4c8e08e1020f357779df47b5c3e509c491acb9303ebb39138",
+        "digest": "sha256:9c4d8c4422a88ea4c8e08e1020f357779df47b5c3e509c491acb9303ebb39138",
         "tool_versions": {
           "node": "24.11.1",
           "npm": "11.6.2",
@@ -112,21 +112,21 @@
           "driver": "koolade-runtime-qa-browser-driver-1.1.0",
           "base": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
         },
-        "build_recipe_sha256": "sha256:782e648fc57c128513fca303ca695ace78b4df311d90ecf90a224c05da9851dd"
+        "build_recipe_sha256": "sha256:4cec856d2d0b84caaabad1b1d9ae7d65adb2b2436906b3ebb92d0b06258631d1"
       }
     ],
     "desktop_qa": [
       {
         "platform": "linux/amd64",
         "runtime_enabled": false,
-        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:34100719b3e093fc5d286783e1a164bfefb1bc46594f362ba32b389b707f4805",
-        "digest": "sha256:34100719b3e093fc5d286783e1a164bfefb1bc46594f362ba32b389b707f4805",
+        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:57b0052e60e56571cf14eabe1a87031377b7d64d00f85e6a6e1f2e8d96d3c4e8",
+        "digest": "sha256:57b0052e60e56571cf14eabe1a87031377b7d64d00f85e6a6e1f2e8d96d3c4e8",
         "tool_versions": {
           "driver": "linux-x11-driver/v1",
           "xvfb": "2:21.1.12-1ubuntu1.5",
           "base": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
         },
-        "build_recipe_sha256": "sha256:d43c3865dc4d04f0fc4687c512fae5d16c09a837bb7439bf6e37dbfbf2dd2910"
+        "build_recipe_sha256": "sha256:69e6b792620307b220bda9b912ea4c2eb9b6ea092547c5f1e00671dbdc32e32f"
       }
     ]
   }
