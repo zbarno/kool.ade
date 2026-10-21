@@ -178,11 +178,13 @@ impl ResourceBridge {
                 session.target_id(),
             )
             .map_err(|error| format!("authorized package cache snapshot failed: {error:#}"))?;
-        session.stage_dependency_cache(snapshot).map_err(|error| {
-            format!(
-                "authorized package cache could not be staged: {}",
-                error.message
-            )
-        })
+        session
+            .stage_dependency_cache_for_request(&dependency.id, snapshot)
+            .map_err(|error| {
+                format!(
+                    "authorized package cache could not be staged: {}",
+                    error.message
+                )
+            })
     }
 }

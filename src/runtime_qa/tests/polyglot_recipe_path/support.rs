@@ -149,6 +149,7 @@ pub(super) fn qa_request(
         schema_version: 1,
         qa_run_id: uid(),
         parent_task_uid: context.owning_task_id.clone(),
+        planning_item_uid: None,
         feature_uid: uid(),
         code_head_sha: context.source_sha.clone(),
         build_artifact_sha256: build_hash.into(),
@@ -163,6 +164,7 @@ pub(super) fn qa_request(
         execution_session_id: uid(),
         driver_profile_version: "web-driver/v1".into(),
         test_data_fixture_ref: Some("synthetic:python-web-fixture".into()),
+        dependency_cache_refs: Vec::new(),
         bounded_limits: QaBoundedLimitsV1 {
             max_scenarios: 8,
             max_actions_per_scenario: 16,

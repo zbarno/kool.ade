@@ -7,13 +7,17 @@ function fail(message) {
   throw new Error(message);
 }
 
+function isUrlDotSegment(part) {
+  return ['.', '..'].includes(part.replace(/%2e/gi, '.'));
+}
+
 function validServiceAction(action) {
   const methods = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
   if (!action || action.action !== 'api_request' || !methods.has(action.method) ||
       (action.method === 'GET' && action.json_body != null) ||
       typeof action.path !== 'string' || !action.path.startsWith('/') || action.path.startsWith('//') ||
       action.path.length > 2048 || /[?#\\\0]/.test(action.path) || /[\x00-\x1f\x7f]/.test(action.path) ||
-      action.path.split('/').some((part) => part === '.' || part === '..') ||
+      action.path.split('/').some(isUrlDotSegment) ||
       !Number.isInteger(action.expected_status) || action.expected_status < 100 || action.expected_status > 599 ||
       (action.json_body != null && (typeof action.json_body !== 'string' || action.json_body.length > 16 * 1024)) ||
       (action.expected_body_contains != null && (typeof action.expected_body_contains !== 'string' || action.expected_body_contains.length === 0 || action.expected_body_contains.length > 4096))) {
@@ -122,4 +126,3 @@ export async function runService(request) {
   })}\n`);
   if (outcome === 'failed') process.exitCode = 1;
 }
-

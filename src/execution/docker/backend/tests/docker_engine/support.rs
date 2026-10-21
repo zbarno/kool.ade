@@ -28,7 +28,7 @@ pub(super) const OPT_IN: &str = "KOOLADE_DOCKER_BACKEND_INTEGRATION";
 
 pub(super) struct Fixture {
     pub(super) root: PathBuf,
-    pub(super) home: PathBuf,
+    home_root: PathBuf,
     _home: crate::test_support::KooladeHomeGuard,
 }
 
@@ -39,11 +39,6 @@ impl Fixture {
             uuid::Uuid::new_v4()
         ));
         fs::create_dir_all(&root).unwrap();
-        let home = std::env::temp_dir().join(format!(
-            "koolade-docker-backend-home-{}",
-            uuid::Uuid::new_v4()
-        ));
-        fs::create_dir_all(&home).unwrap();
         let git_init = Command::new("git")
             .args(["init", "--quiet"])
             .current_dir(&root)
@@ -53,11 +48,19 @@ impl Fixture {
             git_init.success(),
             "initialize the Docker backend fixture repository"
         );
-        let home_guard = crate::test_support::KooladeHomeGuard::set(&home);
+        // Operator-local approvals must live outside the fixture repository.
+        // Keeping this state beneath `root` now correctly fails the production
+        // guard that prevents local authorization from entering project Git.
+        let home_root = std::env::temp_dir().join(format!(
+            "koolade-docker-backend-home-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&home_root).unwrap();
+        let home = crate::test_support::KooladeHomeGuard::set(&home_root);
         Self {
             root,
-            home,
-            _home: home_guard,
+            home_root,
+            _home: home,
         }
     }
 
@@ -65,7 +68,7 @@ impl Fixture {
         let project = format!("{}-integration", workspace.project_id);
         let task = format!("task-{}", workspace.task_id);
         let path = self
-            .home
+            .home_root
             .join("projects")
             .join(project)
             .join("task-repositories")
@@ -123,12 +126,16 @@ impl Fixture {
             .trim()
             .to_owned()
     }
+
+    pub(super) fn projects_root(&self) -> PathBuf {
+        self.home_root.join("projects")
+    }
 }
 
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.root);
-        let _ = fs::remove_dir_all(&self.home);
+        let _ = fs::remove_dir_all(&self.home_root);
     }
 }
 
@@ -251,7 +258,7 @@ pub(super) fn backend_with_owner(
     owner_id: String,
 ) -> (DockerExecutionBackend, PathBuf) {
     let clone = fixture.task_clone(&workspace);
-    let projects = fixture.home.join("projects");
+    let projects = fixture.projects_root();
     let resolver = Arc::new(
         OwnedTaskWorkspaceResolver::new(&projects, workspace, &clone)
             .expect("synthetic task clone must be accepted"),

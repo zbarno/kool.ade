@@ -3,6 +3,8 @@ mod code_review;
 mod task_relations;
 use task_relations::relation_for_planning_uid;
 
+mod runtime_qa_evidence;
+
 pub(super) fn for_ticket(
     project: &Project,
     ticket: &str,
@@ -90,6 +92,8 @@ pub(super) fn for_ticket(
     let current_spec_hash =
         crate::core::lifecycle::product_spec::current_product_hash(&project.state.planning_store)
             .ok();
+    let (runtime_qa_evidence, runtime_qa_evidence_error) =
+        runtime_qa_evidence::for_task(project, &task);
     let current_implementation = match lifecycle.load_current_implementation(&task.feature_uid) {
         Ok(current) => current,
         Err(error) => return (None, Some(error.to_string())),
@@ -165,6 +169,12 @@ pub(super) fn for_ticket(
             specification_deltas,
             pull_request_status: pr_preparation.as_ref().map(|pr| pr.status),
             merged_commit_sha: pr_preparation.and_then(|pr| pr.merged_commit_sha),
+            runtime_qa_evidence,
+            runtime_qa_evidence_error,
+            runtime_qa_applicability: task
+                .qa_execution
+                .as_ref()
+                .and_then(|execution| execution.applicability.clone()),
         }),
         None,
     )

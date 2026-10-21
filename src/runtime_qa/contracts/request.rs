@@ -24,6 +24,13 @@ pub struct QaBoundedLimitsV1 {
     pub max_screenshots: u16,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct QaDependencyCacheRefV1 {
+    pub dependency_request_id: String,
+    pub cache_ref: crate::execution::contract::DependencyCacheRefV1,
+}
+
 impl QaBoundedLimitsV1 {
     pub fn validate(&self) -> Result<(), String> {
         if !(1..=256).contains(&self.max_scenarios)
@@ -45,6 +52,8 @@ pub struct QaRunRequestV1 {
     pub schema_version: u16,
     pub qa_run_id: String,
     pub parent_task_uid: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planning_item_uid: Option<String>,
     pub feature_uid: String,
     pub code_head_sha: String,
     /// Hash of the immutable application artifact produced by the approved build.
@@ -60,6 +69,8 @@ pub struct QaRunRequestV1 {
     pub execution_session_id: String,
     pub driver_profile_version: String,
     pub test_data_fixture_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependency_cache_refs: Vec<QaDependencyCacheRefV1>,
     pub bounded_limits: QaBoundedLimitsV1,
     /// Captured from the implementation session so a separate reviewer can be proven.
     pub author_run_id: String,
@@ -71,6 +82,10 @@ impl QaRunRequestV1 {
         if self.schema_version != 1
             || !is_uuid(&self.qa_run_id)
             || !is_uuid(&self.parent_task_uid)
+            || self
+                .planning_item_uid
+                .as_ref()
+                .is_some_and(|uid| !is_uuid(uid))
             || !is_uuid(&self.feature_uid)
             || !is_git_oid(&self.code_head_sha)
             || !is_sha256(&self.build_artifact_sha256)
@@ -93,6 +108,7 @@ impl QaRunRequestV1 {
                 .test_data_fixture_ref
                 .as_ref()
                 .is_some_and(|value| !valid_text(value, 512))
+            || self.dependency_cache_refs.len() > 8
             || !is_uuid(&self.author_run_id)
             || !is_uuid(&self.author_session_id)
             || self
@@ -106,6 +122,31 @@ impl QaRunRequestV1 {
                 .any(|value| !valid_text(value, 8192))
         {
             return Err("runtime QA request is invalid or exceeds limits".into());
+        }
+        let mut dependency_ids = std::collections::BTreeSet::new();
+        let mut dependency_bytes = 0_u64;
+        for dependency in &self.dependency_cache_refs {
+            crate::execution::contract::validate_identifier(&dependency.dependency_request_id)
+                .map_err(|_| "runtime QA dependency request identity is invalid")?;
+            dependency
+                .cache_ref
+                .validate()
+                .map_err(|_| "runtime QA dependency cache reference is invalid")?;
+            if self.planning_item_uid.as_deref() != Some(dependency.cache_ref.task_id.as_str()) {
+                return Err("runtime QA dependency cache scope is invalid".into());
+            }
+            if dependency.cache_ref.target_id != "local"
+                || !dependency_ids.insert(dependency.dependency_request_id.as_str())
+            {
+                return Err("runtime QA dependency cache scope is invalid".into());
+            }
+            dependency_bytes = dependency_bytes.saturating_add(dependency.cache_ref.size_bytes);
+        }
+        if dependency_bytes > 128 * 1024 * 1024 {
+            return Err("runtime QA dependency caches exceed the transfer limit".into());
+        }
+        if !self.dependency_cache_refs.is_empty() && self.planning_item_uid.is_none() {
+            return Err("runtime QA dependency cache planning identity is missing".into());
         }
         self.bounded_limits.validate()
     }

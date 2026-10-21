@@ -38,7 +38,7 @@ pub(super) fn apply_review_verdict(
                 .into(),
         );
     }
-    result.outcome = if verdict.pass
+    let reviewer_passes = verdict.pass
         && verdict.findings.is_empty()
         && verdict.untested.is_empty()
         && verdict.coverage.iter().all(|coverage| {
@@ -46,10 +46,13 @@ pub(super) fn apply_review_verdict(
                 &coverage.status,
                 crate::harness::prompt_catalog::CoverageStatus::Pass
             )
-        }) {
-        QaOutcome::Pass
-    } else {
-        QaOutcome::Fail
+        });
+    result.outcome = match (result.outcome, reviewer_passes) {
+        (QaOutcome::InfrastructureBlocked, _) => QaOutcome::InfrastructureBlocked,
+        (QaOutcome::Incomplete, true) => QaOutcome::Incomplete,
+        (QaOutcome::Pass, true) => QaOutcome::Pass,
+        (QaOutcome::Pass | QaOutcome::Fail | QaOutcome::Incomplete, false)
+        | (QaOutcome::Fail, true) => QaOutcome::Fail,
     };
     let mut rejected_requirements = verdict
         .coverage

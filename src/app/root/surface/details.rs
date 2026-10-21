@@ -5,6 +5,8 @@ mod lifecycle_ui;
 mod planning_board;
 mod private_file_grants;
 mod runtime_capability;
+mod runtime_qa_applicability_proposal;
+mod runtime_qa_scenario_proposal;
 pub(super) mod specification_status;
 mod target_choices;
 mod telemetry;
@@ -117,6 +119,26 @@ impl KooladeApp {
         let runtime_capability = match &self.screen {
             Screen::Connected(project) => runtime_capability::for_ticket(project, ticket),
             Screen::Welcome => None,
+        };
+        let runtime_qa_scenario_proposal = match &self.screen {
+            Screen::Connected(project) => runtime_qa_scenario_proposal::for_ticket(project, ticket),
+            Screen::Welcome => None,
+        };
+        let (runtime_qa_applicability_proposal, runtime_qa_applicability_error) = match &self.screen
+        {
+            Screen::Connected(project) => {
+                match runtime_qa_applicability_proposal::for_ticket(project, ticket) {
+                    Ok(proposal) => (proposal, None),
+                    Err(error) => (None, Some(error)),
+                }
+            }
+            Screen::Welcome => (None, None),
+        };
+        let runtime_qa_applicability_reviewing = match &self.screen {
+            Screen::Connected(project) => {
+                project.activity.runtime_qa_applicability_review.is_some()
+            }
+            Screen::Welcome => false,
         };
         let failure = queued_failure.or_else(|| {
             (!implementation_active)
@@ -298,6 +320,10 @@ impl KooladeApp {
             runtime_capability,
             lifecycle,
             lifecycle_error,
+            runtime_qa_scenario_proposal,
+            runtime_qa_applicability_proposal,
+            runtime_qa_applicability_error,
+            runtime_qa_applicability_reviewing,
         })
     }
 }

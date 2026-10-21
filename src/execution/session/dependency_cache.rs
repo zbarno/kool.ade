@@ -1,15 +1,6 @@
 use super::*;
 
 impl ExecutionSession {
-    pub(crate) fn dependency_cache_refs(
-        &self,
-    ) -> Result<Vec<crate::execution::contract::DependencyCacheRefV1>, ExecutionError> {
-        self.dependency_cache_refs
-            .lock()
-            .map(|refs| refs.clone())
-            .map_err(|_| internal_error())
-    }
-
     pub(crate) fn record_prepared_dependency_ids(
         &self,
         ids: &[String],
@@ -179,8 +170,27 @@ impl ExecutionSession {
 
     /// Stage a broker snapshot on the selected Docker worker and bind future
     /// commands in this session to its opaque, task-scoped reference.
+    #[cfg(test)]
     pub(crate) fn stage_dependency_cache(
         &self,
+        snapshot: crate::harness::resource_bridge::CacheSnapshot,
+    ) -> Result<(), ExecutionError> {
+        self.stage_dependency_cache_inner(None, snapshot)
+    }
+
+    pub(crate) fn stage_dependency_cache_for_request(
+        &self,
+        dependency_request_id: &str,
+        snapshot: crate::harness::resource_bridge::CacheSnapshot,
+    ) -> Result<(), ExecutionError> {
+        crate::execution::contract::validate_identifier(dependency_request_id)
+            .map_err(|_| policy_error("Dependency cache request identity is invalid"))?;
+        self.stage_dependency_cache_inner(Some(dependency_request_id), snapshot)
+    }
+
+    fn stage_dependency_cache_inner(
+        &self,
+        dependency_request_id: Option<&str>,
         snapshot: crate::harness::resource_bridge::CacheSnapshot,
     ) -> Result<(), ExecutionError> {
         snapshot
@@ -196,9 +206,17 @@ impl ExecutionSession {
                 "Dependency cache snapshot is outside the execution session scope",
             ));
         }
+        let retained_snapshot = snapshot.clone();
         self.runtime.block_on(self.backend.stage_dependency_cache(
             crate::execution::backend::DependencyCacheSnapshot { snapshot },
         ))?;
+        if let Some(dependency_request_id) = dependency_request_id {
+            crate::execution::DependencyCacheSnapshotStore::new(
+                crate::persistence::state_root().join("runtime-qa-dependency-caches"),
+            )
+            .put(dependency_request_id, &retained_snapshot)
+            .map_err(|_| policy_error("Verified dependency cache could not be retained"))?;
+        }
         let mut refs = self
             .dependency_cache_refs
             .lock()

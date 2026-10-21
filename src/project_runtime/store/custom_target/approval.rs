@@ -244,14 +244,18 @@ pub(crate) fn custom_target_origin_sha256(
     Ok(format!("{:x}", sha2::Sha256::digest(payload)))
 }
 
-pub(crate) fn discovered_target_origin_sha256(target: &AppTargetV1) -> Result<String, String> {
+pub(crate) fn discovered_target_origin_sha256(
+    workspace_id: &str,
+    source_sha: &str,
+    target: &AppTargetV1,
+) -> Result<String, String> {
     let mut target = target.clone();
     target.build_recipe_ref = None;
     target.test_recipe_refs.clear();
     target.start_recipe_ref = None;
     target.readiness_probe_ref = None;
     target.port_needs.clear();
-    digest_payload(&target)
+    digest_payload(&(workspace_id, source_sha, target))
 }
 
 pub(crate) fn trusted_adapter_recipe_sha256(

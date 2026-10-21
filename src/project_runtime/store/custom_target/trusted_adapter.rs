@@ -1,8 +1,7 @@
 use crate::{
     artifacts::planning_store::StoreError,
     project_runtime::{
-        ExecutionRecipeV1, ProjectCapabilityManifestV1, ReadinessProbeV1, RecipeSource,
-        RuntimeOperation,
+        ExecutionRecipeV1, ProjectCapabilityManifestV1, RecipeSource, RuntimeOperation,
     },
 };
 
@@ -17,7 +16,6 @@ impl<'a> ProjectRuntimeStore<'a> {
         target_id: &str,
         operation: RuntimeOperation,
         recipe: ExecutionRecipeV1,
-        readiness: Option<ReadinessProbeV1>,
         expected_manifest_revision: u64,
     ) -> Result<ProjectCapabilityManifestV1, StoreError> {
         recipe.validate().map_err(StoreError::MalformedState)?;
@@ -35,8 +33,12 @@ impl<'a> ProjectRuntimeStore<'a> {
             .position(|target| target.target_id == target_id)
             .ok_or_else(|| StoreError::MalformedState("runtime target is missing".into()))?;
         let before = manifest.candidate_targets[target_index].clone();
-        let discovered_sha = ProjectRuntimeStore::discovered_target_origin_sha256(&before)
-            .map_err(StoreError::MalformedState)?;
+        let discovered_sha = ProjectRuntimeStore::discovered_target_origin_sha256(
+            &manifest.workspace_id,
+            &manifest.source_sha,
+            &before,
+        )
+        .map_err(StoreError::MalformedState)?;
         if !crate::persistence::runtime_target_approvals::has_discovered_target_origin(
             &manifest.workspace_id,
             &before.owning_task_id,
@@ -117,32 +119,17 @@ impl<'a> ProjectRuntimeStore<'a> {
                 actual: manifest.revision,
             });
         }
-        if (operation == RuntimeOperation::Start) != readiness.is_some() {
-            return Err(StoreError::MalformedState(
-                "trusted adapter start recipes require exactly one readiness probe".into(),
-            ));
-        }
         let target = &mut manifest.candidate_targets[target_index];
         match operation {
             RuntimeOperation::Build => target.build_recipe_ref = Some(recipe.recipe_id.clone()),
             RuntimeOperation::Test => target.test_recipe_refs.push(recipe.recipe_id.clone()),
             RuntimeOperation::Start => target.start_recipe_ref = Some(recipe.recipe_id.clone()),
         }
-        if let Some(probe) = readiness {
-            probe.validate().map_err(StoreError::MalformedState)?;
-            if let ReadinessProbeV1::HttpOnApprovedPort { port, .. }
-            | ReadinessProbeV1::LocalServiceHealth { port, .. } = &probe
-            {
-                target.port_needs = vec![*port];
-            }
-            let probe_id = format!("adapter-ready-{}", uuid::Uuid::new_v4().simple());
-            target.readiness_probe_ref = Some(probe_id.clone());
-            manifest.readiness_probes.insert(probe_id, probe);
-        }
         target.capability_state = crate::project_runtime::TargetCapabilityState::ReadyButUntested;
         manifest.target_capabilities[target_index] = target.capability_state.clone();
         manifest.recipes.push(recipe);
         manifest.revision = next_revision;
+        manifest.validate().map_err(StoreError::MalformedState)?;
         let target = &manifest.candidate_targets[target_index];
         let recipe_ids = super::target_recipe_ids(target);
         let recipes = manifest
@@ -156,12 +143,6 @@ impl<'a> ProjectRuntimeStore<'a> {
             .readiness_probe_ref
             .as_ref()
             .and_then(|id| manifest.readiness_probes.get(id));
-        super::validate_readiness(target, &recipes, readiness)
-            .map_err(StoreError::MalformedState)?;
-        manifest.validate().map_err(StoreError::MalformedState)?;
-        self.save_manifest(&manifest, expected_manifest_revision)?;
-
-        let target = &manifest.candidate_targets[target_index];
         let artifact_spec = target
             .artifact_spec_ref
             .as_ref()
@@ -204,6 +185,7 @@ impl<'a> ProjectRuntimeStore<'a> {
             &origin_sha,
         )
         .map_err(|error| StoreError::MalformedState(error.to_string()))?;
+        self.save_manifest(&manifest, expected_manifest_revision)?;
         Ok(manifest)
     }
 }

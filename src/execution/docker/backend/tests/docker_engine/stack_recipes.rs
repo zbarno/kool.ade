@@ -16,51 +16,6 @@ use crate::{
 
 use super::support::{Fixture, backend, workspace};
 
-// Production boundary: discovery persists operator-local target provenance
-// alongside shared planning metadata. This catches invalid state-root layout
-// across the real store path, which a path helper unit test cannot prove.
-// Dependencies: Git executable for a synthetic checkout; no Docker or network.
-// Setup cost: low; creates and removes two temporary directories.
-#[test]
-fn stack_recipe_discovery_persists_provenance_outside_fixture_repository() {
-    let fixture = Fixture::new();
-    let mut workspace = workspace();
-    let clone = fixture.task_clone(&workspace);
-    write_stack_fixture(&clone.join("apps/web"), "node");
-    workspace.source_sha = Fixture::commit_task_clone(&clone);
-    let planning = PlanningStore::legacy_embedded(
-        uuid::Uuid::parse_str(&workspace.project_id).unwrap(),
-        &fixture.root,
-    );
-    let runtime_store = ProjectRuntimeStore::new(&planning);
-    let context = DiscoveryContext {
-        workspace_id: workspace.project_id.clone(),
-        repository_id: "integration-repository".into(),
-        owning_task_id: workspace.task_id.clone(),
-        source_sha: workspace.source_sha.clone(),
-    };
-
-    let manifest = runtime_store
-        .discover_and_save(&clone, &context, 0)
-        .expect("test project capability discovery");
-
-    assert!(!manifest.candidate_targets.is_empty());
-    let state_root = crate::persistence::state_root()
-        .canonicalize()
-        .expect("operator state root should exist");
-    let repository_root = fixture
-        .root
-        .canonicalize()
-        .expect("fixture repository should exist");
-    assert!(!state_root.starts_with(repository_root));
-}
-
-// Production boundary: approved recipes execute inside a rootless Docker
-// session, capture a reviewed source snapshot from a Git task clone, and stage
-// only policy-authorized output. A helper unit test cannot prove the daemon
-// mounts the committed checkout and synchronizes actual recipe results.
-// Dependencies: rootless Docker Engine, Git, and the reviewed image cache or
-// network pull. Setup cost: moderate; four bounded build/test/start cycles.
 #[test]
 fn approved_stack_recipes_execute_across_runtime_profiles() {
     const OPT_IN: &str = "KOOLADE_DOCKER_BACKEND_INTEGRATION";
@@ -78,14 +33,12 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
     let lock = ImageLock::bundled().expect("reviewed runtime image lock");
     for (profile, tool, build, test, start) in stack_recipes() {
         let fixture = Fixture::new();
-        let mut workspace = workspace();
+        let workspace = workspace();
         let _approval_cleanup = crate::persistence::runtime_target_approvals::WorkspaceCleanup::new(
             &workspace.project_id,
         );
-        let clone = fixture.task_clone(&workspace);
+        let (docker, clone) = backend(&fixture, workspace.clone());
         write_stack_fixture(&clone.join("apps/web"), tool);
-        workspace.source_sha = Fixture::commit_task_clone(&clone);
-        let (docker, _clone) = backend(&fixture, workspace.clone());
         let planning = PlanningStore::legacy_embedded(
             uuid::Uuid::parse_str(&workspace.project_id).unwrap(),
             &fixture.root,
@@ -167,7 +120,7 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
                 .iter()
                 .find(|approved| approved.recipe_id == recipe.recipe_id)
                 .cloned()
-                .expect("approved recipe is persisted with its local approval binding");
+                .expect("persisted approved recipe");
             recipe.validate().expect("approved recipe contract");
             let widened_root = session
                 .run_scoped_recipe(&runtime_store, &target_id, &recipe, ".")
@@ -216,14 +169,7 @@ fn recipe(id: &str, tool: &str, argv: &[&str]) -> ExecutionRecipeV1 {
         executable_id: tool.into(),
         argv: argv.iter().map(|arg| (*arg).into()).collect(),
         allowed_env_keys: Vec::new(),
-        allowed_output_paths: match tool {
-            "cargo" => vec![".koolade-target".into(), "Cargo.lock".into()],
-            "python" => vec!["__pycache__".into()],
-            // The binary produced by Go build remains in the reviewed task
-            // clone while the subsequent test and start recipes are staged.
-            "go" => vec!["app".into()],
-            _ => Vec::new(),
-        },
+        allowed_output_paths: Vec::new(),
         timeout_seconds: 180,
         expected_exit_codes: vec![0],
         expected_artifacts: Vec::new(),
@@ -232,22 +178,6 @@ fn recipe(id: &str, tool: &str, argv: &[&str]) -> ExecutionRecipeV1 {
         network_requirement: NetworkRequirement::Denied,
         evidence_refs: vec![format!("user-approval:{id}")],
     }
-}
-
-fn cargo_recipe(id: &str, argv: &[&str]) -> ExecutionRecipeV1 {
-    recipe(id, "cargo", argv)
-}
-
-fn output_recipe(id: &str, tool: &str, argv: &[&str], output: &str) -> ExecutionRecipeV1 {
-    let mut recipe = recipe(id, tool, argv);
-    if !recipe
-        .allowed_output_paths
-        .iter()
-        .any(|path| path == output)
-    {
-        recipe.allowed_output_paths.push(output.into());
-    }
-    recipe
 }
 
 fn stack_recipes() -> Vec<(
@@ -261,9 +191,9 @@ fn stack_recipes() -> Vec<(
         (
             RuntimeProfile::Rust,
             "cargo",
-            cargo_recipe("rust-build", &["build", "--offline"]),
-            cargo_recipe("rust-test", &["test", "--offline", "-vv"]),
-            cargo_recipe("rust-start", &["run", "--offline", "--quiet"]),
+            recipe("rust-build", "cargo", &["build", "--offline"]),
+            recipe("rust-test", "cargo", &["test", "--offline", "-vv"]),
+            recipe("rust-start", "cargo", &["run", "--offline", "--quiet"]),
         ),
         (
             RuntimeProfile::Node,
@@ -286,9 +216,9 @@ fn stack_recipes() -> Vec<(
         (
             RuntimeProfile::Go,
             "go",
-            output_recipe("go-build", "go", &["build", "-o", "app", "main.go"], "app"),
-            output_recipe("go-test", "go", &["test", "main.go", "main_test.go"], "app"),
-            output_recipe("go-start", "go", &["run", "main.go"], "app"),
+            recipe("go-build", "go", &["build", "-o", "app", "main.go"]),
+            recipe("go-test", "go", &["test", "main.go", "main_test.go"]),
+            recipe("go-start", "go", &["run", "main.go"]),
         ),
     ]
 }

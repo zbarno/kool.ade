@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 use super::{WorkspaceSnapshot, archive, capture, capture_scoped, failure};
 use crate::{
     execution::{docker::sandbox::ValidatedWorkspace, errors::ExecutionError},
-    project_runtime::source::verify_source_checkout,
+    project_runtime::verify_source_checkout,
 };
 
 pub(crate) fn capture_reviewed(

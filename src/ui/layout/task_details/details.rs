@@ -1,10 +1,13 @@
 use super::*;
 mod lifecycle_pr;
 mod lifecycle_publication;
+mod lifecycle_qa;
 mod lifecycle_spec;
 mod linkage;
 mod metrics;
 pub(super) mod runtime_capability;
+mod runtime_qa_applicability;
+mod runtime_qa_scenarios;
 mod target;
 
 pub(super) fn paint(
@@ -175,7 +178,10 @@ pub(super) fn paint(
     target::paint(ui, s, presentation.ticket, presentation.view);
     target::paint_execution_evidence(ui, presentation.view);
     runtime_capability::paint(ui, s, presentation.ticket, presentation.view);
+    runtime_qa_scenarios::paint(ui, s, presentation.ticket, presentation.view);
+    runtime_qa_applicability::paint(ui, s, presentation.ticket, presentation.view);
     lifecycle_spec::paint(ui, s, presentation.ticket, presentation.view);
+    lifecycle_qa::paint(ui, presentation.view.lifecycle.as_ref());
     linkage::paint(ui, doc);
     let cancel_id = egui::Id::new("koolade_cancel_pending");
     let confirming_cancel = ui

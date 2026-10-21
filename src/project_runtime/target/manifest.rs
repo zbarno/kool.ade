@@ -17,6 +17,8 @@ pub struct AppTargetV1 {
     pub readiness_probe_ref: Option<String>,
     pub artifact_spec_ref: Option<String>,
     pub fixture_ref: Option<String>,
+    /// IDs of dependency-broker requests that must be prepared for this target.
+    /// QA accepts only matching, task-scoped requests with successful preparation.
     pub required_dependencies: Vec<String>,
     pub supported_driver_ids: Vec<String>,
     pub port_needs: Vec<u16>,

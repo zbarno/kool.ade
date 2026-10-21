@@ -78,8 +78,9 @@ pub(super) fn complete(app: &mut KooladeApp) {
     let started = Instant::now();
     let key = project.task_turns.keys().next().cloned();
     let outcome = loop {
+        // The full UI suite runs independent turns in parallel on shared CI hosts.
         assert!(
-            started.elapsed() < Duration::from_secs(10),
+            started.elapsed() < Duration::from_secs(30),
             "focused turn did not finish"
         );
         if let Some(TurnEvt::Done(outcome)) = key

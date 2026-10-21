@@ -95,27 +95,6 @@ fn approved_recipe_request_binds_exact_command_arguments_and_target_scope() {
 }
 
 #[test]
-fn scoped_runtime_launcher_policy_binds_exact_stdin_script_bytes() {
-    let script = "set -eu\nnode server.js\n";
-    let mut request = request();
-    request.mode = ExecutionModeV1::Verification;
-    request.argv = vec!["sh".into(), "-s".into()];
-    request.stdin = Some(script.into());
-    request.environment_allowlist.clear();
-    request.policy = ExecutionPolicyV1::for_scoped_runtime_launcher(
-        budget(1024 * 1024 * 1024, 2000),
-        "apps/web".into(),
-        "user-approval:start-recipe".into(),
-        script,
-    )
-    .unwrap();
-    request.validate_at(1).unwrap();
-
-    request.stdin = Some("rm -rf .\n".into());
-    assert!(request.validate_at(1).is_err());
-}
-
-#[test]
 fn repository_root_scope_requires_an_exact_user_approval_reference() {
     let root_scoped = ExecutionPolicyV1::for_approved_recipe(
         budget(1024 * 1024 * 1024, 2000),

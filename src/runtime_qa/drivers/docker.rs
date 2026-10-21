@@ -16,6 +16,10 @@ use crate::{
     },
 };
 
+#[cfg(test)]
+#[path = "docker/tests.rs"]
+mod tests;
+
 /// Executes one scenario in a disposable, image-lock selected Docker driver.
 /// Artifact bytes and any browser service/relay binding must be resolved and
 /// validated by the app before constructing this adapter.
@@ -25,6 +29,7 @@ pub(crate) struct DockerQaScenarioDriver<'a> {
     pub image: &'a SelectedImage,
     pub artifact_mount: QaArtifactMount,
     pub artifact_upload: &'a QaContainerUpload,
+    pub dependency_caches: &'a [crate::harness::resource_bridge::CacheSnapshot],
     pub resources: &'a ResourceBudgetV1,
     pub desktop_target: Option<&'a QaValidatedTargetV1>,
     pub service_lease: Option<&'a QaTaskServiceLeaseV1>,
@@ -114,7 +119,30 @@ impl QaScenarioDriver for DockerQaScenarioDriver<'_> {
         };
         let request_upload = QaContainerUpload::request_file(&request_bytes, 256 * 1024)
             .map_err(|error| error.message)?;
-        let uploads = [self.artifact_upload.clone(), request_upload];
+        let mut uploads = vec![self.artifact_upload.clone(), request_upload];
+        let driver_caches = if driver == "desktop" {
+            self.dependency_caches
+        } else {
+            &[]
+        };
+        for cache in driver_caches {
+            let target = match cache.cache_ref.ecosystem {
+                crate::execution::contract::DependencyCacheEcosystemV1::Npm => {
+                    "/home/executor/.npm"
+                }
+                crate::execution::contract::DependencyCacheEcosystemV1::Cargo => {
+                    "/home/executor/.cargo"
+                }
+            };
+            uploads.push(QaContainerUpload {
+                target: target.into(),
+                archive: crate::execution::docker::qa_container::archive_for_runtime_user(
+                    cache,
+                    &self.image.runtime_user,
+                )
+                .map_err(|error| error.message)?,
+            });
+        }
         let artifacts = [self.artifact_mount.clone()];
         let mut relay = relay.cloned();
         let container_id = {
@@ -125,6 +153,7 @@ impl QaScenarioDriver for DockerQaScenarioDriver<'_> {
                 driver,
                 image: self.image,
                 artifacts: &artifacts,
+                dependency_caches: driver_caches,
                 network,
                 service_lease: lease,
                 relay_binding: relay.as_ref(),
@@ -155,6 +184,7 @@ impl QaScenarioDriver for DockerQaScenarioDriver<'_> {
                 driver,
                 image: self.image,
                 artifacts: &artifacts,
+                dependency_caches: driver_caches,
                 network: match &relay {
                     Some(binding) => QaDriverNetwork::InternalPreviewRelay {
                         network_id: binding.relay_browser_network_id.clone(),

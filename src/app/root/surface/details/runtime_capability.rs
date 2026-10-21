@@ -1,7 +1,6 @@
 use crate::{
     app::session::Project,
-    execution::docker::images::ImageLock,
-    project_runtime::{ProjectRuntimeStore, TargetCapabilityState},
+    project_runtime::{AppSurface, ProjectRuntimeStore},
     ui::task_detail::{RuntimeCapabilityView, RuntimeTargetChoice},
 };
 
@@ -20,6 +19,7 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
         manifest_revision: None,
         selected_target_id: None,
         targets: Vec::new(),
+        prepared_dependencies: Vec::new(),
         message: None,
     };
     let store = ProjectRuntimeStore::new(&project.state.planning_store);
@@ -47,49 +47,34 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
         );
         return Some(view);
     }
-    let receipts = match store.receipts_for_task(&identity.uid) {
-        Ok(receipts) => receipts,
-        Err(error) => {
-            view.message = Some(format!(
-                "Runtime recipe receipts could not be read: {error}"
-            ));
-            return Some(view);
-        }
-    };
     view.languages = manifest.detected_languages.clone();
     view.frameworks = manifest.frameworks.clone();
     view.manifest_revision = Some(manifest.revision);
     view.selected_target_id = manifest.selected_target_id.clone();
-    let inventory = ImageLock::bundled().ok().map(|lock| {
-        super::super::runtime_capability_inventory::RuntimeCapabilityInventory::from_locked_images(
-            &lock,
-        )
-    });
-    if inventory.is_none() {
-        view.message = Some(
-            "Pinned runtime image inventory is unavailable; target readiness cannot be assessed."
-                .into(),
-        );
-    }
+    view.prepared_dependencies =
+        crate::app::root::runtime_dependencies::prepared_dependencies_for_ticket(project, ticket)
+            .into_iter()
+            .map(
+                |dependency| crate::ui::task_detail::PreparedDependencyChoice {
+                    request_id: dependency.request_id,
+                    label: dependency.label,
+                },
+            )
+            .collect();
     view.targets = manifest
         .candidate_targets
         .iter()
         .filter(|target| target.owning_task_id == identity.uid)
-        .map(|target| {
-            let available_dependencies = inventory
-                .as_ref()
-                .map(|_| {
-                    super::super::runtime_capability_inventory::prepared_dependency_ids_for_target(
-                        &receipts,
-                        &identity.uid,
-                        &target.target_id,
-                        &manifest.source_sha,
-                        target.start_recipe_ref.as_deref().unwrap_or_default(),
-                        &target.required_dependencies,
-                    )
-                })
-                .unwrap_or_default();
-            let locally_unauthorized = target
+        .map(|target| RuntimeTargetChoice {
+            target_id: target.target_id.clone(),
+            app_surface: target.app_surface,
+            detected_language: target_language(&target.target_id, &manifest.evidence_refs),
+            label: format!(
+                "{:?} · {}",
+                target.app_surface, target.project_relative_root
+            ),
+            selected: manifest.is_active_target(&identity.uid, &target.target_id),
+            state: if target
                 .build_recipe_ref
                 .iter()
                 .chain(target.test_recipe_refs.iter())
@@ -101,68 +86,139 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
                         .chain(manifest.user_overrides.iter())
                         .find(|recipe| recipe.recipe_id == *id)
                 })
-                .any(|recipe| !store.recipe_is_locally_approved(&manifest, target, recipe));
-            let assessment = inventory.as_ref().map(|inventory| {
-                inventory.assess_target(
-                    &manifest,
-                    &target.target_id,
-                    &identity.uid,
-                    &available_dependencies,
-                )
-            });
-            let diagnostics = match assessment.as_ref() {
-                Some(Ok(assessment)) => assessment
-                    .report
-                    .gaps
-                    .iter()
-                    .map(|gap| gap.remediation())
-                    .collect(),
-                Some(Err(error)) => vec![format!("Capability assessment failed closed: {error}.")],
-                None => vec![
-                    "Pinned runtime image inventory is unavailable; readiness is unknown.".into(),
-                ],
-            };
-            let state = if locally_unauthorized {
-                TargetCapabilityState::UnauthorizedRecipe
-            } else if let Some(Ok(assessment)) = assessment.as_ref() {
-                if assessment.capability_state == TargetCapabilityState::Ready
-                    && target.capability_state == TargetCapabilityState::ReadyButUntested
-                {
-                    TargetCapabilityState::ReadyButUntested
-                } else {
-                    assessment.capability_state.clone()
-                }
+                .any(|recipe| !store.recipe_is_locally_approved(&manifest, target, recipe))
+            {
+                "UnauthorizedRecipe".into()
             } else {
-                target.capability_state.clone()
-            };
-            RuntimeTargetChoice {
-                target_id: target.target_id.clone(),
-                label: format!(
-                    "{:?} · {}",
-                    target.app_surface, target.project_relative_root
-                ),
-                surface: target.app_surface,
-                selected: manifest.is_active_target(&identity.uid, &target.target_id),
-                state: format!("{state:?}"),
-                diagnostics,
-                recipes: [
-                    target
-                        .build_recipe_ref
-                        .as_deref()
-                        .map(|id| format!("build: {id}")),
-                    (!target.test_recipe_refs.is_empty())
-                        .then(|| format!("test: {}", target.test_recipe_refs.join(", "))),
-                    target
-                        .start_recipe_ref
-                        .as_deref()
-                        .map(|id| format!("start: {id}")),
-                ]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(" · "),
-            }
+                format!("{:?}", target.capability_state)
+            },
+            recipes: [
+                target
+                    .build_recipe_ref
+                    .as_deref()
+                    .map(|id| format!("build: {id}")),
+                (!target.test_recipe_refs.is_empty())
+                    .then(|| format!("test: {}", target.test_recipe_refs.join(", "))),
+                target
+                    .start_recipe_ref
+                    .as_deref()
+                    .map(|id| format!("start: {id}")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · "),
+            required_dependencies: target.required_dependencies.clone(),
+            qa_applicability: surface_applicability(target.app_surface),
         })
         .collect();
     Some(view)
+}
+
+fn target_language(target_id: &str, evidence_refs: &[String]) -> Option<String> {
+    evidence_refs.iter().find_map(|evidence| {
+        if crate::project_runtime::target_id_for_evidence_path(evidence) != target_id {
+            return None;
+        }
+        let path = std::path::Path::new(evidence);
+        match path.file_name()?.to_str()? {
+            "Cargo.toml" => Some("Rust".into()),
+            "package.json" => Some("JavaScript".into()),
+            "pyproject.toml" | "requirements.txt" => Some("Python".into()),
+            "go.mod" => Some("Go".into()),
+            _ => None,
+        }
+    })
+}
+
+fn surface_applicability(
+    surface: AppSurface,
+) -> crate::project_runtime_capability::QaApplicability {
+    use crate::project_runtime_capability::QaApplicability;
+
+    match surface {
+        AppSurface::Web | AppSurface::LinuxDesktop => QaApplicability::Visual,
+        AppSurface::HeadlessService => QaApplicability::ServiceEvidence,
+        AppSurface::UnsupportedTarget => QaApplicability::Unsupported,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn target_language_uses_only_manifest_evidence_in_the_target_root() {
+        let evidence = vec![
+            "apps/web/package.json".to_owned(),
+            "services/api/go.mod".to_owned(),
+            "Cargo.toml".to_owned(),
+            "apps/unknown/project.yaml".to_owned(),
+        ];
+
+        assert_eq!(
+            target_language(
+                &crate::project_runtime::target_id_for_evidence_path("apps/web/package.json"),
+                &evidence,
+            )
+            .as_deref(),
+            Some("JavaScript")
+        );
+        assert_eq!(
+            target_language(
+                &crate::project_runtime::target_id_for_evidence_path("services/api/go.mod"),
+                &evidence,
+            )
+            .as_deref(),
+            Some("Go")
+        );
+        assert_eq!(
+            target_language(
+                &crate::project_runtime::target_id_for_evidence_path("Cargo.toml"),
+                &evidence,
+            )
+            .as_deref(),
+            Some("Rust")
+        );
+        assert_eq!(target_language("unknown-target", &evidence), None);
+    }
+
+    #[test]
+    fn target_language_does_not_confuse_same_root_polyglot_candidates() {
+        let evidence = vec!["Cargo.toml".to_owned(), "package.json".to_owned()];
+        let rust_target = crate::project_runtime::target_id_for_evidence_path("Cargo.toml");
+        let node_target = crate::project_runtime::target_id_for_evidence_path("package.json");
+
+        assert_ne!(rust_target, node_target);
+        assert_eq!(
+            target_language(&rust_target, &evidence).as_deref(),
+            Some("Rust")
+        );
+        assert_eq!(
+            target_language(&node_target, &evidence).as_deref(),
+            Some("JavaScript")
+        );
+    }
+
+    #[test]
+    fn surface_applicability_keeps_service_and_unsupported_targets_out_of_visual_qa() {
+        use crate::project_runtime_capability::QaApplicability;
+
+        assert_eq!(
+            surface_applicability(AppSurface::Web),
+            QaApplicability::Visual
+        );
+        assert_eq!(
+            surface_applicability(AppSurface::LinuxDesktop),
+            QaApplicability::Visual
+        );
+        assert_eq!(
+            surface_applicability(AppSurface::HeadlessService),
+            QaApplicability::ServiceEvidence
+        );
+        assert_eq!(
+            surface_applicability(AppSurface::UnsupportedTarget),
+            QaApplicability::Unsupported
+        );
+    }
 }

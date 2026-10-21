@@ -1,23 +1,27 @@
 //! Versioned, evidence-backed contracts for independent runtime QA.
 
+pub(crate) mod applicability_review;
 mod browser_driver;
 mod contracts;
 pub(crate) mod drivers;
 mod gate;
 mod orchestrator;
 mod recipe_queue_handle;
+pub(crate) mod scenario_synthesis;
 mod store;
 #[cfg(test)]
 mod tests;
 mod worker_handle;
 
+#[cfg(test)]
+pub(crate) use browser_driver::{build_browser_request, parse_browser_output};
 pub use contracts::*;
 pub use gate::approved_gate_receipt;
 pub use orchestrator::{
     QaExecutionContext, QaReviewer, QaScenarioDriver, QaTargetAuthorization, RuntimeQaOrchestrator,
 };
 pub(crate) use recipe_queue_handle::RuntimeRecipeWorkerHandle;
-pub use store::RuntimeQaStore;
+pub use store::{QaPersistedRunV1, RuntimeQaStore};
 pub(crate) use worker_handle::QaWorkerHandle;
 
 /// App-owned line-independent protocol entrypoint for the pinned Linux
@@ -43,4 +47,10 @@ pub fn smoke_linux_desktop_fixture() -> Result<serde_json::Value, String> {
 #[cfg(target_os = "linux")]
 pub fn run_linux_desktop_fixture_window() -> Result<(), String> {
     drivers::desktop::run_fixture_window()
+}
+
+/// Launch the synthetic egui window as a child of the isolated smoke driver.
+#[cfg(target_os = "linux")]
+pub fn run_linux_desktop_egui_fixture_window() -> Result<(), String> {
+    drivers::desktop::run_egui_fixture_window()
 }

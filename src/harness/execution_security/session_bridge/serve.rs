@@ -50,13 +50,33 @@ pub(super) fn serve_request(
             );
             let mut archive = vec![0; request.archive_bytes];
             reader.read_exact(&mut archive)?;
+            let cache_ref = request.cache_ref.clone();
+            let project_id = binding
+                .workspace_id
+                .split(':')
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("Execution project identity is unavailable"))?;
+            let resource_bridge = resource_bridge
+                .ok_or_else(|| anyhow::anyhow!("Dependency cache broker is unavailable"))?;
+            resource_bridge.validate_dependency_cache_ref(
+                &request.dependency_request_id,
+                &cache_ref,
+                project_id,
+                &binding.target_id,
+                &request.target_arch,
+            )?;
             session
-                .stage_dependency_cache(crate::harness::resource_bridge::CacheSnapshot {
-                    cache_ref: request.cache_ref,
-                    manifest: request.manifest,
-                    archive,
-                })
+                .stage_dependency_cache_for_request(
+                    &request.dependency_request_id,
+                    crate::harness::resource_bridge::CacheSnapshot {
+                        cache_ref,
+                        manifest: request.manifest,
+                        archive,
+                    },
+                )
                 .map_err(|error| anyhow::anyhow!(error.message))?;
+            resource_bridge
+                .record_dependency_cache_ref(&request.dependency_request_id, request.cache_ref)?;
             serde_json::to_writer(
                 &mut stream,
                 &ToolResponse {

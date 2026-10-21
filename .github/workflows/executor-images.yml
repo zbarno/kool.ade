@@ -271,6 +271,8 @@ jobs:
           version: v29.9.0
           rootless: true
           set-host: true
+          daemon-config: |
+            {"features":{"cdi":false}}
       - name: Select the architecture-specific pinned QA base
         id: image
         env:
@@ -287,21 +289,51 @@ jobs:
         uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610
         with:
           syft-version: v1.54.1
-      - name: Install the pinned Rust toolchain for the desktop driver
-        if: matrix.profile == 'desktop_qa'
+      - name: Install the pinned Rust toolchain for app-owned QA lifecycle checks
+        if: matrix.profile == 'desktop_qa' || matrix.profile == 'browser_qa'
         run: rustup toolchain install 1.98.1 --profile minimal
-      - name: Cache Rust desktop-driver build artifacts
-        if: matrix.profile == 'desktop_qa'
+      - name: Cache Rust QA lifecycle test artifacts
+        if: matrix.profile == 'desktop_qa' || matrix.profile == 'browser_qa'
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          shared-key: rust-1.98.1-desktop-qa
+          shared-key: rust-1.98.1-qa-lifecycle
           cache-workspace-crates: true
+      - name: Test browser API path validation
+        if: matrix.profile == 'browser_qa'
+        run: node --test containers/runtime-qa/browser/service.test.mjs
       - name: Build rootless candidate and retain image evidence
         env:
           PROFILE: ${{ matrix.profile }}
           BASE_IMAGE: ${{ steps.image.outputs.base_image }}
           SYFT: ${{ steps.syft.outputs.cmd }}
         run: scripts/build-qa-image-candidate.sh "$PROFILE" linux/amd64 "$BASE_IMAGE"
+      - name: Exercise app-owned upload, run, output, and cleanup against rootless candidate
+        if: matrix.profile == 'desktop_qa'
+        env:
+          IMAGE_RECORD: ${{ runner.temp }}/executor-image-candidate-desktop_qa-amd64/executor-image.json
+          KOOLADE_QA_REQUIRE_ROOTLESS: "1"
+          KOOLADE_QA_REQUIRE_EGUI: "1"
+        run: |
+          set -euo pipefail
+          export KOOLADE_QA_DESKTOP_IMAGE=koolade-runtime-qa:desktop_qa-candidate
+          export KOOLADE_QA_DESKTOP_DIGEST="$(jq -er '.digest' "$IMAGE_RECORD")"
+          cargo +1.98.1 test --locked --lib \
+            execution::docker::qa_container::tests::desktop_rootless::rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate \
+            -- --ignored --exact
+      - name: Exercise app-owned Python preview, browser run, evidence, and cleanup
+        if: matrix.profile == 'browser_qa'
+        env:
+          IMAGE_RECORD: ${{ runner.temp }}/executor-image-candidate-browser_qa-amd64/executor-image.json
+        run: |
+          set -euo pipefail
+          export KOOLADE_QA_BROWSER_IMAGE=koolade-runtime-qa:browser_qa-candidate
+          export KOOLADE_QA_BROWSER_DIGEST="$(jq -er '.digest' "$IMAGE_RECORD")"
+          python_image="$(jq -er '.profiles.python[] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
+          [[ "$python_image" =~ @sha256:[0-9a-f]{64}$ ]]
+          docker pull --platform linux/amd64 "$python_image"
+          cargo +1.98.1 test --locked --lib \
+            execution::docker::qa_container::tests::browser_rootless::rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up \
+            -- --ignored --exact
       - name: Verify candidate record and report its immutable digest
         env:
           PROFILE: ${{ matrix.profile }}
@@ -467,6 +499,8 @@ jobs:
           version: v29.9.0
           rootless: true
           set-host: true
+          daemon-config: |
+            {"features":{"cdi":false}}
       - name: Require rootless Docker for trusted QA publication
         run: |
           set -euo pipefail

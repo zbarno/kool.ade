@@ -33,7 +33,7 @@ pub(super) fn run(
     store_root: PathBuf,
     cancelled: Arc<AtomicBool>,
     mut docker_cancel: tokio::sync::watch::Receiver<bool>,
-    progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
+    _progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
 ) -> Result<(), String> {
     let request = prepared.request.clone();
     let store = RuntimeQaStore::new(store_root);
@@ -61,11 +61,6 @@ pub(super) fn run(
         prepared.readiness_probe.as_ref(),
         &prepared.artifact_paths,
     )?;
-    crate::project_runtime::verify_source_checkout(
-        &prepared.task_clone,
-        &request.code_head_sha,
-        &prepared.artifact_paths,
-    )?;
     let (artifact_upload, artifact_sha) = snapshot_selected_files(
         &prepared.task_clone,
         &prepared.artifact_paths,
@@ -82,7 +77,7 @@ pub(super) fn run(
         );
     }
     let profile = match request.relevant_platforms.as_slice() {
-        [QaPlatform::Web | QaPlatform::HeadlessService] => RuntimeProfile::BrowserQa,
+        [QaPlatform::Web] => RuntimeProfile::BrowserQa,
         [QaPlatform::LinuxDesktop] => RuntimeProfile::DesktopQa,
         _ => return Err("runtime QA request has no single supported platform".into()),
     };
@@ -93,24 +88,43 @@ pub(super) fn run(
         temporary_disk_bytes: 2 * 1024 * 1024 * 1024,
         output_bytes: 64 * 1024 * 1024,
     };
-    let session = Arc::new(
-        ExecutionSession::connect_local(
-            prepared.workspace.clone(),
-            &prepared.task_clone,
-            ExecutionModeV1::RuntimeQa,
-            profile,
-            resources.clone(),
+    let session = ExecutionSession::connect_local(
+        prepared.workspace.clone(),
+        &prepared.task_clone,
+        ExecutionModeV1::RuntimeQa,
+        profile,
+        resources.clone(),
+    )
+    .map_err(|error| {
+        format!(
+            "isolated Runtime QA Docker session is unavailable: {}",
+            error.message
         )
-        .map_err(|error| {
-            format!(
-                "isolated Runtime QA Docker session is unavailable: {}",
-                error.message
-            )
-        })?,
-    );
+    })?;
     let architecture = session.cache_target_arch().ok_or_else(|| {
         "selected QA image architecture is not in the reviewed image lock".to_owned()
     })?;
+    let dependency_cache_store = crate::execution::DependencyCacheSnapshotStore::new(
+        crate::persistence::state_root().join("runtime-qa-dependency-caches"),
+    );
+    let mut dependency_caches = Vec::new();
+    for dependency in &request.dependency_cache_refs {
+        if dependency.cache_ref.target_arch != architecture {
+            return Err(format!(
+                "prepared dependency cache for request `{}` targets a different architecture",
+                dependency.dependency_request_id
+            ));
+        }
+        let snapshot = dependency_cache_store
+            .get(&dependency.dependency_request_id, &dependency.cache_ref)
+            .map_err(|_| {
+                format!(
+                    "prepared dependency cache for request `{}` is unavailable or failed integrity validation",
+                    dependency.dependency_request_id
+                )
+            })?;
+        dependency_caches.push(snapshot);
+    }
     let lock = ImageLock::bundled().map_err(|error| error.message)?;
     let qa_image = lock
         .select(profile, &architecture)
@@ -128,11 +142,11 @@ pub(super) fn run(
             &resources,
             &qa_image,
             architecture,
+            &dependency_caches,
             &store,
             harness,
             &mut docker_cancel,
             cancelled,
-            progress,
         ),
         RuntimeProfile::DesktopQa => execution::run_desktop(
             &session,
@@ -143,6 +157,7 @@ pub(super) fn run(
             artifact_mount,
             &resources,
             &qa_image,
+            &dependency_caches,
             &store,
             harness,
             &mut docker_cancel,
@@ -163,13 +178,7 @@ fn run_reviewed(
     task_clone: &std::path::Path,
     store: &RuntimeQaStore,
     cancelled: Arc<AtomicBool>,
-    allowed_untracked_outputs: &[String],
 ) -> Result<(), String> {
-    crate::project_runtime::verify_source_checkout(
-        task_clone,
-        &request.code_head_sha,
-        allowed_untracked_outputs,
-    )?;
     let reviewer_run = uuid::Uuid::new_v4().hyphenated().to_string();
     let reviewer_session = uuid::Uuid::new_v4().hyphenated().to_string();
     let prompt = reviewer::manifest(request, &reviewer_run, &reviewer_session)?;

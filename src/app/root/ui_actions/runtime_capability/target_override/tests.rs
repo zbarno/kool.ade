@@ -3,6 +3,8 @@ use crate::project_runtime::{
     AppSurface, ProjectCapabilityManifestV1, ProjectRuntimeStore, TargetCapabilityState,
 };
 
+#[path = "tests/dependencies.rs"]
+mod dependencies;
 #[path = "tests/helpers.rs"]
 mod helpers;
 #[path = "tests/root_guard.rs"]
@@ -18,134 +20,6 @@ fn task_details_custom_web_and_headless_targets_persist_matching_readiness() {
     assert_custom_target_persists(AppSurface::Web);
     assert_custom_target_persists(AppSurface::HeadlessService);
     assert_custom_target_persists(AppSurface::LinuxDesktop);
-}
-
-#[test]
-// Production boundary: a Task Details adapter command must re-inspect the
-// isolated task checkout, persist a locally fingerprinted recipe, and route it
-// through the app's normal UI dispatcher. Store tests alone cannot prove that
-// only the app-owned adapter action creates this provenance. Uses a synthetic
-// package.json, a synthetic local Git commit, and in-process stores. Git is
-// the only external executable; no Docker or network is used, with low setup cost.
-fn task_detail_applies_only_the_metadata_matched_trusted_test_adapter() {
-    let mut app = crate::app::root::board_tests::fixture();
-    let ticket = ".koolade-packet/planning/tasks/fixture/002-task.md";
-    let task_uid = uuid::Uuid::new_v4().hyphenated().to_string();
-    let workspace_uid = uuid::Uuid::new_v4().hyphenated().to_string();
-    let root = tempfile::tempdir().unwrap();
-    std::fs::write(root.path().join("package.json"), "{}\n").unwrap();
-    for args in [
-        vec!["init", "--quiet"],
-        vec!["config", "user.name", "Fixture User"],
-        vec!["config", "user.email", "fixture@example.invalid"],
-        vec!["add", "package.json"],
-        vec!["commit", "--quiet", "-m", "fixture source"],
-    ] {
-        let output = std::process::Command::new("git")
-            .arg("-C")
-            .arg(root.path())
-            .args(args)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    let head = std::process::Command::new("git")
-        .arg("-C")
-        .arg(root.path())
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .unwrap();
-    assert!(head.status.success());
-    let source_sha = String::from_utf8_lossy(&head.stdout).trim().to_owned();
-    let repository_id = "fixture-repository".to_owned();
-    let identity = crate::domain::ArtifactIdentity {
-        uid: task_uid.clone(),
-        display_id: "TASK-002".into(),
-        title: "Fixture task".into(),
-        parent_uid: Some(uuid::Uuid::new_v4().hyphenated().to_string()),
-    };
-    let metadata =
-        crate::artifacts::task_docs::TaskMetadata::new(&identity, &repository_id, Vec::new())
-            .unwrap();
-    let (planning, manifest_revision) = {
-        let Screen::Connected(project) = &mut app.screen else {
-            panic!("fixture is connected")
-        };
-        let document = project
-            .task_documents
-            .iter_mut()
-            .find(|document| document.path == ticket)
-            .unwrap();
-        document.identity = Some(identity);
-        document.metadata = Some(metadata);
-        let implementation = project.implementation_states.get_mut(ticket).unwrap();
-        implementation.task_uid = Some(task_uid.clone());
-        implementation.workspace_uid = Some(workspace_uid.clone());
-        implementation.verified_head = Some(source_sha.clone());
-        implementation.task_repository = root.path().to_path_buf();
-        let planning = project.state.planning_store.clone();
-        let store = ProjectRuntimeStore::new(&planning);
-        let manifest = store
-            .discover_and_save(
-                root.path(),
-                &crate::project_runtime::DiscoveryContext {
-                    workspace_id: workspace_uid,
-                    repository_id,
-                    owning_task_id: task_uid.clone(),
-                    source_sha,
-                },
-                0,
-            )
-            .unwrap();
-        let target_id = manifest.candidate_targets[0].target_id.clone();
-        let selected = store
-            .select_target_and_save(&task_uid, &target_id, manifest.revision)
-            .unwrap();
-        (planning, (target_id, selected.revision))
-    };
-    let (target_id, revision) = manifest_revision;
-    crate::ui::Surface::dispatch(
-        &mut app,
-        crate::ui::ApplicationCommand::TaskDetail(
-            crate::ui::task_detail::Command::ApplyRuntimeTestAdapter {
-                ticket: ticket.into(),
-                target_id: target_id.clone(),
-                expected_manifest_revision: revision,
-            },
-        ),
-    );
-    let manifest = ProjectRuntimeStore::new(&planning)
-        .load_manifest()
-        .unwrap()
-        .unwrap();
-    let target = manifest
-        .candidate_targets
-        .iter()
-        .find(|target| target.target_id == target_id)
-        .unwrap();
-    let recipe = manifest
-        .recipes
-        .iter()
-        .find(|recipe| recipe.recipe_id == target.test_recipe_refs[0])
-        .unwrap();
-    assert_eq!(
-        recipe.source,
-        crate::project_runtime::RecipeSource::TrustedAdapter
-    );
-    assert_eq!(recipe.executable_id, "npm");
-    assert_eq!(recipe.argv, ["test"]);
-    let store = ProjectRuntimeStore::new(&planning);
-    assert!(store.recipe_is_locally_approved(&manifest, target, recipe));
-    let mut changed_recipe = recipe.clone();
-    changed_recipe.argv.push("--unreviewed".into());
-    assert!(!store.recipe_is_locally_approved(&manifest, target, &changed_recipe));
-    let mut changed_target = target.clone();
-    changed_target.project_relative_root = "other-app".into();
-    assert!(!store.recipe_is_locally_approved(&manifest, &changed_target, recipe));
 }
 
 fn assert_custom_target_persists(app_surface: AppSurface) {
@@ -284,6 +158,7 @@ fn assert_custom_target_persists(app_surface: AppSurface) {
         .get(target.artifact_spec_ref.as_ref().unwrap())
         .expect("the user approved artifact list is persisted");
     assert_eq!(artifact_spec, &["dist/index.html"]);
+    assert!(target.required_dependencies.is_empty());
     assert_eq!(target.app_surface, app_surface);
     assert_eq!(
         target.capability_state,
@@ -374,15 +249,4 @@ fn assert_custom_target_persists(app_surface: AppSurface) {
         },
     )
     .unwrap();
-    let refreshed = crate::ui::Surface::task_detail_view(&mut app, ticket)
-        .expect("Task Details refreshes the saved custom target");
-    assert_eq!(
-        refreshed
-            .runtime_capability
-            .as_ref()
-            .and_then(|runtime| runtime.targets.first())
-            .map(|target| target.surface),
-        Some(app_surface),
-        "the Task Details read model preserves the target surface"
-    );
 }

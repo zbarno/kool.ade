@@ -77,10 +77,7 @@
         "platform": "linux/arm64",
         "reference": "docker.io/library/python@sha256:af1cafd27effb3b1c7c4ad8b459f118371b5d216d4659a3e68a7b5aae65b517f",
         "digest": "sha256:af1cafd27effb3b1c7c4ad8b459f118371b5d216d4659a3e68a7b5aae65b517f",
-        "tool_versions": {
-          "python": "3.14.7",
-          "base": "Debian bookworm slim"
-        }
+        "tool_versions": { "python": "3.14.7", "base": "Debian bookworm slim" }
       }
     ],
     "go": [

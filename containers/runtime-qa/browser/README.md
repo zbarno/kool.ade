@@ -33,11 +33,12 @@ browser-driver image.
 
 ## Current availability
 
-The app-owned Runtime QA path now has source support for both browser scenarios
-and headless API scenarios through the two-network Docker session. API scenarios
-are limited to bounded JSON requests through the leased relay, with response
-bodies excluded from persisted evidence. The driver package version is 1.1.0.
-The bundled image lock still has no released browser QA profile, so this source
-change cannot run in the application until the updated rootless candidate digest
-is reviewed and promoted. The candidate fixture must pass before that promotion;
-source and unit coverage alone are not runtime QA evidence.
+The app-owned Runtime QA path is wired through the two-network Docker session,
+and CI builds and exercises this candidate image. Its reviewed digest and build
+recipe hash are recorded in `containers/images.lock.json`, while
+`runtime_enabled` remains false. Runtime selection therefore stays unavailable
+until trusted publication and a later reviewed activation after the remaining
+release gates pass. The current CI fixture proves browser-driver interaction
+in isolation, not the full application implementation-to-QA-to-repair
+lifecycle. Neither the driver source nor fixture alone is a QA pass or release
+claim.

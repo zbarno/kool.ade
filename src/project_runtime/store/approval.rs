@@ -14,27 +14,10 @@ impl ProjectRuntimeStore<'_> {
         target: &AppTargetV1,
         recipe: &ExecutionRecipeV1,
     ) -> bool {
-        if recipe.source == crate::project_runtime::RecipeSource::TrustedAdapter {
-            let Some(operation) = recipe_operation(manifest, target, recipe) else {
-                return false;
-            };
-            let Some(saved) = manifest
-                .recipes
-                .iter()
-                .chain(manifest.user_overrides.iter())
-                .find(|saved| saved.recipe_id == recipe.recipe_id)
-            else {
-                return false;
-            };
-            return saved == recipe
-                && self
-                    .verify_execution_provenance(manifest, target, operation)
-                    .is_ok();
-        }
         if !recipe.is_explicitly_user_approved() {
             return false;
         }
-        if let Some(operation) = recipe_operation(manifest, target, recipe)
+        if let Some(operation) = recipe_operation(target, recipe)
             && recipe
                 .evidence_refs
                 .iter()
@@ -74,7 +57,6 @@ impl ProjectRuntimeStore<'_> {
 }
 
 fn recipe_operation(
-    manifest: &ProjectCapabilityManifestV1,
     target: &AppTargetV1,
     recipe: &ExecutionRecipeV1,
 ) -> Option<crate::project_runtime::RuntimeOperation> {
@@ -88,19 +70,7 @@ fn recipe_operation(
         .any(|recipe_id| recipe_id == &recipe.recipe_id)
     {
         Some(RuntimeOperation::Test)
-    } else if target.start_recipe_ref.as_deref() == Some(recipe.recipe_id.as_str())
-        || target
-            .readiness_probe_ref
-            .as_ref()
-            .and_then(|probe_id| manifest.readiness_probes.get(probe_id))
-            .is_some_and(|probe| {
-                matches!(
-                    probe,
-                    crate::project_runtime::ReadinessProbeV1::CustomApprovedProbe { recipe_id }
-                        if recipe_id == &recipe.recipe_id
-                )
-            })
-    {
+    } else if target.start_recipe_ref.as_deref() == Some(recipe.recipe_id.as_str()) {
         Some(RuntimeOperation::Start)
     } else {
         None

@@ -7,7 +7,7 @@ use koolade::{
         SpecRevisionDraftV1, TaskEvent,
     },
     harness::prompt_catalog::PromptRole,
-    runtime_qa::RuntimeQaStore,
+    runtime_qa::{QaAssertionStatus, QaOutcome, RuntimeQaStore},
 };
 
 /// Production boundary: lifecycle reducers and the durable store atomically
@@ -56,15 +56,10 @@ pub(super) fn complete_subtask(
             },
         )
         .unwrap();
-    let (request, report_receipt) = qa_report::save_accepted_evidence_fixture(root, &child);
-    child = lifecycle
-        .apply_task_event(
-            task_uid,
-            child.revision,
-            &id(),
-            TaskEvent::RuntimeQaRequested(request.clone()),
-        )
-        .unwrap();
+    let (_request, outcome, report_receipt) =
+        qa_report::execute_reviewed_run(root, lifecycle, &mut child, QaAssertionStatus::Passed);
+    assert_eq!(outcome, QaOutcome::Pass);
+    let report_receipt = report_receipt.expect("accepted QA run returns a review receipt");
     child = lifecycle
         .record_runtime_qa_report(
             task_uid,

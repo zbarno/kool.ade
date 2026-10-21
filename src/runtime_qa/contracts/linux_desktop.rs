@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{QaDriverActionV1, is_sha256, is_uuid, valid_text};
 mod target;
+#[cfg(test)]
+mod tests;
 pub use target::QaValidatedTargetV1;
 
 /// App-owned observations made inside the pinned QA container. Missing GUI
@@ -94,11 +96,18 @@ impl LinuxDesktopProbeV1 {
                 "Linux desktop QA cannot expose host display, devices, or user services".into(),
             );
         }
-        let mut missing = Vec::new();
         let image_lock = crate::execution::docker::images::ImageLock::bundled()
             .map_err(|failure| failure.to_string())?;
+        self.assess_with_image_lock(&image_lock)
+    }
+
+    fn assess_with_image_lock(
+        &self,
+        image_lock: &crate::execution::docker::images::ImageLock,
+    ) -> Result<LinuxDesktopCapabilityV1, String> {
+        let mut missing = Vec::new();
         if let Err(failure) = image_lock.select(
-            crate::execution::docker::images::RuntimeProfile::BrowserQa,
+            crate::execution::docker::images::RuntimeProfile::DesktopQa,
             "amd64",
         ) {
             missing.push(format!(
@@ -139,7 +148,8 @@ impl LinuxDesktopProbeV1 {
 }
 
 /// Current-run window inventory is the authority for desktop window IDs.
-/// Model-provided IDs, browser navigation, and off-screen geometry are denied.
+/// `active` resolves only when exactly one owned window is visible. Other
+/// model-provided IDs, browser navigation, and off-screen geometry are denied.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LinuxDesktopSessionV1 {
@@ -180,7 +190,16 @@ impl LinuxDesktopSessionV1 {
         {
             return Err("Linux desktop session is invalid".into());
         }
-        let window = |id: &str| self.windows.iter().find(|window| window.window_id == id);
+        let window = |id: &str| {
+            if id == "active" {
+                match self.windows.as_slice() {
+                    [window] => Some(window),
+                    _ => None,
+                }
+            } else {
+                self.windows.iter().find(|window| window.window_id == id)
+            }
+        };
         let inside_window = |id: &str, x: u16, y: u16| {
             window(id).is_some_and(|target| {
                 x >= target.x

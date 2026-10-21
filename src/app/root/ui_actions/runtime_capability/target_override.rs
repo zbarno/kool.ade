@@ -22,6 +22,7 @@ pub(super) fn add(
     build: &RuntimeRecipeInput,
     test: &RuntimeRecipeInput,
     start: &RuntimeRecipeInput,
+    required_dependencies: &[String],
     approval_proof: crate::ui::layout::RuntimeTargetApprovalProof,
     readiness_port: &str,
     readiness_path: &str,
@@ -52,6 +53,13 @@ pub(super) fn add(
         .metadata
         .as_ref()
         .ok_or_else(|| "Task identity is unavailable.".to_owned())?;
+    let available_dependencies =
+        crate::app::root::runtime_dependencies::prepared_dependencies_for_ticket(project, ticket)
+            .into_iter()
+            .map(|dependency| dependency.request_id)
+            .collect::<std::collections::BTreeSet<_>>();
+    let selected_dependencies =
+        validate_required_dependencies(required_dependencies, &available_dependencies)?;
     let implementation = project
         .implementation_states
         .get(ticket)
@@ -137,7 +145,7 @@ pub(super) fn add(
         readiness_probe_ref: None,
         artifact_spec_ref: Some(artifact_spec_id),
         fixture_ref: None,
-        required_dependencies: Vec::new(),
+        required_dependencies: selected_dependencies.into_iter().collect(),
         supported_driver_ids: Vec::new(),
         port_needs: Vec::new(),
         environment_policy_ref: "default-deny".into(),
@@ -181,6 +189,25 @@ pub(super) fn add(
                 .to_owned()
         })
         .map_err(|error| error.to_string())
+}
+
+fn validate_required_dependencies(
+    required: &[String],
+    available: &std::collections::BTreeSet<String>,
+) -> Result<Vec<String>, String> {
+    let selected = required
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    if selected.len() != required.len()
+        || selected.len() > 128
+        || selected
+            .iter()
+            .any(|dependency| !available.contains(dependency))
+    {
+        return Err("Custom target dependencies must be selected from this task's intact, successfully prepared broker inventory.".into());
+    }
+    Ok(selected.into_iter().collect())
 }
 
 fn now_unix_ms() -> u64 {

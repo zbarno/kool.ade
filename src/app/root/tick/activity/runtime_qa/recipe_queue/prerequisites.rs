@@ -13,11 +13,9 @@ use std::{
 };
 
 mod dependencies;
-mod qa_caches;
 #[cfg(test)]
 mod tests;
 use dependencies::{parse_required_dependencies, system_packages_for_requirements};
-pub(crate) use qa_caches::prepare_qa_dependency_caches;
 
 pub(super) struct ConnectRequest<'a> {
     pub(super) workspace: WorkspaceRef,

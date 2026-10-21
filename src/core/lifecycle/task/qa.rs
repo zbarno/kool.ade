@@ -5,6 +5,9 @@ use crate::runtime_qa::QaRunRequestV1;
 use super::TaskRecord;
 use crate::core::lifecycle::{GateActor, GateDecision, GateReceipt, types::is_sha256};
 
+mod applicability;
+pub(super) use applicability::valid_not_applicable;
+
 pub(super) struct QaCompletion {
     pub qa_run_id: String,
     pub result_sha256: String,
@@ -19,6 +22,7 @@ pub enum QaExecutionStatusV1 {
     Pending,
     Blocked,
     Completed,
+    NotApplicable,
 }
 
 /// Durable pointer to one independently executed QA attempt.
@@ -33,6 +37,8 @@ pub struct QaExecutionStateV1 {
     pub evidence_manifest_sha256: Option<String>,
     pub reviewer_execution_id: Option<String>,
     pub reviewer_session_id: Option<String>,
+    #[serde(default)]
+    pub applicability: Option<crate::runtime_qa::QaApplicabilityAssessmentV1>,
 }
 
 impl QaExecutionStateV1 {
@@ -46,6 +52,7 @@ impl QaExecutionStateV1 {
             evidence_manifest_sha256: None,
             reviewer_execution_id: None,
             reviewer_session_id: None,
+            applicability: None,
         }
     }
 
@@ -75,6 +82,7 @@ impl QaExecutionStateV1 {
                     && self.evidence_manifest_sha256.is_none()
                     && self.reviewer_execution_id.is_none()
                     && self.reviewer_session_id.is_none()
+                    && self.applicability.is_none()
                     && (self.request.is_none() || request_valid)
             }
             QaExecutionStatusV1::Blocked => {
@@ -96,6 +104,7 @@ impl QaExecutionStateV1 {
                     && self.result_sha256.is_some() == self.evidence_manifest_sha256.is_some()
                     && self.reviewer_execution_id.is_none()
                     && self.reviewer_session_id.is_none()
+                    && self.applicability.is_none()
             }
             QaExecutionStatusV1::Completed => {
                 request_valid
@@ -107,6 +116,24 @@ impl QaExecutionStateV1 {
                         .is_some_and(is_sha256)
                     && self.reviewer_execution_id.as_deref().is_some_and(is_uuid)
                     && self.reviewer_session_id.as_deref().is_some_and(is_uuid)
+                    && self.applicability.is_none()
+            }
+            QaExecutionStatusV1::NotApplicable => {
+                self.request.is_none()
+                    && self.blocked_reason.is_none()
+                    && self.result_sha256.is_none()
+                    && self.evidence_manifest_sha256.is_none()
+                    && self.reviewer_execution_id.is_none()
+                    && self.reviewer_session_id.is_none()
+                    && self.applicability.as_ref().is_some_and(|assessment| {
+                        assessment.validate().is_ok()
+                            && assessment.applicability
+                                == crate::runtime_qa::QaApplicability::NotApplicable
+                            && assessment.task_uid == task.task_uid
+                            && Some(assessment.code_sha.as_str())
+                                == task.reviewed_code_head_sha.as_deref()
+                            && assessment.approved_spec_hash == task.approved_plan_sha256
+                    })
             }
         };
         if self.schema_version != 1 || !valid {
@@ -139,6 +166,7 @@ impl QaExecutionStateV1 {
             return Err("runtime QA block does not match the pending request".into());
         }
         self.status = QaExecutionStatusV1::Blocked;
+        self.applicability = None;
         self.blocked_reason = Some(reason);
         self.result_sha256 = result_sha256;
         self.evidence_manifest_sha256 = evidence_manifest_sha256;
@@ -154,6 +182,7 @@ impl QaExecutionStateV1 {
             return Err("runtime QA unavailability is not a pending request blocker".into());
         }
         self.status = QaExecutionStatusV1::Blocked;
+        self.applicability = None;
         self.blocked_reason = Some(reason);
         Ok(())
     }
@@ -207,11 +236,35 @@ impl QaExecutionStateV1 {
             );
         }
         self.status = QaExecutionStatusV1::Completed;
+        self.applicability = None;
         self.blocked_reason = None;
         self.result_sha256 = Some(result_sha256);
         self.evidence_manifest_sha256 = Some(evidence_manifest_sha256);
         self.reviewer_execution_id = Some(reviewer_execution_id);
         self.reviewer_session_id = Some(reviewer_session_id);
+        Ok(())
+    }
+
+    pub(super) fn record_not_applicable(
+        &mut self,
+        assessment: crate::runtime_qa::QaApplicabilityAssessmentV1,
+    ) -> Result<(), String> {
+        let eligible = self.status == QaExecutionStatusV1::Pending
+            || (self.status == QaExecutionStatusV1::Blocked && self.request.is_none());
+        if !eligible
+            || self.request.is_some()
+            || assessment.validate().is_err()
+            || assessment.applicability != crate::runtime_qa::QaApplicability::NotApplicable
+        {
+            return Err("runtime QA applicability decision is not pending or valid".into());
+        }
+        self.status = QaExecutionStatusV1::NotApplicable;
+        self.blocked_reason = None;
+        self.result_sha256 = None;
+        self.evidence_manifest_sha256 = None;
+        self.reviewer_execution_id = None;
+        self.reviewer_session_id = None;
+        self.applicability = Some(assessment);
         Ok(())
     }
 }

@@ -8,6 +8,7 @@ use std::{
 };
 
 use super::display::DISPLAY_NAME;
+use crate::execution::contract::DependencyCacheEcosystemV1;
 use crate::runtime_qa::{QaRunRequestV1, QaValidatedTargetV1};
 
 const LOG_LIMIT: usize = 256 * 1024;
@@ -52,7 +53,23 @@ impl TargetProcess {
             .env("XDG_RUNTIME_DIR", "/tmp")
             .env("LANG", "C.UTF-8")
             .env("GDK_BACKEND", "x11")
-            .env("QT_QPA_PLATFORM", "xcb")
+            .env("QT_QPA_PLATFORM", "xcb");
+        let ecosystems = request
+            .dependency_cache_refs
+            .iter()
+            .map(|dependency| dependency.cache_ref.ecosystem)
+            .collect::<BTreeSet<_>>();
+        if ecosystems.contains(&DependencyCacheEcosystemV1::Npm) {
+            command
+                .env("NPM_CONFIG_CACHE", "/home/executor/.npm")
+                .env("NPM_CONFIG_OFFLINE", "true");
+        }
+        if ecosystems.contains(&DependencyCacheEcosystemV1::Cargo) {
+            command
+                .env("CARGO_HOME", "/home/executor/.cargo")
+                .env("CARGO_NET_OFFLINE", "true");
+        }
+        command
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

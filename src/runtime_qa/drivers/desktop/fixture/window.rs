@@ -51,7 +51,10 @@ pub(crate) fn run() -> Result<(), String> {
         .create_gc(
             gc,
             window,
-            &CreateGCAux::new().foreground(0x00111827).font(font),
+            &CreateGCAux::new()
+                .foreground(0x00111827)
+                .background(0x00f3f4f6)
+                .font(font),
         )
         .map_err(x11_error)?
         .check()

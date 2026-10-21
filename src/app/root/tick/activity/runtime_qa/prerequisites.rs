@@ -1,12 +1,21 @@
-use super::request::verify_provenance_for_request;
 use crate::{
     app::session::Project,
     core::lifecycle::TaskRecord,
     execution::docker::images::{ImageLock, RuntimeProfile},
     project_runtime::{AppSurface, ProjectRuntimeStore},
-    project_runtime_capability::CapabilityGap,
+    project_runtime_capability::{
+        ApprovedCapabilityInventory, CapabilityGap, assess_manifest_target,
+    },
     runtime_qa::QaPlatform,
 };
+use std::collections::BTreeSet;
+
+use super::request::verify_provenance_for_request;
+
+mod cache_refs;
+pub(super) use cache_refs::{available_broker_dependencies, selected_broker_cache_refs};
+mod manager_requests;
+pub(super) use manager_requests::queue_missing_toolchain_reviews;
 
 pub(super) fn event_uid(task_uid: &str, revision: u64, label: &str) -> String {
     let namespace = uuid::Uuid::parse_str(task_uid).unwrap_or(uuid::Uuid::NAMESPACE_OID);
@@ -65,7 +74,6 @@ pub(super) fn unavailable_reason(
     let requested_surface = match request.relevant_platforms.as_slice() {
         [QaPlatform::Web] => Some(AppSurface::Web),
         [QaPlatform::LinuxDesktop] => Some(AppSurface::LinuxDesktop),
-        [QaPlatform::HeadlessService] => Some(AppSurface::HeadlessService),
         _ => None,
     };
     if requested_surface != Some(target.app_surface) {
@@ -84,30 +92,35 @@ pub(super) fn unavailable_reason(
             ));
         }
     };
-    let inventory =
-        crate::app::root::runtime_capability_inventory::RuntimeCapabilityInventory::from_locked_images(&lock);
-    let receipts = match runtime.receipts_for_task(&target.owning_task_id) {
-        Ok(receipts) => receipts,
-        Err(error) => {
-            return Some(format!(
-                "runtime recipe receipts could not be read ({error}); validate the selected target before retrying QA."
-            ));
-        }
+    let (tools, drivers) = locked_capabilities(&lock);
+    let task_progress =
+        task_progress_for_target(&project.task_documents, &project.activity.tasks, target);
+    let dependency_cache_store = crate::execution::DependencyCacheSnapshotStore::new(
+        crate::persistence::state_root().join("runtime-qa-dependency-caches"),
+    );
+    let available_dependencies = available_broker_dependencies(
+        target,
+        task,
+        &project
+            .state
+            .planning_store
+            .project_id
+            .hyphenated()
+            .to_string(),
+        task_progress,
+        &dependency_cache_store,
+    );
+    let inventory = ApprovedCapabilityInventory {
+        manifest: &manifest,
+        available_tool_ids: &tools,
+        available_dependency_ids: &available_dependencies,
+        available_driver_ids: &drivers,
     };
-    let available_dependencies =
-        crate::app::root::runtime_capability_inventory::prepared_dependency_ids_for_target(
-            &receipts,
-            &target.owning_task_id,
-            &target.target_id,
-            &manifest.source_sha,
-            target.start_recipe_ref.as_deref().unwrap_or_default(),
-            &target.required_dependencies,
-        );
-    let assessment = match inventory.assess_target(
+    let assessment = match assess_manifest_target(
         &manifest,
         &target.target_id,
         task.planning_item_uid.as_deref().unwrap_or_default(),
-        &available_dependencies,
+        &inventory,
     ) {
         Ok(assessment) => assessment,
         Err(error) => {
@@ -146,7 +159,7 @@ pub(super) fn unavailable_reason(
     }
 
     let profile = match request.relevant_platforms.as_slice() {
-        [QaPlatform::Web | QaPlatform::HeadlessService] => RuntimeProfile::BrowserQa,
+        [QaPlatform::Web] => RuntimeProfile::BrowserQa,
         [QaPlatform::LinuxDesktop] => RuntimeProfile::DesktopQa,
         _ => {
             return Some(
@@ -171,3 +184,56 @@ pub(super) fn unavailable_reason(
     }
     None
 }
+
+pub(super) fn task_progress_for_target<'a>(
+    documents: &'a [crate::artifacts::task_docs::TaskDocument],
+    activities: &'a std::collections::BTreeMap<String, crate::harness::LiveProgress>,
+    target: &crate::project_runtime::AppTargetV1,
+) -> Option<&'a crate::harness::LiveProgress> {
+    let document = documents.iter().find(|document| {
+        document
+            .metadata
+            .as_ref()
+            .is_some_and(|metadata| metadata.uid == target.owning_task_id)
+    })?;
+    activities.get(&document.path)
+}
+
+pub(super) fn locked_capabilities(lock: &ImageLock) -> (BTreeSet<String>, BTreeSet<String>) {
+    let profiles = [
+        RuntimeProfile::General,
+        RuntimeProfile::Rust,
+        RuntimeProfile::Node,
+        RuntimeProfile::Python,
+        RuntimeProfile::Go,
+    ];
+    let mut tools = BTreeSet::new();
+    for profile in profiles {
+        for architecture in ["amd64", "arm64"] {
+            if let Ok(image) = lock.select(profile, architecture) {
+                tools.extend(
+                    image
+                        .tool_versions
+                        .into_keys()
+                        .filter(|tool| !matches!(tool.as_str(), "base" | "shell")),
+                );
+            }
+        }
+    }
+    let drivers = [
+        ("web-driver", RuntimeProfile::BrowserQa),
+        ("linux-desktop-driver", RuntimeProfile::DesktopQa),
+    ]
+    .into_iter()
+    .filter(|(_, profile)| {
+        ["amd64", "arm64"]
+            .into_iter()
+            .any(|architecture| lock.select(*profile, architecture).is_ok())
+    })
+    .map(|(id, _)| id.to_owned())
+    .collect();
+    (tools, drivers)
+}
+
+#[cfg(test)]
+mod tests;

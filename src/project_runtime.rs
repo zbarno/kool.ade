@@ -4,7 +4,7 @@ mod adapter;
 mod discovery;
 mod executor;
 mod recipe;
-pub(crate) mod source;
+mod source;
 mod store;
 mod target;
 

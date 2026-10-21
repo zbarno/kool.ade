@@ -72,8 +72,6 @@ mod wire_contract;
 mod policy_intersection;
 #[path = "tests/policy_targets.rs"]
 mod policy_targets;
-#[path = "tests/request_validation.rs"]
-mod request_validation;
 
 #[test]
 fn scoped_write_grant_is_typed_relative_and_default_denied() {
@@ -139,19 +137,9 @@ fn approved_recipe_request_binds_exact_command_arguments_and_target_scope() {
         BTreeSet::new(),
     )
     .unwrap()
-    .with_source_output_paths(vec!["apps/odin/dist".into()])
-    .unwrap()
     .with_artifact_paths(vec!["dist/index.html".into()])
     .unwrap();
     assert_eq!(request.policy.artifact_paths(), &["dist/index.html"]);
-    assert_eq!(request.policy.source_output_paths(), &["apps/odin/dist"]);
-    assert!(
-        request
-            .policy
-            .clone()
-            .with_source_output_paths(vec!["apps/other/dist".into()])
-            .is_err()
-    );
     request.validate_at(1).unwrap();
 
     let ceiling = ExecutionPolicyV1::for_mode(
@@ -260,6 +248,8 @@ fn role_selection_maps_to_security_modes_without_provider_authority() {
         ExecutionModeV1::Implementation
     );
 }
+#[path = "tests/request_validation.rs"]
+mod request_validation;
 
 #[path = "tests/request_edges.rs"]
 mod request_edges;

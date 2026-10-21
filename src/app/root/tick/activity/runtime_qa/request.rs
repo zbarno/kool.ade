@@ -27,6 +27,7 @@ pub(super) struct ReviewedTaskInputs<'a> {
     pub build: &'a RuntimeReceiptV1,
     pub artifact_paths: &'a [String],
     pub driver_profile_version: &'a str,
+    pub dependency_cache_refs: &'a [(String, crate::execution::contract::DependencyCacheRefV1)],
 }
 
 pub(super) struct PreparedRequest {
@@ -41,6 +42,28 @@ pub(super) struct PreparedRequest {
     pub readiness_probe: Option<crate::project_runtime::ReadinessProbeV1>,
     pub task_routes:
         std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
+}
+
+pub(super) fn scenario_synthesis_evidence(
+    project: &Project,
+    task: &TaskRecord,
+    prepared: &PreparedRequest,
+) -> Result<crate::runtime_qa::scenario_synthesis::QaScenarioSourceEvidenceV1, String> {
+    let current = prepare(project, task)?;
+    if current.request != prepared.request
+        || current.build_receipt != prepared.build_receipt
+        || current.target != prepared.target
+        || current.artifact_paths != prepared.artifact_paths
+    {
+        return Err(
+            "Runtime QA build, target, or artifact set changed during scenario synthesis.".into(),
+        );
+    }
+    crate::runtime_qa::scenario_synthesis::QaScenarioSourceEvidenceV1::from_prepared(
+        &current.task_clone,
+        &current.artifact_paths,
+        &current.build_receipt.artifact_hashes,
+    )
 }
 
 /// Resolve request inputs only from persisted task, review, runtime target,
@@ -174,6 +197,16 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
                 "the approved {profile_key} image profile has no reviewed driver version; build and review the pinned QA image, then retry"
             )
         })?;
+    let workspace_project_id = implementation
+        .workspace_uid
+        .as_deref()
+        .ok_or_else(|| "runtime QA task clone has no workspace identity".to_owned())?;
+    let dependency_cache_refs = super::prerequisites::selected_broker_cache_refs(
+        target,
+        task,
+        workspace_project_id,
+        project.activity.tasks.get(&document.path),
+    );
     let request = from_reviewed_task(ReviewedTaskInputs {
         task,
         task_text: &document.text,
@@ -183,6 +216,7 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
         build,
         artifact_paths: &artifact_paths,
         driver_profile_version: driver_version,
+        dependency_cache_refs: &dependency_cache_refs,
     })?;
     let readiness_probe = target
         .readiness_probe_ref
@@ -233,6 +267,22 @@ fn workspace_target_path(target_root: &str, path: &str) -> Result<String, String
     } else {
         Ok(format!("{target_root}/{path}"))
     }
+}
+
+pub(super) fn selected_headless_target(project: &Project, task: &TaskRecord) -> bool {
+    let Some(planning_uid) = task.planning_item_uid.as_deref() else {
+        return false;
+    };
+    let Ok(Some(manifest)) =
+        ProjectRuntimeStore::new(&project.state.planning_store).load_manifest()
+    else {
+        return false;
+    };
+    manifest.candidate_targets.iter().any(|target| {
+        target.app_surface == AppSurface::HeadlessService
+            && target.owning_task_id == planning_uid
+            && manifest.is_active_target(planning_uid, &target.target_id)
+    })
 }
 
 pub(super) fn latest_successful_build_receipt<'a>(

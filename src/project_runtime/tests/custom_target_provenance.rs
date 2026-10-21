@@ -99,3 +99,49 @@ fn trusted_adapter_start_approval_binds_custom_probe_content() {
     manifest.recipes[1].source = RecipeSource::UserApproved;
     assert!(ProjectRuntimeStore::trusted_adapter_origin_sha256(&manifest, &target).is_err());
 }
+
+#[test]
+fn discovered_target_origin_is_bound_to_workspace_and_source_revision() {
+    let target = AppTargetV1 {
+        target_id: "discovered-target".into(),
+        owning_task_id: "task-runtime".into(),
+        repository_id: "repo-runtime".into(),
+        app_surface: AppSurface::Web,
+        project_relative_root: "apps/site".into(),
+        build_recipe_ref: None,
+        test_recipe_refs: Vec::new(),
+        start_recipe_ref: None,
+        readiness_probe_ref: None,
+        artifact_spec_ref: None,
+        fixture_ref: None,
+        required_dependencies: Vec::new(),
+        supported_driver_ids: Vec::new(),
+        port_needs: Vec::new(),
+        environment_policy_ref: "default-deny".into(),
+        capability_state: TargetCapabilityState::ReadyButUntested,
+    };
+    let origin = ProjectRuntimeStore::discovered_target_origin_sha256(
+        "workspace-a",
+        &"a".repeat(40),
+        &target,
+    )
+    .unwrap();
+    assert_ne!(
+        origin,
+        ProjectRuntimeStore::discovered_target_origin_sha256(
+            "workspace-b",
+            &"a".repeat(40),
+            &target,
+        )
+        .unwrap()
+    );
+    assert_ne!(
+        origin,
+        ProjectRuntimeStore::discovered_target_origin_sha256(
+            "workspace-a",
+            &"b".repeat(40),
+            &target,
+        )
+        .unwrap()
+    );
+}

@@ -201,6 +201,7 @@ fn worker_rejects_revoked_prepared_start_after_selection_changes_to_new_target()
         schema_version: 1,
         qa_run_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         parent_task_uid: task_id.clone(),
+        planning_item_uid: None,
         feature_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
         code_head_sha: current.source_sha.clone(),
         build_artifact_sha256: "b".repeat(64),
@@ -215,6 +216,7 @@ fn worker_rejects_revoked_prepared_start_after_selection_changes_to_new_target()
         execution_session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         driver_profile_version: "test-driver".into(),
         test_data_fixture_ref: None,
+        dependency_cache_refs: Vec::new(),
         bounded_limits: QaBoundedLimitsV1 {
             max_scenarios: 1,
             max_actions_per_scenario: 1,
@@ -257,7 +259,7 @@ fn worker_rejects_revoked_prepared_start_after_selection_changes_to_new_target()
         task_routes: Default::default(),
     };
     let (_cancel_sender, cancel_receiver) = tokio::sync::watch::channel(false);
-    let (progress, _progress_receiver) = std::sync::mpsc::channel();
+    let (progress_sender, _progress_receiver) = std::sync::mpsc::channel();
     let error = run(
         prepared,
         Vec::new(),
@@ -265,7 +267,7 @@ fn worker_rejects_revoked_prepared_start_after_selection_changes_to_new_target()
         root.path().join("runtime-qa"),
         Arc::new(AtomicBool::new(false)),
         cancel_receiver,
-        progress,
+        progress_sender,
     )
     .unwrap_err();
     assert!(error.contains("runtime target is no longer the active selection"));

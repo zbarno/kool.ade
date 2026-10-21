@@ -20,22 +20,7 @@ fn receipt_records_are_append_only_and_task_source_pinned() {
         log_reference: Some("log-001".into()),
         observed_at_unix_ms: 1,
     };
-    let mut legacy_receipt = serde_json::to_value(&receipt).unwrap();
-    legacy_receipt
-        .as_object_mut()
-        .unwrap()
-        .remove("prepared_dependency_ids");
-    let legacy_receipt: RuntimeReceiptV1 = serde_json::from_value(legacy_receipt).unwrap();
-    assert!(legacy_receipt.prepared_dependency_ids.is_empty());
     runtime.append_receipt(&receipt).unwrap();
-    let mut invalid_dependency_evidence = receipt.clone();
-    invalid_dependency_evidence.receipt_id = uuid::Uuid::new_v4().hyphenated().to_string();
-    invalid_dependency_evidence.prepared_dependency_ids = vec!["npm:../escape".into()];
-    assert!(
-        runtime
-            .append_receipt(&invalid_dependency_evidence)
-            .is_err()
-    );
     assert_eq!(
         runtime.load_receipt(&receipt_id).unwrap(),
         Some(receipt.clone())

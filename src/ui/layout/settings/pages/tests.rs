@@ -44,6 +44,7 @@ fn execution_environment_view_shows_readiness_and_safe_setup_guidance() {
             execution_environments::paint_view(ui, &status, &[], None, &mut settings, false, None);
         },
     );
+    output.textures_delta.clear();
     let text = output
         .shapes
         .iter()
@@ -66,9 +67,12 @@ fn execution_environment_view_shows_readiness_and_safe_setup_guidance() {
         "QA execution stays disabled",
         "Browser QA image:",
         "Linux desktop QA image and software display:",
-        "unavailable; pinned image is not runtime-enabled by policy",
-        "Preview port relay: not verified for release (#171).",
-        "Evidence capacity and retention: not reported as runtime readiness yet.",
+        "disabled by reviewed image policy",
+        "not verified locally",
+        "Preview port relay: unavailable; Docker is not ready",
+        "Evidence storage:",
+        "Per-run evidence is capped",
+        "there is no automatic expiry yet",
     ] {
         assert!(
             text.iter().any(|line| line.contains(expected)),
@@ -80,5 +84,4 @@ fn execution_environment_view_shows_readiness_and_safe_setup_guidance() {
             .any(|line| line.contains("rootless Docker Engine"))
     );
     assert!(text.iter().any(|line| line.contains("task claim")));
-    output.textures_delta.clear();
 }

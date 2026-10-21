@@ -93,3 +93,25 @@ fn new_profile_versions_are_fixed_by_validation() {
     go[0].tool_versions.insert("go".into(), "1.26.7".into());
     assert!(lock.validate().is_err());
 }
+
+#[test]
+fn enabled_desktop_profile_requires_candidate_chromium_and_dbus_metadata() {
+    let mut lock = ImageLock::bundled().unwrap();
+    let desktop = lock.profiles.get_mut("desktop_qa").unwrap();
+    assert!(desktop.iter().all(|variant| !variant.runtime_enabled));
+
+    desktop[0].tool_versions.remove("chromium");
+    desktop[0].tool_versions.remove("dbus");
+    desktop[0].runtime_enabled = true;
+    assert!(lock.validate().is_err());
+
+    lock.profiles.get_mut("desktop_qa").unwrap()[0]
+        .tool_versions
+        .insert("chromium".into(), "143.0.7499.4".into());
+    assert!(lock.validate().is_err());
+
+    lock.profiles.get_mut("desktop_qa").unwrap()[0]
+        .tool_versions
+        .insert("dbus".into(), "1.14.10-4ubuntu4.1".into());
+    lock.validate().unwrap();
+}

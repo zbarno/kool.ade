@@ -17,7 +17,7 @@ use crate::{
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_web(
-    session: &Arc<ExecutionSession>,
+    session: &ExecutionSession,
     prepared: &PreparedRequest,
     request: &QaRunRequestV1,
     scenarios: &[QaScenarioV1],
@@ -26,11 +26,11 @@ pub(super) fn run_web(
     resources: &ResourceBudgetV1,
     browser_image: &SelectedImage,
     architecture: String,
+    dependency_caches: &[crate::harness::resource_bridge::CacheSnapshot],
     store: &RuntimeQaStore,
     harness: Box<dyn crate::harness::AiHarness>,
     cancel: &mut tokio::sync::watch::Receiver<bool>,
     cancelled: Arc<AtomicBool>,
-    progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
 ) -> Result<(), String> {
     let (port, health_path) = web_readiness(prepared)?;
     session.recover_qa_web_preview(request).map_err(|error| {
@@ -39,15 +39,6 @@ pub(super) fn run_web(
             error.message
         )
     })?;
-    let _dependency_bridge = crate::app::root::tick::activity::runtime_qa::recipe_queue::prerequisites::prepare_qa_dependency_caches(
-        Arc::clone(session),
-        &prepared.task_clone,
-        &prepared.target.project_relative_root,
-        &prepared.target.target_id,
-        &prepared.target.required_dependencies,
-        Arc::clone(&cancelled),
-        progress,
-    )?;
     let image_lock = ImageLock::bundled().map_err(|error| error.message)?;
     let required_tools = std::iter::once(prepared.startup_recipe.executable_id.clone())
         .chain(
@@ -72,9 +63,6 @@ pub(super) fn run_web(
             &required_tools,
         )
         .map_err(|error| error.message)?;
-    let dependency_cache_refs = session
-        .dependency_cache_refs()
-        .map_err(|error| error.message)?;
     let preview = session
         .start_qa_web_preview(
             crate::execution::docker::qa_container::QaWebPreviewSpec {
@@ -83,7 +71,7 @@ pub(super) fn run_web(
                 service_image: &service_image,
                 recipe: &prepared.startup_recipe,
                 artifact_upload,
-                dependency_cache_refs: &dependency_cache_refs,
+                dependency_caches,
                 preview_port: port,
                 health_path: &health_path,
                 resources,
@@ -103,6 +91,7 @@ pub(super) fn run_web(
         image: browser_image,
         artifact_mount,
         artifact_upload,
+        dependency_caches: &[],
         resources,
         desktop_target: None,
         service_lease: Some(&preview.service_lease),
@@ -110,27 +99,16 @@ pub(super) fn run_web(
         store,
         cancellation: cancel,
     };
-    let authorization = match request.relevant_platforms.as_slice() {
-        [crate::runtime_qa::QaPlatform::Web] => QaTargetAuthorization::Web(&preview.service_lease),
-        [crate::runtime_qa::QaPlatform::HeadlessService] => {
-            QaTargetAuthorization::HeadlessService(&preview.service_lease)
-        }
-        _ => {
-            let _ = session.cleanup_qa_web_preview(&preview.service_lease, &preview.relay_binding);
-            return Err("task preview was created for an unsupported QA platform".into());
-        }
-    };
     let result = run_reviewed(
         request,
         scenarios,
-        authorization,
+        QaTargetAuthorization::Web(&preview.service_lease),
         driver,
         harness,
         &prepared.workspace,
         &prepared.task_clone,
         store,
         cancelled,
-        &prepared.artifact_paths,
     );
     let cleanup = session
         .cleanup_qa_web_preview(&preview.service_lease, &preview.relay_binding)
@@ -148,6 +126,7 @@ pub(super) fn run_desktop(
     artifact_mount: QaArtifactMount,
     resources: &ResourceBudgetV1,
     image: &SelectedImage,
+    dependency_caches: &[crate::harness::resource_bridge::CacheSnapshot],
     store: &RuntimeQaStore,
     harness: Box<dyn crate::harness::AiHarness>,
     cancel: &mut tokio::sync::watch::Receiver<bool>,
@@ -160,6 +139,7 @@ pub(super) fn run_desktop(
         image,
         artifact_mount,
         artifact_upload,
+        dependency_caches,
         resources,
         desktop_target: Some(&target),
         service_lease: None,
@@ -177,7 +157,6 @@ pub(super) fn run_desktop(
         &prepared.task_clone,
         store,
         cancelled,
-        &prepared.artifact_paths,
     )
 }
 

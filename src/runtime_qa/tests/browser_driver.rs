@@ -32,6 +32,21 @@ fn headless_service_scenarios_are_bounded_api_only_and_nonvisual() {
         expected_body_contains: None,
     };
     assert!(scenario.validate(&request).is_err());
+    for path in [
+        "/%2e%2e/private",
+        "/.%2e/private",
+        "/%2e./private",
+        "/%2E%2e/private",
+    ] {
+        scenario.steps[0].driver_action = QaDriverActionV1::ApiRequest {
+            method: QaHttpMethodV1::Get,
+            path: path.into(),
+            json_body: None,
+            expected_status: 200,
+            expected_body_contains: None,
+        };
+        assert!(scenario.validate(&request).is_err(), "accepted path {path}");
+    }
     scenario.steps[0].driver_action = QaDriverActionV1::ApiRequest {
         method: QaHttpMethodV1::Get,
         path: "/items?token=secret".into(),
@@ -49,6 +64,9 @@ fn headless_service_scenarios_are_bounded_api_only_and_nonvisual() {
     };
     assert!(scenario.validate(&request).is_err());
     scenario.visual_expectations.push("blue button".into());
+    assert!(scenario.validate(&request).is_err());
+    scenario.visual_expectations.clear();
+    scenario.steps[0].screenshot_checkpoint = true;
     assert!(scenario.validate(&request).is_err());
 }
 

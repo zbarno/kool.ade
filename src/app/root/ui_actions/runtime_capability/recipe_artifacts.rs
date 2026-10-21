@@ -28,7 +28,7 @@ mod tests {
         assert_eq!(parse(" \n\t\n").unwrap(), Vec::<String>::new());
         assert_eq!(
             parse("dist/index.html\nassets/app.js\n").unwrap(),
-            vec!["dist/index.html", "assets/app.js"]
+            vec!["dist/index.html".to_owned(), "assets/app.js".to_owned()]
         );
     }
 
