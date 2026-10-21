@@ -272,8 +272,10 @@ pub(super) fn auto_session_excluding(
                 )?;
                 return Ok(session);
             }
-            Err(_) => {
-                retry_test_diagnostic(|| "automatic routing rejected a worker session".to_owned());
+            Err(error) => {
+                retry_test_diagnostic(|| {
+                    format!("automatic routing rejected a worker session: {error:#}")
+                });
                 continue;
             }
         }
