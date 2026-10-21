@@ -4,7 +4,7 @@ use super::{
 use crate::core::implementation::PullRequestState;
 use crate::core::lifecycle::{LifecycleStore, PullRequestPreparationStatus, TaskPhase};
 
-mod fixture;
+pub(in crate::core::implementation) mod fixture;
 mod recovery;
 use fixture::Fixture;
 
