@@ -102,6 +102,13 @@ elif [ "$2" = view ]; then
  base_branch=$(awk 'previous {print; exit} $0=="--base" {previous=1}' "$root/pr-args")
  base=$(git --git-dir "$root/remote.git" rev-parse "refs/heads/$base_branch")
  printf '{"url":"https://github.com/fixture/repo/pull/1","number":1,"state":"OPEN","headRefOid":"%s","baseRefOid":"%s","baseRefName":"%s"}\n' "$head" "$base" "$base_branch"
+elif [ "$2" = create ]; then
+ if [ -f "$root/advance-main-on-create" ]; then
+  git --git-dir "$root/remote.git" update-ref refs/heads/main "$(cat "$root/advance-main-on-create")"
+ fi
+ printf '%s\n' "$@" > "$root/pr-args"
+ echo created >> "$root/pr-created"
+ echo 'https://github.com/fixture/repo/pull/1'
 else
  printf '%s\n' "$@" > "$root/pr-args"
  echo created >> "$root/pr-created"
