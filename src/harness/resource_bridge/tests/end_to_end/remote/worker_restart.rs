@@ -57,6 +57,7 @@ fn ssh_worker_restart_reconciles_started_exec_and_rejects_partial_result() {
         &session_a,
         "restart-started",
         &mut controller,
+        &task_home_path,
         &root.join("sshd.log"),
     );
     session_a.terminate_remote_connection_for_test();

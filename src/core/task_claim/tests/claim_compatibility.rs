@@ -56,6 +56,7 @@ fn remote_claim_metadata_rejects_oversized_and_control_character_fields() {
         issued_at_utc: 1,
         expires_at_utc: 901,
         takeover_history: Box::default(),
+        execution_attempt: None,
     };
     assert!(super::super::git::validate_remote_record(&valid).is_ok());
     let mut oversized = valid.clone();
@@ -64,6 +65,37 @@ fn remote_claim_metadata_rejects_oversized_and_control_character_fields() {
     let mut control = valid;
     control.session_id = "bad\nowner".into();
     assert!(super::super::git::validate_remote_record(&control).is_err());
+}
+
+#[test]
+fn execution_attempt_metadata_requires_the_fenced_claim_schema() {
+    let mut claim = ClaimRecord {
+        schema_version: 4,
+        project_uid: uuid::Uuid::new_v4().to_string(),
+        task_uid: "task-uid".into(),
+        owner: "Kool.ad/e session".into(),
+        operator_id: uuid::Uuid::new_v4().to_string(),
+        session_id: uuid::Uuid::new_v4().to_string(),
+        code_repository_id: "web".into(),
+        base_commit: "a".repeat(40),
+        issued_at_utc: 1,
+        expires_at_utc: 901,
+        takeover_history: Box::default(),
+        execution_attempt: Some(crate::core::task_claim::ClaimExecutionAttempt {
+            attempt_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+            started_at_utc: 1,
+            status: crate::core::task_claim::ClaimExecutionAttemptStatus::Prepared,
+        }),
+    };
+    assert!(super::super::git::validate_remote_record(&claim).is_ok());
+    let mut unknown_attempt_field = serde_json::to_value(&claim).unwrap();
+    unknown_attempt_field["executionAttempt"]["unexpected"] = serde_json::json!(true);
+    assert!(serde_json::from_value::<ClaimRecord>(unknown_attempt_field).is_err());
+    let mut worker_identity = serde_json::to_value(&claim).unwrap();
+    worker_identity["executionAttempt"]["workerId"] = serde_json::json!("worker-east");
+    assert!(serde_json::from_value::<ClaimRecord>(worker_identity).is_err());
+    claim.schema_version = 3;
+    assert!(super::super::git::validate_remote_record(&claim).is_err());
 }
 
 #[test]

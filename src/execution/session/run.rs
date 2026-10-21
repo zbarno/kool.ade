@@ -6,7 +6,9 @@ use crate::execution::{
 
 use super::{ExecutionOutput, ExecutionSession};
 
+mod attempt;
 mod collect;
+use attempt::confirmed_worker_loss;
 
 impl ExecutionSession {
     pub(super) async fn run_request(
@@ -72,6 +74,19 @@ impl ExecutionSession {
             let _ = self.backend.release_workspace(&lease).await;
             return Err(error);
         }
+        if let Err(error) = self.verify_authorization() {
+            let _ = self.backend.release_workspace(&lease).await;
+            return Err(error);
+        }
+        if matches!(
+            &self.target.location,
+            crate::execution::contract::TargetLocation::Remote { .. }
+        ) && let Some(verifier) = &self.authorization_verifier
+            && let Err(error) = verifier.mark_remote_attempt_started()
+        {
+            let _ = self.backend.release_workspace(&lease).await;
+            return Err(error);
+        }
         let handle = match self.backend.start(&lease, &request).await {
             Ok(handle) => handle,
             Err(error) => {
@@ -80,6 +95,12 @@ impl ExecutionSession {
                         == crate::execution::errors::REMOTE_START_CAPACITY_REJECTION_MESSAGE
                 {
                     let _ = self.rollback_rejected_remote_capacity_start();
+                    if let Some(verifier) = &self.authorization_verifier
+                        && let Err(fence_error) = verifier.finish_remote_attempt()
+                    {
+                        let _ = self.backend.release_workspace(&lease).await;
+                        return Err(fence_error);
+                    }
                 }
                 let _ = self.backend.release_workspace(&lease).await;
                 return Err(error);
@@ -126,7 +147,24 @@ impl ExecutionSession {
             let _ = self.backend.release_workspace(&lease).await;
             return Err(cancelled_error());
         }
-        let result = self.collect_request(&handle, &request).await;
+        let mut result = self.collect_request(&handle, &request).await;
+        if let (Ok(output), crate::execution::contract::TargetLocation::Remote { .. }) =
+            (&result, &self.target.location)
+            && let Some(verifier) = &self.authorization_verifier
+        {
+            let transition = if confirmed_worker_loss(&output.result) {
+                let active = self.active.lock().map_err(|_| internal_error())?.clone();
+                if let Some((handle, _)) = active {
+                    self.backend.discard_interrupted_result(&handle).await?;
+                }
+                verifier.confirm_remote_attempt_lost()
+            } else {
+                verifier.finish_remote_attempt()
+            };
+            if let Err(error) = transition {
+                result = Err(error);
+            }
+        }
         if result.is_err()
             || self
                 .cancel_requested
@@ -146,6 +184,7 @@ impl ExecutionSession {
         let release = self.backend.release(&handle).await;
         let workspace_release = self.backend.release_workspace(&lease).await;
         match (result, release, workspace_release) {
+            (Ok(output), _, _) if confirmed_worker_loss(&output.result) => Ok((output, None)),
             (Ok(output), Ok(()), Ok(())) => Ok((output, None)),
             (Err(error), _, _) => Err(error),
             (_, Err(error), _) | (_, _, Err(error)) => Err(error),

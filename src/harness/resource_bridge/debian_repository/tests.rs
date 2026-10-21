@@ -11,21 +11,18 @@ fn fixture(name: &str) -> Vec<u8> {
     .unwrap()
 }
 
-fn fixture_clock() -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339("2026-10-17T00:00:00Z")
-        .unwrap()
-        .with_timezone(&Utc)
+fn verify_fixture_at_signed_date(
+    keyring: &[u8],
+    fingerprints: &[&str],
+) -> anyhow::Result<SignedRelease> {
+    let now = DateTime::parse_from_rfc3339("2026-10-18T00:00:00Z")?.with_timezone(&Utc);
+    verify_inrelease_with_keyring_at(&fixture("InRelease"), keyring, fingerprints, now)
 }
 
 #[test]
 fn synthetic_signed_bookworm_release_is_accepted_and_scoped() {
-    let release = verify_inrelease_with_keyring_at(
-        &fixture("InRelease"),
-        &fixture("archive-keyring.gpg"),
-        &[SIGNER],
-        fixture_clock(),
-    )
-    .unwrap();
+    let release =
+        verify_fixture_at_signed_date(&fixture("archive-keyring.gpg"), &[SIGNER]).unwrap();
     assert_eq!(release.origin, "Debian");
     assert_eq!(release.suite, "bookworm");
     assert_eq!(release.codename, "bookworm");
@@ -56,20 +53,14 @@ fn signed_release_rejects_tampering_and_untrusted_signers() {
         .unwrap();
     changed[offset..offset + original.len()].copy_from_slice(replacement);
     assert!(
-        verify_inrelease_with_keyring_at(
-            &changed,
-            &fixture("archive-keyring.gpg"),
-            &[SIGNER],
-            fixture_clock(),
-        )
-        .is_err()
+        verify_inrelease_with_keyring(&changed, &fixture("archive-keyring.gpg"), &[SIGNER])
+            .is_err()
     );
     assert!(
-        verify_inrelease_with_keyring_at(
+        verify_inrelease_with_keyring(
             &fixture("InRelease"),
             BOOKWORM_KEYRING,
-            BOOKWORM_FINGERPRINTS,
-            fixture_clock(),
+            BOOKWORM_FINGERPRINTS
         )
         .is_err()
     );
@@ -79,24 +70,14 @@ fn signed_release_rejects_tampering_and_untrusted_signers() {
 fn unpinned_archive_keys_cannot_block_a_valid_pinned_signer() {
     let mut keyring = BOOKWORM_KEYRING.to_vec();
     keyring.extend(fixture("archive-keyring.gpg"));
-    let release = verify_inrelease_with_keyring_at(
-        &fixture("InRelease"),
-        &keyring,
-        &[SIGNER],
-        fixture_clock(),
-    );
+    let release = verify_fixture_at_signed_date(&keyring, &[SIGNER]);
     assert!(release.is_ok());
 }
 
 #[test]
 fn signed_index_size_and_digest_are_enforced() {
-    let release = verify_inrelease_with_keyring_at(
-        &fixture("InRelease"),
-        &fixture("archive-keyring.gpg"),
-        &[SIGNER],
-        fixture_clock(),
-    )
-    .unwrap();
+    let release =
+        verify_fixture_at_signed_date(&fixture("archive-keyring.gpg"), &[SIGNER]).unwrap();
     assert!(verify_index_bytes(&release, "main/binary-amd64/Packages.gz", b"").is_ok());
     assert!(verify_index_bytes(&release, "main/binary-arm64/Packages.gz", b"").is_err());
     assert!(verify_index_bytes(&release, "../Packages.gz", b"").is_err());
@@ -143,6 +124,7 @@ fn supplied_valid_until_is_enforced_even_when_date_is_recent() {
     let date = Utc::now().format("%a, %d %b %Y %H:%M:%S +0000");
     let expiry = (Utc::now() - chrono::Duration::minutes(1)).format("%a, %d %b %Y %H:%M:%S +0000");
     assert!(
-        validate_release_window(&date.to_string(), Some(&expiry.to_string()), Utc::now()).is_err()
+        validate_release_window_at(&date.to_string(), Some(&expiry.to_string()), Utc::now())
+            .is_err()
     );
 }

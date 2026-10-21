@@ -8,6 +8,9 @@ impl ExecutionSession {
         need: crate::harness::DependencyNeed,
     ) -> Result<crate::execution::remote::dependency::DependencyRelayRequestV1, ExecutionError>
     {
+        if let Some(destination) = self.retry_destination()? {
+            return destination.relay_dependency_request(need);
+        }
         self.verify_authorization()?;
         let cancellation_generation = self.cancellation_generation.load(Ordering::Acquire);
         if cancellation_generation == 0 || self.cancel_requested.load(Ordering::Acquire) {
@@ -59,6 +62,9 @@ impl ExecutionSession {
         &self,
         response: crate::execution::remote::dependency::DependencyRelayResponseV1,
     ) -> Result<(), ExecutionError> {
+        if let Some(destination) = self.retry_destination()? {
+            return destination.relay_dependency_decision(response);
+        }
         self.verify_authorization()?;
         if self.cancel_requested.load(Ordering::Acquire)
             || response.cancellation_generation
