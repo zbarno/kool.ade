@@ -37,7 +37,7 @@ impl DependencyCacheSnapshotStore {
         dependency_request_id: &str,
         snapshot: &CacheSnapshot,
     ) -> anyhow::Result<()> {
-        validate_dependency_request_id(dependency_request_id)?;
+        crate::execution::contract::validate_dependency_request_id(dependency_request_id)?;
         snapshot
             .manifest
             .validate_ref(&snapshot.cache_ref, &snapshot.archive)?;
@@ -121,7 +121,7 @@ impl DependencyCacheSnapshotStore {
         dependency_request_id: &str,
         expected_ref: &crate::execution::contract::DependencyCacheRefV1,
     ) -> anyhow::Result<CacheSnapshot> {
-        validate_dependency_request_id(dependency_request_id)?;
+        crate::execution::contract::validate_dependency_request_id(dependency_request_id)?;
         expected_ref.validate()?;
         let directory = self.snapshot_dir(dependency_request_id, expected_ref)?;
         ensure_real_directory(&directory)?;
@@ -152,7 +152,6 @@ impl DependencyCacheSnapshotStore {
         dependency_request_id: &str,
         cache_ref: &crate::execution::contract::DependencyCacheRefV1,
     ) -> anyhow::Result<PathBuf> {
-        validate_dependency_request_id(dependency_request_id)?;
         let identity = serde_json::to_vec(&(dependency_request_id, cache_ref))?;
         let name = format!("{:x}", Sha256::digest(identity));
         Ok(self.root.join(name))
@@ -182,16 +181,6 @@ impl DependencyCacheSnapshotStore {
         fs2::FileExt::lock_exclusive(&lock)?;
         Ok(lock)
     }
-}
-
-fn validate_dependency_request_id(value: &str) -> anyhow::Result<()> {
-    let uuid = value.strip_prefix("dependency-").unwrap_or(value);
-    let parsed = uuid::Uuid::parse_str(uuid)?;
-    anyhow::ensure!(
-        parsed.hyphenated().to_string() == uuid,
-        "dependency request identity must use a canonical UUID"
-    );
-    Ok(())
 }
 
 fn ensure_real_directory(path: &std::path::Path) -> anyhow::Result<()> {
