@@ -238,6 +238,10 @@ fn write_stack_fixture(root: &std::path::Path, tool: &str) {
                 "[package]\nname = \"stack_fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[profile.dev]\ndebug = 0\nincremental = false\n",
             ),
             (
+                "Cargo.lock",
+                "version = 4\n\n[[package]]\nname = \"stack_fixture\"\nversion = \"0.1.0\"\n",
+            ),
+            (
                 "src/main.rs",
                 "fn main() { println!(\"STARTED\"); }\n#[cfg(test)] mod tests { #[test] fn passes() { assert_eq!(2 + 2, 4); } }\n",
             ),
