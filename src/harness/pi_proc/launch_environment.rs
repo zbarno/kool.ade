@@ -248,7 +248,7 @@ mod tests {
         ] {
             assert!(
                 filter_environment(provider, source.clone()).is_empty(),
-                "{provider:?} received Codex-only credentials"
+                "non-Codex provider received Codex-only credentials"
             );
         }
     }
