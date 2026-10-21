@@ -41,6 +41,13 @@ fn scoped_capture_failure_categories_are_safe_and_specific() {
         "a symbolic link or loop was encountered"
     );
     assert_eq!(
+        scoped_capture_failure_reason(
+            &anyhow::Error::new(std::io::Error::from(std::io::ErrorKind::Other))
+                .context("workspace file contents could not be read")
+        ),
+        "reading workspace file contents failed (error kind Other)"
+    );
+    assert_eq!(
         scoped_capture_failure_reason(&anyhow!("host path /secret/customer/data was rejected")),
         "a filesystem safety check failed"
     );

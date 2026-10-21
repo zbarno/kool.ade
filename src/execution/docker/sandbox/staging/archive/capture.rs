@@ -1,10 +1,11 @@
-use std::{
-    fs,
-    io::Read,
-    path::{Component, Path},
-};
+use std::{fs, io::Read, path::Path};
 
 use tar::{Builder, EntryType, Header};
+
+mod diagnostics;
+mod filesystem;
+use diagnostics::io_failure;
+use filesystem::{open_root_nofollow, read_child_names};
 
 use super::super::archive::{Fingerprint, Manifest, hash, validate_relative};
 
@@ -32,7 +33,9 @@ pub(crate) fn capture(
             entry_limit,
             read_only,
         )?;
-        let archive = builder.into_inner()?;
+        let archive = builder
+            .into_inner()
+            .map_err(|error| io_failure("workspace archive could not be finalized", error))?;
         anyhow::ensure!(
             archive.len() as u64 <= byte_limit,
             "archive exceeds staging budget"
@@ -61,7 +64,9 @@ fn append_directory(
         fd::{AsRawFd, FromRawFd},
         unix::{ffi::OsStrExt, fs::MetadataExt},
     };
-    let before = directory.metadata()?;
+    let before = directory
+        .metadata()
+        .map_err(|error| io_failure("workspace directory metadata could not be read", error))?;
     let mut children = read_child_names(directory)?;
     children.sort();
     for name in children {
@@ -108,7 +113,12 @@ fn append_directory(
                 );
             }
             let child = unsafe { fs::File::from_raw_fd(fd) };
-            let metadata = child.metadata()?;
+            let metadata = child.metadata().map_err(|error| {
+                io_failure(
+                    "workspace directory entry metadata could not be read",
+                    error,
+                )
+            })?;
             let mode = mode_for(&metadata, true, read_only);
             append_header(builder, &child_relative, EntryType::Directory, 0, mode, &[])?;
             manifest.insert(child_relative.clone(), Fingerprint::Directory);
@@ -137,7 +147,9 @@ fn append_directory(
                 );
             }
             let mut file = unsafe { fs::File::from_raw_fd(fd) };
-            let metadata = file.metadata()?;
+            let metadata = file
+                .metadata()
+                .map_err(|error| io_failure("workspace file metadata could not be read", error))?;
             anyhow::ensure!(
                 metadata.is_file() && metadata.nlink() == 1,
                 "workspace contains a hard link or special file"
@@ -155,8 +167,11 @@ fn append_directory(
                         .saturating_add(metadata.len())
                         .saturating_add(1),
                 )
-                .read_to_end(&mut bytes)?;
-            let after = file.metadata()?;
+                .read_to_end(&mut bytes)
+                .map_err(|error| io_failure("workspace file contents could not be read", error))?;
+            let after = file.metadata().map_err(|error| {
+                io_failure("workspace file metadata could not be rechecked", error)
+            })?;
             anyhow::ensure!(
                 bytes.len() as u64 == metadata.len()
                     && after.len() == metadata.len()
@@ -190,7 +205,9 @@ fn append_directory(
             anyhow::bail!("workspace contains a special file");
         }
     }
-    let after = directory.metadata()?;
+    let after = directory.metadata().map_err(|error| {
+        io_failure("workspace directory metadata could not be rechecked", error)
+    })?;
     anyhow::ensure!(
         before.dev() == after.dev()
             && before.ino() == after.ino()
@@ -201,70 +218,6 @@ fn append_directory(
         "workspace directory changed while staging"
     );
     Ok(())
-}
-
-#[cfg(unix)]
-fn open_root_nofollow(path: &Path) -> anyhow::Result<fs::File> {
-    use std::os::{
-        fd::{AsRawFd, FromRawFd},
-        unix::ffi::OsStrExt,
-    };
-    let mut current = fs::File::open("/")?;
-    for component in path.components() {
-        match component {
-            Component::RootDir => {}
-            Component::Normal(name) => {
-                let name = std::ffi::CString::new(name.as_bytes())?;
-                let fd = unsafe {
-                    libc::openat(
-                        current.as_raw_fd(),
-                        name.as_ptr(),
-                        libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_DIRECTORY,
-                    )
-                };
-                anyhow::ensure!(
-                    fd >= 0,
-                    "workspace root contains a symlink or unavailable directory"
-                );
-                current = unsafe { fs::File::from_raw_fd(fd) };
-            }
-            _ => anyhow::bail!("workspace root is not canonical"),
-        }
-    }
-    Ok(current)
-}
-
-#[cfg(unix)]
-fn read_child_names(directory: &fs::File) -> anyhow::Result<Vec<std::ffi::OsString>> {
-    use std::os::{fd::AsRawFd, unix::ffi::OsStringExt};
-    let duplicate = unsafe { libc::dup(directory.as_raw_fd()) };
-    anyhow::ensure!(
-        duplicate >= 0,
-        "workspace directory could not be duplicated"
-    );
-    let stream = unsafe { libc::fdopendir(duplicate) };
-    if stream.is_null() {
-        unsafe {
-            libc::close(duplicate);
-        }
-        anyhow::bail!("workspace directory could not be read");
-    }
-    let mut names = Vec::new();
-    loop {
-        let entry = unsafe { libc::readdir(stream) };
-        if entry.is_null() {
-            break;
-        }
-        let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
-        if name == b"." || name == b".." {
-            continue;
-        }
-        names.push(std::ffi::OsString::from_vec(name.to_vec()));
-    }
-    unsafe {
-        libc::closedir(stream);
-    }
-    Ok(names)
 }
 
 fn append_header(

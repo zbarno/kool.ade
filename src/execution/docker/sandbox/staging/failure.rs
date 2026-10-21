@@ -31,6 +31,8 @@ pub(crate) fn scoped_capture_failure_reason(error: &anyhow::Error) -> Cow<'stati
         Cow::Borrowed("a workspace directory could not be read")
     } else if reason.contains("workspace root contains a symlink") {
         Cow::Borrowed("a workspace path could not be opened safely")
+    } else if let Some(reason) = operation_io_failure_reason(&reason, error) {
+        Cow::Owned(reason)
     } else if let Some(reason) = formatted_io_failure_reason(&reason).or_else(|| {
         io_kind
             .map(|kind| format!("{kind:?}"))
@@ -91,6 +93,74 @@ pub(crate) fn scoped_capture_failure_reason(error: &anyhow::Error) -> Cow<'stati
     } else {
         Cow::Borrowed("a filesystem safety check failed")
     }
+}
+
+fn operation_io_failure_reason(reason: &str, error: &anyhow::Error) -> Option<String> {
+    const OPERATIONS: &[(&str, &str)] = &[
+        (
+            "workspace directory metadata could not be read",
+            "reading workspace directory metadata failed",
+        ),
+        (
+            "workspace directory metadata could not be rechecked",
+            "rechecking workspace directory metadata failed",
+        ),
+        (
+            "workspace directory entry metadata could not be read",
+            "reading workspace directory entry metadata failed",
+        ),
+        (
+            "workspace file metadata could not be read",
+            "reading workspace file metadata failed",
+        ),
+        (
+            "workspace file metadata could not be rechecked",
+            "rechecking workspace file metadata failed",
+        ),
+        (
+            "workspace file contents could not be read",
+            "reading workspace file contents failed",
+        ),
+        (
+            "workspace archive could not be finalized",
+            "finalizing the workspace archive failed",
+        ),
+    ];
+    let description = OPERATIONS
+        .iter()
+        .find_map(|(operation, description)| (reason == *operation).then_some(*description))?;
+    let source = error
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<std::io::Error>())?;
+    let reason = match source.raw_os_error() {
+        #[cfg(unix)]
+        Some(code) if code == libc::EACCES || code == libc::EPERM => {
+            return Some(format!(
+                "{description}: a filesystem entry is not accessible"
+            ));
+        }
+        #[cfg(unix)]
+        Some(code) if code == libc::EMFILE => {
+            return Some(format!(
+                "{description}: the process file descriptor limit was reached"
+            ));
+        }
+        #[cfg(unix)]
+        Some(code) if code == libc::ENFILE => {
+            return Some(format!(
+                "{description}: the system file descriptor limit was reached"
+            ));
+        }
+        #[cfg(unix)]
+        Some(code) if code == libc::EIO => {
+            return Some(format!(
+                "{description}: the filesystem reported an input/output error"
+            ));
+        }
+        Some(code) => format!("{description} (OS error {code})"),
+        None => format!("{description} (error kind {:?})", source.kind()),
+    };
+    Some(reason)
 }
 
 fn formatted_io_failure_reason(reason: &str) -> Option<&'static str> {
