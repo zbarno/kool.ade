@@ -73,6 +73,7 @@ impl<'a> RuntimeQaOrchestrator<'a> {
         Self { store }
     }
 
+    #[cfg(test)]
     pub fn execute(
         &self,
         context: QaExecutionContext<'_>,
@@ -143,7 +144,7 @@ impl<'a> RuntimeQaOrchestrator<'a> {
         let completed_at_unix_ms = now_ms().max(started_at_unix_ms);
         let report = assemble_report(request, scenarios, outputs)?;
         let ReportAssembly {
-            evidence,
+            mut evidence,
             screenshots,
             cases,
             coverage,
@@ -171,8 +172,28 @@ impl<'a> RuntimeQaOrchestrator<'a> {
             completed_at_unix_ms,
         };
         if let Some(review) = reviewer.as_mut() {
-            let verdict = review(&evidence, &result)?;
-            apply_review_verdict(request, scenarios, &evidence, &mut result, verdict)?;
+            let candidate = result.clone();
+            let reviewed = review(&evidence, &candidate).and_then(|verdict| {
+                apply_review_verdict(request, scenarios, &evidence, &mut result, verdict)
+            });
+            if reviewed.is_err() {
+                result = candidate;
+                result.outcome = QaOutcome::InfrastructureBlocked;
+                for requirement in &mut result.coverage.requirements {
+                    requirement.status = QaCoverageStatus::Blocked;
+                }
+                evidence.coverage = result
+                    .coverage
+                    .requirements
+                    .iter()
+                    .map(|coverage| format!("{}:{:?}", coverage.requirement_id, coverage.status))
+                    .collect();
+                evidence.logs.truncate(255);
+                evidence.logs.push(
+                    "independent runtime QA review could not be completed; result is infrastructure blocked".into(),
+                );
+                result.evidence_manifest_sha256 = evidence.sha256()?;
+            }
         }
         super::validate_report(request, scenarios, &evidence, &result)?;
         // Constructing the gate here verifies that the exact independent role

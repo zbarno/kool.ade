@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    QaCaseStatus, QaEvidenceManifestV1, QaFindingV1, QaOutcome, is_sha256, is_uuid, valid_text,
+    QaCaseStatus, QaEvidenceManifestV1, QaFindingV1, QaOutcome, is_git_oid, is_uuid, valid_text,
 };
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -230,7 +230,7 @@ pub fn validate_report(
     result: &QaResultV1,
 ) -> Result<(), String> {
     super::scenario::validate_scenario_set(request, scenarios)?;
-    if result.evidence_manifest_sha256 != manifest.sha256()? || !is_sha256(&result.subject_sha) {
+    if result.evidence_manifest_sha256 != manifest.sha256()? || !is_git_oid(&result.subject_sha) {
         return Err("runtime QA report evidence hash or subject is invalid".into());
     }
     result.validate(request, scenarios, manifest)

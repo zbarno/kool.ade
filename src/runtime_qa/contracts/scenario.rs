@@ -1,9 +1,13 @@
 use serde::{Deserialize, Serialize};
 
 mod action_platform;
+mod proposal;
+mod validation;
 
 use super::{is_uuid, valid_text};
 use action_platform::action_platform;
+pub use proposal::QaScenarioProposalV1;
+pub use validation::validate_scenario_set;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
@@ -125,7 +129,6 @@ pub enum QaDriverActionV1 {
         window_id: String,
     },
 }
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(tag = "locator", rename_all = "snake_case", deny_unknown_fields)]
 pub enum QaBrowserLocatorV1 {
@@ -152,6 +155,17 @@ pub struct QaScenarioStepV1 {
     pub screenshot_checkpoint: bool,
 }
 
+/// Operator-approved screenshot region that is blacked out before evidence is
+/// hashed or persisted. Coordinates are in screenshot pixels.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct QaRedactionRegionV1 {
+    pub x: u16,
+    pub y: u16,
+    pub width: u16,
+    pub height: u16,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct QaScenarioV1 {
@@ -163,6 +177,8 @@ pub struct QaScenarioV1 {
     pub expected_results: Vec<String>,
     pub negative_paths: Vec<String>,
     pub visual_expectations: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub redaction_regions: Vec<QaRedactionRegionV1>,
     pub priority: u8,
 }
 
@@ -184,6 +200,13 @@ impl QaScenarioV1 {
             || self.expected_results.len() > 128
             || self.negative_paths.len() > 128
             || self.visual_expectations.len() > 128
+            || self.redaction_regions.len() > 64
+            || self.redaction_regions.iter().any(|region| {
+                region.width == 0
+                    || region.height == 0
+                    || u32::from(region.x) + u32::from(region.width) > 7680
+                    || u32::from(region.y) + u32::from(region.height) > 4320
+            })
             || self.priority > 5
             || self
                 .preconditions
@@ -274,37 +297,4 @@ fn valid_step(step: &QaScenarioStepV1) -> bool {
             }
             _ => true,
         }
-}
-
-pub fn validate_scenario_set(
-    request: &super::QaRunRequestV1,
-    scenarios: &[QaScenarioV1],
-) -> Result<(), String> {
-    request.validate()?;
-    if scenarios.is_empty() || scenarios.len() > request.bounded_limits.max_scenarios as usize {
-        return Err("runtime QA scenario count exceeds the request bounds".into());
-    }
-    let mut ids = std::collections::BTreeSet::new();
-    for scenario in scenarios {
-        scenario.validate(request)?;
-        if !ids.insert(scenario.id.as_str()) {
-            return Err("runtime QA scenario IDs must be unique".into());
-        }
-    }
-    let covered = scenarios
-        .iter()
-        .flat_map(|scenario| scenario.requirement_ids.iter())
-        .collect::<std::collections::BTreeSet<_>>();
-    if request
-        .requirement_ids
-        .iter()
-        .any(|id| !covered.contains(id))
-    {
-        return Err("runtime QA scenarios do not cover every approved requirement".into());
-    }
-    let total_actions: usize = scenarios.iter().map(|scenario| scenario.steps.len()).sum();
-    if total_actions > request.bounded_limits.max_total_actions as usize {
-        return Err("runtime QA total action count exceeds the request bounds".into());
-    }
-    Ok(())
 }

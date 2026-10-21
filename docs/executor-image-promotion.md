@@ -35,9 +35,9 @@ The same rootless candidate workflow also builds `browser_qa` and
 `desktop_qa` for linux/amd64. Their records live beside the executor records in
 `executor-image-candidate-browser_qa-amd64` and
 `executor-image-candidate-desktop_qa-amd64`. The desktop artifact includes the
-exact `koolade-qa-desktop` binary used in its recipe hash. These QA profiles
-remain absent from the runtime lock until both have real candidate evidence and
-are promoted together in a reviewed lock update. Promotion sets
+exact `koolade-qa-desktop` binary used in its recipe hash. The current runtime
+lock contains both reviewed candidate digests after their real candidate
+evidence was promoted together in a reviewed lock update. Both profiles remain
 `runtime_enabled: false`; a reviewed image digest does not by itself approve
 runtime QA. Trusted-main publication then rebuilds under rootless Docker,
 compares against the reviewed digest, and attaches GitHub provenance and SPDX

@@ -60,6 +60,8 @@ impl KooladeApp {
                     id: metadata.id,
                     scenario_id: metadata.scenario_id,
                     sha256: metadata.sha256,
+                    width: metadata.width,
+                    height: metadata.height,
                     bytes: artifact.bytes.clone(),
                 })
             })

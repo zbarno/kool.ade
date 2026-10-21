@@ -63,3 +63,7 @@ pub fn smoke_fixture() -> Result<serde_json::Value, String> {
 pub fn run_fixture_window() -> Result<(), String> {
     super::fixture::window::run()
 }
+
+pub fn run_egui_fixture_window() -> Result<(), String> {
+    super::fixture::run_egui_window()
+}

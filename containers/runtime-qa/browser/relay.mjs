@@ -86,18 +86,39 @@ relay.on('upgrade', (request, client, head) => {
 
 function waitForTaskService(deadline) {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let activeProbe;
+    let lastFailure = 'no health response';
+    let deadlineTimer;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadlineTimer);
+      if (error) activeProbe?.destroy();
+      if (error) reject(error);
+      else resolve();
+    };
+    deadlineTimer = setTimeout(() => {
+      finish(new Error(`task preview did not become ready: ${lastFailure}`));
+    }, Math.max(0, deadline - Date.now()));
     const check = () => {
+      if (settled) return;
       const probe = http.get({ host: TARGET_HOST, port: TARGET_PORT, path: HEALTH_PATH, timeout: 2_000 }, (response) => {
         response.resume();
-        if (response.statusCode && response.statusCode < 500) resolve();
-        else retry();
+        if (response.statusCode && response.statusCode < 500) finish();
+        else retry(`HTTP ${response.statusCode ?? 'unknown'}`);
       });
-      probe.on('error', retry);
-      probe.on('timeout', () => probe.destroy());
-    };
-    const retry = () => {
-      if (Date.now() >= deadline) reject(new Error('task preview did not become ready'));
-      else setTimeout(check, 250).unref();
+      activeProbe = probe;
+      let retried = false;
+      const retry = (reason) => {
+        if (retried || settled) return;
+        retried = true;
+        lastFailure = reason;
+        probe.destroy();
+        if (!settled) setTimeout(check, 250);
+      };
+      probe.on('error', (error) => retry(error.code ?? error.message));
+      probe.on('timeout', () => retry('health probe timed out'));
     };
     check();
   });

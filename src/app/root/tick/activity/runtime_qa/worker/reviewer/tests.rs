@@ -5,6 +5,7 @@ fn qa_request() -> QaRunRequestV1 {
         schema_version: 1,
         qa_run_id: "00000000-0000-4000-8000-000000000001".into(),
         parent_task_uid: "00000000-0000-4000-8000-000000000002".into(),
+        planning_item_uid: None,
         feature_uid: "00000000-0000-4000-8000-000000000003".into(),
         code_head_sha: "a".repeat(40),
         build_artifact_sha256: "b".repeat(64),
@@ -19,6 +20,7 @@ fn qa_request() -> QaRunRequestV1 {
         execution_session_id: "00000000-0000-4000-8000-000000000004".into(),
         driver_profile_version: "browser/v1".into(),
         test_data_fixture_ref: None,
+        dependency_cache_refs: Vec::new(),
         bounded_limits: crate::runtime_qa::QaBoundedLimitsV1 {
             max_scenarios: 1,
             max_actions_per_scenario: 1,

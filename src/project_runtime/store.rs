@@ -2,13 +2,13 @@ use std::path::Path;
 
 use crate::artifacts::planning_store::{PlanningStore, StoreError};
 
-use super::{
-    AppTargetV1, DiscoveryContext, ExecutionRecipeV1, ProjectCapabilityManifestV1,
-    RuntimeOperation, add_user_target_override, apply_user_recipe_override, discover_manifest,
-};
+use super::{DiscoveryContext, ProjectCapabilityManifestV1, discover_manifest};
 
 mod approval;
+mod custom_target;
+mod headless_evidence;
 mod receipts;
+mod recipe_approval;
 
 const MANIFEST_PATH: &str = "state/project-runtime.json";
 const RECEIPTS_ROOT: &str = "state/runtime-receipts";
@@ -59,81 +59,31 @@ impl<'a> ProjectRuntimeStore<'a> {
         })?;
         let manifest =
             discover_manifest(project_root, context).map_err(StoreError::MalformedState)?;
+        // Save local origin evidence before publishing the shared manifest. A
+        // failed later write can leave only inert local records, never a visible
+        // discovered target whose provenance was only partially recorded.
+        for target in &manifest.candidate_targets {
+            let origin_sha = Self::discovered_target_origin_sha256(
+                &manifest.workspace_id,
+                &manifest.source_sha,
+                target,
+            )
+            .map_err(StoreError::MalformedState)?;
+            crate::persistence::runtime_target_approvals::save_discovered_target_origin(
+                &manifest.workspace_id,
+                &target.owning_task_id,
+                &origin_sha,
+            )
+            .map_err(|error| {
+                StoreError::MalformedState(format!(
+                    "operator-local discovery provenance could not be saved: {error}"
+                ))
+            })?;
+        }
         self.save_manifest(&manifest, expected_manifest_revision)?;
         let mut saved = manifest;
         saved.revision = next_revision;
         Ok(saved)
-    }
-
-    /// Applies a user-approved recipe to a stored target under the same
-    /// revision fence as discovery and saves it atomically.
-    pub fn approve_recipe_and_save(
-        &self,
-        target_id: &str,
-        operation: RuntimeOperation,
-        recipe: ExecutionRecipeV1,
-        expected_manifest_revision: u64,
-    ) -> Result<ProjectCapabilityManifestV1, StoreError> {
-        self.approve_recipe_with_readiness_and_save(
-            target_id,
-            operation,
-            recipe,
-            None,
-            expected_manifest_revision,
-        )
-    }
-
-    /// Saves a user-approved recipe and its optional readiness probe as one
-    /// revision-fenced manifest update.
-    pub fn approve_recipe_with_readiness_and_save(
-        &self,
-        target_id: &str,
-        operation: RuntimeOperation,
-        recipe: ExecutionRecipeV1,
-        readiness: Option<super::ReadinessProbeV1>,
-        expected_manifest_revision: u64,
-    ) -> Result<ProjectCapabilityManifestV1, StoreError> {
-        let next_revision = expected_manifest_revision.checked_add(1).ok_or_else(|| {
-            StoreError::MalformedState("project runtime manifest revision is exhausted".into())
-        })?;
-        let mut manifest = self.load_manifest()?.ok_or_else(|| {
-            StoreError::MalformedState("project runtime manifest is missing".into())
-        })?;
-        let recipe_id = recipe.recipe_id.clone();
-        apply_user_recipe_override(&mut manifest, target_id, operation, recipe)
-            .map_err(StoreError::MalformedState)?;
-        if let Some(probe) = readiness {
-            probe.validate().map_err(StoreError::MalformedState)?;
-            let probe_id = format!("readiness-{}", uuid::Uuid::new_v4().simple());
-            let target = manifest
-                .candidate_targets
-                .iter_mut()
-                .find(|target| target.target_id == target_id)
-                .ok_or_else(|| {
-                    StoreError::MalformedState("selected runtime target is missing".into())
-                })?;
-            if let super::ReadinessProbeV1::HttpOnApprovedPort { port, .. }
-            | super::ReadinessProbeV1::LocalServiceHealth { port, .. } = &probe
-            {
-                target.port_needs = vec![*port];
-            }
-            target.readiness_probe_ref = Some(probe_id.clone());
-            manifest.readiness_probes.insert(probe_id, probe);
-        }
-        self.save_manifest(&manifest, expected_manifest_revision)?;
-        let target = manifest
-            .candidate_targets
-            .iter()
-            .find(|target| target.target_id == target_id)
-            .ok_or_else(|| StoreError::MalformedState("approved target disappeared".into()))?;
-        let recipe = manifest
-            .user_overrides
-            .iter()
-            .find(|recipe| recipe.recipe_id == recipe_id)
-            .ok_or_else(|| StoreError::MalformedState("approved recipe disappeared".into()))?;
-        self.record_recipe_approval(&manifest, target, recipe)?;
-        manifest.revision = next_revision;
-        Ok(manifest)
     }
 
     /// Persists the one target the task controller has explicitly selected.
@@ -164,47 +114,6 @@ impl<'a> ProjectRuntimeStore<'a> {
         }
         manifest.selected_target_id = Some(target_id.to_owned());
         self.save_manifest(&manifest, expected_manifest_revision)?;
-        manifest.revision = next_revision;
-        Ok(manifest)
-    }
-
-    /// Adds a manually selected stack-agnostic target and its approved recipes
-    /// with a revision check. Authentication of `approval_ref` is performed by
-    /// the UI/controller before this method is called.
-    pub fn add_user_target_and_save(
-        &self,
-        target: AppTargetV1,
-        recipes: Vec<ExecutionRecipeV1>,
-        approval_ref: &str,
-        expected_manifest_revision: u64,
-    ) -> Result<ProjectCapabilityManifestV1, StoreError> {
-        let next_revision = expected_manifest_revision.checked_add(1).ok_or_else(|| {
-            StoreError::MalformedState("project runtime manifest revision is exhausted".into())
-        })?;
-        let mut manifest = self.load_manifest()?.ok_or_else(|| {
-            StoreError::MalformedState("project runtime manifest is missing".into())
-        })?;
-        add_user_target_override(&mut manifest, target, recipes, approval_ref)
-            .map_err(StoreError::MalformedState)?;
-        self.save_manifest(&manifest, expected_manifest_revision)?;
-        let target = manifest
-            .candidate_targets
-            .last()
-            .ok_or_else(|| StoreError::MalformedState("approved target disappeared".into()))?;
-        let recipe_ids = target
-            .build_recipe_ref
-            .iter()
-            .chain(target.test_recipe_refs.iter())
-            .chain(target.start_recipe_ref.iter())
-            .collect::<Vec<_>>();
-        for recipe_id in recipe_ids {
-            let recipe = manifest
-                .user_overrides
-                .iter()
-                .find(|recipe| &recipe.recipe_id == recipe_id)
-                .ok_or_else(|| StoreError::MalformedState("approved recipe disappeared".into()))?;
-            self.record_recipe_approval(&manifest, target, recipe)?;
-        }
         manifest.revision = next_revision;
         Ok(manifest)
     }

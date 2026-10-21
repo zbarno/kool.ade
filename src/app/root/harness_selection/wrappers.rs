@@ -120,7 +120,10 @@ impl AiHarness for ImplementationQaHarness {
         &self,
         request: &PlanningRequest,
     ) -> Result<crate::harness::HarnessOutcome, crate::error::AppError> {
-        if request.telemetry_phase.as_deref() == Some("qa_verification") {
+        if matches!(
+            request.telemetry_phase.as_deref(),
+            Some("qa_verification" | "runtime_qa_scenario_synthesis")
+        ) {
             let mut read_only = request.clone();
             read_only.mode = crate::harness::ExecutionMode::ReadOnlyAnalysis;
             self.qa.execute(&read_only)

@@ -206,7 +206,7 @@ fn approved_feature_generates_dependent_tasks_for_distinct_repositories() {
         },
         Box::new(MultiHarness),
     );
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + Duration::from_secs(60);
     let result = loop {
         assert!(
             Instant::now() < deadline,

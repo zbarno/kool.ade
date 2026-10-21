@@ -1,15 +1,20 @@
+mod chromium;
+pub(super) mod egui;
 mod encoding;
+mod support;
+pub(super) use support::{
+    FixtureProcess, screenshot, sha256, step, visible_region_state, wait_for_click_observation,
+    wait_for_title,
+};
 pub(super) mod window;
 
-use std::{
-    process::{Child, Command, Stdio},
-    thread,
-    time::{Duration, Instant},
-};
+pub(super) fn run_egui_window() -> Result<(), String> {
+    egui::run_window()
+}
 
-use sha2::Digest;
+use std::time::Duration;
 
-use crate::runtime_qa::{QaDriverActionV1, QaScenarioStepV1};
+use crate::runtime_qa::QaDriverActionV1;
 
 use super::{actions, display::DesktopDisplay};
 
@@ -18,14 +23,16 @@ pub(super) fn exercise() -> Result<serde_json::Value, String> {
     let seeded_defect = run_case(true)?;
     let visible_control = visibility_case(false)?;
     let absent_control = visibility_case(true)?;
+    let packaged_chromium = chromium::exercise()?;
+    let egui_application = egui::exercise()?;
     if interaction["click_assertion"] != "passed"
         || interaction["keyboard_assertion"] != "passed"
         || interaction["screenshot_changed"] != true
         || interaction["screenshot_hashes_distinct"] != true
         || seeded_defect["click_assertion"] != "failed"
         || seeded_defect["defect_detected"] != true
-        || visible_control != "region visible"
-        || absent_control != "region not visible"
+        || !visible_region_state(&visible_control, true)
+        || !visible_region_state(&absent_control, false)
     {
         return Err("desktop fixture did not prove interactions and defect detection".into());
     }
@@ -37,6 +44,8 @@ pub(super) fn exercise() -> Result<serde_json::Value, String> {
         "interaction_case": interaction,
         "seeded_defect_case": seeded_defect,
         "native_control_visibility": {"visible": visible_control, "absent": absent_control},
+        "packaged_non_rust_application": packaged_chromium,
+        "egui_application": egui_application,
     }))
 }
 
@@ -153,128 +162,5 @@ fn visibility_case(hide_control: bool) -> Result<String, String> {
     match result {
         actions::ActionResult::State(state) => Ok(state),
         _ => Err("native control visibility probe did not return an observation".into()),
-    }
-}
-
-fn step(driver_action: QaDriverActionV1) -> QaScenarioStepV1 {
-    QaScenarioStepV1 {
-        driver_action,
-        expected_state: None,
-        screenshot_checkpoint: false,
-    }
-}
-
-fn wait_for_title(
-    display: &DesktopDisplay,
-    expected: &str,
-    timeout: Duration,
-    owner_pids: &std::collections::BTreeSet<u32>,
-) -> Result<super::display::WindowInfo, String> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if let Some(window) = display
-            .windows(owner_pids)?
-            .into_iter()
-            .find(|window| window.title.contains(expected))
-        {
-            return Ok(window);
-        }
-        if Instant::now() >= deadline {
-            return Err(format!("desktop fixture did not report state {expected}"));
-        }
-        thread::sleep(Duration::from_millis(20));
-    }
-}
-
-fn wait_for_click_observation(
-    display: &DesktopDisplay,
-    ignore_click: bool,
-    owner_pids: &std::collections::BTreeSet<u32>,
-) -> Result<super::display::WindowInfo, String> {
-    // The fixture runs under the same CPU and PID limits as a real QA session;
-    // X11 event delivery can lag on a loaded hosted runner after the synthetic
-    // click has been sent. Keep this bounded, but give the event loop time to
-    // observe the resulting title change.
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let window = display
-            .windows(owner_pids)?
-            .into_iter()
-            .find(|window| window.title.contains(":Ready") || window.title.contains(":Clicked"))
-            .ok_or_else(|| "desktop fixture window disappeared after mouse input".to_owned())?;
-        let clicked = window.title.contains(":Clicked");
-        if clicked || Instant::now() >= deadline {
-            if ignore_click && clicked {
-                return Ok(window);
-            }
-            if !ignore_click && clicked {
-                return Ok(window);
-            }
-            if ignore_click {
-                return Ok(window);
-            }
-            return Err(format!(
-                "desktop fixture did not respond to the actual mouse click; observed title {:?} at {},{} size {}x{}",
-                window.title, window.x, window.y, window.width, window.height
-            ));
-        }
-        thread::sleep(Duration::from_millis(20));
-    }
-}
-
-fn screenshot(name: &str, bytes: &[u8]) -> serde_json::Value {
-    serde_json::json!({
-        "name": name,
-        "mime": "image/png",
-        "sha256": sha256(bytes),
-        "width": 1440,
-        "height": 900,
-        "bytes_base64": encoding::base64(bytes),
-    })
-}
-
-fn sha256(bytes: &[u8]) -> String {
-    format!("{:x}", sha2::Sha256::digest(bytes))
-}
-
-struct FixtureProcess(Child);
-
-impl FixtureProcess {
-    fn start(ignore_click: bool, title: &str, hide_control: bool) -> Result<Self, String> {
-        let executable = std::env::current_exe()
-            .map_err(|error| format!("could not locate desktop QA driver: {error}"))?;
-        Command::new(executable)
-            .arg("--fixture-window")
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin")
-            .env("HOME", "/tmp")
-            .env("DISPLAY", ":99")
-            .env("LANG", "C.UTF-8")
-            .env("QA_FIXTURE_TITLE", title)
-            .env(
-                "QA_FIXTURE_HIDE_CONTROL",
-                if hide_control { "1" } else { "0" },
-            )
-            .env(
-                "QA_FIXTURE_IGNORE_CLICK",
-                if ignore_click { "1" } else { "0" },
-            )
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .map(Self)
-            .map_err(|error| format!("could not launch desktop fixture: {error}"))
-    }
-
-    fn stop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
-    }
-}
-
-impl Drop for FixtureProcess {
-    fn drop(&mut self) {
-        self.stop();
     }
 }

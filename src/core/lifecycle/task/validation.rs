@@ -116,10 +116,18 @@ impl TaskRecord {
                 .as_ref()
                 .is_some_and(|state| state.validate(self).is_err())
             || (self.runtime_qa.is_some()
-                && !self
-                    .qa_execution
-                    .as_ref()
-                    .is_some_and(|state| state.status == QaExecutionStatusV1::Completed))
+                && !self.qa_execution.as_ref().is_some_and(|state| {
+                    matches!(
+                        state.status,
+                        QaExecutionStatusV1::Completed | QaExecutionStatusV1::NotApplicable
+                    )
+                }))
+            || self.runtime_qa.as_ref().is_some_and(|receipt| {
+                self.qa_execution.as_ref().is_none_or(|state| {
+                    (state.status == QaExecutionStatusV1::NotApplicable)
+                        != (receipt.decision == GateDecision::NotApplicable)
+                })
+            })
             || self.repair_attempts > MAX_REPAIR_ATTEMPTS
             || self
                 .spec_reconciliation_blocker
@@ -191,17 +199,20 @@ impl TaskRecord {
             );
         }
         if self.phase == TaskPhase::AwaitingSpecReconciliation
-            && (!self
-                .qa_execution
-                .as_ref()
-                .is_some_and(|state| state.status == QaExecutionStatusV1::Completed)
-                || !self.runtime_qa.as_ref().is_some_and(|receipt| {
-                    matches!(
-                        receipt.decision,
-                        GateDecision::Approved | GateDecision::NotApplicable
-                    ) && Some(receipt.subject_sha256.as_str())
+            && (!self.qa_execution.as_ref().is_some_and(|state| {
+                matches!(
+                    state.status,
+                    QaExecutionStatusV1::Completed | QaExecutionStatusV1::NotApplicable
+                )
+            }) || !self.runtime_qa.as_ref().is_some_and(|receipt| {
+                matches!(
+                    receipt.decision,
+                    GateDecision::Approved | GateDecision::NotApplicable
+                ) && (receipt.decision != GateDecision::NotApplicable
+                    || receipt.actor == GateActor::ApplicationPolicy)
+                    && Some(receipt.subject_sha256.as_str())
                         == self.implementation_sha256.as_deref()
-                }))
+            }))
         {
             return Err("task phase requires passing or not-applicable runtime QA".into());
         }
@@ -220,30 +231,35 @@ impl TaskRecord {
                 && receipt.actor == GateActor::IndependentReviewer
                 && receipt.decision == GateDecision::Approved
                 && receipt.subject_sha256 == code_sha
-        }) && self
-            .qa_execution
-            .as_ref()
-            .is_some_and(|state| state.status == QaExecutionStatusV1::Completed)
-            && self.runtime_qa.as_ref().is_some_and(|receipt| {
-                receipt.subject_uid == self.task_uid
-                    && matches!(
-                        receipt.actor,
-                        GateActor::IndependentReviewer | GateActor::ApplicationPolicy
-                    )
-                    && matches!(
-                        receipt.decision,
-                        GateDecision::Approved | GateDecision::NotApplicable
-                    )
-                    && (receipt.decision != GateDecision::NotApplicable
-                        || receipt.actor == GateActor::ApplicationPolicy)
-                    && receipt.subject_sha256 == code_sha
-            })
-            && self.spec_reconciliation.as_ref().is_some_and(|receipt| {
-                receipt.subject_uid == self.task_uid
-                    && receipt.actor == GateActor::ApplicationPolicy
-                    && receipt.decision == GateDecision::Approved
-                    && receipt.subject_sha256 == code_sha
-            })
-            && (self.parent_task_uid.is_some() || self.pr_work_item_uid.is_some())
+        }) && self.qa_execution.as_ref().is_some_and(|state| {
+            matches!(
+                state.status,
+                QaExecutionStatusV1::Completed | QaExecutionStatusV1::NotApplicable
+            )
+        }) && self.runtime_qa.as_ref().is_some_and(|receipt| {
+            receipt.subject_uid == self.task_uid
+                && matches!(
+                    receipt.actor,
+                    GateActor::IndependentReviewer | GateActor::ApplicationPolicy
+                )
+                && matches!(
+                    receipt.decision,
+                    GateDecision::Approved | GateDecision::NotApplicable
+                )
+                && (receipt.decision != GateDecision::NotApplicable
+                    || receipt.actor == GateActor::ApplicationPolicy)
+                && (state_is_not_applicable(self.qa_execution.as_ref())
+                    == (receipt.decision == GateDecision::NotApplicable))
+                && receipt.subject_sha256 == code_sha
+        }) && self.spec_reconciliation.as_ref().is_some_and(|receipt| {
+            receipt.subject_uid == self.task_uid
+                && receipt.actor == GateActor::ApplicationPolicy
+                && receipt.decision == GateDecision::Approved
+                && receipt.subject_sha256 == code_sha
+        }) && (self.parent_task_uid.is_some() || self.pr_work_item_uid.is_some())
     }
+}
+
+fn state_is_not_applicable(state: Option<&super::QaExecutionStateV1>) -> bool {
+    state.is_some_and(|state| state.status == QaExecutionStatusV1::NotApplicable)
 }

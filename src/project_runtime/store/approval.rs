@@ -17,6 +17,34 @@ impl ProjectRuntimeStore<'_> {
         if !recipe.is_explicitly_user_approved() {
             return false;
         }
+        if let Some(operation) = recipe_operation(target, recipe)
+            && recipe
+                .evidence_refs
+                .iter()
+                .any(|reference| reference.starts_with("user-recipe-approval:"))
+        {
+            let custom_target = target.target_id.starts_with("user-target-")
+                || Self::custom_target_origin_sha256(manifest, target)
+                    .ok()
+                    .is_some_and(|origin| {
+                        crate::persistence::runtime_target_approvals::has_custom_target_origin(
+                            &manifest.workspace_id,
+                            &target.owning_task_id,
+                            &origin,
+                        )
+                        .unwrap_or(false)
+                    });
+            if custom_target && self.verify_user_target_approval(manifest, target).is_err() {
+                return false;
+            }
+            if self
+                .verify_user_recipe_approval(manifest, target, operation, recipe)
+                .is_ok()
+            {
+                return true;
+            }
+            return false;
+        }
         let Ok((scope, digest)) = recipe_approval_fingerprints(manifest, target, recipe) else {
             return false;
         };
@@ -26,22 +54,26 @@ impl ProjectRuntimeStore<'_> {
             &digest,
         )
     }
+}
 
-    pub(super) fn record_recipe_approval(
-        &self,
-        manifest: &ProjectCapabilityManifestV1,
-        target: &AppTargetV1,
-        recipe: &ExecutionRecipeV1,
-    ) -> Result<(), StoreError> {
-        let (scope, digest) = recipe_approval_fingerprints(manifest, target, recipe)?;
-        crate::persistence::feature_approvals::record_scoped(
-            &self.store.git_root(),
-            &scope,
-            &digest,
-        )
-        .map_err(|error| {
-            StoreError::MalformedState(format!("local recipe approval could not be saved: {error}"))
-        })
+fn recipe_operation(
+    target: &AppTargetV1,
+    recipe: &ExecutionRecipeV1,
+) -> Option<crate::project_runtime::RuntimeOperation> {
+    use crate::project_runtime::RuntimeOperation;
+
+    if target.build_recipe_ref.as_deref() == Some(recipe.recipe_id.as_str()) {
+        Some(RuntimeOperation::Build)
+    } else if target
+        .test_recipe_refs
+        .iter()
+        .any(|recipe_id| recipe_id == &recipe.recipe_id)
+    {
+        Some(RuntimeOperation::Test)
+    } else if target.start_recipe_ref.as_deref() == Some(recipe.recipe_id.as_str()) {
+        Some(RuntimeOperation::Start)
+    } else {
+        None
     }
 }
 

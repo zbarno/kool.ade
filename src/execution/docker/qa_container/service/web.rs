@@ -8,12 +8,16 @@ use super::super::{QaWebPreviewSpec, denied};
 use crate::execution::errors::ExecutionError;
 
 mod cleanup;
+mod dependency_cache;
 mod launch;
 #[cfg(test)]
 #[path = "web/tests.rs"]
 mod tests;
 pub use cleanup::{cleanup_web_preview, recover_owned_web_preview};
+pub(crate) use dependency_cache::archive_for_runtime_user;
 pub use launch::start_web_preview;
+#[cfg(test)]
+pub(crate) use launch::start_web_preview_with_lock;
 
 const OWNER: &str = "com.koolade.qa.owner";
 const RUN: &str = "com.koolade.qa.run";
@@ -62,6 +66,7 @@ pub(super) fn validate_spec(spec: &QaWebPreviewSpec<'_>) -> Result<(), Execution
         || spec.artifact_upload.target != "/workspace"
         || spec.artifact_upload.archive.is_empty()
         || spec.artifact_upload.archive.len() as u64 > spec.resources.temporary_disk_bytes
+        || !dependency_cache::matches_request(spec)
     {
         return Err(denied(
             "QA web preview inputs do not match an approved task runtime recipe and bounded internal target",
@@ -130,6 +135,7 @@ pub(super) fn service_body(
         format!("/workspace/{}", spec.recipe.working_directory_relative)
     };
     let mut env = vec!["HOME=/tmp".into(), "CI=true".into(), "LANG=C.UTF-8".into()];
+    let tmpfs = dependency_cache::service_tmpfs(spec, &mut env)?;
     env.push(format!("PORT={}", spec.preview_port));
     if spec.recipe.allowed_env_keys.iter().any(|key| key == "HOST") {
         env.push("HOST=0.0.0.0".into());
@@ -165,22 +171,7 @@ pub(super) fn service_body(
             pids_limit: Some(i64::from(spec.resources.process_count)),
             init: Some(true),
             auto_remove: Some(false),
-            tmpfs: Some(HashMap::from([
-                (
-                    "/tmp".into(),
-                    format!(
-                        "rw,nosuid,nodev,noexec,size={}",
-                        spec.resources.temporary_disk_bytes / 2
-                    ),
-                ),
-                (
-                    "/workspace".into(),
-                    format!(
-                        "rw,nosuid,nodev,size={}",
-                        spec.resources.temporary_disk_bytes / 2
-                    ),
-                ),
-            ])),
+            tmpfs: Some(tmpfs),
             ..Default::default()
         }),
         networking_config: Some(NetworkingConfig {
@@ -197,27 +188,49 @@ pub(super) fn relay_body(spec: &QaWebPreviewSpec<'_>, network_id: &str) -> Conta
         entrypoint: Some(vec!["node".into()]),
         cmd: Some(vec!["/opt/koolade-runtime-qa/relay.mjs".into()]),
         env: Some(vec![
-            "HOME=/tmp".into(), "CI=true".into(), "LANG=C.UTF-8".into(),
+            "HOME=/tmp".into(),
+            "CI=true".into(),
+            "LANG=C.UTF-8".into(),
             format!("QA_TARGET_PORT={}", spec.preview_port),
             format!("QA_HEALTH_PATH={}", spec.health_path),
         ]),
         labels: Some(labels(spec.request, "preview-relay")),
         host_config: Some(HostConfig {
-            privileged: Some(false), readonly_rootfs: Some(true), network_mode: Some(network_id.into()),
+            privileged: Some(false),
+            readonly_rootfs: Some(true),
+            network_mode: Some(network_id.into()),
             ipc_mode: Some("private".into()),
-            cap_drop: Some(vec!["ALL".into()]), cap_add: Some(Vec::new()),
+            cap_drop: Some(vec!["ALL".into()]),
+            cap_add: Some(Vec::new()),
             security_opt: Some(vec!["no-new-privileges:true".into()]),
-            memory: Some(256 * 1024 * 1024), memory_swap: Some(256 * 1024 * 1024),
-            cpu_period: Some(100_000), cpu_quota: Some(50_000), pids_limit: Some(64),
-            init: Some(true), auto_remove: Some(false),
-            tmpfs: Some(HashMap::from([("/tmp".into(), "rw,nosuid,nodev,noexec,size=16777216".into())])),
+            memory: Some(256 * 1024 * 1024),
+            memory_swap: Some(256 * 1024 * 1024),
+            cpu_period: Some(100_000),
+            cpu_quota: Some(50_000),
+            pids_limit: Some(64),
+            init: Some(true),
+            auto_remove: Some(false),
+            tmpfs: Some(HashMap::from([(
+                "/tmp".into(),
+                "rw,nosuid,nodev,noexec,size=16777216".into(),
+            )])),
             ..Default::default()
         }),
         healthcheck: Some(HealthConfig {
-            test: Some(vec!["CMD".into(), "node".into(), "-e".into(),
-                "fetch('http://127.0.0.1:8080/__koolade_health').then(r=>process.exit(r.status===204?0:1)).catch(()=>process.exit(1))".into()]),
-            interval: Some(1_000_000_000), timeout: Some(2_000_000_000), retries: Some(3),
-            start_period: Some(65_000_000_000), ..Default::default()
+            test: Some(vec![
+                "CMD".into(),
+                "node".into(),
+                "-e".into(),
+                format!(
+                    "const http=require('node:http');let remaining=2,failed=false;const check=(options,accept)=>http.get(options,res=>{{res.resume();if(!accept(res.statusCode))failed=true;if(--remaining===0)process.exit(failed?1:0)}}).on('error',()=>process.exit(1));check({{host:'127.0.0.1',port:8080,path:'/__koolade_health',headers:{{host:'qa-preview:8080'}}}},status=>status===204);check({{host:'qa-task',port:{},path:{:?}}},status=>status<500)",
+                    spec.preview_port, spec.health_path
+                ),
+            ]),
+            interval: Some(1_000_000_000),
+            timeout: Some(2_000_000_000),
+            retries: Some(3),
+            start_period: Some(65_000_000_000),
+            ..Default::default()
         }),
         networking_config: Some(NetworkingConfig {
             endpoints_config: Some(HashMap::from([(network_id.into(), endpoint("qa-relay"))])),

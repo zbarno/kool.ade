@@ -1,6 +1,8 @@
 use super::*;
 use crate::runtime_qa::QaCoverageV1;
 
+mod redaction;
+
 pub(super) struct ReportAssembly {
     pub evidence: QaEvidenceManifestV1,
     pub screenshots: Vec<QaScreenshotArtifactV1>,
@@ -52,6 +54,18 @@ pub(super) fn assemble_report(
             let Some(action) = actions.get(action_start + artifact.source_action as usize) else {
                 return Err("QA screenshot does not refer to an observed action".into());
             };
+            if !artifact.redaction_masks.is_empty() {
+                return Err(
+                    "QA driver cannot supply unverifiable screenshot redaction metadata".into(),
+                );
+            }
+            let redacted = redaction::apply(
+                &artifact,
+                &scenario.redaction_regions,
+                request.bounded_limits.max_evidence_bytes,
+                output.display.width,
+                output.display.height,
+            )?;
             let source_action = action.index;
             let storage_ref = format!(
                 "qa-evidence/{}/screenshots/{}.png",
@@ -61,17 +75,17 @@ pub(super) fn assemble_report(
             screenshot_metadata.push(QaScreenshotV1 {
                 id: artifact.id.clone(),
                 scenario_id: scenario.id.clone(),
-                sha256: artifact.sha256,
+                sha256: redacted.sha256,
                 mime: "image/png".into(),
                 width: artifact.width,
                 height: artifact.height,
                 source_action,
                 storage_ref,
-                redaction_masks: artifact.redaction_masks,
+                redaction_masks: redacted.mask_descriptions,
             });
             screenshots.push(QaScreenshotArtifactV1 {
                 id: artifact.id,
-                bytes: artifact.bytes,
+                bytes: redacted.bytes,
             });
         }
         let scenario_assertions = output.assertions;

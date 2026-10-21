@@ -19,7 +19,10 @@ pub(super) fn start(
     harness: Box<dyn crate::harness::AiHarness>,
 ) -> Result<crate::runtime_qa::QaWorkerHandle, String> {
     let request = prepared.request.clone();
-    let store_root = project.state.planning_store.root.join("state/runtime-qa");
+    let store_root = crate::runtime_qa::RuntimeQaStore::local_root_for_workspace(
+        project.state.planning_store.project_id,
+    )
+    .map_err(|error| format!("local runtime QA evidence storage is unavailable: {error}"))?;
     let lock_path = store_root.join(&request.qa_run_id).join("worker.lock");
     fs::create_dir_all(lock_path.parent().expect("run lock has parent"))
         .map_err(|error| format!("QA run lock directory unavailable: {error}"))?;

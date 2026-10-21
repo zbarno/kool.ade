@@ -72,19 +72,3 @@ pub(crate) fn record(repo: &std::path::Path, feature: &str, contract: &str) -> a
     fs::rename(&temporary, path)?;
     Ok(())
 }
-
-pub(crate) fn record_scoped(
-    repo: &std::path::Path,
-    scope: &str,
-    digest: &str,
-) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        !scope.is_empty() && scope.len() <= 256,
-        "approval scope is invalid"
-    );
-    anyhow::ensure!(
-        digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()),
-        "approval digest is invalid"
-    );
-    record(repo, &format!("scoped:{scope}"), digest)
-}
