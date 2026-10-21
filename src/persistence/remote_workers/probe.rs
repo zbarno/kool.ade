@@ -37,6 +37,14 @@ pub struct RemoteWorkerProbe {
     pub cpu_pressure_some_avg10_basis_points: Option<u32>,
     #[serde(default)]
     pub load_millis: Option<u32>,
+    /// Available to app-owned execution containers; this does not authorize
+    /// arbitrary host device access.
+    #[serde(default)]
+    pub gpu_available: Option<bool>,
+    /// Available inside an app-owned isolated runtime; host display sockets
+    /// are never forwarded to task containers.
+    #[serde(default)]
+    pub display_available: Option<bool>,
 }
 
 /// Record only public health/capability facts; never persist host names, SSH

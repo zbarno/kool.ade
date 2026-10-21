@@ -39,6 +39,11 @@ pub(super) fn paint_card(ui: &mut egui::Ui, worker: &RemoteWorkerRegistration) {
                 probe.docker_version.as_deref().unwrap_or("unknown"),
                 empty_label(&probe.policy_revision)
             ));
+            ui.label(format!(
+                "Container capabilities: GPU {} · isolated display {}",
+                capability_label(probe.gpu_available),
+                capability_label(probe.display_available)
+            ));
             if let Some(ceiling) = &probe.resource_ceiling {
                 ui.label(format!(
                     "Reported capacity: {} CPU millicores, {} GiB memory, {} processes, {} GiB task disk, {} GiB output; {} GiB free staging disk",
@@ -102,5 +107,13 @@ fn empty_label(value: &str) -> &str {
         "not reported"
     } else {
         value
+    }
+}
+
+fn capability_label(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "available",
+        Some(false) => "unavailable",
+        None => "not reported",
     }
 }

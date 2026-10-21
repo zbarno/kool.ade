@@ -175,6 +175,8 @@ mod tests {
                 available_memory_bytes: Some(1024 * 1024 * 1024),
                 cpu_pressure_some_avg10_basis_points: Some(0),
                 load_millis: Some(0),
+                gpu_available: Some(false),
+                display_available: Some(false),
             }),
             policy_revision: "v1".into(),
         }
