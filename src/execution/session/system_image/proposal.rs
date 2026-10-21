@@ -2,6 +2,9 @@ use super::*;
 
 impl ExecutionSession {
     pub fn cache_target_arch(&self) -> Option<String> {
+        if let Ok(Some(destination)) = self.retry_destination() {
+            return destination.cache_target_arch();
+        }
         if let Ok(derived) = self.derived_image.lock()
             && let Some(derived) = derived.as_ref()
         {

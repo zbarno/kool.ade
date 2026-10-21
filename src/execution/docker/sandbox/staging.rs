@@ -136,8 +136,12 @@ pub(crate) fn capture_scoped(
     workspace.revalidate()?;
     let scope = checked_scope(workspace.root(), root_relative)?;
     let limit = budget.min(MAX_STAGED_BYTES);
-    let mut snapshot = archive::capture(&scope, limit, false, MAX_ENTRIES)
-        .map_err(|_| failure("Scoped workspace cannot be staged safely within its size limit"))?;
+    let mut snapshot = archive::capture(&scope, limit, false, MAX_ENTRIES).map_err(|error| {
+        failure(&format!(
+            "Scoped workspace cannot be staged safely: {}",
+            scoped_capture_failure_reason(&error)
+        ))
+    })?;
     let prefix = if root_relative == "." {
         PathBuf::new()
     } else {
@@ -163,6 +167,25 @@ pub(crate) fn capture_scoped(
     }
     snapshot.scope_root = Some(PathBuf::from(root_relative));
     Ok(snapshot)
+}
+
+fn scoped_capture_failure_reason(error: &anyhow::Error) -> &'static str {
+    let reason = error.to_string();
+    if reason.contains("hard link or special file") {
+        "it contains a hard-linked or special file"
+    } else if reason.contains("symlink") {
+        "it contains a symbolic link"
+    } else if reason.contains("changed while staging") {
+        "the workspace changed while being captured"
+    } else if reason.contains("too many entries") {
+        "the workspace entry limit was exceeded"
+    } else if reason.contains("exceeds staging budget")
+        || reason.contains("exceeds its staging budget")
+    {
+        "the workspace exceeds its byte limit"
+    } else {
+        "a filesystem safety check failed"
+    }
 }
 
 pub(crate) fn synchronize(

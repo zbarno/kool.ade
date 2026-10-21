@@ -9,7 +9,8 @@ mod tests;
 
 pub(crate) use handle::ClaimLeaseHandle;
 pub use model::{
-    ClaimAttempt, ClaimError, ClaimHistoryEntry, ClaimLease, ClaimRecord, ClaimRequest,
+    ClaimAttempt, ClaimError, ClaimExecutionAttempt, ClaimExecutionAttemptStatus,
+    ClaimHistoryEntry, ClaimLease, ClaimRecord, ClaimRequest,
 };
 pub(crate) use model::{ClaimAttemptMode, ClaimScope};
 

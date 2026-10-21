@@ -132,6 +132,14 @@ impl ExecutionSession {
             .is_some())
     }
 
+    pub(crate) fn release_remote_capacity_lease(&self) -> Result<(), ExecutionError> {
+        self.remote_capacity_lease
+            .lock()
+            .map_err(|_| internal_error())?
+            .take();
+        Ok(())
+    }
+
     pub(crate) fn prepare_remote_capacity_start(
         &self,
         max_jobs: u32,
@@ -178,6 +186,9 @@ impl ExecutionSession {
         &self,
         snapshot: crate::harness::resource_bridge::CacheSnapshot,
     ) -> Result<(), ExecutionError> {
+        if let Some(destination) = self.retry_destination()? {
+            return destination.stage_dependency_cache(snapshot);
+        }
         self.stage_dependency_cache_inner(None, snapshot)
     }
 
@@ -188,6 +199,14 @@ impl ExecutionSession {
     ) -> Result<(), ExecutionError> {
         crate::execution::contract::validate_dependency_request_id(dependency_request_id)
             .map_err(|_| policy_error("Dependency cache request identity is invalid"))?;
+        if let Some(destination) = self.retry_destination()? {
+            validate_retry_snapshot_scope(
+                destination.target_id(),
+                destination.cache_target_arch().as_deref(),
+                &snapshot,
+            )?;
+            return destination.stage_dependency_cache_for_request(dependency_request_id, snapshot);
+        }
         self.stage_dependency_cache_inner(Some(dependency_request_id), snapshot)
     }
 
@@ -229,4 +248,18 @@ impl ExecutionSession {
         }
         Ok(())
     }
+}
+
+fn validate_retry_snapshot_scope(
+    target_id: &str,
+    target_arch: Option<&str>,
+    snapshot: &crate::harness::resource_bridge::CacheSnapshot,
+) -> Result<(), ExecutionError> {
+    let reference = &snapshot.cache_ref;
+    if reference.target_id != target_id || target_arch != Some(reference.target_arch.as_str()) {
+        return Err(policy_error(
+            "Dependency cache authorization is bound to a different retry worker",
+        ));
+    }
+    Ok(())
 }

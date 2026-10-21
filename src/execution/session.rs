@@ -24,8 +24,13 @@ mod local;
 mod process;
 mod remote;
 mod remote_dependency;
+mod retry;
 mod run;
 mod system_image;
+
+mod authorization;
+pub use authorization::AuthorizationGenerationVerifier;
+pub(crate) use retry::is_confirmed_remote_worker_loss;
 
 #[derive(Debug)]
 pub struct ExecutionOutput {
@@ -46,13 +51,6 @@ pub(super) struct RequestParameters {
     pub artifact_paths: Vec<String>,
 }
 
-/// App-owned claim/capability fence captured by an execution session and
-/// rechecked before execution and before results can be accepted.
-pub trait AuthorizationGenerationVerifier: Send + Sync + std::fmt::Debug {
-    fn generation(&self) -> String;
-    fn verify(&self, generation: &str) -> Result<(), ExecutionError>;
-}
-
 /// Controller-owned session that turns tool scripts into bounded backend requests.
 pub struct ExecutionSession {
     backend: Arc<dyn ExecutionBackend>,
@@ -64,6 +62,8 @@ pub struct ExecutionSession {
     derived_image: Mutex<Option<crate::execution::docker::image_extension::DerivedImage>>,
     authorization_generation: String,
     authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
+    remote_retry_factory: Mutex<Option<Arc<RemoteRetryFactory>>>,
+    retry_destination: Mutex<Option<Arc<ExecutionSession>>>,
     resources: ResourceBudgetV1,
     dependency_cache_refs: Mutex<Vec<DependencyCacheRefV1>>,
     prepared_dependency_ids: Mutex<BTreeSet<String>>,
@@ -83,6 +83,9 @@ pub struct ExecutionSession {
     runtime_processes: Mutex<Vec<Arc<process::RuntimeProcessHandle>>>,
     runtime: tokio::runtime::Runtime,
 }
+
+pub(crate) type RemoteRetryFactory =
+    dyn Fn() -> Result<Arc<ExecutionSession>, ExecutionError> + Send + Sync;
 
 pub use process::RuntimeProcessHandle;
 pub use remote::RemoteSessionOptions;
@@ -138,6 +141,9 @@ impl ExecutionSession {
     }
 
     pub fn cancel(&self) -> Result<(), ExecutionError> {
+        if let Some(destination) = self.retry_destination()? {
+            return destination.cancel();
+        }
         if !self.busy.load(Ordering::Acquire) {
             self.cancellation_generation.fetch_add(1, Ordering::AcqRel);
             return self.stop_runtime_processes();

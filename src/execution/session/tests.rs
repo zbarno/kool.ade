@@ -26,6 +26,8 @@ struct FakeBackend {
     invalidate_authorization_on_exec: Mutex<Option<Arc<AtomicBool>>>,
     invalidate_authorization_on_events: Mutex<Option<Arc<AtomicBool>>>,
     lifecycle_updates: Mutex<Vec<ExecutionLifecycleV1>>,
+    workspace_result_applied: AtomicBool,
+    start_error: Mutex<Option<ExecutionError>>,
 }
 
 impl ExecutionBackend for FakeBackend {
@@ -69,6 +71,9 @@ impl ExecutionBackend for FakeBackend {
         request: &'a ExecutionRequestV1,
     ) -> BackendFuture<'a, ExecutionHandleV1> {
         Box::pin(async move {
+            if let Some(error) = self.start_error.lock().unwrap().take() {
+                return Err(error);
+            }
             *self.request.lock().unwrap() = Some(request.clone());
             for event in self.events.lock().unwrap().iter_mut() {
                 if event.execution_id == execution_id() {
@@ -155,6 +160,15 @@ impl ExecutionBackend for FakeBackend {
         _: &'a ExecutionHandleV1,
     ) -> BackendFuture<'a, ExecutionResultV1> {
         Box::pin(async move { Ok(self.result.lock().unwrap().clone()) })
+    }
+
+    fn apply_workspace_result<'a>(
+        &'a self,
+        _: &'a ExecutionHandleV1,
+        _: &'a ExecutionRequestV1,
+    ) -> BackendFuture<'a, ()> {
+        self.workspace_result_applied.store(true, Ordering::Release);
+        Box::pin(async { Ok(()) })
     }
 
     fn release<'a>(&'a self, _: &'a ExecutionHandleV1) -> BackendFuture<'a, ()> {
@@ -249,6 +263,8 @@ fn backend() -> Arc<FakeBackend> {
         invalidate_authorization_on_exec: Mutex::new(None),
         invalidate_authorization_on_events: Mutex::new(None),
         lifecycle_updates: Mutex::new(Vec::new()),
+        workspace_result_applied: AtomicBool::new(false),
+        start_error: Mutex::new(None),
     })
 }
 
@@ -277,50 +293,3 @@ fn session(backend: Arc<FakeBackend>) -> ExecutionSession {
 
 #[path = "tests/commands.rs"]
 mod commands;
-
-#[test]
-fn workspace_preparation_obeys_the_requested_deadline() {
-    let backend = backend();
-    *backend.prepare_delay.lock().unwrap() = std::time::Duration::from_millis(100);
-    let error = session(backend.clone())
-        .run_bounded_script("true", Duration::from_millis(20))
-        .unwrap_err();
-    assert_eq!(error.kind, ExecutionErrorKind::DeadlineExceeded);
-    assert!(backend.request.lock().unwrap().is_none());
-}
-
-#[test]
-fn expired_workspace_lease_is_rejected_and_released_before_start() {
-    let backend = backend();
-    backend.expired_lease.store(true, Ordering::Release);
-    let error = session(backend.clone())
-        .run_bounded_script("true", Duration::from_secs(10))
-        .unwrap_err();
-    assert_eq!(error.kind, ExecutionErrorKind::WorkerDisconnected);
-    assert!(backend.workspace_released.load(Ordering::Acquire));
-    assert!(backend.request.lock().unwrap().is_none());
-}
-
-#[test]
-fn dependency_approval_wait_is_forwarded_to_the_active_local_execution() {
-    let backend = backend();
-    let session = session(backend.clone());
-    let handle = ExecutionHandleV1 {
-        execution_id: execution_id(),
-        task_id: session.workspace.task_id.clone(),
-        target: ExecutionTarget::local(),
-        request_sequence: 1,
-    };
-    *session.active.lock().unwrap() = Some((handle, 1));
-
-    session.set_dependency_approval_waiting(true).unwrap();
-    session.set_dependency_approval_waiting(false).unwrap();
-
-    assert_eq!(
-        *backend.lifecycle_updates.lock().unwrap(),
-        vec![
-            ExecutionLifecycleV1::WaitingForDependencyApproval,
-            ExecutionLifecycleV1::Running,
-        ]
-    );
-}

@@ -1,5 +1,75 @@
 use super::*;
 
+impl SshdFixture {
+    pub(in crate::harness::resource_bridge::tests::end_to_end::remote) fn add_controller_known_host(
+        &self,
+        worker_id: &str,
+    ) -> std::io::Result<()> {
+        let directory = crate::persistence::state_root().join("remote-workers");
+        fs::create_dir_all(&directory)?;
+        let path = directory.join("known_hosts");
+        let mut contents = fs::read_to_string(&path).unwrap_or_default();
+        if !contents.is_empty() && !contents.ends_with('\n') {
+            contents.push('\n');
+        }
+        contents.push_str(&format!(
+            "{worker_id} {}\n",
+            public_key_fields(&self.host_key_public)?
+        ));
+        fs::write(&path, contents)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+        }
+        Ok(())
+    }
+}
+
+pub(super) fn worker_state_command(
+    root: &Path,
+    worker_binary: &Path,
+    worker_id: Option<&str>,
+) -> std::io::Result<String> {
+    let binary = shell_quote(&worker_binary.canonicalize()?.to_string_lossy());
+    let Some(worker_id) = worker_id else {
+        return Ok(format!("{binary} worker serve --stdio"));
+    };
+    if !uuid::Uuid::parse_str(worker_id).is_ok_and(|id| id.hyphenated().to_string() == worker_id) {
+        return Err(std::io::Error::other("test worker identity is invalid"));
+    }
+    let state = root.join("worker-state");
+    let executions = state.join("executions");
+    let worker_processes = state.join("worker-processes");
+    let worker_command = state.join("serve-worker.sh");
+    fs::create_dir_all(&executions)?;
+    fs::create_dir_all(&worker_processes)?;
+    fs::write(executions.join("owner-instance-id"), worker_id)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&state, fs::Permissions::from_mode(0o700))?;
+        fs::set_permissions(&executions, fs::Permissions::from_mode(0o700))?;
+        fs::set_permissions(&worker_processes, fs::Permissions::from_mode(0o700))?;
+        fs::set_permissions(
+            executions.join("owner-instance-id"),
+            fs::Permissions::from_mode(0o600),
+        )?;
+        fs::write(
+            &worker_command,
+            format!(
+                "#!/bin/sh\numask 077\nworker_pid_dir={}\nworker_pid=$$\nworker_pid_file=\"$worker_pid_dir/$worker_pid.pid\"\nworker_pid_temp=\"$worker_pid_file.$$.tmp\"\nprintf '%s\\n' \"$worker_pid\" > \"$worker_pid_temp\"\nmv \"$worker_pid_temp\" \"$worker_pid_file\"\nexec /usr/bin/env KOOLADE_TEST_FIXTURE_WORKER_ID={} KOOLADE_HOME={} {} worker serve --stdio\n",
+                shell_quote(&worker_processes.to_string_lossy()),
+                shell_quote(worker_id),
+                shell_quote(&state.to_string_lossy()),
+                binary,
+            ),
+        )?;
+        fs::set_permissions(&worker_command, fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(shell_quote(&worker_command.to_string_lossy()))
+}
+
 pub(in crate::harness::resource_bridge::tests::end_to_end::remote) fn find_sshd() -> Option<PathBuf>
 {
     ["sshd", "/usr/sbin/sshd", "/usr/local/sbin/sshd"]
@@ -48,7 +118,7 @@ pub(in crate::harness::resource_bridge::tests::end_to_end::remote) fn write_clie
     fs::write(
         path,
         format!(
-            "Host fixture-host\n  HostName 127.0.0.1\n  Port {port}\n  IdentityFile {}\n  IdentitiesOnly yes\n  IdentityAgent none\n  BatchMode yes\n  StrictHostKeyChecking yes\n  UpdateHostKeys no\n  UserKnownHostsFile {}\n  GlobalKnownHostsFile /dev/null\n  HostKeyAlias fixture-worker\n  SendEnv KOOLADE_HOME DOCKER_HOST XDG_RUNTIME_DIR PATH\n",
+            "Host fixture-host\n  HostName 127.0.0.1\n  Port {port}\n  IdentityFile {}\n  IdentitiesOnly yes\n  IdentityAgent none\n  BatchMode yes\n  StrictHostKeyChecking yes\n  UpdateHostKeys no\n  UserKnownHostsFile {}\n  GlobalKnownHostsFile /dev/null\n  HostKeyAlias fixture-worker\n  SendEnv KOOLADE_HOME DOCKER_HOST XDG_RUNTIME_DIR\n",
             identity.display(),
             path.parent().unwrap().join("known_hosts").display()
         ),

@@ -15,7 +15,9 @@ pub(super) use acquisition::take_over_stale_after_prepare;
 pub(super) use acquisition::{
     acquire, legacy_project_uid, take_over_stale, workspace_claim_exists,
 };
-pub(super) use lease::{read_claim, refresh, release, verify};
+pub(super) use lease::{
+    begin_execution_attempt, read_claim, refresh, release, set_execution_attempt_status, verify,
+};
 pub(super) use legacy::{LegacyClaim, read_legacy_claim, remove_expired_legacy_claim};
 pub(super) use publication::fenced_push;
 #[cfg(test)]
@@ -126,7 +128,7 @@ pub(super) fn validate_remote_record(record: &ClaimRecord) -> Result<(), ClaimEr
         ),
         ("base commit", record.base_commit.as_str(), 64),
     ];
-    if !matches!(record.schema_version, 2 | 3)
+    if !matches!(record.schema_version, 2..=4)
         || record.takeover_history.len() > 32
         || text_fields.iter().any(|(_, value, limit)| {
             value.chars().count() > *limit || value.chars().any(char::is_control)
@@ -143,6 +145,14 @@ pub(super) fn validate_remote_record(record: &ClaimRecord) -> Result<(), ClaimEr
         return Err(ClaimError::CoordinationRejected(
             "Planning remote claim metadata contains invalid or oversized fields".into(),
         ));
+    }
+    if let Some(attempt) = &record.execution_attempt {
+        if record.schema_version < 4 {
+            return Err(ClaimError::CoordinationRejected(
+                "Planning remote claim schema does not support execution attempt fencing".into(),
+            ));
+        }
+        attempt.validate()?;
     }
     Ok(())
 }
@@ -187,7 +197,7 @@ pub(super) fn new_record(
     }
     let issued_at_utc = now()?;
     Ok(ClaimRecord {
-        schema_version: 3,
+        schema_version: 4,
         project_uid: project_uid.hyphenated().to_string(),
         task_uid: task_uid.to_owned(),
         owner: "Kool.ad/e session".to_owned(),
@@ -198,5 +208,6 @@ pub(super) fn new_record(
         issued_at_utc,
         expires_at_utc: issued_at_utc.saturating_add(LEASE_SECONDS),
         takeover_history: Box::<Vec<ClaimHistoryEntry>>::default(),
+        execution_attempt: None,
     })
 }
