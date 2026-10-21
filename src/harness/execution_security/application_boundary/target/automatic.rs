@@ -1,6 +1,5 @@
 use crate::{
     execution::{
-        backend::BackendCapabilitiesV1,
         contract::{ResourceBudgetV1, TargetLocation, TargetPreference},
         docker::{
             environment::DockerEnvironmentStatus,
@@ -12,31 +11,38 @@ use crate::{
         },
     },
     harness::PlanningRequest,
-    persistence::{
-        harness_settings,
-        remote_workers::{self, RemoteWorkerRegistration},
-    },
+    persistence::{harness_settings, remote_workers},
 };
 
-use super::{ExecutionSession, can_fallback_for_preference, local_session};
+use super::ExecutionSession;
+mod diagnostics;
+mod eligibility;
+mod fallback;
+mod observed;
+mod retry;
+use diagnostics::retry_test_diagnostic;
+#[cfg(test)]
+use eligibility::worker_target_allowed;
+use eligibility::{
+    local_target_eligible, ordered_remaining_workers, select_from_remaining, worker_retry_eligible,
+};
+use fallback::auto_local_fallback;
+use observed::ObservedWorker;
 
 #[cfg(test)]
 #[path = "automatic/tests.rs"]
 mod tests;
 
-struct ObservedWorker {
-    registration: RemoteWorkerRegistration,
-    capabilities: BackendCapabilitiesV1,
-}
-
-pub(super) fn auto_session(
+pub(super) fn auto_session_excluding(
     request: &PlanningRequest,
     workspace: crate::execution::contract::WorkspaceRef,
     profile: RuntimeProfile,
     resources: ResourceBudgetV1,
     requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
     allowed_targets: Vec<TargetPreference>,
+    excluded_workers: Vec<String>,
 ) -> anyhow::Result<ExecutionSession> {
+    retry_test_diagnostic(|| "automatic routing started".to_owned());
     let local_eligible =
         local_target_eligible(DockerEnvironmentStatus::detect().ready(), &allowed_targets);
     if request.authorization_verifier.is_none() {
@@ -51,19 +57,28 @@ pub(super) fn auto_session(
         );
     }
     let registrations = remote_workers::list().unwrap_or_default();
+    retry_test_diagnostic(|| {
+        format!(
+            "automatic routing found {} enrolled workers",
+            registrations.len()
+        )
+    });
     let mut observed = Vec::new();
     for registration in registrations.into_iter().filter(|worker| {
-        worker.enabled && worker_target_allowed(&worker.worker_id, &allowed_targets)
+        worker.enabled
+            && worker_retry_eligible(&worker.worker_id, &allowed_targets, &excluded_workers)
     }) {
         let Ok(config) = super::remote::worker_config(&registration) else {
             continue;
         };
+        retry_test_diagnostic(|| "automatic routing probing an enrolled worker".to_owned());
         let Ok(client) = RemoteWorkerClient::connect_for_probe(&config) else {
             continue;
         };
         let Some(capabilities) = client.probe().capabilities.clone() else {
             continue;
         };
+        retry_test_diagnostic(|| "automatic routing received worker capabilities".to_owned());
         let registration = remote_workers::get(&registration.worker_id)
             .ok()
             .flatten()
@@ -73,17 +88,23 @@ pub(super) fn auto_session(
             capabilities,
         });
     }
+    retry_test_diagnostic(|| "automatic routing collected worker capabilities".to_owned());
+    retry_test_diagnostic(|| "automatic routing loading the bundled image lock".to_owned());
     let lock = ImageLock::bundled().map_err(|failure| anyhow::anyhow!(failure.message))?;
+    retry_test_diagnostic(|| "automatic routing loaded the bundled image lock".to_owned());
     let worker_ids = observed
         .iter()
         .map(|worker| worker.registration.worker_id.clone())
         .collect::<Vec<_>>();
+    let observed_worker_ids = worker_ids.clone();
+    retry_test_diagnostic(|| "automatic routing reading the worker order cursor".to_owned());
     let worker_order = remote_workers::order_auto_workers(&worker_ids).unwrap_or_else(|_| {
         let mut ids = worker_ids;
         ids.sort();
         ids.dedup();
         ids
     });
+    retry_test_diagnostic(|| "automatic routing resolved the worker order".to_owned());
     let mut remote_choices = Vec::<(
         std::cmp::Reverse<u32>,
         std::cmp::Reverse<u64>,
@@ -106,6 +127,9 @@ pub(super) fn auto_session(
     let now = harness_settings::current_unix_ms();
     let policy_revision = crate::execution::policy::policy_hash();
     for architecture in architectures {
+        retry_test_diagnostic(|| {
+            format!("automatic routing selecting a target for {architecture}")
+        });
         let Ok(image) = lock.select(profile, &architecture) else {
             continue;
         };
@@ -118,36 +142,37 @@ pub(super) fn auto_session(
             .collect::<Vec<_>>();
         let mut excluded = Vec::<String>::new();
         loop {
-            let eligible_ids = worker_order
-                .iter()
-                .filter(|worker_id| {
-                    !excluded.contains(worker_id)
-                        && candidates.iter().any(|candidate| {
-                            candidate.registration.worker_id.as_str() == worker_id.as_str()
-                        })
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-            let requirements = SchedulingRequirements {
-                architecture: &architecture,
-                image_digest: &image.digest,
-                policy_revision: &policy_revision,
-                resource_budget: &resources,
-                remote_approved: true,
-                dependencies_prepared: true,
-                eligible_worker_ids: &eligible_ids,
-                requires_gpu: requirements.requires_gpu,
-                requires_display: requirements.requires_display,
-            };
-            let Ok(target) = scheduler::select_target(
-                &TargetPreference::Auto,
-                false,
-                &candidates,
-                &requirements,
-                now,
-            ) else {
+            let eligible_ids =
+                ordered_remaining_workers(&worker_order, &observed_worker_ids, &excluded);
+            let Some(target) = select_from_remaining(&eligible_ids, |eligible_ids| {
+                let requirements = SchedulingRequirements {
+                    architecture: &architecture,
+                    image_digest: &image.digest,
+                    policy_revision: &policy_revision,
+                    resource_budget: &resources,
+                    remote_approved: true,
+                    dependencies_prepared: true,
+                    eligible_worker_ids: eligible_ids,
+                    requires_gpu: requirements.requires_gpu,
+                    requires_display: requirements.requires_display,
+                };
+                retry_test_diagnostic(|| {
+                    format!("automatic routing evaluating candidates for {architecture}")
+                });
+                scheduler::select_target(
+                    &TargetPreference::Auto,
+                    false,
+                    &candidates,
+                    &requirements,
+                    now,
+                )
+                .ok()
+            }) else {
                 break;
             };
+            retry_test_diagnostic(|| {
+                format!("automatic routing selected a candidate for {architecture}")
+            });
             let TargetLocation::Remote { worker_id } = target.location else {
                 break;
             };
@@ -186,6 +211,12 @@ pub(super) fn auto_session(
         }
     }
     remote_choices.sort();
+    retry_test_diagnostic(|| {
+        format!(
+            "automatic routing selected {} capacity candidates",
+            remote_choices.len()
+        )
+    });
     let mut remaining = remote_choices
         .iter()
         .filter_map(|(_, _, _, _, load, _, worker_id)| {
@@ -208,11 +239,15 @@ pub(super) fn auto_session(
         })
         .collect::<Vec<_>>();
     while !remaining.is_empty() {
+        retry_test_diagnostic(|| "automatic routing reserving worker capacity".to_owned());
         let Ok(Some(capacity)) = remote_workers::reserve_auto_capacity(&remaining) else {
             break;
         };
         let worker_id = capacity.worker_id().to_owned();
         remaining.retain(|candidate| candidate.worker_id != worker_id);
+        retry_test_diagnostic(|| {
+            "automatic routing opening the reserved worker session".to_owned()
+        });
         match super::remote::remote_session_with_capacity(
             request,
             workspace.clone(),
@@ -222,9 +257,31 @@ pub(super) fn auto_session(
             requirements,
             Some(capacity),
         ) {
-            Ok(session) => return Ok(session),
-            Err(_) => continue,
+            Ok(session) => {
+                retry_test_diagnostic(|| "automatic routing opened the worker session".to_owned());
+                retry::install_factory(
+                    &session,
+                    request,
+                    &workspace,
+                    profile,
+                    &resources,
+                    requirements,
+                    &allowed_targets,
+                    &excluded_workers,
+                    worker_id,
+                )?;
+                return Ok(session);
+            }
+            Err(error) => {
+                retry_test_diagnostic(|| {
+                    format!("automatic routing rejected a worker session: {error:#}")
+                });
+                continue;
+            }
         }
+    }
+    if !excluded_workers.is_empty() {
+        anyhow::bail!("No alternate trusted remote worker is eligible after confirmed worker loss");
     }
     auto_local_fallback(
         request,
@@ -235,33 +292,4 @@ pub(super) fn auto_session(
         requirements,
         "No verified remote worker is eligible",
     )
-}
-
-fn auto_local_fallback(
-    request: &PlanningRequest,
-    workspace: crate::execution::contract::WorkspaceRef,
-    profile: RuntimeProfile,
-    resources: ResourceBudgetV1,
-    local_eligible: bool,
-    requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
-    reason: &str,
-) -> anyhow::Result<ExecutionSession> {
-    super::ensure_local_capabilities(&requirements)?;
-    anyhow::ensure!(
-        can_fallback_for_preference(&TargetPreference::Auto, local_eligible),
-        "{reason}; local Docker is unavailable"
-    );
-    local_session(request, workspace, profile, resources)
-}
-
-fn local_target_eligible(local_ready: bool, allowed_targets: &[TargetPreference]) -> bool {
-    local_ready && super::ensure_target_allowed(&TargetPreference::Local, allowed_targets).is_ok()
-}
-
-fn worker_target_allowed(worker_id: &str, allowed_targets: &[TargetPreference]) -> bool {
-    super::ensure_target_allowed(
-        &TargetPreference::Worker(worker_id.to_owned()),
-        allowed_targets,
-    )
-    .is_ok()
 }

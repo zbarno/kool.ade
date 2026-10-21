@@ -170,11 +170,13 @@ fn disconnected_engine_returns_structured_failure_and_does_not_claim_ready() {
 
 #[test]
 fn engine_probe_cache_is_short_lived_and_explicitly_invalidatable() {
+    let mut engine_snapshot = snapshot();
+    engine_snapshot.minimum_disk_bytes = 1;
     let api = Arc::new(FakeApi {
         inspect_count: AtomicUsize::new(0),
         image_count: AtomicUsize::new(0),
         image_prepare_count: AtomicUsize::new(0),
-        inspect_result: Mutex::new(Ok(snapshot())),
+        inspect_result: Mutex::new(Ok(engine_snapshot)),
     });
     let discovery = EngineDiscovery::with_api(
         DockerEndpoint::Unix {
@@ -194,11 +196,13 @@ fn engine_probe_cache_is_short_lived_and_explicitly_invalidatable() {
 
 #[test]
 fn engine_health_probe_is_read_only_and_never_prepares_an_image() {
+    let mut engine_snapshot = snapshot();
+    engine_snapshot.minimum_disk_bytes = 1;
     let api = Arc::new(FakeApi {
         inspect_count: AtomicUsize::new(0),
         image_count: AtomicUsize::new(0),
         image_prepare_count: AtomicUsize::new(0),
-        inspect_result: Mutex::new(Ok(snapshot())),
+        inspect_result: Mutex::new(Ok(engine_snapshot)),
     });
     let discovery = EngineDiscovery::with_api(
         DockerEndpoint::Unix {

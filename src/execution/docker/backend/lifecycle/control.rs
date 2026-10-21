@@ -97,10 +97,19 @@ pub(super) async fn collect(
     backend: &DockerExecutionBackend,
     handle: &ExecutionHandleV1,
 ) -> Result<ExecutionResultV1, ExecutionError> {
+    let record = load_record(backend, handle)?;
+    if record.result.as_ref().is_some_and(is_worker_loss_result)
+        && !worker_loss_is_reconciled(record.state, record.cleanup)
+    {
+        return Err(ExecutionError::new(
+            ExecutionErrorKind::WorkerDisconnected,
+            "Worker execution is interrupted but its container stop is not confirmed",
+            true,
+        ));
+    }
     let execution = match backend.lookup_execution(handle) {
         Ok(execution) => execution,
         Err(error) if error.kind == ExecutionErrorKind::WorkerDisconnected => {
-            let record = load_record(backend, handle)?;
             return record.result.ok_or_else(|| {
                 ExecutionError::new(
                     ExecutionErrorKind::ExecutionFailed,
@@ -123,6 +132,24 @@ pub(super) async fn collect(
                 false,
             )
         })
+}
+
+fn is_worker_loss_result(result: &ExecutionResultV1) -> bool {
+    result.exit_code.is_none()
+        && result.signal.is_none()
+        && !result.cancelled
+        && !result.timed_out
+        && result.failure.as_ref().is_some_and(|failure| {
+            failure.kind == ExecutionErrorKind::WorkerDisconnected && failure.retryable
+        })
+}
+
+fn worker_loss_is_reconciled(
+    state: crate::persistence::execution_records::ExecutionRecordStateV1,
+    cleanup: crate::persistence::execution_records::ExecutionCleanupStateV1,
+) -> bool {
+    state == crate::persistence::execution_records::ExecutionRecordStateV1::Interrupted
+        && cleanup == crate::persistence::execution_records::ExecutionCleanupStateV1::Complete
 }
 
 pub(super) async fn release(
@@ -203,27 +230,5 @@ pub(super) async fn release(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::CancellationIntentGuard;
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    };
-
-    #[tokio::test]
-    async fn aborted_cancellation_releases_its_terminal_result_reservation() {
-        let requests = Arc::new(AtomicUsize::new(0));
-        let task_requests = Arc::clone(&requests);
-        let task = tokio::spawn(async move {
-            let _intent = CancellationIntentGuard::new(task_requests);
-            std::future::pending::<()>().await;
-        });
-        tokio::task::yield_now().await;
-        assert_eq!(requests.load(Ordering::Acquire), 1);
-
-        task.abort();
-        let _ = task.await;
-
-        assert_eq!(requests.load(Ordering::Acquire), 0);
-    }
-}
+#[path = "control/tests.rs"]
+mod tests;

@@ -12,6 +12,27 @@ use crate::{
 
 use crate::persistence::execution_environment_settings::ExecutionEnvironmentSettings;
 
+#[cfg(test)]
+pub(super) fn auto_session_for_retry_test(
+    request: &PlanningRequest,
+    workspace: crate::execution::contract::WorkspaceRef,
+    profile: RuntimeProfile,
+    resources: ResourceBudgetV1,
+    requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
+    allowed_targets: Vec<TargetPreference>,
+    excluded_workers: Vec<String>,
+) -> anyhow::Result<ExecutionSession> {
+    automatic::auto_session_excluding(
+        request,
+        workspace,
+        profile,
+        resources,
+        requirements,
+        allowed_targets,
+        excluded_workers,
+    )
+}
+
 pub(super) fn connect(
     request: &PlanningRequest,
     workspace: crate::execution::contract::WorkspaceRef,
@@ -46,13 +67,14 @@ pub(super) fn connect(
                 requirements,
             )
         }
-        TargetPreference::Auto => automatic::auto_session(
+        TargetPreference::Auto => automatic::auto_session_excluding(
             request,
             workspace,
             profile,
             resources,
             requirements,
             allowed_targets,
+            Vec::new(),
         ),
     }
 }

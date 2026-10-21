@@ -30,7 +30,7 @@ fn git_claim_takeover_fences_the_stale_remote_worker_result() {
     let project_uid = uuid::Uuid::new_v4();
     let project_id = project_uid.hyphenated().to_string();
     let task_id = uuid::Uuid::new_v4().hyphenated().to_string();
-    let (planning_remote, planning_a, planning_b) = planning_repositories(&root);
+    let (planning_remote, planning_a, planning_b) = super::planning_repositories::create(&root);
     let lease_a = ClaimLease::acquire(&planning_a, project_uid, &task_id, "web", &source_sha)
         .unwrap()
         .expect("the first controller must acquire the Git-backed claim");
@@ -70,6 +70,7 @@ fn git_claim_takeover_fences_the_stale_remote_worker_result() {
         &session_a,
         "stale-worker-started",
         &mut stale_controller,
+        &task_home_path,
         &root.join("sshd.log"),
     );
 
@@ -171,73 +172,6 @@ fn git_claim_takeover_fences_the_stale_remote_worker_result() {
     drop(session_b);
     drop(sshd);
     fs::remove_dir_all(root).unwrap();
-}
-
-fn planning_repositories(
-    root: &std::path::Path,
-) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
-    let remote = root.join("planning.git");
-    let seed = root.join("planning-seed");
-    let first = root.join("planning-controller-a");
-    let second = root.join("planning-controller-b");
-    fs::create_dir_all(&seed).unwrap();
-    support::run_git(
-        root,
-        &["init", "--quiet", "--bare", remote.to_str().unwrap()],
-    );
-    support::run_git(&remote, &["config", "uploadpack.allowFilter", "true"]);
-    support::run_git(&seed, &["init", "--quiet"]);
-    fs::write(seed.join("README.md"), "planning claim fixture\n").unwrap();
-    support::run_git(
-        &seed,
-        &[
-            "-c",
-            "user.name=Synthetic Test",
-            "-c",
-            "user.email=test@example.invalid",
-            "add",
-            "README.md",
-        ],
-    );
-    support::run_git(
-        &seed,
-        &[
-            "-c",
-            "user.name=Synthetic Test",
-            "-c",
-            "user.email=test@example.invalid",
-            "commit",
-            "--quiet",
-            "-m",
-            "planning fixture",
-        ],
-    );
-    support::run_git(&seed, &["branch", "-M", "main"]);
-    support::run_git(
-        &seed,
-        &["remote", "add", "origin", remote.to_str().unwrap()],
-    );
-    support::run_git(&seed, &["push", "--quiet", "origin", "main"]);
-    support::run_git(&remote, &["symbolic-ref", "HEAD", "refs/heads/main"]);
-    support::run_git(
-        root,
-        &[
-            "clone",
-            "--quiet",
-            remote.to_str().unwrap(),
-            first.to_str().unwrap(),
-        ],
-    );
-    support::run_git(
-        root,
-        &[
-            "clone",
-            "--quiet",
-            remote.to_str().unwrap(),
-            second.to_str().unwrap(),
-        ],
-    );
-    (remote, first, second)
 }
 
 fn git_output(root: &std::path::Path, args: &[&str]) -> String {

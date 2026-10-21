@@ -16,10 +16,12 @@ use std::{
 
 mod authorization;
 mod claim_takeover;
+mod planning_repositories;
 mod private_files;
 mod sshd;
 mod task_roundtrip;
 mod two_controllers;
 mod worker_restart;
+mod worker_retry;
 
 mod cache_restore;

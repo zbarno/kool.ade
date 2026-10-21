@@ -17,6 +17,8 @@ mod target;
 #[cfg(test)]
 mod test_overrides;
 #[cfg(test)]
+mod test_routing;
+#[cfg(test)]
 #[path = "application_boundary/tests.rs"]
 mod tests;
 pub(crate) use private_directory::PrivateDirectory;
@@ -39,6 +41,9 @@ pub(crate) fn override_test_app_binary(path: PathBuf) -> TestAppBinaryOverride {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     TestAppBinaryOverride(current.replace(path))
 }
+
+#[cfg(test)]
+pub(crate) use test_routing::auto_remote_session_for_retry_test;
 
 #[cfg(test)]
 impl Drop for TestAppBinaryOverride {
