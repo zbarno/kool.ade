@@ -42,7 +42,10 @@ fn ssh_worker_never_stages_an_unapproved_private_file() {
     let worker_binary = std::env::var_os("KOOLADE_TEST_WORKER_BINARY")
         .map(std::path::PathBuf::from)
         .expect("remote Docker E2E requires KOOLADE_TEST_WORKER_BINARY");
-    assert!(worker_binary.is_file(), "remote worker binary is unavailable");
+    assert!(
+        worker_binary.is_file(),
+        "remote worker binary is unavailable"
+    );
 
     let root = tempfile::tempdir().unwrap();
     let task_home_path = root.path().join("task-home");
@@ -51,7 +54,11 @@ fn ssh_worker_never_stages_an_unapproved_private_file() {
     let repository = root.path().join("repository");
     fs::create_dir_all(&repository).unwrap();
     support::initialize_project(&repository);
-    fs::write(repository.join("README.md"), "synthetic private-file denial\n").unwrap();
+    fs::write(
+        repository.join("README.md"),
+        "synthetic private-file denial\n",
+    )
+    .unwrap();
     support::commit(&repository);
     let task_clone = support::create_task_clone(&repository, &task_home_path, "private-denial");
     let private_bytes = b"synthetic-unapproved-secret\n";
@@ -85,7 +92,7 @@ fn ssh_worker_never_stages_an_unapproved_private_file() {
     );
     let output = session
         .run_tool_command(
-            "test ! -e /koolade-private-files/.env.production && printf 'unapproved-private-file-absent\\n'",
+            "test ! -e .env.production && test ! -e /koolade-private-files/.env.production && printf 'unapproved-private-file-absent\\n'",
             Duration::from_secs(120),
         )
         .expect("remote execution should succeed without access to the unapproved file");
