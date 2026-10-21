@@ -36,7 +36,9 @@ fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_
     let reviewed_head = sandbox.git(&state.task_repository, &["rev-parse", "HEAD"]);
     state.verified_head = Some(reviewed_head.clone());
     state.repository_id = Some("synthetic-publication-repository".into());
-    state.destination_branch = Some("main".into());
+    // The default destination is held in `base`; `destination_branch` is only
+    // populated when the user explicitly chose one.
+    state.destination_branch = None;
 
     let fixture = LifecycleFixture::with_subtask_head(
         reviewed_head.len(),

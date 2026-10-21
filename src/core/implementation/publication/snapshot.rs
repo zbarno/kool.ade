@@ -27,9 +27,14 @@ pub(in crate::core::implementation) fn build_publication_scope(
         .as_deref()
         .filter(|head| task.reviewed_code_head_sha.as_deref() == Some(*head))
         .ok_or_else(|| anyhow::anyhow!("publication head is not the reviewed task head"))?;
+    // Task setup stores the resolved destination branch in `base`; the
+    // optional field only retains an explicitly configured destination.
     let destination_branch = implementation
         .destination_branch
         .as_deref()
+        .or_else(|| {
+            (!implementation.base.trim().is_empty()).then_some(implementation.base.as_str())
+        })
         .ok_or_else(|| anyhow::anyhow!("PR destination branch is unavailable"))?;
     let spec_revision = lifecycle
         .load_spec_revision(&task.feature_uid)?
