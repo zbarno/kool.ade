@@ -10,13 +10,12 @@ use crate::{
     harness::{ExecutionMode, LiveProgress, PlanningRequest},
     persistence::execution_environment_settings::TaskCapabilityRequirements,
 };
-use std::{
-    os::unix::fs::PermissionsExt,
-    sync::{Arc, Mutex, atomic::AtomicBool, mpsc},
-};
+use std::sync::{Arc, Mutex, atomic::AtomicBool, mpsc};
 
 mod authorization;
+mod dispatcher;
 use authorization::ObservedAuthorization;
+use dispatcher::install_ssh_dispatcher;
 
 #[test]
 fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
@@ -25,6 +24,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     {
         return;
     }
+    eprintln!("worker-retry E2E: started");
     // Production boundary: the actual auto scheduler probes trusted workers, reserves capacity,
     // pins the selected target, confirms a Git-backed claim loss after the worker process dies,
     // excludes that worker, and retries over authenticated SSH with rootless Docker. A unit
@@ -45,6 +45,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     fs::write(repository.join("README.md"), "synthetic retry fixture\n").unwrap();
     support::commit(&repository);
     let task_clone = support::create_task_clone(&repository, &task_home_path, "worker-retry");
+    eprintln!("worker-retry E2E: repository fixture initialized");
 
     let worker_a_root = root.path().join("worker-a");
     let worker_b_root = root.path().join("worker-b");
@@ -54,8 +55,10 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     let worker_b_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let sshd_a = sshd::SshdFixture::start_for_worker(&worker_a_root, &worker_binary, &worker_a_id)
         .expect("CI must provide loopback sshd for worker A retry E2E");
+    eprintln!("worker-retry E2E: worker A sshd is ready");
     let sshd_b = sshd::SshdFixture::start_for_worker(&worker_b_root, &worker_binary, &worker_b_id)
         .expect("CI must provide loopback sshd for worker B retry E2E");
+    eprintln!("worker-retry E2E: worker B sshd is ready");
     let worker_a = sshd_a.worker_config(&worker_a_id);
     let worker_b = sshd_b.worker_config(&worker_b_id);
     sshd_a.restore_known_host(&worker_a_id).unwrap();
@@ -74,6 +77,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         (&worker_a_id, &worker_a, &sshd_a),
         (&worker_b_id, &worker_b, &sshd_b),
     ] {
+        eprintln!("worker-retry E2E: registering and probing a worker");
         crate::persistence::remote_workers::register(
             worker_id,
             &worker.host_alias,
@@ -84,6 +88,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         sshd.add_controller_known_host(worker_id).unwrap();
         let probe = RemoteWorkerClient::connect_for_probe(worker)
             .expect("fixture worker must pass the real SSH capability probe");
+        eprintln!("worker-retry E2E: worker SSH capability probe connected");
         let report = probe.probe();
         let capabilities = report
             .capabilities
@@ -129,6 +134,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
             worker_id, report, &test_lock,
         )
         .expect("test enrollment must pass the production promotion-gated trust path");
+        eprintln!("worker-retry E2E: worker trust report accepted");
     }
     assert!(dispatcher.is_file());
 
@@ -182,6 +188,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         TargetPreference::Worker(worker_a_id.clone()),
         TargetPreference::Worker(worker_b_id.clone()),
     ];
+    eprintln!("worker-retry E2E: building the trusted automatic session");
     let session = Arc::new(
         crate::harness::execution_security::auto_remote_session_for_retry_test(
             &request,
@@ -194,6 +201,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         )
         .expect("production auto scheduler must select an explicitly trusted worker"),
     );
+    eprintln!("worker-retry E2E: trusted automatic session selected a worker");
     let first_worker_id = session.target_id().to_owned();
     assert!(first_worker_id == worker_a_id || first_worker_id == worker_b_id);
     let (first_sshd_log, first_worker_home) = if first_worker_id == worker_a_id {
@@ -215,6 +223,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
             Duration::from_secs(90),
         )
     }));
+    eprintln!("worker-retry E2E: waiting for initial command output");
     two_controllers::wait_for_remote_stdout(
         &session,
         "first-worker-started",
@@ -276,28 +285,4 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     drop(retry_session);
     drop(sshd_a);
     drop(sshd_b);
-}
-
-fn install_ssh_dispatcher(
-    directory: &std::path::Path,
-    workers: &[(&str, &std::path::Path)],
-) -> std::path::PathBuf {
-    fs::create_dir_all(directory).unwrap();
-    let mut script = String::from("#!/bin/sh\ncase \"$*\" in\n");
-    for (worker_id, ssh_wrapper) in workers {
-        script.push_str(&format!(
-            "  *HostKeyAlias={worker_id}*) exec {} \"$@\" ;;\n",
-            shell_quote(&ssh_wrapper.to_string_lossy())
-        ));
-    }
-    script
-        .push_str("esac\necho 'no SSH fixture matches the pinned worker identity' >&2\nexit 127\n");
-    let path = directory.join("ssh");
-    fs::write(&path, script).unwrap();
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
-    path
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
 }
