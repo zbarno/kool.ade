@@ -51,6 +51,7 @@ pub struct RemoteExecutionBackend {
     baselines: Mutex<HashMap<WorkspaceRef, (ValidatedWorkspace, WorkspaceSnapshot)>>,
     verified_results: Mutex<HashMap<String, VerifiedWorkspaceResult>>,
     pending_workspace_transfers: Mutex<HashMap<String, (u64, u64)>>,
+    execution_started_at: Mutex<HashMap<String, Instant>>,
 }
 
 impl RemoteExecutionBackend {
@@ -113,6 +114,7 @@ impl RemoteExecutionBackend {
             baselines: Mutex::new(HashMap::new()),
             verified_results: Mutex::new(HashMap::new()),
             pending_workspace_transfers: Mutex::new(HashMap::new()),
+            execution_started_at: Mutex::new(HashMap::new()),
         })
     }
 
