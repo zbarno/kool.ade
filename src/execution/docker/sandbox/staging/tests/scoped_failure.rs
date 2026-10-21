@@ -61,3 +61,15 @@ fn scoped_capture_sanitizes_permission_denied_from_a_real_file_open() {
     assert!(message.contains("a filesystem entry is not accessible"));
     assert!(!message.contains(file.to_str().unwrap()));
 }
+
+#[cfg(unix)]
+#[test]
+fn nested_unclassified_os_error_includes_only_the_numeric_code() {
+    let error = anyhow::Error::new(std::io::Error::from_raw_os_error(12345))
+        .context("capture failed for /private/workspace/path");
+    assert_eq!(
+        scoped_capture_failure_reason(&error),
+        "an operating system filesystem operation failed (OS error 12345)"
+    );
+    assert!(!scoped_capture_failure_reason(&error).contains("/private/workspace/path"));
+}

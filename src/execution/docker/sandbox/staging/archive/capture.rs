@@ -1,9 +1,10 @@
 use std::{
-    fs,
+    fs, io,
     io::Read,
     path::{Component, Path},
 };
 
+use anyhow::Context;
 use tar::{Builder, EntryType, Header};
 
 use super::super::archive::{Fingerprint, Manifest, hash, validate_relative};
@@ -85,10 +86,8 @@ fn append_directory(
             )
         };
         if stat_result != 0 {
-            anyhow::bail!(
-                "workspace entry could not be inspected safely: {:?}",
-                std::io::Error::last_os_error().kind()
-            );
+            return Err(io::Error::last_os_error())
+                .context("workspace entry could not be inspected safely");
         }
         let stat = unsafe { stat.assume_init() };
         let kind = stat.st_mode & libc::S_IFMT;
@@ -102,10 +101,8 @@ fn append_directory(
                 )
             };
             if fd < 0 {
-                anyhow::bail!(
-                    "workspace directory could not be opened safely: {:?}",
-                    std::io::Error::last_os_error().kind()
-                );
+                return Err(io::Error::last_os_error())
+                    .context("workspace directory could not be opened safely");
             }
             let child = unsafe { fs::File::from_raw_fd(fd) };
             let metadata = child.metadata()?;
@@ -131,10 +128,8 @@ fn append_directory(
                 )
             };
             if fd < 0 {
-                anyhow::bail!(
-                    "workspace file could not be opened safely: {:?}",
-                    std::io::Error::last_os_error().kind()
-                );
+                return Err(io::Error::last_os_error())
+                    .context("workspace file could not be opened safely");
             }
             let mut file = unsafe { fs::File::from_raw_fd(fd) };
             let metadata = file.metadata()?;
