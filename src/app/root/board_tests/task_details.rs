@@ -111,6 +111,7 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
                 approved_specification: None,
                 approved_product_context: None,
                 completed_dependency_context: None,
+                manager_repair_context: None,
                 branch: "koolade/fixture".into(),
                 source_branch: Some("release/2.1".into()),
                 destination_branch: Some("integration".into()),

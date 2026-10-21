@@ -82,6 +82,9 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
                     WorkKind::PlanReviewDisposition => {
                         "Resolve a Manager disposition for an independent plan-review finding."
                     }
+                    WorkKind::CodeReviewDisposition => {
+                        "Resolve a Manager disposition for an independent code-review finding."
+                    }
                 };
                 ui.label(theme::helper_text(selected_help));
                 ui.add_space(theme::spacing::S);

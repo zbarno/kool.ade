@@ -68,8 +68,13 @@ fn persisted_finding_text_is_bounded_and_local_paths_are_redacted() {
         .push(crate::harness::prompt_catalog::ReviewFindingV1 {
             id: "F-1".into(),
             requirement: "REQ-001".into(),
+            location_detail: None,
+            rationale: String::new(),
+            affected_requirement_ids: Vec::new(),
+            suggested_action: None,
             severity: crate::harness::prompt_catalog::Severity::High,
             kind: crate::harness::prompt_catalog::FindingKind::Requirements,
+            scope: None,
             location: "inspect /home/example/private-file.rs for context".into(),
             evidence: vec!["plan:snapshot-2".into()],
             repro: Some("Open C:\\Users\\example\\private-file.rs".into()),

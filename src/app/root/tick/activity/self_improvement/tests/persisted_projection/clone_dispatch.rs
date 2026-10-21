@@ -138,6 +138,7 @@ fn implementation_record(
         approved_specification: None,
         approved_product_context: None,
         completed_dependency_context: None,
+        manager_repair_context: None,
         branch: run.source_ref.clone().unwrap(),
         source_branch: run.source_ref.clone(),
         destination_branch: run.destination_ref.clone(),

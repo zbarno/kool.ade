@@ -13,6 +13,7 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         PromptRole::Decomposer,
         PromptRole::Implementer,
         PromptRole::CodeReviewer,
+        PromptRole::CodeReviewerV1,
         PromptRole::RuntimeQaReviewer,
         PromptRole::RuntimeQaReviewerV2,
         PromptRole::SpecReconciler,
@@ -42,14 +43,14 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
     );
     let pinned = [
         (
+            PromptRole::Manager,
+            "879d8c647d8b7e49b8f522ffe248c039481dd80ff6d5f1744a68c733b469d921",
+            "b845b50de27043e90e20825ff59ed35cac004e524e18d58f64273802818743ca",
+        ),
+        (
             PromptRole::ManagerV6,
             "468e2674dd902540b54fe27ef2b9a59355d1f1d70d4427d7431c26de24d22193",
             "8663ac074e52dd8160ca00b9cb9c195c494e17f237cc34a8e7dae1ed847ee3c5",
-        ),
-        (
-            PromptRole::Manager,
-            "a0a54cc48ad701b4f2ea2cb3bad3c70576d80fc7cef27015458e660bcdd4ca0b",
-            "b63aaa1b47936e1d0645cf233d62ef331678171a34cb435ab65eb0e8e7be5c74",
         ),
         (
             PromptRole::ManagerV5,
@@ -93,6 +94,11 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         ),
         (
             PromptRole::CodeReviewer,
+            "75b00ebee8fbc8197717d054f7f7afbc3f8566fe1a4c5124a129b6d040249d65",
+            "1214d63c183650c99122395cb2e005cc8a8327f9da04578ce72cbbea9bddb687",
+        ),
+        (
+            PromptRole::CodeReviewerV1,
             "23adac6c56a90db68dcf16996ad4f911ed61cf4bdd548594b3d0178e7deda824",
             "657d81fbcbb9eb5a943bc9c0d62fb7e7cbfe8c7e92ebf9c8188179f7e69dd5ca",
         ),
@@ -153,6 +159,7 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         PromptRole::Decomposer,
         PromptRole::Implementer,
         PromptRole::CodeReviewer,
+        PromptRole::CodeReviewerV1,
         PromptRole::RuntimeQaReviewer,
         PromptRole::RuntimeQaReviewerV2,
         PromptRole::SpecReconciler,

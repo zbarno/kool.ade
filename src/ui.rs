@@ -104,6 +104,12 @@ pub enum ApplicationCommand {
     CancelWork {
         key: String,
     },
+    ApproveCodeReviewRisk {
+        work_id: String,
+        task_uid: String,
+        finding_id: String,
+        subject_hash: String,
+    },
     ApproveReviewItem {
         id: String,
     },

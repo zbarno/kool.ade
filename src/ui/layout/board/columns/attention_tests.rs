@@ -149,6 +149,7 @@ fn implementation(
         approved_specification: None,
         approved_product_context: None,
         completed_dependency_context: None,
+        manager_repair_context: None,
         branch: String::new(),
         source_branch: None,
         destination_branch: None,

@@ -29,6 +29,9 @@ fn blocking_verdict(snapshot: &PlanSnapshotV1) -> ReviewVerdictV1 {
     let evidence = format!("plan:{}", snapshot.uid);
     ReviewVerdictV1 {
         subject_hash: snapshot.content_hash.clone(),
+        examined_files: Vec::new(),
+        tested_evidence_ids: Vec::new(),
+        unexamined_areas: Vec::new(),
         pass: false,
         outcome: Some(ReviewOutcomeV1::BlockingFindings),
         coverage: snapshot
@@ -48,8 +51,13 @@ fn blocking_verdict(snapshot: &PlanSnapshotV1) -> ReviewVerdictV1 {
         findings: vec![ReviewFindingV1 {
             id: "F-EVIDENCE".into(),
             requirement: snapshot.requirements[0].stable_id.clone(),
+            location_detail: None,
+            rationale: String::new(),
+            affected_requirement_ids: Vec::new(),
+            suggested_action: None,
             severity: Severity::High,
             kind: FindingKind::Requirements,
+            scope: None,
             location: "requirement evidence binding".into(),
             evidence: vec![evidence],
             repro: Some("The finding cites the exact plan snapshot.".into()),

@@ -21,6 +21,7 @@ pub enum PromptRole {
     Decomposer,
     Implementer,
     CodeReviewer,
+    CodeReviewerV1,
     RuntimeQaReviewer,
     RuntimeQaReviewerV2,
     SpecReconciler,
@@ -44,7 +45,8 @@ impl PromptRole {
             Self::PlanReviewerV1 => "plan_reviewer/v1",
             Self::Decomposer => "decomposer/v2",
             Self::Implementer => "implementer/v1",
-            Self::CodeReviewer => "code_review/v1",
+            Self::CodeReviewer => "code_review/v2",
+            Self::CodeReviewerV1 => "code_review/v1",
             Self::RuntimeQaReviewer => "runtime_qa/v1",
             Self::RuntimeQaReviewerV2 => "runtime_qa/v2",
             Self::SpecReconciler => "spec_sync/v1",
@@ -67,6 +69,7 @@ impl PromptRole {
             Self::PlanReviewer
             | Self::PlanReviewerV1
             | Self::CodeReviewer
+            | Self::CodeReviewerV1
             | Self::RuntimeQaReviewer
             | Self::RuntimeQaReviewerV2 => "ReviewVerdictV1",
             Self::Decomposer => "TaskGraphV1",
@@ -91,7 +94,8 @@ impl PromptRole {
             Self::PlanReviewerV1 => include_str!("../../../prompts/v1/plan_review.system.md"),
             Self::Decomposer => include_str!("../../../prompts/v2/decomposer.system.md"),
             Self::Implementer => include_str!("../../../prompts/v1/implementer.system.md"),
-            Self::CodeReviewer => include_str!("../../../prompts/v1/code_review.system.md"),
+            Self::CodeReviewer => include_str!("../../../prompts/v2/code_review.system.md"),
+            Self::CodeReviewerV1 => include_str!("../../../prompts/v1/code_review.system.md"),
             Self::RuntimeQaReviewer => include_str!("../../../prompts/v1/runtime_qa.system.md"),
             Self::RuntimeQaReviewerV2 => {
                 include_str!("../../../prompts/v2/runtime_qa.system.md")
@@ -117,7 +121,8 @@ impl PromptRole {
             Self::PlanReviewerV1 => include_str!("../../../prompts/v1/plan_review.user.md"),
             Self::Decomposer => include_str!("../../../prompts/v2/decomposer.user.md"),
             Self::Implementer => include_str!("../../../prompts/v1/implementer.user.md"),
-            Self::CodeReviewer => include_str!("../../../prompts/v1/code_review.user.md"),
+            Self::CodeReviewer => include_str!("../../../prompts/v2/code_review.user.md"),
+            Self::CodeReviewerV1 => include_str!("../../../prompts/v1/code_review.user.md"),
             Self::RuntimeQaReviewer => include_str!("../../../prompts/v1/runtime_qa.user.md"),
             Self::RuntimeQaReviewerV2 => include_str!("../../../prompts/v2/runtime_qa.user.md"),
             Self::SpecReconciler => include_str!("../../../prompts/v1/spec_sync.user.md"),
@@ -143,6 +148,7 @@ impl PromptRole {
             Self::PlanReviewer
             | Self::PlanReviewerV1
             | Self::CodeReviewer
+            | Self::CodeReviewerV1
             | Self::RuntimeQaReviewer
             | Self::RuntimeQaReviewerV2 => "read_only; isolated_fresh_review_context",
             Self::Implementer | Self::RepairWorker => {

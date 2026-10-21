@@ -187,6 +187,7 @@ fn decode(
         PromptRole::PlanReviewer
         | PromptRole::PlanReviewerV1
         | PromptRole::CodeReviewer
+        | PromptRole::CodeReviewerV1
         | PromptRole::RuntimeQaReviewer
         | PromptRole::RuntimeQaReviewerV2 => parse!(ReviewVerdictV1, Review),
         PromptRole::Decomposer => parse!(TaskGraphV1, TaskGraph),

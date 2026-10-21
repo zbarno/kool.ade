@@ -130,6 +130,9 @@ pub(crate) fn approved_plan(store: &PlanningStore) -> (PlanSnapshotV1, GateRecei
     };
     let verdict = crate::harness::prompt_catalog::ReviewVerdictV1 {
         subject_hash: snapshot.content_hash.clone(),
+        examined_files: Vec::new(),
+        tested_evidence_ids: Vec::new(),
+        unexamined_areas: Vec::new(),
         pass: true,
         outcome: Some(crate::harness::prompt_catalog::ReviewOutcomeV1::Pass),
         coverage: snapshot

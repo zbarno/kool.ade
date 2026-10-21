@@ -249,6 +249,9 @@ pub(super) fn run_with_planning_store_options(
     Ok(state)
 }
 
+mod code_review;
+pub(crate) use code_review::arbitrate_code_review_finding;
+
 #[cfg(test)]
 pub(super) fn persist_source_plan_before_task_state(
     planning_root: &Path,

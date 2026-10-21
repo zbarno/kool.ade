@@ -3,11 +3,13 @@ use super::*;
 impl KooladeApp {
     pub(super) fn advance_activity(&mut self) {
         let mut plan_repair = None;
+        let mut code_review_repair = None;
         let mut planner_generation_readiness = None;
         if let Screen::Connected(project) = &mut self.screen {
             reconcile_inactive_planning_work(project);
             planner_generation_readiness = advance_clarification_planner(project);
             advance_plan_review(project);
+            advance_code_review_arbitration(project);
             advance_dependency_review(project, &mut self.task_harness);
             runtime_qa::advance_runtime_qa(project, &mut self.task_harness);
             spec_reconciliation::advance_spec_reconciliation(project, &mut self.task_harness);
@@ -54,11 +56,12 @@ impl KooladeApp {
                 project.live_progress = Default::default();
                 match result {
                     Ok(output) => {
-                        let dispositions = crate::app::manager::persist_plan_dispositions(
+                        let dispositions = crate::app::manager::persist_dispositions(
                             project,
                             &output.proposed_actions,
                             &output.evidence_hashes,
                             &output.planning_revision,
+                            &output.code_review_targets,
                         );
                         let mut text = crate::app::manager::persist_output(project, &output);
                         match dispositions {
@@ -129,6 +132,9 @@ impl KooladeApp {
                 };
             }
             plan_repair = crate::app::manager::next_plan_repair(project);
+            if plan_repair.is_none() {
+                code_review_repair = crate::app::manager::next_code_review_repair(project);
+            }
         }
         if let Some((key, request, feature_id)) = plan_repair {
             self.start_turn_for_work(
@@ -137,6 +143,35 @@ impl KooladeApp {
                 Some(&feature_id),
                 Some(key),
             );
+        }
+        if let Some((ticket, work_id)) = code_review_repair {
+            self.start_implementation(ticket.clone(), false);
+            if let Screen::Connected(project) = &mut self.screen
+                && !project.active_implementations.contains_key(&ticket)
+            {
+                let start_error = project.queue.last_error.clone();
+                if let Some(work) = project
+                    .planning_work
+                    .iter_mut()
+                    .find(|work| work.uid == work_id)
+                {
+                    work.status = crate::core::planning_work::WorkStatus::NeedsAttention;
+                    work.detail.push_str(&format!(
+                        "\n\nBlocked: the application could not start the scoped repair worker. {}",
+                        if start_error.trim().is_empty() {
+                            "Check implementation capability and queue state before retrying."
+                                .into()
+                        } else {
+                            start_error
+                        }
+                    ));
+                    if let Err(error) = project.save_planning_work() {
+                        project.activity.pending.push(format!(
+                            "The scoped code-review repair could not start, and its attention state could not be saved: {error}"
+                        ));
+                    }
+                }
+            }
         }
         if let Screen::Connected(project) = &mut self.screen
             && let Some((feature_id, arbitration)) =
@@ -177,6 +212,42 @@ impl KooladeApp {
                 }
             }
         }
+        if let Screen::Connected(project) = &mut self.screen
+            && let Some(request) = crate::app::manager::next_code_review_arbitration(project)
+        {
+            let work_uid = request.work_uid.clone();
+            let harness = crate::app::root::configured_harness_for_project(
+                &mut self.task_harness,
+                Some(crate::persistence::harness_settings::PLAN_REVIEW),
+                &project.state.harness_routes.routes,
+            );
+            match crate::app::root::code_review_arbitration::CodeReviewArbitration::start(
+                project,
+                request.clone(),
+                harness,
+            ) {
+                Ok(worker) => {
+                    project.activity.code_review_arbitration = Some(worker);
+                    project.live_progress = crate::harness::LiveProgress {
+                        activity: Some(format!(
+                            "Independently arbitrating code-review finding for {}",
+                            request.context.task_uid
+                        )),
+                        ..Default::default()
+                    };
+                }
+                Err(error) => {
+                    crate::app::manager::finish_code_review_arbitration(
+                        project,
+                        &request,
+                        Err(error.clone()),
+                    );
+                    project.activity.pending.push(format!(
+                        "Independent code-review arbitration for {work_uid} could not start: {error}"
+                    ));
+                }
+            }
+        }
         if let Some(ready) = planner_generation_readiness {
             self.continue_feature_generation(ready);
         }
@@ -184,6 +255,7 @@ impl KooladeApp {
 }
 
 mod clarification;
+mod code_review_arbitration;
 mod dependency_review;
 mod opportunities;
 pub(crate) mod plan_review;
@@ -193,6 +265,7 @@ mod self_improvement;
 pub(crate) mod spec_reconciliation;
 
 use clarification::advance_clarification_planner;
+use code_review_arbitration::advance_code_review_arbitration;
 use dependency_review::advance_dependency_review;
 use plan_review::advance_plan_review;
 pub(crate) use reconcile::reconcile_inactive_planning_work;

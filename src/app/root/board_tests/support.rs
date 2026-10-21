@@ -65,6 +65,7 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
             approved_specification: None,
             approved_product_context: None,
             completed_dependency_context: None,
+            manager_repair_context: None,
             branch: "koolade/fixture".into(),
             source_branch: None,
             destination_branch: None,

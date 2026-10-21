@@ -7,6 +7,7 @@ use crate::harness::prompt_catalog::{
     RenderedPrompt, RoleInputV1, RoleOutputV1, RolePayloadV1,
 };
 
+pub(in crate::app::manager) mod code_reviews;
 mod opportunities;
 mod product;
 pub(in crate::app::manager) mod reviews;
@@ -27,6 +28,7 @@ pub(super) struct ManagerPrompt {
     pub review_targets: std::collections::HashMap<String, reviews::ReviewTarget>,
     pub repo_root: Option<std::path::PathBuf>,
     pub _workspace_guard: Option<tempfile::TempDir>,
+    pub code_review_targets: std::collections::HashMap<String, code_reviews::FindingTarget>,
 }
 
 pub(super) fn render(
@@ -76,6 +78,7 @@ pub(super) fn render(
     let summary = super::Manager::prompt_body(project, events);
     let trusted_evidence = opportunities::trusted_opportunity_evidence(project);
     let plan_review_evidence = reviews::current_review_evidence(project);
+    let code_review_evidence = code_reviews::current_findings(project)?;
     let mut evidence_manifest = vec![EvidenceItem {
         id: "workspace-summary".into(),
         workspace_uid: workspace_uid.clone(),
@@ -85,6 +88,11 @@ pub(super) fn render(
         content: summary,
     }];
     evidence_manifest.extend(trusted_evidence);
+    let code_review_targets = code_review_evidence
+        .iter()
+        .map(|(item, target)| (item.id.clone(), target.clone()))
+        .collect();
+    evidence_manifest.extend(code_review_evidence.into_iter().map(|(item, _)| item));
     // Product discovery runs in its own product-only prompt and empty app-owned
     // cwd. A workspace Manager must never mix even public product evidence into
     // a user-project context.
@@ -196,6 +204,7 @@ pub(super) fn render(
         review_targets,
         repo_root: None,
         _workspace_guard: None,
+        code_review_targets,
     })
 }
 
@@ -256,6 +265,7 @@ pub(super) fn decode(
     evidence_confidentialities: std::collections::HashMap<String, EvidenceConfidentiality>,
     planning_revision: String,
     review_targets: &std::collections::HashMap<String, reviews::ReviewTarget>,
+    code_review_targets: &std::collections::HashMap<String, code_reviews::FindingTarget>,
 ) -> Result<ManagerOutput, String> {
     let RoleOutputV1::Manager(output) =
         crate::harness::prompt_catalog::validate_output_with_context(
@@ -271,6 +281,11 @@ pub(super) fn decode(
         review_targets,
         &context.evidence_ids,
         &context.evidence_content,
+    )?;
+    code_reviews::validate_dispositions(
+        &output.proposed_actions,
+        code_review_targets,
+        &context.evidence_ids,
     )?;
     let proposed_actions = output.proposed_actions;
     let mut lines = vec![output.summary];
@@ -296,5 +311,6 @@ pub(super) fn decode(
         evidence_hashes,
         evidence_confidentialities,
         planning_revision,
+        code_review_targets: code_review_targets.clone(),
     })
 }

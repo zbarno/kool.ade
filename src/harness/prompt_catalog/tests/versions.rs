@@ -143,6 +143,40 @@ fn manager_v4_and_v5_prompt_manifests_remain_readable_after_the_v6_evidence_rule
 }
 
 #[test]
+fn code_reviewer_v1_manifest_remains_readable_beside_the_v2_role() {
+    let input = |role| {
+        base(
+            role,
+            RolePayloadV1::Review {
+                subject_revision: "base...head".into(),
+                subject_hash: "c".repeat(64),
+                author_run_id: "author-run".into(),
+                reviewer_run_id: "reviewer-run".into(),
+                author_session_id: Some("00000000-0000-4000-8000-000000000001".into()),
+                reviewer_session_id: Some("00000000-0000-4000-8000-000000000002".into()),
+                requirements_matrix: vec!["AC-1".into()],
+                explicit_exclusions: vec![],
+            },
+        )
+    };
+
+    let v1 = render(&input(PromptRole::CodeReviewerV1)).unwrap().manifest;
+    assert_eq!(v1.role_version, "code_review/v1");
+    assert_eq!(
+        validate_prompt_manifest(&v1).unwrap(),
+        PromptRole::CodeReviewerV1
+    );
+
+    let v2 = render(&input(PromptRole::CodeReviewer)).unwrap().manifest;
+    assert_eq!(v2.role_version, "code_review/v2");
+    assert_eq!(
+        validate_prompt_manifest(&v2).unwrap(),
+        PromptRole::CodeReviewer
+    );
+    assert_ne!(v1.system_template_sha256, v2.system_template_sha256);
+}
+
+#[test]
 fn runtime_qa_v1_identity_remains_readable_beside_the_v2_evidence_role() {
     let input = |role| {
         base(

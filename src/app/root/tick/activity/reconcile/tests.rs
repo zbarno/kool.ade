@@ -98,3 +98,74 @@ fn active_arbitration_claim_survives_inactive_work_reconciliation() {
         crate::core::planning_work::WorkStatus::Todo
     );
 }
+
+#[test]
+/// Covers restart recovery for a persisted code-review arbitration claim: the
+/// runtime worker is absent after restart, so the contested finding returns to
+/// the retry selector without changing its frozen subject or attempt count.
+/// Uses a temporary local Git project and persisted planning work only.
+fn interrupted_code_review_arbitration_returns_to_needs_attention() {
+    let temp = tempfile::tempdir().unwrap();
+    git(temp.path(), &["init", "-q"]);
+    git(temp.path(), &["config", "user.name", "Fixture User"]);
+    git(
+        temp.path(),
+        &["config", "user.email", "fixture@example.invalid"],
+    );
+    std::fs::write(temp.path().join("README.md"), "fixture\n").unwrap();
+    git(temp.path(), &["add", "README.md"]);
+    git(temp.path(), &["commit", "-qm", "fixture"]);
+    let mut project = crate::app::session::test_support::project_from(temp.path());
+    let mut work = crate::core::planning_work::Work::new(
+        "task:code-review-disposition:task-1:F-1".into(),
+        "Independent arbitration: F-1".into(),
+        "Resolve the contested review finding".into(),
+        "Arbitration attempt 1 dispatched on the frozen subject".into(),
+    );
+    work.kind = crate::core::planning_work::WorkKind::CodeReviewDisposition;
+    work.status = crate::core::planning_work::WorkStatus::InProgress;
+    work.parent_uid = Some("00000000-0000-4000-8000-000000000001".into());
+    work.code_review_disposition =
+        Some(crate::core::planning_work::CodeReviewFindingDispositionV1 {
+            finding_id: "F-1".into(),
+            subject_hash: "a".repeat(64),
+            scope: Some(crate::harness::prompt_catalog::FindingScopeV1::Blocking),
+            finding_fingerprint: Some("b".repeat(64)),
+            occurrence_count: 1,
+            arbitration_attempts: 1,
+            status: crate::core::planning_work::CodeReviewDispositionStatusV1::Contested,
+            decision_reason: "The evidence is materially disputed.".into(),
+            owner_work_id: work.uid.clone(),
+            evidence_ref: format!("code-review-finding:{}", "c".repeat(24)),
+        });
+    let uid = work.uid.clone();
+    project.planning_work.push(work);
+    project.save_planning_work().unwrap();
+
+    // Model an application restart: load a fresh project and reconstruct its
+    // durable planning work from the same planning store. Runtime activity,
+    // including the arbitration worker, starts empty.
+    let mut restarted_project = crate::app::session::test_support::project_from(temp.path());
+    restarted_project.planning_work =
+        crate::core::planning_work::load(&restarted_project.state.planning_store).unwrap();
+    reconcile_inactive_planning_work(&mut restarted_project);
+
+    let recovered = &restarted_project.planning_work[0];
+    assert_eq!(recovered.uid, uid);
+    assert_eq!(
+        recovered.status,
+        crate::core::planning_work::WorkStatus::NeedsAttention
+    );
+    let disposition = recovered.code_review_disposition.as_ref().unwrap();
+    assert_eq!(
+        disposition.status,
+        crate::core::planning_work::CodeReviewDispositionStatusV1::Contested
+    );
+    assert_eq!(disposition.arbitration_attempts, 1);
+    assert_eq!(disposition.subject_hash, "a".repeat(64));
+    assert!(
+        recovered
+            .detail
+            .contains("Recovered interrupted independent code-review arbitration")
+    );
+}

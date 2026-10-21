@@ -160,6 +160,7 @@ fn run_prompt(
             prepared.evidence_confidentialities.clone(),
             prepared.planning_revision.clone(),
             &prepared.review_targets,
+            &prepared.code_review_targets,
         );
         if outcome.is_ok() {
             failure_category = None;

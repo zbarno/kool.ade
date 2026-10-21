@@ -7,9 +7,17 @@ mod prompt;
 mod telemetry;
 pub(crate) const MAX_PLAN_ARBITRATION_ATTEMPTS: usize = 2;
 pub(crate) use dependency::{DependencyReview, DependencyTriage, enforce_policy};
+pub(crate) use dispositions::has_unpromoted_nonblocking_findings;
+pub(super) use dispositions::persist_dispositions;
+#[cfg(test)]
+pub(super) use dispositions::persist_plan_dispositions;
+pub(crate) use dispositions::{
+    CodeReviewArbitrationRequest, approve_code_review_risk, finish_code_review_arbitration,
+    finish_code_review_repair, mark_code_review_repair_failed, next_code_review_arbitration,
+    next_code_review_repair,
+};
 pub(super) use dispositions::{
     has_pending_plan_contest, has_pending_plan_repair, next_plan_arbitration, next_plan_repair,
-    persist_plan_dispositions,
 };
 
 use crate::harness::{AiHarness, LiveProgress, PlanningRequest};
@@ -37,6 +45,8 @@ pub(super) struct ManagerOutput {
     pub evidence_confidentialities:
         std::collections::HashMap<String, crate::harness::prompt_catalog::EvidenceConfidentiality>,
     pub planning_revision: String,
+    pub code_review_targets:
+        std::collections::HashMap<String, catalog::code_reviews::FindingTarget>,
 }
 
 pub(super) fn persist_output(project: &super::session::Project, output: &ManagerOutput) -> String {

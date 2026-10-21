@@ -78,7 +78,9 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
         if let Some(card) = cards.iter_mut().find(|work| {
             !matches!(
                 work.kind,
-                WorkKind::TaskGeneration | WorkKind::PlanReviewDisposition
+                WorkKind::TaskGeneration
+                    | WorkKind::PlanReviewDisposition
+                    | WorkKind::CodeReviewDisposition
             ) && (work.feature_uid.as_deref() == Some(&metadata.uid)
                 || (work.feature_uid.is_none() && work.feature_id.as_deref() == Some(id)))
         }) {
@@ -104,6 +106,7 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
                 routing_overrides: Default::default(),
                 routing_inherited_from: None,
                 follow_up_task: None,
+                code_review_disposition: None,
                 detail: "Feature planning".into(),
                 record_revision: 0,
                 record_baseline: None,

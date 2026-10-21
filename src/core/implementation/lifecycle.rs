@@ -47,7 +47,17 @@ pub(super) fn execute(
         policy.accrual.as_ref(),
     )?;
     let author_identity = harness.current_execution_identity();
-    let review_result = super::code_review::review_verified(dir, state, harness, runner);
+    let lifecycle_task = state
+        .task_uid
+        .as_deref()
+        .map(|task_uid| {
+            crate::core::lifecycle::LifecycleStore::new(planning_store)
+                .task_for_planning_item(task_uid)
+        })
+        .transpose()?
+        .flatten();
+    let review_result =
+        super::code_review::review_verified(dir, state, lifecycle_task.as_ref(), harness, runner);
     super::code_review::persist_lifecycle_review(
         planning_store,
         dir,

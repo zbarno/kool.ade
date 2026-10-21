@@ -19,6 +19,7 @@ pub(crate) fn implementation_state(
         approved_specification: None,
         approved_product_context: None,
         completed_dependency_context: None,
+        manager_repair_context: None,
         branch: "koolade/self-improvement-fixture".into(),
         source_branch: Some("koolade/self-improvement-fixture".into()),
         destination_branch: Some("main".into()),

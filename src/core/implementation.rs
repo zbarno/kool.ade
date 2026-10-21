@@ -17,6 +17,7 @@ mod pr_refresh;
 mod publication;
 mod queries;
 mod recovery;
+mod repair_context;
 pub(crate) mod report;
 mod repository_cache;
 mod runner;
@@ -32,8 +33,13 @@ pub use activity::{finalize_terminal_activity_if_stale, load_activity, save_acti
 pub use board_states::{
     BOARD_COLUMNS, board_column, load_board_states, load_board_states_with_store,
 };
+pub(crate) use code_review::{
+    CodeReviewArbitrationContext, ManagerCodeReviewFindings, finding_fingerprint,
+    manager_findings_for_task,
+};
 pub use controller::Controller;
 pub(crate) use controller::ProjectStartRequest;
+pub(crate) use execution::arbitrate_code_review_finding;
 #[cfg(test)]
 pub(crate) use execution::mark_resume_started;
 pub(crate) use execution::mark_resume_started_for_action;
@@ -53,6 +59,7 @@ use publication::remote_repository;
 use queries::{history_preflight_context, resume_failure_context};
 pub use queries::{load, load_all, load_with_store};
 pub use recovery::latest_external_blocker;
+pub use repair_context::ManagerRepairContextV1;
 pub(crate) use report::{BlockerDisposition, Report, ReportStatus, parse_report};
 use report::{external_blocker, external_blocker_detail, validate_report};
 use runner::{Runner, append_tail};
@@ -122,6 +129,8 @@ pub struct Implementation {
     pub approved_product_context: Option<String>,
     #[serde(default)]
     pub completed_dependency_context: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manager_repair_context: Option<ManagerRepairContextV1>,
     pub branch: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_branch: Option<String>,

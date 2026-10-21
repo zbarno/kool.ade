@@ -109,6 +109,9 @@ fn manager_contest_runs_independent_arbitration_and_persists_effective_receipt()
     .unwrap();
     let arbitrator_verdict = ReviewVerdictV1 {
         subject_hash: snapshot.content_hash.clone(),
+        examined_files: Vec::new(),
+        tested_evidence_ids: Vec::new(),
+        unexamined_areas: Vec::new(),
         pass: true,
         outcome: Some(ReviewOutcomeV1::Pass),
         coverage: snapshot
