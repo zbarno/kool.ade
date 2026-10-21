@@ -18,8 +18,16 @@ use crate::{
     },
 };
 
-use super::{ExecutionSession, can_fallback_for_preference, local_session};
+use super::ExecutionSession;
+mod diagnostics;
+mod eligibility;
+mod fallback;
 mod retry;
+use diagnostics::retry_test_diagnostic;
+#[cfg(test)]
+use eligibility::worker_target_allowed;
+use eligibility::{local_target_eligible, worker_retry_eligible};
+use fallback::auto_local_fallback;
 
 #[cfg(test)]
 #[path = "automatic/tests.rs"]
@@ -39,6 +47,7 @@ pub(super) fn auto_session_excluding(
     allowed_targets: Vec<TargetPreference>,
     excluded_workers: Vec<String>,
 ) -> anyhow::Result<ExecutionSession> {
+    retry_test_diagnostic(|| "automatic routing started".to_owned());
     let local_eligible =
         local_target_eligible(DockerEnvironmentStatus::detect().ready(), &allowed_targets);
     if request.authorization_verifier.is_none() {
@@ -53,6 +62,12 @@ pub(super) fn auto_session_excluding(
         );
     }
     let registrations = remote_workers::list().unwrap_or_default();
+    retry_test_diagnostic(|| {
+        format!(
+            "automatic routing found {} enrolled workers",
+            registrations.len()
+        )
+    });
     let mut observed = Vec::new();
     for registration in registrations.into_iter().filter(|worker| {
         worker.enabled
@@ -61,12 +76,14 @@ pub(super) fn auto_session_excluding(
         let Ok(config) = super::remote::worker_config(&registration) else {
             continue;
         };
+        retry_test_diagnostic(|| "automatic routing probing an enrolled worker".to_owned());
         let Ok(client) = RemoteWorkerClient::connect_for_probe(&config) else {
             continue;
         };
         let Some(capabilities) = client.probe().capabilities.clone() else {
             continue;
         };
+        retry_test_diagnostic(|| "automatic routing received worker capabilities".to_owned());
         let registration = remote_workers::get(&registration.worker_id)
             .ok()
             .flatten()
@@ -76,6 +93,7 @@ pub(super) fn auto_session_excluding(
             capabilities,
         });
     }
+    retry_test_diagnostic(|| "automatic routing collected worker capabilities".to_owned());
     let lock = ImageLock::bundled().map_err(|failure| anyhow::anyhow!(failure.message))?;
     let worker_ids = observed
         .iter()
@@ -189,6 +207,12 @@ pub(super) fn auto_session_excluding(
         }
     }
     remote_choices.sort();
+    retry_test_diagnostic(|| {
+        format!(
+            "automatic routing selected {} capacity candidates",
+            remote_choices.len()
+        )
+    });
     let mut remaining = remote_choices
         .iter()
         .filter_map(|(_, _, _, _, load, _, worker_id)| {
@@ -211,11 +235,15 @@ pub(super) fn auto_session_excluding(
         })
         .collect::<Vec<_>>();
     while !remaining.is_empty() {
+        retry_test_diagnostic(|| "automatic routing reserving worker capacity".to_owned());
         let Ok(Some(capacity)) = remote_workers::reserve_auto_capacity(&remaining) else {
             break;
         };
         let worker_id = capacity.worker_id().to_owned();
         remaining.retain(|candidate| candidate.worker_id != worker_id);
+        retry_test_diagnostic(|| {
+            "automatic routing opening the reserved worker session".to_owned()
+        });
         match super::remote::remote_session_with_capacity(
             request,
             workspace.clone(),
@@ -226,6 +254,7 @@ pub(super) fn auto_session_excluding(
             Some(capacity),
         ) {
             Ok(session) => {
+                retry_test_diagnostic(|| "automatic routing opened the worker session".to_owned());
                 retry::install_factory(
                     &session,
                     request,
@@ -239,7 +268,10 @@ pub(super) fn auto_session_excluding(
                 )?;
                 return Ok(session);
             }
-            Err(_) => continue,
+            Err(_) => {
+                retry_test_diagnostic(|| "automatic routing rejected a worker session".to_owned());
+                continue;
+            }
         }
     }
     if !excluded_workers.is_empty() {
@@ -254,44 +286,4 @@ pub(super) fn auto_session_excluding(
         requirements,
         "No verified remote worker is eligible",
     )
-}
-
-fn auto_local_fallback(
-    request: &PlanningRequest,
-    workspace: crate::execution::contract::WorkspaceRef,
-    profile: RuntimeProfile,
-    resources: ResourceBudgetV1,
-    local_eligible: bool,
-    requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
-    reason: &str,
-) -> anyhow::Result<ExecutionSession> {
-    super::ensure_local_capabilities(&requirements)?;
-    anyhow::ensure!(
-        can_fallback_for_preference(&TargetPreference::Auto, local_eligible),
-        "{reason}; local Docker is unavailable"
-    );
-    local_session(request, workspace, profile, resources)
-}
-
-fn local_target_eligible(local_ready: bool, allowed_targets: &[TargetPreference]) -> bool {
-    local_ready && super::ensure_target_allowed(&TargetPreference::Local, allowed_targets).is_ok()
-}
-
-fn worker_target_allowed(worker_id: &str, allowed_targets: &[TargetPreference]) -> bool {
-    super::ensure_target_allowed(
-        &TargetPreference::Worker(worker_id.to_owned()),
-        allowed_targets,
-    )
-    .is_ok()
-}
-
-fn worker_retry_eligible(
-    worker_id: &str,
-    allowed_targets: &[TargetPreference],
-    excluded_workers: &[String],
-) -> bool {
-    !excluded_workers
-        .iter()
-        .any(|excluded| excluded == worker_id)
-        && worker_target_allowed(worker_id, allowed_targets)
 }
