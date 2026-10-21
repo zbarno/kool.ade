@@ -16,6 +16,9 @@ use crate::{
 
 use super::support::{Fixture, backend, workspace};
 
+#[path = "stack_recipes/diagnostics.rs"]
+mod diagnostics;
+
 #[test]
 fn approved_stack_recipes_execute_across_runtime_profiles() {
     const OPT_IN: &str = "KOOLADE_DOCKER_BACKEND_INTEGRATION";
@@ -130,7 +133,13 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
             assert_eq!(widened_root.kind, ExecutionErrorKind::PolicyDenied);
             let output = session
                 .run_recipe(&runtime_store, &target_id, &recipe)
-                .unwrap_or_else(|error| panic!("{} recipe failed: {error}", recipe.recipe_id));
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "{} recipe failed: {error}; checkout: {}",
+                        recipe.recipe_id,
+                        diagnostics::checkout(&clone)
+                    )
+                });
             assert_eq!(
                 output.result.exit_code,
                 Some(0),
