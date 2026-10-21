@@ -5,6 +5,20 @@ use super::{
 use crate::project_runtime::{RuntimeOperation, RuntimeReceiptState, RuntimeReceiptV1};
 
 #[test]
+fn qa_dispatch_supports_web_desktop_and_headless_service_targets() {
+    use crate::project_runtime::AppSurface;
+
+    for surface in [
+        AppSurface::Web,
+        AppSurface::LinuxDesktop,
+        AppSurface::HeadlessService,
+    ] {
+        assert!(super::supports_qa_surface(surface));
+    }
+    assert!(!super::supports_qa_surface(AppSurface::UnsupportedTarget));
+}
+
+#[test]
 fn qa_dispatch_rechecks_local_build_and_start_approval_before_launch() {
     use crate::{
         artifacts::planning_store::PlanningStore,
