@@ -4,14 +4,15 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::{ffi::OsStr, fs, path::Path};
 
-const SYSTEM_POLICY_HOOKS: &str = "/etc/github-copilot/policy.d";
+mod policy_hooks;
 
 pub(super) fn configure(
     boundary: &ApplicationBoundary,
     argv: &mut Vec<String>,
     env: &mut Vec<(String, String)>,
 ) -> anyhow::Result<()> {
-    ensure_no_host_policy_hooks(Path::new(SYSTEM_POLICY_HOOKS))?;
+    ensure_no_host_policy_hook_files(Path::new(policy_hooks::SYSTEM_POLICY_HOOKS))?;
+    policy_hooks::ensure_no_registry_policy_hooks()?;
     isolate_home(boundary, env)?;
     let server_name = boundary.mcp_server_name();
     let server = boundary.server_args()?.map(|args| {
@@ -54,7 +55,7 @@ pub(super) fn configure(
     Ok(())
 }
 
-fn ensure_no_host_policy_hooks(directory: &Path) -> anyhow::Result<()> {
+fn ensure_no_host_policy_hook_files(directory: &Path) -> anyhow::Result<()> {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -196,9 +197,9 @@ mod tests {
         let boundary = test_boundary();
         let policy_dir = boundary.scratch.create_directory("policy-hooks").unwrap();
         fs::write(policy_dir.join("readme.txt"), "ignored").unwrap();
-        ensure_no_host_policy_hooks(&policy_dir).unwrap();
+        ensure_no_host_policy_hook_files(&policy_dir).unwrap();
         fs::write(policy_dir.join("00-policy.json"), "{}").unwrap();
-        let error = ensure_no_host_policy_hooks(&policy_dir).unwrap_err();
+        let error = ensure_no_host_policy_hook_files(&policy_dir).unwrap_err();
         assert!(
             error
                 .to_string()
