@@ -99,4 +99,29 @@ fn legacy_health_probe_defaults_new_runtime_observations() {
     assert!(probe.trusted_image_digests.is_empty());
     assert!(probe.resource_ceiling.is_none());
     assert!(probe.disk_available_bytes.is_none());
+    assert_eq!(probe.gpu_available, None);
+    assert_eq!(probe.display_available, None);
+}
+
+#[test]
+fn worker_probe_round_trips_gpu_and_isolated_display_observations() {
+    let mut value = serde_json::json!({
+        "observedAtUnixMs": 1_800_000_000_000u64,
+        "health": "healthy",
+        "architecture": "amd64",
+        "runningJobs": 0,
+        "policyRevision": "sha256:policy",
+        "gpuAvailable": true,
+        "displayAvailable": true
+    });
+    let probe: RemoteWorkerProbe = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(probe.gpu_available, Some(true));
+    assert_eq!(probe.display_available, Some(true));
+
+    value["gpuAvailable"] = serde_json::json!(false);
+    value["displayAvailable"] = serde_json::json!(false);
+    let serialized =
+        serde_json::to_value(serde_json::from_value::<RemoteWorkerProbe>(value).unwrap()).unwrap();
+    assert_eq!(serialized["gpuAvailable"], false);
+    assert_eq!(serialized["displayAvailable"], false);
 }
