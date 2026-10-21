@@ -5,93 +5,115 @@
     "general": [
       {
         "platform": "linux/amd64",
-        "reference": "docker.io/library/debian@sha256:a4672c0cb26fbdde88e38fa2dfb6c681942306680e41e4378b28770b6e79ee91",
-        "digest": "sha256:a4672c0cb26fbdde88e38fa2dfb6c681942306680e41e4378b28770b6e79ee91",
+        "reference": "ghcr.io/zbarno/koolade-executor@sha256:5fd528a34a425524d49056328ee1d4b0ebb0c7fe7050f9f65bebbbac7af9a086",
+        "digest": "sha256:5fd528a34a425524d49056328ee1d4b0ebb0c7fe7050f9f65bebbbac7af9a086",
         "tool_versions": {
           "shell": "POSIX /bin/sh",
           "base": "Debian bookworm-slim"
-        }
+        },
+        "build_recipe_sha256": "sha256:5b56c59e5a7a2dfa385f7b1cbf6d5399b3ba178de32222e7bc39b4bb6d209a7e"
       },
       {
         "platform": "linux/arm64",
-        "reference": "docker.io/library/debian@sha256:a1b86db52ce3daef089e45aabe36dfec4091f82464c25c1fdcf03de197cbe82a",
-        "digest": "sha256:a1b86db52ce3daef089e45aabe36dfec4091f82464c25c1fdcf03de197cbe82a",
+        "reference": "ghcr.io/zbarno/koolade-executor@sha256:940df068fdc18bf33b576aecf9290fc3d41810034007c8a8d9dbf4dba9bdaad4",
+        "digest": "sha256:940df068fdc18bf33b576aecf9290fc3d41810034007c8a8d9dbf4dba9bdaad4",
         "tool_versions": {
           "shell": "POSIX /bin/sh",
           "base": "Debian bookworm-slim"
-        }
+        },
+        "build_recipe_sha256": "sha256:5b56c59e5a7a2dfa385f7b1cbf6d5399b3ba178de32222e7bc39b4bb6d209a7e"
       }
     ],
     "rust": [
       {
         "platform": "linux/amd64",
-        "reference": "docker.io/library/rust@sha256:c49256cbe5ea0188bc658a689500d70c41eb51f009a7a7be209caf60a944f3ec",
-        "digest": "sha256:c49256cbe5ea0188bc658a689500d70c41eb51f009a7a7be209caf60a944f3ec",
+        "reference": "ghcr.io/zbarno/koolade-executor@sha256:299b9e63ac199f71467ad5302253996b3cb593394486b53eddb23971f99dc1bf",
+        "digest": "sha256:299b9e63ac199f71467ad5302253996b3cb593394486b53eddb23971f99dc1bf",
         "tool_versions": {
           "rustc": "1.98.1",
           "cargo": "1.98.1",
           "base": "Debian bookworm-slim"
-        }
+        },
+        "build_recipe_sha256": "sha256:5b56c59e5a7a2dfa385f7b1cbf6d5399b3ba178de32222e7bc39b4bb6d209a7e"
       },
       {
         "platform": "linux/arm64",
-        "reference": "docker.io/library/rust@sha256:5b993f23fb69746405496e76f91e511d96c82b5b23304fd5d20b4a80a8b223ea",
-        "digest": "sha256:5b993f23fb69746405496e76f91e511d96c82b5b23304fd5d20b4a80a8b223ea",
+        "reference": "ghcr.io/zbarno/koolade-executor@sha256:3e0290234bc3838360d12b0ff778f9773901bb9327c0ab411b651c84e779cbc8",
+        "digest": "sha256:3e0290234bc3838360d12b0ff778f9773901bb9327c0ab411b651c84e779cbc8",
         "tool_versions": {
           "rustc": "1.98.1",
           "cargo": "1.98.1",
           "base": "Debian bookworm-slim"
-        }
+        },
+        "build_recipe_sha256": "sha256:5b56c59e5a7a2dfa385f7b1cbf6d5399b3ba178de32222e7bc39b4bb6d209a7e"
       }
     ],
     "node": [
       {
         "platform": "linux/amd64",
-        "reference": "docker.io/library/node@sha256:51b1100cc2a83d370c6a60952e3f2989c8a43159d0e38586e090f3b3326efefd",
-        "digest": "sha256:51b1100cc2a83d370c6a60952e3f2989c8a43159d0e38586e090f3b3326efefd",
+        "reference": "ghcr.io/zbarno/koolade-executor@sha256:cbc861cca75f0a9d6eb465eca4fac5f39daa2b163dedbf06bb5a48482b6ae1da",
+        "digest": "sha256:cbc861cca75f0a9d6eb465eca4fac5f39daa2b163dedbf06bb5a48482b6ae1da",
         "tool_versions": {
           "node": "24.21.0",
           "npm": "11.19.0",
           "base": "Debian bookworm-slim"
-        }
+        },
+        "build_recipe_sha256": "sha256:5b56c59e5a7a2dfa385f7b1cbf6d5399b3ba178de32222e7bc39b4bb6d209a7e"
       },
       {
         "platform": "linux/arm64",
-        "reference": "docker.io/library/node@sha256:ba6b7d0ee561d9d49deb99e2b93c98632cc287b6cca1a6b18d66127054efa4dc",
-        "digest": "sha256:ba6b7d0ee561d9d49deb99e2b93c98632cc287b6cca1a6b18d66127054efa4dc",
+        "reference": "ghcr.io/zbarno/koolade-executor@sha256:2467367d51eb9687607a3c2e9e42e055e7eb980487a10659ea9fd154342f28df",
+        "digest": "sha256:2467367d51eb9687607a3c2e9e42e055e7eb980487a10659ea9fd154342f28df",
         "tool_versions": {
           "node": "24.21.0",
           "npm": "11.19.0",
           "base": "Debian bookworm-slim"
-        }
+        },
+        "build_recipe_sha256": "sha256:5b56c59e5a7a2dfa385f7b1cbf6d5399b3ba178de32222e7bc39b4bb6d209a7e"
       }
     ],
     "python": [
       {
         "platform": "linux/amd64",
-        "reference": "docker.io/library/python@sha256:998acd06f485adfd6890e3e15a4b542543e0cf22ff904310095da328a5e3e561",
-        "digest": "sha256:998acd06f485adfd6890e3e15a4b542543e0cf22ff904310095da328a5e3e561",
-        "tool_versions": { "python": "3.14.7", "base": "Debian bookworm slim" }
+        "reference": "ghcr.io/zbarno/koolade-executor@sha256:1113ae827de6778a7f5463853d7bf0ec411509b2bd86cd071b5df5dbe3b01c6f",
+        "digest": "sha256:1113ae827de6778a7f5463853d7bf0ec411509b2bd86cd071b5df5dbe3b01c6f",
+        "tool_versions": {
+          "python": "3.14.7",
+          "base": "Debian bookworm slim"
+        },
+        "build_recipe_sha256": "sha256:5b56c59e5a7a2dfa385f7b1cbf6d5399b3ba178de32222e7bc39b4bb6d209a7e"
       },
       {
         "platform": "linux/arm64",
-        "reference": "docker.io/library/python@sha256:af1cafd27effb3b1c7c4ad8b459f118371b5d216d4659a3e68a7b5aae65b517f",
-        "digest": "sha256:af1cafd27effb3b1c7c4ad8b459f118371b5d216d4659a3e68a7b5aae65b517f",
-        "tool_versions": { "python": "3.14.7", "base": "Debian bookworm slim" }
+        "reference": "ghcr.io/zbarno/koolade-executor@sha256:f1323d701267847c9ba5cdff5ad0579dcc40e205f88e13003d9b6a19d6985ab9",
+        "digest": "sha256:f1323d701267847c9ba5cdff5ad0579dcc40e205f88e13003d9b6a19d6985ab9",
+        "tool_versions": {
+          "python": "3.14.7",
+          "base": "Debian bookworm slim"
+        },
+        "build_recipe_sha256": "sha256:5b56c59e5a7a2dfa385f7b1cbf6d5399b3ba178de32222e7bc39b4bb6d209a7e"
       }
     ],
     "go": [
       {
         "platform": "linux/amd64",
-        "reference": "docker.io/library/golang@sha256:26de5cf8eac40c12a1ff8de1a634971b4654fd881225eed7ace643b8c769f2f5",
-        "digest": "sha256:26de5cf8eac40c12a1ff8de1a634971b4654fd881225eed7ace643b8c769f2f5",
-        "tool_versions": { "go": "1.26.8", "base": "Debian bookworm" }
+        "reference": "ghcr.io/zbarno/koolade-executor@sha256:833a786c3069bac276c53544e5fafb7f6962877f0a2dc2e30500a5e74e6c9560",
+        "digest": "sha256:833a786c3069bac276c53544e5fafb7f6962877f0a2dc2e30500a5e74e6c9560",
+        "tool_versions": {
+          "go": "1.26.8",
+          "base": "Debian bookworm"
+        },
+        "build_recipe_sha256": "sha256:5b56c59e5a7a2dfa385f7b1cbf6d5399b3ba178de32222e7bc39b4bb6d209a7e"
       },
       {
         "platform": "linux/arm64",
-        "reference": "docker.io/library/golang@sha256:581f0292073059289b736d46d572ba4c515e0b511f8645963e0b0adf232680a1",
-        "digest": "sha256:581f0292073059289b736d46d572ba4c515e0b511f8645963e0b0adf232680a1",
-        "tool_versions": { "go": "1.26.8", "base": "Debian bookworm" }
+        "reference": "ghcr.io/zbarno/koolade-executor@sha256:86c88b6e0b5d84594fa6da58958e55d2d199862566f4bfd6de05b81a32d13145",
+        "digest": "sha256:86c88b6e0b5d84594fa6da58958e55d2d199862566f4bfd6de05b81a32d13145",
+        "tool_versions": {
+          "go": "1.26.8",
+          "base": "Debian bookworm"
+        },
+        "build_recipe_sha256": "sha256:5b56c59e5a7a2dfa385f7b1cbf6d5399b3ba178de32222e7bc39b4bb6d209a7e"
       }
     ],
     "browser_qa": [
@@ -115,8 +137,8 @@
     "desktop_qa": [
       {
         "platform": "linux/amd64",
-        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:9967e506ae1181bcb278b609a5e1aaeccf24e8b41aeffe04a651166e600f9387",
-        "digest": "sha256:9967e506ae1181bcb278b609a5e1aaeccf24e8b41aeffe04a651166e600f9387",
+        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:3d336f20b6f1590a510ea47594205e9d183e9d98a231df019f27ecb52530e41b",
+        "digest": "sha256:3d336f20b6f1590a510ea47594205e9d183e9d98a231df019f27ecb52530e41b",
         "tool_versions": {
           "driver": "linux-x11-driver/v1",
           "xvfb": "2:21.1.12-1ubuntu1.5",
@@ -125,7 +147,7 @@
           "base": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
         },
         "runtime_enabled": false,
-        "build_recipe_sha256": "sha256:82415e078d3875948137fddad92b64645f2db2b01a159859b2ade3578c6434aa"
+        "build_recipe_sha256": "sha256:daccc5ed383b17172df776af93dfc5f01c49ce00f27490075682858c1dadc316"
       }
     ]
   }
