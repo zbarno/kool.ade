@@ -19,7 +19,7 @@ fn authenticated_installation_confirmation_survives_store_reload() {
     let bin = temp.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     let gh = bin.join("gh");
-    std::fs::write(&gh, "#!/bin/sh\nprintf '5166344\\n'\n").unwrap();
+    std::fs::write(&gh, "#!/bin/sh\nprintf '987654321\\n'\n").unwrap();
     std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o700)).unwrap();
 
     let mut app = crate::app::root::board_tests::fixture();
@@ -169,7 +169,7 @@ fn authenticated_installation_confirmation_survives_store_reload() {
             build_commit_sha,
             ..
         }) if operator_id == "Koolade Acceptance"
-            && github_user_id == "5166344"
+            && github_user_id == "987654321"
             && build_commit_sha == MERGED_SHA
     ));
 }

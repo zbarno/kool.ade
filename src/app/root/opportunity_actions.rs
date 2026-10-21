@@ -87,6 +87,23 @@ impl KooladeApp {
         choice: OpportunityChoice,
         explanation: Option<String>,
     ) {
+        self.decide_opportunity_with_gh(
+            uid,
+            expected_revision,
+            choice,
+            explanation,
+            std::path::Path::new("gh"),
+        );
+    }
+
+    pub(super) fn decide_opportunity_with_gh(
+        &mut self,
+        uid: &str,
+        expected_revision: u64,
+        choice: OpportunityChoice,
+        explanation: Option<String>,
+        gh_bin: &std::path::Path,
+    ) {
         let Screen::Connected(project) = &mut self.screen else {
             return;
         };
@@ -115,13 +132,26 @@ impl KooladeApp {
             );
             return;
         }
-        let actor_id = project.state.effective_user().name.trim().to_owned();
-        if actor_id.is_empty() {
+        let configured_user = project.state.effective_user().name.trim().to_owned();
+        if configured_user.is_empty() {
             self.toasts.warning(
                 "Set a current user identity in workspace settings before recording an opportunity decision.",
             );
             return;
         }
+        let is_product_pursue = proposal.target.kind
+            == crate::core::opportunity::OpportunityTargetKindV1::KooladeProduct
+            && choice == OpportunityChoice::Pursue;
+        let actor_id =
+            match self_improvement::decision_user_id(is_product_pursue, &configured_user, gh_bin) {
+                Ok(actor_id) => actor_id,
+                Err(error) => {
+                    self.toasts.warning(format!(
+                    "Authenticate with GitHub before pursuing a Kool.ad/e self-improvement: {error}"
+                ));
+                    return;
+                }
+            };
         let occurred_at = chrono::Utc::now();
         let snooze_until = (choice == OpportunityChoice::NotNow).then(|| {
             (occurred_at

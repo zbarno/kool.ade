@@ -15,7 +15,48 @@ mod installation;
 #[path = "tests/retry_recovery.rs"]
 mod retry_recovery;
 
-fn app_product_proposal(project: &mut crate::app::session::Project) -> String {
+#[cfg(unix)]
+#[test]
+fn product_pursuit_records_authenticated_github_user_as_actor() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Production boundary: an explicit product Pursue action must persist the
+    // authenticated GitHub account, not a user-editable display name. The
+    // store test alone cannot prove the app's identity probe contract. A fake
+    // local gh executable only; no network or Docker, negligible setup.
+    let directory = tempfile::tempdir().unwrap();
+    let gh = directory.path().join("gh");
+    std::fs::write(
+        &gh,
+        "#!/bin/sh\n[ \"$1\" = api ] && [ \"$2\" = user ] || exit 2\nprintf '987654321\\n'\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    assert_eq!(
+        super::decision_user_id(true, "Editable display name", &gh).unwrap(),
+        "github:987654321"
+    );
+    assert_eq!(super::decision_user_id(false, "Ada", &gh).unwrap(), "Ada");
+}
+
+#[cfg(unix)]
+#[test]
+fn product_pursuit_without_github_auth_is_not_recorded_as_a_decision() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let gh = directory.path().join("gh");
+    std::fs::write(&gh, "#!/bin/sh\nexit 1\n").unwrap();
+    std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    assert!(super::decision_user_id(true, "Ada", &gh).is_err());
+}
+
+fn app_proposal(
+    project: &mut crate::app::session::Project,
+    target_kind: OpportunityTargetKindV1,
+) -> String {
     let planning = &project.state.planning_store;
     crate::artifacts::migration::bootstrap_product_with_store(
         &project.state.repo_root,
@@ -65,7 +106,7 @@ fn app_product_proposal(project: &mut crate::app::session::Project) -> String {
         origin: OpportunityOriginV1::Roadmap,
         kind: OpportunityKindV1::Quality,
         target: OpportunityTargetV1 {
-            kind: OpportunityTargetKindV1::KooladeProduct,
+            kind: target_kind,
             repository_uid: crate::core::project_repos::stable_uid(
                 &workspace_uid,
                 "repository",
@@ -106,6 +147,10 @@ fn app_product_proposal(project: &mut crate::app::session::Project) -> String {
         panic!("fixture opportunity should be created")
     };
     proposal.opportunity_uid
+}
+
+fn app_product_proposal(project: &mut crate::app::session::Project) -> String {
+    app_proposal(project, OpportunityTargetKindV1::KooladeProduct)
 }
 
 /// Production boundary: dispatch an installation confirmation from a guest
@@ -188,16 +233,16 @@ fn pursue_button_creates_a_planning_run_without_dispatching_implementation() {
         let crate::app::root::Screen::Connected(project) = &mut app.screen else {
             panic!("fixture should be connected")
         };
-        app_product_proposal(project)
+        app_proposal(project, OpportunityTargetKindV1::ActiveUserProject)
     };
     let ctx = egui::Context::default();
     click_text(&mut app, &ctx, "Improvement proposals (1)");
     click_text(&mut app, &ctx, "Improve planning reliability");
     click_text(&mut app, &ctx, "Pursue");
     assert!(
-        app.toasts.last_message().is_some_and(|message| {
-            message.contains("self-improvement run were added to planning")
-        }),
+        app.toasts
+            .last_message()
+            .is_some_and(|message| { message.contains("Draft feature") }),
         "Pursue should confirm that a run was created, got: {:?}",
         app.toasts.last_message()
     );
@@ -218,15 +263,109 @@ fn pursue_button_creates_a_planning_run_without_dispatching_implementation() {
         "Pursue action did not link the draft feature: {:?}",
         app.toasts.last_message()
     );
+    assert!(decision.user_id.contains("Koolade Acceptance"));
+    assert_eq!(
+        proposal.target.kind,
+        OpportunityTargetKindV1::ActiveUserProject
+    );
+    assert!(project.active_implementations.is_empty());
+    assert!(project.active_turn.is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn product_pursuit_action_persists_authenticated_actor_and_creates_only_a_plan() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Production boundary: exercise the app opportunity controller through
+    // decision persistence and self-improvement run creation. Store-only tests
+    // cannot prove the authenticated CLI identity reaches the saved actor.
+    // Uses a headless app, temporary Git/store fixture, and fake gh executable;
+    // no external network or Docker, moderate setup.
+    let mut app = crate::app::root::board_tests::fixture();
+    let uid = {
+        let crate::app::root::Screen::Connected(project) = &mut app.screen else {
+            panic!("fixture should be connected")
+        };
+        app_proposal(project, OpportunityTargetKindV1::KooladeProduct)
+    };
+    let gh_dir = tempfile::tempdir().unwrap();
+    let gh = gh_dir.path().join("gh");
+    std::fs::write(
+        &gh,
+        "#!/bin/sh\n[ \"$1\" = api ] && [ \"$2\" = user ] || exit 2\nprintf '987654321\\n'\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let crate::app::root::Screen::Connected(project) = &app.screen else {
+        panic!("fixture should remain connected")
+    };
+    let revision = OpportunityStore::new(&project.state.planning_store)
+        .load(&uid)
+        .unwrap()
+        .1;
+
+    app.decide_opportunity_with_gh(&uid, revision, OpportunityChoice::Pursue, None, &gh);
+
+    let crate::app::root::Screen::Connected(project) = &app.screen else {
+        panic!("fixture should remain connected")
+    };
+    let opportunities = OpportunityStore::new(&project.state.planning_store);
+    let decision = opportunities
+        .decision_for_opportunity(&uid)
+        .unwrap()
+        .expect("authenticated Pursue decision should persist");
+    assert_eq!(decision.user_id, "github:987654321");
     let run_uid = SelfImprovementStore::run_uid_for_decision(&decision.uid).unwrap();
     let run = SelfImprovementStore::new(&project.state.planning_store)
         .load(&run_uid)
         .unwrap();
     assert_eq!(run.phase, SelfImprovementPhaseV1::Planning);
-    assert!(proposal.related_feature_uids.contains(&run.feature_uid));
     assert!(run.clone_uid.is_none());
     assert!(project.active_implementations.is_empty());
     assert!(project.active_turn.is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn product_pursuit_action_does_not_persist_when_github_authentication_fails() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut app = crate::app::root::board_tests::fixture();
+    let uid = {
+        let crate::app::root::Screen::Connected(project) = &mut app.screen else {
+            panic!("fixture should be connected")
+        };
+        app_proposal(project, OpportunityTargetKindV1::KooladeProduct)
+    };
+    let gh_dir = tempfile::tempdir().unwrap();
+    let gh = gh_dir.path().join("gh");
+    std::fs::write(&gh, "#!/bin/sh\nexit 1\n").unwrap();
+    std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let crate::app::root::Screen::Connected(project) = &app.screen else {
+        panic!("fixture should remain connected")
+    };
+    let revision = OpportunityStore::new(&project.state.planning_store)
+        .load(&uid)
+        .unwrap()
+        .1;
+
+    app.decide_opportunity_with_gh(&uid, revision, OpportunityChoice::Pursue, None, &gh);
+
+    let crate::app::root::Screen::Connected(project) = &app.screen else {
+        panic!("fixture should remain connected")
+    };
+    let opportunities = OpportunityStore::new(&project.state.planning_store);
+    assert!(
+        opportunities
+            .decision_for_opportunity(&uid)
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        opportunities.load(&uid).unwrap().0.status,
+        OpportunityStatusV1::AwaitingDecision
+    );
 }
 
 #[test]

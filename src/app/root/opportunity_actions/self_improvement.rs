@@ -6,6 +6,18 @@ use crate::{
     },
 };
 
+pub(super) fn decision_user_id(
+    is_product_pursue: bool,
+    configured_user: &str,
+    gh_bin: &std::path::Path,
+) -> Result<String, String> {
+    if is_product_pursue {
+        let github_user_id = crate::core::self_improvement::authenticated_github_user_id(gh_bin)?;
+        return Ok(format!("github:{github_user_id}"));
+    }
+    Ok(configured_user.to_owned())
+}
+
 #[cfg(test)]
 #[path = "self_improvement/tests.rs"]
 mod tests;

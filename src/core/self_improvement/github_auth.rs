@@ -42,7 +42,7 @@ mod tests {
 
     #[test]
     fn github_account_ids_are_positive_bounded_decimal_values() {
-        assert!(valid_github_user_id("5166344"));
+        assert!(valid_github_user_id("987654321"));
         assert!(!valid_github_user_id(""));
         assert!(!valid_github_user_id("0"));
         assert!(!valid_github_user_id("12x"));
@@ -63,14 +63,14 @@ mod tests {
         let executable = directory.path().join("gh");
         std::fs::write(
             &executable,
-            "#!/bin/sh\n[ \"$1\" = api ] && [ \"$2\" = user ] || exit 2\n[ -z \"${GH_TOKEN+x}\" ] || exit 3\nprintf '5166344\\n'\n",
+            "#!/bin/sh\n[ \"$1\" = api ] && [ \"$2\" = user ] || exit 2\n[ -z \"${GH_TOKEN+x}\" ] || exit 3\nprintf '987654321\\n'\n",
         )
         .unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
 
         assert_eq!(
             authenticated_github_user_id(&executable).unwrap(),
-            "5166344"
+            "987654321"
         );
     }
 }

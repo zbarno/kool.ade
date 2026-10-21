@@ -113,7 +113,7 @@ pub(super) fn assert_activation_requires_probe(
                 version: "0.2.0".into(),
                 build_commit_sha: merged_sha.to_owned(),
                 operator_id: "synthetic-operator".into(),
-                github_user_id: Some("5166344".into()),
+                github_user_id: Some("987654321".into()),
             },
         )
         .expect("the capability probe follows an installed build");
