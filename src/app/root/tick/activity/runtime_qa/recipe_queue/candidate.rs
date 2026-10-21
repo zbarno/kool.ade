@@ -17,14 +17,29 @@ pub(super) fn supports_recipe_surface(surface: AppSurface) -> bool {
     )
 }
 
-pub(super) type ApprovedCandidate = (
-    String,
-    RuntimeOperation,
-    std::path::PathBuf,
-    WorkspaceRef,
-    Vec<String>,
-    Vec<String>,
-);
+pub(super) fn can_queue_prerequisite_recovery(
+    state: &crate::project_runtime::TargetCapabilityState,
+) -> bool {
+    matches!(
+        state,
+        crate::project_runtime::TargetCapabilityState::Ready
+            | crate::project_runtime::TargetCapabilityState::ReadyButUntested
+            | crate::project_runtime::TargetCapabilityState::MissingToolchain
+            | crate::project_runtime::TargetCapabilityState::MissingDependencies
+            | crate::project_runtime::TargetCapabilityState::DriverUnavailable
+    )
+}
+
+pub(super) struct ApprovedCandidate {
+    pub(super) target_id: String,
+    pub(super) operation: RuntimeOperation,
+    pub(super) clone_path: std::path::PathBuf,
+    pub(super) workspace: WorkspaceRef,
+    pub(super) required_tools: Vec<String>,
+    pub(super) project_relative_root: String,
+    pub(super) required_dependencies: Vec<String>,
+    pub(super) allowed_untracked_outputs: Vec<String>,
+}
 
 pub(super) fn approved_candidate(
     manifest: &ProjectCapabilityManifestV1,
@@ -78,14 +93,16 @@ pub(super) fn approved_candidate(
     }));
     allowed_untracked_outputs.sort();
     allowed_untracked_outputs.dedup();
-    Ok(Some((
-        target.target_id.clone(),
+    Ok(Some(ApprovedCandidate {
+        target_id: target.target_id.clone(),
         operation,
-        clone_path.to_owned(),
+        clone_path: clone_path.to_owned(),
         workspace,
         required_tools,
+        project_relative_root: target.project_relative_root.clone(),
+        required_dependencies: target.required_dependencies.clone(),
         allowed_untracked_outputs,
-    )))
+    }))
 }
 
 fn workspace_output_path(target_root: &str, path: &str) -> String {

@@ -16,8 +16,19 @@ pub(super) fn baseline_commit(worktree: &Path) -> Option<String> {
         .filter(|commit| !commit.is_empty())
 }
 
+#[cfg(test)]
 pub(super) fn enrich(
     worktree: &Path,
+    baseline_commit: Option<&str>,
+    need: &mut DependencyNeed,
+) -> anyhow::Result<()> {
+    enrich_scoped(worktree, worktree, ".", baseline_commit, need)
+}
+
+pub(super) fn enrich_scoped(
+    worktree: &Path,
+    dependency_root: &Path,
+    dependency_relative_root: &str,
     baseline_commit: Option<&str>,
     need: &mut DependencyNeed,
 ) -> anyhow::Result<()> {
@@ -34,14 +45,18 @@ pub(super) fn enrich(
     if !supported {
         return Ok(());
     }
-    let current = current_packages(worktree, need.ecosystem)?;
+    let current = current_packages(dependency_root, need.ecosystem)?;
     let current_manifests = if need.ecosystem == PackageEcosystem::Npm {
-        Some(super::super::npm::dependency_manifest_inputs(worktree)?)
+        Some(super::super::npm::dependency_manifest_inputs(
+            dependency_root,
+        )?)
     } else {
         None
     };
     let baseline = match baseline_commit {
-        Some(commit) => baseline_packages(worktree, commit, need.ecosystem)?,
+        Some(commit) => {
+            baseline_packages(worktree, commit, need.ecosystem, dependency_relative_root)?
+        }
         None => Vec::new(),
     };
     let baseline = baseline.into_iter().collect::<BTreeSet<_>>();
@@ -51,7 +66,11 @@ pub(super) fn enrich(
         .cloned()
         .collect::<Vec<_>>();
     let baseline_manifests = match (need.ecosystem, baseline_commit) {
-        (PackageEcosystem::Npm, Some(commit)) => Some(baseline_manifest_inputs(worktree, commit)?),
+        (PackageEcosystem::Npm, Some(commit)) => Some(baseline_manifest_inputs(
+            worktree,
+            commit,
+            dependency_relative_root,
+        )?),
         (PackageEcosystem::Npm, None) => Some(Vec::new()),
         _ => None,
     };
@@ -75,17 +94,27 @@ pub(super) fn enrich(
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) fn validate_current_identity(
     worktree: &Path,
+    need: &DependencyNeed,
+) -> anyhow::Result<()> {
+    validate_current_identity_at(worktree, need)
+}
+
+pub(super) fn validate_current_identity_at(
+    dependency_root: &Path,
     need: &DependencyNeed,
 ) -> anyhow::Result<()> {
     let expected = need
         .lockfile_identity
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("The authorized lockfile identity is missing"))?;
-    let packages = current_packages(worktree, need.ecosystem)?;
+    let packages = current_packages(dependency_root, need.ecosystem)?;
     let manifests = if need.ecosystem == PackageEcosystem::Npm {
-        Some(super::super::npm::dependency_manifest_inputs(worktree)?)
+        Some(super::super::npm::dependency_manifest_inputs(
+            dependency_root,
+        )?)
     } else {
         None
     };
@@ -113,6 +142,7 @@ fn baseline_packages(
     worktree: &Path,
     commit: &str,
     ecosystem: PackageEcosystem,
+    dependency_relative_root: &str,
 ) -> anyhow::Result<Vec<crate::harness::DependencyPackageIdentity>> {
     let listing = git_output(
         worktree,
@@ -130,7 +160,7 @@ fn baseline_packages(
         .filter(|path| !path.is_empty())
     {
         let path = std::str::from_utf8(path)?;
-        if !is_lockfile(path, ecosystem) {
+        if !is_target_lockfile(path, ecosystem, dependency_relative_root) {
             continue;
         }
         files += 1;
@@ -170,6 +200,7 @@ fn baseline_packages(
 fn baseline_manifest_inputs(
     worktree: &Path,
     commit: &str,
+    dependency_relative_root: &str,
 ) -> anyhow::Result<Vec<(String, serde_json::Value)>> {
     let listing = git_output(
         worktree,
@@ -187,7 +218,8 @@ fn baseline_manifest_inputs(
         .filter(|path| !path.is_empty())
     {
         let path = std::str::from_utf8(path)?;
-        if !is_npm_package_manifest(path) {
+        if !under_dependency_root(path, dependency_relative_root) || !is_npm_package_manifest(path)
+        {
             continue;
         }
         files += 1;
@@ -214,11 +246,32 @@ fn baseline_manifest_inputs(
         );
         let input = super::super::npm::dependency_manifest_inputs_from_bytes(&bytes)?;
         if !input.as_object().is_some_and(serde_json::Map::is_empty) {
-            inputs.push((path.to_owned(), input));
+            let relative_path = strip_dependency_root(path, dependency_relative_root)?;
+            inputs.push((relative_path.to_owned(), input));
         }
     }
     inputs.sort_by(|left, right| left.0.cmp(&right.0));
     Ok(inputs)
+}
+
+fn under_dependency_root(path: &str, dependency_relative_root: &str) -> bool {
+    dependency_relative_root == "."
+        || path == dependency_relative_root
+        || path
+            .strip_prefix(dependency_relative_root)
+            .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+fn strip_dependency_root<'a>(
+    path: &'a str,
+    dependency_relative_root: &str,
+) -> anyhow::Result<&'a str> {
+    if dependency_relative_root == "." {
+        return Ok(path);
+    }
+    path.strip_prefix(dependency_relative_root)
+        .and_then(|suffix| suffix.strip_prefix('/'))
+        .ok_or_else(|| anyhow::anyhow!("baseline dependency path escaped its selected target root"))
 }
 
 fn is_npm_package_manifest(path: &str) -> bool {
@@ -276,6 +329,21 @@ fn is_lockfile(path: &str, ecosystem: PackageEcosystem) -> bool {
         PackageEcosystem::Cargo => path == "Cargo.lock",
         _ => false,
     }
+}
+
+fn is_target_lockfile(
+    path: &str,
+    ecosystem: PackageEcosystem,
+    dependency_relative_root: &str,
+) -> bool {
+    if ecosystem == PackageEcosystem::Cargo {
+        return if dependency_relative_root == "." {
+            path == "Cargo.lock"
+        } else {
+            format!("{dependency_relative_root}/Cargo.lock") == path
+        };
+    }
+    under_dependency_root(path, dependency_relative_root) && is_lockfile(path, ecosystem)
 }
 
 #[cfg(test)]

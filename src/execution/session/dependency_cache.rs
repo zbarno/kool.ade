@@ -1,6 +1,30 @@
 use super::*;
 
 impl ExecutionSession {
+    pub(crate) fn record_prepared_dependency_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<(), ExecutionError> {
+        if ids.len() > 128 {
+            return Err(policy_error(
+                "Prepared dependency evidence exceeds its limit",
+            ));
+        }
+        let mut prepared = self
+            .prepared_dependency_ids
+            .lock()
+            .map_err(|_| internal_error())?;
+        prepared.extend(ids.iter().cloned());
+        Ok(())
+    }
+
+    pub(crate) fn prepared_dependency_ids(&self) -> Vec<String> {
+        self.prepared_dependency_ids
+            .lock()
+            .map(|prepared| prepared.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
     pub(crate) fn set_dependency_approval_waiting(
         &self,
         waiting: bool,

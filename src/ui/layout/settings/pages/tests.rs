@@ -66,7 +66,7 @@ fn execution_environment_view_shows_readiness_and_safe_setup_guidance() {
         "QA execution stays disabled",
         "Browser QA image:",
         "Linux desktop QA image and software display:",
-        "unavailable; no approved pinned image is present",
+        "unavailable; pinned image is not runtime-enabled by policy",
         "Preview port relay: not verified for release (#171).",
         "Evidence capacity and retention: not reported as runtime readiness yet.",
     ] {

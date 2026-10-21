@@ -161,11 +161,15 @@ fn container_spec_rejects_missing_artifacts() {
 }
 
 #[test]
-fn image_lock_keeps_unpromoted_browser_profile_unavailable() {
+fn promoted_qa_profiles_remain_disabled_until_runtime_release_approval() {
     let lock = ImageLock::bundled().unwrap();
-    assert!(!lock.profiles.contains_key("browser_qa"));
+    let browser = lock.profiles.get("browser_qa").unwrap();
+    assert_eq!(browser.len(), 1);
+    assert!(!browser[0].runtime_enabled);
     assert!(lock.select(RuntimeProfile::BrowserQa, "amd64").is_err());
-    assert!(!lock.profiles.contains_key("desktop_qa"));
+    let desktop = lock.profiles.get("desktop_qa").unwrap();
+    assert_eq!(desktop.len(), 1);
+    assert!(!desktop[0].runtime_enabled);
     assert!(lock.select(RuntimeProfile::DesktopQa, "amd64").is_err());
 }
 

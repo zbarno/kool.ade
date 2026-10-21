@@ -132,6 +132,7 @@ pub(super) fn receipt(
         artifact_hashes: [(artifact_path.into(), artifact_hash.into())]
             .into_iter()
             .collect(),
+        prepared_dependency_ids: Vec::new(),
         log_reference: Some(format!("synthetic-{recipe_id}")),
         observed_at_unix_ms: 1,
     }

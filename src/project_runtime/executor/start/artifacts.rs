@@ -123,6 +123,7 @@ pub(super) fn receipt(
         },
         exit_code: data.exit_code,
         artifact_hashes: data.artifact_hashes,
+        prepared_dependency_ids: session.prepared_dependency_ids(),
         log_reference: data.log_reference,
         observed_at_unix_ms: data.observed_at_unix_ms,
     }

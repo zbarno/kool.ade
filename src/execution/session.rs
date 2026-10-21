@@ -66,6 +66,7 @@ pub struct ExecutionSession {
     authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
     resources: ResourceBudgetV1,
     dependency_cache_refs: Mutex<Vec<DependencyCacheRefV1>>,
+    prepared_dependency_ids: Mutex<BTreeSet<String>>,
     remote_dependency_requests: Mutex<
         std::collections::BTreeMap<
             String,

@@ -166,6 +166,7 @@ fn build_receipt(
         state,
         exit_code: (state == RuntimeReceiptState::Passed).then_some(0),
         artifact_hashes: Default::default(),
+        prepared_dependency_ids: Vec::new(),
         log_reference: None,
         observed_at_unix_ms,
     }

@@ -87,6 +87,7 @@ fn build_receipt(path: &str) -> RuntimeReceiptV1 {
         state: RuntimeReceiptState::Passed,
         exit_code: Some(0),
         artifact_hashes: [(path.into(), "b".repeat(64))].into(),
+        prepared_dependency_ids: Vec::new(),
         log_reference: Some("execution-1".into()),
         observed_at_unix_ms: 1,
     }

@@ -46,7 +46,7 @@ impl AppTargetV1 {
             .required_dependencies
             .iter()
             .chain(self.supported_driver_ids.iter())
-            .any(|id| !valid_id(id))
+            .any(|id| !valid_dependency_id(id))
         {
             return Err("application target contains an invalid dependency or driver ID".into());
         }
@@ -72,6 +72,44 @@ impl AppTargetV1 {
             return Err("unsupported targets require an unsupported capability state".into());
         }
         Ok(())
+    }
+}
+
+pub(super) fn valid_dependency_id(value: &str) -> bool {
+    let Some((ecosystem, package)) = value.split_once(':') else {
+        return valid_id(value);
+    };
+    if package.is_empty() || package.len() > 214 {
+        return false;
+    }
+    let valid_name = |name: &str| {
+        !name.is_empty()
+            && name.as_bytes()[0].is_ascii_lowercase()
+            && name.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"._-".contains(&byte)
+            })
+            && !name.ends_with('.')
+    };
+    match ecosystem {
+        "system" => {
+            package.as_bytes()[0].is_ascii_lowercase()
+                && package.bytes().all(|byte| {
+                    byte.is_ascii_lowercase()
+                        || byte.is_ascii_digit()
+                        || matches!(byte, b'+' | b'.' | b'-')
+                })
+        }
+        "cargo" => valid_name(package),
+        "npm" => {
+            if let Some(scoped) = package.strip_prefix('@') {
+                scoped
+                    .split_once('/')
+                    .is_some_and(|(scope, name)| valid_name(scope) && valid_name(name))
+            } else {
+                valid_name(package)
+            }
+        }
+        _ => false,
     }
 }
 

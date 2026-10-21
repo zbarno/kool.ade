@@ -13,6 +13,9 @@ use crate::execution::{
 };
 use sha2::{Digest, Sha256};
 
+#[path = "system_image/broker_prerequisite.rs"]
+mod broker_prerequisite;
+
 use super::support::{Fixture, OPT_IN, backend, native_docker_arch, request, workspace};
 
 /// Production boundary: controller authorization -> local Docker build API -> pinned image ID ->

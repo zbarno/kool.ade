@@ -1,6 +1,6 @@
 use super::{
-    approved_candidate, latest_receipt, next_operation, receipt_allows_next,
-    supports_recipe_surface,
+    approved_candidate, can_queue_prerequisite_recovery, latest_receipt, next_operation,
+    receipt_allows_next, supports_recipe_surface,
 };
 use crate::{
     execution::contract::WorkspaceRef,
@@ -17,6 +17,26 @@ fn generic_recipe_queue_accepts_headless_targets_but_rejects_unsupported_surface
     assert!(supports_recipe_surface(AppSurface::Web));
     assert!(supports_recipe_surface(AppSurface::LinuxDesktop));
     assert!(!supports_recipe_surface(AppSurface::UnsupportedTarget));
+}
+
+#[test]
+fn brokerable_capability_gaps_do_not_block_recipe_prerequisite_recovery() {
+    for state in [
+        TargetCapabilityState::Ready,
+        TargetCapabilityState::ReadyButUntested,
+        TargetCapabilityState::MissingToolchain,
+        TargetCapabilityState::MissingDependencies,
+        TargetCapabilityState::DriverUnavailable,
+    ] {
+        assert!(can_queue_prerequisite_recovery(&state), "{state:?}");
+    }
+    for state in [
+        TargetCapabilityState::UnsupportedPlatform,
+        TargetCapabilityState::BuildFailed,
+        TargetCapabilityState::StartFailed,
+    ] {
+        assert!(!can_queue_prerequisite_recovery(&state), "{state:?}");
+    }
 }
 
 fn receipt(state: RuntimeReceiptState, observed_at_unix_ms: u64) -> RuntimeReceiptV1 {
@@ -45,6 +65,7 @@ fn operation_receipt(
         state,
         exit_code: (state == RuntimeReceiptState::Passed).then_some(0),
         artifact_hashes: Default::default(),
+        prepared_dependency_ids: Vec::new(),
         log_reference: None,
         observed_at_unix_ms,
     }
@@ -297,8 +318,11 @@ fn queue_dispatch_requires_explicit_recipe_approval() {
     )
     .unwrap()
     .unwrap();
-    assert_eq!(candidate.4, ["npm"]);
-    assert_eq!(candidate.5, ["apps/web/dist/index.html"]);
+    assert_eq!(candidate.required_tools, ["npm"]);
+    assert_eq!(
+        candidate.allowed_untracked_outputs,
+        ["apps/web/dist/index.html"]
+    );
 
     for (executable, tool) in [("python", "python"), ("go", "go")] {
         manifest.recipes[0].executable_id = executable.into();
@@ -313,7 +337,7 @@ fn queue_dispatch_requires_explicit_recipe_approval() {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(selected.4, [tool]);
+        assert_eq!(selected.required_tools, [tool]);
     }
 
     manifest.recipes[0].executable_id = "custom-compiler".into();
@@ -328,7 +352,7 @@ fn queue_dispatch_requires_explicit_recipe_approval() {
     )
     .unwrap()
     .unwrap();
-    assert_eq!(custom.4, ["custom-compiler"]);
+    assert_eq!(custom.required_tools, ["custom-compiler"]);
 
     let lock = crate::execution::docker::images::ImageLock::bundled().unwrap();
     let profiles = [
@@ -339,14 +363,14 @@ fn queue_dispatch_requires_explicit_recipe_approval() {
         crate::execution::docker::images::RuntimeProfile::Go,
     ];
     let selected = lock
-        .select_with_tools(&profiles, "amd64", &candidate.4)
+        .select_with_tools(&profiles, "amd64", &candidate.required_tools)
         .unwrap();
     assert_eq!(
         selected.profile,
         crate::execution::docker::images::RuntimeProfile::Node
     );
     assert!(
-        lock.select_with_tools(&profiles, "amd64", &custom.4)
+        lock.select_with_tools(&profiles, "amd64", &custom.required_tools)
             .is_err()
     );
 

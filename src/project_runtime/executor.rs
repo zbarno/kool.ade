@@ -83,6 +83,7 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
                         state: RuntimeReceiptState::Failed,
                         exit_code: None,
                         artifact_hashes: BTreeMap::new(),
+                        prepared_dependency_ids: session.prepared_dependency_ids(),
                         log_reference: None,
                         observed_at_unix_ms: next_receipt_timestamp(
                             self.store,
@@ -127,6 +128,7 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
                 },
                 exit_code: output.result.exit_code,
                 artifact_hashes,
+                prepared_dependency_ids: session.prepared_dependency_ids(),
                 log_reference: Some(output.result.execution_id),
                 observed_at_unix_ms: next_receipt_timestamp(self.store, &workspace.task_id)?,
             };

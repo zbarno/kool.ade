@@ -22,7 +22,7 @@ impl ExecutionSession {
 
     pub(super) fn system_proposal(
         &self,
-        package: &str,
+        packages: &[String],
         purpose: &str,
     ) -> anyhow::Result<crate::execution::docker::image_extension::SystemImageExtensionRequest>
     {
@@ -72,7 +72,7 @@ impl ExecutionSession {
             base_profile,
             base_image_digest: digest,
             target_arch: architecture,
-            packages: vec![package.to_owned()],
+            packages: packages.to_vec(),
             trust: crate::execution::docker::image_extension::PackageTrust::ApprovedDistributionRepository,
             purpose: purpose.to_owned(),
         })
@@ -121,27 +121,4 @@ impl ExecutionSession {
         })?;
         Ok(plan.identities())
     }
-}
-
-pub(super) fn system_install_command(command: &str, package: &str, version: Option<&str>) -> bool {
-    let tokens = command.split_ascii_whitespace().collect::<Vec<_>>();
-    if tokens.len() < 3 || tokens.len() > 5 {
-        return false;
-    }
-    let command_ok = matches!(tokens[0], "apt" | "apt-get") && tokens[1] == "install";
-    let mut package_tokens = tokens[2..]
-        .iter()
-        .copied()
-        .filter(|token| *token != "-y" && *token != "--yes");
-    let Some(spec) = package_tokens.next() else {
-        return false;
-    };
-    if package_tokens.next().is_some() {
-        return false;
-    }
-    let expected = version.map_or_else(
-        || package.to_owned(),
-        |version| format!("{package}={version}"),
-    );
-    command_ok && spec == expected
 }

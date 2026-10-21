@@ -77,7 +77,10 @@
         "platform": "linux/arm64",
         "reference": "docker.io/library/python@sha256:af1cafd27effb3b1c7c4ad8b459f118371b5d216d4659a3e68a7b5aae65b517f",
         "digest": "sha256:af1cafd27effb3b1c7c4ad8b459f118371b5d216d4659a3e68a7b5aae65b517f",
-        "tool_versions": { "python": "3.14.7", "base": "Debian bookworm slim" }
+        "tool_versions": {
+          "python": "3.14.7",
+          "base": "Debian bookworm slim"
+        }
       }
     ],
     "go": [
@@ -92,6 +95,38 @@
         "reference": "docker.io/library/golang@sha256:581f0292073059289b736d46d572ba4c515e0b511f8645963e0b0adf232680a1",
         "digest": "sha256:581f0292073059289b736d46d572ba4c515e0b511f8645963e0b0adf232680a1",
         "tool_versions": { "go": "1.26.8", "base": "Debian bookworm" }
+      }
+    ],
+    "browser_qa": [
+      {
+        "platform": "linux/amd64",
+        "runtime_enabled": false,
+        "reference": "ghcr.io/zbarno/koolade-runtime-qa-browser@sha256:3cddd9c15a78f83365915b3c95c9aee7690f1bbb16dc7689cab75733d940114d",
+        "digest": "sha256:3cddd9c15a78f83365915b3c95c9aee7690f1bbb16dc7689cab75733d940114d",
+        "tool_versions": {
+          "node": "24.11.1",
+          "npm": "11.6.2",
+          "python3": "Python 3.12.3",
+          "playwright": "1.57.0",
+          "chromium": "143.0.7499.4",
+          "driver": "koolade-runtime-qa-browser-driver-1.1.0",
+          "base": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
+        },
+        "build_recipe_sha256": "sha256:51cefd5c4674334e2439a3302a0ee9f4fbdb3c605e7a5544cfd9687ebcf31465"
+      }
+    ],
+    "desktop_qa": [
+      {
+        "platform": "linux/amd64",
+        "runtime_enabled": false,
+        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:51ad6e1b58cb1316abfcdabc52852a04c07456c0677f6c2aa8ac8b00c4065ef4",
+        "digest": "sha256:51ad6e1b58cb1316abfcdabc52852a04c07456c0677f6c2aa8ac8b00c4065ef4",
+        "tool_versions": {
+          "driver": "linux-x11-driver/v1",
+          "xvfb": "2:21.1.12-1ubuntu1.5",
+          "base": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
+        },
+        "build_recipe_sha256": "sha256:08c9edfe181553b0c8e6556e2b7ee27a61f6ee37fdc1ed99dae586049a31de0e"
       }
     ]
   }

@@ -68,8 +68,12 @@ target's project root.
 manifest, checks the task and source SHA against the assigned workspace, rejects
 metadata-only recipes, and dispatches discrete argv through a Docker
 `ExecutionSession`. The schema alone does not authorize execution. User
-approval and prerequisite-broker integration still belong to the application
-lifecycle and must happen before the executor is called.
+approval and prerequisite acquisition still belong to the application
+lifecycle and must happen before the executor is called. When no pinned image
+provides every approved logical tool, the recipe queue can ask the existing
+task-bound dependency broker to resolve the missing Debian tools. System
+package requests require a one-time user grant; the broker verifies the signed
+package closure and derives the image with Docker networking disabled.
 
 Example recipe payload:
 
@@ -103,11 +107,13 @@ Runtime receipt paths are relative to the repository clone so monorepo targets
 remain addressable by both Start and QA.
 Queued build and test recipes use the generic executor. Its image selection
 matches each approved recipe's logical tool requirements against pinned image
-inventory instead of inferring a language from executable names. A custom tool
-can be recorded without a Kool.ad/e code change; execution still fails closed
-unless an approved image advertises that tool. Missing tools currently produce
-an unavailable-image result; they are not yet converted into Man.ager broker
-requests.
+inventory instead of inferring a language from executable names. If no pinned
+image provides every tool, the app retries with the pinned general image and
+submits a task-bound system-tool request through the existing dependency
+broker. Man.ager review and explicit one-time user approval are required before
+the broker derives a verified image. Logical tool IDs map to bounded Debian
+package names; unsupported mappings, missing packages, and rejected requests
+remain blockers. No host package manager runs.
 
 The generic start executor requires a passing Build receipt for the same task,
 target, source SHA, and recipe. It launches the approved process in the Docker
@@ -125,8 +131,12 @@ explicit inventory of toolchains, dependencies, and surface drivers from the
 approved execution environment; it never consults host `PATH`.
 The queued QA prerequisite gate applies this assessment to the selected task
 target and reviewed source SHA using toolchain and driver IDs from the pinned
-image lock. Until dependency-broker inventory is wired into this gate, declared
-dependencies remain unavailable and block QA; they are never assumed present.
+image lock. Target `required_dependencies` remain distinct from executable
+toolchains. A dependency is available only when the recipe session obtained it
+through the authorized broker and recorded it in a passed Start receipt bound
+to the same task, target, source SHA, and approved start recipe. Missing or
+stale dependency evidence remains a capability gap with broker authorization
+remediation.
 Unsupported native mobile, Windows/macOS desktop, and hardware targets must be
 reported as unsupported until their execution and QA drivers exist.
 
@@ -162,7 +172,12 @@ Headless service targets can run their approved Build/Test/Start recipes and
 retain source-bound receipts. Runtime QA source now includes service-specific
 API actions through the leased task preview relay, bounded response status/hash
 evidence, and reviewer-facing assertions without response-body persistence.
-This path is not available to application runs yet: the bundled image lock has
-no released Browser QA profile, and broker-backed toolchain provisioning and
-inventory remain unintegrated. Do not count recipe receipts or unpromoted driver
-source as verified service QA evidence or claim runtime QA coverage.
+The reviewed browser and desktop image digests are now pinned in the bundled
+lock, with both profiles still disabled pending the #171 release gate and
+trusted-main publication. Recipe Build/Test/Start dispatch requests declared
+system, npm, and Cargo prerequisites through the task-bound broker and records
+prepared IDs in passed Start receipts. The separate service-preview container
+still receives only the receipt-verified artifact snapshot; broker-prepared
+dependency caches are not forwarded into that container. Do not count
+synthetic driver output or recipe receipts as verified service QA evidence
+until an application-backed headless QA run has passed and been reviewed.

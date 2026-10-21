@@ -1,5 +1,6 @@
 //! Local socket lifecycle and request coordination for mediated resources.
 mod cache_locks;
+mod client;
 mod context;
 mod dependency_flow;
 mod lifecycle;
@@ -10,7 +11,7 @@ mod test_support;
 
 #[cfg(test)]
 pub(super) use test_support::{
-    start_with_state_root_and_cargo_operations, start_with_state_root_and_npm_operations,
+    start_with_state_root_and_cargo_operations_for_target, start_with_state_root_and_npm_operations,
 };
 
 use super::{MAX_IN_FLIGHT_REQUESTS, cargo, npm, set_private_dir, set_private_file};
@@ -32,9 +33,7 @@ pub(crate) struct ResourceBridge {
     socket: PathBuf,
     task_id: Option<String>,
     cache_dir: PathBuf,
-    #[cfg(test)]
     npm_cache: PathBuf,
-    #[cfg(test)]
     cargo_cache: PathBuf,
     pending_attention: Arc<Mutex<Option<String>>>,
     pending_dependency: Arc<Mutex<Vec<DependencyRequest>>>,
@@ -75,6 +74,7 @@ impl ResourceBridge {
         Self::start_inner(
             worktree,
             None,
+            None,
             task_id,
             progress,
             cancel,
@@ -94,6 +94,29 @@ impl ResourceBridge {
     ) -> anyhow::Result<Self> {
         Self::start_inner(
             task_repository,
+            None,
+            runtime_source,
+            task_id,
+            progress,
+            cancel,
+            &crate::persistence::state_root(),
+            None,
+            None,
+            None,
+        )
+    }
+
+    pub(crate) fn start_for_task_repository_target(
+        task_repository: &Path,
+        dependency_root: &Path,
+        runtime_source: Option<&Path>,
+        task_id: Option<&str>,
+        progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
+        cancel: Arc<AtomicBool>,
+    ) -> anyhow::Result<Self> {
+        Self::start_inner(
+            task_repository,
+            Some(dependency_root),
             runtime_source,
             task_id,
             progress,
@@ -108,6 +131,7 @@ impl ResourceBridge {
     #[allow(clippy::too_many_arguments)]
     fn start_inner(
         worktree: &Path,
+        dependency_root: Option<&Path>,
         runtime_source: Option<&Path>,
         task_id: Option<&str>,
         progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
@@ -122,6 +146,20 @@ impl ResourceBridge {
             worktree.is_dir(),
             "Resource broker worktree is not a directory"
         );
+        let dependency_root = dependency_root.unwrap_or(&worktree).canonicalize()?;
+        anyhow::ensure!(
+            dependency_root.is_dir() && dependency_root.starts_with(&worktree),
+            "Resource broker dependency root must be inside the task repository"
+        );
+        let dependency_relative_root = dependency_root
+            .strip_prefix(&worktree)?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let dependency_relative_root = if dependency_relative_root.is_empty() {
+            ".".to_owned()
+        } else {
+            dependency_relative_root
+        };
         let private_configuration = worktree.join(".git").try_exists()?
             && !crate::harness::runtime_config::paths_with_source(&worktree, runtime_source)?
                 .is_empty();
@@ -181,6 +219,8 @@ impl ResourceBridge {
         let thread_cargo_cache = cargo_cache.clone();
         let thread_cargo_cache_gate = cargo_cache_gate.clone();
         let thread_worktree = worktree.clone();
+        let thread_dependency_root = dependency_root.clone();
+        let thread_dependency_relative_root = dependency_relative_root.clone();
         let thread_requests = Arc::new(Mutex::new(Vec::new()));
         let accepting_requests = thread_requests.clone();
         let worker = thread::spawn(move || {
@@ -196,6 +236,8 @@ impl ResourceBridge {
                         let baseline_commit = thread_baseline_commit.clone();
                         let resource_dir = thread_resource_dir.clone();
                         let worktree = thread_worktree.clone();
+                        let dependency_root = thread_dependency_root.clone();
+                        let dependency_relative_root = thread_dependency_relative_root.clone();
                         let attention = thread_attention.clone();
                         let dependency = thread_dependency.clone();
                         let execution_session = thread_execution_session
@@ -220,6 +262,8 @@ impl ResourceBridge {
                             let _in_flight = InFlightRequest(in_flight_requests);
                             let context = BrokerContext {
                                 worktree: &worktree,
+                                dependency_root: &dependency_root,
+                                dependency_relative_root: &dependency_relative_root,
                                 execution_session,
                                 private_configuration,
                                 resource_dir: &resource_dir,
@@ -258,9 +302,7 @@ impl ResourceBridge {
             socket,
             task_id: task_id.map(str::to_owned),
             cache_dir,
-            #[cfg(test)]
             npm_cache,
-            #[cfg(test)]
             cargo_cache,
             pending_attention: attention,
             pending_dependency,

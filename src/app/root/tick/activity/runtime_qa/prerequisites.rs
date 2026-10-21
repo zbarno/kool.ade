@@ -86,10 +86,28 @@ pub(super) fn unavailable_reason(
     };
     let inventory =
         crate::app::root::runtime_capability_inventory::RuntimeCapabilityInventory::from_locked_images(&lock);
+    let receipts = match runtime.receipts_for_task(&target.owning_task_id) {
+        Ok(receipts) => receipts,
+        Err(error) => {
+            return Some(format!(
+                "runtime recipe receipts could not be read ({error}); validate the selected target before retrying QA."
+            ));
+        }
+    };
+    let available_dependencies =
+        crate::app::root::runtime_capability_inventory::prepared_dependency_ids_for_target(
+            &receipts,
+            &target.owning_task_id,
+            &target.target_id,
+            &manifest.source_sha,
+            target.start_recipe_ref.as_deref().unwrap_or_default(),
+            &target.required_dependencies,
+        );
     let assessment = match inventory.assess_target(
         &manifest,
         &target.target_id,
         task.planning_item_uid.as_deref().unwrap_or_default(),
+        &available_dependencies,
     ) {
         Ok(assessment) => assessment,
         Err(error) => {

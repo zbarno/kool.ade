@@ -47,6 +47,15 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
         );
         return Some(view);
     }
+    let receipts = match store.receipts_for_task(&identity.uid) {
+        Ok(receipts) => receipts,
+        Err(error) => {
+            view.message = Some(format!(
+                "Runtime recipe receipts could not be read: {error}"
+            ));
+            return Some(view);
+        }
+    };
     view.languages = manifest.detected_languages.clone();
     view.frameworks = manifest.frameworks.clone();
     view.manifest_revision = Some(manifest.revision);
@@ -67,6 +76,19 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
         .iter()
         .filter(|target| target.owning_task_id == identity.uid)
         .map(|target| {
+            let available_dependencies = inventory
+                .as_ref()
+                .map(|_| {
+                    super::super::runtime_capability_inventory::prepared_dependency_ids_for_target(
+                        &receipts,
+                        &identity.uid,
+                        &target.target_id,
+                        &manifest.source_sha,
+                        target.start_recipe_ref.as_deref().unwrap_or_default(),
+                        &target.required_dependencies,
+                    )
+                })
+                .unwrap_or_default();
             let locally_unauthorized = target
                 .build_recipe_ref
                 .iter()
@@ -81,7 +103,12 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
                 })
                 .any(|recipe| !store.recipe_is_locally_approved(&manifest, target, recipe));
             let assessment = inventory.as_ref().map(|inventory| {
-                inventory.assess_target(&manifest, &target.target_id, &identity.uid)
+                inventory.assess_target(
+                    &manifest,
+                    &target.target_id,
+                    &identity.uid,
+                    &available_dependencies,
+                )
             });
             let diagnostics = match assessment.as_ref() {
                 Some(Ok(assessment)) => assessment
