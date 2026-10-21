@@ -20,6 +20,23 @@ pub(super) fn collect_artifacts<'a>(
             &handle.execution_id,
             serde_json::json!({"handle": local_handle}),
         )?;
+        let execution_wall_ms = backend
+            .execution_started_at
+            .lock()
+            .ok()
+            .and_then(|mut started| started.remove(&handle.execution_id))
+            .map(|started| started.elapsed().as_millis().min(u64::MAX as u128) as u64)
+            .unwrap_or(0);
+        let _ = crate::persistence::remote_execution_telemetry::record_execution_result(
+            &handle.execution_id,
+            match &backend.target.location {
+                TargetLocation::Remote { worker_id } => worker_id,
+                TargetLocation::Local => return Err(incompatible()),
+            },
+            execution_wall_ms,
+            result.metrics.cpu_millis,
+            result.metrics.peak_memory_bytes,
+        );
         backend.stop_if_private_grant_revoked(handle).await?;
         let workspace = backend
             .execution_snapshots
