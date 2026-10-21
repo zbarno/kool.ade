@@ -11,10 +11,7 @@ use crate::{
         },
     },
     harness::PlanningRequest,
-    persistence::{
-        harness_settings,
-        remote_workers,
-    },
+    persistence::{harness_settings, remote_workers},
 };
 
 use super::ExecutionSession;
