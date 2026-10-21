@@ -21,7 +21,7 @@ fn stored_cache_snapshot_round_trips_only_for_its_dependency_request_and_ref() {
     let store = DependencyCacheSnapshotStore::new(root.path().join("snapshots"));
     let snapshot = snapshot();
 
-    let request_id = "33333333-3333-4333-8333-333333333333";
+    let request_id = "dependency-33333333-3333-4333-8333-333333333333";
     store.put(request_id, &snapshot).unwrap();
     let restored = store.get(request_id, &snapshot.cache_ref).unwrap();
     assert_eq!(restored.archive, snapshot.archive);

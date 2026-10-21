@@ -98,8 +98,8 @@
       {
         "platform": "linux/amd64",
         "runtime_enabled": false,
-        "reference": "ghcr.io/zbarno/koolade-runtime-qa-browser@sha256:9c4d8c4422a88ea4c8e08e1020f357779df47b5c3e509c491acb9303ebb39138",
-        "digest": "sha256:9c4d8c4422a88ea4c8e08e1020f357779df47b5c3e509c491acb9303ebb39138",
+        "reference": "ghcr.io/zbarno/koolade-runtime-qa-browser@sha256:4e8c30f3d276de70961b8fb8b24107c025b1dc6b295ee695841bf17bf39891d7",
+        "digest": "sha256:4e8c30f3d276de70961b8fb8b24107c025b1dc6b295ee695841bf17bf39891d7",
         "tool_versions": {
           "node": "24.11.1",
           "npm": "11.6.2",
@@ -109,21 +109,23 @@
           "driver": "koolade-runtime-qa-browser-driver-1.1.0",
           "base": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
         },
-        "build_recipe_sha256": "sha256:4cec856d2d0b84caaabad1b1d9ae7d65adb2b2436906b3ebb92d0b06258631d1"
+        "build_recipe_sha256": "sha256:14ca2e706d2243f2bb16bd654a1ee2db38e70b52aa3523bb3f8a6d7b1960da05"
       }
     ],
     "desktop_qa": [
       {
         "platform": "linux/amd64",
         "runtime_enabled": false,
-        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:57b0052e60e56571cf14eabe1a87031377b7d64d00f85e6a6e1f2e8d96d3c4e8",
-        "digest": "sha256:57b0052e60e56571cf14eabe1a87031377b7d64d00f85e6a6e1f2e8d96d3c4e8",
+        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:38cb2ce5d5b8770253130e6297c81d2c648feaac9420ccab0e68a384be33d70d",
+        "digest": "sha256:38cb2ce5d5b8770253130e6297c81d2c648feaac9420ccab0e68a384be33d70d",
         "tool_versions": {
           "driver": "linux-x11-driver/v1",
           "xvfb": "2:21.1.12-1ubuntu1.5",
+          "chromium": "143.0.7499.4",
+          "dbus": "1.14.10-4ubuntu4.1",
           "base": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
         },
-        "build_recipe_sha256": "sha256:69e6b792620307b220bda9b912ea4c2eb9b6ea092547c5f1e00671dbdc32e32f"
+        "build_recipe_sha256": "sha256:38e0d0ebf7d2006b3212205411ed6eae34bdb94e807bfa7bac669f571a4bd1e0"
       }
     ]
   }

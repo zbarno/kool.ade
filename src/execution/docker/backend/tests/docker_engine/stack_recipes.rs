@@ -171,7 +171,11 @@ fn recipe(id: &str, tool: &str, argv: &[&str]) -> ExecutionRecipeV1 {
         executable_id: tool.into(),
         argv: argv.iter().map(|arg| (*arg).into()).collect(),
         allowed_env_keys: Vec::new(),
-        allowed_output_paths: Vec::new(),
+        allowed_output_paths: if tool == "cargo" {
+            vec!["evidence/.koolade-target".into()]
+        } else {
+            Vec::new()
+        },
         timeout_seconds: 180,
         expected_exit_codes: vec![0],
         expected_artifacts: Vec::new(),
@@ -241,7 +245,7 @@ fn write_stack_fixture(root: &std::path::Path, tool: &str) {
                 ".cargo/config.toml",
                 // The executor's /tmp is intentionally mounted noexec, so
                 // Cargo's test binary must live on the executable workspace tmpfs.
-                "[build]\ntarget-dir = \"/workspace/.koolade-target\"\n",
+                "[build]\ntarget-dir = \"/workspace/evidence/.koolade-target\"\n",
             ),
         ],
         "node" => &[
