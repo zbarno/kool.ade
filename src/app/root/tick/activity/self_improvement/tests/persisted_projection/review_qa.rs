@@ -69,6 +69,7 @@ pub(super) fn verify_reviewer_and_qa_projection(
         schema_version: 1,
         qa_run_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         parent_task_uid: task.task_uid.clone(),
+        planning_item_uid: Some(task.task_uid.clone()),
         feature_uid: task.feature_uid.clone(),
         code_head_sha: head_sha.clone(),
         build_artifact_sha256: "f".repeat(64),
@@ -83,6 +84,7 @@ pub(super) fn verify_reviewer_and_qa_projection(
         execution_session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         driver_profile_version: "fixture-driver/v1".into(),
         test_data_fixture_ref: None,
+        dependency_cache_refs: Vec::new(),
         bounded_limits: crate::runtime_qa::QaBoundedLimitsV1 {
             max_scenarios: 1,
             max_actions_per_scenario: 8,

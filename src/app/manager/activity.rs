@@ -37,6 +37,10 @@ pub struct WorkspaceActivity {
     pub(crate) feature_spec_reconciliation:
         Option<crate::app::root::spec_reconciliation::FeatureSpecReconciliation>,
     pub(crate) runtime_qa_worker: Option<crate::runtime_qa::QaWorkerHandle>,
+    pub(crate) runtime_qa_scenario_synthesis:
+        Option<crate::runtime_qa::scenario_synthesis::ScenarioSynthesisHandle>,
+    pub(crate) runtime_qa_applicability_review:
+        Option<crate::runtime_qa::applicability_review::ApplicabilityReviewHandle>,
     pub(crate) runtime_recipe_worker: Option<crate::runtime_qa::RuntimeRecipeWorkerHandle>,
     pub(crate) dependency_manager: Option<DependencyReview>,
     pub(crate) pending_dependency_reviews: Vec<(String, crate::harness::DependencyRequest)>,

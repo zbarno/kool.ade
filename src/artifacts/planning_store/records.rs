@@ -129,6 +129,7 @@ pub(crate) fn validate_record_collection(path: &str) -> Result<(), StoreError> {
                 | "state/opportunity_quota"
                 | "state/self_improvements"
                 | "state/runtime-receipts"
+                | "state/runtime-target-approvals"
         )
     {
         Ok(())

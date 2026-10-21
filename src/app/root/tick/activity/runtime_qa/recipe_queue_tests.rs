@@ -1,4 +1,7 @@
-use super::{approved_candidate, latest_receipt, next_operation, receipt_allows_next};
+use super::{
+    approved_candidate, latest_receipt, next_operation, receipt_allows_next,
+    supports_recipe_surface,
+};
 use crate::{
     execution::contract::WorkspaceRef,
     project_runtime::{
@@ -7,6 +10,14 @@ use crate::{
         RuntimeReceiptV1, TargetCapabilityState,
     },
 };
+
+#[test]
+fn generic_recipe_queue_accepts_headless_targets_but_rejects_unsupported_surfaces() {
+    assert!(supports_recipe_surface(AppSurface::HeadlessService));
+    assert!(supports_recipe_surface(AppSurface::Web));
+    assert!(supports_recipe_surface(AppSurface::LinuxDesktop));
+    assert!(!supports_recipe_surface(AppSurface::UnsupportedTarget));
+}
 
 fn receipt(state: RuntimeReceiptState, observed_at_unix_ms: u64) -> RuntimeReceiptV1 {
     operation_receipt(

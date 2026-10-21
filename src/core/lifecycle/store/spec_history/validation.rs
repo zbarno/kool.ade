@@ -171,6 +171,16 @@ pub(super) fn validate_draft(
                 | crate::core::lifecycle::TaskEvent::ReconcileSpec { receipt, .. }
                 | crate::core::lifecycle::TaskEvent::SubtaskReconciled { receipt },
             ) => add_receipt(&mut known_evidence, receipt),
+            LifecycleEventKind::Task(
+                crate::core::lifecycle::TaskEvent::RuntimeQaNotApplicable {
+                    reviewer_receipt,
+                    receipt,
+                    ..
+                },
+            ) => {
+                add_receipt(&mut known_evidence, reviewer_receipt);
+                add_receipt(&mut known_evidence, receipt);
+            }
             _ => {}
         }
     }

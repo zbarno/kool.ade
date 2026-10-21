@@ -17,6 +17,9 @@ path = "src/bin/koolade_qa_desktop.rs"
 name = "koolade"
 path = "src/lib.rs"
 
+[features]
+qa-desktop-driver-image = []
+
 [dependencies]
 anyhow = "1.0.104"
 base64 = "0.22.1"

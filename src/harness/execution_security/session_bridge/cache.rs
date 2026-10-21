@@ -9,8 +9,10 @@ use std::{
 pub(crate) fn stage_cache(
     config_path: &Path,
     binding: &SessionBinding,
+    dependency_request_id: &str,
     snapshot: crate::harness::resource_bridge::CacheSnapshot,
 ) -> anyhow::Result<()> {
+    crate::execution::contract::validate_identifier(dependency_request_id)?;
     snapshot
         .manifest
         .validate_ref(&snapshot.cache_ref, &snapshot.archive)?;
@@ -32,6 +34,7 @@ pub(crate) fn stage_cache(
         access: binding.access.clone(),
         target_id: binding.target_id.clone(),
         target_arch,
+        dependency_request_id: dependency_request_id.to_owned(),
         cache_ref: snapshot.cache_ref,
         manifest: snapshot.manifest,
         archive_bytes: snapshot.archive.len(),

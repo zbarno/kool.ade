@@ -10,6 +10,7 @@ pub use observation::{
     approved_available_images, verify_derived_image_observation, verify_image_observation,
 };
 
+#[cfg(not(feature = "qa-desktop-driver-image"))]
 pub const IMAGE_LOCK: &str = include_str!("../../../containers/images.lock.json");
 pub const EXECUTOR_UID: u32 = 10_001;
 pub const EXECUTOR_GID: u32 = 10_001;
@@ -74,15 +75,25 @@ pub struct ImageObservation {
 
 impl ImageLock {
     pub fn bundled() -> Result<Self, PrerequisiteFailure> {
-        let lock: Self = serde_json::from_str(IMAGE_LOCK).map_err(|_| {
-            failure(
-                PrerequisiteCode::ImageUnavailable,
-                "Bundled executor image manifest is invalid",
-                false,
-            )
-        })?;
-        lock.validate()?;
-        Ok(lock)
+        #[cfg(feature = "qa-desktop-driver-image")]
+        return Err(failure(
+            PrerequisiteCode::ProfileUnsupported,
+            "Executor image selection is unavailable in the isolated desktop driver build",
+            false,
+        ));
+
+        #[cfg(not(feature = "qa-desktop-driver-image"))]
+        {
+            let lock: Self = serde_json::from_str(IMAGE_LOCK).map_err(|_| {
+                failure(
+                    PrerequisiteCode::ImageUnavailable,
+                    "Bundled executor image manifest is invalid",
+                    false,
+                )
+            })?;
+            lock.validate()?;
+            Ok(lock)
+        }
     }
 
     pub fn select(

@@ -66,6 +66,7 @@ pub(crate) fn validate_record_path(path: &str) -> Result<(), StoreError> {
                             | "opportunity_quota"
                             | "self_improvements"
                             | "runtime-receipts"
+                            | "runtime-target-approvals"
                     )
                 )
         )

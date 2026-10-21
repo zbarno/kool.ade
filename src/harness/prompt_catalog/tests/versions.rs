@@ -218,3 +218,20 @@ fn runtime_qa_v1_identity_remains_readable_beside_the_v2_evidence_role() {
         PromptRole::RuntimeQaReviewerV2
     );
 }
+
+#[test]
+fn runtime_qa_scenario_synthesizer_has_a_distinct_versioned_proposal_role() {
+    let prompt = base(
+        PromptRole::RuntimeQaScenarioSynthesizer,
+        RolePayloadV1::QaScenarioSynthesis {
+            immutable_request_json: "{}".into(),
+        },
+    );
+    let manifest = render(&prompt).unwrap().manifest;
+    assert_eq!(manifest.role_version, "runtime_qa_scenarios/v1");
+    assert_eq!(manifest.output_schema_version, "QaScenarioDraftV1");
+    assert_eq!(
+        validate_prompt_manifest(&manifest).unwrap(),
+        PromptRole::RuntimeQaScenarioSynthesizer
+    );
+}

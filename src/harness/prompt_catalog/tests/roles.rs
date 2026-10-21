@@ -16,6 +16,7 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         PromptRole::CodeReviewerV1,
         PromptRole::RuntimeQaReviewer,
         PromptRole::RuntimeQaReviewerV2,
+        PromptRole::RuntimeQaScenarioSynthesizer,
         PromptRole::SpecReconciler,
         PromptRole::RepairWorker,
         PromptRole::PrPreparer,

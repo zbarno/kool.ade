@@ -148,7 +148,7 @@ def validate_candidate(
             fail("Go candidate tool version must match 1.26.8")
         required_versions = {
             "browser_qa": ("node", "npm", "python3", "playwright", "chromium", "driver", "base"),
-            "desktop_qa": ("driver", "xvfb", "base"),
+            "desktop_qa": ("driver", "xvfb", "chromium", "dbus", "base"),
         }.get(profile, ())
         if any(key not in versions for key in required_versions):
             fail(f"{profile} candidate is missing required tool version metadata")

@@ -102,6 +102,23 @@ fn authorized_broker_request_prepares_a_verified_npm_cache_hit() {
             .and_then(|preparation| preparation.broker_duration_millis)
             .is_some()
     );
+    let prepared_request = response.dependency_request.as_ref().unwrap();
+    let prepared_request_id = prepared_request.id.clone();
+    let broker_duration = prepared_request
+        .preparation
+        .as_ref()
+        .and_then(|preparation| preparation.broker_duration_millis)
+        .unwrap();
+    assert!(updates.try_iter().any(|progress| {
+        progress.dependency_requests.iter().any(|request| {
+            request.id == prepared_request_id
+                && request
+                    .preparation
+                    .as_ref()
+                    .and_then(|preparation| preparation.broker_duration_millis)
+                    == Some(broker_duration)
+        })
+    }));
     let snapshot = bridge
         .cache_snapshot(
             "00000000-0000-4000-8000-000000000001",

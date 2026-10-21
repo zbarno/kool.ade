@@ -86,6 +86,7 @@ fn qa_request(task: &TaskRecord) -> crate::runtime_qa::QaRunRequestV1 {
         schema_version: 1,
         qa_run_id: id(),
         parent_task_uid: task.task_uid.clone(),
+        planning_item_uid: None,
         feature_uid: task.feature_uid.clone(),
         code_head_sha: task.reviewed_code_head_sha.clone().unwrap(),
         build_artifact_sha256: "d".repeat(64),
@@ -100,6 +101,7 @@ fn qa_request(task: &TaskRecord) -> crate::runtime_qa::QaRunRequestV1 {
         execution_session_id: id(),
         driver_profile_version: "blocked-fixture-driver/v1".into(),
         test_data_fixture_ref: None,
+        dependency_cache_refs: Vec::new(),
         bounded_limits: crate::runtime_qa::QaBoundedLimitsV1 {
             max_scenarios: 1,
             max_actions_per_scenario: 8,

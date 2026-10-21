@@ -1,5 +1,10 @@
 use sha2::{Digest, Sha256};
 
+#[cfg(feature = "qa-desktop-driver-image")]
+const IMAGE_LOCK_POLICY: &[u8] = b"desktop QA driver omits the executor image lock";
+#[cfg(not(feature = "qa-desktop-driver-image"))]
+const IMAGE_LOCK_POLICY: &[u8] = include_bytes!("../../../containers/images.lock.json");
+
 /// Fingerprint the checked-in policy, request validator, sandbox and approved
 /// image manifest so remote workers reject a different security contract.
 pub fn policy_hash() -> String {
@@ -143,10 +148,7 @@ pub fn policy_hash() -> String {
             include_bytes!("../docker/backend/lifecycle/runtime.rs"),
         ),
         ("images", include_bytes!("../docker/images.rs")),
-        (
-            "image_lock",
-            include_bytes!("../../../containers/images.lock.json"),
-        ),
+        ("image_lock", IMAGE_LOCK_POLICY),
     ];
     let mut hash = Sha256::new();
     for (name, contents) in artifacts {

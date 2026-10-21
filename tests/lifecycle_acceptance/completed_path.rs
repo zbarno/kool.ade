@@ -7,14 +7,23 @@ use koolade::{
         GateActor, GateDecision, GateReceipt, LifecycleStore, PullRequestPreparationStatus,
         SpecReconciliationStatusV1, SpecRevisionDraftV1, TaskEvent, TaskPhase,
     },
-    runtime_qa::RuntimeQaStore,
+    runtime_qa::{QaAssertionStatus, QaOutcome, RuntimeQaStore},
 };
 
 #[path = "completed_path/parent_subtasks.rs"]
 mod parent_subtasks;
 
+/// Production boundary: the orchestrator's persisted evidence and independent
+/// receipt are consumed by LifecycleStore, a failed QA run enters repair, and
+/// a changed code SHA requires fresh review and QA before spec reconciliation.
+/// Unit tests cannot prove that these separate stores agree on request, result,
+/// screenshot, receipt, and revision hashes across restart. Driver and reviewer
+/// adapters are deterministic and in-process; there is no Docker or model API
+/// dependency, and setup is the normal test fixture cost. Real UI interaction
+/// is covered separately by rootless browser and desktop candidate-image runs.
+
 #[test]
-fn accepted_qa_reconciles_spec_and_creates_one_separate_pr_work_item() {
+fn qa_finding_repairs_new_code_repasses_and_reconciles_once_to_pr_work_item() {
     let temp = tempfile::tempdir().unwrap();
     let store = PlanningStore::new(uuid::Uuid::new_v4(), temp.path(), StoreMode::ManagedLocal);
     let lifecycle = LifecycleStore::new(&store);
@@ -95,27 +104,102 @@ fn accepted_qa_reconciles_spec_and_creates_one_separate_pr_work_item() {
         )
         .unwrap();
 
-    // The persisted report exercises the production validator and lifecycle
-    // receipt binding. Its evidence fixture represents an accepted contract;
-    // this test does not run interactive browser QA.
-    let (qa_request, qa_receipt) =
-        qa_report::save_accepted_evidence_fixture(temp.path(), &task_record);
-    task_record = lifecycle
-        .apply_task_event(
-            &task_uid,
-            task_record.revision,
-            &id(),
-            TaskEvent::RuntimeQaRequested(qa_request.clone()),
-        )
-        .unwrap();
     let qa_store = RuntimeQaStore::new(temp.path().join("qa-records"));
+    let (failed_request, failed_outcome, failed_receipt) = qa_report::execute_reviewed_run(
+        temp.path(),
+        &lifecycle,
+        &mut task_record,
+        QaAssertionStatus::Failed,
+    );
+    assert_eq!(failed_outcome, QaOutcome::Fail);
+    assert_eq!(
+        failed_receipt.as_ref().unwrap().decision,
+        GateDecision::ChangesRequested
+    );
+    let (_, _, failed_evidence, failed_result) =
+        qa_store.load_run(&failed_request.qa_run_id).unwrap();
+    assert_eq!(failed_result.outcome, QaOutcome::Fail);
+    assert_eq!(failed_result.findings.len(), 1);
+    assert!(failed_result.findings[0].blocking);
+    assert_eq!(failed_evidence.code_sha, failed_request.code_head_sha);
     task_record = lifecycle
         .record_runtime_qa_report(
             &task_uid,
             task_record.revision,
             &id(),
             &qa_store,
-            Some(qa_receipt),
+            failed_receipt,
+        )
+        .unwrap();
+    assert_eq!(task_record.phase, TaskPhase::Repairing);
+    assert!(task_record.runtime_qa.is_some());
+
+    task_record = lifecycle
+        .apply_task_event(
+            &task_uid,
+            task_record.revision,
+            &id(),
+            TaskEvent::BeginRepair,
+        )
+        .unwrap();
+    assert!(task_record.runtime_qa.is_none());
+    assert!(task_record.code_review.is_none());
+    assert!(task_record.qa_execution.is_none());
+    let repaired_hash = "0".repeat(64);
+    task_record = lifecycle
+        .apply_task_event(
+            &task_uid,
+            task_record.revision,
+            &id(),
+            TaskEvent::ImplementationFinished {
+                code_sha256: repaired_hash.clone(),
+            },
+        )
+        .unwrap();
+    let repaired_review = role_receipt(
+        koolade::harness::prompt_catalog::PromptRole::CodeReviewer,
+        GateDecision::Approved,
+        &task_uid,
+        &repaired_hash,
+    );
+    task_record = lifecycle
+        .apply_task_event(
+            &task_uid,
+            task_record.revision,
+            &id(),
+            TaskEvent::CodeReview {
+                receipt: repaired_review,
+                reviewed_head_sha: "1".repeat(64),
+                review_subject_sha256: "2".repeat(64),
+            },
+        )
+        .unwrap();
+    assert_ne!(
+        task_record.reviewed_code_head_sha.as_deref(),
+        Some(failed_request.code_head_sha.as_str())
+    );
+
+    let (qa_request, qa_outcome, qa_receipt) = qa_report::execute_reviewed_run(
+        temp.path(),
+        &lifecycle,
+        &mut task_record,
+        QaAssertionStatus::Passed,
+    );
+    assert_eq!(qa_outcome, QaOutcome::Pass);
+    assert_ne!(qa_request.qa_run_id, failed_request.qa_run_id);
+    assert_ne!(
+        qa_request.complete_diff_hash,
+        failed_request.complete_diff_hash
+    );
+    assert_ne!(qa_request.code_head_sha, failed_request.code_head_sha);
+    assert_eq!(qa_request.complete_diff_hash, repaired_hash);
+    task_record = lifecycle
+        .record_runtime_qa_report(
+            &task_uid,
+            task_record.revision,
+            &id(),
+            &qa_store,
+            qa_receipt,
         )
         .unwrap();
     assert_eq!(task_record.phase, TaskPhase::AwaitingSpecReconciliation);
@@ -139,7 +223,7 @@ fn accepted_qa_reconciles_spec_and_creates_one_separate_pr_work_item() {
     let spec_receipt = GateReceipt {
         receipt_uid: id(),
         subject_uid: task_uid.clone(),
-        subject_sha256: implementation_hash,
+        subject_sha256: repaired_hash,
         actor: GateActor::ApplicationPolicy,
         decision: GateDecision::Approved,
         recorded_at_unix_ms: 4,

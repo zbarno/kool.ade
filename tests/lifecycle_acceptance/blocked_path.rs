@@ -1,7 +1,5 @@
-#[path = "task_review.rs"]
-mod task_review;
-
 use super::{plan, support::*};
+use crate::task_review;
 use koolade::{
     artifacts::planning_store::{PlanningStore, StoreMode},
     core::lifecycle::{GateActor, GateDecision, GateReceipt, LifecycleStore, TaskEvent, TaskPhase},

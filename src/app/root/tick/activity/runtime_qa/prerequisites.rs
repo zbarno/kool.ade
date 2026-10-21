@@ -10,6 +10,15 @@ use crate::{
 };
 use std::collections::BTreeSet;
 
+use super::request::verify_provenance_for_request;
+
+mod cache_refs;
+pub(super) use cache_refs::{available_broker_dependencies, selected_broker_cache_refs};
+mod manager_requests;
+pub(super) use manager_requests::{
+    queue_missing_recipe_toolchain_reviews, queue_missing_toolchain_reviews,
+};
+
 pub(super) fn event_uid(task_uid: &str, revision: u64, label: &str) -> String {
     let namespace = uuid::Uuid::parse_str(task_uid).unwrap_or(uuid::Uuid::NAMESPACE_OID);
     uuid::Uuid::new_v5(&namespace, format!("{label}:{revision}").as_bytes())
@@ -58,6 +67,12 @@ pub(super) fn unavailable_reason(
             "this task has multiple project runtime targets; explicitly select the target that owns the approved QA recipe before retrying.".into(),
         );
     }
+    let runtime = ProjectRuntimeStore::new(&project.state.planning_store);
+    if let Err(error) = verify_provenance_for_request(&runtime, &manifest, target) {
+        return Some(format!(
+            "the selected target no longer has current operator-local approval for its build and start recipes ({error}); approve the exact recipes again before runtime QA."
+        ));
+    }
     let requested_surface = match request.relevant_platforms.as_slice() {
         [QaPlatform::Web] => Some(AppSurface::Web),
         [QaPlatform::LinuxDesktop] => Some(AppSurface::LinuxDesktop),
@@ -80,12 +95,27 @@ pub(super) fn unavailable_reason(
         }
     };
     let (tools, drivers) = locked_capabilities(&lock);
+    let task_progress =
+        task_progress_for_target(&project.task_documents, &project.activity.tasks, target);
+    let dependency_cache_store = crate::execution::DependencyCacheSnapshotStore::new(
+        crate::persistence::state_root().join("runtime-qa-dependency-caches"),
+    );
+    let available_dependencies = available_broker_dependencies(
+        target,
+        task,
+        &project
+            .state
+            .planning_store
+            .project_id
+            .hyphenated()
+            .to_string(),
+        task_progress,
+        &dependency_cache_store,
+    );
     let inventory = ApprovedCapabilityInventory {
         manifest: &manifest,
         available_tool_ids: &tools,
-        // No broker inventory is wired into this call site yet. Treat every
-        // declared dependency as missing until an approved inventory exists.
-        available_dependency_ids: &BTreeSet::new(),
+        available_dependency_ids: &available_dependencies,
         available_driver_ids: &drivers,
     };
     let assessment = match assess_manifest_target(
@@ -157,7 +187,21 @@ pub(super) fn unavailable_reason(
     None
 }
 
-fn locked_capabilities(lock: &ImageLock) -> (BTreeSet<String>, BTreeSet<String>) {
+pub(super) fn task_progress_for_target<'a>(
+    documents: &'a [crate::artifacts::task_docs::TaskDocument],
+    activities: &'a std::collections::BTreeMap<String, crate::harness::LiveProgress>,
+    target: &crate::project_runtime::AppTargetV1,
+) -> Option<&'a crate::harness::LiveProgress> {
+    let document = documents.iter().find(|document| {
+        document
+            .metadata
+            .as_ref()
+            .is_some_and(|metadata| metadata.uid == target.owning_task_id)
+    })?;
+    activities.get(&document.path)
+}
+
+pub(super) fn locked_capabilities(lock: &ImageLock) -> (BTreeSet<String>, BTreeSet<String>) {
     let profiles = [
         RuntimeProfile::General,
         RuntimeProfile::Rust,
@@ -194,43 +238,4 @@ fn locked_capabilities(lock: &ImageLock) -> (BTreeSet<String>, BTreeSet<String>)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn capability_inventory_uses_only_locked_tools_and_enabled_qa_drivers() {
-        let lock = ImageLock::bundled().unwrap();
-        let (tools, drivers) = locked_capabilities(&lock);
-        let mut expected_tools = BTreeSet::new();
-        for profile in [
-            RuntimeProfile::General,
-            RuntimeProfile::Rust,
-            RuntimeProfile::Node,
-            RuntimeProfile::Python,
-            RuntimeProfile::Go,
-        ] {
-            for architecture in ["amd64", "arm64"] {
-                if let Ok(image) = lock.select(profile, architecture) {
-                    expected_tools.extend(
-                        image
-                            .tool_versions
-                            .into_keys()
-                            .filter(|tool| !matches!(tool.as_str(), "base" | "shell")),
-                    );
-                }
-            }
-        }
-        assert_eq!(tools, expected_tools);
-        assert!(!tools.contains("base"));
-        assert!(!tools.contains("shell"));
-        for (driver, profile) in [
-            ("web-driver", RuntimeProfile::BrowserQa),
-            ("linux-desktop-driver", RuntimeProfile::DesktopQa),
-        ] {
-            let enabled = ["amd64", "arm64"]
-                .into_iter()
-                .any(|architecture| lock.select(profile, architecture).is_ok());
-            assert_eq!(drivers.contains(driver), enabled);
-        }
-    }
-}
+mod tests;

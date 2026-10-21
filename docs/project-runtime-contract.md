@@ -29,18 +29,49 @@ target and operation only when its source is explicitly `user_approved`.
 Approval evidence is recorded on that recipe. These controller-facing APIs
 preserve task/source identity and do not themselves grant Docker or
 dependency-broker capabilities.
-`add_user_target_override` and `ProjectRuntimeStore::add_user_target_and_save`
-let an authenticated controller add an explicitly selected target for an
-unknown stack. The target can select an app surface and project-relative root;
-its recipes must cite the controller's approval reference. A generic logical
-tool ID and discrete argv are allowed, so no Rust/npm-specific adapter is
-required to describe an unfamiliar project. Task Details does not yet expose
-the custom-target form; it currently exposes discovery, selection, and recipe
-approval for detected targets.
+For detected targets, the Build approval form accepts a bounded list of
+expected output paths relative to the app root. The same canonical paths are
+stored as the output allowlist and expected artifacts, so the build receipt can
+only pass after those files are captured and hashed.
+`add_user_target_override` remains a controller-level proposal helper.
+`ProjectRuntimeStore::add_user_target_and_save` accepts a user `GateReceipt`
+whose subject hash covers the target, recipes, readiness probe, task,
+workspace, repository, and source identity. The store writes the receipt and
+manifest atomically with revision fences, while a separate operator-local
+record binds the same proposal and receipt to the current user. Execution
+requires both records and fails closed if the local approval is absent, stale,
+or revoked; shared planning JSON alone cannot authorize a `user-target-*`.
+A caller-provided approval string alone cannot authorize a custom target. The
+readiness-aware variant also persists the matching probe atomically. Task
+Details exposes a custom-target form for selecting Web, Linux desktop, or
+Headless service and a repository-relative app root. Build and test recipes
+can be omitted independently, but at least one complete recipe is required.
+A Start recipe requires a Build recipe because Start consumes verified build
+artifacts. Each recipe needs a logical executable ID and discrete argv, and is
+validated and saved with the same user-approval evidence and revision fence as
+recipes for detected targets. Build artifact paths are relative to the app
+root. Start recipes also save a surface-appropriate readiness probe (HTTP for
+Web, local health for services, process alive for Linux desktop). The new
+target remains `ReadyButUntested`; approval is not QA evidence. Target
+selection remains an explicit Task Details action when the manifest has
+multiple targets.
+
+For a discovered target with no recipes, Task Details offers a small trusted
+test adapter only when the checked-out metadata identifies Rust, JavaScript,
+Python, or Go at that exact target root. Applying it is a separate explicit
+user action. The controller rescans the selected task checkout, uses a fixed
+discrete argv template with network denied, and asks the runtime store to bind
+the recipe to locally recorded discovery provenance. Unknown stacks keep the
+manual recipe path. Build and Start stay on that path because their artifact
+allowlist and surface-specific readiness require project-specific values. The
+adapter action records an approved recipe; it does not execute it or create a
+passing build/test receipt.
 
 `ExecutionRecipeV1` stores a logical executor tool ID and discrete arguments.
 It rejects shell-evaluation switches, absolute or parent-traversing paths,
 protected environment variables, unbounded timeouts, and Git metadata output.
+Recipe working directories and output paths are relative to the selected
+target's project root.
 `ProjectRuntimeExecutor` resolves the selected target and recipe from the saved
 manifest, checks the task and source SHA against the assigned workspace, rejects
 metadata-only recipes, and dispatches discrete argv through a Docker
@@ -55,7 +86,7 @@ Example recipe payload:
   "schema_version": 1,
   "recipe_id": "web-build",
   "source": "user_approved",
-  "working_directory_relative": "apps/site",
+  "working_directory_relative": ".",
   "executable_id": "npm",
   "argv": ["run", "build"],
   "allowed_env_keys": [],
@@ -82,27 +113,39 @@ Queued build and test recipes use the generic executor. Its image selection
 matches each approved recipe's logical tool requirements against pinned image
 inventory instead of inferring a language from executable names. A custom tool
 can be recorded without a Kool.ad/e code change; execution still fails closed
-unless an approved image advertises that tool. Missing tools currently produce
-an unavailable-image result; they are not yet converted into Man.ager broker
-requests.
+unless an approved image advertises that tool. Before a queued Build, Test, or
+Start attempt opens a Docker session, missing target-declared toolchains are
+recorded as stable Man.ager review requests bound to the workspace, target, and
+source SHA. The requests identify the tool but contain no install command,
+preparation, or authority to execute one. An exact compatible reviewed image
+or separately approved broker adapter is still required before execution.
 
 The generic start executor requires a passing Build receipt for the same task,
 target, source SHA, and recipe. It launches the approved process in the Docker
 workspace, captures the exact build artifact paths again, and requires their
 hashes to match before recording readiness. The bounded in-session process is
-then terminated and reaped. Start is not yet dispatched by the normal task
-queue.
+then terminated and reaped. The task queue advances approved Build, Test, and
+Start recipes in order, retains receipts for every attempt, and refuses to
+start until the matching build artifacts are verified.
 HTTP readiness uses an application-generated loopback request through a declared
 Node or Python standard-library prerequisite in the selected executor image;
 it never downloads or invokes curl. Targets without that approved prerequisite
 fail closed for HTTP readiness. Process health alone does not mean functional
 or visual QA passed. Capability assessment uses an
 explicit inventory of toolchains, dependencies, and surface drivers from the
-approved execution environment; it never consults host `PATH`.
-The queued QA prerequisite gate applies this assessment to the selected task
-target and reviewed source SHA using toolchain and driver IDs from the pinned
-image lock. Until dependency-broker inventory is wired into this gate, declared
-dependencies remain unavailable and block QA; they are never assumed present.
+approved execution environment and task activity; it never consults host
+`PATH`. The queued QA prerequisite gate applies this assessment to the selected
+task target and reviewed source SHA using toolchain and driver IDs from the
+pinned image lock. A target's `required_dependencies` entries identify
+dependency-broker request IDs. QA considers one available only when the same
+task's persisted activity records that exact request as `Prepared`, its
+preparation telemetry reports `Prepared`, and its retained cache snapshot is
+retrievable and passes manifest and archive integrity checks. Authorization,
+another task's request, missing telemetry, a
+missing or corrupt snapshot, or a failed preparation never marks a dependency
+available. Missing target-declared toolchains are routed to the same
+source-bound, non-executable Man.ager review queue; QA remains blocked until the
+approved runtime inventory can satisfy the target recipes.
 Unsupported native mobile, Windows/macOS desktop, and hardware targets must be
 reported as unsupported until their execution and QA drivers exist.
 
@@ -133,7 +176,42 @@ shared manifest plus an app-owned local approval record bound to the complete
 recipe and target identity; a shared marker by itself cannot authorize dispatch.
 Approval does not launch the recipe. Bounded Docker artifact collection feeds Build/Test and
 Start/readiness receipts. The existing QA artifact snapshot verifies those
-hashes before uploading only the selected files to web preview or desktop sessions. Broker-backed toolchain
-provisioning and inventory, and headless service evidence remain unintegrated.
-Until those paths land, the application must not present a detected candidate
-as a verified runnable target or claim runtime QA coverage.
+hashes before uploading only the selected files to web preview or desktop sessions.
+Task-scoped npm and Cargo cache snapshots from successful broker preparations
+are retained with private permissions, integrity-checked against the exact
+request, and bound into the immutable Runtime QA request identity. The retained
+store is capped at 512 snapshots and 1 GiB; it evicts least-recently-used
+snapshots to admit new entries within those limits and removes abandoned staging
+directories before the next new snapshot is admitted. Access is refreshed when
+a snapshot is read or an identical immutable snapshot is written. Web QA
+transfers those archives into the isolated service container and configures the
+matching package manager for offline cache use. This makes prepared cache data
+available to an approved startup recipe; it does not install dependencies or
+prove the recipe consumed them. A recipe must explicitly perform any required
+offline install, and uncached dependencies fail in the no-egress QA network.
+Desktop QA receives only the exact request-bound snapshots selected for the
+same task, with integrity and architecture rechecked before staging into
+read-only-rootfs container tmpfs. The desktop process receives ecosystem cache
+paths with offline-only settings; uncached dependencies still fail in the
+network-disabled container. For a headless service target, the
+app can now create an explicit visual-QA-not-applicable decision after an
+independent read-only reviewer checks the exact active manifest target and its
+latest source-bound passing Build and Test receipts. A Manager records the
+decision as a durable `NotApplicable` QA status and advances the task to spec
+reconciliation. This is an applicability decision, not a service QA pass: the
+Build/Test/Start receipts remain distinct, and this flow does not yet provide
+service-specific API or integration QA evidence.
+Until released QA image digests and the remaining headless and application-level
+runtime evidence paths land, the application must not present a detected
+candidate as a verified runnable target or claim runtime QA coverage.
+
+When adding a custom target in Task Details, the operator can select dependencies
+from that task's successfully prepared broker inventory. The picker exposes only
+requests whose task activity and preparation telemetry both report success and
+whose request-bound cache snapshot still passes integrity checks for the task,
+project, package ecosystem, and lockfile identity. The selected request IDs are
+included in the user-approved target proposal; the controller revalidates them
+against the current inventory before saving. Free-form IDs, duplicate IDs,
+stale preparations, and missing or corrupt snapshots are rejected. The app
+revalidates these request-bound snapshots again before transferring them to
+desktop QA.

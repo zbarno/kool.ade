@@ -5,6 +5,8 @@ ARG SOURCE_DATE_EPOCH=0
 USER root
 COPY --chown=10001:10001 koolade-qa-desktop /usr/local/bin/koolade-qa-desktop
 RUN test -x /usr/bin/Xvfb \
+    && (getent group 10001 >/dev/null || printf 'koolade:x:10001:\n' >> /etc/group) \
+    && (getent passwd 10001 >/dev/null || printf 'koolade:x:10001:10001:Koolade QA:/tmp:/usr/sbin/nologin\n' >> /etc/passwd) \
     && chmod 0555 /usr/local/bin/koolade-qa-desktop \
     && mkdir -p /run/koolade-runtime-qa \
     && chown -R 10001:10001 /run/koolade-runtime-qa \

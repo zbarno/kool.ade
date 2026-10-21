@@ -34,6 +34,9 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
     for (profile, tool, build, test, start) in stack_recipes() {
         let fixture = Fixture::new();
         let workspace = workspace();
+        let _approval_cleanup = crate::persistence::runtime_target_approvals::WorkspaceCleanup::new(
+            &workspace.project_id,
+        );
         let (docker, clone) = backend(&fixture, workspace.clone());
         write_stack_fixture(&clone.join("apps/web"), tool);
         let planning = PlanningStore::legacy_embedded(
@@ -75,11 +78,19 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
             ResourceBudgetV1::default(),
         )
         .expect("bounded recipe session");
-        for (operation, recipe) in [
+        for (operation, mut recipe) in [
             (RuntimeOperation::Build, build),
             (RuntimeOperation::Test, test),
             (RuntimeOperation::Start, start),
         ] {
+            let approval_proof = crate::ui::layout::RuntimeTargetApprovalProof::for_test();
+            let approval_id = approval_proof.receipt_uid();
+            recipe
+                .evidence_refs
+                .retain(|reference| !reference.starts_with("user-approval:"));
+            recipe
+                .evidence_refs
+                .push(format!("user-approval:{approval_id}"));
             manifest = if operation == RuntimeOperation::Start {
                 runtime_store
                     .approve_recipe_with_readiness_and_save(
@@ -89,6 +100,7 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
                         Some(ReadinessProbeV1::ProcessAlive {
                             executable_id: recipe.executable_id.clone(),
                         }),
+                        approval_proof,
                         manifest.revision,
                     )
                     .expect("explicitly approve start recipe and probe")
@@ -98,10 +110,17 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
                         &target_id,
                         operation,
                         recipe.clone(),
+                        approval_proof,
                         manifest.revision,
                     )
                     .expect("explicitly approve stack recipe")
             };
+            recipe = manifest
+                .user_overrides
+                .iter()
+                .find(|approved| approved.recipe_id == recipe.recipe_id)
+                .cloned()
+                .expect("persisted approved recipe");
             recipe.validate().expect("approved recipe contract");
             let widened_root = session
                 .run_scoped_recipe(&runtime_store, &target_id, &recipe, ".")

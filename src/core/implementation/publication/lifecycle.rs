@@ -8,7 +8,7 @@ use crate::{
 
 mod recovery;
 #[cfg(test)]
-mod tests;
+pub(in crate::core::implementation) mod tests;
 pub(in crate::core::implementation) use recovery::preserve_done_after_failure;
 
 #[derive(Clone)]

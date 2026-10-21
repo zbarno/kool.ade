@@ -21,11 +21,15 @@ const DRIVER_LABEL: &str = "com.koolade.qa.driver";
 const TASK_CONTAINER_LABEL: &str = "com.koolade.qa.task-container";
 
 mod artifact;
+mod driver_cache;
 mod service;
+#[cfg(test)]
+pub(crate) use service::run_created_driver_with_status;
 #[cfg(test)]
 #[path = "qa_container/tests.rs"]
 mod tests;
 pub use artifact::{QaArtifactMount, QaContainerUpload, snapshot_selected_files};
+pub(crate) use service::archive_for_runtime_user;
 pub use service::{
     DriverContainerOutput, cleanup_driver_container, cleanup_web_preview, create_driver_container,
     recover_driver_container, recover_owned_web_preview, run_created_driver, run_ephemeral_driver,
@@ -52,6 +56,7 @@ pub struct QaDriverContainerSpec<'a> {
     pub driver: &'a str,
     pub image: &'a SelectedImage,
     pub artifacts: &'a [QaArtifactMount],
+    pub(crate) dependency_caches: &'a [crate::harness::resource_bridge::CacheSnapshot],
     pub network: QaDriverNetwork,
     pub service_lease: Option<&'a crate::runtime_qa::QaTaskServiceLeaseV1>,
     pub relay_binding: Option<&'a crate::runtime_qa::QaPreviewRelayBindingV1>,
@@ -66,6 +71,7 @@ pub struct QaWebPreviewSpec<'a> {
     pub service_image: &'a SelectedImage,
     pub recipe: &'a crate::project_runtime::ExecutionRecipeV1,
     pub artifact_upload: &'a QaContainerUpload,
+    pub(crate) dependency_caches: &'a [crate::harness::resource_bridge::CacheSnapshot],
     pub preview_port: u16,
     pub health_path: &'a str,
     pub resources: &'a ResourceBudgetV1,
@@ -82,8 +88,23 @@ impl QaDriverContainerSpec<'_> {
     /// Browser images remain unlaunchable until ImageLock enables their
     /// reviewed digest; this check deliberately occurs at launch time.
     pub fn create_body(&self) -> Result<ContainerCreateBody, ExecutionError> {
-        self.validate()?;
         let lock = ImageLock::bundled().map_err(|_| denied("QA image lock is invalid"))?;
+        self.create_body_for_lock(&lock)
+    }
+
+    #[cfg(test)]
+    fn create_body_with_lock(
+        &self,
+        lock: &ImageLock,
+    ) -> Result<ContainerCreateBody, ExecutionError> {
+        self.create_body_for_lock(lock)
+    }
+
+    fn create_body_for_lock(
+        &self,
+        lock: &ImageLock,
+    ) -> Result<ContainerCreateBody, ExecutionError> {
+        self.validate()?;
         let architecture = self
             .image
             .platform
@@ -108,15 +129,21 @@ impl QaDriverContainerSpec<'_> {
         let mut tmpfs = HashMap::from([
             (
                 "/tmp".into(),
-                format!("rw,nosuid,nodev,noexec,size={temporary_bytes}"),
+                format!(
+                    "rw,nosuid,nodev,noexec,size={temporary_bytes},uid=10001,gid=10001,mode=1777"
+                ),
             ),
             (
                 "/run".into(),
-                format!("rw,nosuid,nodev,noexec,size={temporary_bytes}"),
+                format!(
+                    "rw,nosuid,nodev,noexec,size={temporary_bytes},uid=10001,gid=10001,mode=0755"
+                ),
             ),
             (
                 "/home/executor".into(),
-                format!("rw,nosuid,nodev,noexec,size={temporary_bytes}"),
+                format!(
+                    "rw,nosuid,nodev,noexec,size={temporary_bytes},uid=10001,gid=10001,mode=0755"
+                ),
             ),
         ]);
         if self
@@ -126,16 +153,21 @@ impl QaDriverContainerSpec<'_> {
         {
             tmpfs.insert(
                 "/workspace".into(),
-                format!("rw,nosuid,nodev,size={temporary_bytes}"),
+                format!("rw,nosuid,nodev,size={temporary_bytes},uid=10001,gid=10001,mode=0755"),
             );
         }
+        let mut env = vec!["HOME=/tmp".into(), "CI=true".into(), "LANG=C.UTF-8".into()];
+        driver_cache::configure_desktop_cache_mounts(
+            self.driver,
+            self.dependency_caches,
+            self.image,
+            self.resources,
+            &mut tmpfs,
+            &mut env,
+        )?;
         Ok(ContainerCreateBody {
             user: Some(self.image.runtime_user.clone()),
-            env: Some(vec![
-                "HOME=/tmp".into(),
-                "CI=true".into(),
-                "LANG=C.UTF-8".into(),
-            ]),
+            env: Some(env),
             attach_stdin: Some(false),
             attach_stdout: Some(true),
             attach_stderr: Some(true),
@@ -195,6 +227,13 @@ impl QaDriverContainerSpec<'_> {
         self.resources
             .validate()
             .map_err(|_| denied("QA resource budget is invalid"))?;
+        driver_cache::validate_for_driver(
+            self.driver,
+            self.request,
+            self.dependency_caches,
+            self.image,
+            self.resources,
+        )?;
         let platform_matches = match self.driver {
             "browser" => {
                 self.request.relevant_platforms.as_slice() == [crate::runtime_qa::QaPlatform::Web]
