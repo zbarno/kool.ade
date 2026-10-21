@@ -12,13 +12,14 @@ fi
 architecture="${platform#linux/}"
 test "$platform" = linux/amd64
 [[ "$base_image" =~ @sha256:[0-9a-f]{64}$ ]]
+buildkit_image="moby/buildkit@sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c"
 docker info --format '{{json .SecurityOptions}}' \
   | jq -e 'any(.[]; contains("name=rootless"))' >/dev/null
 
 output_directory="$RUNNER_TEMP/executor-image-candidate-${profile}-${architecture}"
 metadata_file="$RUNNER_TEMP/qa-image-build.json"
 tag="koolade-runtime-qa:${profile}-candidate"
-build_output=--load
+build_output=(--output "type=docker,name=$tag,rewrite-timestamp=true")
 normalize_build_context() {
   find "$1" -exec touch -h -d '@0' {} +
 }
@@ -45,12 +46,13 @@ case "$profile" in
       scripts/build-qa-image-candidate.sh
     )
     recipe_sha256="sha256:$(sha256sum "${recipe_files[@]}" | awk '{printf "%s  %s\n", $1, $2}' | sha256sum | awk '{print $1}')"
-    docker buildx create --name qa-browser-candidate --driver docker-container --use
+    docker buildx create --name qa-browser-candidate --driver docker-container \
+      --driver-opt "image=$buildkit_image" --use
     docker buildx inspect --bootstrap
     normalize_build_context "$build_context"
     docker buildx build --platform "$platform" --network=none --provenance=false --sbom=false \
       --build-arg SOURCE_DATE_EPOCH=0 --build-arg "BASE_IMAGE=$base_image" \
-      --metadata-file "$metadata_file" "$build_output" --tag "$tag" containers/runtime-qa/browser
+      --metadata-file "$metadata_file" "${build_output[@]}" containers/runtime-qa/browser
     test "$(docker image inspect "$tag" --format '{{.Os}}/{{.Architecture}} {{.Config.User}}')" \
       = "linux/amd64 10001:10001"
     smoke="$RUNNER_TEMP/qa-browser-smoke.mjs"
@@ -103,6 +105,7 @@ SMOKE
     cargo +1.98.1 build --locked --release --bin koolade-qa-desktop
     binary="$RUNNER_TEMP/koolade-qa-desktop"
     cp target/release/koolade-qa-desktop "$binary"
+    strip --strip-all --remove-section=.note.gnu.build-id "$binary"
     cp "$binary" "$output_directory/koolade-qa-desktop"
     recipe_sha256="$(python3 - "$binary" <<'PY'
 import hashlib, pathlib, sys
@@ -121,11 +124,12 @@ PY
     cp "$binary" "$context/koolade-qa-desktop"
     build_context="$context"
     normalize_build_context "$build_context"
-    docker buildx create --name qa-desktop-candidate --driver docker-container --use
+    docker buildx create --name qa-desktop-candidate --driver docker-container \
+      --driver-opt "image=$buildkit_image" --use
     docker buildx inspect --bootstrap
     docker buildx build --platform "$platform" --network=none --provenance=false --sbom=false \
       --build-arg SOURCE_DATE_EPOCH=0 --build-arg "BASE_IMAGE=$base_image" \
-      --metadata-file "$metadata_file" "$build_output" --tag "$tag" "$context"
+      --metadata-file "$metadata_file" "${build_output[@]}" "$context"
     test "$(docker image inspect "$tag" --format '{{.Os}}/{{.Architecture}} {{.Config.User}}')" \
       = "linux/amd64 10001:10001"
     docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
@@ -214,7 +218,8 @@ if [[ "$build_mode" == publish ]]; then
   publish_metadata="$RUNNER_TEMP/qa-image-publish.json"
   docker buildx build --platform "$platform" --network=none --provenance=false --sbom=false \
     --build-arg SOURCE_DATE_EPOCH=0 --build-arg "BASE_IMAGE=$base_image" \
-    --metadata-file "$publish_metadata" --push --tag "$tag" "$build_context"
+    --metadata-file "$publish_metadata" \
+    --output "type=image,name=$tag,push=true,rewrite-timestamp=true" "$build_context"
   metadata_file="$publish_metadata"
 fi
 
