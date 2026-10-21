@@ -10,6 +10,9 @@ use koolade::{
     runtime_qa::RuntimeQaStore,
 };
 
+#[path = "completed_path/parent_subtasks.rs"]
+mod parent_subtasks;
+
 #[test]
 fn accepted_qa_reconciles_spec_and_creates_one_separate_pr_work_item() {
     let temp = tempfile::tempdir().unwrap();
@@ -45,9 +48,17 @@ fn accepted_qa_reconciles_spec_and_creates_one_separate_pr_work_item() {
         .unwrap();
     let plan_hash = feature.approved_plan_sha256.unwrap();
     let task_uid = id();
+    let child_uid = id();
     lifecycle
         .create_task(&task(&feature_uid, &task_uid, &plan_hash, None), &id())
         .unwrap();
+    lifecycle
+        .create_task(
+            &task(&feature_uid, &child_uid, &plan_hash, Some(task_uid.clone())),
+            &id(),
+        )
+        .unwrap();
+    parent_subtasks::complete_subtask(temp.path(), &store, &lifecycle, &feature_uid, &child_uid);
 
     let mut task_record = lifecycle.load_task(&task_uid).unwrap();
     task_record = lifecycle
@@ -119,33 +130,12 @@ fn accepted_qa_reconciles_spec_and_creates_one_separate_pr_work_item() {
     assert!(task_record.runtime_qa.is_some());
 
     let work_uid = id();
-    let pending_origins = reopened
-        .list_spec_sync_queue(&feature_uid, false)
-        .unwrap()
-        .into_iter()
-        .map(|entry| entry.source_event_uid)
-        .collect();
-    let current_feature = reopened.load_feature(&feature_uid).unwrap();
-    reopened
-        .append_spec_revision(
-            &feature_uid,
-            1,
-            SpecRevisionDraftV1 {
-                content_hash: product_hash(&reopened_store),
-                source_revision: current_feature.revision,
-                produced_by_run_id: None,
-                origin_events: pending_origins,
-                decision_refs: current_feature.decision_refs,
-                delta_approval_refs: Vec::new(),
-                approved_target_hash: current_feature.approved_plan_sha256,
-                implementation_head_sha: None,
-                reconciliation_status: SpecReconciliationStatusV1::Synchronized,
-                outcome_reason: None,
-                no_change_reason: Some("Synthetic reopened lifecycle review found no specification delta for the persisted task evidence.".into()),
-                deltas: Vec::new(),
-            },
-        )
-        .unwrap();
+    parent_subtasks::reconcile_no_change(
+        &reopened_store,
+        &reopened,
+        &feature_uid,
+        "Synthetic reopened lifecycle review found no specification delta for the persisted task evidence.",
+    );
     let spec_receipt = GateReceipt {
         receipt_uid: id(),
         subject_uid: task_uid.clone(),
@@ -177,6 +167,10 @@ fn accepted_qa_reconciles_spec_and_creates_one_separate_pr_work_item() {
     let work = reopened.load_pr_preparation(&work_uid).unwrap();
     assert_eq!(work.task_uid, task_uid);
     assert_eq!(
+        work.included_task_uids,
+        [task_uid.clone(), child_uid.clone()]
+    );
+    assert_eq!(
         work.status,
         PullRequestPreparationStatus::AwaitingAuthorization
     );
@@ -192,6 +186,13 @@ fn accepted_qa_reconciles_spec_and_creates_one_separate_pr_work_item() {
             .unwrap()
             .len(),
         1
+    );
+    assert!(
+        reopened
+            .load_task(&child_uid)
+            .unwrap()
+            .pr_work_item_uid
+            .is_none()
     );
     assert!(
         reopened
