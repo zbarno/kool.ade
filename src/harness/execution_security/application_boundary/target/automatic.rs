@@ -23,7 +23,9 @@ mod retry;
 use diagnostics::retry_test_diagnostic;
 #[cfg(test)]
 use eligibility::worker_target_allowed;
-use eligibility::{local_target_eligible, worker_retry_eligible};
+use eligibility::{
+    local_target_eligible, ordered_remaining_workers, select_from_remaining, worker_retry_eligible,
+};
 use fallback::auto_local_fallback;
 use observed::ObservedWorker;
 
@@ -94,6 +96,7 @@ pub(super) fn auto_session_excluding(
         .iter()
         .map(|worker| worker.registration.worker_id.clone())
         .collect::<Vec<_>>();
+    let observed_worker_ids = worker_ids.clone();
     retry_test_diagnostic(|| "automatic routing reading the worker order cursor".to_owned());
     let worker_order = remote_workers::order_auto_workers(&worker_ids).unwrap_or_else(|_| {
         let mut ids = worker_ids;
@@ -139,37 +142,32 @@ pub(super) fn auto_session_excluding(
             .collect::<Vec<_>>();
         let mut excluded = Vec::<String>::new();
         loop {
-            let eligible_ids = worker_order
-                .iter()
-                .filter(|worker_id| {
-                    !excluded.contains(worker_id)
-                        && candidates.iter().any(|candidate| {
-                            candidate.registration.worker_id.as_str() == worker_id.as_str()
-                        })
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-            let requirements = SchedulingRequirements {
-                architecture: &architecture,
-                image_digest: &image.digest,
-                policy_revision: &policy_revision,
-                resource_budget: &resources,
-                remote_approved: true,
-                dependencies_prepared: true,
-                eligible_worker_ids: &eligible_ids,
-                requires_gpu: requirements.requires_gpu,
-                requires_display: requirements.requires_display,
-            };
-            retry_test_diagnostic(|| {
-                format!("automatic routing evaluating candidates for {architecture}")
-            });
-            let Ok(target) = scheduler::select_target(
-                &TargetPreference::Auto,
-                false,
-                &candidates,
-                &requirements,
-                now,
-            ) else {
+            let eligible_ids =
+                ordered_remaining_workers(&worker_order, &observed_worker_ids, &excluded);
+            let Some(target) = select_from_remaining(&eligible_ids, |eligible_ids| {
+                let requirements = SchedulingRequirements {
+                    architecture: &architecture,
+                    image_digest: &image.digest,
+                    policy_revision: &policy_revision,
+                    resource_budget: &resources,
+                    remote_approved: true,
+                    dependencies_prepared: true,
+                    eligible_worker_ids: eligible_ids,
+                    requires_gpu: requirements.requires_gpu,
+                    requires_display: requirements.requires_display,
+                };
+                retry_test_diagnostic(|| {
+                    format!("automatic routing evaluating candidates for {architecture}")
+                });
+                scheduler::select_target(
+                    &TargetPreference::Auto,
+                    false,
+                    &candidates,
+                    &requirements,
+                    now,
+                )
+                .ok()
+            }) else {
                 break;
             };
             retry_test_diagnostic(|| {

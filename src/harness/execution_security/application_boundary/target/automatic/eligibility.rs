@@ -27,3 +27,28 @@ pub(super) fn worker_retry_eligible(
         .any(|excluded| excluded == worker_id)
         && worker_target_allowed(worker_id, allowed_targets)
 }
+
+pub(super) fn ordered_remaining_workers(
+    worker_order: &[String],
+    observed_worker_ids: &[String],
+    excluded_workers: &[String],
+) -> Vec<String> {
+    worker_order
+        .iter()
+        .filter(|worker_id| {
+            !excluded_workers.contains(worker_id) && observed_worker_ids.contains(worker_id)
+        })
+        .cloned()
+        .collect()
+}
+
+pub(super) fn select_from_remaining<T>(
+    eligible_workers: &[String],
+    select: impl FnOnce(&[String]) -> Option<T>,
+) -> Option<T> {
+    if eligible_workers.is_empty() {
+        None
+    } else {
+        select(eligible_workers)
+    }
+}
