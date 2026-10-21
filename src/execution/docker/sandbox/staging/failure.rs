@@ -61,9 +61,29 @@ pub(crate) fn scoped_capture_failure_reason(error: &anyhow::Error) -> Cow<'stati
                     }
                     std::io::ErrorKind::WouldBlock => "a filesystem entry was busy during capture",
                     kind => {
-                        return Cow::Owned(format!(
-                            "an operating system filesystem operation failed (error kind {kind:?})"
-                        ));
+                        let operation = if reason
+                            .contains("workspace file contents could not be read")
+                        {
+                            "reading workspace file contents failed"
+                        } else if reason.contains("workspace file metadata could not be read")
+                            || reason.contains("workspace file metadata could not be rechecked")
+                        {
+                            "reading workspace file metadata failed"
+                        } else if reason.contains("workspace directory metadata could not be read")
+                            || reason
+                                .contains("workspace directory metadata could not be rechecked")
+                        {
+                            "reading workspace directory metadata failed"
+                        } else if reason.contains("workspace directory entries could not be read") {
+                            "reading workspace directory entries failed"
+                        } else if reason
+                            .contains("workspace directory entry metadata could not be read")
+                        {
+                            "reading workspace directory entry metadata failed"
+                        } else {
+                            "an operating system filesystem operation failed"
+                        };
+                        return Cow::Owned(format!("{operation} (error kind {kind:?})"));
                     }
                 }
             }
