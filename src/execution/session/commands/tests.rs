@@ -1,4 +1,4 @@
-use super::{strip_target_root, validate_artifact_outputs};
+use super::recipe::{strip_target_root, validate_artifact_outputs};
 use crate::project_runtime::{ExecutionRecipeV1, NetworkRequirement, RecipeSource};
 
 #[test]

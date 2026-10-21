@@ -133,6 +133,14 @@ impl ExecutionSession {
                 )
             })?;
         }
+        let verifier = authorization_verifier.as_ref().ok_or_else(|| {
+            ExecutionError::new(
+                ExecutionErrorKind::PolicyDenied,
+                "Remote execution requires an active task claim",
+                false,
+            )
+        })?;
+        verifier.verify(&verifier.generation())?;
         let backend = Arc::new(match task_clone {
             Some(path) => {
                 let runtime_config_source = runtime_config_source.ok_or_else(|| {
@@ -183,6 +191,11 @@ impl ExecutionSession {
             ));
         }
         let resources = resources.restricted_by(&capabilities.resource_ceiling);
+        let TargetLocation::Remote { worker_id } = &target.location else {
+            return Err(incompatible());
+        };
+        let attempt_id = uuid::Uuid::new_v4().hyphenated().to_string();
+        verifier.begin_remote_attempt(&attempt_id, worker_id)?;
         Self::new_with_destination_authorization(
             backend,
             workspace,

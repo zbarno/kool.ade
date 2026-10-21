@@ -109,8 +109,14 @@ impl ExecutionSession {
             Some(ExecutionLifecycleV1::Interrupted) => {
                 result.failure.is_some()
                     && result.exit_code.is_none()
+                    && result.signal.is_none()
                     && !result.cancelled
                     && !result.timed_out
+                    && result.failure.as_ref().is_some_and(|failure| {
+                        failure.kind
+                            == crate::execution::errors::ExecutionErrorKind::WorkerDisconnected
+                            && failure.retryable
+                    })
             }
             _ => false,
         };
@@ -120,8 +126,10 @@ impl ExecutionSession {
         // The result transaction runs only while the app-owned claim/capability
         // generation remains the one captured by this request.
         self.verify_authorization()?;
-        self.backend.apply_workspace_result(handle, request).await?;
-        self.verify_authorization()?;
+        if terminal_state != Some(ExecutionLifecycleV1::Interrupted) {
+            self.backend.apply_workspace_result(handle, request).await?;
+            self.verify_authorization()?;
+        }
         Ok(ExecutionOutput {
             stdout,
             stderr,

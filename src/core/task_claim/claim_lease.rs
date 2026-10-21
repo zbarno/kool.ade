@@ -1,4 +1,6 @@
-use super::{ClaimError, ClaimLease, ClaimRecord, git};
+use super::{
+    ClaimError, ClaimExecutionAttempt, ClaimExecutionAttemptStatus, ClaimLease, ClaimRecord, git,
+};
 
 impl ClaimLease {
     /// Atomically claim a stable task UID on the planning repository remote.
@@ -46,6 +48,54 @@ impl ClaimLease {
         self.verify_identity(&self.record()?)?;
         self.object = git::refresh(&self.repo, &self.remote, &self.reference, &self.object)?;
         Ok(())
+    }
+
+    /// Compare-and-swap the shared claim to a new worker attempt.
+    pub(crate) fn begin_execution_attempt(
+        &mut self,
+        attempt: ClaimExecutionAttempt,
+    ) -> Result<(), ClaimError> {
+        attempt.validate()?;
+        self.verify_identity(&self.record()?)?;
+        self.object = git::begin_execution_attempt(
+            &self.repo,
+            &self.remote,
+            &self.reference,
+            &self.object,
+            attempt,
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn set_execution_attempt_status(
+        &mut self,
+        attempt_id: &str,
+        status: ClaimExecutionAttemptStatus,
+    ) -> Result<(), ClaimError> {
+        self.object = git::set_execution_attempt_status(
+            &self.repo,
+            &self.remote,
+            &self.reference,
+            &self.object,
+            attempt_id,
+            status,
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn verify_execution_attempt(&self, attempt_id: &str) -> Result<(), ClaimError> {
+        let record = self.record()?;
+        self.verify_identity(&record)?;
+        if record.execution_attempt.as_ref().is_some_and(|attempt| {
+            attempt.attempt_id == attempt_id
+                && attempt.status != ClaimExecutionAttemptStatus::ConfirmedLost
+        }) {
+            Ok(())
+        } else {
+            Err(ClaimError::CoordinationRejected(
+                "Remote execution attempt was superseded".into(),
+            ))
+        }
     }
 
     fn verify_identity(&self, record: &ClaimRecord) -> Result<(), ClaimError> {

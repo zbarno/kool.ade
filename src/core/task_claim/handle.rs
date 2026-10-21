@@ -4,13 +4,16 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
+mod authorization;
+
 #[derive(Clone)]
 pub(crate) struct ClaimLeaseHandle {
     lease: Arc<Mutex<Option<ClaimLease>>>,
     lost: Arc<AtomicBool>,
     lost_reason: Arc<Mutex<Option<ClaimError>>>,
     publication_blocked: bool,
-    authorization_generation: String,
+    authorization_generation: Arc<Mutex<String>>,
+    execution_attempt: Arc<Mutex<Option<String>>>,
 }
 
 impl std::fmt::Debug for ClaimLeaseHandle {
@@ -18,7 +21,10 @@ impl std::fmt::Debug for ClaimLeaseHandle {
         formatter
             .debug_struct("ClaimLeaseHandle")
             .field("has_lease", &self.has_lease())
-            .field("authorization_generation", &self.authorization_generation)
+            .field(
+                "authorization_generation",
+                &self.authorization_generation.lock().ok().as_deref(),
+            )
             .finish()
     }
 }
@@ -30,7 +36,10 @@ impl ClaimLeaseHandle {
             lost: Arc::new(AtomicBool::new(false)),
             lost_reason: Arc::new(Mutex::new(None)),
             publication_blocked: false,
-            authorization_generation: uuid::Uuid::new_v4().hyphenated().to_string(),
+            authorization_generation: Arc::new(Mutex::new(
+                uuid::Uuid::new_v4().hyphenated().to_string(),
+            )),
+            execution_attempt: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -40,7 +49,10 @@ impl ClaimLeaseHandle {
             lost: Arc::new(AtomicBool::new(false)),
             lost_reason: Arc::new(Mutex::new(None)),
             publication_blocked: true,
-            authorization_generation: uuid::Uuid::new_v4().hyphenated().to_string(),
+            authorization_generation: Arc::new(Mutex::new(
+                uuid::Uuid::new_v4().hyphenated().to_string(),
+            )),
+            execution_attempt: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -50,6 +62,17 @@ impl ClaimLeaseHandle {
 
     pub(crate) fn is_lost(&self) -> bool {
         self.lost.load(Ordering::Acquire)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn execution_attempt_for_test(&self) -> Option<super::ClaimExecutionAttempt> {
+        self.lease
+            .lock()
+            .ok()?
+            .as_ref()?
+            .record()
+            .ok()?
+            .execution_attempt
     }
 
     pub(crate) fn verify(&self) -> Result<(), ClaimError> {
@@ -165,28 +188,5 @@ impl ClaimLeaseHandle {
             self.lost.store(true, Ordering::Release);
         }
         result
-    }
-}
-
-impl crate::execution::session::AuthorizationGenerationVerifier for ClaimLeaseHandle {
-    fn generation(&self) -> String {
-        self.authorization_generation.clone()
-    }
-
-    fn verify(&self, generation: &str) -> Result<(), crate::execution::errors::ExecutionError> {
-        if generation != self.authorization_generation {
-            return Err(crate::execution::errors::ExecutionError::new(
-                crate::execution::errors::ExecutionErrorKind::PolicyDenied,
-                "Execution authorization generation does not match the active task claim",
-                false,
-            ));
-        }
-        ClaimLeaseHandle::verify(self).map_err(|error| {
-            crate::execution::errors::ExecutionError::new(
-                crate::execution::errors::ExecutionErrorKind::PolicyDenied,
-                format!("The active task claim is no longer valid for execution: {error}"),
-                false,
-            )
-        })
     }
 }

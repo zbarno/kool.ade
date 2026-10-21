@@ -68,6 +68,25 @@ pub(crate) fn trust_reported_capabilities(
     worker_id: &str,
     probe: &crate::execution::backend::BackendProbeV1,
 ) -> anyhow::Result<RemoteWorkerRegistration> {
+    let lock = crate::execution::docker::images::ImageLock::bundled()
+        .map_err(|failure| anyhow::anyhow!(failure.message))?;
+    trust_reported_capabilities_with_lock(worker_id, probe, &lock)
+}
+
+#[cfg(test)]
+pub(crate) fn trust_reported_capabilities_with_test_lock(
+    worker_id: &str,
+    probe: &crate::execution::backend::BackendProbeV1,
+    lock: &crate::execution::docker::images::ImageLock,
+) -> anyhow::Result<RemoteWorkerRegistration> {
+    trust_reported_capabilities_with_lock(worker_id, probe, lock)
+}
+
+fn trust_reported_capabilities_with_lock(
+    worker_id: &str,
+    probe: &crate::execution::backend::BackendProbeV1,
+    lock: &crate::execution::docker::images::ImageLock,
+) -> anyhow::Result<RemoteWorkerRegistration> {
     let root = crate::persistence::state_root();
     let mut registration = load_from(&root, worker_id)?
         .ok_or_else(|| anyhow::anyhow!("remote worker is not enrolled"))?;
@@ -88,10 +107,8 @@ pub(crate) fn trust_reported_capabilities(
         .architecture
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("Worker architecture is unavailable"))?;
-    let lock = crate::execution::docker::images::ImageLock::bundled()
-        .map_err(|failure| anyhow::anyhow!(failure.message))?;
     let approved =
-        locally_approved_reported_digests(&lock, architecture, &capabilities.trusted_image_digests);
+        locally_approved_reported_digests(lock, architecture, &capabilities.trusted_image_digests);
     anyhow::ensure!(
         !approved.is_empty(),
         "Worker reported no locally approved executor image digests"

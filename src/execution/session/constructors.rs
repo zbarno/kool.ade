@@ -92,6 +92,8 @@ impl ExecutionSession {
             derived_image: std::sync::Mutex::new(None),
             authorization_generation,
             authorization_verifier,
+            remote_retry_factory: Mutex::new(None),
+            retry_destination: Mutex::new(None),
             resources,
             dependency_cache_refs: Mutex::new(Vec::new()),
             remote_dependency_requests: Mutex::new(std::collections::BTreeMap::new()),

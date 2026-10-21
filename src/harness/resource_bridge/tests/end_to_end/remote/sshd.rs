@@ -2,11 +2,11 @@ use fs2::FileExt;
 use std::{
     fs,
     fs::OpenOptions,
-    net::{TcpListener, TcpStream},
+    net::TcpListener,
     path::{Path, PathBuf},
     process::{Child, Command, Output, Stdio},
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use crate::execution::remote::ssh::{SshWorkerConfig, VerifiedSshWorker};
@@ -23,11 +23,30 @@ pub(super) struct SshdFixture {
     known_hosts: PathBuf,
     ssh_wrapper: PathBuf,
     unauthenticated_wrapper: PathBuf,
+    worker_process_dir: Option<PathBuf>,
+    worker_binary: Option<PathBuf>,
+    worker_marker: Option<String>,
     pub(super) host_fingerprint: String,
 }
 
 impl SshdFixture {
     pub(super) fn start(root: &Path, worker_binary: &Path) -> std::io::Result<Self> {
+        Self::start_with_worker_identity(root, worker_binary, None)
+    }
+
+    pub(super) fn start_for_worker(
+        root: &Path,
+        worker_binary: &Path,
+        worker_id: &str,
+    ) -> std::io::Result<Self> {
+        Self::start_with_worker_identity(root, worker_binary, Some(worker_id))
+    }
+
+    fn start_with_worker_identity(
+        root: &Path,
+        worker_binary: &Path,
+        worker_id: Option<&str>,
+    ) -> std::io::Result<Self> {
         let sshd = find_sshd().ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::NotFound, "sshd was not found")
         })?;
@@ -88,6 +107,7 @@ impl SshdFixture {
             .ok_or_else(|| std::io::Error::other("SSH host-key fingerprint is missing"))?
             .to_owned();
 
+        let worker_command = worker_state_command(root, worker_binary, worker_id)?;
         let config = root.join("sshd_config");
         fs::write(
             &config,
@@ -106,12 +126,12 @@ impl SshdFixture {
                  PermitRootLogin yes\n\
                  UsePAM no\n\
                  AllowUsers {username}\n\
-                 AcceptEnv KOOLADE_HOME DOCKER_HOST XDG_RUNTIME_DIR PATH\n\
-                 ForceCommand {} worker serve --stdio\n",
+                 AcceptEnv KOOLADE_HOME DOCKER_HOST XDG_RUNTIME_DIR\n\
+                 ForceCommand {}\n",
                 host_key.display(),
                 root.join("sshd.pid").display(),
                 authorized_keys.display(),
-                shell_quote(&worker_binary.canonicalize()?.to_string_lossy()),
+                worker_command,
             ),
         )?;
         let mut command = if unsafe { libc::geteuid() } == 0 {
@@ -127,7 +147,7 @@ impl SshdFixture {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::from(fs::File::create(root.join("sshd.log"))?));
-        let child = command.spawn()?;
+        let mut child = ChildGuard(Some(command.spawn()?));
 
         let ssh_config = root.join("ssh_config");
         write_client_config(&ssh_config, port, &client_key)?;
@@ -137,7 +157,10 @@ impl SshdFixture {
         let unauthenticated_wrapper = write_wrapper(root, "ssh-bad-auth", &bad_ssh_config)?;
 
         let mut fixture = Self {
-            child,
+            child: child
+                .0
+                .take()
+                .expect("sshd child is guarded until fixture setup"),
             root: root.to_owned(),
             sshd,
             username,
@@ -148,6 +171,11 @@ impl SshdFixture {
             known_hosts,
             ssh_wrapper,
             unauthenticated_wrapper,
+            worker_process_dir: worker_id.map(|_| root.join("worker-state/worker-processes")),
+            worker_binary: worker_id
+                .map(|_| worker_binary.canonicalize())
+                .transpose()?,
+            worker_marker: worker_id.map(str::to_owned),
             host_fingerprint,
         };
         fixture.wait_ready()?;
@@ -163,6 +191,46 @@ impl SshdFixture {
             verified_host_key_fingerprint: self.host_fingerprint.clone(),
             known_hosts_path: self.known_hosts.clone(),
             ssh_binary: self.ssh_wrapper.clone(),
+        }
+    }
+
+    pub(super) fn terminate_worker_process_for_test(&self) -> std::io::Result<()> {
+        let process_dir = self.worker_process_dir.as_ref().ok_or_else(|| {
+            std::io::Error::other("worker process tracking is unavailable for this fixture")
+        })?;
+        let worker_binary = self.worker_binary.as_ref().ok_or_else(|| {
+            std::io::Error::other("worker binary tracking is unavailable for this fixture")
+        })?;
+        let worker_marker = self.worker_marker.as_deref().ok_or_else(|| {
+            std::io::Error::other("worker marker is unavailable for this fixture")
+        })?;
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            let mut terminated = 0;
+            for entry in fs::read_dir(process_dir)? {
+                let entry = entry?;
+                let contents = match fs::read_to_string(entry.path()) {
+                    Ok(contents) => contents,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(error) => return Err(error),
+                };
+                let Ok(pid) = contents.trim().parse::<libc::pid_t>() else {
+                    continue;
+                };
+                if pid > 0 && process::terminate_worker_pid(pid, worker_binary, worker_marker)? {
+                    terminated += 1;
+                    let _ = fs::remove_file(entry.path());
+                }
+            }
+            if terminated > 0 {
+                return Ok(());
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(std::io::Error::other(
+                    "worker fixture has no active worker server process",
+                ));
+            }
+            thread::sleep(Duration::from_millis(10));
         }
     }
 
@@ -219,41 +287,12 @@ impl SshdFixture {
             ),
         )
     }
-
-    fn wait_ready(&mut self) -> std::io::Result<()> {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            if let Some(status) = self.child.try_wait()? {
-                let diagnostics = fs::read_to_string(self.root.join("sshd.log"))
-                    .unwrap_or_else(|error| format!("could not read sshd log: {error}"));
-                return Err(std::io::Error::other(format!(
-                    "sshd exited before readiness with {status}; executable={} port={} host_key={} root={}; stderr={diagnostics:?}",
-                    self.sshd.display(),
-                    self.port,
-                    self.host_key.display(),
-                    self.root.display()
-                )));
-            }
-            if TcpStream::connect(("127.0.0.1", self.port)).is_ok() {
-                return Ok(());
-            }
-            if Instant::now() >= deadline {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "loopback sshd did not become ready",
-                ));
-            }
-            thread::sleep(Duration::from_millis(20));
-        }
-    }
 }
 
-impl Drop for SshdFixture {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
+mod container_cleanup;
+mod process;
+mod readiness;
+use guards::ChildGuard;
+mod guards;
 mod helpers;
 pub(super) use helpers::*;
