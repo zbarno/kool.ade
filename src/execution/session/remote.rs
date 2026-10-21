@@ -103,6 +103,13 @@ impl ExecutionSession {
             task_clone,
             runtime_config_source,
         } = options;
+        if authorization_verifier.is_none() {
+            return Err(ExecutionError::new(
+                ExecutionErrorKind::PolicyDenied,
+                "Remote execution requires an active task claim authorization verifier",
+                false,
+            ));
+        }
         if !matches!(&target.location, TargetLocation::Remote { .. }) {
             return Err(incompatible());
         }

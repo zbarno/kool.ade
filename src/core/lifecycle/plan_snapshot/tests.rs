@@ -13,6 +13,8 @@ mod review_gate;
 mod review_retry;
 #[path = "tests/snapshot_content.rs"]
 mod snapshot_content;
+#[path = "tests/snapshot_legacy_compatibility.rs"]
+mod snapshot_legacy_compatibility;
 
 fn spec() -> String {
     "# CHG-021: Report exports\n\n## Intent\n\nHelp operators export reports.\n\n## Current Behavior\n\nReports cannot be exported.\n\n## Desired Behavior\n\nOperators can download reports.\n\n## Scope\n\n- CSV export\n- Out of scope: scheduled delivery\n\n## Affected Product Areas\n\nReporting and downloads.\n\n## Requirements\n\n- REQ-001: Exports include selected rows.\n- Keep the current filename behavior.\n\n## Decisions and Assumptions\n\n- CSV is sufficient for this release.\n\n## Acceptance Criteria\n\n1. Selected rows are exported.\n2. Empty results produce a valid file.\n".into()

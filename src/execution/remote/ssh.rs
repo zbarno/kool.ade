@@ -50,7 +50,7 @@ impl SshWorkerConfig {
     /// Confirm the approved fingerprint exists for this stable worker identity.
     /// OpenSSH still performs the handshake check; this prevents a changed or
     /// mismatched known_hosts entry from silently rebinding the worker.
-    pub fn verify_known_host(&self) -> anyhow::Result<VerifiedSshWorker> {
+    pub(crate) fn verify_known_host(&self) -> anyhow::Result<VerifiedSshWorker> {
         self.validate()?;
         let registration = crate::persistence::remote_workers::get(&self.stable_id)?
             .ok_or_else(|| anyhow::anyhow!("remote worker is not enrolled in local settings"))?;
@@ -131,19 +131,19 @@ fn known_host_fingerprint_matches(output: &str, expected: &str) -> bool {
 
 /// A worker whose pinned public key was found in the selected known_hosts file.
 /// Only this verified value can produce connection arguments.
-pub struct VerifiedSshWorker {
+pub(crate) struct VerifiedSshWorker {
     config: SshWorkerConfig,
 }
 
 impl VerifiedSshWorker {
     /// Construct argv without a shell; callers must execute it directly.
-    pub fn argv(&self) -> Vec<String> {
+    pub(crate) fn argv(&self) -> Vec<String> {
         self.config.argv()
     }
 
     /// Start the fixed worker stream over OpenSSH. Standard input/output are
     /// reserved for the framed protocol; stderr remains separate.
-    pub fn spawn(&self) -> std::io::Result<std::process::Child> {
+    pub(crate) fn spawn(&self) -> std::io::Result<std::process::Child> {
         let argv = self.argv();
         let mut command = std::process::Command::new(&argv[0]);
         command
