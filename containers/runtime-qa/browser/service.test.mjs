@@ -3,6 +3,9 @@ import test from 'node:test';
 import { runService } from './service.mjs';
 
 for (const path of [
+  '/./private',
+  '/%2e/private',
+  '/../private',
   '/%2e%2e/private',
   '/.%2e/private',
   '/%2e./private',

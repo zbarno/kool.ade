@@ -151,7 +151,7 @@ PY
       | jq -e '.schema_version == 1 and .status == "ready" and .display_width == 1440 and .display_height == 900 and .screenshot_bytes > 0'
     fixture_evidence="$output_directory/desktop-fixture.json"
     docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
-      --pids-limit 64 --memory 1g --cpus 2 --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m \
+      --pids-limit 128 --memory 1g --cpus 2 --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m \
       --tmpfs /run:rw,nosuid,nodev,noexec,size=16m "$tag" --fixture-smoke \
       | tee "$fixture_evidence" \
       | jq -e '.status == "passed" and

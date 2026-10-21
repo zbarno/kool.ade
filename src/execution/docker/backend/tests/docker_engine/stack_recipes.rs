@@ -33,12 +33,14 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
     let lock = ImageLock::bundled().expect("reviewed runtime image lock");
     for (profile, tool, build, test, start) in stack_recipes() {
         let fixture = Fixture::new();
-        let workspace = workspace();
+        let mut workspace = workspace();
         let _approval_cleanup = crate::persistence::runtime_target_approvals::WorkspaceCleanup::new(
             &workspace.project_id,
         );
-        let (docker, clone) = backend(&fixture, workspace.clone());
+        let clone = fixture.task_clone(&workspace);
         write_stack_fixture(&clone.join("apps/web"), tool);
+        workspace.source_sha = Fixture::commit_task_clone(&clone);
+        let (docker, _) = backend(&fixture, workspace.clone());
         let planning = PlanningStore::legacy_embedded(
             uuid::Uuid::parse_str(&workspace.project_id).unwrap(),
             &fixture.root,

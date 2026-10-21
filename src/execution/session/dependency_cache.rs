@@ -1,5 +1,16 @@
 use super::*;
 
+#[cfg(test)]
+mod tests;
+
+fn valid_dependency_request_id(value: &str) -> bool {
+    let Some(uuid) = value.strip_prefix("dependency-") else {
+        return false;
+    };
+    uuid::Uuid::parse_str(uuid)
+        .is_ok_and(|parsed| format!("dependency-{}", parsed.hyphenated()) == value)
+}
+
 impl ExecutionSession {
     pub(crate) fn record_prepared_dependency_ids(
         &self,
@@ -183,8 +194,9 @@ impl ExecutionSession {
         dependency_request_id: &str,
         snapshot: crate::harness::resource_bridge::CacheSnapshot,
     ) -> Result<(), ExecutionError> {
-        crate::execution::contract::validate_identifier(dependency_request_id)
-            .map_err(|_| policy_error("Dependency cache request identity is invalid"))?;
+        if !valid_dependency_request_id(dependency_request_id) {
+            return Err(policy_error("Dependency cache request identity is invalid"));
+        }
         self.stage_dependency_cache_inner(Some(dependency_request_id), snapshot)
     }
 

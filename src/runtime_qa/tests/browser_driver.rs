@@ -33,6 +33,9 @@ fn headless_service_scenarios_are_bounded_api_only_and_nonvisual() {
     };
     assert!(scenario.validate(&request).is_err());
     for path in [
+        "/./private",
+        "/%2e/private",
+        "/../private",
         "/%2e%2e/private",
         "/.%2e/private",
         "/%2e./private",
