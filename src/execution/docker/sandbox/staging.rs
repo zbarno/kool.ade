@@ -172,7 +172,9 @@ pub(crate) fn capture_scoped(
 fn scoped_capture_failure_reason(error: &anyhow::Error) -> &'static str {
     let reason = error.to_string();
     if reason.contains("hard link or special file") {
-        "it contains a hard-linked or special file"
+        "it contains a hard link"
+    } else if reason.contains("special file") {
+        "it contains a special filesystem entry"
     } else if reason.contains("symlink") {
         "it contains a symbolic link"
     } else if reason.contains("changed while staging") {

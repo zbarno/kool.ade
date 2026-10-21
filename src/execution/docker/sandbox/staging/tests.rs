@@ -8,6 +8,8 @@ use super::{capture, capture_reviewed, capture_scoped, synchronize};
 
 #[path = "tests/artifacts.rs"]
 mod artifacts;
+#[path = "tests/scoped_failure.rs"]
+mod scoped_failure;
 
 struct Fixture(std::path::PathBuf);
 
