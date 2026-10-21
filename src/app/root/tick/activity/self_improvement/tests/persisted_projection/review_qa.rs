@@ -184,7 +184,14 @@ pub(super) fn verify_reviewer_and_qa_projection(
     );
     assert!(run.pr_url.is_none());
     super::assert_app_idle(app);
+
+    pr_lifecycle::verify_persisted_pr_state_projection(
+        app, lifecycle, runs, run_uid, task_uid, work_uid,
+    );
 }
+
+#[path = "review_qa/pr_lifecycle.rs"]
+mod pr_lifecycle;
 
 fn apply_task(
     lifecycle: &crate::core::lifecycle::LifecycleStore<'_>,
