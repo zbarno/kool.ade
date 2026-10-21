@@ -73,3 +73,12 @@ fn nested_unclassified_os_error_includes_only_the_numeric_code() {
     );
     assert!(!scoped_capture_failure_reason(&error).contains("/private/workspace/path"));
 }
+
+#[test]
+fn error_without_raw_os_code_reports_only_its_safe_error_kind() {
+    let error = anyhow::Error::new(std::io::Error::from(std::io::ErrorKind::Other));
+    assert_eq!(
+        scoped_capture_failure_reason(&error),
+        "an operating system filesystem operation failed (error kind Other)"
+    );
+}

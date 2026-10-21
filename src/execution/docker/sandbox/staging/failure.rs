@@ -60,7 +60,11 @@ pub(crate) fn scoped_capture_failure_reason(error: &anyhow::Error) -> Cow<'stati
                         "a filesystem entry changed type during capture"
                     }
                     std::io::ErrorKind::WouldBlock => "a filesystem entry was busy during capture",
-                    _ => "an operating system filesystem operation failed",
+                    kind => {
+                        return Cow::Owned(format!(
+                            "an operating system filesystem operation failed (error kind {kind:?})"
+                        ));
+                    }
                 }
             }
         };
