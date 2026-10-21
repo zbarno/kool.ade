@@ -9,13 +9,14 @@ impl KooladeApp {
                 Err("Connect a project before generating runtime QA scenarios.".into())
             }
         };
-        let (request, task_revision, workspace_uid, repo_root, store_root) = match prepared {
-            Ok(value) => value,
-            Err(error) => {
-                self.toasts.warning(error);
-                return;
-            }
-        };
+        let (request, task_revision, source_evidence, workspace_uid, repo_root, store_root) =
+            match prepared {
+                Ok(value) => value,
+                Err(error) => {
+                    self.toasts.warning(error);
+                    return;
+                }
+            };
         if let Err(error) = crate::app::root::tick::activity::runtime_qa::validate_request_fresh(
             match &self.screen {
                 Screen::Connected(project) => project,
@@ -53,6 +54,7 @@ impl KooladeApp {
             crate::runtime_qa::scenario_synthesis::ScenarioSynthesisHandle::start(
                 request,
                 task_revision,
+                source_evidence,
                 workspace_uid,
                 repo_root,
                 harness,
@@ -89,6 +91,7 @@ fn request_for_ticket(
     (
         crate::runtime_qa::QaRunRequestV1,
         u64,
+        crate::runtime_qa::scenario_synthesis::QaScenarioSourceEvidenceV1,
         String,
         std::path::PathBuf,
         std::path::PathBuf,
@@ -121,12 +124,16 @@ fn request_for_ticket(
         .and_then(|state| state.request.clone())
         .ok_or_else(|| "The immutable reviewed build request is not ready.".to_owned())?;
     request.validate()?;
+    let source_evidence = crate::app::root::tick::activity::runtime_qa::scenario_source_evidence(
+        project, &task, &request,
+    )?;
     let store_root = crate::runtime_qa::RuntimeQaStore::local_root_for_workspace(
         project.state.planning_store.project_id,
     )?;
     Ok((
         request,
         task.revision,
+        source_evidence,
         project
             .state
             .planning_store
@@ -144,7 +151,8 @@ fn approve(
     expected_revision: u64,
     expected_proposal_sha256: &str,
 ) -> Result<(), String> {
-    let (request, task_revision, _, _, store_root) = request_for_ticket(project, ticket)?;
+    let (request, task_revision, source_evidence, _, _, store_root) =
+        request_for_ticket(project, ticket)?;
     crate::app::root::tick::activity::runtime_qa::validate_request_fresh(
         project,
         &request.parent_task_uid,
@@ -155,6 +163,7 @@ fn approve(
     }
     let store = crate::runtime_qa::RuntimeQaStore::new(store_root);
     let proposal = store.load_scenario_proposal(&request)?;
+    proposal.validate_source_evidence(&source_evidence)?;
     let proposal_sha256 = proposal.proposal_sha256()?;
     if proposal_sha256 != expected_proposal_sha256 || proposal.task_revision != expected_revision {
         return Err("This scenario proposal is stale or its exact hash does not match the displayed proposal.".into());

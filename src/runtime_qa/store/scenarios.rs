@@ -44,7 +44,7 @@ impl RuntimeQaStore {
             approval: approval.clone(),
         };
         let run = safe_uuid(&request.qa_run_id)?;
-        let path = self.root.join(run).join("approved-scenarios.json");
+        let path = self.root.join(run).join("approved-scenarios-v2.json");
         create_or_match_json(&path, &record)?;
         Ok(record)
     }
@@ -57,7 +57,7 @@ impl RuntimeQaStore {
         request.validate()?;
         let run = safe_uuid(&request.qa_run_id)?;
         let record: ApprovedQaScenarioSetV1 =
-            read_json(&self.root.join(run).join("approved-scenarios.json"))?;
+            read_json(&self.root.join(run).join("approved-scenarios-v2.json"))?;
         let request_sha256 = hash(request)?;
         let scenario_sha256 = hash(&record.scenarios)?;
         if record.schema_version != 1

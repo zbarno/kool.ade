@@ -29,6 +29,18 @@ pub(crate) fn validate_request_fresh(
     Ok(())
 }
 
+pub(crate) fn scenario_source_evidence(
+    project: &Project,
+    task: &crate::core::lifecycle::TaskRecord,
+    expected: &crate::runtime_qa::QaRunRequestV1,
+) -> Result<crate::runtime_qa::scenario_synthesis::QaScenarioSourceEvidenceV1, String> {
+    let prepared = request::prepare(project, task)?;
+    if prepared.request != *expected {
+        return Err("Runtime QA request changed while source evidence was collected.".into());
+    }
+    request::scenario_synthesis_evidence(project, task, &prepared)
+}
+
 pub(crate) fn persist_synthesized_proposal(
     project: &Project,
     request_snapshot: &crate::runtime_qa::QaRunRequestV1,
@@ -39,6 +51,7 @@ pub(crate) fn persist_synthesized_proposal(
         .load_task(&request_snapshot.parent_task_uid)
         .map_err(|error| error.to_string())?;
     let current = request::prepare(project, &task)?.request;
+    let evidence = scenario_source_evidence(project, &task, request_snapshot)?;
     let store = crate::runtime_qa::RuntimeQaStore::new(
         crate::runtime_qa::RuntimeQaStore::local_root_for_workspace(
             project.state.planning_store.project_id,
@@ -49,6 +62,7 @@ pub(crate) fn persist_synthesized_proposal(
         &store,
         request_snapshot,
         proposal,
+        &evidence,
         &current,
         task.revision,
     )

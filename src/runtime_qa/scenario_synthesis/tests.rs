@@ -26,6 +26,12 @@ impl AiHarness for FakeHarness {
             "runtime_qa_scenarios/v1"
         );
         assert_rendered_request(&request.prompt_body, &self.expected_request);
+        assert!(
+            request
+                .prompt_body
+                .contains("Approved build artifact path: dist/index.html")
+        );
+        assert!(request.prompt_body.contains("<main>approved page</main>"));
         Ok(HarnessOutcome {
             final_text: self.response.clone(),
             envelope: None,
@@ -151,9 +157,9 @@ fn response_for(request: &crate::runtime_qa::QaRunRequestV1) -> String {
 }
 
 /// Production boundary: app-owned synthesis worker -> prompt catalog -> typed model response -> scenario validator -> immutable runtime QA store.
-/// Invariant: only a proposal for the unchanged request and task revision is persisted, and persistence alone creates no execution receipt.
+/// Invariant: only a proposal for unchanged request, task revision, and receipt-verified artifact text is persisted with its exact prompt manifest; persistence alone creates no execution receipt.
 /// A validator-only test cannot cover provider request mode/role binding, exact approved-criteria/build data in
-/// the rendered prompt, or the worker's decode-to-store handoff. This does not invoke the Project persistence
+/// the rendered prompt, artifact text inclusion, provenance persistence, or the worker's decode-to-store handoff. This does not invoke the Project persistence
 /// wrapper: that requires a full reviewed lifecycle task, task document and verified clone, approved runtime
 /// manifest/recipes/artifact allowlist, exact successful build receipt, and pinned image driver profile; building
 /// that fixture here would duplicate the request-preparation integration setup. Freshness is covered at the store
@@ -166,6 +172,7 @@ fn synthesis_worker_validates_typed_response_and_persists_only_current_request()
     let handle = ScenarioSynthesisHandle::start(
         request.clone(),
         task_revision,
+        super::evidence::test_fixture(),
         request.feature_uid.clone(),
         temp.path().to_owned(),
         Box::new(FakeHarness {
@@ -182,9 +189,35 @@ fn synthesis_worker_validates_typed_response_and_persists_only_current_request()
         std::thread::sleep(Duration::from_millis(5));
     };
     let (snapshot, proposal) = result.unwrap();
+    let evidence = super::evidence::test_fixture();
     let store = crate::runtime_qa::RuntimeQaStore::new(temp.path().join("store"));
-    persist_proposal_if_fresh(&store, &snapshot, &proposal, &request, task_revision).unwrap();
-    assert_eq!(store.load_scenario_proposal(&request).unwrap(), proposal);
+    let legacy_dir = temp.path().join("store").join(&request.qa_run_id);
+    std::fs::create_dir_all(&legacy_dir).unwrap();
+    std::fs::write(
+        legacy_dir.join("scenario-proposal.json"),
+        b"legacy proposal",
+    )
+    .unwrap();
+    assert!(store.load_scenario_proposal(&request).is_err());
+    persist_proposal_if_fresh(
+        &store,
+        &snapshot,
+        &proposal,
+        &evidence,
+        &request,
+        task_revision,
+    )
+    .unwrap();
+    let persisted = store.load_scenario_proposal(&request).unwrap();
+    assert_eq!(persisted, proposal);
+    assert_eq!(persisted.source_evidence.as_ref(), Some(&evidence));
+    assert!(persisted.prompt_manifest.is_some());
+    let changed_evidence = super::evidence::test_fixture_with_content("<main>changed</main>");
+    assert!(
+        proposal
+            .validate_source_evidence(&changed_evidence)
+            .is_err()
+    );
     assert!(store.load_approved_scenarios(&request).is_err());
 
     let mut changed = request.clone();
@@ -195,6 +228,7 @@ fn synthesis_worker_validates_typed_response_and_persists_only_current_request()
             &rejected_store,
             &snapshot,
             &proposal,
+            &evidence,
             &changed,
             task_revision
         )
@@ -207,6 +241,7 @@ fn synthesis_worker_validates_typed_response_and_persists_only_current_request()
             &rejected_store,
             &snapshot,
             &proposal,
+            &evidence,
             &request,
             task_revision + 1
         )
@@ -219,6 +254,6 @@ fn synthesis_worker_validates_typed_response_and_persists_only_current_request()
 fn proposal_file_exists(root: &std::path::Path, qa_run_id: &str) -> bool {
     root.join("rejected")
         .join(qa_run_id)
-        .join("scenario-proposal.json")
+        .join("scenario-proposal-v2.json")
         .exists()
 }

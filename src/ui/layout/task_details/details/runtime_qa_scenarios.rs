@@ -13,7 +13,8 @@ pub(super) fn paint(
         ui.label(crate::ui::theme::section_heading("Runtime QA scenarios"));
         if proposal.scenarios.is_empty() {
             ui.label("Scenarios are synthesized from the approved criteria and finished build evidence. Review and approve before any QA run.");
-            if ui.button("Generate scenario proposal").clicked() {
+            ui.label("Generating sends up to 256 KiB of receipt-verified target artifact text to the selected QA model. Check the build outputs for secrets or personal data first.");
+            if ui.button("Send selected build text and generate scenarios").clicked() {
                 surface.dispatch(crate::ui::ApplicationCommand::GenerateRuntimeQaScenarios { ticket: ticket.to_owned() });
             }
             return;

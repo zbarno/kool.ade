@@ -13,7 +13,7 @@ impl RuntimeQaStore {
         let dir = self.root.join(run);
         fs::create_dir_all(&dir)
             .map_err(|error| format!("cannot create runtime QA record directory: {error}"))?;
-        create_or_match_json(&dir.join("scenario-proposal.json"), proposal)
+        create_or_match_json(&dir.join("scenario-proposal-v2.json"), proposal)
     }
 
     /// Reload and revalidate the persisted proposal against the frozen request.
@@ -24,7 +24,7 @@ impl RuntimeQaStore {
         request.validate()?;
         let run = safe_uuid(&request.qa_run_id)?;
         let proposal: QaScenarioProposalV1 =
-            read_json(&self.root.join(run).join("scenario-proposal.json"))?;
+            read_json(&self.root.join(run).join("scenario-proposal-v2.json"))?;
         proposal.validate_for(request)?;
         Ok(proposal)
     }

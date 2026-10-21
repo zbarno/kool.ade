@@ -44,6 +44,28 @@ pub(super) struct PreparedRequest {
         std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
 }
 
+pub(super) fn scenario_synthesis_evidence(
+    project: &Project,
+    task: &TaskRecord,
+    prepared: &PreparedRequest,
+) -> Result<crate::runtime_qa::scenario_synthesis::QaScenarioSourceEvidenceV1, String> {
+    let current = prepare(project, task)?;
+    if current.request != prepared.request
+        || current.build_receipt != prepared.build_receipt
+        || current.target != prepared.target
+        || current.artifact_paths != prepared.artifact_paths
+    {
+        return Err(
+            "Runtime QA build, target, or artifact set changed during scenario synthesis.".into(),
+        );
+    }
+    crate::runtime_qa::scenario_synthesis::QaScenarioSourceEvidenceV1::from_prepared(
+        &current.task_clone,
+        &current.artifact_paths,
+        &current.build_receipt.artifact_hashes,
+    )
+}
+
 /// Resolve request inputs only from persisted task, review, runtime target,
 /// build receipt, selected artifact snapshot, and explicit scenario approval.
 pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRequest, String> {

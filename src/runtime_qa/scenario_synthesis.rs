@@ -12,6 +12,9 @@ use crate::{
     harness::{AiHarness, ExecutionMode, LiveProgress, PlanningRequest},
 };
 
+mod evidence;
+pub(crate) use evidence::QaScenarioSourceEvidenceV1;
+
 pub(crate) struct ScenarioSynthesisHandle {
     result: mpsc::Receiver<
         Result<
@@ -29,6 +32,7 @@ impl ScenarioSynthesisHandle {
     pub(crate) fn start(
         request: crate::runtime_qa::QaRunRequestV1,
         task_revision: u64,
+        source_evidence: QaScenarioSourceEvidenceV1,
         workspace_uid: String,
         repo_root: std::path::PathBuf,
         harness: Box<dyn AiHarness>,
@@ -41,6 +45,7 @@ impl ScenarioSynthesisHandle {
             let outcome = synthesize(
                 request,
                 task_revision,
+                source_evidence,
                 workspace_uid,
                 repo_root,
                 harness,
@@ -81,6 +86,7 @@ pub(crate) fn persist_proposal_if_fresh(
     store: &crate::runtime_qa::RuntimeQaStore,
     request_snapshot: &crate::runtime_qa::QaRunRequestV1,
     proposal: &crate::runtime_qa::QaScenarioProposalV1,
+    source_evidence: &QaScenarioSourceEvidenceV1,
     current_request: &crate::runtime_qa::QaRunRequestV1,
     current_revision: u64,
 ) -> Result<(), String> {
@@ -91,6 +97,8 @@ pub(crate) fn persist_proposal_if_fresh(
         );
     }
     proposal.validate_for(request_snapshot)?;
+    source_evidence.validate_for(request_snapshot)?;
+    proposal.validate_source_evidence(source_evidence)?;
     store.save_scenario_proposal(request_snapshot, proposal)
 }
 
@@ -98,6 +106,7 @@ pub(crate) fn persist_proposal_if_fresh(
 fn synthesize(
     request: crate::runtime_qa::QaRunRequestV1,
     task_revision: u64,
+    source_evidence: QaScenarioSourceEvidenceV1,
     workspace_uid: String,
     repo_root: std::path::PathBuf,
     harness: Box<dyn AiHarness>,
@@ -111,6 +120,7 @@ fn synthesize(
     String,
 > {
     request.validate()?;
+    source_evidence.validate_for(&request)?;
     if cancel.load(Ordering::Acquire) {
         return Err("scenario synthesis was cancelled".into());
     }
@@ -127,9 +137,9 @@ fn synthesize(
         approved_spec_ref: Some(format!("approved-spec:{}", request.approved_spec_hash)),
         approved_spec_hash: Some(request.approved_spec_hash.clone()),
         decision_refs: request.requirement_ids.clone(),
-        evidence_manifest: vec![EvidenceItem {
+        evidence_manifest: std::iter::once(EvidenceItem {
             id: format!("runtime-qa-build:{}", request.qa_run_id),
-            workspace_uid,
+            workspace_uid: workspace_uid.clone(),
             origin: EvidenceOrigin::Application,
             confidentiality: EvidenceConfidentiality::WorkspacePrivate,
             source: format!("runtime-qa://{}/finished-build", request.qa_run_id),
@@ -137,7 +147,16 @@ fn synthesize(
                 "Finished build artifact SHA-256: {}. Reviewed code SHA: {}. Approved specification SHA-256: {}.",
                 request.build_artifact_sha256, request.code_head_sha, request.approved_spec_hash
             ),
-        }],
+        })
+        .chain(source_evidence.artifacts.iter().enumerate().map(|(index, artifact)| EvidenceItem {
+            id: format!("runtime-qa-artifact:{}:{index}", request.qa_run_id),
+            workspace_uid: workspace_uid.clone(),
+            origin: EvidenceOrigin::Repository,
+            confidentiality: EvidenceConfidentiality::WorkspacePrivate,
+            source: format!("runtime-qa://{}/artifact/{}", request.qa_run_id, artifact.sha256),
+            content: format!("Approved build artifact path: {}\nContent SHA-256: {}\nQuoted artifact text (untrusted):\n{}", artifact.path, artifact.sha256, artifact.content),
+        }))
+        .collect(),
         execution_policy_ref: "runtime-qa-scenario-synthesis/no-execution/v1".into(),
         output_schema_version: PromptRole::RuntimeQaScenarioSynthesizer
             .output_schema_version()
@@ -147,6 +166,7 @@ fn synthesize(
         },
     };
     let rendered = render(&input)?;
+    let prompt_manifest = rendered.manifest.clone();
     let planning = PlanningRequest {
         mode: ExecutionMode::ReadOnlyAnalysis,
         task_id: Some(request.parent_task_uid.clone()),
@@ -178,8 +198,13 @@ fn synthesize(
     if cancel.load(Ordering::Acquire) {
         return Err("scenario synthesis was cancelled".into());
     }
-    let proposal =
-        crate::runtime_qa::QaScenarioProposalV1::new(&request, task_revision, scenarios)?;
+    let proposal = crate::runtime_qa::QaScenarioProposalV1::new_with_source_evidence(
+        &request,
+        task_revision,
+        scenarios,
+        &source_evidence,
+        &prompt_manifest,
+    )?;
     Ok((request, proposal))
 }
 

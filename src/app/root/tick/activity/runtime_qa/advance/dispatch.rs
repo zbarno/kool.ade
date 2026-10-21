@@ -28,13 +28,17 @@ pub(super) fn dispatch_queued_worker(
             }
         };
         let lifecycle = crate::core::lifecycle::LifecycleStore::new(&project.state.planning_store);
-        let current_revision = lifecycle
+        let current_task = lifecycle
             .load_task(&task_uid)
-            .map(|task| task.revision)
             .map_err(|error| error.to_string());
-        match current_revision
-            .and_then(|revision| store.load_approved_scenario_proposal(&prepared.request, revision))
-        {
+        let approved = current_task.and_then(|task| {
+            let proposal = store.load_scenario_proposal(&prepared.request)?;
+            let evidence =
+                super::super::request::scenario_synthesis_evidence(project, &task, &prepared)?;
+            proposal.validate_source_evidence(&evidence)?;
+            store.load_approved_scenario_proposal(&prepared.request, task.revision)
+        });
+        match approved {
             Ok(approved) => match worker::start(project, prepared, approved.scenarios, harness) {
                 Ok(worker) => {
                     notices.push(format!("Runtime QA for task {task_uid} dispatched to the selected independent reviewer and isolated Docker session."));
