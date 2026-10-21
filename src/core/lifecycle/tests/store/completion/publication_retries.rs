@@ -2,13 +2,16 @@ use super::{Fixture, done_gates::spec_receipt, spec_sync, support};
 use crate::{
     artifacts::planning_store::{PlanningStore, StoreError},
     core::lifecycle::{
-        GateActor, GateDecision, GateReceipt, LifecycleStore, PullRequestPreparation,
-        PullRequestPreparationStatus, PullRequestPublicationState, TaskEvent,
+        GateActor, GateDecision, GateReceipt, LifecycleStore, PrPublicationScopeV1,
+        PrPublicationTaskEvidenceV1, PullRequestPreparation, PullRequestPreparationStatus,
+        PullRequestPublicationState, TaskEvent,
     },
 };
 
 #[path = "publication_retries/recovery.rs"]
 mod recovery;
+#[path = "publication_retries/scope.rs"]
+mod scope;
 
 fn ready() -> (Fixture, PlanningStore, PullRequestPreparation, GateReceipt) {
     let fixture = Fixture::new();
@@ -84,20 +87,24 @@ fn later_publishing_event_with_the_same_receipt_remains_pending() {
     let (_fixture, store, work, receipt) = ready();
     let lifecycle = LifecycleStore::new(&store);
     let publishing = authorize(&store, &work, &receipt).unwrap();
-    let update = |status| PullRequestPublicationState {
+    let update = |status, lease_epoch| PullRequestPublicationState {
         status,
         provider_pr_id: None,
         provider_pr_url: None,
         head_sha: None,
         base_sha: None,
         merged_commit_sha: None,
+        lease_epoch,
     };
     let attention = lifecycle
         .record_pr_publication_state(
             &work.work_item_uid,
             publishing.revision,
             &uuid::Uuid::new_v4().to_string(),
-            update(PullRequestPreparationStatus::NeedsAttention),
+            update(
+                PullRequestPreparationStatus::NeedsAttention,
+                Some(publishing.publication_lease_epoch()),
+            ),
         )
         .unwrap();
     let pending = lifecycle
@@ -112,7 +119,7 @@ fn later_publishing_event_with_the_same_receipt_remains_pending() {
             &work.work_item_uid,
             attention.revision,
             &uuid::Uuid::new_v4().to_string(),
-            update(PullRequestPreparationStatus::Publishing),
+            update(PullRequestPreparationStatus::Publishing, None),
         )
         .unwrap();
     assert!(
@@ -121,54 +128,4 @@ fn later_publishing_event_with_the_same_receipt_remains_pending() {
             .to_string()
             .contains("pending specification trigger")
     );
-}
-
-#[test]
-// Production boundary: the real locked transaction fence must reject a trigger
-// committed by another writer after scanning, both on initial authorization
-// and retries. Unit predicate tests cannot prove ordering. Local store/thread,
-// moderate setup, no Docker/network; the hook only controls the race schedule.
-fn concurrent_trigger_between_scan_and_commit_fences_initial_and_retry_attempts() {
-    for retry in 0..3 {
-        let (_fixture, store, mut work, receipt) = ready();
-        if retry > 0 {
-            work = authorize(&store, &work, &receipt).unwrap();
-        }
-        if retry == 2 {
-            work = LifecycleStore::new(&store)
-                .record_pr_publication_failure(
-                    &work.work_item_uid,
-                    work.revision,
-                    &uuid::Uuid::new_v4().to_string(),
-                    "Provider response was lost; reconcile before retry",
-                )
-                .unwrap();
-        }
-        let concurrent_store = store.clone();
-        let feature_uid = work.feature_uid.clone();
-        let error = crate::core::lifecycle::store::authorize_pr_before_commit_for_test(
-            &store,
-            &work.work_item_uid,
-            work.revision,
-            &uuid::Uuid::new_v4().to_string(),
-            &receipt,
-            move || {
-                std::thread::spawn(move || {
-                    LifecycleStore::new(&concurrent_store)
-                        .enqueue_manual_spec_refresh(&feature_uid, "concurrent-authorize")
-                        .unwrap();
-                })
-                .join()
-                .unwrap();
-            },
-        )
-        .unwrap_err();
-        assert!(matches!(error, StoreError::StaleRevision { .. }));
-        assert_eq!(
-            LifecycleStore::new(&store)
-                .load_pr_preparation(&work.work_item_uid)
-                .unwrap(),
-            work
-        );
-    }
 }

@@ -21,6 +21,9 @@ pub struct PrPublicationRecoveryV1 {
     pub last_failure: Option<String>,
 }
 
+mod snapshot;
+pub use snapshot::{PrPublicationScopeV1, PrPublicationTaskEvidenceV1};
+
 /// Durable, idempotently identified follow-up work created with task Done.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -39,6 +42,15 @@ pub struct PullRequestPreparation {
     pub status: PullRequestPreparationStatus,
     /// Publication authority must be granted through a separate app-side action.
     pub publication_authorization: Option<crate::core::lifecycle::GateReceipt>,
+    /// Frozen application-validated scope bound to the user's publication action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publication_scope: Option<PrPublicationScopeV1>,
+    /// Fences stale publisher completions after a later retry takes ownership.
+    #[serde(default)]
+    pub lease_epoch: u64,
+    /// Exact lifecycle events that authorized a publication attempt.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub publication_authorization_event_uids: Vec<String>,
     /// Absent on records created before durable publication recovery.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery: Option<PrPublicationRecoveryV1>,
@@ -55,6 +67,17 @@ pub struct PullRequestPreparation {
     pub merged_commit_sha: Option<String>,
 }
 
+impl PullRequestPreparation {
+    /// Effective epoch also reads older recovery records created before the
+    /// explicit fencing field was introduced.
+    pub fn publication_lease_epoch(&self) -> u64 {
+        self.lease_epoch.max(self.recovery.as_ref().map_or(
+            u64::from(self.publication_authorization.is_some()),
+            |recovery| recovery.attempt,
+        ))
+    }
+}
+
 /// Provider state observed after a pull request publication or refresh.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PullRequestPublicationState {
@@ -64,6 +87,8 @@ pub struct PullRequestPublicationState {
     pub head_sha: Option<String>,
     pub base_sha: Option<String>,
     pub merged_commit_sha: Option<String>,
+    /// Required when completing an in-flight publication attempt.
+    pub lease_epoch: Option<u64>,
 }
 
 impl PullRequestPreparation {
@@ -77,6 +102,17 @@ impl PullRequestPreparation {
             || !valid_uid(&self.task_uid)
             || self.included_task_uids.is_empty()
             || self.included_task_uids.len() > 256
+            || self.publication_authorization_event_uids.len() > 64
+            || self
+                .publication_authorization_event_uids
+                .iter()
+                .enumerate()
+                .any(|(index, uid)| {
+                    !valid_uid(uid)
+                        || self.publication_authorization_event_uids[..index]
+                            .iter()
+                            .any(|prior| prior == uid)
+                })
             || self.included_task_uids.iter().any(|uid| !valid_uid(uid))
             || !self.included_task_uids.contains(&self.task_uid)
             || self
@@ -117,6 +153,16 @@ impl PullRequestPreparation {
                         || receipt.decision != crate::core::lifecycle::GateDecision::Approved
                         || receipt.subject_uid != self.work_item_uid
                 })
+            || self.publication_scope.as_ref().is_some_and(|scope| {
+                scope.validate(&self.included_task_uids).is_err()
+                    || scope.publication_generation == 0
+            })
+            || (self.publication_scope.is_some() && self.publication_authorization.is_none())
+            || self.lease_epoch
+                > self
+                    .recovery
+                    .as_ref()
+                    .map_or(0, |recovery| recovery.attempt)
             || self.recovery.as_ref().is_some_and(|recovery| {
                 recovery.last_failure.as_ref().is_some_and(|reason| {
                     reason.trim().is_empty() || reason.len() > 4096 || reason.contains('\0')

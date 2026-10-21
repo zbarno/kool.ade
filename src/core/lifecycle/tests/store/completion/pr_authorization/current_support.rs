@@ -116,6 +116,7 @@ pub(super) fn pr_state(
         head_sha: Some(head.into()),
         base_sha: Some(base.into()),
         merged_commit_sha: merged.map(str::to_owned),
+        lease_epoch: Some(1),
     }
 }
 

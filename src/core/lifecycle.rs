@@ -27,7 +27,9 @@ pub use spec_reconciliation::{
 };
 pub(crate) use store::DeploymentObservation;
 pub(crate) use store::Snapshot;
-pub use store::task_transition::PullRequestPreparationStatus;
+pub use store::task_transition::{
+    PrPublicationScopeV1, PrPublicationTaskEvidenceV1, PullRequestPreparationStatus,
+};
 pub use store::{
     CurrentImplementationEvidenceV1, DeploymentEvidenceV1, LifecycleActor, LifecycleEventKind,
     LifecycleEventRecord, LifecycleStore, PullRequestPreparation, PullRequestPublicationState,

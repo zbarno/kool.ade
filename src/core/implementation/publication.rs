@@ -5,6 +5,8 @@ mod lifecycle;
 pub(in crate::core::implementation) mod lifecycle;
 mod payload;
 mod pr_preparer;
+mod snapshot;
+pub(super) use snapshot::build_publication_scope;
 mod pull_request;
 pub(super) use lifecycle::{
     LifecyclePublicationGate, finish_lifecycle_publication, implementation_is_done,

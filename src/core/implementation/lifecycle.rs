@@ -140,6 +140,7 @@ fn prepare_and_publish(
                     planning_store,
                     dir,
                     state,
+                    None,
                     &anyhow::anyhow!(reason),
                 )?;
                 Ok(())
@@ -148,8 +149,36 @@ fn prepare_and_publish(
             }
         }
         publication::LifecyclePublicationGate::Authorized(binding) => {
-            publication::create_pull_request(dir, state, runner, policy.claim_lease)?;
-            publication::finish_lifecycle_publication(planning_store, state, Some(binding))
+            if let Err(error) =
+                publication::create_pull_request(dir, state, runner, policy.claim_lease)
+            {
+                publication::preserve_done_after_failure(
+                    planning_store,
+                    dir,
+                    state,
+                    Some(binding.lease_epoch),
+                    &error,
+                )?;
+                Ok(())
+            } else {
+                match publication::finish_lifecycle_publication(
+                    planning_store,
+                    state,
+                    Some(binding.clone()),
+                ) {
+                    Ok(()) => Ok(()),
+                    Err(error) => {
+                        publication::preserve_done_after_failure(
+                            planning_store,
+                            dir,
+                            state,
+                            Some(binding.lease_epoch),
+                            &error,
+                        )?;
+                        Ok(())
+                    }
+                }
+            }
         }
     }
 }

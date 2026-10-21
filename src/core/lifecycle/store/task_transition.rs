@@ -16,8 +16,8 @@ pub(super) use load::load;
 
 mod publication;
 pub use publication::{
-    PrPublicationRecoveryV1, PullRequestPreparation, PullRequestPreparationStatus,
-    PullRequestPublicationState,
+    PrPublicationRecoveryV1, PrPublicationScopeV1, PrPublicationTaskEvidenceV1,
+    PullRequestPreparation, PullRequestPreparationStatus, PullRequestPublicationState,
 };
 
 pub(super) fn apply_task_event(
@@ -133,6 +133,9 @@ pub(super) fn apply_task_event(
             updated_at_ms: now,
             status: PullRequestPreparationStatus::AwaitingAuthorization,
             publication_authorization: None,
+            publication_scope: None,
+            lease_epoch: 0,
+            publication_authorization_event_uids: Vec::new(),
             recovery: None,
             provider_pr_id: None,
             provider_pr_url: None,

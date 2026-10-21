@@ -9,6 +9,7 @@ pub(in crate::core::implementation) fn preserve_done_after_failure(
     store: &PlanningStore,
     dir: &Path,
     implementation: &mut Implementation,
+    expected_lease_epoch: Option<u64>,
     error: &anyhow::Error,
 ) -> anyhow::Result<bool> {
     let Some(planning_uid) = implementation.task_uid.as_deref() else {
@@ -37,6 +38,7 @@ pub(in crate::core::implementation) fn preserve_done_after_failure(
             work_uid,
             work.revision,
             &uuid::Uuid::new_v4().to_string(),
+            expected_lease_epoch,
             &reason,
         )?;
         implementation.status = ImplementationStatus::Completed;

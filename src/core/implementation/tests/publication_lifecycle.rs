@@ -35,6 +35,8 @@ fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_
     );
     let reviewed_head = sandbox.git(&state.task_repository, &["rev-parse", "HEAD"]);
     state.verified_head = Some(reviewed_head.clone());
+    state.repository_id = Some("synthetic-publication-repository".into());
+    state.destination_branch = Some("main".into());
 
     let fixture = LifecycleFixture::with_subtask_head(
         reviewed_head.len(),
@@ -82,6 +84,7 @@ fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_
             &store,
             &state_dir(&sandbox.repo, &sandbox.ticket).unwrap(),
             &mut interrupted_state,
+            Some(authorized.publication_lease_epoch()),
             &error,
         )
         .unwrap()

@@ -13,6 +13,10 @@ pub(super) fn same_pr_identity(
         && left.feature_uid == right.feature_uid
         && left.task_uid == right.task_uid
         && left.included_task_uids == right.included_task_uids
+        && (left.publication_scope == right.publication_scope
+            || (left.publication_scope.is_none()
+                && right.publication_scope.is_some()
+                && right.status == PullRequestPreparationStatus::Publishing))
         && left.created_at_ms == right.created_at_ms
         && if left.publication_authorization.is_none() {
             right.publication_authorization.is_none()
@@ -20,6 +24,42 @@ pub(super) fn same_pr_identity(
         } else {
             left.publication_authorization == right.publication_authorization
         }
+}
+
+pub(super) fn valid_authorization_event_uids(
+    left: &PullRequestPreparation,
+    right: &PullRequestPreparation,
+    event: &super::super::super::LifecycleEventRecord,
+) -> bool {
+    let mut unique = std::collections::HashSet::new();
+    if right.publication_authorization_event_uids.len() > 64
+        || right
+            .publication_authorization_event_uids
+            .iter()
+            .any(|uid| uuid::Uuid::parse_str(uid).is_err() || !unique.insert(uid))
+        || left
+            .publication_authorization_event_uids
+            .iter()
+            .any(|uid| !right.publication_authorization_event_uids.contains(uid))
+    {
+        return false;
+    }
+    let added = right
+        .publication_authorization_event_uids
+        .iter()
+        .filter(|uid| !left.publication_authorization_event_uids.contains(uid))
+        .collect::<Vec<_>>();
+    added.is_empty()
+        || (added.len() == 1
+            && added[0] == &event.uid
+            && right.status == PullRequestPreparationStatus::Publishing
+            && left.status != PullRequestPreparationStatus::Publishing
+            && right.publication_authorization.is_some()
+            && matches!(
+                event.actor,
+                super::super::super::LifecycleActor::User
+                    | super::super::super::LifecycleActor::ApplicationPolicy
+            ))
 }
 
 pub(super) fn allowed_transition(
@@ -81,6 +121,10 @@ pub(super) fn valid_recovery_transition(
         && left.status != PullRequestPreparationStatus::Publishing;
     let expected_attempt = previous_attempt.checked_add(u64::from(begins_attempt));
     expected_attempt == Some(next.attempt)
+        && right.publication_lease_epoch()
+            == left
+                .publication_lease_epoch()
+                .saturating_add(u64::from(begins_attempt))
         && if right.status == PullRequestPreparationStatus::NeedsAttention {
             next.last_failure.is_some()
                 || left

@@ -106,6 +106,7 @@ pub(super) fn replay_for_task(
             || next.status != *status
             || !allowed_transition(preparation.status, next.status)
             || !same_pr_identity(&preparation, next)
+            || !validation::valid_authorization_event_uids(&preparation, next, event)
             || (preparation.publication_authorization.is_none()
                 && next.publication_authorization.is_some()
                 && event.actor != LifecycleActor::User)

@@ -190,7 +190,13 @@ pub(super) fn run_with_planning_store_options(
             error
         };
         if publication_mode == PublicationMode::CreatePullRequest
-            && publication::preserve_done_after_failure(planning_store, &dir, &mut state, &error)?
+            && publication::preserve_done_after_failure(
+                planning_store,
+                &dir,
+                &mut state,
+                None,
+                &error,
+            )?
         {
             return Ok(state);
         }
