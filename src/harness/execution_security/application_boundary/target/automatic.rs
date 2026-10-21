@@ -1,6 +1,5 @@
 use crate::{
     execution::{
-        backend::BackendCapabilitiesV1,
         contract::{ResourceBudgetV1, TargetLocation, TargetPreference},
         docker::{
             environment::DockerEnvironmentStatus,
@@ -14,7 +13,7 @@ use crate::{
     harness::PlanningRequest,
     persistence::{
         harness_settings,
-        remote_workers::{self, RemoteWorkerRegistration},
+        remote_workers,
     },
 };
 
@@ -22,21 +21,18 @@ use super::ExecutionSession;
 mod diagnostics;
 mod eligibility;
 mod fallback;
+mod observed;
 mod retry;
 use diagnostics::retry_test_diagnostic;
 #[cfg(test)]
 use eligibility::worker_target_allowed;
 use eligibility::{local_target_eligible, worker_retry_eligible};
 use fallback::auto_local_fallback;
+use observed::ObservedWorker;
 
 #[cfg(test)]
 #[path = "automatic/tests.rs"]
 mod tests;
-
-struct ObservedWorker {
-    registration: RemoteWorkerRegistration,
-    capabilities: BackendCapabilitiesV1,
-}
 
 pub(super) fn auto_session_excluding(
     request: &PlanningRequest,
@@ -94,17 +90,21 @@ pub(super) fn auto_session_excluding(
         });
     }
     retry_test_diagnostic(|| "automatic routing collected worker capabilities".to_owned());
+    retry_test_diagnostic(|| "automatic routing loading the bundled image lock".to_owned());
     let lock = ImageLock::bundled().map_err(|failure| anyhow::anyhow!(failure.message))?;
+    retry_test_diagnostic(|| "automatic routing loaded the bundled image lock".to_owned());
     let worker_ids = observed
         .iter()
         .map(|worker| worker.registration.worker_id.clone())
         .collect::<Vec<_>>();
+    retry_test_diagnostic(|| "automatic routing reading the worker order cursor".to_owned());
     let worker_order = remote_workers::order_auto_workers(&worker_ids).unwrap_or_else(|_| {
         let mut ids = worker_ids;
         ids.sort();
         ids.dedup();
         ids
     });
+    retry_test_diagnostic(|| "automatic routing resolved the worker order".to_owned());
     let mut remote_choices = Vec::<(
         std::cmp::Reverse<u32>,
         std::cmp::Reverse<u64>,
@@ -127,6 +127,9 @@ pub(super) fn auto_session_excluding(
     let now = harness_settings::current_unix_ms();
     let policy_revision = crate::execution::policy::policy_hash();
     for architecture in architectures {
+        retry_test_diagnostic(|| {
+            format!("automatic routing selecting a target for {architecture}")
+        });
         let Ok(image) = lock.select(profile, &architecture) else {
             continue;
         };
@@ -160,6 +163,9 @@ pub(super) fn auto_session_excluding(
                 requires_gpu: requirements.requires_gpu,
                 requires_display: requirements.requires_display,
             };
+            retry_test_diagnostic(|| {
+                format!("automatic routing evaluating candidates for {architecture}")
+            });
             let Ok(target) = scheduler::select_target(
                 &TargetPreference::Auto,
                 false,
@@ -169,6 +175,9 @@ pub(super) fn auto_session_excluding(
             ) else {
                 break;
             };
+            retry_test_diagnostic(|| {
+                format!("automatic routing selected a candidate for {architecture}")
+            });
             let TargetLocation::Remote { worker_id } = target.location else {
                 break;
             };
