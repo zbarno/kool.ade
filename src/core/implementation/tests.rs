@@ -72,6 +72,8 @@ mod docker_lifecycle;
 mod initial_reconciliation;
 #[path = "tests/publication_checks.rs"]
 mod publication_checks;
+#[path = "tests/publication_lifecycle.rs"]
+mod publication_lifecycle;
 #[path = "tests/recovery_corrections.rs"]
 mod recovery_corrections;
 #[path = "tests/resume_and_pr.rs"]

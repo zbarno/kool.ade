@@ -1,5 +1,8 @@
 use super::*;
+#[cfg(not(test))]
 mod lifecycle;
+#[cfg(test)]
+pub(in crate::core::implementation) mod lifecycle;
 mod payload;
 mod pr_preparer;
 mod pull_request;
