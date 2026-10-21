@@ -94,6 +94,21 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
             .expect("remote execution should persist transfer metrics");
     assert!(telemetry.workspace_upload_bytes > 0);
     assert!(telemetry.result_download_bytes > 0);
+    assert!(
+        telemetry
+            .image_digest
+            .as_deref()
+            .is_some_and(|digest| { digest.starts_with("sha256:") && digest.len() == 71 })
+    );
+    assert!(telemetry.execution_wall_ms.is_some());
+    assert_eq!(
+        telemetry.execution_cpu_millis,
+        output.result.metrics.cpu_millis
+    );
+    assert_eq!(
+        telemetry.execution_peak_memory_bytes,
+        output.result.metrics.peak_memory_bytes
+    );
     let changed_file = task_clone.join("remote-result.txt");
     assert_eq!(
         fs::read(&changed_file).unwrap(),
