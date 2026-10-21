@@ -182,3 +182,32 @@ fn publication_body_uses_current_validated_proposal_after_restart() {
     assert!(super::body::write(temp.path(), &stale, &scope).is_err());
     assert_eq!(fs::read_to_string(body_path).unwrap(), body);
 }
+
+#[test]
+fn publication_body_rejects_private_values_from_the_scoped_evidence() {
+    let mut scope = scope();
+    scope.feature_plan = "Customer contact: synthetic.user@example.invalid".into();
+    let mut prepared = receipt(&scope);
+    prepared.proposal.description =
+        "Coordinate follow-up with synthetic.user@example.invalid".into();
+    let temp = tempfile::tempdir().unwrap();
+
+    let error = super::body::write(temp.path(), &prepared, &scope).unwrap_err();
+
+    assert!(error.to_string().contains("sensitive value"));
+    assert!(!temp.path().join("pr-body.md").exists());
+}
+
+#[test]
+fn publication_body_rejects_private_values_in_rendered_scope_metadata() {
+    let mut scope = scope();
+    scope.feature_plan = "Customer contact: synthetic.user@example.invalid".into();
+    scope.expected.head_ref = "refs/heads/synthetic.user@example.invalid".into();
+    let prepared = receipt(&scope);
+    let temp = tempfile::tempdir().unwrap();
+
+    let error = super::body::write(temp.path(), &prepared, &scope).unwrap_err();
+
+    assert!(error.to_string().contains("sensitive value"));
+    assert!(!temp.path().join("pr-body.md").exists());
+}
