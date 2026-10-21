@@ -283,6 +283,7 @@ fn action_label(action: &super::super::QaDriverActionV1) -> &'static str {
         Action::BrowserAssertUrl { .. } => "assert the allowed browser URL",
         Action::BrowserSetViewport { .. } => "set the approved browser viewport",
         Action::BrowserScroll { .. } => "scroll to an approved browser locator",
+        Action::ApiRequest { .. } => "make a bounded API request to the leased headless service",
         Action::CloseWindow { .. } => "close the application window",
     }
 }

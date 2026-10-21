@@ -113,7 +113,10 @@ pub async fn validate_browser_driver_network(
     }) || labels.is_none_or(|labels| {
         labels.get(super::super::RUN_LABEL) != Some(&request.qa_run_id)
             || labels.get(super::super::TASK_LABEL) != Some(&request.parent_task_uid)
-            || labels.get(super::super::DRIVER_LABEL).map(String::as_str) != Some("browser")
+            || !matches!(
+                labels.get(super::super::DRIVER_LABEL).map(String::as_str),
+                Some("browser" | "service")
+            )
             || labels.get(super::super::TASK_CONTAINER_LABEL) != Some(&binding.relay_container_id)
     }) || networks.is_none_or(|networks| {
         networks.len() != 1 || !networks.contains_key(&binding.relay_browser_network_id)

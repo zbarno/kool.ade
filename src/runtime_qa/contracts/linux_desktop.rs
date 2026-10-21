@@ -257,7 +257,8 @@ impl LinuxDesktopSessionV1 {
             | QaDriverActionV1::Press { .. }
             | QaDriverActionV1::Select { .. }
             | QaDriverActionV1::CollectConsole
-            | QaDriverActionV1::CollectNetworkFailures => false,
+            | QaDriverActionV1::CollectNetworkFailures
+            | QaDriverActionV1::ApiRequest { .. } => false,
         };
         if allowed {
             Ok(())

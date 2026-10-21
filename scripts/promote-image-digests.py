@@ -175,6 +175,7 @@ def recipe_sources(profile: str) -> list[tuple[Path, str]]:
             for name in (
                 "Dockerfile",
                 "driver.mjs",
+                "service.mjs",
                 "relay.mjs",
                 "package.json",
                 "package-lock.json",

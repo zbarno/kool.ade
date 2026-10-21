@@ -34,6 +34,7 @@ case "$profile" in
     recipe_files=(
       containers/runtime-qa/browser/Dockerfile
       containers/runtime-qa/browser/driver.mjs
+      containers/runtime-qa/browser/service.mjs
       containers/runtime-qa/browser/relay.mjs
       containers/runtime-qa/browser/package.json
       containers/runtime-qa/browser/package-lock.json
@@ -74,7 +75,7 @@ if (await page.title() !== "runtime-qa-smoke") throw new Error("browser smoke fa
 const versions = { node: process.versions.node, npm: process.env.EXPECTED_NPM,
   python3: process.env.EXPECTED_PYTHON3,
   playwright: require("playwright/package.json").version, chromium: await browser.version(),
-  driver: "koolade-runtime-qa-browser-driver-1.0.0", base: process.env.BASE_IMAGE };
+  driver: "koolade-runtime-qa-browser-driver-1.1.0", base: process.env.BASE_IMAGE };
 await browser.close();
 process.stdout.write(JSON.stringify(versions));
 SMOKE

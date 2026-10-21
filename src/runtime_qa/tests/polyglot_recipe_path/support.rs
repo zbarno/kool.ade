@@ -43,9 +43,9 @@ impl QaScenarioDriver for ObservedWebDriver {
             completed: true,
             failure: None,
             display: QaDisplayV1 {
-                width: 1024,
-                height: 768,
-                dpi: 96,
+                width: Some(1024),
+                height: Some(768),
+                dpi: Some(96),
                 theme: "light".into(),
                 locale: "en-US".into(),
             },

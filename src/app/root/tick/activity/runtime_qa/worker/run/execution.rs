@@ -96,10 +96,20 @@ pub(super) fn run_web(
         store,
         cancellation: cancel,
     };
+    let authorization = match request.relevant_platforms.as_slice() {
+        [crate::runtime_qa::QaPlatform::Web] => QaTargetAuthorization::Web(&preview.service_lease),
+        [crate::runtime_qa::QaPlatform::HeadlessService] => {
+            QaTargetAuthorization::HeadlessService(&preview.service_lease)
+        }
+        _ => {
+            let _ = session.cleanup_qa_web_preview(&preview.service_lease, &preview.relay_binding);
+            return Err("task preview was created for an unsupported QA platform".into());
+        }
+    };
     let result = run_reviewed(
         request,
         scenarios,
-        QaTargetAuthorization::Web(&preview.service_lease),
+        authorization,
         driver,
         harness,
         &prepared.workspace,

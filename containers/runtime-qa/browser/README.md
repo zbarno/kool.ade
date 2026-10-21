@@ -33,8 +33,11 @@ browser-driver image.
 
 ## Current availability
 
-The derived image recipe and strict local smoke are present, but the app does
-not yet have a pinned released image digest or route Runtime QA through the
-two-network Docker session. Browser QA remains unavailable until that app-owned
-lifecycle is wired. The driver source and fixture alone are not a QA pass or a
-release claim.
+The app-owned Runtime QA path now has source support for both browser scenarios
+and headless API scenarios through the two-network Docker session. API scenarios
+are limited to bounded JSON requests through the leased relay, with response
+bodies excluded from persisted evidence. The driver package version is 1.1.0.
+The bundled image lock still has no released browser QA profile, so this source
+change cannot run in the application until the updated rootless candidate digest
+is reviewed and promoted. The candidate fixture must pass before that promotion;
+source and unit coverage alone are not runtime QA evidence.

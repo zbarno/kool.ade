@@ -92,6 +92,24 @@ impl QaScenarioDriver for DockerQaScenarioDriver<'_> {
                         .map_err(|_| "desktop QA request could not be encoded")?,
                 )
             }
+            (QaPlatform::HeadlessService, QaTargetAuthorization::HeadlessService(lease)) => {
+                if self.service_lease != Some(*lease) {
+                    return Err("service QA lease differs from its app-owned binding".into());
+                }
+                let relay = self
+                    .relay_binding
+                    .ok_or_else(|| "service QA has no app-owned task relay".to_owned())?;
+                (
+                    "service",
+                    QaDriverNetwork::InternalPreviewRelay {
+                        network_id: relay.relay_browser_network_id.clone(),
+                        relay_container_id: relay.relay_container_id.clone(),
+                    },
+                    Some(*lease),
+                    Some(relay),
+                    crate::runtime_qa::browser_driver::build_service_request(request, scenario)?,
+                )
+            }
             _ => return Err("QA authorization does not match the selected platform driver".into()),
         };
         let request_upload = QaContainerUpload::request_file(&request_bytes, 256 * 1024)
@@ -163,11 +181,13 @@ impl QaScenarioDriver for DockerQaScenarioDriver<'_> {
             ));
         }
         match platform {
-            QaPlatform::Web => crate::runtime_qa::browser_driver::parse_browser_output(
-                &output.stdout,
-                request,
-                scenario,
-            ),
+            QaPlatform::Web | QaPlatform::HeadlessService => {
+                crate::runtime_qa::browser_driver::parse_browser_output(
+                    &output.stdout,
+                    request,
+                    scenario,
+                )
+            }
             QaPlatform::LinuxDesktop => serde_json::from_slice(&output.stdout)
                 .map_err(|_| "isolated desktop QA driver returned malformed evidence".into()),
         }

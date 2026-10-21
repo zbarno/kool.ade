@@ -81,7 +81,7 @@ pub(super) fn run(
         );
     }
     let profile = match request.relevant_platforms.as_slice() {
-        [QaPlatform::Web] => RuntimeProfile::BrowserQa,
+        [QaPlatform::Web | QaPlatform::HeadlessService] => RuntimeProfile::BrowserQa,
         [QaPlatform::LinuxDesktop] => RuntimeProfile::DesktopQa,
         _ => return Err("runtime QA request has no single supported platform".into()),
     };

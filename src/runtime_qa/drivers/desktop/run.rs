@@ -36,9 +36,9 @@ pub(crate) fn run(
         completed: false,
         failure: None,
         display: QaDisplayV1 {
-            width: DISPLAY_WIDTH,
-            height: DISPLAY_HEIGHT,
-            dpi: 96,
+            width: Some(DISPLAY_WIDTH),
+            height: Some(DISPLAY_HEIGHT),
+            dpi: Some(96),
             theme: "default".into(),
             locale: "C.UTF-8".into(),
         },

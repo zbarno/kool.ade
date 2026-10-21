@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Exercise the real pinned Playwright driver against the isolated Python fixture."""
+"""Exercise pinned browser/API QA through rootless Docker and the task relay.
+
+Production boundary: the image driver-to-relay-to-task-service network path.
+Invariant: API actions reach only the leased preview, carry status/hash evidence,
+and never persist response bodies. A unit test cannot prove Docker DNS, relay
+forwarding, image contents, or network isolation. Requires rootless Docker and
+the pinned QA image; setup cost is several containers and roughly one minute.
+"""
 
 from __future__ import annotations
 
@@ -15,6 +22,7 @@ import time
 import uuid
 import threading
 from pathlib import Path
+from runtime_qa_service_fixture import test_service_driver
 
 ROOT = Path(__file__).resolve().parents[1]
 DRIVER = "/opt/koolade-runtime-qa/driver.mjs"
@@ -202,6 +210,7 @@ function send(host,port){return new Promise((resolve,reject)=>{const s=dgram.cre
 
         with tempfile.TemporaryDirectory(prefix="koolade-browser-qa-") as temporary:
             directory = Path(temporary)
+            test_service_driver(image, browser_network, directory, execute, request, action)
             passed_actions = [
                 action("browser_open", url="http://qa-service/", screenshot_checkpoint=True),
                 action("browser_fill", locator={"locator": "label", "label": "Message"}, value="synthetic message"),
@@ -287,7 +296,7 @@ function send(host,port){return new Promise((resolve,reject)=>{const s=dgram.cre
         docker("rm", "--force", task, check=False)
         docker("network", "rm", browser_network, check=False)
         docker("network", "rm", task_network, check=False)
-    print("browser QA fixture passed: Playwright evidence and origin policy, plus rootless host/private TCP, UDP, and WebRTC escape probes")
+    print("browser/API QA fixture passed: relay evidence, origin policy, and rootless host/private TCP, UDP, and WebRTC escape probes")
 
 
 if __name__ == "__main__":

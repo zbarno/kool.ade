@@ -58,7 +58,7 @@ fn selected_qa_image(profile: RuntimeProfile) -> SelectedImage {
             ("chromium".into(), "fixture".into()),
             (
                 "driver".into(),
-                "koolade-runtime-qa-browser-driver-1.0.0".into(),
+                "koolade-runtime-qa-browser-driver-1.1.0".into(),
             ),
             ("base".into(), "fixture".into()),
         ]),

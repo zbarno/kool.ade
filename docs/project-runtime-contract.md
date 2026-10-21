@@ -55,9 +55,9 @@ Web, local health for services, process alive for Linux desktop). The new
 target remains `ReadyButUntested`; approval is not QA evidence. Target
 selection remains an explicit Task Details action when the manifest has
 multiple targets. Task Details states that visual QA does not apply to
-headless services and that API/integration evidence is not yet connected. It
-also identifies unsupported targets as outside the current Linux web/desktop
-drivers while preserving planning and static review.
+headless services and that API QA requires the promoted Browser QA profile and
+approved prerequisites. It also identifies unsupported targets as outside the
+current Linux web/desktop drivers while preserving planning and static review.
 
 `ExecutionRecipeV1` stores a logical executor tool ID and discrete arguments.
 It rejects shell-evaluation switches, absolute or parent-traversing paths,
@@ -159,9 +159,10 @@ Approval does not launch the recipe. Bounded Docker artifact collection feeds Bu
 Start/readiness receipts. The existing QA artifact snapshot verifies those
 hashes before uploading only the selected files to web preview or desktop sessions.
 Headless service targets can run their approved Build/Test/Start recipes and
-retain source-bound receipts, but the service-specific QA applicability
-assessment and reviewer/Manager signoff are not yet integrated. Those receipts
-do not count as a visual QA pass. Broker-backed toolchain provisioning and
-inventory, and verified service QA evidence remain unintegrated. Until those
-paths land, the application must not present a detected candidate as a verified
-runnable target or claim runtime QA coverage.
+retain source-bound receipts. Runtime QA source now includes service-specific
+API actions through the leased task preview relay, bounded response status/hash
+evidence, and reviewer-facing assertions without response-body persistence.
+This path is not available to application runs yet: the bundled image lock has
+no released Browser QA profile, and broker-backed toolchain provisioning and
+inventory remain unintegrated. Do not count recipe receipts or unpromoted driver
+source as verified service QA evidence or claim runtime QA coverage.

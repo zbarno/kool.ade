@@ -199,6 +199,10 @@ impl QaDriverContainerSpec<'_> {
             "browser" => {
                 self.request.relevant_platforms.as_slice() == [crate::runtime_qa::QaPlatform::Web]
             }
+            "service" => {
+                self.request.relevant_platforms.as_slice()
+                    == [crate::runtime_qa::QaPlatform::HeadlessService]
+            }
             "desktop" => {
                 self.request.relevant_platforms.as_slice()
                     == [crate::runtime_qa::QaPlatform::LinuxDesktop]
@@ -210,10 +214,12 @@ impl QaDriverContainerSpec<'_> {
             || self.task_uid != self.request.parent_task_uid
             || !valid_uuid(self.owner_id)
             || !valid_uuid(self.task_uid)
-            || !matches!(self.driver, "browser" | "desktop")
+            || !matches!(self.driver, "browser" | "service" | "desktop")
             || !matches!(
                 (self.driver, self.image.profile),
-                ("browser", RuntimeProfile::BrowserQa) | ("desktop", RuntimeProfile::DesktopQa)
+                ("browser", RuntimeProfile::BrowserQa)
+                    | ("service", RuntimeProfile::BrowserQa)
+                    | ("desktop", RuntimeProfile::DesktopQa)
             )
             || !platform_matches
             || self.artifacts.is_empty()
@@ -225,7 +231,7 @@ impl QaDriverContainerSpec<'_> {
         }
         match &self.network {
             QaDriverNetwork::Disabled => {
-                if self.driver == "browser" {
+                if matches!(self.driver, "browser" | "service") {
                     return Err(denied(
                         "Browser QA requires a validated service lease and relay binding",
                     ));
@@ -252,7 +258,7 @@ impl QaDriverContainerSpec<'_> {
                 binding
                     .validate_prelaunch()
                     .map_err(|_| denied("QA preview relay binding is invalid"))?;
-                if self.driver != "browser"
+                if !matches!(self.driver, "browser" | "service")
                     || !matches!(self.image.profile, RuntimeProfile::BrowserQa)
                     || network_id.len() != 64
                     || !network_id.bytes().all(|byte| byte.is_ascii_hexdigit())

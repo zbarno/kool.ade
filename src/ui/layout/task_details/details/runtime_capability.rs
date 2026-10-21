@@ -142,7 +142,7 @@ pub(super) fn paint(
 fn target_surface_diagnostic(surface: crate::project_runtime::AppSurface) -> Option<&'static str> {
     match surface {
         crate::project_runtime::AppSurface::HeadlessService => Some(
-            "Headless service: browser and desktop visual QA do not apply. API and integration evidence is not yet connected.",
+            "Headless service: visual QA does not apply. API QA requires the promoted Browser QA driver and approved prerequisites.",
         ),
         crate::project_runtime::AppSurface::UnsupportedTarget => Some(
             "This target is unsupported by the current Linux web and desktop drivers. Planning and static review remain available.",
@@ -241,7 +241,7 @@ mod surface_diagnostic_tests {
     #[test]
     fn headless_and_unsupported_targets_explain_qa_applicability() {
         let headless = target_surface_diagnostic(AppSurface::HeadlessService).unwrap();
-        assert!(headless.contains("API and integration evidence is not yet connected"));
+        assert!(headless.contains("API QA requires the promoted Browser QA driver"));
         assert!(
             target_surface_diagnostic(AppSurface::UnsupportedTarget)
                 .unwrap()

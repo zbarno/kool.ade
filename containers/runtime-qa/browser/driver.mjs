@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
 import { chromium } from 'playwright';
+import { runService } from './service.mjs';
 
 const MAX_REQUEST_BYTES = 256 * 1024;
 const MAX_STEPS = 512;
@@ -37,7 +38,7 @@ function readRequest() {
       !Number.isInteger(request.viewport?.width) || !Number.isInteger(request.viewport?.height) ||
       request.viewport.width < 320 || request.viewport.width > 3840 ||
       request.viewport.height < 240 || request.viewport.height > 2160 ||
-      !Number.isInteger(request.max_screenshots) || request.max_screenshots < 1 || request.max_screenshots > MAX_SCREENSHOTS ||
+      !Number.isInteger(request.max_screenshots) || request.max_screenshots < 0 || request.max_screenshots > MAX_SCREENSHOTS ||
       !Number.isInteger(request.max_evidence_bytes) || request.max_evidence_bytes < 1024 || request.max_evidence_bytes > MAX_TOTAL_EVIDENCE_BYTES ||
       !Number.isInteger(request.timeout_ms) || request.timeout_ms < 1000 || request.timeout_ms > 600_000) {
     fail('browser QA request is malformed or exceeds bounds');
@@ -46,6 +47,10 @@ function readRequest() {
   if (origin.protocol !== 'http:' || origin.username || origin.password || origin.pathname !== '/' ||
       origin.search || origin.hash || origin.hostname !== 'qa-preview' || origin.port !== '8080') {
     fail('preview origin must be the one app-owned relay origin');
+  }
+  const serviceOnly = request.actions.every((action) => action?.action === 'api_request');
+  if ((serviceOnly && request.max_screenshots !== 0) || (!serviceOnly && request.max_screenshots === 0)) {
+    fail('screenshot quota does not match the approved QA platform');
   }
   return { ...request, origin: origin.origin };
 }
@@ -100,6 +105,10 @@ function locatorFor(page, locator) {
 
 async function main() {
   const request = readRequest();
+  if (request.actions.every((action) => action?.action === 'api_request')) {
+    await runService(request);
+    return;
+  }
   if (request.actions.some((action) => !validateAction(action, request.origin))) fail('action is not allowed by browser QA policy');
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-extensions', '--renderer-process-limit=2'] });
   const context = await browser.newContext({ viewport: request.viewport, locale: request.locale ?? 'en-US', timezoneId: request.timezone ?? 'UTC', colorScheme: request.color_scheme === 'dark' ? 'dark' : 'light', acceptDownloads: false, serviceWorkers: 'block' });

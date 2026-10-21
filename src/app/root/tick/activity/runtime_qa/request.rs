@@ -157,7 +157,7 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
         &recipe.working_directory_relative,
     )?;
     let profile = match target.app_surface {
-        AppSurface::Web => RuntimeProfile::BrowserQa,
+        AppSurface::Web | AppSurface::HeadlessService => RuntimeProfile::BrowserQa,
         AppSurface::LinuxDesktop => RuntimeProfile::DesktopQa,
         _ => return Err("the target platform has no supported QA profile".into()),
     };

@@ -43,6 +43,9 @@ pub(super) fn assemble_report(
                 return Err("QA driver returned an action for a different scenario".into());
             }
             action.index = actions.len() as u32;
+            if platform == QaPlatform::HeadlessService {
+                scenario_evidence.extend(action.evidence_ids.iter().cloned());
+            }
             actions.push(action);
         }
         for artifact in output.screenshots {
@@ -109,8 +112,10 @@ pub(super) fn assemble_report(
         if matches!(status, QaCaseStatus::Passed | QaCaseStatus::Failed)
             && scenario_evidence.is_empty()
         {
-            return Err("completed QA scenarios require screenshot evidence".into());
+            return Err("completed QA scenarios require platform evidence".into());
         }
+        scenario_evidence.sort();
+        scenario_evidence.dedup();
         let mut observations = output.failure.into_iter().collect::<Vec<_>>();
         observations.extend(output.logs.iter().take(32).cloned());
         cases.push(QaCaseResultV1 {

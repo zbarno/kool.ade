@@ -151,7 +151,7 @@ pub async fn recover_driver_container(
 ) -> Result<(), ExecutionError> {
     if name != format!("koolade-qa-{}", request.qa_run_id)
         || owner_id != request.execution_session_id
-        || !matches!(driver, "browser" | "desktop")
+        || !matches!(driver, "browser" | "service" | "desktop")
     {
         return Err(denied("QA driver recovery identity is invalid"));
     }

@@ -65,6 +65,7 @@ pub(super) fn unavailable_reason(
     let requested_surface = match request.relevant_platforms.as_slice() {
         [QaPlatform::Web] => Some(AppSurface::Web),
         [QaPlatform::LinuxDesktop] => Some(AppSurface::LinuxDesktop),
+        [QaPlatform::HeadlessService] => Some(AppSurface::HeadlessService),
         _ => None,
     };
     if requested_surface != Some(target.app_surface) {
@@ -127,7 +128,7 @@ pub(super) fn unavailable_reason(
     }
 
     let profile = match request.relevant_platforms.as_slice() {
-        [QaPlatform::Web] => RuntimeProfile::BrowserQa,
+        [QaPlatform::Web | QaPlatform::HeadlessService] => RuntimeProfile::BrowserQa,
         [QaPlatform::LinuxDesktop] => RuntimeProfile::DesktopQa,
         _ => {
             return Some(
