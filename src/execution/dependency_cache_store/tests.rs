@@ -28,7 +28,10 @@ fn stored_cache_snapshot_round_trips_only_for_its_dependency_request_and_ref() {
     assert_eq!(restored.manifest, snapshot.manifest);
     assert!(
         store
-            .get("44444444-4444-4444-8444-444444444444", &snapshot.cache_ref)
+            .get(
+                "dependency-44444444-4444-4444-8444-444444444444",
+                &snapshot.cache_ref
+            )
             .is_err()
     );
 
@@ -37,13 +40,24 @@ fn stored_cache_snapshot_round_trips_only_for_its_dependency_request_and_ref() {
     assert!(store.get(request_id, &changed_ref).is_err());
 }
 
+#[test]
+fn cache_store_accepts_legacy_uuid_and_rejects_malformed_dependency_request_ids() {
+    let root = tempfile::tempdir().unwrap();
+    let store = DependencyCacheSnapshotStore::new(root.path().join("snapshots"));
+    let snapshot = snapshot();
+    let legacy_id = "33333333-3333-4333-8333-333333333333";
+    store.put(legacy_id, &snapshot).unwrap();
+    assert!(store.get(legacy_id, &snapshot.cache_ref).is_ok());
+    assert!(store.put("dependency-not-a-uuid", &snapshot).is_err());
+}
+
 #[cfg(windows)]
 #[test]
 fn stored_cache_snapshot_refreshes_an_existing_access_marker_on_windows() {
     let root = tempfile::tempdir().unwrap();
     let store = DependencyCacheSnapshotStore::new(root.path().join("snapshots"));
     let snapshot = snapshot();
-    let request_id = "33333333-3333-4333-8333-333333333333";
+    let request_id = "dependency-33333333-3333-4333-8333-333333333333";
 
     store.put(request_id, &snapshot).unwrap();
     store.get(request_id, &snapshot.cache_ref).unwrap();
@@ -55,7 +69,7 @@ fn stored_cache_snapshot_rejects_archive_corruption() {
     let root = tempfile::tempdir().unwrap();
     let store = DependencyCacheSnapshotStore::new(root.path().join("snapshots"));
     let snapshot = snapshot();
-    let request_id = "33333333-3333-4333-8333-333333333333";
+    let request_id = "dependency-33333333-3333-4333-8333-333333333333";
     store.put(request_id, &snapshot).unwrap();
     let directory = store.snapshot_dir(request_id, &snapshot.cache_ref).unwrap();
     fs::write(directory.join("snapshot.tar"), b"tampered").unwrap();
@@ -74,13 +88,16 @@ fn cache_snapshot_store_rejects_a_symlink_root() {
     let store = DependencyCacheSnapshotStore::new(store_root);
     assert!(
         store
-            .put("33333333-3333-4333-8333-333333333333", &snapshot())
+            .put(
+                "dependency-33333333-3333-4333-8333-333333333333",
+                &snapshot()
+            )
             .is_err()
     );
     assert!(
         store
             .get(
-                "33333333-3333-4333-8333-333333333333",
+                "dependency-33333333-3333-4333-8333-333333333333",
                 &snapshot().cache_ref
             )
             .is_err()

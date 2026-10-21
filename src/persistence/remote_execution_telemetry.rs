@@ -19,6 +19,14 @@ pub struct RemoteExecutionTelemetryV1 {
     pub workspace_upload_ms: u64,
     pub result_download_bytes: u64,
     pub result_download_ms: u64,
+    #[serde(default)]
+    pub execution_wall_ms: Option<u64>,
+    #[serde(default)]
+    pub execution_cpu_millis: u64,
+    #[serde(default)]
+    pub execution_peak_memory_bytes: u64,
+    #[serde(default)]
+    pub image_digest: Option<String>,
 }
 
 pub fn record_workspace_upload(
@@ -42,6 +50,32 @@ pub fn record_result_download(
     update(execution_id, worker_id, |record| {
         record.result_download_bytes = bytes;
         record.result_download_ms = ms;
+    })
+}
+
+pub fn record_execution_started(
+    execution_id: &str,
+    worker_id: &str,
+    image_digest: &str,
+) -> anyhow::Result<()> {
+    update(execution_id, worker_id, |record| {
+        record.image_digest = Some(image_digest.to_owned())
+    })
+}
+
+pub fn record_execution_result(
+    execution_id: &str,
+    worker_id: &str,
+    wall_ms: Option<u64>,
+    cpu_millis: u64,
+    peak_memory_bytes: u64,
+) -> anyhow::Result<()> {
+    update(execution_id, worker_id, |record| {
+        if wall_ms.is_some() {
+            record.execution_wall_ms = wall_ms;
+        }
+        record.execution_cpu_millis = cpu_millis;
+        record.execution_peak_memory_bytes = peak_memory_bytes;
     })
 }
 
@@ -103,16 +137,21 @@ fn update_at(
         record
     } else {
         RemoteExecutionTelemetryV1 {
-            schema_version: 1,
+            schema_version: 2,
             execution_id: execution_id.to_owned(),
             worker_id: worker_id.to_owned(),
             workspace_upload_bytes: 0,
             workspace_upload_ms: 0,
             result_download_bytes: 0,
             result_download_ms: 0,
+            execution_wall_ms: None,
+            execution_cpu_millis: 0,
+            execution_peak_memory_bytes: 0,
+            image_digest: None,
         }
     };
     change(&mut record);
+    record.schema_version = 2;
     validate(&record)?;
     let bytes = serde_json::to_vec(&record)?;
     let temp = directory.join(format!(".{execution_id}-{}.tmp", uuid::Uuid::new_v4()));
@@ -206,16 +245,27 @@ fn validate_id(id: &str) -> anyhow::Result<()> {
 fn validate(record: &RemoteExecutionTelemetryV1) -> anyhow::Result<()> {
     validate_id(&record.execution_id)?;
     anyhow::ensure!(
-        record.schema_version == 1
+        matches!(record.schema_version, 1 | 2)
             && [record.workspace_upload_bytes, record.result_download_bytes]
                 .iter()
                 .all(|v| *v <= MAX_BYTES)
             && [record.workspace_upload_ms, record.result_download_ms]
                 .iter()
-                .all(|v| *v <= MAX_MS),
+                .all(|v| *v <= MAX_MS)
+            && record.execution_wall_ms.is_none_or(|value| value <= MAX_MS)
+            && record.execution_cpu_millis <= MAX_MS * 16
+            && record.execution_peak_memory_bytes <= 64 * 1024 * 1024 * 1024,
         "remote execution telemetry is invalid"
     );
     validate_worker_id(&record.worker_id)?;
+    if let Some(digest) = &record.image_digest {
+        anyhow::ensure!(
+            digest.len() == 71
+                && digest.starts_with("sha256:")
+                && digest[7..].bytes().all(|b| b.is_ascii_hexdigit()),
+            "image digest is invalid"
+        );
+    }
     Ok(())
 }
 

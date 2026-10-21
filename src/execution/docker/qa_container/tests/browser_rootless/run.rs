@@ -1,13 +1,15 @@
 use super::*;
 
-/// Boundary: app-owned startup uploads a bounded Python web artifact,
-/// provisions its internal preview relay, runs the pinned browser driver,
-/// parses screenshot and interaction evidence, rejects browser requests to
-/// metadata, host-local and off-origin destinations, and cleans only owned
-/// resources. Unit tests cannot prove rootless Docker networking, preview
-/// reachability, browser execution, request containment, or container cleanup.
+/// Boundary: app-owned startup uploads a bounded Python web artifact and a
+/// integrity-verified npm cache snapshot into service tmpfs, proves the service process can
+/// read the cache as its locked user, provisions its internal preview relay,
+/// runs the pinned browser driver, rejects browser requests to metadata,
+/// host-local and off-origin destinations, and cleans only owned resources.
+/// Unit tests cannot prove rootless Docker extraction, preview reachability,
+/// browser execution, request containment, or container cleanup.
 /// External dependency: rootless Docker plus the just-built browser candidate
-/// image. Setup cost: one image build and several short browser scenarios.
+/// image. Setup cost: one image build, one small synthetic cache, and several
+/// short browser scenarios.
 #[tokio::test]
 #[ignore = "requires rootless Docker and a locally loaded browser QA candidate"]
 async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up() {
@@ -41,7 +43,7 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
     let browser_image = lock.select(RuntimeProfile::BrowserQa, "amd64").unwrap();
     let service_image = lock.select(RuntimeProfile::Python, "amd64").unwrap();
 
-    let request = {
+    let mut request = {
         let mut request = request();
         request.bounded_limits = QaBoundedLimitsV1 {
             max_scenarios: 1,
@@ -54,6 +56,28 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
         request.driver_profile_version = browser_image.tool_versions["driver"].clone();
         request
     };
+    let planning_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    request.planning_item_uid = Some(planning_uid.clone());
+    let cache_root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        cache_root.path().join("package.tgz"),
+        b"approved offline browser cache fixture",
+    )
+    .unwrap();
+    let cache = crate::harness::resource_bridge::CacheSnapshot::capture(
+        cache_root.path(),
+        &planning_uid,
+        crate::execution::contract::DependencyCacheEcosystemV1::Npm,
+        &request.parent_task_uid,
+        "sha256:synthetic-lockfile",
+        "amd64",
+        "local",
+    )
+    .unwrap();
+    request.dependency_cache_refs = vec![crate::runtime_qa::QaDependencyCacheRefV1 {
+        dependency_request_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        cache_ref: cache.cache_ref.clone(),
+    }];
     let recipe = ExecutionRecipeV1 {
         schema_version: 1,
         recipe_id: "python-preview".into(),
@@ -75,7 +99,6 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
         "{:x}",
         sha2::Sha256::digest(serde_json::to_vec(&recipe).unwrap())
     );
-    let mut request = request;
     request.startup_recipe_ref = recipe.recipe_id.clone();
     request.startup_recipe_sha256 = recipe_hash;
 
@@ -102,6 +125,23 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
         requirement_ids: request.requirement_ids.clone(),
         preconditions: vec!["The approved Python preview is running.".into()],
         steps: vec![
+            step(
+                QaDriverActionV1::BrowserOpen {
+                    url: "http://qa-service/__cache_ready".into(),
+                },
+                "The service cache probe is visible",
+                false,
+            ),
+            step(
+                QaDriverActionV1::BrowserAssertText {
+                    locator: QaBrowserLocatorV1::TestId {
+                        test_id: "cache-status".into(),
+                    },
+                    expected_text: "available".into(),
+                },
+                "The service process can read its approved npm cache",
+                false,
+            ),
             step(
                 QaDriverActionV1::BrowserOpen {
                     url: "http://qa-service/".into(),
@@ -140,7 +180,10 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
                 true,
             ),
         ],
-        expected_results: vec!["Submitting the form updates the page to Saved.".into()],
+        expected_results: vec![
+            "The approved service process can read its staged npm cache.".into(),
+            "Submitting the form updates the page to Saved.".into(),
+        ],
         negative_paths: vec![],
         visual_expectations: vec!["The fixture form and status are visible.".into()],
         redaction_regions: vec![],
@@ -159,7 +202,7 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
         service_image: &service_image,
         recipe: &recipe,
         artifact_upload: &artifact_upload,
-        dependency_caches: &[],
+        dependency_caches: std::slice::from_ref(&cache),
         preview_port: 4173,
         health_path: "/",
         resources: &resources,
@@ -268,10 +311,12 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
         .unwrap_or_else(|error| panic!("seeded browser defect was not reported: {error}"));
     let output = driver_result.unwrap();
     assert!(output.completed);
-    assert_eq!(output.assertions.len(), 1);
-    assert_eq!(
-        output.assertions[0].status,
-        crate::runtime_qa::QaAssertionStatus::Passed
+    assert_eq!(output.assertions.len(), 2);
+    assert!(
+        output
+            .assertions
+            .iter()
+            .all(|assertion| { assertion.status == crate::runtime_qa::QaAssertionStatus::Passed })
     );
     assert!(output.screenshots.iter().any(|screen| screen.width >= 320));
     lifecycle::review_and_persist(

@@ -20,6 +20,11 @@ fn both_standalone_candidates_complete_without_starving_a_sibling() {
     let Screen::Connected(project) = &mut app.screen else {
         panic!("connected")
     };
+    let store = project.state.planning_store.clone();
+    let initial_work_count = store
+        .list_record_paths("state/lifecycle_pr_work_items")
+        .unwrap()
+        .len();
     let mut visited = Vec::new();
     for _ in 0..2 {
         let candidates = LifecycleStore::new(&project.state.planning_store)
@@ -33,14 +38,32 @@ fn both_standalone_candidates_complete_without_starving_a_sibling() {
             .clone();
         assert!(!visited.contains(&uid));
         complete(project, &uid, SpecDeltaV1 { deltas: Vec::new() }, false);
+        let lifecycle = LifecycleStore::new(&store);
+        let completed = lifecycle.load_task(&uid).unwrap();
+        assert_eq!(completed.phase, TaskPhase::Done);
+        let work_uid = completed
+            .pr_work_item_uid
+            .as_deref()
+            .expect("standalone Done transition creates its separate PR work item");
+        let work = lifecycle.load_pr_preparation(work_uid).unwrap();
+        assert_eq!(work.task_uid, uid);
         assert_eq!(
-            LifecycleStore::new(&project.state.planning_store)
-                .load_task(&uid)
-                .unwrap()
-                .phase,
-            TaskPhase::Done
+            work.included_task_uids.as_slice(),
+            std::slice::from_ref(&uid)
         );
-        let lifecycle = LifecycleStore::new(&project.state.planning_store);
+        assert_eq!(
+            work.status,
+            crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization
+        );
+        assert!(work.publication_authorization.is_none());
+        assert_eq!(
+            store
+                .list_record_paths("state/lifecycle_pr_work_items")
+                .unwrap()
+                .len(),
+            initial_work_count + visited.len() + 1,
+            "each completed parent creates exactly one PR work item"
+        );
         let revision = lifecycle.load_spec_revision(&feature_uid).unwrap().unwrap();
         let dispositions = lifecycle
             .specification_origin_dispositions(&feature_uid, revision.seq)
@@ -70,6 +93,20 @@ fn both_standalone_candidates_complete_without_starving_a_sibling() {
         visited.push(uid);
     }
     assert!(ids.iter().all(|uid| visited.contains(uid)));
+    let reopened_store = crate::artifacts::planning_store::PlanningStore::new(
+        store.project_id,
+        store.root.clone(),
+        store.mode,
+    );
+    let reopened = LifecycleStore::new(&reopened_store);
+    for uid in &ids {
+        let completed = reopened.load_task(uid).unwrap();
+        let work_uid = completed.pr_work_item_uid.as_deref().unwrap();
+        assert_eq!(
+            reopened.load_pr_preparation(work_uid).unwrap().status,
+            crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization
+        );
+    }
     assert!(
         LifecycleStore::new(&project.state.planning_store)
             .load_spec_revision(&feature_uid)
