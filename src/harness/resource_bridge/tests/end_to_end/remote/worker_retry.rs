@@ -13,8 +13,10 @@ use crate::{
 use std::sync::{Arc, Mutex, atomic::AtomicBool, mpsc};
 
 mod authorization;
+mod diagnostics;
 mod dispatcher;
 use authorization::ObservedAuthorization;
+use diagnostics::report_stage;
 use dispatcher::install_ssh_dispatcher;
 
 #[test]
@@ -24,7 +26,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     {
         return;
     }
-    eprintln!("worker-retry E2E: started");
+    report_stage("started");
     // Production boundary: the actual auto scheduler probes trusted workers, reserves capacity,
     // pins the selected target, confirms a Git-backed claim loss after the worker process dies,
     // excludes that worker, and retries over authenticated SSH with rootless Docker. A unit
@@ -45,7 +47,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     fs::write(repository.join("README.md"), "synthetic retry fixture\n").unwrap();
     support::commit(&repository);
     let task_clone = support::create_task_clone(&repository, &task_home_path, "worker-retry");
-    eprintln!("worker-retry E2E: repository fixture initialized");
+    report_stage("repository fixture initialized");
 
     let worker_a_root = root.path().join("worker-a");
     let worker_b_root = root.path().join("worker-b");
@@ -55,10 +57,10 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     let worker_b_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let sshd_a = sshd::SshdFixture::start_for_worker(&worker_a_root, &worker_binary, &worker_a_id)
         .expect("CI must provide loopback sshd for worker A retry E2E");
-    eprintln!("worker-retry E2E: worker A sshd is ready");
+    report_stage("worker A sshd is ready");
     let sshd_b = sshd::SshdFixture::start_for_worker(&worker_b_root, &worker_binary, &worker_b_id)
         .expect("CI must provide loopback sshd for worker B retry E2E");
-    eprintln!("worker-retry E2E: worker B sshd is ready");
+    report_stage("worker B sshd is ready");
     let worker_a = sshd_a.worker_config(&worker_a_id);
     let worker_b = sshd_b.worker_config(&worker_b_id);
     sshd_a.restore_known_host(&worker_a_id).unwrap();
@@ -77,7 +79,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         (&worker_a_id, &worker_a, &sshd_a),
         (&worker_b_id, &worker_b, &sshd_b),
     ] {
-        eprintln!("worker-retry E2E: registering and probing a worker");
+        report_stage("registering and probing a worker");
         crate::persistence::remote_workers::register(
             worker_id,
             &worker.host_alias,
@@ -88,7 +90,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         sshd.add_controller_known_host(worker_id).unwrap();
         let probe = RemoteWorkerClient::connect_for_probe(worker)
             .expect("fixture worker must pass the real SSH capability probe");
-        eprintln!("worker-retry E2E: worker SSH capability probe connected");
+        report_stage("worker SSH capability probe connected");
         let report = probe.probe();
         let capabilities = report
             .capabilities
@@ -134,7 +136,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
             worker_id, report, &test_lock,
         )
         .expect("test enrollment must pass the production promotion-gated trust path");
-        eprintln!("worker-retry E2E: worker trust report accepted");
+        report_stage("worker trust report accepted");
     }
     assert!(dispatcher.is_file());
 
@@ -188,7 +190,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         TargetPreference::Worker(worker_a_id.clone()),
         TargetPreference::Worker(worker_b_id.clone()),
     ];
-    eprintln!("worker-retry E2E: building the trusted automatic session");
+    report_stage("building the trusted automatic session");
     let session = Arc::new(
         crate::harness::execution_security::auto_remote_session_for_retry_test(
             &request,
@@ -201,7 +203,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         )
         .expect("production auto scheduler must select an explicitly trusted worker"),
     );
-    eprintln!("worker-retry E2E: trusted automatic session selected a worker");
+    report_stage("trusted automatic session selected a worker");
     let first_worker_id = session.target_id().to_owned();
     assert!(first_worker_id == worker_a_id || first_worker_id == worker_b_id);
     let (first_sshd_log, first_worker_home) = if first_worker_id == worker_a_id {
@@ -223,7 +225,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
             Duration::from_secs(90),
         )
     }));
-    eprintln!("worker-retry E2E: waiting for initial command output");
+    report_stage("waiting for initial command output");
     two_controllers::wait_for_remote_stdout(
         &session,
         "first-worker-started",
@@ -231,7 +233,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         &first_worker_home,
         &first_sshd_log,
     );
-    eprintln!("worker-retry E2E: selected worker emitted command output");
+    report_stage("selected worker emitted command output");
     let first_sshd = if first_worker_id == worker_a_id {
         &sshd_a
     } else {
@@ -240,22 +242,22 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     first_sshd
         .terminate_worker_process_for_test()
         .expect("the selected worker process should be terminated for the loss E2E");
-    eprintln!("worker-retry E2E: selected worker process terminated");
+    report_stage("selected worker process terminated");
     // Killing the worker process does not terminate the container it started. In
     // rootless Docker, docker exec can keep the SSH stream open until that container
     // exits, so remove the fixture-owned container before waiting for retry completion.
     first_sshd
         .cleanup_worker_containers_for_test(&first_worker_id)
         .expect("lost worker's containers must be removed and verified by owner label");
-    eprintln!("worker-retry E2E: selected worker containers removed");
-    eprintln!("worker-retry E2E: waiting for fenced retry result");
+    report_stage("selected worker containers removed");
+    report_stage("waiting for fenced retry result");
     let output = controller
         .take()
         .expect("controller should still be running")
         .join()
         .expect("controller should not panic while retrying on another worker")
         .expect("confirmed worker loss should retry on another trusted worker");
-    eprintln!("worker-retry E2E: retry result received");
+    report_stage("retry result received");
     assert_eq!(output.result.exit_code, Some(0));
     assert_eq!(
         fs::read(task_clone.join("retry-result.txt")).unwrap(),
