@@ -71,13 +71,19 @@
         "platform": "linux/amd64",
         "reference": "docker.io/library/python@sha256:998acd06f485adfd6890e3e15a4b542543e0cf22ff904310095da328a5e3e561",
         "digest": "sha256:998acd06f485adfd6890e3e15a4b542543e0cf22ff904310095da328a5e3e561",
-        "tool_versions": { "python": "3.14.7", "base": "Debian bookworm slim" }
+        "tool_versions": {
+          "python": "3.14.7",
+          "base": "Debian bookworm slim"
+        }
       },
       {
         "platform": "linux/arm64",
         "reference": "docker.io/library/python@sha256:af1cafd27effb3b1c7c4ad8b459f118371b5d216d4659a3e68a7b5aae65b517f",
         "digest": "sha256:af1cafd27effb3b1c7c4ad8b459f118371b5d216d4659a3e68a7b5aae65b517f",
-        "tool_versions": { "python": "3.14.7", "base": "Debian bookworm slim" }
+        "tool_versions": {
+          "python": "3.14.7",
+          "base": "Debian bookworm slim"
+        }
       }
     ],
     "go": [
@@ -85,13 +91,19 @@
         "platform": "linux/amd64",
         "reference": "docker.io/library/golang@sha256:26de5cf8eac40c12a1ff8de1a634971b4654fd881225eed7ace643b8c769f2f5",
         "digest": "sha256:26de5cf8eac40c12a1ff8de1a634971b4654fd881225eed7ace643b8c769f2f5",
-        "tool_versions": { "go": "1.26.8", "base": "Debian bookworm" }
+        "tool_versions": {
+          "go": "1.26.8",
+          "base": "Debian bookworm"
+        }
       },
       {
         "platform": "linux/arm64",
         "reference": "docker.io/library/golang@sha256:581f0292073059289b736d46d572ba4c515e0b511f8645963e0b0adf232680a1",
         "digest": "sha256:581f0292073059289b736d46d572ba4c515e0b511f8645963e0b0adf232680a1",
-        "tool_versions": { "go": "1.26.8", "base": "Debian bookworm" }
+        "tool_versions": {
+          "go": "1.26.8",
+          "base": "Debian bookworm"
+        }
       }
     ],
     "browser_qa": [
@@ -115,8 +127,8 @@
     "desktop_qa": [
       {
         "platform": "linux/amd64",
-        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:9967e506ae1181bcb278b609a5e1aaeccf24e8b41aeffe04a651166e600f9387",
-        "digest": "sha256:9967e506ae1181bcb278b609a5e1aaeccf24e8b41aeffe04a651166e600f9387",
+        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:3d336f20b6f1590a510ea47594205e9d183e9d98a231df019f27ecb52530e41b",
+        "digest": "sha256:3d336f20b6f1590a510ea47594205e9d183e9d98a231df019f27ecb52530e41b",
         "tool_versions": {
           "driver": "linux-x11-driver/v1",
           "xvfb": "2:21.1.12-1ubuntu1.5",
@@ -125,7 +137,7 @@
           "base": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
         },
         "runtime_enabled": false,
-        "build_recipe_sha256": "sha256:82415e078d3875948137fddad92b64645f2db2b01a159859b2ade3578c6434aa"
+        "build_recipe_sha256": "sha256:daccc5ed383b17172df776af93dfc5f01c49ce00f27490075682858c1dadc316"
       }
     ]
   }
