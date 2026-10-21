@@ -133,6 +133,10 @@ pub(super) fn review_and_persist(
     assert_eq!(persisted.scenarios, vec![scenario]);
     assert_eq!(persisted.result, result);
     assert!(!persisted.screenshots.is_empty());
+    assert_eq!(
+        store.load_gate_receipt(&request.qa_run_id).unwrap(),
+        receipt.expect("reviewed pass produced a gate receipt")
+    );
 }
 
 struct RootlessBrowserOutput(Option<QaDriverOutputV1>);
