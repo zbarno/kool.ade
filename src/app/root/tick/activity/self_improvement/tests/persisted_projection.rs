@@ -273,6 +273,43 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
             },
         )
         .unwrap();
+    let feature = lifecycle.load_feature(&feature_uid).unwrap();
+    let approved_plan_origins = lifecycle
+        .events_for_feature(&feature_uid)
+        .unwrap()
+        .into_iter()
+        .filter(|record| record.task_uid.is_none())
+        .map(|record| record.uid)
+        .collect::<Vec<_>>();
+    let product_spec_hash =
+        crate::core::lifecycle::product_spec::current_product_hash(&planning).unwrap();
+    let current_spec_sequence = lifecycle
+        .load_spec_revision(&feature_uid)
+        .unwrap()
+        .map_or(0, |revision| revision.seq);
+    lifecycle
+        .append_spec_revision(
+            &feature_uid,
+            current_spec_sequence,
+            crate::core::lifecycle::SpecRevisionDraftV1 {
+                no_change_reason: Some(
+                    "Approved-plan fixture reconciles its feature lifecycle triggers against the unchanged product specification.".into(),
+                ),
+                content_hash: product_spec_hash,
+                source_revision: feature.revision,
+                produced_by_run_id: None,
+                origin_events: approved_plan_origins,
+                decision_refs: feature.decision_refs.clone(),
+                delta_approval_refs: Vec::new(),
+                approved_target_hash: feature.approved_plan_sha256.clone(),
+                implementation_head_sha: None,
+                reconciliation_status:
+                    crate::core::lifecycle::SpecReconciliationStatusV1::Synchronized,
+                outcome_reason: None,
+                deltas: Vec::new(),
+            },
+        )
+        .unwrap();
     let task_uid = uuid::Uuid::new_v4().hyphenated().to_string();
     lifecycle
         .create_task(

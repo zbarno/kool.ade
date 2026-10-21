@@ -137,6 +137,52 @@ pub(super) fn verify_reviewer_and_qa_projection(
     assert_eq!(run.phase, Phase::SpecSync);
     assert_eq!(run.runtime_qa_uids.len(), 1);
     assert!(run.spec_receipt_uid.is_none());
+
+    // Production boundary: pass a deterministic no-change SpecReconciler
+    // result through the app's worker-result polling and completion handler.
+    // A reducer-only projection test cannot prove that the real completion
+    // handler persists its application-policy receipt and creates a separate
+    // PR-preparation work item without authorizing publication. This uses the
+    // local fixture stores and synthetic reviewer/QA receipts above; there is
+    // no provider, Docker, or network dependency, with one headless app setup.
+    let crate::app::root::Screen::Connected(project) = &mut app.screen else {
+        panic!("fixture should remain connected")
+    };
+    crate::app::root::spec_reconciliation::test_support::complete(
+        project,
+        task_uid,
+        crate::harness::prompt_catalog::SpecDeltaV1 { deltas: Vec::new() },
+        false,
+    );
+    let completed = lifecycle.load_task(task_uid).unwrap();
+    assert_eq!(
+        completed.phase,
+        TaskPhase::Done,
+        "specification completion was blocked: {:?}",
+        project.activity.pending
+    );
+    let work_uid = completed
+        .pr_work_item_uid
+        .as_deref()
+        .expect("spec reconciliation creates a scoped PR-preparation item");
+    let work = lifecycle.load_pr_preparation(work_uid).unwrap();
+    assert_eq!(work.task_uid, task_uid);
+    assert_eq!(work.included_task_uids, vec![task_uid.to_owned()]);
+    assert_eq!(
+        work.status,
+        crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization
+    );
+    assert!(work.publication_authorization.is_none());
+
+    super::synchronize_app_run(app, lifecycle, runs, run_uid).unwrap();
+    let run = runs.load(run_uid).unwrap();
+    assert_eq!(run.phase, Phase::PrPending);
+    assert_eq!(run.parent_task_progress.len(), 1);
+    assert_eq!(
+        run.parent_task_progress[0].pr_work_item_uid.as_deref(),
+        Some(work_uid)
+    );
+    assert!(run.pr_url.is_none());
     super::assert_app_idle(app);
 }
 
