@@ -1,5 +1,7 @@
 use super::*;
 
+#[path = "provider_checks/destination_race.rs"]
+mod destination_race;
 #[path = "provider_checks/head_binding.rs"]
 mod head_binding;
 #[path = "provider_checks/remote_guards.rs"]
