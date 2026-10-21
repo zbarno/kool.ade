@@ -150,11 +150,19 @@ impl ExecutionBackend for RemoteExecutionBackend {
                 );
                 return Err(private_files::revoked_error());
             };
+            let execution_started_at = std::time::Instant::now();
             let response = client.request(
                 EnvelopeKindV1::Start,
                 &request.execution_id,
                 serde_json::json!({"lease": lease, "request": worker_request}),
             )?;
+            if let TargetLocation::Remote { worker_id } = &self.target.location {
+                let _ = crate::persistence::remote_execution_telemetry::record_execution_started(
+                    &request.execution_id,
+                    worker_id,
+                    &request.image_digest,
+                );
+            }
             drop(grant_use);
             let upload = self
                 .pending_workspace_transfers
@@ -179,6 +187,10 @@ impl ExecutionBackend for RemoteExecutionBackend {
                 .lock()
                 .map_err(|_| disconnected())?
                 .insert(handle.execution_id.clone(), snapshot);
+            self.execution_started_at
+                .lock()
+                .map_err(|_| disconnected())?
+                .insert(handle.execution_id.clone(), execution_started_at);
             if !private_grants.is_empty() {
                 self.execution_private_file_grants
                     .lock()
