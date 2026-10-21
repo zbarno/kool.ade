@@ -221,6 +221,9 @@ mod tests {
             specification_deltas: Vec::new(),
             pull_request_status: Some(PullRequestPreparationStatus::Merged),
             merged_commit_sha: Some("provider-merge-sha".into()),
+            runtime_qa_evidence: None,
+            runtime_qa_evidence_error: None,
+            runtime_qa_applicability: None,
         };
         let context = egui::Context::default();
         let mut surface = None;

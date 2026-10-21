@@ -90,6 +90,18 @@ pub(super) fn serve(mut client: UnixStream, context: &BrokerContext<'_>) -> io::
     };
     if let Some(request) = response.dependency_request.as_ref() {
         store_dependency_request(context, request);
+        if request
+            .preparation
+            .as_ref()
+            .and_then(|preparation| preparation.broker_duration_millis)
+            .is_some()
+        {
+            let _ = context.progress.send(crate::harness::LiveProgress {
+                activity: Some("Dependency preparation finished".into()),
+                dependency_requests: vec![request.clone()],
+                ..Default::default()
+            });
+        }
     }
     if response.status != "allowed"
         && response.status != "prepared"
@@ -113,13 +125,13 @@ fn prepare_cache_snapshot(
     let task_id = context
         .task_id
         .ok_or_else(|| anyhow::anyhow!("cache broker is not bound to a task"))?;
-    let approved = context
-        .dependency
-        .lock()
-        .map_err(|_| anyhow::anyhow!("dependency authorization state is unavailable"))?
-        .last()
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("no prepared dependency is available for cache transfer"))?;
+    let approved = {
+        let requests = context
+            .dependency
+            .lock()
+            .map_err(|_| anyhow::anyhow!("dependency authorization state is unavailable"))?;
+        prepared_dependency(&requests, &request.dependency_request_id, task_id)?.clone()
+    };
     anyhow::ensure!(
         approved.id == request.dependency_request_id
             && approved.task_id == task_id
@@ -164,3 +176,26 @@ fn prepare_cache_snapshot(
         .validate_ref(&snapshot.cache_ref, &snapshot.archive)?;
     Ok(snapshot)
 }
+
+fn prepared_dependency<'a>(
+    requests: &'a [crate::harness::DependencyRequest],
+    dependency_request_id: &str,
+    task_id: &str,
+) -> anyhow::Result<&'a crate::harness::DependencyRequest> {
+    let request = requests
+        .iter()
+        .find(|request| request.id == dependency_request_id)
+        .ok_or_else(|| {
+            anyhow::anyhow!("no matching dependency request is available for cache transfer")
+        })?;
+    anyhow::ensure!(
+        request.task_id == task_id
+            && request.status == crate::harness::DependencyRequestStatus::Prepared,
+        "cache snapshot does not match the prepared dependency authorization"
+    );
+    Ok(request)
+}
+
+#[cfg(test)]
+#[path = "server/tests.rs"]
+mod tests;

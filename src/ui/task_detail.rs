@@ -2,6 +2,9 @@
 
 use crate::domain::ChatMessage;
 
+mod runtime_capability;
+pub use runtime_capability::*;
+
 #[derive(Clone)]
 pub struct ViewModel {
     pub implementation: Option<crate::core::implementation::Implementation>,
@@ -43,6 +46,26 @@ pub struct ViewModel {
     /// Read-only lifecycle state projected from the persisted #157 records.
     pub lifecycle: Option<LifecycleView>,
     pub lifecycle_error: Option<String>,
+    pub runtime_qa_scenario_proposal: Option<RuntimeQaScenarioProposal>,
+    pub runtime_qa_applicability_proposal: Option<RuntimeQaApplicabilityProposal>,
+    pub runtime_qa_applicability_error: Option<String>,
+    pub runtime_qa_applicability_reviewing: bool,
+}
+
+#[derive(Clone)]
+pub struct RuntimeQaApplicabilityProposal {
+    pub proposal: crate::runtime_qa::QaApplicabilityProposalV1,
+    pub proposal_sha256: String,
+    pub stale: bool,
+}
+
+#[derive(Clone)]
+pub struct RuntimeQaScenarioProposal {
+    pub task_revision: u64,
+    pub proposal_sha256: Option<String>,
+    pub scenarios: Vec<crate::runtime_qa::QaScenarioV1>,
+    pub approved: bool,
+    pub stale: bool,
 }
 
 #[derive(Clone)]
@@ -100,6 +123,19 @@ pub struct LifecycleView {
     pub specification_deltas: Vec<(u64, crate::core::lifecycle::SpecDeltaRecordV1)>,
     pub pull_request_status: Option<crate::core::lifecycle::PullRequestPreparationStatus>,
     pub merged_commit_sha: Option<String>,
+    pub runtime_qa_evidence: Option<RuntimeQaEvidenceView>,
+    pub runtime_qa_evidence_error: Option<String>,
+    pub runtime_qa_applicability: Option<crate::runtime_qa::QaApplicabilityAssessmentV1>,
+}
+
+#[derive(Clone)]
+pub struct RuntimeQaEvidenceView {
+    pub run_id: String,
+    pub outcome: crate::runtime_qa::QaOutcome,
+    pub coverage: Vec<crate::runtime_qa::QaRequirementCoverageV1>,
+    pub findings: Vec<crate::runtime_qa::QaFindingV1>,
+    pub actions: Vec<crate::runtime_qa::QaActionEvidenceV1>,
+    pub screenshots: Vec<RuntimeQaScreenshotView>,
 }
 
 #[derive(Clone)]
@@ -107,6 +143,8 @@ pub struct RuntimeQaScreenshotView {
     pub id: String,
     pub scenario_id: String,
     pub sha256: String,
+    pub width: u16,
+    pub height: u16,
     pub bytes: Vec<u8>,
 }
 
@@ -176,33 +214,6 @@ pub fn task_phase_label(phase: crate::core::lifecycle::TaskPhase) -> &'static st
         Phase::Failed => "Failed",
         Phase::Cancelled => "Cancelled",
     }
-}
-
-#[derive(Clone)]
-pub struct RuntimeCapabilityView {
-    pub source_sha: Option<String>,
-    pub languages: Vec<String>,
-    pub frameworks: Vec<String>,
-    pub manifest_revision: Option<u64>,
-    pub selected_target_id: Option<String>,
-    pub targets: Vec<RuntimeTargetChoice>,
-    pub message: Option<String>,
-}
-
-#[derive(Clone)]
-pub struct RuntimeTargetChoice {
-    pub target_id: String,
-    pub label: String,
-    pub selected: bool,
-    pub state: String,
-    pub recipes: String,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RuntimeRecipeOperation {
-    Build,
-    Test,
-    Start,
 }
 
 #[derive(Clone)]
@@ -298,8 +309,30 @@ pub enum Command {
         ticket: String,
         target_id: String,
         operation: RuntimeRecipeOperation,
+        approval_proof: crate::ui::layout::RuntimeTargetApprovalProof,
         executable_id: String,
         argv_lines: String,
+        artifact_paths: String,
+        readiness_port: String,
+        readiness_path: String,
+        expected_manifest_revision: u64,
+    },
+    ApplyRuntimeAdapter {
+        ticket: String,
+        target_id: String,
+        operation: RuntimeRecipeOperation,
+        expected_manifest_revision: u64,
+    },
+    AddRuntimeTarget {
+        ticket: String,
+        app_surface: crate::project_runtime::AppSurface,
+        project_relative_root: String,
+        artifact_paths: String,
+        build: RuntimeRecipeInput,
+        test: RuntimeRecipeInput,
+        start: RuntimeRecipeInput,
+        required_dependencies: Vec<String>,
+        approval_proof: crate::ui::layout::RuntimeTargetApprovalProof,
         readiness_port: String,
         readiness_path: String,
         expected_manifest_revision: u64,

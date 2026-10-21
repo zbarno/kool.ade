@@ -1,8 +1,9 @@
 use crate::{
     core::lifecycle::{GateDecision, TaskPhase},
     project_runtime::{AppSurface, RuntimeOperation, RuntimeReceiptState},
-    runtime_qa::{QaBoundedLimitsV1, QaPlatform, QaRunRequestV1},
+    runtime_qa::{QaBoundedLimitsV1, QaDependencyCacheRefV1, QaPlatform, QaRunRequestV1},
 };
+use sha2::Digest;
 
 use super::ReviewedTaskInputs;
 use super::artifact::artifact_bundle_sha256;
@@ -18,6 +19,7 @@ pub(super) fn from_reviewed_task(inputs: ReviewedTaskInputs<'_>) -> Result<QaRun
         build,
         artifact_paths,
         driver_profile_version,
+        dependency_cache_refs,
     } = inputs;
     if task.phase != TaskPhase::AwaitingRuntimeQa
         || task.planning_item_uid.as_deref() != implementation.task_uid.as_deref()
@@ -90,11 +92,32 @@ pub(super) fn from_reviewed_task(inputs: ReviewedTaskInputs<'_>) -> Result<QaRun
         }
     };
     let review = task.code_review.as_ref().expect("validated above");
+    let cache_refs = if platform == QaPlatform::Web {
+        dependency_cache_refs
+            .iter()
+            .map(
+                |(dependency_request_id, cache_ref)| QaDependencyCacheRefV1 {
+                    dependency_request_id: dependency_request_id.clone(),
+                    cache_ref: cache_ref.clone(),
+                },
+            )
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    let cache_identity = format!(
+        "{:x}",
+        sha2::Sha256::digest(
+            serde_json::to_vec(&cache_refs)
+                .map_err(|_| { "runtime QA dependency cache identity could not be encoded" })?
+        )
+    );
     let execution_key = format!(
-        "runtime-qa-v1:{}:{}:{}",
+        "runtime-qa-v1:{}:{}:{}:{}",
         task.revision,
         build.source_sha,
-        task.implementation_sha256.as_deref().unwrap_or_default()
+        task.implementation_sha256.as_deref().unwrap_or_default(),
+        cache_identity,
     );
     let namespace =
         uuid::Uuid::parse_str(&task.task_uid).map_err(|_| "runtime QA task identity is invalid")?;
@@ -104,6 +127,7 @@ pub(super) fn from_reviewed_task(inputs: ReviewedTaskInputs<'_>) -> Result<QaRun
             .hyphenated()
             .to_string(),
         parent_task_uid: task.task_uid.clone(),
+        planning_item_uid: task.planning_item_uid.clone(),
         feature_uid: task.feature_uid.clone(),
         code_head_sha: task
             .reviewed_code_head_sha
@@ -133,6 +157,7 @@ pub(super) fn from_reviewed_task(inputs: ReviewedTaskInputs<'_>) -> Result<QaRun
         .to_string(),
         driver_profile_version: driver_profile_version.to_owned(),
         test_data_fixture_ref: target.fixture_ref.clone(),
+        dependency_cache_refs: cache_refs,
         bounded_limits: QaBoundedLimitsV1 {
             max_scenarios: 32,
             max_actions_per_scenario: 64,

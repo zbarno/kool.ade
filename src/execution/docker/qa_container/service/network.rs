@@ -1,4 +1,5 @@
 use bollard::models::{ContainerInspectResponse, NetworkInspect};
+use std::collections::HashMap;
 
 use super::super::denied;
 use crate::{
@@ -7,7 +8,8 @@ use crate::{
 };
 
 /// Inspect the app-leased service against Docker's current state before QA
-/// access. Lease claims alone are not authority.
+/// access. Lease claims alone are not authority; the relay healthcheck probes
+/// the task's exact approved HTTP path across the private task network.
 pub async fn validate_task_service_network(
     docker: &bollard::Docker,
     request: &QaRunRequestV1,
@@ -53,7 +55,11 @@ pub async fn validate_preview_relay_network(
             "QA preview relay is bound to a different task or run",
         ));
     }
-    let network = docker
+    let task_network = docker
+        .inspect_network(&binding.task_network_id, None)
+        .await
+        .map_err(|_| denied("QA task network cannot be inspected"))?;
+    let browser_network = docker
         .inspect_network(&binding.relay_browser_network_id, None)
         .await
         .map_err(|_| denied("QA relay browser network cannot be inspected"))?;
@@ -61,11 +67,12 @@ pub async fn validate_preview_relay_network(
         .inspect_container(&binding.relay_container_id, None)
         .await
         .map_err(|_| denied("QA preview relay container cannot be inspected"))?;
-    validate_inspected_relay(binding, &network, &relay)
+    validate_inspected_relay(binding, &task_network, &browser_network, &relay)
 }
 
-/// Verify the actual unstarted browser container ID before Docker starts it.
-/// The browser may join only the relay network and may not publish host ports.
+/// Verify the staged browser container ID before its approved command starts.
+/// The staged process must be the fixed idle command; the browser may join only
+/// the relay network and may not publish host ports.
 pub async fn validate_browser_driver_network(
     docker: &bollard::Docker,
     request: &QaRunRequestV1,
@@ -85,11 +92,25 @@ pub async fn validate_browser_driver_network(
         .inspect_container(container_id, None)
         .await
         .map_err(|_| denied("QA browser container cannot be inspected"))?;
+    let browser_network = docker
+        .inspect_network(&binding.relay_browser_network_id, None)
+        .await
+        .map_err(|_| denied("QA browser network cannot be inspected"))?;
     let state = container.state.as_ref();
     let labels = container
         .config
         .as_ref()
         .and_then(|config| config.labels.as_ref());
+    let config = container.config.as_ref();
+    let fixed_staging_command =
+        config.is_some_and(|config| {
+            config.entrypoint.as_ref().is_some_and(|entrypoint| {
+                entrypoint.len() == 1 && entrypoint[0] == "/usr/bin/sleep"
+            }) && config
+                .cmd
+                .as_ref()
+                .is_some_and(|command| command.len() == 1 && command[0] == "infinity")
+        });
     let networks = container
         .network_settings
         .as_ref()
@@ -107,20 +128,35 @@ pub async fn validate_browser_driver_network(
                 })
             })
         });
-    if !state.is_some_and(|state| {
-        state.running != Some(true)
-            && state.status == Some(bollard::models::ContainerStateStatusEnum::CREATED)
-    }) || labels.is_none_or(|labels| {
-        labels.get(super::super::RUN_LABEL) != Some(&request.qa_run_id)
-            || labels.get(super::super::TASK_LABEL) != Some(&request.parent_task_uid)
-            || labels.get(super::super::DRIVER_LABEL).map(String::as_str) != Some("browser")
-            || labels.get(super::super::TASK_CONTAINER_LABEL) != Some(&binding.relay_container_id)
-    }) || networks.is_none_or(|networks| {
-        networks.len() != 1 || !networks.contains_key(&binding.relay_browser_network_id)
-    }) || host_ports
+    let attached_to_private_network = browser_network.id.as_deref()
+        == Some(binding.relay_browser_network_id.as_str())
+        && browser_network.internal == Some(true)
+        && browser_network.scope.as_deref() == Some("local")
+        && browser_network
+            .containers
+            .as_ref()
+            .is_some_and(|containers| containers.contains_key(container_id));
+    if !state.is_some_and(|state| state.running == Some(true) && state.paused != Some(true))
+        || !fixed_staging_command
+        || labels.is_none_or(|labels| {
+            labels.get(super::super::RUN_LABEL) != Some(&request.qa_run_id)
+                || labels.get(super::super::TASK_LABEL) != Some(&request.parent_task_uid)
+                || labels.get(super::super::DRIVER_LABEL).map(String::as_str) != Some("browser")
+                || labels
+                    .get(super::runner::DRIVER_MODE_LABEL)
+                    .map(String::as_str)
+                    != Some("default")
+                || labels.get(super::super::TASK_CONTAINER_LABEL)
+                    != Some(&binding.relay_container_id)
+        })
+        || !attached_to_private_network
+        || networks.is_none_or(|networks| {
+            networks.len() != 1 || !network_is_attached(networks, &browser_network)
+        })
+        || host_ports
     {
         return Err(denied(
-            "QA browser container is running or outside its inspected private relay network",
+            "QA browser container is not in its fixed idle staging mode or outside its inspected private relay network",
         ));
     }
     Ok(())
@@ -128,10 +164,14 @@ pub async fn validate_browser_driver_network(
 
 fn validate_inspected_relay(
     binding: &QaPreviewRelayBindingV1,
+    task_network: &NetworkInspect,
     browser_network: &NetworkInspect,
     relay: &ContainerInspectResponse,
 ) -> Result<(), ExecutionError> {
-    if browser_network.id.as_deref() != Some(binding.relay_browser_network_id.as_str())
+    if task_network.id.as_deref() != Some(binding.task_network_id.as_str())
+        || task_network.internal != Some(true)
+        || task_network.scope.as_deref() != Some("local")
+        || browser_network.id.as_deref() != Some(binding.relay_browser_network_id.as_str())
         || browser_network.internal != Some(true)
         || browser_network.scope.as_deref() != Some("local")
         || !browser_network
@@ -168,8 +208,8 @@ fn validate_inspected_relay(
                 == Some(bollard::models::HealthStatusEnum::HEALTHY)
     }) || networks.is_none_or(|networks| {
         networks.len() != 2
-            || !networks.contains_key(&binding.task_network_id)
-            || !networks.contains_key(&binding.relay_browser_network_id)
+            || !network_is_attached(networks, task_network)
+            || !network_is_attached(networks, browser_network)
     }) || !private_ports_only
     {
         return Err(denied(
@@ -200,7 +240,7 @@ fn validate_inspected_service(
     let settings = container.network_settings.as_ref();
     let bound_to_network = settings
         .and_then(|settings| settings.networks.as_ref())
-        .is_some_and(|networks| networks.contains_key(&lease.task_network_id));
+        .is_some_and(|networks| network_is_attached(networks, network));
     let has_host_ports = settings
         .and_then(|settings| settings.ports.as_ref())
         .is_some_and(|ports| {
@@ -212,17 +252,24 @@ fn validate_inspected_service(
                 })
             })
         });
-    if !state.is_some_and(|state| {
-        state.running == Some(true)
-            && state.paused != Some(true)
-            && state.health.as_ref().and_then(|health| health.status)
-                == Some(bollard::models::HealthStatusEnum::HEALTHY)
-    }) || !bound_to_network
+    if !state.is_some_and(|state| state.running == Some(true) && state.paused != Some(true))
+        || !bound_to_network
         || has_host_ports
     {
         return Err(denied(
-            "QA task service must be healthy, attached to its internal network, and unpublished",
+            "QA task service must be running, attached to its internal network, and unpublished",
         ));
     }
     Ok(())
 }
+
+fn network_is_attached<T>(networks: &HashMap<String, T>, network: &NetworkInspect) -> bool {
+    network
+        .name
+        .as_deref()
+        .is_some_and(|name| networks.contains_key(name))
+}
+
+#[cfg(test)]
+#[path = "network/tests.rs"]
+mod tests;

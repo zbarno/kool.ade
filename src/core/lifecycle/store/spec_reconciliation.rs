@@ -105,7 +105,11 @@ impl LifecycleStore<'_> {
         }
         tasks.retain(|task| {
             let qa_complete = task.qa_execution.as_ref().is_some_and(|qa| {
-                qa.status == crate::core::lifecycle::QaExecutionStatusV1::Completed
+                matches!(
+                    qa.status,
+                    crate::core::lifecycle::QaExecutionStatusV1::Completed
+                        | crate::core::lifecycle::QaExecutionStatusV1::NotApplicable
+                )
             });
             let task_pass = task.phase == TaskPhase::AwaitingSpecReconciliation && qa_complete;
             let pr_refresh = pending_pr_tasks.contains(&task.task_uid) && qa_complete;

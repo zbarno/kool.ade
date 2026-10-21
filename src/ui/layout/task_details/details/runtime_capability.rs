@@ -1,9 +1,13 @@
 use crate::ui::{Surface, task_detail};
 
+mod recipe_adapter;
+mod target_override;
+
 #[derive(Clone, Default)]
 struct RecipeDraft {
     executable_id: String,
     argv_lines: String,
+    artifact_paths: String,
     readiness_port: String,
     readiness_path: String,
 }
@@ -48,6 +52,7 @@ pub(super) fn paint(
         let Some(revision) = runtime.manifest_revision else {
             return;
         };
+        target_override::paint(ui, surface, ticket, revision, &runtime.prepared_dependencies);
         if runtime.targets.is_empty() {
             ui.label("No targets are recorded for this task.");
             return;
@@ -90,18 +95,37 @@ pub(super) fn paint(
             .and_then(|id| runtime.targets.iter().find(|target| target.target_id == id))
         {
             ui.label(format!("Capability: {}", target.state));
+            let applicability = match target.qa_applicability {
+                crate::project_runtime_capability::QaApplicability::Visual => {
+                    "Visual QA surface; target readiness and driver availability are checked separately."
+                }
+                crate::project_runtime_capability::QaApplicability::ServiceEvidence => {
+                    "Headless service: visual QA does not apply. A target-bound applicability assessment and Manager signoff can be recorded; this does not certify API or service tests."
+                }
+                crate::project_runtime_capability::QaApplicability::StaticReviewOnly => {
+                    "Static review only; runtime QA is not currently applicable."
+                }
+                crate::project_runtime_capability::QaApplicability::Unsupported => {
+                    "Unsupported surface: no runtime QA driver is available."
+                }
+            };
+            ui.label(egui::RichText::new(applicability).small());
             ui.label(if target.recipes.is_empty() {
                 "No approved build, test, or start recipes.".into()
             } else {
                 target.recipes.clone()
             });
             if target.selected {
-                for operation in [
-                    task_detail::RuntimeRecipeOperation::Build,
-                    task_detail::RuntimeRecipeOperation::Test,
-                    task_detail::RuntimeRecipeOperation::Start,
-                ] {
-                    recipe_form(ui, surface, ticket, target, operation, revision);
+                if target.app_surface == crate::project_runtime::AppSurface::UnsupportedTarget {
+                    ui.label("Recipes cannot run for an unsupported target surface.");
+                } else {
+                    for operation in [
+                        task_detail::RuntimeRecipeOperation::Build,
+                        task_detail::RuntimeRecipeOperation::Test,
+                        task_detail::RuntimeRecipeOperation::Start,
+                    ] {
+                        recipe_form(ui, surface, ticket, target, operation, revision);
+                    }
                 }
             } else if runtime.targets.len() > 1 {
                 ui.label("Select this target explicitly before approving recipes.");
@@ -132,6 +156,35 @@ fn recipe_form(
             .ctx()
             .data_mut(|data| data.get_temp::<RecipeDraft>(id))
             .unwrap_or_default();
+        if let Some(suggestion) = recipe_adapter::suggestion(
+            target.detected_language.as_deref(),
+            operation,
+        ) && ui
+            .button(format!("Fill {} adapter template", suggestion.label))
+            .clicked()
+        {
+            draft.executable_id = suggestion.executable_id.into();
+            draft.argv_lines = suggestion.argv.join("\n");
+        }
+        if operation == task_detail::RuntimeRecipeOperation::Test
+            && target.recipes.is_empty()
+            && ui
+                .button("Apply and approve trusted test adapter")
+                .clicked()
+        {
+            dispatch(
+                surface,
+                task_detail::Command::ApplyRuntimeAdapter {
+                    ticket: ticket.to_owned(),
+                    target_id: target.target_id.clone(),
+                    operation,
+                    expected_manifest_revision: revision,
+                },
+            );
+        }
+        if target.detected_language.is_some() {
+            ui.label("Templates are hints. The trusted test adapter uses a fixed argv and requires a separate explicit action; it does not run the recipe.");
+        }
         ui.horizontal(|ui| {
             ui.label("Executable ID");
             ui.text_edit_singleline(&mut draft.executable_id);
@@ -139,15 +192,26 @@ fn recipe_form(
         ui.label("Arguments, one per line (each line is a separate argv item)");
         ui.text_edit_multiline(&mut draft.argv_lines);
         if operation == task_detail::RuntimeRecipeOperation::Start {
-            ui.horizontal(|ui| {
-                ui.label("Web readiness port");
-                ui.text_edit_singleline(&mut draft.readiness_port);
-            });
-            ui.horizontal(|ui| {
-                ui.label("HTTP readiness path");
-                ui.text_edit_singleline(&mut draft.readiness_path);
-            });
-            ui.label("Web targets require an approved local port; Linux desktop targets use process readiness.");
+            match target.app_surface {
+                crate::project_runtime::AppSurface::Web => {
+                    readiness_fields(ui, &mut draft, "Approved preview port", "HTTP readiness path");
+                    ui.label("Web readiness is restricted to the approved preview port.");
+                }
+                crate::project_runtime::AppSurface::HeadlessService => {
+                    readiness_fields(ui, &mut draft, "Local service health port", "Health path");
+                    ui.label("Service readiness checks the approved local health endpoint; it does not count as visual QA.");
+                }
+                crate::project_runtime::AppSurface::LinuxDesktop => {
+                    ui.label("Desktop readiness is checked by the launched process.");
+                }
+                crate::project_runtime::AppSurface::UnsupportedTarget => {
+                    ui.label("Unsupported surfaces cannot start runtime recipes.");
+                }
+            }
+        }
+        if operation == task_detail::RuntimeRecipeOperation::Build {
+            ui.label("Expected output paths relative to the app root, one per line");
+            ui.text_edit_multiline(&mut draft.artifact_paths);
         }
         if ui
             .add_enabled(
@@ -162,8 +226,11 @@ fn recipe_form(
                     ticket: ticket.to_owned(),
                     target_id: target.target_id.clone(),
                     operation,
+                    approval_proof:
+                        crate::ui::layout::RuntimeTargetApprovalProof::from_user_approval_click(),
                     executable_id: draft.executable_id.trim().to_owned(),
                     argv_lines: draft.argv_lines.clone(),
+                    artifact_paths: draft.artifact_paths.clone(),
                     readiness_port: draft.readiness_port.clone(),
                     readiness_path: draft.readiness_path.clone(),
                     expected_manifest_revision: revision,
@@ -174,6 +241,31 @@ fn recipe_form(
     });
 }
 
+fn readiness_fields(
+    ui: &mut egui::Ui,
+    draft: &mut RecipeDraft,
+    port_label: &str,
+    path_label: &str,
+) {
+    ui.horizontal(|ui| {
+        ui.label(port_label);
+        ui.text_edit_singleline(&mut draft.readiness_port);
+    });
+    ui.horizontal(|ui| {
+        ui.label(path_label);
+        ui.text_edit_singleline(&mut draft.readiness_path);
+    });
+}
+
 fn dispatch(surface: &mut dyn Surface, command: task_detail::Command) {
     surface.dispatch(crate::ui::ApplicationCommand::TaskDetail(command));
+}
+
+#[cfg(test)]
+pub(in crate::ui::layout::task_details) fn seed_custom_target_repository_root_draft(
+    context: &egui::Context,
+    ticket: &str,
+    app_surface: crate::project_runtime::AppSurface,
+) {
+    target_override::seed_test_repository_root_draft(context, ticket, app_surface);
 }

@@ -34,6 +34,13 @@ pub enum TaskEvent {
         reviewer_execution_id: String,
         reviewer_session_id: String,
     },
+    /// Record a headless/otherwise non-visual target decision after a reviewer
+    /// assessment and explicit Manager approval; this is not a QA pass.
+    RuntimeQaNotApplicable {
+        assessment: Box<crate::runtime_qa::QaApplicabilityAssessmentV1>,
+        reviewer_receipt: Box<GateReceipt>,
+        receipt: Box<GateReceipt>,
+    },
     ReconcileSpec {
         receipt: GateReceipt,
         pr_work_item_uid: String,

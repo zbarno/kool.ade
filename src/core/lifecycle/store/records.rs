@@ -249,6 +249,7 @@ pub(super) fn task_actor(event: &TaskEvent) -> LifecycleActor {
         | TaskEvent::RuntimeQaUnavailable { .. }
         | TaskEvent::SpecReconciliationBlocked { .. } => LifecycleActor::ApplicationPolicy,
         TaskEvent::RuntimeQaCompleted { .. } => LifecycleActor::IndependentReviewer,
+        TaskEvent::RuntimeQaNotApplicable { .. } => LifecycleActor::Manager,
         TaskEvent::ReconcileSpec { .. } | TaskEvent::SubtaskReconciled { .. } => {
             LifecycleActor::ApplicationPolicy
         }

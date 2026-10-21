@@ -46,6 +46,20 @@ pub(super) fn run(
             "the approved startup recipe changed after the QA request was persisted".into(),
         );
     }
+    let runtime = crate::project_runtime::ProjectRuntimeStore::new(&prepared.planning_store);
+    let manifest = runtime
+        .load_manifest()
+        .map_err(|error| format!("project runtime manifest could not be revalidated: {error}"))?
+        .ok_or_else(|| "project runtime manifest disappeared before QA dispatch".to_owned())?;
+    super::super::request::verify_prepared_candidate(
+        &runtime,
+        &manifest,
+        &prepared.workspace,
+        &prepared.target,
+        &prepared.startup_recipe,
+        prepared.readiness_probe.as_ref(),
+        &prepared.artifact_paths,
+    )?;
     let (artifact_upload, artifact_sha) = snapshot_selected_files(
         &prepared.task_clone,
         &prepared.artifact_paths,
@@ -89,6 +103,27 @@ pub(super) fn run(
     let architecture = session.cache_target_arch().ok_or_else(|| {
         "selected QA image architecture is not in the reviewed image lock".to_owned()
     })?;
+    let dependency_cache_store = crate::execution::DependencyCacheSnapshotStore::new(
+        crate::persistence::state_root().join("runtime-qa-dependency-caches"),
+    );
+    let mut dependency_caches = Vec::new();
+    for dependency in &request.dependency_cache_refs {
+        if dependency.cache_ref.target_arch != architecture {
+            return Err(format!(
+                "prepared dependency cache for request `{}` targets a different architecture",
+                dependency.dependency_request_id
+            ));
+        }
+        let snapshot = dependency_cache_store
+            .get(&dependency.dependency_request_id, &dependency.cache_ref)
+            .map_err(|_| {
+                format!(
+                    "prepared dependency cache for request `{}` is unavailable or failed integrity validation",
+                    dependency.dependency_request_id
+                )
+            })?;
+        dependency_caches.push(snapshot);
+    }
     let lock = ImageLock::bundled().map_err(|error| error.message)?;
     let qa_image = lock
         .select(profile, &architecture)
@@ -106,6 +141,7 @@ pub(super) fn run(
             &resources,
             &qa_image,
             architecture,
+            &dependency_caches,
             &store,
             harness,
             &mut docker_cancel,
@@ -120,6 +156,7 @@ pub(super) fn run(
             artifact_mount,
             &resources,
             &qa_image,
+            &dependency_caches,
             &store,
             harness,
             &mut docker_cancel,
@@ -177,3 +214,7 @@ fn run_reviewed(
     )?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "run/tests.rs"]
+mod tests;

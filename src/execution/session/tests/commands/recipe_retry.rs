@@ -32,6 +32,8 @@ fn approved_recipe_retry_preserves_the_approval_and_artifact_request() {
         root.path(),
     );
     let runtime = ProjectRuntimeStore::new(&planning);
+    let approval_proof = crate::ui::layout::RuntimeTargetApprovalProof::for_test();
+    let approval_ref = format!("user-approval:{}", approval_proof.receipt_uid());
     let approved_recipe = ExecutionRecipeV1 {
         schema_version: 1,
         recipe_id: "web-build".into(),
@@ -47,7 +49,7 @@ fn approved_recipe_retry_preserves_the_approval_and_artifact_request() {
         cache_scope: None,
         prerequisite_tool_ids: Vec::new(),
         network_requirement: NetworkRequirement::Denied,
-        evidence_refs: vec!["user-approval:recipe-retry".into()],
+        evidence_refs: vec![approval_ref.clone()],
     };
     runtime
         .save_manifest(
@@ -89,9 +91,21 @@ fn approved_recipe_retry_preserves_the_approval_and_artifact_request() {
             0,
         )
         .unwrap();
-    runtime
-        .approve_recipe_and_save("web", RuntimeOperation::Build, approved_recipe.clone(), 1)
+    let approved_manifest = runtime
+        .approve_recipe_and_save(
+            "web",
+            RuntimeOperation::Build,
+            approved_recipe.clone(),
+            approval_proof,
+            1,
+        )
         .unwrap();
+    let approved_recipe = approved_manifest
+        .user_overrides
+        .iter()
+        .find(|recipe| recipe.recipe_id == "web-build")
+        .unwrap()
+        .clone();
 
     let interrupted = interrupted_backend();
     let replacement = backend();
@@ -168,7 +182,7 @@ fn approved_recipe_retry_preserves_the_approval_and_artifact_request() {
         }
     );
     let approved_command = request.policy.approved_recipe_command().unwrap();
-    assert_eq!(approved_command.approval_ref, "user-approval:recipe-retry");
+    assert_eq!(approved_command.approval_ref, approval_ref);
     assert_eq!(approved_command.executable_id, "npm");
     assert_eq!(approved_command.argv, ["run", "build"]);
     assert!(approved_command.allowed_environment_names.is_empty());
