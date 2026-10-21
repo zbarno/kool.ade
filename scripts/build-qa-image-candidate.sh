@@ -19,6 +19,9 @@ output_directory="$RUNNER_TEMP/executor-image-candidate-${profile}-${architectur
 metadata_file="$RUNNER_TEMP/qa-image-build.json"
 tag="koolade-runtime-qa:${profile}-candidate"
 build_output=--load
+normalize_build_context() {
+  find "$1" -exec touch -h -d '@0' {} +
+}
 if [[ "$build_mode" == publish ]]; then
   case "$profile" in
     browser_qa) tag="ghcr.io/zbarno/koolade-runtime-qa-browser:trusted-$GITHUB_SHA" ;;
@@ -39,10 +42,12 @@ case "$profile" in
       containers/runtime-qa/browser/package.json
       containers/runtime-qa/browser/package-lock.json
       containers/runtime-qa/browser/vendor/*.tgz
+      scripts/build-qa-image-candidate.sh
     )
     recipe_sha256="sha256:$(sha256sum "${recipe_files[@]}" | awk '{printf "%s  %s\n", $1, $2}' | sha256sum | awk '{print $1}')"
     docker buildx create --name qa-browser-candidate --driver docker-container --use
     docker buildx inspect --bootstrap
+    normalize_build_context "$build_context"
     docker buildx build --platform "$platform" --network=none --provenance=false --sbom=false \
       --build-arg SOURCE_DATE_EPOCH=0 --build-arg "BASE_IMAGE=$base_image" \
       --metadata-file "$metadata_file" "$build_output" --tag "$tag" containers/runtime-qa/browser
@@ -104,6 +109,7 @@ import hashlib, pathlib, sys
 files = [
     (pathlib.Path("containers/runtime-qa/desktop/Dockerfile"), "containers/runtime-qa/desktop/Dockerfile"),
     (pathlib.Path(sys.argv[1]), "containers/runtime-qa/desktop/koolade-qa-desktop"),
+    (pathlib.Path("scripts/build-qa-image-candidate.sh"), "scripts/build-qa-image-candidate.sh"),
 ]
 payload = "".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {name}\n" for path, name in files).encode()
 print("sha256:" + hashlib.sha256(payload).hexdigest())
@@ -114,6 +120,7 @@ PY
     cp containers/runtime-qa/desktop/Dockerfile "$context/Dockerfile"
     cp "$binary" "$context/koolade-qa-desktop"
     build_context="$context"
+    normalize_build_context "$build_context"
     docker buildx create --name qa-desktop-candidate --driver docker-container --use
     docker buildx inspect --bootstrap
     docker buildx build --platform "$platform" --network=none --provenance=false --sbom=false \
