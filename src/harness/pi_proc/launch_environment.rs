@@ -142,7 +142,9 @@ fn filter_environment(
             RUNTIME_ENV.contains(&name.as_str())
                 || match provider {
                     CliProvider::Copilot => COPILOT_AUTH_ENV.contains(&name.as_str()),
-                    CliProvider::Codex => name == "OPENAI_API_KEY",
+                    CliProvider::Codex => {
+                        matches!(name.as_str(), "OPENAI_API_KEY" | "CODEX_ACCESS_TOKEN")
+                    }
                     CliProvider::Claude => {
                         matches!(name.as_str(), "ANTHROPIC_API_KEY" | "ANTHROPIC_AUTH_TOKEN")
                     }
@@ -195,9 +197,17 @@ mod tests {
             ("CARGO_HOME", "/home/host/.cargo"),
             ("HOME", "/home/host"),
             ("OPENAI_API_KEY", "synthetic-key"),
+            ("CODEX_ACCESS_TOKEN", "synthetic-codex-token"),
         ];
         let env = selected(CliProvider::Codex, &source);
-        for required in ["TMPDIR", "TEMP", "LANG", "LC_ALL", "OPENAI_API_KEY"] {
+        for required in [
+            "TMPDIR",
+            "TEMP",
+            "LANG",
+            "LC_ALL",
+            "OPENAI_API_KEY",
+            "CODEX_ACCESS_TOKEN",
+        ] {
             assert!(env.iter().any(|(name, _)| name == required), "{required}");
         }
         for denied in [
@@ -223,6 +233,24 @@ mod tests {
             env.iter().find(|(name, _)| name == "HOME").unwrap().1,
             "/private/run"
         );
+    }
+
+    #[test]
+    fn codex_access_token_is_not_forwarded_to_other_providers() {
+        let source = [("CODEX_ACCESS_TOKEN", "synthetic-codex-token")]
+            .map(|(name, value)| (name.to_owned(), value.to_owned()));
+        for provider in [
+            CliProvider::Pi,
+            CliProvider::Claude,
+            CliProvider::Antigravity,
+            CliProvider::OpenCode,
+            CliProvider::Copilot,
+        ] {
+            assert!(
+                filter_environment(provider, source.clone()).is_empty(),
+                "{provider:?} received Codex-only credentials"
+            );
+        }
     }
 
     #[test]
