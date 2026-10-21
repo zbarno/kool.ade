@@ -42,6 +42,18 @@ fn returned(entries: &[(&str, &[u8])]) -> Vec<u8> {
     builder.into_inner().unwrap()
 }
 
+fn returned_with_mode(path: &str, bytes: &[u8], mode: u32) -> Vec<u8> {
+    let mut builder = Builder::new(Vec::new());
+    let mut header = Header::new_gnu();
+    header.set_entry_type(tar::EntryType::Regular);
+    header.set_path(path).unwrap();
+    header.set_size(bytes.len() as u64);
+    header.set_mode(mode);
+    header.set_cksum();
+    builder.append(&header, Cursor::new(bytes)).unwrap();
+    builder.into_inner().unwrap()
+}
+
 fn returned_with_hard_link(path: &str, source: &str, target: &str) -> Vec<u8> {
     let mut builder = Builder::new(Vec::new());
     let mut file = Header::new_gnu();
@@ -312,6 +324,30 @@ fn synchronization_is_idempotent_when_cancellation_and_exec_complete_together() 
         fs::read(fixture.0.join("source.txt")).unwrap(),
         b"container edit"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn synchronization_keeps_container_outputs_readable_to_the_host_owner() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Production boundary: returned Docker archive modes become host clone
+    // modes here; owner readability is required for the next scoped capture.
+    let fixture = Fixture::new();
+    let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();
+    let snapshot = capture(&workspace, 1024 * 1024, false).unwrap();
+    let archive = returned_with_mode("source.txt", b"container output", 0o004);
+
+    synchronize(&workspace, &snapshot, &archive, 1024 * 1024).unwrap();
+
+    let output = fixture.0.join("source.txt");
+    assert_ne!(
+        fs::metadata(&output).unwrap().permissions().mode() & 0o400,
+        0
+    );
+    assert_eq!(fs::read(output).unwrap(), b"container output");
+    capture_scoped(&workspace, ".", 1024 * 1024)
+        .expect("the next scoped capture can read the synchronized output");
 }
 
 #[cfg(unix)]

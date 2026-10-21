@@ -1,7 +1,6 @@
 //! Bounded task-clone staging and optimistic change synchronization.
 mod archive;
 mod artifacts;
-mod failure;
 mod reviewed;
 mod sync;
 
@@ -11,7 +10,6 @@ use std::path::PathBuf;
 
 pub(crate) const MAX_STAGED_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_ENTRIES: usize = 100_000;
-pub(crate) use failure::scoped_capture_failure_reason;
 pub(crate) use reviewed::capture_reviewed;
 #[cfg(test)]
 pub(crate) use reviewed::verify_snapshot_matches_git_tree;
@@ -169,6 +167,38 @@ pub(crate) fn capture_scoped(
     }
     snapshot.scope_root = Some(PathBuf::from(root_relative));
     Ok(snapshot)
+}
+
+fn scoped_capture_failure_reason(error: &anyhow::Error) -> &'static str {
+    let reason = error.to_string();
+    let io_kind = error.chain().find_map(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .map(std::io::Error::kind)
+    });
+    if reason.contains("hard link or special file") {
+        "it contains a hard link"
+    } else if reason.contains("special file") {
+        "it contains a special filesystem entry"
+    } else if reason.contains("symlink") {
+        "it contains a symbolic link"
+    } else if reason.contains("changed while staging") {
+        "the workspace changed while being captured"
+    } else if reason.contains("too many entries") {
+        "the workspace entry limit was exceeded"
+    } else if reason.contains("PermissionDenied")
+        || io_kind == Some(std::io::ErrorKind::PermissionDenied)
+    {
+        "a filesystem entry is not accessible to the controller"
+    } else if reason.contains("NotFound") || io_kind == Some(std::io::ErrorKind::NotFound) {
+        "a filesystem entry disappeared while being captured"
+    } else if reason.contains("exceeds staging budget")
+        || reason.contains("exceeds its staging budget")
+    {
+        "the workspace exceeds its byte limit"
+    } else {
+        "a filesystem safety check failed"
+    }
 }
 
 pub(crate) fn synchronize(

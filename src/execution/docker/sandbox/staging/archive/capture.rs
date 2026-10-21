@@ -76,17 +76,20 @@ fn append_directory(
             "workspace has too many entries"
         );
         let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-        anyhow::ensure!(
-            unsafe {
-                libc::fstatat(
-                    directory.as_raw_fd(),
-                    child_name.as_ptr(),
-                    stat.as_mut_ptr(),
-                    libc::AT_SYMLINK_NOFOLLOW,
-                )
-            } == 0,
-            "workspace entry changed while staging"
-        );
+        let stat_result = unsafe {
+            libc::fstatat(
+                directory.as_raw_fd(),
+                child_name.as_ptr(),
+                stat.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        };
+        if stat_result != 0 {
+            anyhow::bail!(
+                "workspace entry could not be inspected safely: {:?}",
+                std::io::Error::last_os_error().kind()
+            );
+        }
         let stat = unsafe { stat.assume_init() };
         let kind = stat.st_mode & libc::S_IFMT;
         anyhow::ensure!(kind != libc::S_IFLNK, "workspace contains a symlink");
@@ -98,7 +101,12 @@ fn append_directory(
                     libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_DIRECTORY,
                 )
             };
-            anyhow::ensure!(fd >= 0, "workspace directory changed or is unsafe");
+            if fd < 0 {
+                anyhow::bail!(
+                    "workspace directory could not be opened safely: {:?}",
+                    std::io::Error::last_os_error().kind()
+                );
+            }
             let child = unsafe { fs::File::from_raw_fd(fd) };
             let metadata = child.metadata()?;
             let mode = mode_for(&metadata, true, read_only);
@@ -122,7 +130,12 @@ fn append_directory(
                     libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
                 )
             };
-            anyhow::ensure!(fd >= 0, "workspace file changed or is unsafe");
+            if fd < 0 {
+                anyhow::bail!(
+                    "workspace file could not be opened safely: {:?}",
+                    std::io::Error::last_os_error().kind()
+                );
+            }
             let mut file = unsafe { fs::File::from_raw_fd(fd) };
             let metadata = file.metadata()?;
             anyhow::ensure!(
