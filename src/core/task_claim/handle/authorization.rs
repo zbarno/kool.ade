@@ -100,7 +100,19 @@ impl AuthorizationGenerationVerifier for ClaimLeaseHandle {
     }
 
     fn confirm_remote_attempt_lost(&self) -> Result<(), ExecutionError> {
-        self.set_attempt_status(crate::core::task_claim::ClaimExecutionAttemptStatus::ConfirmedLost)
+        self.set_attempt_status(
+            crate::core::task_claim::ClaimExecutionAttemptStatus::ConfirmedLost,
+        )?;
+        *self
+            .authorization_generation
+            .lock()
+            .map_err(|_| fence_error("Remote authorization generation is unavailable"))? =
+            uuid::Uuid::new_v4().hyphenated().to_string();
+        *self
+            .execution_attempt
+            .lock()
+            .map_err(|_| fence_error("Remote execution attempt fence is unavailable"))? = None;
+        Ok(())
     }
 }
 

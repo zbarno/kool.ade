@@ -49,6 +49,21 @@ fn starting_a_new_remote_attempt_fences_the_previous_worker_session() {
         &handle,
     )
     .unwrap();
+    assert!(
+        crate::execution::session::AuthorizationGenerationVerifier::verify(
+            &handle,
+            &old_generation
+        )
+        .is_err(),
+        "the confirmed-lost session stays fenced before retry setup"
+    );
+    let retry_setup_generation =
+        crate::execution::session::AuthorizationGenerationVerifier::generation(&handle);
+    crate::execution::session::AuthorizationGenerationVerifier::verify(
+        &handle,
+        &retry_setup_generation,
+    )
+    .expect("confirmed loss must leave the claim available to establish a new attempt");
     let new_generation =
         crate::execution::session::AuthorizationGenerationVerifier::begin_remote_attempt(
             &handle,
