@@ -21,6 +21,11 @@ fn authenticated_installation_confirmation_survives_store_reload() {
     let gh = bin.join("gh");
     std::fs::write(&gh, "#!/bin/sh\nprintf '987654321\\n'\n").unwrap();
     std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let original_path = std::env::var_os("PATH").unwrap_or_default();
+    let path = std::iter::once(bin.clone())
+        .chain(std::env::split_paths(&original_path))
+        .collect::<Vec<_>>();
+    environment.set("PATH", std::env::join_paths(path).unwrap());
 
     let mut app = crate::app::root::board_tests::fixture();
     let opportunity_uid = {
@@ -126,8 +131,6 @@ fn authenticated_installation_confirmation_survives_store_reload() {
     let expected_revision = run.revision;
     let run_uid = run.run_uid.clone();
     let store_identity = (planning.project_id, planning.root.clone(), planning.mode);
-    environment.set("PATH", &bin);
-
     app.dispatch_ui_command(
         crate::ui::ApplicationCommand::ConfirmSelfImprovementInstallation {
             run_uid: run_uid.clone(),
