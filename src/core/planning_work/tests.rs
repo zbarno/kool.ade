@@ -3,6 +3,8 @@ use crate::artifacts::planning_store::PlanningRoot;
 
 #[path = "tests/branch_independence.rs"]
 mod branch_independence;
+#[path = "tests/code_review_disposition.rs"]
+mod code_review_disposition;
 #[path = "tests/record_files.rs"]
 mod record_files;
 

@@ -30,6 +30,8 @@ pub struct WorkspaceActivity {
     pub(crate) plan_review: Option<crate::app::root::plan_review::PlanReview>,
     pub(crate) plan_review_feature: Option<String>,
     pub(crate) plan_review_revision: Option<String>,
+    pub(crate) code_review_arbitration:
+        Option<crate::app::root::code_review_arbitration::CodeReviewArbitration>,
     pub(crate) spec_reconciliation: Option<crate::app::root::SpecReconciliation>,
     pub(crate) feature_spec_reconciliation:
         Option<crate::app::root::spec_reconciliation::FeatureSpecReconciliation>,

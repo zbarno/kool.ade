@@ -1,6 +1,6 @@
 use super::super::{KooladeApp, Screen};
 use crate::ui::ApplicationCommand;
-
+mod code_review;
 mod task_detail;
 
 impl KooladeApp {
@@ -120,6 +120,12 @@ impl KooladeApp {
             }
             ApplicationCommand::ArchiveTask { ticket } => self.archive_task(&ticket),
             ApplicationCommand::CancelWork { key } => self.cancel_board_work(&key),
+            ApplicationCommand::ApproveCodeReviewRisk {
+                work_id,
+                task_uid,
+                finding_id,
+                subject_hash,
+            } => self.approve_code_review_risk_command(work_id, task_uid, finding_id, subject_hash),
             ApplicationCommand::ApprovePublication { ticket } => self.approve_publication(&ticket),
             ApplicationCommand::RequestPublicationChanges { ticket } => {
                 self.request_publication_changes(&ticket)

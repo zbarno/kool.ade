@@ -40,6 +40,7 @@ pub struct RenderedPrompt {
 pub fn validate_prompt_manifest(manifest: &PromptManifest) -> Result<PromptRole, String> {
     let role = [
         PromptRole::Manager,
+        PromptRole::ManagerV6,
         PromptRole::ManagerV5,
         PromptRole::ManagerV4,
         PromptRole::ManagerV3,
@@ -51,6 +52,7 @@ pub fn validate_prompt_manifest(manifest: &PromptManifest) -> Result<PromptRole,
         PromptRole::Decomposer,
         PromptRole::Implementer,
         PromptRole::CodeReviewer,
+        PromptRole::CodeReviewerV1,
         PromptRole::RuntimeQaReviewer,
         PromptRole::RuntimeQaReviewerV2,
         PromptRole::RuntimeQaScenarioSynthesizer,

@@ -19,6 +19,15 @@ profile; mocked tests prove the application passes them. It does not prove
 every behavior of a provider binary, so real-provider smoke tests remain a
 release follow-up.
 
+The controller-side provider environment rebuilds `PATH` from OS-protected
+directories only. On Unix, every path component must be root-owned and not
+writable by group or other users; on Windows, only the system root and its
+`System32` directory are retained. Relative/empty entries, user-owned paths,
+and paths resolving inside the task checkout or private launch directory are
+removed, including symlinks into those roots. The provider executable itself
+is launched by its validated absolute path, so user-managed CLI install
+directories do not need to be added to child `PATH`.
+
 | Provider | Runtime-checked profile controls | App-owned setup | Authentication and remaining limits |
 | --- | --- | --- | --- |
 | Pi | print/JSON mode, no session, no context files, no extension/skill/template/theme discovery, no built-in tools, explicit tool list/extension, selected provider/model/thinking level | `PI_CODING_AGENT_DIR`, package/session directories, explicit Kool.ad/e extension, offline mode | API auth variables remain controller-side. A real installed Pi smoke test is not part of mandatory CI. |
@@ -41,7 +50,9 @@ filtered environment, generated values, isolated controller working
 directory, and that MCP authority matches the mode's `ToolAccess`. The
 application-boundary tests also verify no-access behavior for each provider,
 profile argv/environment binding, and rejection of missing capabilities or
-post-validation drift.
+post-validation drift. The six-provider invocation matrix additionally places
+a synthetic command in the task checkout's `bin` directory and verifies that
+the spawned controller process cannot find or run it through inherited `PATH`.
 
 The hosted `tests and Docker runtime` job runs these tests in parallel with the
 complete all-target nextest suite. A focused profile test step runs the

@@ -214,6 +214,9 @@ fn approved_python_recipe_receipts_select_web_qa_and_persist_hash_bound_evidence
         use crate::harness::prompt_catalog::{CoverageStatus, CoverageV1, ReviewVerdictV1};
         Ok(ReviewVerdictV1 {
             subject_hash: evidence.sha256()?,
+            examined_files: Vec::new(),
+            tested_evidence_ids: Vec::new(),
+            unexamined_areas: Vec::new(),
             pass: true,
             outcome: None,
             coverage: vec![CoverageV1 {

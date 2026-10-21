@@ -3,7 +3,6 @@ use std::path::Path;
 use crate::harness::execution_security::CliProvider;
 
 const RUNTIME_ENV: &[&str] = &[
-    "PATH",
     "TMPDIR",
     "TMP",
     "TEMP",
@@ -45,17 +44,92 @@ const COPILOT_AUTH_ENV: &[&str] = &["GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_
 pub(crate) fn provider_environment(
     provider: CliProvider,
     cwd: &Path,
+    workspace_root: &Path,
     explicit: &[(String, String)],
-) -> Vec<(String, String)> {
+) -> anyhow::Result<Vec<(String, String)>> {
     let mut result = filter_environment(provider, std::env::vars());
     if !result.iter().any(|(name, _)| name == "HOME") {
         result.push(("HOME".into(), cwd.to_string_lossy().into_owned()));
     }
+    let requested_path = explicit
+        .iter()
+        .rev()
+        .find(|(name, _)| name == "PATH")
+        .map(|(_, value)| value.as_str())
+        .map(str::to_owned)
+        .or_else(|| std::env::var("PATH").ok())
+        .unwrap_or_default();
     for (name, value) in explicit {
+        if name == "PATH" {
+            continue;
+        }
         result.retain(|(existing, _)| existing != name);
         result.push((name.clone(), value.clone()));
     }
-    result
+    result.retain(|(name, _)| name != "PATH");
+    result.push((
+        "PATH".into(),
+        safe_provider_path(&requested_path, cwd, workspace_root)?,
+    ));
+    Ok(result)
+}
+
+fn safe_provider_path(value: &str, cwd: &Path, workspace_root: &Path) -> anyhow::Result<String> {
+    let blocked_roots = [cwd.canonicalize()?, workspace_root.canonicalize()?];
+    let mut accepted = Vec::new();
+    for entry in std::env::split_paths(std::ffi::OsStr::new(value)) {
+        // Relative and empty PATH entries resolve against the child CWD, so
+        // they can make repository files executable during provider startup.
+        if !entry.is_absolute() {
+            continue;
+        }
+        let Ok(entry) = entry.canonicalize() else {
+            continue;
+        };
+        if !entry.is_dir()
+            || blocked_roots.iter().any(|root| entry.starts_with(root))
+            || !trusted_runtime_directory(&entry)
+            || accepted.contains(&entry)
+        {
+            continue;
+        }
+        accepted.push(entry);
+    }
+    Ok(std::env::join_paths(accepted)
+        .map_err(|error| anyhow::anyhow!("clean provider PATH is invalid: {error}"))?
+        .to_string_lossy()
+        .into_owned())
+}
+
+#[cfg(unix)]
+fn trusted_runtime_directory(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    path.ancestors().all(|ancestor| {
+        ancestor
+            .metadata()
+            .is_ok_and(|metadata| metadata.uid() == 0 && metadata.mode() & 0o022 == 0)
+    })
+}
+
+#[cfg(windows)]
+fn trusted_runtime_directory(path: &Path) -> bool {
+    let Some(system_root) = std::env::var_os("SystemRoot") else {
+        return false;
+    };
+    let Ok(system_root) = Path::new(&system_root).canonicalize() else {
+        return false;
+    };
+    path == system_root
+        || system_root
+            .join("System32")
+            .canonicalize()
+            .is_ok_and(|system32| path == system32)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn trusted_runtime_directory(_: &Path) -> bool {
+    false
 }
 
 fn filter_environment(
@@ -123,10 +197,11 @@ mod tests {
             ("OPENAI_API_KEY", "synthetic-key"),
         ];
         let env = selected(CliProvider::Codex, &source);
-        for required in ["PATH", "TMPDIR", "TEMP", "LANG", "LC_ALL", "OPENAI_API_KEY"] {
+        for required in ["TMPDIR", "TEMP", "LANG", "LC_ALL", "OPENAI_API_KEY"] {
             assert!(env.iter().any(|(name, _)| name == required), "{required}");
         }
         for denied in [
+            "PATH",
             "NODE_OPTIONS",
             "GIT_CONFIG",
             "GIT_CONFIG_GLOBAL",
@@ -152,15 +227,19 @@ mod tests {
 
     #[test]
     fn app_generated_runtime_values_override_the_baseline() {
+        let cwd = std::env::temp_dir();
         let env = provider_environment(
             CliProvider::Pi,
-            Path::new("/private/run"),
+            &cwd,
+            &cwd,
             &[("PI_OFFLINE".into(), "1".into())],
-        );
+        )
+        .unwrap();
         assert!(
             env.iter()
                 .any(|(name, value)| name == "PI_OFFLINE" && value == "1")
         );
+        assert!(env.iter().any(|(name, _)| name == "PATH"));
     }
 
     #[test]
@@ -177,5 +256,88 @@ mod tests {
             })
         );
         assert!(!env.iter().any(|(name, _)| name == "GOOGLE_API_KEY"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn provider_path_removes_repository_relative_and_symlink_entries() {
+        use std::os::unix::fs::symlink;
+
+        let root =
+            std::env::temp_dir().join(format!("koolade-provider-path-{}", uuid::Uuid::new_v4()));
+        let workspace = root.join("workspace");
+        let repo_bin = workspace.join("bin");
+        let user_bin = root.join("user-bin");
+        let private_cwd = root.join("private-cwd");
+        for directory in [&repo_bin, &user_bin, &private_cwd] {
+            std::fs::create_dir_all(directory).unwrap();
+        }
+        let repo_alias = root.join("repo-bin-alias");
+        symlink(&repo_bin, &repo_alias).unwrap();
+        let input = std::env::join_paths([
+            repo_bin.as_path(),
+            repo_alias.as_path(),
+            user_bin.as_path(),
+            Path::new("/usr/bin"),
+            std::path::Path::new("relative-bin"),
+            std::path::Path::new(""),
+        ])
+        .unwrap();
+
+        let filtered =
+            safe_provider_path(&input.to_string_lossy(), &private_cwd, &workspace).unwrap();
+        let entries = std::env::split_paths(std::ffi::OsStr::new(&filtered)).collect::<Vec<_>>();
+        assert!(!entries.contains(&repo_bin.canonicalize().unwrap()));
+        assert!(!entries.contains(&repo_alias.canonicalize().unwrap()));
+        assert!(!entries.contains(&user_bin.canonicalize().unwrap()));
+        assert!(entries.iter().all(|entry| trusted_runtime_directory(entry)));
+        let system_bin = Path::new("/usr/bin").canonicalize();
+        if let Ok(system_bin) = system_bin
+            && trusted_runtime_directory(&system_bin)
+        {
+            assert!(entries.contains(&system_bin));
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_provider_path_keeps_only_system_root_and_system32() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let system_root = std::env::var_os("SystemRoot")
+            .expect("Windows should provide SystemRoot")
+            .into_string()
+            .expect("SystemRoot should be Unicode");
+        let system_root = Path::new(&system_root).canonicalize().unwrap();
+        let system32 = system_root.join("System32").canonicalize().unwrap();
+        let test_root = std::env::temp_dir().join(format!(
+            "koolade-provider-path-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let workspace = test_root.join("workspace");
+        let repo_bin = workspace.join("bin");
+        let user_bin = test_root.join("user-bin");
+        let private_cwd = test_root.join("private-cwd");
+        for directory in [&repo_bin, &user_bin, &private_cwd] {
+            std::fs::create_dir_all(directory).unwrap();
+        }
+        let input = std::env::join_paths([
+            system_root.as_path(),
+            system32.as_path(),
+            user_bin.as_path(),
+            std::path::Path::new("relative-bin"),
+        ])
+        .unwrap();
+
+        let filtered =
+            safe_provider_path(&input.to_string_lossy(), &private_cwd, &workspace).unwrap();
+        let entries = std::env::split_paths(std::ffi::OsStr::new(&filtered)).collect::<Vec<_>>();
+        assert_eq!(entries, [system_root, system32]);
+        std::fs::remove_dir_all(test_root).unwrap();
     }
 }

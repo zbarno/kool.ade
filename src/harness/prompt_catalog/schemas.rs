@@ -18,8 +18,8 @@ pub use planner::{
     ReadinessV2, TechnicalResolutionV1,
 };
 pub use review::{
-    CoverageStatus, CoverageV1, FindingKind, ReviewFindingV1, ReviewOutcomeV1, ReviewVerdictV1,
-    Severity,
+    CoverageStatus, CoverageV1, FindingKind, FindingScopeV1, ReviewFindingActionV1,
+    ReviewFindingV1, ReviewLocationV1, ReviewOutcomeV1, ReviewVerdictV1, Severity,
 };
 pub use runtime_qa::QaScenarioDraftV1;
 pub use task_graph::{SubtaskDraftV1, TaskDraftV1, TaskGraphV1};

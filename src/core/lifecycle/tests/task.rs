@@ -268,5 +268,6 @@ fn repair_cycles_and_review_history_are_bounded_and_replay_safe() {
         .unwrap();
     }
     assert_eq!(task.repair_attempts, 3);
+    assert!(task.repair_budget_exhausted());
     assert_eq!(task.review_history.len(), 4);
 }

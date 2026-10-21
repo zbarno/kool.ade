@@ -1,4 +1,5 @@
 use crate::{app::session::Project, core::lifecycle::LifecycleStore};
+mod code_review;
 mod task_relations;
 use task_relations::relation_for_planning_uid;
 
@@ -119,6 +120,8 @@ pub(super) fn for_ticket(
                 }
             })
         });
+    let (current_code_review, code_review_load_error, code_review_dispositions) =
+        code_review::details(project, &task);
     (
         Some(crate::ui::task_detail::LifecycleView {
             feature_uid: task.feature_uid.clone(),
@@ -130,6 +133,10 @@ pub(super) fn for_ticket(
             subtasks,
             task_revision: task.revision,
             code_review: task.code_review,
+            code_review_attempts: task.review_history,
+            current_code_review,
+            code_review_dispositions,
+            code_review_load_error,
             runtime_qa: task.runtime_qa,
             runtime_qa_run_id: task
                 .qa_execution
