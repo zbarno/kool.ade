@@ -50,6 +50,10 @@ fn snapshot() -> EngineSnapshot {
     }
 }
 
+fn test_workspace() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+}
+
 struct FakeApi {
     inspect_count: AtomicUsize,
     image_count: AtomicUsize,
@@ -183,12 +187,12 @@ fn engine_probe_cache_is_short_lived_and_explicitly_invalidatable() {
         },
         api.clone(),
     );
-    let first: EngineReadiness = block_on(discovery.probe(Path::new("/tmp"))).unwrap();
-    let second = block_on(discovery.probe(Path::new("/tmp"))).unwrap();
+    let first: EngineReadiness = block_on(discovery.probe(test_workspace())).unwrap();
+    let second = block_on(discovery.probe(test_workspace())).unwrap();
     assert!(first.ready && second.ready);
     assert_eq!(api.inspect_count.load(Ordering::SeqCst), 1);
     discovery.invalidate();
-    block_on(discovery.probe(Path::new("/tmp"))).unwrap();
+    block_on(discovery.probe(test_workspace())).unwrap();
     assert_eq!(api.inspect_count.load(Ordering::SeqCst), 2);
 }
 
@@ -208,7 +212,7 @@ fn engine_health_probe_is_read_only_and_never_prepares_an_image() {
         api.clone(),
     );
 
-    let readiness = block_on(discovery.probe(Path::new("/tmp"))).unwrap();
+    let readiness = block_on(discovery.probe(test_workspace())).unwrap();
 
     assert!(readiness.ready);
     assert_eq!(api.inspect_count.load(Ordering::SeqCst), 1);
