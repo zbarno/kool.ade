@@ -17,6 +17,16 @@ mod unapproved_denial;
 /// moderate (one worker and one task clone).
 #[test]
 fn ssh_worker_mounts_confirmed_private_file_read_only_for_executor_uid() {
+    run_private_file_grant_e2e(GrantTermination::Completed);
+}
+
+/// Production boundary: verifies that an operator revocation observed during
+/// an authenticated SSH execution cancels the rootless Docker process and
+/// withholds its workspace result. Unit tests cannot prove the live worker
+/// cancellation and result-application path. Requires rootless Docker, loopback
+/// sshd, and the remote worker binary; setup is moderate.
+#[test]
+fn ssh_worker_stops_active_execution_when_private_file_grant_is_revoked() {
     run_private_file_grant_e2e(GrantTermination::Revoked);
 }
 
@@ -128,7 +138,7 @@ fn run_private_file_grant_e2e(termination: GrantTermination) {
                 }
                 // Leave enough time for SSH and worker startup, then let the
                 // controller observe expiry while the remote command sleeps.
-                GrantTermination::Expires => 20_000,
+                GrantTermination::Expires => 60_000,
                 GrantTermination::Completed => {
                     crate::execution::remote::private_files::MAX_PRIVATE_FILE_GRANT_TTL_MS
                 }
@@ -170,7 +180,7 @@ fn run_private_file_grant_e2e(termination: GrantTermination) {
         )
     } else {
         format!(
-            "test \"$(sha256sum /koolade-private-files/.env.production | cut -d' ' -f1)\" = '{expected_digest}' && if printf probe >> /koolade-private-files/.env.production 2>/dev/null; then exit 41; fi && printf 'private-file-read-only-ok\\n' && sleep 45 && printf 'stale-private-result\\n' > remote-private-result.txt"
+            "test \"$(sha256sum /koolade-private-files/.env.production | cut -d' ' -f1)\" = '{expected_digest}' && if printf probe >> /koolade-private-files/.env.production 2>/dev/null; then exit 41; fi && printf 'private-file-read-only-ok\\n' && sleep 90 && printf 'stale-private-result\\n' > remote-private-result.txt"
         )
     };
     if matches!(termination, GrantTermination::Completed) {
@@ -219,14 +229,15 @@ fn run_private_file_grant_e2e(termination: GrantTermination) {
     let mut controller = Some(std::thread::spawn(move || {
         run_session.run_tool_command(&command, Duration::from_secs(120))
     }));
-    two_controllers::wait_for_remote_stdout(
+    two_controllers::wait_for_remote_lifecycle(
         &session,
-        "private-file-read-only-ok",
+        crate::execution::contract::ExecutionLifecycleV1::Running,
         &mut controller,
         &task_home_path,
         &root_path.join("sshd.log"),
     );
     if matches!(termination, GrantTermination::Revoked) {
+        std::thread::sleep(Duration::from_millis(500));
         crate::persistence::remote_private_file_grants::revoke(
             &crate::persistence::state_root(),
             &project_id,
