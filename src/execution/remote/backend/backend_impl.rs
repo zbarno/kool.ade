@@ -162,6 +162,10 @@ impl ExecutionBackend for RemoteExecutionBackend {
                     &request.task_id,
                     worker_id,
                     &request.image_digest,
+                    execution_started_at
+                        .elapsed()
+                        .as_millis()
+                        .min(u64::MAX as u128) as u64,
                 );
             }
             drop(grant_use);
