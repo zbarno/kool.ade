@@ -13,7 +13,14 @@ impl KooladeApp {
         };
         let Some(session) = session else { return };
         let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
-        self.start_implementation_with_claim_mode(ticket, true, capabilities, Some(session), false);
+        self.start_implementation_with_claim_mode(
+            ticket,
+            true,
+            capabilities,
+            Some(session),
+            false,
+            false,
+        );
     }
 
     pub(in crate::app::root) fn start_implementation(&mut self, ticket: String, manual: bool) {
@@ -25,7 +32,7 @@ impl KooladeApp {
     /// cross-clone coordination. Automatic starts cannot reach this entry point.
     pub(in crate::app::root) fn start_without_shared_coordination(&mut self, ticket: String) {
         let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
-        self.start_implementation_with_claim_mode(ticket, true, capabilities, None, true);
+        self.start_implementation_with_claim_mode(ticket, true, capabilities, None, true, false);
     }
 
     pub(in crate::app::root) fn start_implementation_with_capabilities(
@@ -34,6 +41,11 @@ impl KooladeApp {
         manual: bool,
         capabilities: crate::harness::runtime_capabilities::RuntimeCapabilities,
     ) {
-        self.start_implementation_with_claim_mode(ticket, manual, capabilities, None, false);
+        self.start_implementation_with_claim_mode(ticket, manual, capabilities, None, false, false);
+    }
+
+    pub(in crate::app::root) fn start_lifecycle_pr_publication(&mut self, ticket: String) {
+        let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
+        self.start_implementation_with_claim_mode(ticket, true, capabilities, None, false, true);
     }
 }

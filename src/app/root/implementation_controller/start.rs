@@ -1,6 +1,7 @@
 use super::*;
 mod actions;
 mod claim;
+mod publication_retry;
 mod review;
 mod target_error;
 
@@ -12,6 +13,7 @@ impl KooladeApp {
         capabilities: crate::harness::runtime_capabilities::RuntimeCapabilities,
         stale_session: Option<String>,
         allow_offline: bool,
+        lifecycle_pr_publication: bool,
     ) {
         if matches!(&self.screen, Screen::Connected(p) if p.active_implementations.contains_key(&ticket) || p.active_implementations.len() >= p.queue.max_parallel.clamp(1, 8))
         {
@@ -30,7 +32,11 @@ impl KooladeApp {
                 return;
             }
             if p.implementation_states.get(&ticket).is_some_and(|state| {
-                state.pr_url.is_some() || state.status == ImplementationStatus::Completed
+                publication_retry::is_terminal(
+                    state.status,
+                    state.pr_url.is_some(),
+                    lifecycle_pr_publication,
+                )
             }) {
                 return;
             }
@@ -127,14 +133,15 @@ impl KooladeApp {
                 p.queue.last_error = reason;
                 return;
             }
-            let explicit_publish = manual
-                && p.implementation_states.get(&ticket).is_some_and(|state| {
-                    matches!(
-                        state.status,
-                        ImplementationStatus::ReadyToPublish
-                            | ImplementationStatus::AwaitingApproval
-                    )
-                });
+            let explicit_publish = lifecycle_pr_publication
+                || (manual
+                    && p.implementation_states.get(&ticket).is_some_and(|state| {
+                        matches!(
+                            state.status,
+                            ImplementationStatus::ReadyToPublish
+                                | ImplementationStatus::AwaitingApproval
+                        )
+                    }));
             let requested_changes = p
                 .implementation_states
                 .get(&ticket)

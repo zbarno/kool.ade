@@ -51,7 +51,7 @@ impl KooladeApp {
             Screen::Welcome => Err("connect a project before authorizing publication".into()),
         };
         match validation {
-            Ok(()) => self.start_implementation(ticket.to_owned(), true),
+            Ok(()) => self.start_lifecycle_pr_publication(ticket.to_owned()),
             Err(error) => self.toasts.warning(error),
         }
     }
