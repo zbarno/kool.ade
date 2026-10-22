@@ -7,6 +7,43 @@ use crate::{
     },
 };
 
+pub(crate) fn app_fixture() -> (KooladeApp, PlanningStore, std::path::PathBuf) {
+    let app = super::board_tests::fixture();
+    let (planning, repo_root) = match &app.screen {
+        Screen::Connected(project) => (
+            project.state.planning_store.clone(),
+            project.state.repo_root.clone(),
+        ),
+        _ => panic!("board fixture should be connected"),
+    };
+    (app, planning, repo_root)
+}
+
+pub(crate) fn refresh_planning_state(app: &mut KooladeApp, planning: &PlanningStore) {
+    let Screen::Connected(project) = &mut app.screen else {
+        panic!("board fixture should be connected")
+    };
+    project.state.planning_store = planning.clone();
+    project.state.repositories = ProjectManifest::load(planning).unwrap();
+    project.state.baseline_planning_revision = planning.revision().unwrap();
+}
+
+pub(crate) fn decide_product_pursuit(
+    app: &mut KooladeApp,
+    opportunity_uid: &str,
+    expected_revision: u64,
+    gh: &std::path::Path,
+) -> Option<String> {
+    app.decide_opportunity_with_gh(
+        opportunity_uid,
+        expected_revision,
+        crate::harness::prompt_catalog::OpportunityChoice::Pursue,
+        None,
+        gh,
+    );
+    app.toasts.last_message().map(|message| message.to_owned())
+}
+
 pub(crate) fn app_with_publication(
     planning: &PlanningStore,
     implementation: Implementation,

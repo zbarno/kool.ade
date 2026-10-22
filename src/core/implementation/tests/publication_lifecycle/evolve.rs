@@ -1,12 +1,11 @@
 use super::LifecycleFixture;
 use crate::{
-    artifacts::planning_store::paths,
+    artifacts::planning_store::{PlanningStore, paths},
     core::{
         opportunity::{
-            EvidenceConfidentialityV1, OpportunityDecisionKindV1, OpportunityEvidenceRefV1,
-            OpportunityExploreModeV1, OpportunityKindV1, OpportunityOriginV1,
-            OpportunitySaveResult, OpportunityScopeV1, OpportunityStatusV1, OpportunityStore,
-            OpportunityTargetKindV1, OpportunityTargetV1, OpportunityV1,
+            EvidenceConfidentialityV1, OpportunityEvidenceRefV1, OpportunityExploreModeV1,
+            OpportunityKindV1, OpportunityOriginV1, OpportunitySaveResult, OpportunityScopeV1,
+            OpportunityStore, OpportunityTargetKindV1, OpportunityTargetV1, OpportunityV1,
         },
         project_repos::{ProjectManifest, stable_uid},
         self_improvement::{
@@ -14,11 +13,19 @@ use crate::{
             SelfImprovementStore,
         },
     },
-    harness::prompt_catalog::{OpportunityChoice, OpportunityDecisionV1 as UserDecision},
 };
 
-pub(super) fn seed_pr_pending_run(fixture: &LifecycleFixture, source_sha: &str) -> String {
-    let store = &fixture.store;
+pub(super) fn save_product_proposal(
+    store: &PlanningStore,
+    repository_root: &std::path::Path,
+    source_sha: &str,
+) -> (String, u64) {
+    crate::artifacts::migration::bootstrap_product_with_store(
+        repository_root,
+        store,
+        "Synthetic Kool.ad/e pursuit fixture",
+    )
+    .unwrap();
     let workspace_uid = store.project_id.hyphenated().to_string();
     let mut manifest = ProjectManifest::load(store).unwrap();
     manifest
@@ -83,7 +90,7 @@ pub(super) fn seed_pr_pending_run(fixture: &LifecycleFixture, source_sha: &str) 
         generic_workaround: None,
         proposed_approach: "Cover the combined production boundary".into(),
         dedup_fingerprint: "c".repeat(64),
-        status: OpportunityStatusV1::Proposed,
+        status: crate::core::opportunity::OpportunityStatusV1::Proposed,
         revision: 1,
     };
     let OpportunitySaveResult::Created {
@@ -93,67 +100,15 @@ pub(super) fn seed_pr_pending_run(fixture: &LifecycleFixture, source_sha: &str) 
     else {
         panic!("fixture opportunity should be new")
     };
-    let decision = UserDecision {
-        uid: uid(),
-        opportunity_uid: proposal.opportunity_uid.clone(),
-        revision_hash: proposal.revision_hash().unwrap(),
-        user_id: "synthetic-controller".into(),
-        decision: OpportunityChoice::Pursue,
-        occurred_at: "2026-10-20T12:00:00Z".into(),
-        snooze_until: None,
-        explanation: Some("Synthetic explicit Pursue action".into()),
-    };
-    let decision = opportunities
-        .record_user_decision(record_revision, &decision, "synthetic-controller")
-        .unwrap();
-    let crate::core::opportunity::OpportunityDecisionResult::Recorded { decision, .. } = decision
-    else {
-        panic!("fixture Pursue action should be new")
-    };
-    assert_eq!(decision.decision, OpportunityDecisionKindV1::Pursue);
+    (proposal.opportunity_uid, record_revision)
+}
 
-    let run_uid = SelfImprovementStore::run_uid_for_decision(&decision.uid).unwrap();
-    let mut run = SelfImprovementStore::new(store)
-        .create_from_pursued(
-            &opportunities,
-            &decision.uid,
-            SelfImprovementRunV1 {
-                schema_version: 3,
-                run_uid: run_uid.clone(),
-                opportunity_uid: proposal.opportunity_uid,
-                approved_decision_uid: decision.uid.clone(),
-                target_repository_uid: repository_uid,
-                canonical_remote: "https://github.com/zbarno/kool.ade".into(),
-                source_ref: None,
-                source_sha: source_sha.into(),
-                destination_ref: None,
-                feature_uid: fixture.task.feature_uid.clone(),
-                parent_run_uid: None,
-                chain_depth: 0,
-                capability_id: None,
-                task_uids: Vec::new(),
-                owner_task_uid: None,
-                parent_task_progress: Vec::new(),
-                clone_uid: None,
-                plan_approval_hash: None,
-                independent_plan_review_uid: None,
-                implementation_head_sha: None,
-                implementation_subject_sha256: None,
-                code_review_uids: Vec::new(),
-                runtime_qa_uids: Vec::new(),
-                spec_receipt_uid: None,
-                pr_work_item_uid: None,
-                pr_url: None,
-                merged_sha: None,
-                installed_version: None,
-                installed_build_commit_sha: None,
-                activated_version: None,
-                phase: Phase::ApprovedToPlan,
-                revision: 0,
-            },
-        )
-        .unwrap();
-    let runs = SelfImprovementStore::new(store);
+pub(super) fn seed_pr_pending_run(fixture: &LifecycleFixture, run_uid: &str, source_sha: &str) {
+    let runs = SelfImprovementStore::new(&fixture.store);
+    let mut run = runs.load(run_uid).unwrap();
+    assert_eq!(run.phase, Phase::Planning);
+    assert_eq!(run.feature_uid, fixture.task.feature_uid);
+    assert_eq!(run.source_sha, source_sha);
     apply(
         &runs,
         &mut run,
@@ -228,7 +183,6 @@ pub(super) fn seed_pr_pending_run(fixture: &LifecycleFixture, source_sha: &str) 
         },
     );
     assert_eq!(run.phase, Phase::PrPending);
-    run_uid
 }
 
 fn apply(runs: &SelfImprovementStore<'_>, run: &mut SelfImprovementRunV1, event: Event) {

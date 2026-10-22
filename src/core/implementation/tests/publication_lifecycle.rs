@@ -9,14 +9,15 @@ use crate::core::lifecycle::{LifecycleStore, PullRequestPreparationStatus};
 #[path = "publication_lifecycle/evolve.rs"]
 mod evolve;
 
-/// Production boundary: explicit authorization, Git push, provider PR
-/// creation/readback, and Evolve app projection after a lost response and
-/// file-backed store/app reconstruction. The invariant is that ambiguity stays
-/// PrPending and recovery opens the same PR once; reducer tests cannot prove
-/// this durable cross-module handoff.
+/// Production boundary: authenticated app Pursue, persisted Evolve run,
+/// explicit publication authorization, Git push, provider PR creation/readback,
+/// and app projection after a lost response and store/app reconstruction. The
+/// invariant is that an unknown provider outcome stays PrPending and recovery
+/// opens the same PR once. Unit tests cannot prove this durable cross-module
+/// handoff. Plan/review/QA/spec receipts remain synthetic at this boundary.
 /// Uses a temporary task clone, local SSH remote, fake `gh`, and headless app
 /// fixture; no external network, Docker, model, or browser. Setup cost is a
-/// temporary local repository plus a few provider-fixture subprocesses.
+/// temporary repository, lifecycle store, and a few provider-fixture processes.
 #[test]
 fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_pr() {
     let sandbox = Sandbox::new();
@@ -48,15 +49,67 @@ fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_
     let reviewed_head = sandbox.git(&state.task_repository, &["rev-parse", "HEAD"]);
     state.verified_head = Some(reviewed_head.clone());
 
-    let fixture = LifecycleFixture::with_subtask_head(
-        reviewed_head.len(),
+    let (mut pursuit_app, planning, product_root) =
+        crate::app::root::self_improvement_test_support::app_fixture();
+    let (opportunity_uid, opportunity_revision) =
+        evolve::save_product_proposal(&planning, &product_root, &state.base_commit);
+    crate::app::root::self_improvement_test_support::refresh_planning_state(
+        &mut pursuit_app,
+        &planning,
+    );
+    let identity_gh = sandbox.root.join("identity-gh");
+    fs::write(
+        &identity_gh,
+        "#!/bin/sh\n[ \"$1\" = api ] && [ \"$2\" = user ] || exit 2\nprintf '987654321\\n'\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&identity_gh, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let pursue_message = crate::app::root::self_improvement_test_support::decide_product_pursuit(
+        &mut pursuit_app,
+        &opportunity_uid,
+        opportunity_revision,
+        &identity_gh,
+    );
+    assert!(
+        pursue_message
+            .as_deref()
+            .is_some_and(|message| message.contains("self-improvement run were added")),
+        "app Pursue should create a self-improvement run, got: {pursue_message:?}"
+    );
+    let opportunities = crate::core::opportunity::OpportunityStore::new(&planning);
+    let decision = opportunities
+        .decision_for_opportunity(&opportunity_uid)
+        .unwrap()
+        .expect("the app Pursue action persists its decision");
+    assert_eq!(decision.user_id, "github:987654321");
+    let run_uid =
+        crate::core::self_improvement::SelfImprovementStore::run_uid_for_decision(&decision.uid)
+            .unwrap();
+    let pursued_run = crate::core::self_improvement::SelfImprovementStore::new(&planning)
+        .load(&run_uid)
+        .unwrap();
+    assert_eq!(
+        pursued_run.phase,
+        crate::core::self_improvement::SelfImprovementPhaseV1::Planning
+    );
+    assert!(pursued_run.clone_uid.is_none());
+
+    let fixture = LifecycleFixture::with_store(
+        planning.clone(),
+        product_root,
+        pursued_run.feature_uid,
         &reviewed_head,
         state
             .task_uid
             .clone()
             .expect("fixture task has lifecycle binding"),
+        true,
     );
-    let run_uid = evolve::seed_pr_pending_run(&fixture, &state.base_commit);
+    evolve::seed_pr_pending_run(&fixture, &run_uid, &state.base_commit);
     let store = fixture.store.clone();
     let lifecycle = LifecycleStore::new(&store);
     let LifecyclePublicationGate::Authorized(_binding) =
