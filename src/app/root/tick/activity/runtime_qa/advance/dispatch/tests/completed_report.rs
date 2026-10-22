@@ -1,6 +1,10 @@
 use crate::runtime_qa::*;
 
-fn save_infrastructure_report(store: &RuntimeQaStore, task_uid: &str, request: &QaRunRequestV1) {
+pub(super) fn save_infrastructure_report(
+    store: &RuntimeQaStore,
+    task_uid: &str,
+    request: &QaRunRequestV1,
+) {
     let scenario = QaScenarioV1 {
         schema_version: 1,
         id: uuid::Uuid::new_v4().hyphenated().to_string(),

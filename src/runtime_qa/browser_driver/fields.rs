@@ -91,7 +91,9 @@ pub(super) fn string_array(value: &Value, key: &str, max: usize) -> Result<Vec<S
 pub(super) fn state_text(value: &Value, key: &str) -> Result<Option<String>, String> {
     let state = object(value, key)?;
     let url = state.get("url").and_then(Value::as_str).unwrap_or("");
-    if !url.is_empty() && url != "about:blank" {
+    let page = if url.is_empty() || url == "about:blank" {
+        "blank"
+    } else {
         let parsed = Url::parse(url).map_err(|_| "browser driver recorded an invalid URL")?;
         if parsed.origin().ascii_serialization() != "http://qa-preview:8080"
             || !parsed.username().is_empty()
@@ -99,10 +101,17 @@ pub(super) fn state_text(value: &Value, key: &str) -> Result<Option<String>, Str
         {
             return Err("browser driver recorded a URL outside the app-owned preview relay".into());
         }
-    }
+        if parsed.path() == "/" {
+            "preview root"
+        } else {
+            "preview page"
+        }
+    };
     let title = state.get("title").and_then(Value::as_str).unwrap_or("");
-    let text = format!("url={url}; title={title}");
-    Ok(Some(text.chars().take(4096).collect()))
+    let text = format!("page={page}; title={title}");
+    Ok(Some(
+        crate::runtime_qa::diagnostic_redaction::sanitized_reason(&text),
+    ))
 }
 
 pub(super) fn bounded_u16(value: u64) -> Result<u16, String> {

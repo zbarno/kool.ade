@@ -27,6 +27,10 @@ pub(super) fn record_persisted_report(
         return Ok(None);
     };
     validate_request_identity(request, &persisted_request)?;
+    let receipt = match result.outcome {
+        QaOutcome::Pass | QaOutcome::Fail => Some(qa_store.load_gate_receipt(&request.qa_run_id)?),
+        QaOutcome::Incomplete | QaOutcome::InfrastructureBlocked => None,
+    };
     // Create clarification cards and persist Manager-owned dispositions before
     // advancing lifecycle state. A replay recovers the same decision IDs.
     let mut dispositions = result
@@ -45,10 +49,6 @@ pub(super) fn record_persisted_report(
         disposition.decision_id = decision_ids.get(&disposition.finding_id).cloned();
         qa_store.save_disposition(disposition)?;
     }
-    let receipt = match result.outcome {
-        QaOutcome::Pass | QaOutcome::Fail => Some(qa_store.load_gate_receipt(&request.qa_run_id)?),
-        QaOutcome::Incomplete | QaOutcome::InfrastructureBlocked => None,
-    };
     let namespace = uuid::Uuid::parse_str(&task.task_uid)
         .map_err(|_| "runtime QA lifecycle task identity is invalid")?;
     let event_uid = uuid::Uuid::new_v5(

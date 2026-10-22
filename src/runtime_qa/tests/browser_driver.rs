@@ -96,15 +96,21 @@ fn browser_driver_report_is_bound_to_the_request_and_relay_origin() {
         "actions": [{
             "index": 0,
             "action": "browser_open",
-            "args_redacted": {},
+            "args_redacted": {
+                "url": "https://qa-preview:8080/?access_token=argument-secret",
+                "password": "field-secret"
+            },
             "pre_state": { "url": "about:blank", "title": "" },
-            "post_state": { "url": "http://qa-preview:8080/", "title": "Preview" },
+            "post_state": {
+                "url": "http://qa-preview:8080/settings?access_token=state-secret",
+                "title": "Preview"
+            },
             "screenshot_ids": [],
             "status": "observed"
         }],
         "screenshots": [],
-        "console_errors": [],
-        "failed_requests": [],
+        "console_errors": ["Authorization: Bearer abc123 /tmp/private-profile"],
+        "failed_requests": ["https://private.example/path?token=private-token"],
         "policy_violation": null
     });
     let bytes = serde_json::to_vec(&report).unwrap();
@@ -113,6 +119,17 @@ fn browser_driver_report_is_bound_to_the_request_and_relay_origin() {
     assert!(output.completed);
     assert_eq!(output.actions.len(), 1);
     assert_eq!(output.actions[0].command, "open");
+    let observed_state = output.actions[0].post_state.as_deref().unwrap();
+    assert!(observed_state.contains("preview page"));
+    assert!(!observed_state.contains("state-secret"));
+    assert!(!observed_state.contains("access_token"));
+    assert!(!observed_state.contains("qa-preview"));
+    assert!(
+        output.actions[0]
+            .args_redacted
+            .values()
+            .all(|value| !value.contains("argument-secret") && !value.contains("field-secret"))
+    );
 
     let mut escaped = report;
     escaped["actions"][0]["post_state"]["url"] = "http://127.0.0.1:4173/".into();
@@ -120,6 +137,99 @@ fn browser_driver_report_is_bound_to_the_request_and_relay_origin() {
     assert!(
         super::super::browser_driver::parse_browser_output(&bytes, &request, &scenario).is_err()
     );
+}
+
+#[test]
+fn structured_browser_errors_are_redacted_before_becoming_evidence() {
+    let request = request();
+    let scenario = scenario(&request);
+    let mut report = serde_json::json!({
+        "schema_version": 1,
+        "qa_run_id": request.qa_run_id,
+        "scenario_id": scenario.id,
+        "task_uid": request.parent_task_uid,
+        "code_sha": request.code_head_sha,
+        "build_sha256": request.build_artifact_sha256,
+        "approved_spec_hash": request.approved_spec_hash,
+        "driver_profile_version": request.driver_profile_version,
+        "outcome": "failed",
+        "origin": "http://qa-preview:8080",
+        "viewport": { "width": 1280, "height": 720 },
+        "driver_version": "Authorization: Bearer driver-secret /tmp/driver-profile",
+        "actions": [],
+        "screenshots": [],
+        "console_errors": [
+            "Authorization: Bearer abc123 /tmp/private-profile",
+            r#"{"access_token":"console-secret"}"#,
+            r#"{"accessToken":"camel-secret"}"#,
+            r#"{"message":"failed","accessToken":"later-json-secret"}"#,
+            "token: console-key",
+            "API key: spaced-secret"
+        ],
+        "failed_requests": [
+            "https://private.example/path?token=private-token",
+            "https://qa-preview:8080/reset?access_token=query-secret"
+        ],
+        "policy_violation": null,
+        "error": "Authorization: Bearer abc123 /tmp/private-profile"
+    });
+
+    let output = super::super::browser_driver::parse_browser_output(
+        &serde_json::to_vec(&report).unwrap(),
+        &request,
+        &scenario,
+    )
+    .unwrap();
+    let diagnostic = output.failure.as_deref().unwrap();
+    assert!(diagnostic.contains("[redacted]"));
+    assert!(!diagnostic.contains("abc123"));
+    assert!(!diagnostic.contains("/tmp/private-profile"));
+    assert!(output.logs.iter().all(|line| !line.contains("abc123")));
+    assert!(
+        output
+            .logs
+            .iter()
+            .all(|line| !line.contains("/tmp/private-profile"))
+    );
+    assert!(
+        output
+            .logs
+            .iter()
+            .all(|line| !line.contains("driver-secret"))
+    );
+    assert!(
+        output
+            .logs
+            .iter()
+            .all(|line| !line.contains("/tmp/driver-profile"))
+    );
+    let console = output.browser_console.join(" ");
+    assert!(console.contains("[redacted]"));
+    assert!(!console.contains("abc123"));
+    assert!(!console.contains("/tmp/private-profile"));
+    assert!(!console.contains("console-secret"));
+    assert!(!console.contains("camel-secret"));
+    assert!(!console.contains("later-json-secret"));
+    assert!(!console.contains("console-key"));
+    assert!(!console.contains("spaced-secret"));
+    let failed_requests = output.failed_requests.join(" ");
+    assert!(failed_requests.contains("[redacted]"));
+    assert!(!failed_requests.contains("private.example"));
+    assert!(!failed_requests.contains("private-token"));
+    assert!(!failed_requests.contains("query-secret"));
+
+    report["outcome"] = "completed".into();
+    report["error"] = serde_json::Value::Null;
+    report["policy_violation"] = "token=private-token".into();
+    let output = super::super::browser_driver::parse_browser_output(
+        &serde_json::to_vec(&report).unwrap(),
+        &request,
+        &scenario,
+    )
+    .unwrap();
+    assert!(!output.completed);
+    assert!(output.failure.as_deref().unwrap().contains("[redacted]"));
+    assert!(!output.failure.as_deref().unwrap().contains("private-token"));
 }
 
 #[test]

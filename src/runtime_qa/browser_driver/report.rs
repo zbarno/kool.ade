@@ -41,7 +41,7 @@ pub fn parse_browser_output(
     let policy_violation = report
         .get("policy_violation")
         .and_then(Value::as_str)
-        .map(|value| value.chars().take(4096).collect::<String>());
+        .map(crate::runtime_qa::diagnostic_redaction::sanitized_reason);
     let raw_actions = array(&report, "actions")?;
     let has_failed_action = raw_actions
         .iter()
@@ -69,11 +69,13 @@ pub fn parse_browser_output(
         let args = object(raw, "args_redacted")?
             .iter()
             .filter_map(|(key, value)| {
-                let value = match value {
+                let raw_value = match value {
                     Value::String(text) => text.clone(),
                     Value::Null => return None,
                     _ => value.to_string(),
                 };
+                let (key, value) =
+                    crate::runtime_qa::diagnostic_redaction::sanitized_field(key, &raw_value);
                 Some((
                     key.chars().take(128).collect(),
                     value.chars().take(512).collect(),
@@ -209,15 +211,19 @@ pub fn parse_browser_output(
     let viewport = object(&report, "viewport")?;
     let width = bounded_u16(number_map(viewport, "width")?)?;
     let height = bounded_u16(number_map(viewport, "height")?)?;
-    let driver = text(&report, "driver_version")?.to_owned();
+    let driver =
+        crate::runtime_qa::diagnostic_redaction::sanitized_reason(text(&report, "driver_version")?);
     let mut logs = vec![driver];
-    let report_error = report.get("error").and_then(Value::as_str);
+    let report_error = report
+        .get("error")
+        .and_then(Value::as_str)
+        .map(crate::runtime_qa::diagnostic_redaction::sanitized_reason);
     let failure = if interaction_failure {
         None
     } else {
-        report_error.or(policy_violation.as_deref())
+        report_error.as_deref().or(policy_violation.as_deref())
     };
-    if let Some(error) = report_error {
+    if let Some(error) = &report_error {
         logs.push(error.chars().take(4096).collect());
     }
     Ok(QaDriverOutputV1 {
@@ -236,7 +242,13 @@ pub fn parse_browser_output(
         assertions,
         logs,
         crashes: Vec::new(),
-        browser_console: string_array(&report, "console_errors", 128)?,
-        failed_requests: string_array(&report, "failed_requests", 128)?,
+        browser_console: string_array(&report, "console_errors", 128)?
+            .iter()
+            .map(|diagnostic| crate::runtime_qa::diagnostic_redaction::sanitized_reason(diagnostic))
+            .collect(),
+        failed_requests: string_array(&report, "failed_requests", 128)?
+            .iter()
+            .map(|diagnostic| crate::runtime_qa::diagnostic_redaction::sanitized_reason(diagnostic))
+            .collect(),
     })
 }

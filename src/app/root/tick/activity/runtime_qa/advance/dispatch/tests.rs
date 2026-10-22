@@ -18,12 +18,21 @@ fn failed_worker_start_persists_block_and_returns_no_handle() {
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, _revision) = fixture::queued_task(&lifecycle);
     let run_id = request.qa_run_id.clone();
-    let lock_path = root.path().join(&run_id).join("worker.lock");
-    let result = start_worker_or_block(&lifecycle, &task_uid, &run_id, &lock_path, || {
-        Err(worker::StartError::Failed(
-            "simulated worker thread spawn failure".into(),
-        ))
-    });
+    let qa_root = root.path().join("qa");
+    let qa_store = crate::runtime_qa::RuntimeQaStore::new(&qa_root);
+    let lock_path = qa_root.join(&run_id).join("worker.lock");
+    let result = start_worker_or_block(
+        &lifecycle,
+        &qa_store,
+        &task_uid,
+        &request,
+        &lock_path,
+        || {
+            Err(worker::StartError::Failed(
+                "simulated worker thread spawn failure".into(),
+            ))
+        },
+    );
     assert!(
         matches!(result, Err(DispatchStartError::Blocked { reason, persistence_error: None }) if reason == "simulated worker thread spawn failure")
     );
@@ -62,11 +71,18 @@ fn active_worker_contention_keeps_qa_run_pending() {
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, _revision) = fixture::queued_task(&lifecycle);
     let run_id = request.qa_run_id.clone();
-    let lock_path = root.path().join(&run_id).join("worker.lock");
+    let qa_root = root.path().join("qa");
+    let qa_store = crate::runtime_qa::RuntimeQaStore::new(&qa_root);
+    let lock_path = qa_root.join(&run_id).join("worker.lock");
     let worker_lock = worker::acquire_run_lock(&lock_path).unwrap();
-    let result = start_worker_or_block(&lifecycle, &task_uid, &run_id, &lock_path, || {
-        Err(worker::StartError::Failed("simulated restart race".into()))
-    });
+    let result = start_worker_or_block(
+        &lifecycle,
+        &qa_store,
+        &task_uid,
+        &request,
+        &lock_path,
+        || Err(worker::StartError::Failed("simulated restart race".into())),
+    );
 
     assert!(matches!(result, Err(DispatchStartError::ActiveWorker)));
     let task = lifecycle.load_task(&task_uid).unwrap();
@@ -74,6 +90,54 @@ fn active_worker_contention_keeps_qa_run_pending() {
     assert_eq!(execution.status, QaExecutionStatusV1::Pending);
     assert_eq!(execution.request.unwrap().qa_run_id, run_id);
     drop(worker_lock);
+}
+
+#[test]
+// Production boundary: a valid report written while a restart attempt is
+// failing must survive the handler's lock reacquisition instead of being
+// replaced by a blocker. Uses a file-backed lifecycle, QA store, and lock;
+// no Docker or network setup.
+fn persisted_report_wins_over_dispatch_failure_after_lock_reacquisition() {
+    let root = tempfile::tempdir().unwrap();
+    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+        uuid::Uuid::new_v4(),
+        root.path(),
+    );
+    let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
+    let (task_uid, request, revision) = fixture::queued_task(&lifecycle);
+    lifecycle
+        .claim_runtime_qa_worker(
+            &task_uid,
+            revision,
+            &uuid::Uuid::new_v4().hyphenated().to_string(),
+            &request,
+        )
+        .unwrap();
+    let qa_root = root.path().join("qa");
+    let qa_store = crate::runtime_qa::RuntimeQaStore::new(&qa_root);
+    let lock_path = qa_root.join(&request.qa_run_id).join("worker.lock");
+    let result = start_worker_or_block(
+        &lifecycle,
+        &qa_store,
+        &task_uid,
+        &request,
+        &lock_path,
+        || {
+            completed_report::save_infrastructure_report(&qa_store, &task_uid, &request);
+            Err(worker::StartError::Failed("simulated restart race".into()))
+        },
+    );
+
+    assert!(matches!(result, Err(DispatchStartError::ReportPresent)));
+    assert_eq!(
+        lifecycle
+            .load_task(&task_uid)
+            .unwrap()
+            .qa_execution
+            .unwrap()
+            .status,
+        QaExecutionStatusV1::Running
+    );
 }
 
 #[test]

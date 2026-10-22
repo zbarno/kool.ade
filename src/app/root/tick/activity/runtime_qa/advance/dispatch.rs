@@ -26,10 +26,16 @@ enum DispatchStartError {
     },
 }
 
+enum DispatchFailureRecovery {
+    Blocked,
+    ReportPresent,
+}
+
 fn start_worker_or_block(
     lifecycle: &crate::core::lifecycle::LifecycleStore<'_>,
+    qa_store: &crate::runtime_qa::RuntimeQaStore,
     task_uid: &str,
-    qa_run_id: &str,
+    request: &crate::runtime_qa::QaRunRequestV1,
     lock_path: &std::path::Path,
     start: impl FnOnce() -> Result<crate::runtime_qa::QaWorkerHandle, worker::StartError>,
 ) -> Result<crate::runtime_qa::QaWorkerHandle, DispatchStartError> {
@@ -38,6 +44,7 @@ fn start_worker_or_block(
         Err(worker::StartError::ActiveWorker) => Err(DispatchStartError::ActiveWorker),
         Err(worker::StartError::ReportPresent) => Err(DispatchStartError::ReportPresent),
         Err(worker::StartError::Failed(reason)) => {
+            let qa_run_id = &request.qa_run_id;
             let lock = match worker::acquire_run_lock(lock_path) {
                 Ok(lock) => lock,
                 Err(worker::RunLockError::ActiveWorker) => {
@@ -52,7 +59,7 @@ fn start_worker_or_block(
                     });
                 }
             };
-            let blocked = lifecycle
+            let recovery = lifecycle
                 .load_task(task_uid)
                 .map_err(|error| error.to_string())
                 .and_then(|task| {
@@ -61,14 +68,16 @@ fn start_worker_or_block(
                             execution.status,
                             crate::core::lifecycle::QaExecutionStatusV1::Pending
                                 | crate::core::lifecycle::QaExecutionStatusV1::Running
-                        ) || execution
-                            .request
-                            .as_ref()
-                            .is_none_or(|request| request.qa_run_id != qa_run_id)
+                        ) || execution.request.as_ref() != Some(request)
                     }) {
                         return Err(
                             "queued request changed before dispatch failure was recorded".into(),
                         );
+                    }
+                    if super::super::reports::persisted_report_state(qa_store, request, true)
+                        == super::super::reports::PersistedReportState::Recordable
+                    {
+                        return Ok(DispatchFailureRecovery::ReportPresent);
                     }
                     let namespace = uuid::Uuid::parse_str(task_uid)
                         .map_err(|_| "runtime QA task identity is invalid".to_owned())?;
@@ -86,14 +95,23 @@ fn start_worker_or_block(
                             qa_run_id,
                             reason.clone(),
                         )
-                        .map(|_| ())
+                        .map(|_| DispatchFailureRecovery::Blocked)
                         .map_err(|error| error.to_string())
                 });
             drop(lock);
-            Err(DispatchStartError::Blocked {
-                reason,
-                persistence_error: blocked.err(),
-            })
+            match recovery {
+                Ok(DispatchFailureRecovery::ReportPresent) => {
+                    Err(DispatchStartError::ReportPresent)
+                }
+                Ok(DispatchFailureRecovery::Blocked) => Err(DispatchStartError::Blocked {
+                    reason,
+                    persistence_error: None,
+                }),
+                Err(persistence_error) => Err(DispatchStartError::Blocked {
+                    reason,
+                    persistence_error: Some(persistence_error),
+                }),
+            }
         }
     }
 }
@@ -146,6 +164,7 @@ pub(super) fn dispatch_queued_worker(
         match approved {
             Ok((validated_revision, approved)) => {
                 let qa_run_id = prepared.request.qa_run_id.clone();
+                let expected_request = prepared.request.clone();
                 let lock_path = store_root.join(&qa_run_id).join("worker.lock");
                 let current = lifecycle.load_task(&task_uid);
                 if !current.as_ref().is_ok_and(|task| {
@@ -158,8 +177,9 @@ pub(super) fn dispatch_queued_worker(
                 }
                 match start_worker_or_block(
                     &lifecycle,
+                    &store,
                     &task_uid,
-                    &qa_run_id,
+                    &expected_request,
                     &lock_path,
                     || {
                         worker::start(

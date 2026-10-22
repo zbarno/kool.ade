@@ -3,6 +3,7 @@
 pub(crate) mod applicability_review;
 mod browser_driver;
 mod contracts;
+pub(super) mod diagnostic_redaction;
 pub(crate) mod drivers;
 mod gate;
 mod orchestrator;
