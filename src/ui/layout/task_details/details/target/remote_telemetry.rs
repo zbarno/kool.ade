@@ -29,6 +29,10 @@ pub(super) fn paint(
         metric(telemetry.result_download_ms)
     ));
     ui.label(format!(
+        "Remote Start request: {}",
+        duration(telemetry.worker_start_rpc_ms)
+    ));
+    ui.label(format!(
         "Remote execution wall time: {}",
         duration(telemetry.execution_wall_ms)
     ));
@@ -39,6 +43,9 @@ pub(super) fn paint(
     ));
     if let Some(digest) = &telemetry.image_digest {
         ui.add(egui::Label::new(format!("Remote image digest: {digest}")).wrap());
+    }
+    if let Some(code) = telemetry.failure_code {
+        ui.label(format!("Remote failure code: {code:?}"));
     }
 }
 

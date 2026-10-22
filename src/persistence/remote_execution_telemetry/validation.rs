@@ -12,7 +12,7 @@ pub(super) fn validate_id(id: &str) -> anyhow::Result<()> {
 pub(super) fn validate(record: &RemoteExecutionTelemetryV1) -> anyhow::Result<()> {
     validate_id(&record.execution_id)?;
     anyhow::ensure!(
-        matches!(record.schema_version, 1..=4)
+        matches!(record.schema_version, 1..=5)
             && [record.workspace_upload_bytes, record.result_download_bytes]
                 .iter()
                 .flatten()
@@ -21,6 +21,9 @@ pub(super) fn validate(record: &RemoteExecutionTelemetryV1) -> anyhow::Result<()
                 .iter()
                 .flatten()
                 .all(|value| *value <= MAX_MS)
+            && record
+                .worker_start_rpc_ms
+                .is_none_or(|value| value <= MAX_MS)
             && record.execution_wall_ms.is_none_or(|value| value <= MAX_MS)
             && record
                 .execution_cpu_millis

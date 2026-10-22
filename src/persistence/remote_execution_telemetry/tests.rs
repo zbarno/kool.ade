@@ -19,6 +19,8 @@ fn merges_upload_and_download_metrics_without_sensitive_fields() {
         record.execution_wall_ms = Some(90);
         record.execution_cpu_millis = Some(12);
         record.execution_peak_memory_bytes = Some(4096);
+        record.worker_start_rpc_ms = Some(21);
+        record.failure_code = Some(crate::execution::errors::ExecutionErrorKind::ExecutionFailed);
     })
     .unwrap();
     let record = load_at(home.path(), &id).unwrap().unwrap();
@@ -34,6 +36,11 @@ fn merges_upload_and_download_metrics_without_sensitive_fields() {
     assert_eq!(record.execution_wall_ms, Some(90));
     assert_eq!(record.execution_cpu_millis, Some(12));
     assert_eq!(record.execution_peak_memory_bytes, Some(4096));
+    assert_eq!(record.worker_start_rpc_ms, Some(21));
+    assert_eq!(
+        record.failure_code,
+        Some(crate::execution::errors::ExecutionErrorKind::ExecutionFailed)
+    );
     assert_eq!(
         record.image_digest.as_deref(),
         Some(format!("sha256:{}", "a".repeat(64)).as_str())
@@ -54,6 +61,12 @@ fn rejects_worker_rebinding_and_unbounded_metrics() {
         update_at(home.path(), &id, &id, "worker-1", |r| r
             .workspace_upload_bytes =
             Some(MAX_BYTES + 1))
+        .is_err()
+    );
+    assert!(
+        update_at(home.path(), &id, &id, "worker-1", |r| r
+            .worker_start_rpc_ms =
+            Some(MAX_MS + 1))
         .is_err()
     );
 }
@@ -142,6 +155,8 @@ fn legacy_zero_placeholders_are_loaded_as_unrecorded_metrics() {
     assert_eq!(record.result_download_ms, None);
     assert_eq!(record.execution_cpu_millis, Some(37));
     assert_eq!(record.execution_peak_memory_bytes, Some(4096));
+    assert_eq!(record.worker_start_rpc_ms, None);
+    assert_eq!(record.failure_code, None);
 }
 
 #[test]
@@ -186,6 +201,8 @@ fn updating_legacy_record_preserves_its_previous_time_ordering_proxy() {
     assert_eq!(record.started_at_unix_ms, Some(previous_modified));
     assert_eq!(record.execution_cpu_millis, None);
     assert_eq!(record.execution_peak_memory_bytes, None);
+    assert_eq!(record.worker_start_rpc_ms, None);
+    assert_eq!(record.failure_code, None);
 }
 
 #[test]
