@@ -24,8 +24,8 @@ Style constraints (`AGENTS.md`): directory module layout, never `mod.rs`, split 
 **Runtime constraints.**
 
 - Single-writer per clone: queue and publication locks arbitrate across windows sharing a Git common directory. Independent clones coordinate implementation of the same task through remote claims. With no configured origin, manual and automatic work remain usable with a visible local-only warning. If a configured origin is unreachable, an explicit manual start may proceed with that warning while automatic work waits for remote coordination (`docs/artifact-layout.md`).
-- The AI boundary is a Pi CLI child process only; no embedded model. Turn timeouts default to twelve hours and are fixed when a turn begins (`README.md`).
-- Autonomous capabilities (sandboxed planning reads, investigation, implementation) require Bubblewrap on Linux x86_64; without it those modes stop with setup guidance while the planning UI remains available. The provider relay accepts only a private HTTP OpenAI-compatible endpoint; public/HTTPS endpoints fail closed (`README.md`, Host execution capabilities).
+- The AI boundary is a supported CLI provider child process; no embedded model. Turn timeouts default to twelve hours and are fixed when a turn begins (`README.md`).
+- Repository tools run only through the application-owned Docker execution contract. Local execution requires rootless Docker on Linux; remote execution uses the authenticated SSH worker with a verified host identity. Missing or unsupported targets fail closed while context-only planning remains available. No provider receives direct repository tools or a host-shell fallback (`docs/docker-engine-prerequisites.md`; `docs/execution-architecture-v1.md`).
 - Environment knobs: `KOOLADE_HOME`, `KOOLADE_TURN_TIMEOUT_SECS`, and `KOOLADE_PI_BIN` (discovery order documented in `docs/exit-demo-runbook.md`).
 
 **Safety properties exercised by tests.**
