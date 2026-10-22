@@ -89,9 +89,38 @@ PR [#296](https://github.com/zbarno/kool.ade/pull/296) passed on 2026-10-22
 ([quality run](https://github.com/zbarno/kool.ade/actions/runs/39779969714),
 [image run](https://github.com/zbarno/kool.ade/actions/runs/39779969708)) and has
 since merged. Those checks provide evidence for private-file output suppression
-and the reviewed images; cross-platform support and the broader two-host remote
-acceptance remain unverified release gates. Update this section with the exact
-workflow run, platform, test names, and date before release sign-off.
+and the reviewed images.
+
+### Hosted evidence snapshot: PR #302
+
+The following additional evidence is from PR [#302](https://github.com/zbarno/kool.ade/pull/302)
+at head `74946359390980ea30e5a392e4478be23b8d4a37`, against `main` at
+`2e60c0f758dc6a8b73252f2e104f7903897683a5`. The hosted
+[quality workflow](https://github.com/zbarno/kool.ade/actions/runs/39841917236)
+completed on 2026-10-22. Its `tests and Docker runtime`, `Docker-only runtime`,
+format, documentation, and Clippy jobs passed on that head.
+The separate [trusted-image run](https://github.com/zbarno/kool.ade/actions/runs/39841917107)
+also passed for the same head, including both Linux rootless QA candidate smoke
+tests described below.
+
+| Area | Evidence from the hosted run | Status and limit |
+| --- | --- | --- |
+| Linux rootless Docker | The [`tests and Docker runtime` job](../.github/workflows/ci.yml#L28) starts Docker Engine v29.9.0 in rootless mode, asserts Linux and the `name=rootless` security option, then runs Nextest with `KOOLADE_DOCKER_BACKEND_INTEGRATION=1`. | **Verified in hosted Linux CI.** This does not establish Docker Desktop support. |
+| Authenticated SSH worker E2E | The [same job](../.github/workflows/ci.yml#L50) requires `sshd`, sets `KOOLADE_REMOTE_DOCKER_BACKEND_INTEGRATION=1` and `KOOLADE_REQUIRE_SSHD_E2E=1`, and runs the suite. Coverage includes [`remote_docker_worker_restores_authorized_npm_cache_without_container_network`](../src/harness/resource_bridge/tests/end_to_end/remote/cache_restore.rs), [`ssh_worker_applies_verified_remote_file_change_to_the_task_clone`](../src/harness/resource_bridge/tests/end_to_end/remote/task_roundtrip.rs), [`ssh_worker_restart_reconciles_started_exec_and_rejects_partial_result`](../src/harness/resource_bridge/tests/end_to_end/remote/worker_restart.rs), and [`git_claim_takeover_fences_the_stale_remote_worker_result`](../src/harness/resource_bridge/tests/end_to_end/remote/claim_takeover.rs). | **Verified against loopback SSH and the same rootless daemon.** This is not a separate-host run. |
+| Provider roles and app-owned MCP | [`fake_provider_invocations_cover_all_modes_and_launch_profiles`](../src/harness/execution_security/application_boundary/providers/tests/invocation_matrix.rs) and [`every_provider_role_calls_only_its_application_owned_mcp_authority`](../src/harness/execution_security/application_boundary/providers/tests/provider_mcp_e2e.rs) use fake provider executables. [`every_mode_has_equal_repository_tool_authority_across_all_providers`](../src/harness/execution_security/application_boundary/providers/tests/role_authority.rs) and [`every_user_role_keeps_its_intended_mode_and_provider_authority`](../src/harness/execution_security/application_boundary/providers/tests/role_authority.rs) compare generated configuration. | **Mock-verified.** No vendor CLI prompt or provider API was used; vendor-specific runtime interpretation remains **Unavailable / unverified**. |
+| Network and private-file denial | [`authorized_npm_restore_blocks_malicious_install_egress_and_host_secrets`](../src/harness/resource_bridge/tests/end_to_end/npm_malicious.rs) runs in the rootless Docker integration suite. | **Verified for this fixture and path.** It is not a complete adversarial image, network, and filesystem matrix. |
+| Docker-only static assertion | The `Docker-only runtime` job runs [`scripts/assert-docker-only.sh`](../scripts/assert-docker-only.sh). | **Static assertion passed.** It does not prove legacy persisted task-state migration. |
+| Concurrent controller sessions and worker recovery | [`concurrent_ssh_controllers_share_worker_and_reject_revoked_result`](../src/harness/resource_bridge/tests/end_to_end/remote/two_controllers.rs), [`ssh_worker_restart_reconciles_started_exec_and_rejects_partial_result`](../src/harness/resource_bridge/tests/end_to_end/remote/worker_restart.rs), and [`git_claim_takeover_fences_the_stale_remote_worker_result`](../src/harness/resource_bridge/tests/end_to_end/remote/claim_takeover.rs) ran in the loopback SSH suite. | **Verified for those fixtures.** Separate controller processes, two separate workers, resource contention, and two-host loss recovery remain **unverified**. |
+| Cancellation and bounded container cleanup | [`docker_engine_create_exec_cancel_and_cleanup_are_owned_and_bounded`](../src/execution/docker/backend/tests/docker_engine.rs) ran in the rootless integration suite. | **Verified for the covered lifecycle.** |
+| Linux QA candidate image lifecycle | The [trusted-image workflow](../.github/workflows/executor-images.yml#L307) ran [`rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate`](../src/execution/docker/qa_container/tests/desktop_rootless.rs) for `desktop_qa` and [`rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up`](../src/execution/docker/qa_container/tests/browser_rootless/run.rs) for `browser_qa` on rootless Linux. | **Passed for these Linux image-level smoke tests.** They do not establish user-facing Runtime QA availability or production UI behavior; Runtime QA remains unavailable in product support claims. |
+| Legacy runtime migration and platform support | The static assertion and this hosted full-suite pass do not prove preservation of legacy execution records, dirty clones, approvals, and evidence during Docker migration. macOS and Windows Docker Desktop E2E are absent. | **Unverified.** Keep these capabilities out of production support claims until dedicated evidence is recorded. |
+
+The workflow and test names above are reproducible from the linked run and
+source paths in this repository. A green test suite is not release approval:
+the Docker cutover checklist remains blocked until each applicable unchecked
+item has its own current evidence, including the separate-host, provider,
+migration, and platform gaps listed here. Rootful local Docker does not count
+as evidence for the rootless policy.
 
 The executor is a practical isolation boundary, not a claim of perfect
 containment for hostile code. Docker daemon access and host mounts are powerful
