@@ -3,7 +3,7 @@ use crate::{
     execution::errors::ExecutionError,
     project_runtime::{
         AppTargetV1, ExecutionRecipeV1, ProjectCapabilityManifestV1, ProjectRuntimeStore,
-        RecipeSource,
+        RecipeSource, RuntimeOperation,
     },
 };
 
@@ -73,6 +73,11 @@ fn approved_recipe_matches(
     target: &AppTargetV1,
     recipe: &ExecutionRecipeV1,
 ) -> bool {
+    let stored_recipe = manifest
+        .recipes
+        .iter()
+        .chain(manifest.user_overrides.iter())
+        .find(|candidate| candidate.recipe_id == recipe.recipe_id);
     let mut approved = recipe.clone();
     let root = &target.project_relative_root;
     let normalize = |path: &str| {
@@ -104,5 +109,36 @@ fn approved_recipe_matches(
         Ok(paths) => paths,
         Err(_) => return false,
     };
-    runtime.recipe_is_locally_approved(manifest, target, &approved)
+    if stored_recipe != Some(&approved) {
+        return false;
+    }
+    match &recipe.source {
+        RecipeSource::TrustedAdapter => recipe_operation(target, recipe).is_some_and(|operation| {
+            runtime
+                .verify_execution_provenance(manifest, target, operation)
+                .is_ok()
+        }),
+        RecipeSource::UserApproved => {
+            runtime.recipe_is_locally_approved(manifest, target, &approved)
+        }
+        RecipeSource::ValidatedProjectConfig => false,
+    }
+}
+
+fn recipe_operation(target: &AppTargetV1, recipe: &ExecutionRecipeV1) -> Option<RuntimeOperation> {
+    let mut operations = [
+        (target.build_recipe_ref.as_deref() == Some(recipe.recipe_id.as_str()))
+            .then_some(RuntimeOperation::Build),
+        target
+            .test_recipe_refs
+            .iter()
+            .any(|recipe_id| recipe_id == &recipe.recipe_id)
+            .then_some(RuntimeOperation::Test),
+        (target.start_recipe_ref.as_deref() == Some(recipe.recipe_id.as_str()))
+            .then_some(RuntimeOperation::Start),
+    ]
+    .into_iter()
+    .flatten();
+    let operation = operations.next()?;
+    operations.next().is_none().then_some(operation)
 }
