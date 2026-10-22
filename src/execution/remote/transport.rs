@@ -11,6 +11,9 @@ const STDERR_LIMIT: usize = 64 * 1024;
 
 pub(super) trait RemoteRpcTransport: Send {
     fn send(&mut self, envelope: &protocol::EnvelopeV1) -> io::Result<()>;
+    fn send_compat_health(&mut self, envelope: &protocol::EnvelopeV1) -> io::Result<()> {
+        self.send(envelope)
+    }
     fn send_private_file_chunk(
         &mut self,
         _envelope: &protocol::EnvelopeV1,
@@ -38,6 +41,7 @@ pub struct SshTransport {
     stderr: Arc<Mutex<Vec<u8>>>,
     outbound: protocol::SessionValidator,
     inbound: protocol::SessionValidator,
+    legacy_health_pending: bool,
 }
 
 impl SshTransport {
@@ -75,6 +79,7 @@ impl SshTransport {
             stderr,
             outbound: protocol::SessionValidator::default(),
             inbound: protocol::SessionValidator::default(),
+            legacy_health_pending: false,
         })
     }
 
@@ -87,6 +92,13 @@ impl SshTransport {
         }
         self.outbound.accept(envelope)?;
         protocol::write_frame(&mut self.input, envelope)
+    }
+
+    pub fn send_compat_health(&mut self, envelope: &protocol::EnvelopeV1) -> io::Result<()> {
+        self.outbound.accept_compat_health_request(envelope)?;
+        protocol::write_frame(&mut self.input, envelope)?;
+        self.legacy_health_pending = true;
+        Ok(())
     }
 
     pub(crate) fn send_private_file_chunk(
@@ -113,7 +125,12 @@ impl SshTransport {
         let Some(envelope) = frame else {
             return Ok(None);
         };
-        self.inbound.accept(&envelope)?;
+        if self.legacy_health_pending {
+            self.inbound.accept_compat_health_response(&envelope)?;
+            self.legacy_health_pending = false;
+        } else {
+            self.inbound.accept(&envelope)?;
+        }
         Ok(Some(envelope))
     }
 
@@ -139,6 +156,10 @@ impl SshTransport {
 impl RemoteRpcTransport for SshTransport {
     fn send(&mut self, envelope: &protocol::EnvelopeV1) -> io::Result<()> {
         SshTransport::send(self, envelope)
+    }
+
+    fn send_compat_health(&mut self, envelope: &protocol::EnvelopeV1) -> io::Result<()> {
+        SshTransport::send_compat_health(self, envelope)
     }
 
     fn send_private_file_chunk(
@@ -190,7 +211,7 @@ mod tests {
 
     fn private_chunk() -> protocol::EnvelopeV1 {
         protocol::EnvelopeV1 {
-            version: protocol::PROTOCOL_VERSION_V1,
+            version: protocol::PROTOCOL_VERSION_V2,
             request_id: "00000000-0000-4000-8000-000000000151".into(),
             execution_id: "00000000-0000-4000-8000-000000000152".into(),
             sequence: 1,
@@ -222,6 +243,7 @@ mod tests {
             stderr: Arc::new(Mutex::new(Vec::new())),
             outbound: protocol::SessionValidator::default(),
             inbound: protocol::SessionValidator::default(),
+            legacy_health_pending: false,
         };
         let mut transport = transport;
 

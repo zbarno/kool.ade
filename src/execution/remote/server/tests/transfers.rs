@@ -176,7 +176,7 @@ fn remote_cache_transfer_validates_chunks_before_staging_snapshot() {
             sequence += 1;
             request_kinds.push(kind.clone());
             let envelope = EnvelopeV1 {
-                version: protocol::PROTOCOL_VERSION_V1,
+                version: protocol::PROTOCOL_VERSION_V2,
                 request_id: format!("00000000-0000-4000-8000-{:012}", sequence),
                 execution_id: "00000000-0000-4000-8000-000000000000".into(),
                 sequence,

@@ -33,6 +33,7 @@ fn legacy_completed_record_without_cleanup_timing_remains_valid() {
             process_count: 0,
             disk_bytes: 0,
         },
+        phase_timings: Default::default(),
         artifacts: Vec::new(),
         failure: None,
     });

@@ -1,14 +1,14 @@
 use super::*;
-use crate::execution::remote::protocol::{EnvelopeKindV1, PROTOCOL_VERSION_V1};
+use crate::execution::remote::protocol::{EnvelopeKindV1, PROTOCOL_VERSION_V2};
 
 fn request(id: &str) -> EnvelopeV1 {
     EnvelopeV1 {
-        version: PROTOCOL_VERSION_V1,
+        version: PROTOCOL_VERSION_V2,
         request_id: id.into(),
         execution_id: "00000000-0000-4000-8000-000000000002".into(),
         sequence: 1,
         kind: EnvelopeKindV1::Health,
-        payload: serde_json::json!({"wire_version": PROTOCOL_VERSION_V1}),
+        payload: serde_json::json!({"wire_version": PROTOCOL_VERSION_V2}),
     }
 }
 
@@ -39,7 +39,7 @@ fn conflicting_request_id_and_corrupt_journal_fail_closed() {
     let request = request("00000000-0000-4000-8000-000000000001");
     assert_eq!(journal.reserve(&request).unwrap(), Lookup::New);
     let mut conflict = request.clone();
-    conflict.payload = serde_json::json!({"wire_version": 2});
+    conflict.payload = serde_json::json!({"wire_version": PROTOCOL_VERSION_V2 + 1});
     assert_eq!(
         journal.reserve(&conflict).unwrap_err().kind(),
         io::ErrorKind::InvalidData

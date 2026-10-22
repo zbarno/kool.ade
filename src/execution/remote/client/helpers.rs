@@ -4,7 +4,7 @@ use crate::execution::{
 };
 
 use super::super::{
-    protocol::{EnvelopeKindV1 as Kind, PROTOCOL_VERSION_V1},
+    protocol::{EnvelopeKindV1 as Kind, PROTOCOL_VERSION_V2},
     ssh::{SshWorkerConfig, VerifiedSshWorker},
 };
 
@@ -25,10 +25,17 @@ pub(super) fn negotiated_probe(
     }
     let ack: HealthAck = serde_json::from_value(payload)
         .map_err(|error| incompatible_with(format!("invalid worker health response: {error}")))?;
-    if ack.wire_version != PROTOCOL_VERSION_V1 || ack.probe.wire_version != PROTOCOL_VERSION_V1 {
+    if ack.wire_version != PROTOCOL_VERSION_V2 {
         return Err(incompatible_with(format!(
-            "worker wire version mismatch: response={}, probe={}, expected={PROTOCOL_VERSION_V1}",
-            ack.wire_version, ack.probe.wire_version
+            "worker protocol version mismatch: worker={}, controller={PROTOCOL_VERSION_V2}",
+            ack.wire_version
+        )));
+    }
+    let execution_wire_version = crate::execution::contract::EXECUTION_WIRE_VERSION_V1;
+    if ack.probe.wire_version != execution_wire_version {
+        return Err(incompatible_with(format!(
+            "worker execution wire version mismatch: worker={}, controller={execution_wire_version}",
+            ack.probe.wire_version
         )));
     }
     if ack.authenticated_principal != expected_principal {
@@ -102,7 +109,7 @@ pub(in crate::execution::remote) fn matches_response(request: &Kind, response: &
 
 pub(super) fn unavailable_probe() -> BackendProbeV1 {
     BackendProbeV1 {
-        wire_version: PROTOCOL_VERSION_V1,
+        wire_version: crate::execution::contract::EXECUTION_WIRE_VERSION_V1,
         available: false,
         compatible: false,
         architecture: None,
@@ -145,9 +152,27 @@ mod tests {
 
     #[test]
     fn negotiated_health_rejects_incompatible_wire_versions() {
-        for (response_version, probe_version) in [
-            (PROTOCOL_VERSION_V1 + 1, PROTOCOL_VERSION_V1),
-            (PROTOCOL_VERSION_V1, PROTOCOL_VERSION_V1 + 1),
+        for (response_version, probe_version, expected_message) in [
+            (
+                PROTOCOL_VERSION_V2 - 1,
+                crate::execution::contract::EXECUTION_WIRE_VERSION_V1,
+                "worker protocol version mismatch",
+            ),
+            (
+                PROTOCOL_VERSION_V2 + 1,
+                crate::execution::contract::EXECUTION_WIRE_VERSION_V1,
+                "worker protocol version mismatch",
+            ),
+            (
+                PROTOCOL_VERSION_V2,
+                crate::execution::contract::EXECUTION_WIRE_VERSION_V1 - 1,
+                "worker execution wire version mismatch",
+            ),
+            (
+                PROTOCOL_VERSION_V2,
+                crate::execution::contract::EXECUTION_WIRE_VERSION_V1 + 1,
+                "worker execution wire version mismatch",
+            ),
         ] {
             let error = negotiated_probe(
                 serde_json::json!({
@@ -165,9 +190,7 @@ mod tests {
             .unwrap_err();
 
             assert_eq!(error.kind, ExecutionErrorKind::WorkerIncompatible);
-            assert!(error.message.contains(&format!(
-                "worker wire version mismatch: response={response_version}, probe={probe_version}"
-            )));
+            assert!(error.message.contains(expected_message));
         }
     }
 
@@ -175,10 +198,10 @@ mod tests {
     fn negotiated_health_rejects_a_different_authenticated_ssh_account() {
         let error = negotiated_probe(
             serde_json::json!({
-                "wire_version": PROTOCOL_VERSION_V1,
+                "wire_version": PROTOCOL_VERSION_V2,
                 "authenticated_principal": "unexpected-account",
                 "probe": {
-                    "wire_version": PROTOCOL_VERSION_V1,
+                    "wire_version": crate::execution::contract::EXECUTION_WIRE_VERSION_V1,
                     "available": false,
                     "compatible": false,
                     "failure": null

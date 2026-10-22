@@ -1,4 +1,7 @@
-use super::events::{ArtifactManifestEntryV1, ResourceMetricsV1};
+use super::{
+    ExecutionPhaseTimingsV1,
+    events::{ArtifactManifestEntryV1, ResourceMetricsV1},
+};
 use crate::execution::errors::{ExecutionError, ExecutionErrorKind};
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +19,8 @@ pub struct ExecutionResultV1 {
     pub timed_out: bool,
     pub cancelled: bool,
     pub metrics: ResourceMetricsV1,
+    #[serde(default, skip_serializing_if = "ExecutionPhaseTimingsV1::is_empty")]
+    pub phase_timings: ExecutionPhaseTimingsV1,
     pub artifacts: Vec<ArtifactManifestEntryV1>,
     pub failure: Option<ExecutionError>,
 }
@@ -28,6 +33,10 @@ impl ExecutionResultV1 {
         );
         super::ids::validate_identifier(&self.execution_id)?;
         self.metrics.validate()?;
+        anyhow::ensure!(
+            self.phase_timings.validate(),
+            "execution phase timing is invalid"
+        );
         anyhow::ensure!(
             !(self.timed_out && self.cancelled),
             "execution cannot be both timed out and cancelled"

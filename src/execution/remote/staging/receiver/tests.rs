@@ -16,6 +16,7 @@ fn result(bytes: &[u8], path: &str) -> ExecutionResultV1 {
             process_count: 1,
             disk_bytes: 0,
         },
+        phase_timings: Default::default(),
         artifacts: vec![ArtifactManifestEntryV1 {
             relative_path: path.into(),
             size_bytes: bytes.len() as u64,

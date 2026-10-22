@@ -135,6 +135,7 @@ impl ExecutionBackend for CapturingDockerBackend {
                     process_count: 1,
                     disk_bytes: 1,
                 },
+                phase_timings: Default::default(),
                 artifacts: Vec::new(),
                 failure: None,
             })

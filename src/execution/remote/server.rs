@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::sync::{Arc, Mutex};
+use zeroize::Zeroizing;
 
 use crate::execution::{backend::ExecutionBackend, errors::ExecutionError};
 
@@ -57,15 +58,28 @@ fn serve_stdio_with_journal(
     let capacity_leases = Arc::new(Mutex::new(
         HashMap::<String, super::WorkerCapacityLease>::new(),
     ));
-    let mut system_image_capability_key = None;
+    let mut system_image_capability_key: Option<Zeroizing<[u8; 32]>> = None;
     while let Some(frame) = read_worker_frame(&mut input)? {
         let (mut request, private_chunk) = match frame {
             WorkerInboundFrameV1::Envelope(request) => (request, None),
             WorkerInboundFrameV1::PrivateFileChunk { envelope, chunk } => (envelope, Some(chunk)),
         };
-        inbound.accept(&request)?;
         let secret_chunk = private_chunk.is_some();
-        let lookup = if secret_chunk {
+        let session_key_handshake = request.kind == EnvelopeKindV1::Health
+            && request.payload.get("system_image_key").is_some();
+        let validation = if request.version == super::protocol::PROTOCOL_VERSION_V1 {
+            inbound.accept_compat_health_request(&request)
+        } else {
+            inbound.accept(&request)
+        };
+        if let Err(error) = validation {
+            if session_key_handshake {
+                request.clear_sensitive_payload();
+            }
+            return Err(error);
+        }
+        let volatile_request = secret_chunk || session_key_handshake;
+        let lookup = if volatile_request {
             Lookup::New
         } else {
             journal.reserve(&request)?
@@ -97,7 +111,7 @@ fn serve_stdio_with_journal(
             }
             Lookup::Pending => {
                 let response = EnvelopeV1 {
-                    version: super::protocol::PROTOCOL_VERSION_V1,
+                    version: super::protocol::PROTOCOL_VERSION_V2,
                     request_id: request.request_id.clone(),
                     execution_id: request.execution_id.clone(),
                     sequence: request.sequence,
@@ -115,7 +129,7 @@ fn serve_stdio_with_journal(
             }
             Lookup::Expired => {
                 let response = EnvelopeV1 {
-                    version: super::protocol::PROTOCOL_VERSION_V1,
+                    version: super::protocol::PROTOCOL_VERSION_V2,
                     request_id: request.request_id.clone(),
                     execution_id: request.execution_id.clone(),
                     sequence: request.sequence,
@@ -186,15 +200,18 @@ fn serve_stdio_with_journal(
         if secret_chunk {
             request.clear_sensitive_payload();
         }
+        if session_key_handshake {
+            request.clear_sensitive_payload();
+        }
         let response = EnvelopeV1 {
-            version: super::protocol::PROTOCOL_VERSION_V1,
+            version: super::protocol::PROTOCOL_VERSION_V2,
             request_id: request.request_id.clone(),
             execution_id: request.execution_id.clone(),
             sequence: request.sequence,
             kind,
             payload,
         };
-        if !secret_chunk {
+        if !volatile_request {
             journal.complete(&request, &response)?;
         }
         outbound.accept(&response)?;

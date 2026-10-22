@@ -79,6 +79,7 @@ mod tests {
             execution_wall_ms: None,
             execution_cpu_millis: None,
             execution_peak_memory_bytes: None,
+            execution_phase_timings: None,
             image_digest: None,
             failure_code: None,
         }
