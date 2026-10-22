@@ -9,6 +9,7 @@ set +e
 git -C "$root" grep -n -i -E \
   -e '(bubblewrap|bwrap|KOOLADE_BWRAP_BIN|pi_sandbox)' -- \
   src docs README.md SECURITY.md .github containers site tests Cargo.toml Cargo.lock \
+  .koolade-packet/planning/product \
   ':!scripts/assert-docker-only.sh' \
   >"$matches_file"
 scan_status=$?
