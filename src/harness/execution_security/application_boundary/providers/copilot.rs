@@ -216,6 +216,7 @@ mod tests {
             access: ToolAccess::None,
             _session_bridge: None,
             _resource_bridge: None,
+            execution_session: None,
         }
     }
 }

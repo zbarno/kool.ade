@@ -22,6 +22,40 @@ fn test_boundary(access: ToolAccess) -> ApplicationBoundary {
         access,
         _session_bridge: None,
         _resource_bridge: None,
+        execution_session: None,
+    }
+}
+
+#[test]
+fn successful_provider_configuration_records_local_telemetry_attribution() {
+    let session = std::sync::Arc::new(crate::execution::session::telemetry_test_session());
+    let mut boundary = test_boundary(ToolAccess::None);
+    boundary.execution_session = Some(session.clone());
+    let mut argv = Vec::new();
+    let mut env = Vec::new();
+
+    boundary
+        .configure(super::CliProvider::Codex, &mut argv, &mut env)
+        .unwrap();
+    boundary.set_telemetry_model(Some("gpt-5-codex"));
+
+    assert_eq!(
+        session.telemetry_attribution_for_test(),
+        Some(("codex".into(), Some("gpt-5-codex".into())))
+    );
+}
+
+#[test]
+fn every_supported_provider_has_a_stable_telemetry_id() {
+    for (provider, expected) in [
+        (super::CliProvider::Codex, "codex"),
+        (super::CliProvider::Claude, "claude"),
+        (super::CliProvider::Antigravity, "antigravity"),
+        (super::CliProvider::OpenCode, "opencode"),
+        (super::CliProvider::Copilot, "copilot"),
+        (super::CliProvider::Pi, "pi"),
+    ] {
+        assert_eq!(provider.telemetry_id(), expected);
     }
 }
 

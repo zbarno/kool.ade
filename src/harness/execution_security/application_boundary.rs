@@ -71,6 +71,7 @@ pub(crate) struct ApplicationBoundary {
     access: ToolAccess,
     _session_bridge: Option<SessionBridge>,
     _resource_bridge: Option<Arc<crate::harness::resource_bridge::ResourceBridge>>,
+    execution_session: Option<Arc<ExecutionSession>>,
 }
 
 impl ApplicationBoundary {
@@ -100,6 +101,7 @@ impl ApplicationBoundary {
         };
         let mut resource_bridge = None;
         let mut session_bridge = None;
+        let mut execution_session = None;
         let mut access = ToolAccess::None;
         let server_config = if requested_access == ToolAccess::BoundedImplementation {
             anyhow::ensure!(
@@ -126,6 +128,7 @@ impl ApplicationBoundary {
                 runtime_profile(&request.repo_root),
                 default_resource_budget(request.task_id.as_deref()),
             )?);
+            execution_session = Some(session.clone());
             bridge.bind_execution_session(session.clone())?;
             let ipc = SessionBridge::start(
                 &scratch.path,
@@ -187,6 +190,7 @@ impl ApplicationBoundary {
             access,
             _session_bridge: session_bridge,
             _resource_bridge: resource_bridge,
+            execution_session,
         })
     }
 
@@ -200,6 +204,7 @@ impl ApplicationBoundary {
             access: ToolAccess::None,
             _session_bridge: None,
             _resource_bridge: None,
+            execution_session: None,
         })
     }
 
@@ -237,7 +242,17 @@ impl ApplicationBoundary {
         argv: &mut Vec<String>,
         env: &mut Vec<(String, String)>,
     ) -> anyhow::Result<()> {
-        providers::configure(self, provider, argv, env)
+        providers::configure(self, provider, argv, env)?;
+        if let Some(session) = &self.execution_session {
+            session.set_telemetry_attribution(provider.telemetry_id(), None);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn set_telemetry_model(&self, model: Option<&str>) {
+        if let Some(session) = &self.execution_session {
+            session.set_telemetry_model(model);
+        }
     }
 
     fn server_args(&self) -> anyhow::Result<Option<Vec<String>>> {
