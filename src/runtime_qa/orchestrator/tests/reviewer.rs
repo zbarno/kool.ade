@@ -9,7 +9,24 @@ fn run_passing_reviewer(
     tempfile::TempDir,
     String,
 ) {
-    let (request, scenarios, lease) = fixture();
+    run_passing_reviewer_with_visual_expectations(assertion_status, false)
+}
+
+fn run_passing_reviewer_with_visual_expectations(
+    assertion_status: QaAssertionStatus,
+    visual_expectations: bool,
+) -> (
+    QaResultV1,
+    Option<crate::core::lifecycle::GateReceipt>,
+    RuntimeQaStore,
+    tempfile::TempDir,
+    String,
+) {
+    let (request, mut scenarios, lease) = fixture();
+    if visual_expectations {
+        scenarios[0].visual_expectations =
+            vec!["No controls overlap at the approved viewport".into()];
+    }
     let reviewer_run = uuid::Uuid::new_v4().hyphenated().to_string();
     let reviewer_session = uuid::Uuid::new_v4().hyphenated().to_string();
     let prompt = reviewer_prompt(&request, &reviewer_run, &reviewer_session);
@@ -18,6 +35,7 @@ fn run_passing_reviewer(
     let mut driver = FakeDriver {
         calls: 0,
         assertion_status,
+        failure_before_actions: false,
     };
     let mut reviewer = |evidence: &QaEvidenceManifestV1, _candidate: &QaResultV1| {
         Ok(ReviewVerdictV1 {
@@ -54,6 +72,29 @@ fn run_passing_reviewer(
 }
 
 #[test]
+fn screenshot_metadata_alone_cannot_pass_visual_expectations() {
+    let (result, receipt, store, _temp, run_id) =
+        run_passing_reviewer_with_visual_expectations(QaAssertionStatus::Passed, true);
+
+    assert_eq!(result.outcome, QaOutcome::Incomplete);
+    assert!(receipt.is_none());
+    assert_eq!(
+        result.coverage.requirements[0].status,
+        super::super::QaCoverageStatus::Untested
+    );
+    let evidence = store.load_run(&run_id).unwrap().2;
+    assert!(evidence.assertions.iter().any(|assertion| {
+        assertion.status == QaAssertionStatus::Untested && assertion.evidence_refs.is_empty()
+    }));
+    assert!(
+        evidence
+            .logs
+            .iter()
+            .any(|log| log.contains("cannot inspect screenshot pixels"))
+    );
+}
+
+#[test]
 fn independent_reviewer_rejection_prevents_driver_candidate_pass() {
     let (request, scenarios, lease) = fixture();
     let reviewer_run = uuid::Uuid::new_v4().hyphenated().to_string();
@@ -64,6 +105,7 @@ fn independent_reviewer_rejection_prevents_driver_candidate_pass() {
     let mut driver = FakeDriver {
         calls: 0,
         assertion_status: QaAssertionStatus::Passed,
+        failure_before_actions: false,
     };
     let mut reviewer = |evidence: &QaEvidenceManifestV1, _candidate: &QaResultV1| {
         Ok(ReviewVerdictV1 {
@@ -125,6 +167,7 @@ fn author_session_cannot_execute_qa_or_invoke_the_driver() {
     let mut driver = FakeDriver {
         calls: 0,
         assertion_status: QaAssertionStatus::Passed,
+        failure_before_actions: false,
     };
     assert!(
         RuntimeQaOrchestrator::new(&store)
@@ -172,6 +215,7 @@ fn failed_reviewer_persists_observed_driver_evidence_as_blocked() {
     let mut driver = FakeDriver {
         calls: 0,
         assertion_status: QaAssertionStatus::Passed,
+        failure_before_actions: false,
     };
     let mut reviewer = |_evidence: &QaEvidenceManifestV1, _candidate: &QaResultV1| {
         Err("synthetic reviewer transport failure".into())

@@ -73,7 +73,9 @@ pub(super) fn execute_reviewed_run(
         }],
         expected_results: vec!["Keyboard dismissal works".into()],
         negative_paths: vec![],
-        visual_expectations: vec!["Dialog content is visible".into()],
+        // This synthetic lifecycle fixture proves typed interaction and report
+        // flow; visual claims require a separate image-review receipt.
+        visual_expectations: Vec::new(),
         redaction_regions: vec![],
         priority: 1,
     };

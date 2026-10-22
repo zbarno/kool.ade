@@ -172,8 +172,8 @@ pub(super) fn assemble_report(
         });
     }
     let display = display.ok_or_else(|| "runtime QA produced no driver observations".to_owned())?;
-    if actions.is_empty() || actions.len() > request.bounded_limits.max_total_actions as usize {
-        return Err("runtime QA action trace is absent or exceeds its approved bound".into());
+    if actions.len() > request.bounded_limits.max_total_actions as usize {
+        return Err("runtime QA action trace exceeds its approved bound".into());
     }
     let mut requirement_coverage = Vec::with_capacity(request.requirement_ids.len());
     for requirement in &request.requirement_ids {

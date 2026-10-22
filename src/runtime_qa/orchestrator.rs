@@ -171,6 +171,7 @@ impl<'a> RuntimeQaOrchestrator<'a> {
             started_at_unix_ms,
             completed_at_unix_ms,
         };
+        mark_unreviewed_visual_expectations(scenarios, &mut evidence, &mut result)?;
         if let Some(review) = reviewer.as_mut() {
             let candidate = result.clone();
             let reviewed = review(&evidence, &candidate).and_then(|verdict| {
@@ -221,4 +222,54 @@ impl<'a> RuntimeQaOrchestrator<'a> {
         }
         Ok((result, receipt))
     }
+}
+
+/// The current review prompt receives screenshot metadata and hashes, not image
+/// pixels. Keep visual criteria explicitly untested until a vision-capable
+/// reviewer can inspect the persisted image bytes.
+fn mark_unreviewed_visual_expectations(
+    scenarios: &[QaScenarioV1],
+    evidence: &mut QaEvidenceManifestV1,
+    result: &mut QaResultV1,
+) -> Result<(), String> {
+    let requirements = scenarios
+        .iter()
+        .filter(|scenario| !scenario.visual_expectations.is_empty())
+        .flat_map(|scenario| scenario.requirement_ids.iter().cloned())
+        .collect::<std::collections::BTreeSet<_>>();
+    if requirements.is_empty() {
+        return Ok(());
+    }
+    for coverage in &mut result.coverage.requirements {
+        if requirements.contains(&coverage.requirement_id) {
+            coverage.status = super::QaCoverageStatus::Untested;
+            coverage.evidence_refs.clear();
+        }
+    }
+    for assertion in &mut evidence.assertions {
+        if assertion.status == super::QaAssertionStatus::Passed
+            && assertion
+                .requirement_ids
+                .iter()
+                .any(|requirement| requirements.contains(requirement))
+        {
+            assertion.status = super::QaAssertionStatus::Untested;
+            assertion.evidence_refs.clear();
+        }
+    }
+    evidence.coverage = result
+        .coverage
+        .requirements
+        .iter()
+        .map(|coverage| format!("{}:{:?}", coverage.requirement_id, coverage.status))
+        .collect();
+    evidence.logs.truncate(255);
+    evidence.logs.push(
+        "visual expectations remain untested because the selected reviewer cannot inspect screenshot pixels".into(),
+    );
+    if result.outcome == QaOutcome::Pass {
+        result.outcome = QaOutcome::Incomplete;
+    }
+    result.evidence_manifest_sha256 = evidence.sha256()?;
+    Ok(())
 }

@@ -11,6 +11,7 @@ use std::io::Cursor;
 struct FakeDriver {
     calls: usize,
     assertion_status: QaAssertionStatus,
+    failure_before_actions: bool,
 }
 
 impl QaScenarioDriver for FakeDriver {
@@ -25,6 +26,27 @@ impl QaScenarioDriver for FakeDriver {
         _authorization: &QaTargetAuthorization<'_>,
     ) -> Result<QaDriverOutputV1, String> {
         self.calls += 1;
+        if self.failure_before_actions {
+            return Ok(QaDriverOutputV1 {
+                driver_version: request.driver_profile_version.clone(),
+                completed: false,
+                failure: Some("private QA display did not start".into()),
+                display: QaDisplayV1 {
+                    width: 1024,
+                    height: 768,
+                    dpi: 96,
+                    theme: "light".into(),
+                    locale: "en-US".into(),
+                },
+                actions: Vec::new(),
+                screenshots: Vec::new(),
+                assertions: Vec::new(),
+                logs: Vec::new(),
+                crashes: Vec::new(),
+                browser_console: Vec::new(),
+                failed_requests: Vec::new(),
+            });
+        }
         let mut png = Cursor::new(Vec::new());
         image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
             16,
@@ -225,6 +247,7 @@ fn immutable_approved_run_persists_report_and_returns_gate_receipt() {
     let mut driver = FakeDriver {
         calls: 0,
         assertion_status: QaAssertionStatus::Passed,
+        failure_before_actions: false,
     };
     let (result, receipt) = RuntimeQaOrchestrator::new(&store)
         .execute(QaExecutionContext {
@@ -269,6 +292,69 @@ fn immutable_approved_run_persists_report_and_returns_gate_receipt() {
 }
 
 #[test]
+// Production boundary: a desktop/browser driver that fails before its first
+// action still produces a durable, blocked QA report. A validator unit test
+// cannot prove orchestration persists the failure with exact task/spec bindings.
+// Uses only in-process adapters and a temporary directory; no Docker, SSH,
+// network, or credentials, with low setup cost.
+fn driver_start_failure_before_first_action_is_persisted_as_infrastructure_blocked() {
+    let (request, scenarios, lease) = fixture();
+    let reviewer_run = uuid::Uuid::new_v4().hyphenated().to_string();
+    let reviewer_session = uuid::Uuid::new_v4().hyphenated().to_string();
+    let prompt = reviewer_prompt(&request, &reviewer_run, &reviewer_session);
+    let temp = tempfile::tempdir().unwrap();
+    let store = RuntimeQaStore::new(temp.path().join("qa"));
+    let mut driver = FakeDriver {
+        calls: 0,
+        assertion_status: QaAssertionStatus::Untested,
+        failure_before_actions: true,
+    };
+    let mut reviewer = |_evidence: &QaEvidenceManifestV1, _candidate: &QaResultV1| {
+        Err("no runtime observations are available to review".into())
+    };
+
+    let (result, receipt) = RuntimeQaOrchestrator::new(&store)
+        .execute_reviewed(
+            QaExecutionContext {
+                request: &request,
+                scenarios: &scenarios,
+                authorization: QaTargetAuthorization::Web(&lease),
+                driver: &mut driver,
+                reviewer_execution_id: &reviewer_run,
+                reviewer_session_id: &reviewer_session,
+                prompt,
+            },
+            &mut reviewer,
+        )
+        .unwrap();
+
+    assert_eq!(driver.calls, 1);
+    assert_eq!(result.outcome, QaOutcome::InfrastructureBlocked);
+    assert!(receipt.is_none());
+    assert!(
+        result
+            .cases
+            .iter()
+            .all(|case| case.status == QaCaseStatus::Blocked)
+    );
+    assert!(
+        result.cases[0]
+            .observations
+            .iter()
+            .any(|item| item.contains("display did not start"))
+    );
+    let (stored_request, _, evidence, stored_result) = store.load_run(&request.qa_run_id).unwrap();
+    assert_eq!(stored_request, request);
+    assert!(evidence.actions.is_empty());
+    assert_eq!(stored_result, result);
+    let mut forged_pass = stored_result;
+    forged_pass.outcome = QaOutcome::Pass;
+    assert!(
+        crate::runtime_qa::validate_report(&request, &scenarios, &evidence, &forged_pass).is_err()
+    );
+}
+
+#[test]
 fn observed_failed_assertion_is_a_blocking_manager_finding() {
     let (request, scenarios, lease) = fixture();
     let reviewer_run = uuid::Uuid::new_v4().hyphenated().to_string();
@@ -279,6 +365,7 @@ fn observed_failed_assertion_is_a_blocking_manager_finding() {
     let mut driver = FakeDriver {
         calls: 0,
         assertion_status: QaAssertionStatus::Failed,
+        failure_before_actions: false,
     };
 
     let (result, _) = RuntimeQaOrchestrator::new(&store)

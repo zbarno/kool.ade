@@ -186,20 +186,43 @@ impl QaScenarioDriver for DockerQaScenarioDriver<'_> {
             (Err(error), _) => return Err(error.message),
             (Ok(_), Err(error)) => return Err(error.message),
         };
-        if output.exit_code != 0 {
-            return Err(format!(
-                "isolated {driver} QA driver exited with status {}",
-                output.exit_code
-            ));
-        }
         match platform {
-            QaPlatform::Web => crate::runtime_qa::browser_driver::parse_browser_output(
-                &output.stdout,
-                request,
-                scenario,
-            ),
-            QaPlatform::LinuxDesktop => serde_json::from_slice(&output.stdout)
-                .map_err(|_| "isolated desktop QA driver returned malformed evidence".into()),
+            QaPlatform::Web => {
+                let mut report = crate::runtime_qa::browser_driver::parse_browser_output(
+                    &output.stdout,
+                    request,
+                    scenario,
+                )?;
+                apply_browser_exit_status(output.exit_code, &mut report);
+                Ok(report)
+            }
+            QaPlatform::LinuxDesktop => {
+                if output.exit_code != 0 {
+                    return Err(format!(
+                        "isolated {driver} QA driver exited with status {}",
+                        output.exit_code
+                    ));
+                }
+                serde_json::from_slice(&output.stdout)
+                    .map_err(|_| "isolated desktop QA driver returned malformed evidence".into())
+            }
         }
     }
+}
+
+fn apply_browser_exit_status(exit_code: i64, report: &mut QaDriverOutputV1) {
+    if exit_code == 0
+        || report.failure.is_some()
+        || !report.completed
+        || report
+            .assertions
+            .iter()
+            .any(|assertion| assertion.status != crate::runtime_qa::QaAssertionStatus::Passed)
+    {
+        return;
+    }
+    report.completed = false;
+    report.failure = Some(format!(
+        "browser QA driver exited with status {exit_code} without reporting a failed or incomplete assertion"
+    ));
 }
