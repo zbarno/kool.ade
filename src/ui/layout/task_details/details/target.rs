@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use crate::ui::{Surface, task_detail};
 
 mod constraints;
+mod remote_telemetry;
 
 pub(super) fn paint(
     ui: &mut egui::Ui,
@@ -179,25 +180,33 @@ pub(super) fn paint_execution_evidence(ui: &mut egui::Ui, view: &task_detail::Vi
                 crate::ui::theme::DANGER,
                 format!("Execution evidence unavailable: {error}"),
             );
-            return;
         }
-        let Some(record) = &view.execution_evidence else {
+        if let Some(record) = &view.execution_evidence {
+            let worker = record
+                .controller_target_id
+                .as_deref()
+                .filter(|target| *target != "local")
+                .map_or("Local Docker worker", |worker_id| worker_id);
+            ui.label(format!("Worker: {worker}"));
+            ui.add(egui::Label::new(format!("Image digest: {}", record.image_digest)).wrap());
+            ui.label(format!("Execution state: {}", record_state(record.state)));
+            paint_execution_telemetry(ui, &record.phase_timings, &record.docker_usage);
+            ui.label("Toolchain version is not stored in the execution record.");
+        } else {
             ui.label(
                 "No persisted Docker execution record is available in this device's local state.",
             );
-            return;
-        };
-        let worker = record
-            .controller_target_id
-            .as_deref()
-            .filter(|target| *target != "local")
-            .map_or("Local Docker worker", |worker_id| worker_id);
-        ui.label(format!("Worker: {worker}"));
-        ui.add(egui::Label::new(format!("Image digest: {}", record.image_digest)).wrap());
-        ui.label(format!("Execution state: {}", record_state(record.state)));
-        paint_execution_telemetry(ui, &record.phase_timings, &record.docker_usage);
-        ui.label("Toolchain version is not stored in the execution record.");
-        ui.label("Workspace transfer byte counts and per-file progress are not stored; stage-in and stage-out durations are shown above.");
+        }
+        if view.remote_execution_telemetry.is_some()
+            || view.remote_execution_telemetry_error.is_some()
+        {
+            remote_telemetry::paint(
+                ui,
+                view.remote_execution_telemetry.as_ref(),
+                view.remote_execution_telemetry_error.as_deref(),
+            );
+            ui.label("Workspace transfer byte counts are shown for remote runs when recorded; per-file progress is not stored.");
+        }
     });
 }
 

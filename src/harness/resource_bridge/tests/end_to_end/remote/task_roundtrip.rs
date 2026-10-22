@@ -57,6 +57,7 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
             .trim()
             .to_owned(),
     };
+    let task_id = workspace.task_id.clone();
     let generation = uuid::Uuid::new_v4().hyphenated().to_string();
     let session = ExecutionSession::connect_remote_with_task_clone(
         workspace,
@@ -92,8 +93,17 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
         crate::persistence::remote_execution_telemetry::load(&output.result.execution_id)
             .unwrap()
             .expect("remote execution should persist transfer metrics");
-    assert!(telemetry.workspace_upload_bytes > 0);
-    assert!(telemetry.result_download_bytes > 0);
+    assert!(
+        telemetry
+            .workspace_upload_bytes
+            .is_some_and(|value| value > 0)
+    );
+    assert!(
+        telemetry
+            .result_download_bytes
+            .is_some_and(|value| value > 0)
+    );
+    assert_eq!(telemetry.task_id.as_deref(), Some(task_id.as_str()));
     assert!(
         telemetry
             .image_digest
@@ -103,11 +113,11 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
     assert!(telemetry.execution_wall_ms.is_some());
     assert_eq!(
         telemetry.execution_cpu_millis,
-        output.result.metrics.cpu_millis
+        Some(output.result.metrics.cpu_millis)
     );
     assert_eq!(
         telemetry.execution_peak_memory_bytes,
-        output.result.metrics.peak_memory_bytes
+        Some(output.result.metrics.peak_memory_bytes)
     );
     let changed_file = task_clone.join("remote-result.txt");
     assert_eq!(

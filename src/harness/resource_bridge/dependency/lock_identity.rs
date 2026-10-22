@@ -2,6 +2,11 @@ use crate::harness::{DependencyKind, DependencyNeed, PackageEcosystem};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, path::Path, process::Command};
 
+mod paths;
+use paths::{
+    is_npm_package_manifest, is_target_lockfile, strip_dependency_root, under_dependency_root,
+};
+
 const MAX_TREE_LIST_BYTES: usize = 32 * 1024 * 1024;
 const MAX_BASE_LOCK_BYTES: usize = 32 * 1024 * 1024;
 const MAX_BASE_MANIFEST_BYTES: usize = 2 * 1024 * 1024;
@@ -254,96 +259,12 @@ fn baseline_manifest_inputs(
     Ok(inputs)
 }
 
-fn under_dependency_root(path: &str, dependency_relative_root: &str) -> bool {
-    dependency_relative_root == "."
-        || path == dependency_relative_root
-        || path
-            .strip_prefix(dependency_relative_root)
-            .is_some_and(|suffix| suffix.starts_with('/'))
-}
-
-fn strip_dependency_root<'a>(
-    path: &'a str,
-    dependency_relative_root: &str,
-) -> anyhow::Result<&'a str> {
-    if dependency_relative_root == "." {
-        return Ok(path);
-    }
-    path.strip_prefix(dependency_relative_root)
-        .and_then(|suffix| suffix.strip_prefix('/'))
-        .ok_or_else(|| anyhow::anyhow!("baseline dependency path escaped its selected target root"))
-}
-
-fn is_npm_package_manifest(path: &str) -> bool {
-    path.rsplit('/').next() == Some("package.json")
-        && !path.split('/').any(|part| {
-            matches!(
-                part,
-                ".git"
-                    | "node_modules"
-                    | ".koolade-packet"
-                    | "target"
-                    | "dist"
-                    | "build"
-                    | "coverage"
-                    | "vendor"
-                    | "obj"
-                    | "bin"
-            )
-        })
-}
-
 fn identity(
     packages: &[crate::harness::DependencyPackageIdentity],
     npm_manifests: Option<&[(String, serde_json::Value)]>,
 ) -> anyhow::Result<String> {
     let bytes = serde_json::to_vec(&(packages, npm_manifests))?;
     Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
-}
-
-fn is_lockfile(path: &str, ecosystem: PackageEcosystem) -> bool {
-    if ecosystem == PackageEcosystem::Npm
-        && path.split('/').any(|part| {
-            matches!(
-                part,
-                ".git"
-                    | "node_modules"
-                    | ".koolade-packet"
-                    | "target"
-                    | "dist"
-                    | "build"
-                    | "coverage"
-                    | "vendor"
-                    | "obj"
-                    | "bin"
-            )
-        })
-    {
-        return false;
-    }
-    match ecosystem {
-        PackageEcosystem::Npm => matches!(
-            path.rsplit('/').next(),
-            Some("package-lock.json" | "npm-shrinkwrap.json")
-        ),
-        PackageEcosystem::Cargo => path == "Cargo.lock",
-        _ => false,
-    }
-}
-
-fn is_target_lockfile(
-    path: &str,
-    ecosystem: PackageEcosystem,
-    dependency_relative_root: &str,
-) -> bool {
-    if ecosystem == PackageEcosystem::Cargo {
-        return if dependency_relative_root == "." {
-            path == "Cargo.lock"
-        } else {
-            format!("{dependency_relative_root}/Cargo.lock") == path
-        };
-    }
-    under_dependency_root(path, dependency_relative_root) && is_lockfile(path, ecosystem)
 }
 
 #[cfg(test)]

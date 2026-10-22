@@ -2,6 +2,13 @@
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 
+mod legacy;
+mod query;
+mod validation;
+use legacy::{normalize_legacy_metrics, now_unix_ms};
+pub use query::latest_for_task;
+use validation::{validate, validate_id, validate_worker_id};
+
 #[cfg(test)]
 #[path = "remote_execution_telemetry/tests.rs"]
 mod tests;
@@ -14,68 +21,80 @@ const MAX_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 pub struct RemoteExecutionTelemetryV1 {
     pub schema_version: u8,
     pub execution_id: String,
+    #[serde(default)]
+    pub started_at_unix_ms: Option<u64>,
+    #[serde(default)]
+    pub task_id: Option<String>,
     pub worker_id: String,
-    pub workspace_upload_bytes: u64,
-    pub workspace_upload_ms: u64,
-    pub result_download_bytes: u64,
-    pub result_download_ms: u64,
+    #[serde(default)]
+    pub workspace_upload_bytes: Option<u64>,
+    #[serde(default)]
+    pub workspace_upload_ms: Option<u64>,
+    #[serde(default)]
+    pub result_download_bytes: Option<u64>,
+    #[serde(default)]
+    pub result_download_ms: Option<u64>,
     #[serde(default)]
     pub execution_wall_ms: Option<u64>,
     #[serde(default)]
-    pub execution_cpu_millis: u64,
+    pub execution_cpu_millis: Option<u64>,
     #[serde(default)]
-    pub execution_peak_memory_bytes: u64,
+    pub execution_peak_memory_bytes: Option<u64>,
     #[serde(default)]
     pub image_digest: Option<String>,
 }
 
 pub fn record_workspace_upload(
     execution_id: &str,
+    task_id: &str,
     worker_id: &str,
     bytes: u64,
     ms: u64,
 ) -> anyhow::Result<()> {
-    update(execution_id, worker_id, |record| {
-        record.workspace_upload_bytes = bytes;
-        record.workspace_upload_ms = ms;
+    update(execution_id, task_id, worker_id, |record| {
+        record.workspace_upload_bytes = Some(bytes);
+        record.workspace_upload_ms = Some(ms);
     })
 }
 
 pub fn record_result_download(
     execution_id: &str,
+    task_id: &str,
     worker_id: &str,
     bytes: u64,
     ms: u64,
 ) -> anyhow::Result<()> {
-    update(execution_id, worker_id, |record| {
-        record.result_download_bytes = bytes;
-        record.result_download_ms = ms;
+    update(execution_id, task_id, worker_id, |record| {
+        record.result_download_bytes = Some(bytes);
+        record.result_download_ms = Some(ms);
     })
 }
 
 pub fn record_execution_started(
     execution_id: &str,
+    task_id: &str,
     worker_id: &str,
     image_digest: &str,
 ) -> anyhow::Result<()> {
-    update(execution_id, worker_id, |record| {
+    update(execution_id, task_id, worker_id, |record| {
         record.image_digest = Some(image_digest.to_owned())
     })
 }
 
 pub fn record_execution_result(
     execution_id: &str,
+    task_id: &str,
     worker_id: &str,
     wall_ms: Option<u64>,
     cpu_millis: u64,
     peak_memory_bytes: u64,
 ) -> anyhow::Result<()> {
-    update(execution_id, worker_id, |record| {
+    update(execution_id, task_id, worker_id, |record| {
         if wall_ms.is_some() {
             record.execution_wall_ms = wall_ms;
         }
-        record.execution_cpu_millis = cpu_millis;
-        record.execution_peak_memory_bytes = peak_memory_bytes;
+        record.execution_cpu_millis = Some(cpu_millis);
+        record.execution_peak_memory_bytes = Some(peak_memory_bytes);
     })
 }
 
@@ -91,7 +110,8 @@ fn load_at(root: &Path, execution_id: &str) -> anyhow::Result<Option<RemoteExecu
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     }
-    let record: RemoteExecutionTelemetryV1 = serde_json::from_slice(&read_private(&path)?)?;
+    let mut record: RemoteExecutionTelemetryV1 = serde_json::from_slice(&read_private(&path)?)?;
+    normalize_legacy_metrics(&mut record);
     validate(&record)?;
     anyhow::ensure!(
         record.execution_id == execution_id,
@@ -102,12 +122,14 @@ fn load_at(root: &Path, execution_id: &str) -> anyhow::Result<Option<RemoteExecu
 
 fn update(
     execution_id: &str,
+    task_id: &str,
     worker_id: &str,
     change: impl FnOnce(&mut RemoteExecutionTelemetryV1),
 ) -> anyhow::Result<()> {
     update_at(
         &crate::persistence::state_root(),
         execution_id,
+        task_id,
         worker_id,
         change,
     )
@@ -116,10 +138,12 @@ fn update(
 fn update_at(
     root: &Path,
     execution_id: &str,
+    task_id: &str,
     worker_id: &str,
     change: impl FnOnce(&mut RemoteExecutionTelemetryV1),
 ) -> anyhow::Result<()> {
     validate_id(execution_id)?;
+    validate_id(task_id)?;
     validate_worker_id(worker_id)?;
     let directory = root.join("remote-execution-telemetry");
     fs::create_dir_all(&directory)?;
@@ -128,30 +152,49 @@ fn update_at(
     fs2::FileExt::lock_exclusive(&lock)?;
     let path = record_path(root, execution_id);
     let mut record = if path.exists() {
-        let record: RemoteExecutionTelemetryV1 = serde_json::from_slice(&read_private(&path)?)?;
+        let previous_modified_ms = fs::metadata(&path)
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_millis().min(u64::MAX as u128) as u64);
+        let mut record: RemoteExecutionTelemetryV1 = serde_json::from_slice(&read_private(&path)?)?;
+        normalize_legacy_metrics(&mut record);
+        if record.started_at_unix_ms.is_none() {
+            record.started_at_unix_ms = previous_modified_ms;
+        }
         validate(&record)?;
         anyhow::ensure!(
             record.worker_id == worker_id,
             "worker identity changed for execution"
         );
+        anyhow::ensure!(
+            record
+                .task_id
+                .as_deref()
+                .is_none_or(|existing| existing == task_id),
+            "task identity changed for execution"
+        );
         record
     } else {
         RemoteExecutionTelemetryV1 {
-            schema_version: 2,
+            schema_version: 4,
             execution_id: execution_id.to_owned(),
+            started_at_unix_ms: Some(now_unix_ms()),
+            task_id: Some(task_id.to_owned()),
             worker_id: worker_id.to_owned(),
-            workspace_upload_bytes: 0,
-            workspace_upload_ms: 0,
-            result_download_bytes: 0,
-            result_download_ms: 0,
+            workspace_upload_bytes: None,
+            workspace_upload_ms: None,
+            result_download_bytes: None,
+            result_download_ms: None,
             execution_wall_ms: None,
-            execution_cpu_millis: 0,
-            execution_peak_memory_bytes: 0,
+            execution_cpu_millis: None,
+            execution_peak_memory_bytes: None,
             image_digest: None,
         }
     };
+    record.task_id = Some(task_id.to_owned());
     change(&mut record);
-    record.schema_version = 2;
+    record.schema_version = 4;
     validate(&record)?;
     let bytes = serde_json::to_vec(&record)?;
     let temp = directory.join(format!(".{execution_id}-{}.tmp", uuid::Uuid::new_v4()));
@@ -232,51 +275,5 @@ fn ensure_private_directory(path: &Path) -> anyhow::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
     }
-    Ok(())
-}
-fn validate_id(id: &str) -> anyhow::Result<()> {
-    let parsed = uuid::Uuid::parse_str(id)?;
-    anyhow::ensure!(
-        parsed.hyphenated().to_string() == id,
-        "execution ID is invalid"
-    );
-    Ok(())
-}
-fn validate(record: &RemoteExecutionTelemetryV1) -> anyhow::Result<()> {
-    validate_id(&record.execution_id)?;
-    anyhow::ensure!(
-        matches!(record.schema_version, 1 | 2)
-            && [record.workspace_upload_bytes, record.result_download_bytes]
-                .iter()
-                .all(|v| *v <= MAX_BYTES)
-            && [record.workspace_upload_ms, record.result_download_ms]
-                .iter()
-                .all(|v| *v <= MAX_MS)
-            && record.execution_wall_ms.is_none_or(|value| value <= MAX_MS)
-            && record.execution_cpu_millis <= MAX_MS * 16
-            && record.execution_peak_memory_bytes <= 64 * 1024 * 1024 * 1024,
-        "remote execution telemetry is invalid"
-    );
-    validate_worker_id(&record.worker_id)?;
-    if let Some(digest) = &record.image_digest {
-        anyhow::ensure!(
-            digest.len() == 71
-                && digest.starts_with("sha256:")
-                && digest[7..].bytes().all(|b| b.is_ascii_hexdigit()),
-            "image digest is invalid"
-        );
-    }
-    Ok(())
-}
-
-fn validate_worker_id(worker_id: &str) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        !worker_id.is_empty()
-            && worker_id.len() <= 128
-            && worker_id
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte)),
-        "worker identity is invalid"
-    );
     Ok(())
 }
