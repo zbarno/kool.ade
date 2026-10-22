@@ -129,8 +129,13 @@ impl RemoteExecutionBackend {
         let resolver = OwnedTaskWorkspaceResolver::for_current_user(workspace.clone(), root)?;
         let clone_path = resolver.resolve_owned_clone(workspace)?;
         let validated = ValidatedWorkspace::inspect(&clone_path)?;
-        let baseline = staging::capture(&validated, 512 * 1024 * 1024, false)?;
         let manifest = WorkspaceManifestV1::capture(workspace.clone(), &clone_path)?;
+        let baseline = staging::capture_remote(
+            &validated,
+            512 * 1024 * 1024,
+            false,
+            &manifest.excluded_paths,
+        )?;
         let (bytes, transfer_ms) = self.transfer_workspace(&manifest, &clone_path)?;
         self.baselines
             .lock()
