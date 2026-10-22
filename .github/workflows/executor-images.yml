@@ -430,7 +430,7 @@ jobs:
 
   check-reviewed-lock:
     name: Check whether trusted publication is unlocked
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     needs: [build-and-verify, build-and-verify-qa-images]
     runs-on: ubuntu-24.04
     outputs:
