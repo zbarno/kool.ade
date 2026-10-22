@@ -23,6 +23,11 @@ fn merges_upload_and_download_metrics_without_sensitive_fields() {
         record.failure_code = Some(crate::execution::errors::ExecutionErrorKind::ExecutionFailed);
     })
     .unwrap();
+    update_at(home.path(), &id, &id, "worker-1", |record| {
+        record.harness = Some("codex".into());
+        record.requested_model = Some("gpt-5-codex".into());
+    })
+    .unwrap();
     let record = load_at(home.path(), &id).unwrap().unwrap();
     assert_eq!(
         (
@@ -34,6 +39,8 @@ fn merges_upload_and_download_metrics_without_sensitive_fields() {
         (Some(12), Some(34), Some(56), Some(78))
     );
     assert_eq!(record.execution_wall_ms, Some(90));
+    assert_eq!(record.harness.as_deref(), Some("codex"));
+    assert_eq!(record.requested_model.as_deref(), Some("gpt-5-codex"));
     assert_eq!(record.execution_cpu_millis, Some(12));
     assert_eq!(record.execution_peak_memory_bytes, Some(4096));
     assert_eq!(record.worker_start_rpc_ms, Some(21));
@@ -67,6 +74,12 @@ fn rejects_worker_rebinding_and_unbounded_metrics() {
         update_at(home.path(), &id, &id, "worker-1", |r| r
             .worker_start_rpc_ms =
             Some(MAX_MS + 1))
+        .is_err()
+    );
+    assert!(
+        update_at(home.path(), &id, &id, "worker-1", |record| {
+            record.requested_model = Some("gpt-5?token=synthetic".into());
+        })
         .is_err()
     );
 }

@@ -71,6 +71,7 @@ impl AiHarness for OpenCodeHarness {
                     "Cannot configure OpenCode sandbox tools: {error:#}"
                 ))
             })?;
+        boundary.set_telemetry_model(model.as_deref());
         let provider = crate::harness::execution_security::CliProvider::OpenCode;
         let evidence = crate::harness::execution_security::ProfileProbeEvidence::probe(
             provider, &binary, version,

@@ -98,6 +98,7 @@ impl AiHarness for PiHarness {
             .map_err(|error| {
                 AppError::Other(format!("Cannot configure Pi application tools: {error:#}"))
             })?;
+        boundary.set_telemetry_model(Some(&profile.model));
         let diagnostics = diagnostics::open(boundary.working_directory(), req.mode)?;
         let provider = crate::harness::execution_security::CliProvider::Pi;
         let evidence = crate::harness::execution_security::ProfileProbeEvidence::probe(

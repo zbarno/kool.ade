@@ -80,6 +80,7 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
         },
     )
     .expect("remote worker must accept the authorized task snapshot");
+    session.set_telemetry_attribution("codex", Some("gpt-5-codex"));
 
     let output = session
         .run_tool_command(
@@ -88,7 +89,7 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
         )
         .expect("remote task command and verified result synchronization must succeed");
     assert_eq!(output.result.exit_code, Some(0));
-    // Production-boundary proof: this crosses authenticated SSH, worker Docker, staging, and verified result application. Unit tests cannot prove those components produce linked transfer metrics. It requires Linux, sshd, the worker binary, and rootless Docker, with high setup cost.
+    // Production boundary: this crosses authenticated SSH, worker Docker, staging, verified result application, and local telemetry persistence. Attribution is synthetic here; the provider boundary has a separate mock test. A unit test cannot prove backend metrics follow the real execution identity. It requires Linux, sshd, the worker binary, and rootless Docker, with high setup cost.
     let telemetry =
         crate::persistence::remote_execution_telemetry::load(&output.result.execution_id)
             .unwrap()
@@ -104,6 +105,8 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
             .is_some_and(|value| value > 0)
     );
     assert_eq!(telemetry.task_id.as_deref(), Some(task_id.as_str()));
+    assert_eq!(telemetry.harness.as_deref(), Some("codex"));
+    assert_eq!(telemetry.requested_model.as_deref(), Some("gpt-5-codex"));
     assert!(
         telemetry
             .image_digest
