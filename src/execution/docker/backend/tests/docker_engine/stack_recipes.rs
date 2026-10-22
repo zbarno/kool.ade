@@ -193,7 +193,7 @@ fn recipe(id: &str, tool: &str, argv: &[&str]) -> ExecutionRecipeV1 {
         } else if tool == "python" {
             vec!["__pycache__".into()]
         } else if id == "go-build" {
-            vec!["stack-fixture".into()]
+            vec![".koolade-target".into()]
         } else {
             Vec::new()
         },
@@ -254,7 +254,7 @@ fn stack_recipes() -> Vec<(
             recipe(
                 "go-build",
                 "go",
-                &["build", "-o", "stack-fixture", "main.go"],
+                &["build", "-o", ".koolade-target/stack-fixture", "main.go"],
             ),
             recipe("go-test", "go", &["test", "main.go", "main_test.go"]),
             recipe("go-start", "go", &["run", "main.go"]),

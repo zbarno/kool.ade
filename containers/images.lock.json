@@ -109,8 +109,8 @@
     "browser_qa": [
       {
         "platform": "linux/amd64",
-        "reference": "ghcr.io/zbarno/koolade-runtime-qa-browser@sha256:4e8c30f3d276de70961b8fb8b24107c025b1dc6b295ee695841bf17bf39891d7",
-        "digest": "sha256:4e8c30f3d276de70961b8fb8b24107c025b1dc6b295ee695841bf17bf39891d7",
+        "reference": "ghcr.io/zbarno/koolade-runtime-qa-browser@sha256:67ba69ee59045d13090bf26ff95d3825ddd4ee126bce58fd449421ebe47f4811",
+        "digest": "sha256:67ba69ee59045d13090bf26ff95d3825ddd4ee126bce58fd449421ebe47f4811",
         "tool_versions": {
           "node": "24.11.1",
           "npm": "11.6.2",
@@ -121,14 +121,14 @@
           "base": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
         },
         "runtime_enabled": false,
-        "build_recipe_sha256": "sha256:14ca2e706d2243f2bb16bd654a1ee2db38e70b52aa3523bb3f8a6d7b1960da05"
+        "build_recipe_sha256": "sha256:8873949330dc1476da0f163581e5c6f8759659150406333030effc82457f1818"
       }
     ],
     "desktop_qa": [
       {
         "platform": "linux/amd64",
-        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:04bb043ee73d32e6e7b59aa421c668e4b0dcbeb37f229ee72fa43fdd09dfc7cf",
-        "digest": "sha256:04bb043ee73d32e6e7b59aa421c668e4b0dcbeb37f229ee72fa43fdd09dfc7cf",
+        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:ebfe5ea461026de806e894b808e5531b0f33cb0d32cc97e5e4441ec2a5a5aa12",
+        "digest": "sha256:ebfe5ea461026de806e894b808e5531b0f33cb0d32cc97e5e4441ec2a5a5aa12",
         "tool_versions": {
           "driver": "linux-x11-driver/v1",
           "xvfb": "2:21.1.12-1ubuntu1.5",
@@ -137,7 +137,7 @@
           "base": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
         },
         "runtime_enabled": false,
-        "build_recipe_sha256": "sha256:150fbbb6113f7e04352db61890bf10bfeef51d00e58c3474dc628906688bbf7a"
+        "build_recipe_sha256": "sha256:dde8d6e27b53d4a897ffa6c0885fecac3fda46421124c08cc3014eb5fc92ebe6"
       }
     ]
   }
