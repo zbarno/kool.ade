@@ -14,6 +14,16 @@ pub(crate) fn capture(
     read_only: bool,
     entry_limit: usize,
 ) -> anyhow::Result<super::super::WorkspaceSnapshot> {
+    capture_excluding(root, byte_limit, read_only, entry_limit, &[])
+}
+
+pub(crate) fn capture_excluding(
+    root: &Path,
+    byte_limit: u64,
+    read_only: bool,
+    entry_limit: usize,
+    excluded_paths: &[String],
+) -> anyhow::Result<super::super::WorkspaceSnapshot> {
     #[cfg(not(unix))]
     anyhow::bail!("Safe workspace staging is unavailable on this platform");
     #[cfg(unix)]
@@ -31,6 +41,7 @@ pub(crate) fn capture(
             byte_limit,
             entry_limit,
             read_only,
+            excluded_paths,
         )?;
         let archive = builder.into_inner()?;
         anyhow::ensure!(
@@ -56,6 +67,7 @@ fn append_directory(
     byte_limit: u64,
     entry_limit: usize,
     read_only: bool,
+    excluded_paths: &[String],
 ) -> anyhow::Result<()> {
     use std::os::{
         fd::{AsRawFd, FromRawFd},
@@ -70,6 +82,12 @@ fn append_directory(
             continue;
         }
         validate_relative(&child_relative)?;
+        if excluded_paths
+            .iter()
+            .any(|excluded| Path::new(excluded) == child_relative)
+        {
+            continue;
+        }
         let child_name = std::ffi::CString::new(child_relative.file_name().unwrap().as_bytes())?;
         anyhow::ensure!(
             manifest.len() < entry_limit,
@@ -113,6 +131,7 @@ fn append_directory(
                 byte_limit,
                 entry_limit,
                 read_only,
+                excluded_paths,
             )?;
         } else if kind == libc::S_IFREG {
             let fd = unsafe {
