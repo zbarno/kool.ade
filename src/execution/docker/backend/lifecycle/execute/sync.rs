@@ -23,9 +23,14 @@ pub(in crate::execution::docker::backend::lifecycle) async fn sync_workspace(
         snapshot,
         budget,
         writable,
+        private_files_attached,
         artifact_paths,
         authorization_generation,
     } = request;
+    if private_files_attached {
+        backend.verify_authorization(authorization_generation)?;
+        return Ok(Vec::new());
+    }
     if !writable && artifact_paths.is_empty() {
         return Ok(Vec::new());
     }
@@ -67,7 +72,8 @@ pub(in crate::execution::docker::backend::lifecycle) fn workspace_write_enabled(
 pub(in crate::execution::docker::backend::lifecycle) fn workspace_stage_out_enabled(
     request: &ExecutionRequestV1,
 ) -> bool {
-    workspace_write_enabled(request) || !request.policy.artifact_paths().is_empty()
+    !request.private_files_attached
+        && (workspace_write_enabled(request) || !request.policy.artifact_paths().is_empty())
 }
 
 pub(super) async fn download_workspace(

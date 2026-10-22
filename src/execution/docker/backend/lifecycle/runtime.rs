@@ -26,6 +26,7 @@ pub(in crate::execution::docker::backend) struct RuntimeExecution {
     pub workspace_sync: Arc<tokio::sync::Mutex<()>>,
     lifecycle_state: ExecutionLifecycleV1,
     pub output_bytes: u64,
+    pub private_output_suppression_emitted: bool,
     pub(super) docker_usage: crate::persistence::execution_records::DockerResourceUsageV1,
     pub(super) phase_timings: crate::persistence::execution_records::ExecutionPhaseTimingsV1,
     #[cfg(test)]
@@ -77,6 +78,7 @@ impl RuntimeExecution {
             workspace_sync: Arc::new(tokio::sync::Mutex::new(())),
             lifecycle_state: ExecutionLifecycleV1::Queued,
             output_bytes: 0,
+            private_output_suppression_emitted: false,
             docker_usage: crate::persistence::execution_records::DockerResourceUsageV1::default(),
             phase_timings: crate::persistence::execution_records::ExecutionPhaseTimingsV1::default(
             ),
@@ -230,6 +232,10 @@ impl RuntimeExecution {
                 ExecutionRecordStateV1::Interrupted => ExecutionLifecycleV1::Interrupted,
             },
             output_bytes: record.output_bytes,
+            private_output_suppression_emitted: record
+                .request
+                .as_ref()
+                .is_some_and(|request| request.private_files_attached),
             docker_usage,
             phase_timings: record.phase_timings.clone(),
             #[cfg(test)]

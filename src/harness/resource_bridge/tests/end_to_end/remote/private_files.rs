@@ -5,6 +5,9 @@ use crate::execution::remote::private_files::{
 };
 use sha2::Digest;
 
+mod output_isolation;
+mod unapproved_denial;
+
 /// Production boundary: authenticates over SSH, stages a confirmed private
 /// file, bind-mounts it into the rootless Docker executor, checks read-only
 /// access under the executor UID, then revokes the grant while the command is
@@ -14,6 +17,16 @@ use sha2::Digest;
 /// moderate (one worker and one task clone).
 #[test]
 fn ssh_worker_mounts_confirmed_private_file_read_only_for_executor_uid() {
+    run_private_file_grant_e2e(GrantTermination::Completed);
+}
+
+/// Production boundary: verifies that an operator revocation observed during
+/// an authenticated SSH execution cancels the rootless Docker process and
+/// withholds its workspace result. Unit tests cannot prove the live worker
+/// cancellation and result-application path. Requires rootless Docker, loopback
+/// sshd, and the remote worker binary; setup is moderate.
+#[test]
+fn ssh_worker_stops_active_execution_when_private_file_grant_is_revoked() {
     run_private_file_grant_e2e(GrantTermination::Revoked);
 }
 
@@ -27,93 +40,11 @@ fn ssh_worker_stops_active_execution_when_private_file_grant_expires() {
     run_private_file_grant_e2e(GrantTermination::Expires);
 }
 
-/// Production boundary: an authenticated SSH worker runs the real rootless
-/// Docker executor against a task clone containing an unapproved credential
-/// file. A unit test cannot prove that the private-file staging protocol and
-/// Docker mount path both withhold it. Requires Linux, rootless Docker, sshd,
-/// and the remote worker binary; setup cost is moderate (one worker and clone).
-#[test]
-fn ssh_worker_never_stages_an_unapproved_private_file() {
-    if !cfg!(target_os = "linux")
-        || std::env::var("KOOLADE_REMOTE_DOCKER_BACKEND_INTEGRATION").as_deref() != Ok("1")
-    {
-        return;
-    }
-    let worker_binary = std::env::var_os("KOOLADE_TEST_WORKER_BINARY")
-        .map(std::path::PathBuf::from)
-        .expect("remote Docker E2E requires KOOLADE_TEST_WORKER_BINARY");
-    assert!(
-        worker_binary.is_file(),
-        "remote worker binary is unavailable"
-    );
-
-    let root = tempfile::tempdir().unwrap();
-    let task_home_path = root.path().join("task-home");
-    fs::create_dir_all(&task_home_path).unwrap();
-    let _home = support::task_home(&task_home_path);
-    let repository = root.path().join("repository");
-    fs::create_dir_all(&repository).unwrap();
-    support::initialize_project(&repository);
-    fs::write(
-        repository.join("README.md"),
-        "synthetic private-file denial\n",
-    )
-    .unwrap();
-    support::commit(&repository);
-    let task_clone = support::create_task_clone(&repository, &task_home_path, "private-denial");
-    let private_bytes = b"synthetic-unapproved-secret\n";
-    fs::write(task_clone.join(".env.production"), private_bytes).unwrap();
-
-    let worker_id = crate::persistence::execution_records::owner_instance_id().unwrap();
-    let sshd = sshd::SshdFixture::start(root.path(), &worker_binary)
-        .expect("CI must provide loopback sshd for remote execution E2E");
-    sshd.verify_client_authentication().unwrap();
-    sshd.restore_known_host(&worker_id).unwrap();
-    let worker = sshd.worker_config(&worker_id);
-    crate::persistence::remote_workers::register(
-        &worker_id,
-        &worker.host_alias,
-        &worker.ssh_principal,
-        &sshd.host_fingerprint,
-    )
-    .unwrap();
-
-    let project_id = uuid::Uuid::new_v4().hyphenated().to_string();
-    let task_id = uuid::Uuid::new_v4().hyphenated().to_string();
-    let session = two_controllers::connect_session_with_ids(
-        &task_clone,
-        &repository,
-        &worker,
-        Arc::new(authorization::TestAuthorization(
-            uuid::Uuid::new_v4().hyphenated().to_string(),
-        )),
-        &project_id,
-        &task_id,
-    );
-    let output = session
-        .run_tool_command(
-            "test ! -e .env.production && test ! -e /koolade-private-files/.env.production && printf 'unapproved-private-file-absent\\n'",
-            Duration::from_secs(120),
-        )
-        .expect("remote execution should succeed without access to the unapproved file");
-    assert_eq!(output.result.exit_code, Some(0));
-    assert!(task_clone.join(".env.production").is_file());
-    assert!(
-        !root
-            .path()
-            .join("worker-state/remote-staging/private-files")
-            .join(&output.result.execution_id)
-            .exists(),
-        "worker must not create a private-file stage without an approved grant"
-    );
-    drop(session);
-    drop(sshd);
-}
-
 #[derive(Clone, Copy)]
 enum GrantTermination {
     Revoked,
     Expires,
+    Completed,
 }
 
 fn run_private_file_grant_e2e(termination: GrantTermination) {
@@ -207,7 +138,10 @@ fn run_private_file_grant_e2e(termination: GrantTermination) {
                 }
                 // Leave enough time for SSH and worker startup, then let the
                 // controller observe expiry while the remote command sleeps.
-                GrantTermination::Expires => 20_000,
+                GrantTermination::Expires => 60_000,
+                GrantTermination::Completed => {
+                    crate::execution::remote::private_files::MAX_PRIVATE_FILE_GRANT_TTL_MS
+                }
             },
         files: vec![PrivateFileSpecV1 {
             path: ".env.production".into(),
@@ -240,21 +174,75 @@ fn run_private_file_grant_e2e(termination: GrantTermination) {
         &task_id,
     ));
     let expected_digest = format!("{:x}", sha2::Sha256::digest(private_bytes));
-    let command = format!(
-        "test \"$(sha256sum /koolade-private-files/.env.production | cut -d' ' -f1)\" = '{expected_digest}' && if printf probe >> /koolade-private-files/.env.production 2>/dev/null; then exit 41; fi && printf 'private-file-read-only-ok\\n' && sleep 45 && printf 'stale-private-result\\n' > remote-private-result.txt"
-    );
+    let command = if matches!(termination, GrantTermination::Completed) {
+        format!(
+            "if [ ! -r /koolade-private-files/.env.production ]; then exit 51; fi; if [ \"$(sha256sum /koolade-private-files/.env.production | cut -d' ' -f1)\" != '{expected_digest}' ]; then exit 52; fi; if printf probe >> /koolade-private-files/.env.production 2>/dev/null; then exit 41; fi; if ! cat /koolade-private-files/.env.production >/dev/null; then exit 54; fi; if ! cp /koolade-private-files/.env.production remote-private-result.txt; then exit 55; fi; printf 'private-file-result-ready\\n'"
+        )
+    } else {
+        format!(
+            "test \"$(sha256sum /koolade-private-files/.env.production | cut -d' ' -f1)\" = '{expected_digest}' && if printf probe >> /koolade-private-files/.env.production 2>/dev/null; then exit 41; fi && printf 'private-file-read-only-ok\\n' && sleep 90 && printf 'stale-private-result\\n' > remote-private-result.txt"
+        )
+    };
+    if matches!(termination, GrantTermination::Completed) {
+        let output = session
+            .run_tool_command(&command, Duration::from_secs(120))
+            .expect("private-file execution should complete with output suppression");
+        assert_eq!(
+            output.result.exit_code,
+            Some(0),
+            "private-file mount smoke returned failure kind {:?}",
+            output.result.failure.as_ref().map(|failure| failure.kind)
+        );
+        assert!(!output.stdout.contains("synthetic-secret-fixture"));
+        assert!(!output.stderr.contains("synthetic-secret-fixture"));
+        assert!(
+            output
+                .stdout
+                .contains("Command output suppressed for private-file execution")
+        );
+        assert!(!task_clone.join("remote-private-result.txt").exists());
+
+        let record =
+            crate::persistence::execution_records::load(&task_id, &output.result.execution_id)
+                .unwrap()
+                .expect("private-file execution record should be durable");
+        assert!(record.request.as_ref().unwrap().private_files_attached);
+        assert!(record.artifacts.is_empty());
+        assert!(record.result.as_ref().unwrap().artifacts.is_empty());
+        let events = crate::persistence::execution_records::load_events(
+            &task_id,
+            &output.result.execution_id,
+            crate::execution::contract::EventPageRequestV1::new(0, 256).unwrap(),
+        )
+        .unwrap();
+        let encoded_events = serde_json::to_vec(&events).unwrap();
+        let private_token = b"synthetic-secret-fixture";
+        assert!(
+            !encoded_events
+                .windows(private_token.len())
+                .any(|window| window == private_token)
+        );
+        assert!(!tree_contains_bytes(
+            &root_path.join("worker-state"),
+            private_token
+        ));
+        drop(session);
+        drop(sshd);
+        return;
+    }
     let run_session = session.clone();
     let mut controller = Some(std::thread::spawn(move || {
         run_session.run_tool_command(&command, Duration::from_secs(120))
     }));
-    two_controllers::wait_for_remote_stdout(
+    two_controllers::wait_for_remote_lifecycle(
         &session,
-        "private-file-read-only-ok",
+        crate::execution::contract::ExecutionLifecycleV1::Running,
         &mut controller,
         &task_home_path,
         &root_path.join("sshd.log"),
     );
     if matches!(termination, GrantTermination::Revoked) {
+        std::thread::sleep(Duration::from_millis(500));
         crate::persistence::remote_private_file_grants::revoke(
             &crate::persistence::state_root(),
             &project_id,
@@ -280,4 +268,26 @@ fn run_private_file_grant_e2e(termination: GrantTermination) {
     );
     drop(session);
     drop(sshd);
+}
+
+fn tree_contains_bytes(root: &std::path::Path, needle: &[u8]) -> bool {
+    let Ok(entries) = fs::read_dir(root) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            return false;
+        };
+        if metadata.file_type().is_symlink() {
+            return false;
+        }
+        if metadata.is_dir() {
+            tree_contains_bytes(&path, needle)
+        } else if metadata.is_file() {
+            fs::read(path).is_ok_and(|bytes| bytes.windows(needle.len()).any(|w| w == needle))
+        } else {
+            false
+        }
+    })
 }

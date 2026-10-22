@@ -75,6 +75,7 @@ fn start_request(execution_id: &str) -> (WorkspaceLeaseV1, ExecutionRequestV1) {
         task_id,
         target: ExecutionTarget::local(),
         controller_target_id: None,
+        private_files_attached: false,
         workspace,
         destination_sha: None,
         mode,

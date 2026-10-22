@@ -187,6 +187,7 @@ fn durable_execution_records_keep_resources_reserved_after_worker_process_exit()
         task_id: task_id.into(),
         target: ExecutionTarget::remote(worker_id),
         controller_target_id: Some(worker_id.into()),
+        private_files_attached: false,
         workspace: WorkspaceRef {
             project_id: project_id.into(),
             task_id: task_id.into(),
