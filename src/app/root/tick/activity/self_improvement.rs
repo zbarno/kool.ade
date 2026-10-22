@@ -100,7 +100,7 @@ pub(super) fn synchronize(project: &mut Project) {
     }
 }
 
-fn synchronize_run(
+pub(super) fn synchronize_run(
     project: &mut Project,
     lifecycle: &LifecycleStore<'_>,
     runs: &SelfImprovementStore<'_>,
