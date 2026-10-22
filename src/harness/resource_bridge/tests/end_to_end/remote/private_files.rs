@@ -176,7 +176,7 @@ fn run_private_file_grant_e2e(termination: GrantTermination) {
     let expected_digest = format!("{:x}", sha2::Sha256::digest(private_bytes));
     let command = if matches!(termination, GrantTermination::Completed) {
         format!(
-            "test \"$(sha256sum /koolade-private-files/.env.production | cut -d' ' -f1)\" = '{expected_digest}' && if printf probe >> /koolade-private-files/.env.production 2>/dev/null; then exit 41; fi && cat /koolade-private-files/.env.production && cp /koolade-private-files/.env.production remote-private-result.txt && printf 'private-file-result-ready\\n'"
+            "if [ ! -r /koolade-private-files/.env.production ]; then exit 51; fi; if [ \"$(sha256sum /koolade-private-files/.env.production | cut -d' ' -f1)\" != '{expected_digest}' ]; then exit 52; fi; if printf probe >> /koolade-private-files/.env.production 2>/dev/null; then exit 41; fi; if ! cat /koolade-private-files/.env.production >/dev/null; then exit 54; fi; if ! cp /koolade-private-files/.env.production remote-private-result.txt; then exit 55; fi; printf 'private-file-result-ready\\n'"
         )
     } else {
         format!(
@@ -187,7 +187,12 @@ fn run_private_file_grant_e2e(termination: GrantTermination) {
         let output = session
             .run_tool_command(&command, Duration::from_secs(120))
             .expect("private-file execution should complete with output suppression");
-        assert_eq!(output.result.exit_code, Some(0));
+        assert_eq!(
+            output.result.exit_code,
+            Some(0),
+            "private-file mount smoke returned failure kind {:?}",
+            output.result.failure.as_ref().map(|failure| failure.kind)
+        );
         assert!(!output.stdout.contains("synthetic-secret-fixture"));
         assert!(!output.stderr.contains("synthetic-secret-fixture"));
         assert!(
