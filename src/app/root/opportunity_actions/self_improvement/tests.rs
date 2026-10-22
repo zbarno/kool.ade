@@ -12,6 +12,8 @@ use crate::{
 
 #[path = "tests/installation.rs"]
 mod installation;
+#[path = "tests/plan_review.rs"]
+mod plan_review;
 #[path = "tests/retry_recovery.rs"]
 mod retry_recovery;
 
