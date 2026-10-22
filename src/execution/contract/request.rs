@@ -103,6 +103,10 @@ pub struct ExecutionRequestV1 {
     /// transport target. This is audit metadata only and grants no authority.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub controller_target_id: Option<String>,
+    /// Set by an authenticated remote worker when this run mounts a confirmed
+    /// private file. Such runs never persist command output or workspace data.
+    #[serde(default)]
+    pub private_files_attached: bool,
     pub workspace: WorkspaceRef,
     /// Selected destination branch head observed when execution was authorized.
     /// This is provenance only; it grants no repository or publication authority.
