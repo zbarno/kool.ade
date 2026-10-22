@@ -69,6 +69,8 @@ mod tests {
             started_at_unix_ms: Some(1),
             task_id: Some("00000000-0000-4000-8000-000000000005".into()),
             worker_id: worker_id.into(),
+            harness: None,
+            requested_model: None,
             workspace_upload_bytes: None,
             workspace_upload_ms: None,
             result_download_bytes: None,

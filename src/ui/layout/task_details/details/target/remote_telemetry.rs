@@ -19,6 +19,17 @@ pub(super) fn paint(
     };
     ui.label(format!("Telemetry worker: {}", telemetry.worker_id));
     ui.label(format!(
+        "Harness: {}",
+        telemetry.harness.as_deref().unwrap_or("Not recorded")
+    ));
+    ui.label(format!(
+        "Requested model: {}",
+        telemetry
+            .requested_model
+            .as_deref()
+            .unwrap_or("Not recorded")
+    ));
+    ui.label(format!(
         "Workspace upload: {} bytes in {} ms",
         metric(telemetry.workspace_upload_bytes),
         metric(telemetry.workspace_upload_ms)

@@ -27,10 +27,12 @@ mod remote_dependency;
 mod retry;
 mod run;
 mod system_image;
+mod telemetry;
 
 mod authorization;
 pub use authorization::AuthorizationGenerationVerifier;
 pub(crate) use retry::is_confirmed_remote_worker_loss;
+use telemetry::RemoteTelemetryAttribution;
 
 #[derive(Debug)]
 pub struct ExecutionOutput {
@@ -72,6 +74,7 @@ pub struct ExecutionSession {
             crate::execution::remote::dependency::DependencyRelayRequestV1,
         >,
     >,
+    remote_telemetry_attribution: Mutex<Option<RemoteTelemetryAttribution>>,
     sequence: AtomicU64,
     cancellation_generation: AtomicU64,
     busy: AtomicBool,
@@ -292,3 +295,6 @@ fn cancelled_error() -> ExecutionError {
 #[cfg(test)]
 #[path = "session/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+pub(crate) use telemetry::telemetry_test_session;

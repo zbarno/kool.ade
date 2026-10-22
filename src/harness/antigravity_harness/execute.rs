@@ -91,6 +91,7 @@ impl AiHarness for AntigravityHarness {
                     "Cannot configure Antigravity sandbox tools: {error:#}"
                 ))
             })?;
+        boundary.set_telemetry_model(requested_model.as_deref());
         let evidence = crate::harness::execution_security::ProfileProbeEvidence::probe(
             crate::harness::execution_security::CliProvider::Antigravity,
             &binary,

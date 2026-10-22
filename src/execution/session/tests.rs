@@ -291,5 +291,9 @@ fn session(backend: Arc<FakeBackend>) -> ExecutionSession {
     .unwrap()
 }
 
+pub(super) fn telemetry_test_session() -> ExecutionSession {
+    session(backend())
+}
+
 #[path = "tests/commands.rs"]
 mod commands;

@@ -114,6 +114,7 @@ impl ExecutionSession {
             let _ = self.backend.release_workspace(&lease).await;
             return Err(internal_error());
         }
+        self.record_telemetry_attribution(&handle);
         if let Err(error) = self.mark_remote_capacity_running() {
             let _ = self
                 .backend

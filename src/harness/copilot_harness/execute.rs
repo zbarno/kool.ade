@@ -76,6 +76,7 @@ impl AiHarness for CopilotHarness {
             .map_err(|error| {
                 AppError::Other(format!("Cannot configure Copilot sandbox tools: {error:#}"))
             })?;
+        boundary.set_telemetry_model(model.as_deref());
         let provider = crate::harness::execution_security::CliProvider::Copilot;
         let evidence = crate::harness::execution_security::ProfileProbeEvidence::probe(
             provider, &binary, version,
