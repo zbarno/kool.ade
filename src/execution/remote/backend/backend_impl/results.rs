@@ -44,6 +44,7 @@ pub(super) fn collect_artifacts<'a>(
                 execution_wall_ms,
                 result.metrics.cpu_millis,
                 result.metrics.peak_memory_bytes,
+                result.failure.as_ref().map(|failure| failure.kind),
             );
         if execution_wall_ms.is_some()
             && telemetry_result.is_ok()
