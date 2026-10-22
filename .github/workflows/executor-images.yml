@@ -477,22 +477,21 @@ jobs:
           fi
 
   publish-reviewed-qa-main:
-    name: Publish and attest ${{ matrix.profile }}
+    name: Publish ${{ matrix.profile }}
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.check-reviewed-lock.outputs.qa_ready == 'true'
     needs: [build-and-verify-qa-images, check-reviewed-lock]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
-      id-token: write
-      attestations: write
-      artifact-metadata: write
     strategy:
       fail-fast: false
       matrix:
         profile: [browser_qa, desktop_qa]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Prepare rootless Docker systemd session
         run: bash scripts/prepare-rootless-docker-session.sh
       - name: Start an isolated rootless Docker Engine
@@ -509,69 +508,304 @@ jobs:
           test "$(docker info --format '{{.OSType}}')" = linux
           docker info --format '{{json .SecurityOptions}}' \
             | jq -e 'any(.[]; contains("name=rootless"))' >/dev/null
-      - name: Authenticate to GitHub Container Registry
-        env:
-          GHCR_TOKEN: ${{ github.token }}
-          GHCR_ACTOR: ${{ github.actor }}
-        run: |
-          set -euo pipefail
-          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_ACTOR" --password-stdin
-      - name: Download pinned Syft
+      - name: Download pinned Syft before registry authentication
         id: syft
         uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610
         with:
           syft-version: v1.54.1
-      - name: Install the pinned Rust toolchain for the desktop driver
-        if: matrix.profile == 'desktop_qa'
-        run: rustup toolchain install 1.98.1 --profile minimal
-      - name: Cache Rust desktop-driver build artifacts
-        if: matrix.profile == 'desktop_qa'
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          shared-key: rust-1.98.1-desktop-qa
-          cache-workspace-crates: true
-      - name: Rebuild and publish the reviewed QA image recipe
-        id: publish
+      - name: Build and smoke the candidate without registry credentials
         env:
           PROFILE: ${{ matrix.profile }}
           SYFT: ${{ steps.syft.outputs.cmd }}
         run: |
           set -euo pipefail
-          BASE_IMAGE="$(jq -er --arg profile "$PROFILE" \
+          base_image="$(jq -er --arg profile "$PROFILE" \
             '.profiles[$profile][] | select(.platform == "linux/amd64") | .reference' \
             containers/base-images.lock.json)"
-          export BASE_IMAGE
-          scripts/build-qa-image-candidate.sh "$PROFILE" linux/amd64 "$BASE_IMAGE" publish
-          candidate="$RUNNER_TEMP/executor-image-candidate-${PROFILE}-amd64/executor-image.json"
-          expected="$(jq -er --arg profile "$PROFILE" \
-            '.profiles[$profile][] | select(.platform == "linux/amd64") | .digest' containers/images.lock.json)"
-          actual="$(jq -er '.digest' "$candidate")"
-          test "$actual" = "$expected"
-          printf 'digest=%s\n' "$actual" >> "$GITHUB_OUTPUT"
-          printf '%s\n' "$actual" > "$RUNNER_TEMP/qa-image-digest.txt"
-          printf 'Published reviewed QA digest %s for %s.\n' "$actual" "$PROFILE" >> "$GITHUB_STEP_SUMMARY"
+          scripts/build-qa-image-candidate.sh "$PROFILE" linux/amd64 "$base_image" candidate
+      - name: Authenticate for the fixed image publication step
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_ACTOR: ${{ github.actor }}
+          DOCKER_CONFIG: ${{ runner.temp }}/qa-image-docker-config
+        run: |
+          set -euo pipefail
+          mkdir -p "$DOCKER_CONFIG"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_ACTOR" --password-stdin
+      - name: Publish the reviewed candidate digest
+        env:
+          PROFILE: ${{ matrix.profile }}
+          DOCKER_CONFIG: ${{ runner.temp }}/qa-image-docker-config
+        run: |
+          set -euo pipefail
+          base_image="$(jq -er --arg profile "$PROFILE" \
+            '.profiles[$profile][] | select(.platform == "linux/amd64") | .reference' \
+            containers/base-images.lock.json)"
+          scripts/publish-qa-image-candidate.sh "$PROFILE" linux/amd64 "$base_image"
+          rm -rf "$DOCKER_CONFIG"
+      - name: Retain the publication evidence record
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: published-${{ matrix.profile }}-${{ github.sha }}
+          path: ${{ runner.temp }}/executor-image-candidate-${{ matrix.profile }}-amd64/*
+          if-no-files-found: error
+          retention-days: 90
+
+  smoke-reviewed-qa-main:
+    name: App smoke ${{ matrix.profile }}
+    needs: publish-reviewed-qa-main
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [browser_qa, desktop_qa]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: published-${{ matrix.profile }}-${{ github.sha }}
+          path: ${{ runner.temp }}/published-qa-image
+      - name: Prepare rootless Docker systemd session
+        run: bash scripts/prepare-rootless-docker-session.sh
+      - name: Start an isolated rootless Docker Engine
+        uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
+        with:
+          version: v29.9.0
+          rootless: true
+          set-host: true
+          daemon-config: |
+            {"features":{"cdi":false}}
+      - name: Pull the exact published image and browser fixture
+        env:
+          PROFILE: ${{ matrix.profile }}
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_ACTOR: ${{ github.actor }}
+          DOCKER_CONFIG: ${{ runner.temp }}/qa-image-docker-config
+        run: |
+          set -euo pipefail
+          mkdir -p "$DOCKER_CONFIG"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_ACTOR" --password-stdin
+          record="$RUNNER_TEMP/published-qa-image/executor-image.json"
+          reference="$(jq -er '.reference' "$record")"
+          digest="$(jq -er '.digest' "$record")"
+          case "$PROFILE" in
+            browser_qa) repository=ghcr.io/zbarno/koolade-runtime-qa-browser ;;
+            desktop_qa) repository=ghcr.io/zbarno/koolade-runtime-qa-desktop ;;
+            *) echo "unsupported published QA profile: $PROFILE" >&2; exit 2 ;;
+          esac
+          [[ "$reference" == "$repository@$digest" && "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker pull --platform linux/amd64 "$reference"
+          if [[ "$PROFILE" == browser_qa ]]; then
+            python_image="$(jq -er '.profiles.python[] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
+            docker pull --platform linux/amd64 "$python_image"
+          fi
+          rm -rf "$DOCKER_CONFIG"
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: rust-1.98.1-published-qa-lifecycle
+          cache-workspace-crates: true
+      - name: Exercise the immutable published digest through app-owned QA
+        env:
+          PROFILE: ${{ matrix.profile }}
+          IMAGE_RECORD: ${{ runner.temp }}/published-qa-image/executor-image.json
+          KOOLADE_QA_REQUIRE_ROOTLESS: "1"
+          KOOLADE_QA_REQUIRE_EGUI: "1"
+        run: |
+          set -euo pipefail
+          image_reference="$(jq -er '.reference' "$IMAGE_RECORD")"
+          image_digest="$(jq -er '.digest' "$IMAGE_RECORD")"
+          case "$PROFILE" in
+            browser_qa)
+              export KOOLADE_QA_BROWSER_IMAGE="$image_reference"
+              export KOOLADE_QA_BROWSER_DIGEST="$image_digest"
+              test_name=execution::docker::qa_container::tests::browser_rootless::run::rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up
+              ;;
+            desktop_qa)
+              export KOOLADE_QA_DESKTOP_IMAGE="$image_reference"
+              export KOOLADE_QA_DESKTOP_DIGEST="$image_digest"
+              test_name=execution::docker::qa_container::tests::desktop_rootless::rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate
+              ;;
+            *) echo "unsupported published QA profile: $PROFILE" >&2; exit 2 ;;
+          esac
+          cargo +1.98.1 test --locked --lib "$test_name" -- --ignored --exact
+          printf 'App-owned upload, run, evidence readback, and cleanup passed for `%s`.\n' "$image_reference" >> "$GITHUB_STEP_SUMMARY"
+
+  smoke-reviewed-qa-pull-request:
+    name: Published image smoke ${{ matrix.profile }}
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [browser_qa, desktop_qa]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Checkout the reviewed base image lock
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: reviewed-main
+          persist-credentials: false
+      - name: Prepare rootless Docker systemd session
+        run: bash scripts/prepare-rootless-docker-session.sh
+      - name: Start an isolated rootless Docker Engine
+        uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
+        with:
+          version: v29.9.0
+          rootless: true
+          set-host: true
+          daemon-config: |
+            {"features":{"cdi":false}}
+      - name: Pull the reviewed digest and browser fixture
+        env:
+          PROFILE: ${{ matrix.profile }}
+          IMAGE_LOCK: ${{ github.workspace }}/reviewed-main/containers/images.lock.json
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_ACTOR: ${{ github.actor }}
+          DOCKER_CONFIG: ${{ runner.temp }}/qa-image-docker-config
+        run: |
+          set -euo pipefail
+          jq -e '
+            all([.profiles.browser_qa[], .profiles.desktop_qa[]][];
+              . as $image |
+              ($image.reference | startswith("ghcr.io/zbarno/koolade-runtime-qa-")) and
+              ($image.digest | test("^sha256:[0-9a-f]{64}$")) and
+              ($image.reference | endswith($image.digest)) and
+              ($image.platform == "linux/amd64") and
+              ($image.build_recipe_sha256 | test("^sha256:[0-9a-f]{64}$"))) and
+            ([.profiles.browser_qa[].platform] == ["linux/amd64"]) and
+            ([.profiles.desktop_qa[].platform] == ["linux/amd64"])
+          ' "$IMAGE_LOCK" >/dev/null
+          docker info --format '{{json .SecurityOptions}}' \
+            | jq -e 'any(.[]; contains("name=rootless"))' >/dev/null
+          mkdir -p "$DOCKER_CONFIG"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_ACTOR" --password-stdin
+          image_reference="$(jq -er --arg profile "$PROFILE" \
+            '.profiles[$profile][] | select(.platform == "linux/amd64") | .reference' "$IMAGE_LOCK")"
+          image_digest="$(jq -er --arg profile "$PROFILE" \
+            '.profiles[$profile][] | select(.platform == "linux/amd64") | .digest' "$IMAGE_LOCK")"
+          case "$PROFILE" in
+            browser_qa) repository=ghcr.io/zbarno/koolade-runtime-qa-browser ;;
+            desktop_qa) repository=ghcr.io/zbarno/koolade-runtime-qa-desktop ;;
+            *) echo "unsupported published QA profile: $PROFILE" >&2; exit 2 ;;
+          esac
+          [[ "$image_reference" == "$repository@$image_digest" && "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker pull --platform linux/amd64 "$image_reference"
+          if [[ "$PROFILE" == browser_qa ]]; then
+            python_image="$(jq -er '.profiles.python[] | select(.platform == "linux/amd64") | .reference' "$IMAGE_LOCK")"
+            [[ "$python_image" =~ @sha256:[0-9a-f]{64}$ ]]
+            docker pull --platform linux/amd64 "$python_image"
+          fi
+          rm -rf "$DOCKER_CONFIG"
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: rust-1.98.1-published-qa-lifecycle
+          cache-workspace-crates: true
+      - name: Exercise the reviewed immutable image through app-owned QA
+        env:
+          PROFILE: ${{ matrix.profile }}
+          IMAGE_LOCK: ${{ github.workspace }}/reviewed-main/containers/images.lock.json
+          KOOLADE_QA_REQUIRE_ROOTLESS: "1"
+          KOOLADE_QA_REQUIRE_EGUI: "1"
+        run: |
+          set -euo pipefail
+          image_reference="$(jq -er --arg profile "$PROFILE" \
+            '.profiles[$profile][] | select(.platform == "linux/amd64") | .reference' "$IMAGE_LOCK")"
+          image_digest="$(jq -er --arg profile "$PROFILE" \
+            '.profiles[$profile][] | select(.platform == "linux/amd64") | .digest' "$IMAGE_LOCK")"
+          case "$PROFILE" in
+            browser_qa)
+              export KOOLADE_QA_BROWSER_IMAGE="$image_reference"
+              export KOOLADE_QA_BROWSER_DIGEST="$image_digest"
+              test_name=execution::docker::qa_container::tests::browser_rootless::run::rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up
+              ;;
+            desktop_qa)
+              export KOOLADE_QA_DESKTOP_IMAGE="$image_reference"
+              export KOOLADE_QA_DESKTOP_DIGEST="$image_digest"
+              test_name=execution::docker::qa_container::tests::desktop_rootless::rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate
+              ;;
+            *) echo "unsupported published QA profile: $PROFILE" >&2; exit 2 ;;
+          esac
+          cargo +1.98.1 test --locked --lib "$test_name" -- --ignored --exact
+          printf 'App-owned upload, run, evidence readback, and cleanup passed for `%s`.\n' "$image_reference" >> "$GITHUB_STEP_SUMMARY"
+
+  attest-reviewed-qa-main:
+    name: Attest ${{ matrix.profile }}
+    needs: [publish-reviewed-qa-main, smoke-reviewed-qa-main]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [browser_qa, desktop_qa]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: published-${{ matrix.profile }}-${{ github.sha }}
+          path: ${{ runner.temp }}/published-qa-image
+      - name: Verify the published digest record
+        id: image
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -euo pipefail
+          record="$RUNNER_TEMP/published-qa-image/executor-image.json"
+          digest="$(jq -er '.digest' "$record")"
+          reference="$(jq -er '.reference' "$record")"
+          case "$PROFILE" in
+            browser_qa) repository=ghcr.io/zbarno/koolade-runtime-qa-browser ;;
+            desktop_qa) repository=ghcr.io/zbarno/koolade-runtime-qa-desktop ;;
+            *) echo "unsupported published QA profile: $PROFILE" >&2; exit 2 ;;
+          esac
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ && "$reference" == "$repository@$digest" ]]
+          lock_digest="$(jq -er --arg profile "$PROFILE" '.profiles[$profile][] | select(.platform == "linux/amd64") | .digest' containers/images.lock.json)"
+          test "$digest" = "$lock_digest"
+          recorded_sbom="$(jq -er '.sbom_sha256' "$record")"
+          actual_sbom="sha256:$(sha256sum "$RUNNER_TEMP/published-qa-image/executor-sbom.spdx.json" | awk '{print $1}')"
+          test "$recorded_sbom" = "$actual_sbom"
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
       - name: Attest published QA image provenance
-        id: provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ghcr.io/zbarno/koolade-runtime-qa-${{ matrix.profile == 'browser_qa' && 'browser' || 'desktop' }}
-          subject-digest: ${{ steps.publish.outputs.digest }}
+          subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
           github-token: ${{ github.token }}
       - name: Attest published QA image SBOM
-        id: sbom
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ghcr.io/zbarno/koolade-runtime-qa-${{ matrix.profile == 'browser_qa' && 'browser' || 'desktop' }}
-          subject-digest: ${{ steps.publish.outputs.digest }}
-          sbom-path: ${{ runner.temp }}/executor-image-candidate-${{ matrix.profile }}-amd64/executor-sbom.spdx.json
+          subject-digest: ${{ steps.image.outputs.digest }}
+          sbom-path: ${{ runner.temp }}/published-qa-image/executor-sbom.spdx.json
           push-to-registry: true
           github-token: ${{ github.token }}
-      - name: Retain the reviewed QA publication record
+      - name: Retain attested publication evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: reviewed-${{ matrix.profile }}-${{ github.sha }}
-          path: ${{ runner.temp }}/executor-image-candidate-${{ matrix.profile }}-amd64/*
+          name: attested-${{ matrix.profile }}-${{ github.sha }}
+          path: ${{ runner.temp }}/published-qa-image/*
           if-no-files-found: error
           retention-days: 90
 
