@@ -21,6 +21,12 @@ mod diagnostics;
 #[path = "stack_recipes/fixtures.rs"]
 mod fixtures;
 
+/// Boundary: approved Rust, Node, Python, and Go build/test/start recipes run
+/// in their selected Docker profiles with the task-root and network policy,
+/// and an attempt to widen the selected root is denied. Unit tests cannot
+/// prove the executor images, tool resolution, workspace mounts, or command
+/// isolation together. External dependency: rootless Docker and locked runtime
+/// images. Setup cost: four small synthetic projects and twelve short recipes.
 #[test]
 fn approved_stack_recipes_execute_across_runtime_profiles() {
     const OPT_IN: &str = "KOOLADE_DOCKER_BACKEND_INTEGRATION";
@@ -182,7 +188,7 @@ fn recipe(id: &str, tool: &str, argv: &[&str]) -> ExecutionRecipeV1 {
         executable_id: tool.into(),
         argv: argv.iter().map(|arg| (*arg).into()).collect(),
         allowed_env_keys: Vec::new(),
-        allowed_output_paths: if tool == "cargo" || tool == "go" {
+        allowed_output_paths: if tool == "cargo" {
             vec![".koolade-target".into()]
         } else if tool == "python" {
             vec!["__pycache__".into()]
@@ -246,7 +252,7 @@ fn stack_recipes() -> Vec<(
             recipe(
                 "go-build",
                 "go",
-                &["build", "-o", ".koolade-target/stack-fixture", "main.go"],
+                &["build", "-o", "/tmp/stack-fixture", "main.go"],
             ),
             recipe("go-test", "go", &["test", "main.go", "main_test.go"]),
             recipe("go-start", "go", &["run", "main.go"]),

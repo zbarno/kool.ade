@@ -58,7 +58,6 @@ pub(super) fn write_stack_fixture(root: &std::path::Path, tool: &str) {
             ),
         ],
         "go" => &[
-            (".gitignore", ".koolade-target/\n"),
             (
                 "go.mod",
                 "module example.invalid/stackfixture\n\ngo 1.26.8\n",
@@ -74,10 +73,6 @@ pub(super) fn write_stack_fixture(root: &std::path::Path, tool: &str) {
         ],
         _ => panic!("unknown stack tool"),
     };
-    if tool == "go" {
-        // `go build -o` does not create its output's parent directory.
-        fs::create_dir_all(root.join(".koolade-target")).expect("Go fixture target directory");
-    }
     for (relative, contents) in files {
         let path = root.join(relative);
         if let Some(parent) = path.parent() {

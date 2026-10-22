@@ -1,11 +1,13 @@
 use bollard::models::{ContainerInspectResponse, NetworkInspect};
-use std::collections::HashMap;
 
 use super::super::denied;
 use crate::{
     execution::errors::ExecutionError,
     runtime_qa::{QaPreviewRelayBindingV1, QaRunRequestV1, QaTaskServiceLeaseV1},
 };
+use attachment::{attached_only_to_network, network_is_attached};
+
+mod attachment;
 
 /// Inspect the app-leased service against Docker's current state before QA
 /// access. Lease claims alone are not authority; the relay healthcheck probes
@@ -262,7 +264,7 @@ fn validate_inspected_service(
     let settings = container.network_settings.as_ref();
     let bound_to_network = settings
         .and_then(|settings| settings.networks.as_ref())
-        .is_some_and(|networks| network_is_attached(networks, network));
+        .is_some_and(|networks| attached_only_to_network(networks, network));
     let has_host_ports = settings
         .and_then(|settings| settings.ports.as_ref())
         .is_some_and(|ports| {
@@ -283,13 +285,6 @@ fn validate_inspected_service(
         ));
     }
     Ok(())
-}
-
-fn network_is_attached<T>(networks: &HashMap<String, T>, network: &NetworkInspect) -> bool {
-    network
-        .name
-        .as_deref()
-        .is_some_and(|name| networks.contains_key(name))
 }
 
 #[cfg(test)]
