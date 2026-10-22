@@ -2,6 +2,10 @@ use super::*;
 use crate::artifacts::planning_store::PlanningStore;
 use sha2::{Digest, Sha256};
 
+#[cfg(test)]
+#[path = "lifecycle/tests.rs"]
+mod tests;
+
 pub(super) struct LifecycleExecutionContext<'a> {
     pub(super) planning_store: &'a PlanningStore,
     pub(super) state_root: &'a Path,
