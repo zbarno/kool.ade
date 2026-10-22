@@ -50,13 +50,16 @@ backend resolves `WorkspaceRef` to an operator-local path. The remote SSH
 client negotiates worker protocol, version, capabilities, and policy identity;
 `WorkspaceManifestV1` now validates the pinned Git `HEAD`, hashes each
 included file, preserves executable bits and confined symlink targets, records
-private-path exclusions, and enforces entry, depth, and byte limits. The worker
-still denies workspace preparation because chunk transport, verified staging,
-and result application are not complete. The target architecture stages
-content identified by the reference, never the controller's bind path. The
+private-path exclusions, and enforces entry, depth, and byte limits. The remote
+worker accepts bounded chunk transfers and verifies the staged workspace
+against its source-bound manifest. The target architecture stages content
+identified by the reference, never the controller's bind path. The
 authoritative task clone remains the source of truth: uncommitted task changes
-are staged for execution, and returned patches/evidence are verified and
-applied by the controller. The worker does not commit, push, or merge them.
+are staged for execution, and returned workspace changes and evidence are
+verified and applied by the controller through the task-claim publication
+fence. The worker does not commit, push, or merge them. Broader
+two-controller/two-worker recovery acceptance remains gated in the Docker
+security matrix.
 
 ## Policy
 
