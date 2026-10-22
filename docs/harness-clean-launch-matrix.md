@@ -60,6 +60,15 @@ capability, binding, and role-matrix tests first so the clean-launch release
 gate is visible independently in CI. No paid provider credentials or installed
 vendor CLIs are required by this gate.
 
+The Unix-only `every_provider_role_calls_only_its_application_owned_mcp_authority`
+test checks that tool-enabled provider configs register only the app-owned MCP
+server. The fake CLI uses the parsed executable and config path with the fixed
+internal-server flag to invoke it, then sends permitted requests to a controlled
+socket fixture. Roles without tools must register no MCP server. The test also
+verifies read-only tool denial and session identity for tool-enabled roles. The
+fixture records requests without executing commands; it does not prove vendor
+CLI behavior or Docker execution.
+
 ## Telemetry and security boundary
 
 Task activity stores the provider name, normalized CLI version, selected prompt
