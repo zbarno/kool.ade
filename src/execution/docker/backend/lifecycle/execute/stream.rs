@@ -40,6 +40,16 @@ pub(super) async fn collect_output(
                 .min(offset + remaining);
             let chunk = &bytes[offset..end];
             state.output_bytes = state.output_bytes.saturating_add(chunk.len() as u64);
+            if state.request.private_files_attached {
+                if !state.private_output_suppression_emitted {
+                    state.private_output_suppression_emitted = true;
+                    state.push(ExecutionEventKindV1::Stdout {
+                        chunk: "Command output suppressed for private-file execution".into(),
+                    })?;
+                }
+                offset = end;
+                continue;
+            }
             let chunk = String::from_utf8_lossy(chunk).into_owned();
             state.push(if stderr {
                 ExecutionEventKindV1::Stderr { chunk }

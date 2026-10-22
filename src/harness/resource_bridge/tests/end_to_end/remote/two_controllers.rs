@@ -157,6 +157,70 @@ pub(super) fn wait_for_remote_stdout<T: Debug>(
     }
 }
 
+pub(super) fn wait_for_remote_lifecycle<T: Debug>(
+    session: &ExecutionSession,
+    expected: crate::execution::contract::ExecutionLifecycleV1,
+    controller: &mut Option<JoinHandle<T>>,
+    event_home: &Path,
+    sshd_log: &Path,
+) {
+    let deadline = Instant::now() + Duration::from_secs(90);
+    loop {
+        if let Some(handle) = session.active_handle_for_test()
+            && let Ok(events) = crate::persistence::execution_records::load_events_at(
+                event_home,
+                &handle.task_id,
+                &handle.execution_id,
+                crate::execution::contract::EventPageRequestV1::new(0, 256).unwrap(),
+            )
+        {
+            if events.iter().any(|event| {
+                matches!(
+                    &event.event,
+                    crate::execution::contract::ExecutionEventKindV1::Lifecycle { state }
+                        if *state == expected
+                )
+            }) {
+                return;
+            }
+            if events.iter().any(|event| {
+                matches!(
+                    &event.event,
+                    crate::execution::contract::ExecutionEventKindV1::Lifecycle { state }
+                        if matches!(state,
+                            crate::execution::contract::ExecutionLifecycleV1::Succeeded
+                                | crate::execution::contract::ExecutionLifecycleV1::Failed
+                                | crate::execution::contract::ExecutionLifecycleV1::Cancelled
+                                | crate::execution::contract::ExecutionLifecycleV1::Interrupted)
+                )
+            }) {
+                panic!(
+                    "remote command became terminal before lifecycle {expected:?}; sshd log: {}",
+                    sshd_log_tail(sshd_log)
+                );
+            }
+        }
+
+        if controller.as_ref().is_some_and(JoinHandle::is_finished) {
+            let result = controller
+                .take()
+                .expect("finished controller is present")
+                .join();
+            panic!(
+                "remote command exited before lifecycle {expected:?}: {result:?}; sshd log: {}",
+                sshd_log_tail(sshd_log)
+            );
+        }
+        if Instant::now() >= deadline {
+            panic!(
+                "remote command did not reach lifecycle {expected:?} before the deadline; sshd log: {}",
+                sshd_log_tail(sshd_log)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 fn sshd_log_tail(path: &Path) -> String {
     std::fs::read_to_string(path)
         .map(|contents| {

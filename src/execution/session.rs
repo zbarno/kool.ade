@@ -198,6 +198,7 @@ impl ExecutionSession {
             task_id: self.workspace.task_id.clone(),
             target: self.target.clone(),
             controller_target_id: None,
+            private_files_attached: false,
             workspace: self.workspace.clone(),
             destination_sha: self.destination_sha.clone(),
             mode: self.mode,

@@ -64,6 +64,7 @@ fn remote_execution_record_binds_controller_target_without_changing_worker_targe
         task_id: record.task_id.clone(),
         target: crate::execution::contract::ExecutionTarget::local(),
         controller_target_id: Some(worker_id.clone()),
+        private_files_attached: false,
         workspace: crate::execution::contract::WorkspaceRef {
             project_id: record.project_id.clone(),
             task_id: record.task_id.clone(),

@@ -26,7 +26,7 @@ pub(super) fn dispatch(
             "worker execution capacity is already reserved",
         ));
     }
-    if let Some(stager) = &stager {
+    let private_files_attached = if let Some(stager) = &stager {
         stager
             .validate_private_file_workspace(
                 &request.request.execution_id,
@@ -35,16 +35,19 @@ pub(super) fn dispatch(
             .map_err(|_| {
                 super::super::incompatible("private-file grant belongs to another workspace")
             })?;
-        if stager
-            .private_files_mount_root(&request.request.execution_id)
-            .is_err()
-        {
-            let _ = stager.cleanup_private_file_execution(&request.request.execution_id);
-            return Err(super::super::incompatible(
-                "worker private-file grant is incomplete or expired",
-            ));
-        }
-    }
+        let private_mount = match stager.private_files_mount_root(&request.request.execution_id) {
+            Ok(mount) => mount,
+            Err(_) => {
+                let _ = stager.cleanup_private_file_execution(&request.request.execution_id);
+                return Err(super::super::incompatible(
+                    "worker private-file grant is incomplete or expired",
+                ));
+            }
+        };
+        private_mount.is_some()
+    } else {
+        false
+    };
     let reservation = match capacity {
         Some(pool) => {
             let capacity_cpu_millis = crate::execution::resources::effective_cpu_capacity_millis();
@@ -91,7 +94,9 @@ pub(super) fn dispatch(
                 super::super::incompatible("private-file stage is incomplete and cannot start")
             })?;
     }
-    let handle = match runtime.block_on(backend.start(&request.lease, &request.request)) {
+    let mut worker_request = request.request.clone();
+    worker_request.private_files_attached = private_files_attached;
+    let handle = match runtime.block_on(backend.start(&request.lease, &worker_request)) {
         Ok(handle) => handle,
         Err(error) => {
             if let Some(stager) = &stager {

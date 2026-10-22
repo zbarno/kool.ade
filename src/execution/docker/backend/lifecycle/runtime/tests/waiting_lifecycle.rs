@@ -39,6 +39,7 @@ fn waiting_lifecycle_states_persist_and_restore_without_collapsing() {
         task_id: task_id.clone(),
         target: ExecutionTarget::local(),
         controller_target_id: None,
+        private_files_attached: false,
         workspace: WorkspaceRef {
             project_id,
             task_id: task_id.clone(),
