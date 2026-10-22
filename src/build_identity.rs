@@ -1,3 +1,9 @@
+// The desktop QA driver is a stable image tool, not the running Kool.ad/e app.
+// Its source revision already lives in candidate provenance; embedding each
+// checkout SHA would change the pinned image for unrelated source edits.
+#[cfg(feature = "qa-desktop-driver-image")]
+const BUILD_COMMIT: &str = "unknown";
+#[cfg(not(feature = "qa-desktop-driver-image"))]
 const BUILD_COMMIT: &str = env!("KOOLADE_BUILD_COMMIT");
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -52,5 +58,13 @@ mod tests {
         assert!(!valid_commit(&"g".repeat(40)));
         assert!(!valid_commit(&"a".repeat(39)));
         assert!(!valid_commit(&"a".repeat(41)));
+    }
+}
+
+#[cfg(all(test, feature = "qa-desktop-driver-image"))]
+mod qa_driver_tests {
+    #[test]
+    fn desktop_qa_driver_does_not_claim_the_app_build_identity() {
+        assert_eq!(super::current(), None);
     }
 }
