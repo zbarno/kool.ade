@@ -3,14 +3,17 @@ use super::*;
 /// Boundary: app-owned startup uploads a bounded Python web artifact and a
 /// integrity-verified npm cache snapshot into service tmpfs, proves the service process can
 /// read the cache as its locked user, provisions its internal preview relay,
-/// runs the pinned browser and headless service drivers through the app-owned
-/// relay, rejects browser requests to metadata, host-local and off-origin
-/// destinations, and cleans only owned resources.
+/// runs the pinned browser and, in candidate CI, the headless service driver
+/// through the app-owned relay, rejects browser requests to metadata, host-local
+/// and off-origin destinations, and cleans only owned resources.
 /// Unit tests cannot prove rootless Docker extraction, preview reachability,
 /// browser/API execution, request containment, or container cleanup.
-/// External dependency: rootless Docker plus the just-built browser candidate
-/// image. Setup cost: one image build, one small synthetic cache, and several
-/// short browser scenarios.
+/// External dependency: rootless Docker plus a pinned browser image. Candidate
+/// CI sets `KOOLADE_QA_REQUIRE_SERVICE_DRIVER=1` so this exact path also proves
+/// API-only support on the freshly built image; compatibility smoke uses the
+/// reviewed base image and exercises only its supported browser mode. Setup
+/// cost: one candidate image build, one small synthetic cache, and short browser
+/// and service scenarios.
 #[tokio::test]
 #[ignore = "requires rootless Docker and a locally loaded browser QA candidate"]
 async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up() {
@@ -213,19 +216,25 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
     if let Some(driver_id) = driver_container_id.take() {
         cleanup_driver_container(&docker, &driver_id).await.unwrap();
     }
-    let headless_service_result = service_driver::run(
-        &docker,
-        &request,
-        &scenario,
-        &browser_image,
-        &lock,
-        artifact_root.path(),
-        &artifact_upload,
-        &preview,
-        &resources,
-        &mut cancel,
-    )
-    .await;
+    let headless_service_result = if service_driver::required_for_candidate() {
+        Some(
+            service_driver::run(
+                &docker,
+                &request,
+                &scenario,
+                &browser_image,
+                &lock,
+                artifact_root.path(),
+                &artifact_upload,
+                &preview,
+                &resources,
+                &mut cancel,
+            )
+            .await,
+        )
+    } else {
+        None
+    };
     let origin_escape_result = redirect::assert_origin_escape_cases(
         &docker,
         &request,
@@ -264,17 +273,19 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
             .all(|assertion| { assertion.status == crate::runtime_qa::QaAssertionStatus::Passed })
     );
     assert!(output.screenshots.iter().any(|screen| screen.width >= 320));
-    let service_output = headless_service_result
-        .unwrap_or_else(|error| panic!("headless service QA failed: {error}"));
-    assert!(service_output.completed);
-    assert_eq!(service_output.assertions.len(), 1);
-    assert_eq!(
-        service_output.assertions[0].status,
-        crate::runtime_qa::QaAssertionStatus::Passed
-    );
-    let service_evidence = serde_json::to_string(&service_output).unwrap();
-    assert!(!service_evidence.contains("headless fixture input"));
-    assert!(!service_evidence.contains(r#"{"saved":true}"#));
+    if let Some(result) = headless_service_result {
+        let service_output =
+            result.unwrap_or_else(|error| panic!("headless service QA failed: {error}"));
+        assert!(service_output.completed);
+        assert_eq!(service_output.assertions.len(), 1);
+        assert_eq!(
+            service_output.assertions[0].status,
+            crate::runtime_qa::QaAssertionStatus::Passed
+        );
+        let service_evidence = serde_json::to_string(&service_output).unwrap();
+        assert!(!service_evidence.contains("headless fixture input"));
+        assert!(!service_evidence.contains(r#"{"saved":true}"#));
+    }
     lifecycle::review_and_persist(
         &request,
         scenario,

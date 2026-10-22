@@ -1,5 +1,13 @@
 use super::*;
 
+pub(super) fn required_for_candidate() -> bool {
+    match std::env::var("KOOLADE_QA_REQUIRE_SERVICE_DRIVER").as_deref() {
+        Ok("1") => true,
+        Ok("0") | Err(std::env::VarError::NotPresent) => false,
+        _ => panic!("KOOLADE_QA_REQUIRE_SERVICE_DRIVER must be 0 or 1"),
+    }
+}
+
 /// Runs the headless API driver through the same app-owned preview lease and
 /// restricted relay used by the browser application path.
 #[allow(clippy::too_many_arguments)]
