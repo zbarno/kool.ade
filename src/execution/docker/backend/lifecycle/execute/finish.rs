@@ -189,6 +189,7 @@ pub(super) async fn finish_command(
             snapshot,
             budget: request.resource_budget.temporary_disk_bytes,
             writable: sync::workspace_write_enabled(request),
+            private_files_attached: request.private_files_attached,
             artifact_paths: request.policy.artifact_paths(),
             authorization_generation: &request.authorization_generation,
         },

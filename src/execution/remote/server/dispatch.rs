@@ -8,6 +8,7 @@ use crate::execution::{backend::ExecutionBackend, errors::ExecutionError};
 
 use super::super::protocol::{EnvelopeKindV1 as Kind, EnvelopeV1};
 mod cache_transfer;
+mod exec;
 mod health;
 mod private_files;
 mod support;
@@ -223,15 +224,7 @@ pub(super) fn dispatch(
             runtime,
             envelope,
         ),
-        Kind::Exec => {
-            let request: ExecRequest = decode(&envelope.payload)?;
-            require_execution_id(envelope, &request.handle.execution_id)?;
-            let backend = backend.clone();
-            runtime.spawn(async move {
-                let _ = backend.exec(&request.handle, &request.request).await;
-            });
-            Ok((Kind::Acknowledge, json!({"accepted": true})))
-        }
+        Kind::Exec => exec::dispatch(backend, stager, runtime, envelope),
         Kind::Subscribe => {
             let request: EventsRequest = decode(&envelope.payload)?;
             require_execution_id(envelope, &request.handle.execution_id)?;

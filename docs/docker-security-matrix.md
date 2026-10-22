@@ -53,6 +53,13 @@ worker.
 | Docker Desktop on macOS | Local Desktop Linux VM transport and host-path/staging behavior must be verified | Must use archive/staging, never host clone paths interpreted inside the VM | Same mode policy; VM trust limitations must be documented | Not production-verified |
 | Docker Desktop on Windows | Linux-container backend and WSL2/host path behavior must be verified; Windows containers are unsupported | Must preserve Unicode/case-collision, executable, symlink, and line-ending behavior through archive/staging | Same mode policy; no shell interpolation for SSH or paths | Not production-verified |
 
+When a user-approved private file is mounted for a remote execution, the worker
+suppresses all command output and discards workspace changes and artifacts for
+that run. This prevents copied or transformed secret contents from entering
+controller or worker journals, logs, or durable task results. It also means
+private-file runs cannot return build outputs; rerun without private files when
+durable outputs are needed.
+
 ## Authority and resource controls
 
 | Boundary | Required control | Release evidence |
