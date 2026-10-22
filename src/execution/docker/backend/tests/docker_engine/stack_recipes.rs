@@ -180,7 +180,7 @@ fn recipe(id: &str, tool: &str, argv: &[&str]) -> ExecutionRecipeV1 {
         executable_id: tool.into(),
         argv: argv.iter().map(|arg| (*arg).into()).collect(),
         allowed_env_keys: Vec::new(),
-        allowed_output_paths: if tool == "cargo" {
+        allowed_output_paths: if tool == "cargo" || tool == "go" {
             vec![".koolade-target".into()]
         } else if tool == "python" {
             vec!["__pycache__".into()]
@@ -315,6 +315,7 @@ fn write_stack_fixture(root: &std::path::Path, tool: &str) {
             ),
         ],
         "go" => &[
+            (".gitignore", ".koolade-target/\n"),
             (
                 "go.mod",
                 "module example.invalid/stackfixture\n\ngo 1.26.8\n",
