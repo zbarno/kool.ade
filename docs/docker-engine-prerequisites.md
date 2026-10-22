@@ -46,6 +46,27 @@ tests assert the container's non-root identity, network isolation, resource
 limits, host-secret denial, and task-clone synchronization. The CI gate runs
 these tests against a pinned rootless Docker Engine.
 
+## Saved task workspace compatibility
+
+Task metadata remains separate from execution records. Legacy linked-worktree
+tasks are migrated through a journaled workspace snapshot that preserves the
+original worktree, branch, base commit, staged and unstaged changes, untracked
+files, and symlinks. Interrupted migrations can resume only after validating
+the saved snapshot and destination; conflicts leave both source and destination
+available for review. An execution process is never resumed from serialized
+command arguments. After a controller restart, unfinished Docker records are
+marked interrupted by the execution recovery path, and a later task resume
+creates a new execution attempt. See `src/core/implementation/execution/task_state/legacy_workspace.rs`,
+`src/core/implementation/tests/task_repositories/legacy_migration.rs`, and
+`src/execution/docker/backend/lifecycle/recovery/interrupt.rs`.
+
+The operator's existing ignored `koolade/runtime-config.json` project grant
+keeps its validated format. Local Docker execution may mount its approved
+files read-only; remote execution requires a separate worker-bound grant. The
+grant and file contents remain outside task commits and execution journals.
+This avoids treating an old local grant as permission to transmit files to a
+worker.
+
 `containers/executor/Dockerfile` is a trusted recipe with a fixed build context.
 It is never built from an agent repository. The `Trusted executor images` workflow
 checks ten locked executor profile/platform combinations plus the two amd64 QA

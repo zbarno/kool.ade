@@ -4,8 +4,8 @@ use crate::domain::ChatMessage;
 
 mod runtime_capability;
 pub use runtime_capability::*;
-mod lifecycle;
-pub use lifecycle::*;
+mod types;
+pub use types::*;
 
 #[derive(Clone)]
 pub struct ViewModel {
@@ -40,6 +40,9 @@ pub struct ViewModel {
     pub remote_private_file_grants_error: Option<String>,
     pub execution_evidence: Option<crate::persistence::execution_records::ExecutionRecordV1>,
     pub execution_evidence_error: Option<String>,
+    pub remote_execution_telemetry:
+        Option<crate::persistence::remote_execution_telemetry::RemoteExecutionTelemetryV1>,
+    pub remote_execution_telemetry_error: Option<String>,
     pub lifecycle_pr_work_uid: Option<String>,
     pub lifecycle_pr_status: Option<crate::core::lifecycle::PullRequestPreparationStatus>,
     pub lifecycle_pr_error: Option<String>,
@@ -52,55 +55,6 @@ pub struct ViewModel {
     pub runtime_qa_applicability_proposal: Option<RuntimeQaApplicabilityProposal>,
     pub runtime_qa_applicability_error: Option<String>,
     pub runtime_qa_applicability_reviewing: bool,
-}
-
-#[derive(Clone)]
-pub struct RuntimeQaApplicabilityProposal {
-    pub proposal: crate::runtime_qa::QaApplicabilityProposalV1,
-    pub proposal_sha256: String,
-    pub stale: bool,
-}
-
-#[derive(Clone)]
-pub struct RuntimeQaScenarioProposal {
-    pub task_revision: u64,
-    pub proposal_sha256: Option<String>,
-    pub scenarios: Vec<crate::runtime_qa::QaScenarioV1>,
-    pub approved: bool,
-    pub stale: bool,
-}
-
-#[derive(Clone)]
-pub struct RemotePrivateFileGrantView {
-    pub grant_id: String,
-    pub worker_id: String,
-    pub files: Vec<(
-        String,
-        crate::execution::remote::private_files::PrivateDataClassV1,
-    )>,
-    pub expires_at_unix_ms: u64,
-}
-
-#[derive(Clone)]
-pub struct RemotePrivateFileGrantCandidate {
-    pub path: String,
-    pub size_bytes: u64,
-    pub sha256: String,
-    pub data_class: crate::execution::remote::private_files::PrivateDataClassV1,
-}
-
-#[derive(Clone)]
-pub struct RemotePrivateFileGrantWorker {
-    pub worker_id: String,
-    pub destination: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TargetChoice {
-    pub preference: crate::execution::contract::TargetPreference,
-    pub label: String,
-    pub available: bool,
-    pub reason: String,
 }
 
 pub enum Command {
