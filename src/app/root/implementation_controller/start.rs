@@ -5,16 +5,41 @@ mod publication_retry;
 mod review;
 mod target_error;
 
-impl KooladeApp {
-    fn start_implementation_with_claim_mode(
-        &mut self,
-        ticket: String,
+struct StartOptions {
+    manual: bool,
+    capabilities: crate::harness::runtime_capabilities::RuntimeCapabilities,
+    stale_session: Option<String>,
+    allow_offline: bool,
+    lifecycle_pr_publication: bool,
+    lifecycle_gate_refresh: bool,
+}
+
+impl StartOptions {
+    fn new(
         manual: bool,
         capabilities: crate::harness::runtime_capabilities::RuntimeCapabilities,
-        stale_session: Option<String>,
-        allow_offline: bool,
-        lifecycle_pr_publication: bool,
-    ) {
+    ) -> Self {
+        Self {
+            manual,
+            capabilities,
+            stale_session: None,
+            allow_offline: false,
+            lifecycle_pr_publication: false,
+            lifecycle_gate_refresh: false,
+        }
+    }
+}
+
+impl KooladeApp {
+    fn start_implementation_with_claim_mode(&mut self, ticket: String, options: StartOptions) {
+        let StartOptions {
+            manual,
+            capabilities,
+            stale_session,
+            allow_offline,
+            lifecycle_pr_publication,
+            lifecycle_gate_refresh,
+        } = options;
         if matches!(&self.screen, Screen::Connected(p) if p.active_implementations.contains_key(&ticket) || p.active_implementations.len() >= p.queue.max_parallel.clamp(1, 8))
         {
             return;
@@ -36,6 +61,7 @@ impl KooladeApp {
                     state.status,
                     state.pr_url.is_some(),
                     lifecycle_pr_publication,
+                    lifecycle_gate_refresh,
                 )
             }) {
                 return;
@@ -154,7 +180,7 @@ impl KooladeApp {
                 .find(|doc| doc.path == ticket)
                 .and_then(|doc| doc.metadata.as_ref())
                 .is_some_and(|metadata| metadata.parent_task_uid.is_some());
-            let publication_mode = if is_subtask || allow_offline {
+            let publication_mode = if lifecycle_gate_refresh || is_subtask || allow_offline {
                 crate::core::implementation::PublicationMode::HoldForReview
             } else if explicit_publish {
                 crate::core::implementation::PublicationMode::CreatePullRequest

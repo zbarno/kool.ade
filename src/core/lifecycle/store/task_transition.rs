@@ -34,7 +34,9 @@ pub(super) fn apply_task_event(
     }
     if matches!(
         &proposal,
-        TaskEvent::ReconcileSpec { .. } | TaskEvent::SubtaskReconciled { .. }
+        TaskEvent::ReconcileSpec { .. }
+            | TaskEvent::PublicationGatesRefreshed { .. }
+            | TaskEvent::SubtaskReconciled { .. }
     ) {
         let lifecycle = super::LifecycleStore::new(store);
         lifecycle.ensure_task_specification_current(&snapshot.record)?;

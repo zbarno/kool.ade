@@ -143,6 +143,68 @@ fn retry_cannot_backfill_a_scope_for_legacy_authorization() {
 }
 
 #[test]
+// Production boundary: durable history must retain an old explicit
+// authorization as audit evidence while refusing to bind it to a refreshed
+// destination head. This crosses task replay and PR projection replay in a
+// local file store; a unit test cannot prove the two event streams replay
+// together. It uses a temporary file store and synthetic receipts, with no
+// provider, Docker, or network setup.
+fn destination_head_invalidation_keeps_prior_authorization_historical() {
+    let (_fixture, store, work, receipt) = super::ready();
+    let lifecycle = LifecycleStore::new(&store);
+    let scope = frozen_scope(&store, &work);
+    let authorized = lifecycle
+        .authorize_pr_publication_with_scope(
+            &work.work_item_uid,
+            work.revision,
+            &uuid::Uuid::new_v4().to_string(),
+            &receipt,
+            &scope,
+        )
+        .unwrap();
+    let attention = lifecycle
+        .record_pr_publication_failure(
+            &work.work_item_uid,
+            authorized.revision,
+            &uuid::Uuid::new_v4().to_string(),
+            Some(authorized.publication_lease_epoch()),
+            "destination branch changed before push",
+        )
+        .unwrap();
+    let task = lifecycle.load_task(&work.task_uid).unwrap();
+    lifecycle
+        .apply_task_event(
+            &task.task_uid,
+            task.revision,
+            &uuid::Uuid::new_v4().to_string(),
+            TaskEvent::PublicationHeadChanged {
+                code_sha256: "e".repeat(64),
+                head_sha: "b".repeat(40),
+            },
+        )
+        .unwrap();
+
+    let replayed = lifecycle.replay_feature(&work.feature_uid).unwrap();
+    assert_eq!(replayed.feature_uid, work.feature_uid);
+    let refreshed_task = lifecycle.load_task(&work.task_uid).unwrap();
+    let current_work = lifecycle.load_pr_preparation(&work.work_item_uid).unwrap();
+    assert_eq!(
+        refreshed_task.phase,
+        crate::core::lifecycle::TaskPhase::ReReview
+    );
+    assert_eq!(current_work.revision, attention.revision);
+    assert_eq!(
+        current_work.status,
+        PullRequestPreparationStatus::NeedsAttention
+    );
+    assert_eq!(
+        current_work.publication_authorization,
+        authorized.publication_authorization
+    );
+    assert_eq!(current_work.publication_scope, authorized.publication_scope);
+}
+
+#[test]
 // Production boundary: a delayed publisher must not record success or failure
 // after retry transfers the lease. A reducer test cannot prove persisted write
 // rejection. Durable store, moderate setup, no external service.

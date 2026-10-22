@@ -14,6 +14,7 @@ mod types;
 pub use feature::{FeatureEvent, FeatureGoal};
 pub use plan_remediation::{PlanFindingActionV1, PlanFindingDispositionV1, PlanRemediationV1};
 pub use plan_snapshot::{PlanRequirementV1, PlanSnapshotV1};
+pub use pr_publication_action::pull_request_gate_refresh_action_enabled;
 pub use pr_publication_action::pull_request_publication_action_enabled;
 pub use spec_history::{
     ProductSpecAggregateStatusV1, ProductSpecAggregateV1, ProductSpecFeatureSummaryV1,

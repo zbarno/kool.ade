@@ -250,13 +250,14 @@ pub(super) fn task_actor(event: &TaskEvent) -> LifecycleActor {
         | TaskEvent::SpecReconciliationBlocked { .. } => LifecycleActor::ApplicationPolicy,
         TaskEvent::RuntimeQaCompleted { .. } => LifecycleActor::IndependentReviewer,
         TaskEvent::RuntimeQaNotApplicable { .. } => LifecycleActor::Manager,
-        TaskEvent::ReconcileSpec { .. } | TaskEvent::SubtaskReconciled { .. } => {
-            LifecycleActor::ApplicationPolicy
-        }
+        TaskEvent::ReconcileSpec { .. }
+        | TaskEvent::PublicationGatesRefreshed { .. }
+        | TaskEvent::SubtaskReconciled { .. } => LifecycleActor::ApplicationPolicy,
         TaskEvent::SpecReconciliationRetry { .. } => LifecycleActor::ApplicationPolicy,
         TaskEvent::Start | TaskEvent::ImplementationFinished { .. } | TaskEvent::BeginRepair => {
             LifecycleActor::Worker
         }
+        TaskEvent::PublicationHeadChanged { .. } => LifecycleActor::ApplicationPolicy,
         TaskEvent::Cancel => LifecycleActor::User,
     }
 }

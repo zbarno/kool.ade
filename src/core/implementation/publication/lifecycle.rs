@@ -75,7 +75,14 @@ pub(in crate::core::implementation) fn prepare_lifecycle_publication(
     let authorized_work = match work.status {
         PullRequestPreparationStatus::AwaitingAuthorization
         | PullRequestPreparationStatus::NeedsAttention
-            if work.publication_authorization.is_none() =>
+            if work
+                .publication_authorization
+                .as_ref()
+                .is_none_or(|receipt| {
+                    receipt.subject_sha256
+                        != task.implementation_sha256.as_deref().unwrap_or_default()
+                        || work.publication_scope.as_ref() != Some(&scope)
+                }) =>
         {
             let subject_sha256 = task
                 .implementation_sha256

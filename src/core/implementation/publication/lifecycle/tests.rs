@@ -2,7 +2,7 @@ use super::{
     LifecyclePublicationGate, finish_lifecycle_publication, prepare_lifecycle_publication,
 };
 use crate::core::implementation::PullRequestState;
-use crate::core::lifecycle::{LifecycleStore, PullRequestPreparationStatus, TaskPhase};
+use crate::core::lifecycle::{LifecycleStore, PullRequestPreparationStatus, TaskEvent, TaskPhase};
 
 pub(in crate::core::implementation) mod fixture;
 mod recovery;
@@ -78,6 +78,89 @@ fn integrated_head_cannot_reuse_reviewed_head_authorization() {
         ));
         assert_eq!(reopened.revision().unwrap(), revision);
     }
+}
+
+#[test]
+fn changed_publication_head_reopens_review_and_invalidates_downstream_gates() {
+    let fixture = Fixture::new(40);
+    let mut task = fixture.task.clone();
+    let work_item_uid = task.pr_work_item_uid.clone();
+    let review_history = task.review_history.clone();
+    let new_hash = "a".repeat(64);
+    let new_head = "b".repeat(40);
+
+    task.apply(
+        task.revision,
+        TaskEvent::PublicationHeadChanged {
+            code_sha256: new_hash.clone(),
+            head_sha: new_head.clone(),
+        },
+    )
+    .unwrap();
+
+    assert_eq!(task.phase, TaskPhase::ReReview);
+    assert_eq!(
+        task.implementation_sha256.as_deref(),
+        Some(new_hash.as_str())
+    );
+    assert_eq!(task.reviewed_code_head_sha, None);
+    assert_eq!(task.code_review, None);
+    assert_eq!(task.qa_execution, None);
+    assert_eq!(task.runtime_qa, None);
+    assert_eq!(task.spec_reconciliation, None);
+    assert_eq!(task.pr_work_item_uid, work_item_uid);
+    assert_eq!(task.review_history, review_history);
+    task.validate().unwrap();
+}
+
+/// Production boundary: replay the durable task and PR projections after a
+/// destination update invalidates a previously authorized but unpublished
+/// scope. A reducer-only test cannot prove old authorization history remains
+/// auditable while no longer authorizing the refreshed head. Uses a local
+/// PlanningStore and synthetic accepted gate receipts; no provider, model,
+/// Docker, or browser. Setup cost: one temporary repository and lifecycle.
+#[test]
+fn destination_refresh_keeps_old_authorization_auditable_but_stale() {
+    let fixture = Fixture::new(40);
+    let lifecycle = LifecycleStore::new(&fixture.store);
+    let mut implementation = fixture.implementation();
+    implementation.verified_head = Some(fixture.reviewed_head.clone());
+    let LifecyclePublicationGate::Authorized(binding) =
+        prepare_lifecycle_publication(&fixture.store, &implementation).unwrap()
+    else {
+        panic!("fixture should authorize publication");
+    };
+    let work = lifecycle.load_pr_preparation(&fixture.work_uid).unwrap();
+    lifecycle
+        .record_pr_publication_failure(
+            &fixture.work_uid,
+            work.revision,
+            &uuid::Uuid::new_v4().to_string(),
+            Some(binding.lease_epoch),
+            "destination branch changed before push",
+        )
+        .unwrap();
+    let task = lifecycle.load_task(&fixture.task.task_uid).unwrap();
+    lifecycle
+        .apply_task_event(
+            &task.task_uid,
+            task.revision,
+            &uuid::Uuid::new_v4().to_string(),
+            TaskEvent::PublicationHeadChanged {
+                code_sha256: "a".repeat(64),
+                head_sha: "b".repeat(40),
+            },
+        )
+        .unwrap();
+
+    let reopened = fixture.reopen();
+    let recovered = LifecycleStore::new(&reopened);
+    let task = recovered.load_task(&fixture.task.task_uid).unwrap();
+    let work = recovered.load_pr_preparation(&fixture.work_uid).unwrap();
+    assert_eq!(task.phase, TaskPhase::ReReview);
+    assert_eq!(work.status, PullRequestPreparationStatus::NeedsAttention);
+    assert!(work.publication_authorization.is_some());
+    assert!(work.publication_scope.is_some());
 }
 
 #[test]

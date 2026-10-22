@@ -55,6 +55,12 @@ pub(in crate::core::lifecycle) fn authorize_before_commit(
         .map(|scope| scope::matches_current(&lifecycle, &record, &task, scope))
         .transpose()?
         .unwrap_or(true);
+    let replacing_stale_scope = stale_scope_replacement_allowed(
+        record.status,
+        record.publication_authorization.is_some(),
+        record.publication_scope.as_ref(),
+        scope,
+    );
     if record.revision != expected_revision
         || !matches!(
             record.status,
@@ -71,7 +77,12 @@ pub(in crate::core::lifecycle) fn authorize_before_commit(
         || record
             .publication_authorization
             .as_ref()
-            .is_some_and(|existing| existing != receipt)
+            .is_some_and(|existing| {
+                existing != receipt
+                    && !(record.status == PullRequestPreparationStatus::NeedsAttention
+                        && (existing.subject_sha256 != receipt.subject_sha256
+                            || record.publication_scope.as_ref() != scope))
+            })
         || scope.is_some_and(|scope| {
             scope.validate(&record.included_task_uids).is_err()
                 || (record.publication_authorization.is_some()
@@ -79,7 +90,7 @@ pub(in crate::core::lifecycle) fn authorize_before_commit(
                 || record
                     .publication_scope
                     .as_ref()
-                    .is_some_and(|existing| existing != scope)
+                    .is_some_and(|existing| Some(existing) != Some(scope) && !replacing_stale_scope)
         })
         || !scope_is_current
         || (record.publication_scope.is_some() && scope.is_none())
@@ -89,7 +100,14 @@ pub(in crate::core::lifecycle) fn authorize_before_commit(
         ));
     }
     let already_authorized = record.publication_authorization.is_some();
-    let actor = if already_authorized {
+    let replacing_stale_authorization = already_authorized
+        && record.status == PullRequestPreparationStatus::NeedsAttention
+        && (record.publication_scope.as_ref() != scope
+            || record
+                .publication_authorization
+                .as_ref()
+                .is_some_and(|existing| existing.subject_sha256 != receipt.subject_sha256));
+    let actor = if already_authorized && !replacing_stale_authorization {
         LifecycleActor::ApplicationPolicy
     } else {
         LifecycleActor::User
@@ -127,4 +145,64 @@ pub(in crate::core::lifecycle) fn authorize_before_commit(
         actor,
         Some(&store_revision),
     )
+}
+
+fn stale_scope_replacement_allowed(
+    status: PullRequestPreparationStatus,
+    has_authorization: bool,
+    existing: Option<&crate::core::lifecycle::store::task_transition::PrPublicationScopeV1>,
+    proposed: Option<&crate::core::lifecycle::store::task_transition::PrPublicationScopeV1>,
+) -> bool {
+    status == PullRequestPreparationStatus::NeedsAttention
+        && has_authorization
+        && existing != proposed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stale_scope_replacement_allowed;
+    use crate::core::lifecycle::{PrPublicationScopeV1, PullRequestPreparationStatus};
+
+    #[test]
+    fn only_needs_attention_authorization_can_replace_a_stale_scope() {
+        let existing = PrPublicationScopeV1 {
+            schema_version: 1,
+            publication_generation: 1,
+            source_repository_id: "repo".into(),
+            source_sha: "a".repeat(40),
+            implementation_branch: "task/example".into(),
+            destination_branch: "main".into(),
+            expected_base_sha: "b".repeat(40),
+            reviewed_diff_hash: "c".repeat(64),
+            included_task_uids: vec!["task".into()],
+            accepted_spec_revision: 1,
+            task_evidence: Vec::new(),
+        };
+        let mut proposed = existing.clone();
+        proposed.source_sha = "d".repeat(40);
+        assert!(stale_scope_replacement_allowed(
+            PullRequestPreparationStatus::NeedsAttention,
+            true,
+            Some(&existing),
+            Some(&proposed),
+        ));
+        assert!(!stale_scope_replacement_allowed(
+            PullRequestPreparationStatus::AwaitingAuthorization,
+            true,
+            Some(&existing),
+            Some(&proposed),
+        ));
+        assert!(!stale_scope_replacement_allowed(
+            PullRequestPreparationStatus::NeedsAttention,
+            false,
+            Some(&existing),
+            Some(&proposed),
+        ));
+        assert!(!stale_scope_replacement_allowed(
+            PullRequestPreparationStatus::NeedsAttention,
+            true,
+            Some(&existing),
+            Some(&existing),
+        ));
+    }
 }

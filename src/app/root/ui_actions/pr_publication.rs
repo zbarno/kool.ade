@@ -17,6 +17,37 @@ impl KooladeApp {
                         );
                         match lifecycle.task_for_planning_item(planning_item_uid) {
                             Ok(Some(task))
+                                if task.phase == crate::core::lifecycle::TaskPhase::ReReview =>
+                            {
+                                match task.pr_work_item_uid.as_deref() {
+                                    Some(work_uid) => {
+                                        let implementation =
+                                            project.implementation_states.get(ticket);
+                                        match (lifecycle.load_pr_preparation(work_uid), implementation) {
+                                            (Ok(work), Some(implementation))
+                                                if crate::core::lifecycle::pull_request_gate_refresh_action_enabled(
+                                                    Some(task.phase),
+                                                    implementation.status,
+                                                    implementation.pr_url.is_some(),
+                                                )
+                                                    && work.provider_pr_url.is_none()
+                                                    && matches!(work.status,
+                                                        crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization
+                                                            | crate::core::lifecycle::PullRequestPreparationStatus::NeedsAttention) => Ok(true),
+                                            (Ok(_), Some(implementation)) => Err(format!(
+                                                "review refresh is unavailable for implementation {:?}",
+                                                implementation.status
+                                            )),
+                                            (Err(error), _) => Err(error.to_string()),
+                                            (_, None) => Err(
+                                                "implementation state is missing; gate refresh is unavailable".into(),
+                                            ),
+                                        }
+                                    }
+                                    None => Err("re-review task has no PR work item".into()),
+                                }
+                            }
+                            Ok(Some(task))
                                 if task.phase == crate::core::lifecycle::TaskPhase::Done =>
                             {
                                 match task.pr_work_item_uid.as_deref() {
@@ -30,7 +61,7 @@ impl KooladeApp {
                                                 implementation.status,
                                                 implementation.pr_url.is_some(),
                                             ) {
-                                                Ok(())
+                                                Ok(false)
                                             } else {
                                                 Err(format!(
                                                     "PR work item is {:?} and implementation is {:?}; publication is not available",
@@ -66,7 +97,13 @@ impl KooladeApp {
             Screen::Welcome => Err("connect a project before authorizing publication".into()),
         };
         match validation {
-            Ok(()) => self.start_lifecycle_pr_publication(ticket.to_owned()),
+            Ok(refresh_gates) => {
+                if refresh_gates {
+                    self.start_lifecycle_gate_refresh(ticket.to_owned());
+                } else {
+                    self.start_lifecycle_pr_publication(ticket.to_owned());
+                }
+            }
             Err(error) => self.toasts.warning(error),
         }
     }
