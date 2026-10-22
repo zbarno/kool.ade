@@ -1,7 +1,3 @@
-use super::super::super::super::{
-    mcp_server::{BoundaryAccess, ServerConfig},
-    session_bridge::SessionBinding,
-};
 use super::super::super::CliProvider;
 use super::test_boundary;
 use crate::{
@@ -14,11 +10,13 @@ use crate::{
 use serde_json::{Value, json};
 use std::{
     fs,
-    io::{BufRead, Write},
-    os::unix::net::UnixListener,
-    thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
+
+mod registration;
+mod support;
+
+use support::{current_application_binary, make_executable, read_response, server_session};
 
 const PROVIDERS: [CliProvider; 6] = [
     CliProvider::Codex,
@@ -29,6 +27,17 @@ const PROVIDERS: [CliProvider; 6] = [
     CliProvider::Copilot,
 ];
 
+/// Production boundary: tool-enabled provider config through a spawned fake
+/// CLI into the app-owned MCP server and a controlled Unix-socket fixture.
+/// Invariant: each tool-enabled config registers only the app server, the fake
+/// CLI uses its parsed executable and config path with the fixed internal-server
+/// flag, role-bound tools are enforced, and requests carry app-owned session
+/// identity. Unit tests cannot prove config values reach the app protocol
+/// endpoint through a child process. The fixture records requests but does not
+/// execute commands. Setup: Unix shell/sockets and the
+/// all-targets-built app binary; no Docker, network, vendor CLI, or credentials.
+/// It starts one fake child per provider/role pair and a bridge fixture wherever
+/// that role permits MCP tools. Roles without tools must register no server.
 #[test]
 fn every_provider_role_calls_only_its_application_owned_mcp_authority() {
     let app_binary = current_application_binary();
@@ -73,6 +82,8 @@ fn every_provider_role_calls_only_its_application_owned_mcp_authority() {
             ];
             let mut env = Vec::new();
             boundary.configure(provider, &mut args, &mut env).unwrap();
+            let registered_server =
+                registration::assert_server_registration(provider, &boundary, &args, &env);
             let tool_request = command.as_ref().map_or(Value::Null, |command| {
                 json!({
                     "jsonrpc":"2.0", "id":1, "method":"tools/call",
@@ -91,13 +102,17 @@ fn every_provider_role_calls_only_its_application_owned_mcp_authority() {
             env.extend([
                 (
                     "KOOLADE_TEST_APP_BINARY".into(),
-                    app_binary.to_string_lossy().into_owned(),
+                    registered_server
+                        .as_ref()
+                        .map(|args| args[0].clone())
+                        .unwrap_or_default(),
                 ),
                 (
                     "KOOLADE_TEST_SERVER_CONFIG".into(),
-                    server_config
+                    registered_server
                         .as_ref()
-                        .map(|p| p.to_string_lossy().into_owned())
+                        .and_then(|args| args.get(2))
+                        .cloned()
                         .unwrap_or_default(),
                 ),
                 ("KOOLADE_TEST_TOOL_REQUEST".into(), tool_request.to_string()),
@@ -112,7 +127,12 @@ fn every_provider_role_calls_only_its_application_owned_mcp_authority() {
                 &case_dir,
             )
             .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(20);
             loop {
+                if Instant::now() >= deadline {
+                    task.kill();
+                    panic!("{provider:?} timed out for role {role:?}");
+                }
                 match task.poll_next(Duration::from_millis(100)) {
                     Ok(StreamEvt::Exited(true)) => break,
                     Ok(StreamEvt::Exited(false)) => panic!("{provider:?} failed for role {role:?}"),
@@ -166,7 +186,7 @@ fn every_provider_role_calls_only_its_application_owned_mcp_authority() {
             }
             assert!(
                 !host_marker.exists(),
-                "provider command escaped the application bridge for {provider:?} {role:?}"
+                "the controlled provider fixture executed a command locally for {provider:?} {role:?}"
             );
         }
     }
@@ -179,107 +199,4 @@ fn every_provider_role_calls_only_its_application_owned_mcp_authority() {
                 .count()
     );
     fs::remove_dir_all(root).unwrap();
-}
-
-fn server_session(
-    case_dir: &std::path::Path,
-    access: ToolAccess,
-    expected_command: &str,
-    host_marker: &std::path::Path,
-) -> (std::path::PathBuf, thread::JoinHandle<()>) {
-    let listener = UnixListener::bind(case_dir.join("execution.sock")).unwrap();
-    let task_id = uuid::Uuid::new_v4().hyphenated().to_string();
-    let binding = SessionBinding {
-        session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
-        capability_id: uuid::Uuid::new_v4().hyphenated().to_string(),
-        task_id: task_id.clone(),
-        workspace_id: format!(
-            "{}:{}:{}",
-            uuid::Uuid::new_v4().hyphenated(),
-            task_id,
-            "a".repeat(40)
-        ),
-        access: if access == ToolAccess::ReadOnly {
-            "read_only".into()
-        } else {
-            "implementation".into()
-        },
-        target_id: "local".into(),
-        target_arch: Some("x86_64".into()),
-    };
-    let config = if access == ToolAccess::ReadOnly {
-        ServerConfig::read_only(&binding)
-    } else {
-        ServerConfig {
-            protocol_version: 2,
-            access: BoundaryAccess::Implementation,
-            session_id: binding.session_id.clone(),
-            task_id: binding.task_id.clone(),
-            workspace_id: binding.workspace_id.clone(),
-            capability_id: binding.capability_id.clone(),
-            target_id: Some(binding.target_id.clone()),
-            target_arch: binding.target_arch.clone(),
-            resource_socket: Some(case_dir.join("resource.sock")),
-            resource_cache: Some(case_dir.join("cache")),
-        }
-    };
-    let path = case_dir.join("server.json");
-    fs::write(&path, serde_json::to_vec(&config).unwrap()).unwrap();
-    set_private(&path);
-    let command = expected_command.to_owned();
-    let command_capture = case_dir.join("bridge-command");
-    let host_marker = host_marker.to_path_buf();
-    let bridge = thread::spawn(move || {
-        let (stream, _) = listener.accept().unwrap();
-        let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
-        let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
-        let request: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(request["access"], binding.access);
-        assert_eq!(request["session_id"], binding.session_id);
-        assert_eq!(request["capability_id"], binding.capability_id);
-        assert_eq!(request["task_id"], binding.task_id);
-        assert_eq!(request["workspace_id"], binding.workspace_id);
-        assert_eq!(request["command"], command);
-        fs::write(command_capture, request["command"].as_str().unwrap()).unwrap();
-        assert!(
-            !host_marker.exists(),
-            "the MCP layer executed the command on the host"
-        );
-        let mut stream = reader.into_inner();
-        serde_json::to_writer(&mut stream, &json!({
-            "stdout": if request["access"] == "read_only" { "read result" } else { "write request received" },
-            "stderr":"", "exit_code":0, "is_error":false,
-        })).unwrap();
-        stream.write_all(b"\n").unwrap();
-    });
-    (path, bridge)
-}
-
-fn current_application_binary() -> std::path::PathBuf {
-    let current_test = std::env::current_exe().unwrap();
-    let app_binary = current_test
-        .parent()
-        .and_then(std::path::Path::parent)
-        .expect("test binary lives in target/debug/deps")
-        .join("koolade");
-    assert!(
-        app_binary.is_file(),
-        "all-targets must build the application binary for provider MCP tests"
-    );
-    app_binary
-}
-
-fn read_response(path: &std::path::Path) -> Value {
-    serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
-}
-
-fn make_executable(path: &std::path::Path) {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();
-}
-
-fn set_private(path: &std::path::Path) {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
 }
