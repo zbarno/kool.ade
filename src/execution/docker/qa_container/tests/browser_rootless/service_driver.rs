@@ -85,7 +85,7 @@ pub(super) async fn run(
         )
         .await
         .map_err(|error| error.message)?;
-        let output = run_created_driver(
+        let output = run_created_driver_with_status(
             docker,
             &driver_id,
             Duration::from_secs(120),
@@ -94,6 +94,13 @@ pub(super) async fn run(
         )
         .await
         .map_err(|error| error.message)?;
+        if output.exit_code != 0 {
+            return Err(format!(
+                "headless service driver exited with {}: {}",
+                output.exit_code,
+                bounded_driver_output(&output.stdout, &output.stderr)
+            ));
+        }
         parse_browser_output(&output.stdout, &service_request, &service_scenario)
     }
     .await;
@@ -101,4 +108,21 @@ pub(super) async fn run(
         .await
         .map_err(|error| error.message)?;
     result
+}
+
+fn bounded_driver_output(stdout: &[u8], stderr: &[u8]) -> String {
+    const MAX_DIAGNOSTIC_BYTES: usize = 4096;
+    let stdout = String::from_utf8_lossy(stdout);
+    let stderr = String::from_utf8_lossy(stderr);
+    format!(
+        "stdout={:?}; stderr={:?}",
+        stdout
+            .chars()
+            .take(MAX_DIAGNOSTIC_BYTES)
+            .collect::<String>(),
+        stderr
+            .chars()
+            .take(MAX_DIAGNOSTIC_BYTES)
+            .collect::<String>()
+    )
 }
