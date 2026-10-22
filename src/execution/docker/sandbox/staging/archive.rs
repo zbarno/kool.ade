@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 use tar::Archive;
 
 mod capture;
-pub(crate) use capture::capture;
+pub(crate) use capture::{capture, capture_excluding};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Fingerprint {

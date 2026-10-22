@@ -72,7 +72,11 @@ fn concurrent_tasks_receive_only_their_own_dependency_cache_snapshot() {
         .unwrap()
         .select(RuntimeProfile::General, native_docker_arch())
         .unwrap();
-    let resources = request(task_a.clone(), "").resource_budget;
+    // Keep two containers schedulable on the smallest supported CI runner;
+    // this test verifies cache isolation, not host capacity limits.
+    let mut resources = request(task_a.clone(), "").resource_budget;
+    resources.cpu_millis = 100;
+    resources.memory_bytes = 64 * 1024 * 1024;
     let session_a = Arc::new(
         ExecutionSession::new(
             backend.clone(),
