@@ -632,6 +632,93 @@ jobs:
           cargo +1.98.1 test --locked --lib "$test_name" -- --ignored --exact
           printf 'App-owned upload, run, evidence readback, and cleanup passed for `%s`.\n' "$image_reference" >> "$GITHUB_STEP_SUMMARY"
 
+  smoke-reviewed-qa-pull-request:
+    name: Published image smoke ${{ matrix.profile }}
+    if: github.event_name == 'pull_request' && needs.check-reviewed-lock.outputs.qa_ready == 'true'
+    needs: [check-reviewed-lock]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [browser_qa, desktop_qa]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prepare rootless Docker systemd session
+        run: bash scripts/prepare-rootless-docker-session.sh
+      - name: Start an isolated rootless Docker Engine
+        uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
+        with:
+          version: v29.9.0
+          rootless: true
+          set-host: true
+          daemon-config: |
+            {"features":{"cdi":false}}
+      - name: Pull the reviewed digest and browser fixture
+        env:
+          PROFILE: ${{ matrix.profile }}
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_ACTOR: ${{ github.actor }}
+          DOCKER_CONFIG: ${{ runner.temp }}/qa-image-docker-config
+        run: |
+          set -euo pipefail
+          docker info --format '{{json .SecurityOptions}}' \
+            | jq -e 'any(.[]; contains("name=rootless"))' >/dev/null
+          mkdir -p "$DOCKER_CONFIG"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_ACTOR" --password-stdin
+          image_reference="$(jq -er --arg profile "$PROFILE" \
+            '.profiles[$profile][] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
+          image_digest="$(jq -er --arg profile "$PROFILE" \
+            '.profiles[$profile][] | select(.platform == "linux/amd64") | .digest' containers/images.lock.json)"
+          case "$PROFILE" in
+            browser_qa) repository=ghcr.io/zbarno/koolade-runtime-qa-browser ;;
+            desktop_qa) repository=ghcr.io/zbarno/koolade-runtime-qa-desktop ;;
+            *) echo "unsupported published QA profile: $PROFILE" >&2; exit 2 ;;
+          esac
+          [[ "$image_reference" == "$repository@$image_digest" && "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker pull --platform linux/amd64 "$image_reference"
+          if [[ "$PROFILE" == browser_qa ]]; then
+            python_image="$(jq -er '.profiles.python[] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
+            docker pull --platform linux/amd64 "$python_image"
+          fi
+          rm -rf "$DOCKER_CONFIG"
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: rust-1.98.1-published-qa-lifecycle
+          cache-workspace-crates: true
+      - name: Exercise the reviewed immutable image through app-owned QA
+        env:
+          PROFILE: ${{ matrix.profile }}
+          KOOLADE_QA_REQUIRE_ROOTLESS: "1"
+          KOOLADE_QA_REQUIRE_EGUI: "1"
+        run: |
+          set -euo pipefail
+          image_reference="$(jq -er --arg profile "$PROFILE" \
+            '.profiles[$profile][] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
+          image_digest="$(jq -er --arg profile "$PROFILE" \
+            '.profiles[$profile][] | select(.platform == "linux/amd64") | .digest' containers/images.lock.json)"
+          case "$PROFILE" in
+            browser_qa)
+              export KOOLADE_QA_BROWSER_IMAGE="$image_reference"
+              export KOOLADE_QA_BROWSER_DIGEST="$image_digest"
+              test_name=execution::docker::qa_container::tests::browser_rootless::run::rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up
+              ;;
+            desktop_qa)
+              export KOOLADE_QA_DESKTOP_IMAGE="$image_reference"
+              export KOOLADE_QA_DESKTOP_DIGEST="$image_digest"
+              test_name=execution::docker::qa_container::tests::desktop_rootless::rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate
+              ;;
+            *) echo "unsupported published QA profile: $PROFILE" >&2; exit 2 ;;
+          esac
+          cargo +1.98.1 test --locked --lib "$test_name" -- --ignored --exact
+          printf 'App-owned upload, run, evidence readback, and cleanup passed for `%s`.\n' "$image_reference" >> "$GITHUB_STEP_SUMMARY"
+
   attest-reviewed-qa-main:
     name: Attest ${{ matrix.profile }}
     needs: [publish-reviewed-qa-main, smoke-reviewed-qa-main]
