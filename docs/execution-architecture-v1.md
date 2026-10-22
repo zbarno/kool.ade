@@ -160,15 +160,26 @@ Remote scheduling, platform support, setup UX, and production release evidence
 remain gated by the Docker security matrix.
 # Remote dependency broker relay status
 
-Remote dependency relay values are identity-bound and size-limited, and their
-responses contain status only. The controller `ResourceBridge` now exposes an
-internal execution-bound command capability that routes requests through the
-ordinary dependency broker socket, preserving triage, Manager approval,
-cancellation, and cache preparation policy. In the current architecture, the
-provider CLI and MCP server run on the controller, so dependency tool requests
-already reach this broker locally while code execution may run in a remote
-Docker session. The worker is not given the broker socket. There is no worker-
-initiated dependency RPC in the SSH protocol; adding one would require an
-explicit worker-hosted request channel and container capability before any
-remote package operation can be enabled. The worker cannot grant itself access
-or receive credentials/cache bytes through the current contract.
+The worker can request dependency preparation through the authenticated SSH
+protocol after its workspace is staged. Relay messages are bounded and bound
+to the worker, task, workspace revision, execution, authorization generation,
+and cancellation generation. The controller execution bridge validates that
+identity, then forwards dependency metadata through the ordinary broker
+socket, preserving policy evaluation, Manager approval, cancellation, and
+cache preparation. The worker receives only the broker outcome; approved
+cache data travels separately through the digest-verified cache transfer.
+Neither the worker nor the task container receives the controller broker
+socket or provider credentials.
+
+The opt-in
+`remote_docker_worker_restores_authorized_npm_cache_without_container_network`
+integration test (enabled with `KOOLADE_REMOTE_DOCKER_BACKEND_INTEGRATION=1`)
+exercises this flow with an SSH worker fixture; it requires Linux, the worker
+binary, rootless Docker, npm, and sshd. Set `KOOLADE_REQUIRE_SSHD_E2E=1` in a
+release gate so missing sshd fails instead of skipping. This test does not
+establish full multi-controller authorization and recovery parity.
+Confirmed-loss retry and attempt fencing are implemented in
+[#278](https://github.com/zbarno/kool.ade/pull/278), but broader two-controller
+takeover and recovery acceptance, complete per-worker telemetry attribution,
+and GPU/display resource provisioning remain open #141 release gates; see the
+[Docker security matrix](docker-security-matrix.md).

@@ -159,6 +159,7 @@ impl ExecutionBackend for RemoteExecutionBackend {
             if let TargetLocation::Remote { worker_id } = &self.target.location {
                 let _ = crate::persistence::remote_execution_telemetry::record_execution_started(
                     &request.execution_id,
+                    &request.task_id,
                     worker_id,
                     &request.image_digest,
                 );
@@ -174,6 +175,7 @@ impl ExecutionBackend for RemoteExecutionBackend {
             {
                 let _ = crate::persistence::remote_execution_telemetry::record_workspace_upload(
                     &request.execution_id,
+                    &request.task_id,
                     worker_id,
                     bytes,
                     ms,

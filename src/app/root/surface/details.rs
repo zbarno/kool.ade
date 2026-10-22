@@ -1,4 +1,6 @@
 use super::*;
+mod activity_samples;
+mod execution_evidence;
 mod lifecycle_pr;
 mod lifecycle_spec;
 mod lifecycle_ui;
@@ -12,42 +14,6 @@ mod target_choices;
 mod telemetry;
 
 impl KooladeApp {
-    pub(super) fn activity_samples_for_surface(&self, key: Option<&str>) -> Vec<(i64, u64)> {
-        let Screen::Connected(p) = &self.screen else {
-            return Vec::new();
-        };
-        if key.is_none()
-            && let Some(overall) = &p.activity.overall
-        {
-            return overall.telemetry.samples.clone();
-        }
-        let item_id = key
-            .and_then(|key| {
-                p.state
-                    .items
-                    .iter()
-                    .chain(&p.state.resolved_items)
-                    .find(|item| item.conversation_key() == key)
-                    .map(|item| item.id.as_str())
-            })
-            .or(key);
-        let mut buckets = std::collections::BTreeMap::<i64, u64>::new();
-        for (id, progress) in &p.activity.tasks {
-            if item_id.is_none_or(|key| key == id) {
-                for (bucket, count) in &progress.telemetry.samples {
-                    *buckets.entry(*bucket).or_default() += count;
-                }
-            }
-        }
-        for (id, progress) in &p.activity.conversations {
-            if key.is_none_or(|key| key == id) {
-                for (bucket, count) in &progress.telemetry.samples {
-                    *buckets.entry(*bucket).or_default() += count;
-                }
-            }
-        }
-        buckets.into_iter().collect()
-    }
     pub(super) fn task_detail_for_surface(
         &mut self,
         ticket: &str,
@@ -265,6 +231,8 @@ impl KooladeApp {
             } else {
                 (None, None)
             };
+        let (remote_execution_telemetry, remote_execution_telemetry_error) =
+            execution_evidence::remote_telemetry(execution_evidence.as_ref(), &execution_task_id);
         let attention = failure
             .as_deref()
             .and_then(|detail| self.attention_view(ticket, detail));
@@ -313,6 +281,8 @@ impl KooladeApp {
             remote_private_file_grants_error,
             execution_evidence,
             execution_evidence_error,
+            remote_execution_telemetry,
+            remote_execution_telemetry_error,
             lifecycle_pr_work_uid,
             lifecycle_pr_status,
             lifecycle_pr_error,
