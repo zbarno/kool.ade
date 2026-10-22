@@ -159,7 +159,7 @@ fn self_improvement_requires_reviews_qa_specs_before_pr_and_activation() {
     run.apply(
         9,
         Event::PrOpened {
-            url: "https://github.com/zbarno/kool.ade/pull/175".into(),
+            url: "https://github.com/zbarno/kool.ade/pull/999999".into(),
         },
     )
     .unwrap();
@@ -169,7 +169,7 @@ fn self_improvement_requires_reviews_qa_specs_before_pr_and_activation() {
         .apply(
             10,
             Event::PrClosedUnmerged {
-                url: "https://github.com/zbarno/kool.ade/pull/175".into(),
+                url: "https://github.com/zbarno/kool.ade/pull/999999".into(),
             },
         )
         .unwrap();
@@ -186,7 +186,7 @@ fn self_improvement_requires_reviews_qa_specs_before_pr_and_activation() {
         .apply(
             12,
             Event::PrClosedUnmerged {
-                url: "https://github.com/zbarno/kool.ade/pull/175".into(),
+                url: "https://github.com/zbarno/kool.ade/pull/999999".into(),
             },
         )
         .unwrap();

@@ -7,9 +7,9 @@ fn stale_revisions_and_noncanonical_pull_request_urls_are_rejected() {
     run.apply(1, Event::BeginPlanning).unwrap();
     assert!(run.apply(1, Event::NeedsAttention).is_err());
     for url in [
-        "http://github.com/zbarno/kool.ade/pull/1",
-        "https://github.com.evil/zbarno/kool.ade/pull/1",
-        "https://github.com/zbarno/kool.ade/pull/1?token=secret",
+        "http://github.com/zbarno/kool.ade/pull/999999",
+        "https://github.com.evil/zbarno/kool.ade/pull/999999",
+        "https://github.com/zbarno/kool.ade/pull/999999?token=secret",
         "https://github.com/zbarno/kool.ade/pull/not-a-number",
     ] {
         assert!(

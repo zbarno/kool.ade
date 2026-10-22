@@ -35,7 +35,7 @@ fn self_improvement_tracks_progress_for_every_independent_parent_task() {
         spec_receipt_uid: Some(uid(11)),
         pr_work_item_uid: Some(uid(12)),
         pr_status: Some(crate::core::lifecycle::PullRequestPreparationStatus::Opened),
-        pr_url: Some("https://github.com/zbarno/kool.ade/pull/1".into()),
+        pr_url: Some("https://github.com/zbarno/kool.ade/pull/999999".into()),
         pr_head_sha: Some(commit('d')),
         pr_base_branch: Some("main".into()),
         pr_merged_commit_sha: None,
@@ -64,7 +64,7 @@ fn self_improvement_tracks_progress_for_every_independent_parent_task() {
     assert_eq!(run.parent_task_progress, vec![first, second]);
     assert_eq!(
         run.parent_task_progress[0].pr_url.as_deref(),
-        Some("https://github.com/zbarno/kool.ade/pull/1")
+        Some("https://github.com/zbarno/kool.ade/pull/999999")
     );
     assert_eq!(
         run.parent_task_progress[1].phase,
@@ -74,14 +74,14 @@ fn self_improvement_tracks_progress_for_every_independent_parent_task() {
     let mut distinct_prs = run.clone();
     let mut second_pr = distinct_prs.parent_task_progress[1].clone();
     second_pr.pr_work_item_uid = Some(uid(13));
-    second_pr.pr_url = Some("https://github.com/zbarno/kool.ade/pull/2".into());
+    second_pr.pr_url = Some("https://github.com/zbarno/kool.ade/pull/999998".into());
     distinct_prs
         .apply(5, Event::ParentTaskProgress(second_pr))
         .expect("independent parents may publish distinct pull requests");
 
     let mut duplicate_pr = run.parent_task_progress[1].clone();
     duplicate_pr.pr_work_item_uid = Some(uid(14));
-    duplicate_pr.pr_url = Some("https://GITHUB.com:443/zbarno/kool.ade/pull/1".into());
+    duplicate_pr.pr_url = Some("https://GITHUB.com:443/zbarno/kool.ade/pull/999999".into());
     let mut invalid = run.clone();
     assert!(
         invalid

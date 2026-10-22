@@ -11,7 +11,7 @@ fn parent(status: Option<Status>, task_uid: &str) -> SelfImprovementParentTaskPr
         pr_work_item_uid: None,
         pr_status: status,
         pr_url: Some(format!(
-            "https://github.com/zbarno/kool.ade/pull/{task_uid}"
+            "https://github.com/zbarno/kool.ade/pull/99999{task_uid}"
         )),
         pr_head_sha: None,
         pr_base_branch: Some("main".into()),
@@ -286,7 +286,7 @@ fn aggregate_closes_after_every_parent_pr_is_terminal() {
         closed_unmerged_parent(&progress),
         Some((
             "1".into(),
-            "https://github.com/zbarno/kool.ade/pull/1".into()
+            "https://github.com/zbarno/kool.ade/pull/999991".into()
         ))
     );
 }
