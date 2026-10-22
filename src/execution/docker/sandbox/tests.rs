@@ -58,6 +58,7 @@ fn request(mode: ExecutionModeV1) -> ExecutionRequestV1 {
         task_id: task_id.clone(),
         target: ExecutionTarget::local(),
         controller_target_id: None,
+        private_files_attached: false,
         workspace: WorkspaceRef {
             project_id,
             task_id,

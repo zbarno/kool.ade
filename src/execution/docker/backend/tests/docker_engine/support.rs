@@ -134,6 +134,7 @@ pub(super) fn request(workspace: WorkspaceRef, script: &str) -> ExecutionRequest
         task_id: workspace.task_id.clone(),
         target: ExecutionTarget::local(),
         controller_target_id: None,
+        private_files_attached: false,
         workspace,
         destination_sha: None,
         mode: ExecutionModeV1::Implementation,
