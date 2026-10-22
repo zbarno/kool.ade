@@ -68,6 +68,8 @@ pub struct ExecutionPolicyV1 {
     artifact_paths: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     source_output_paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    source_input_paths: Vec<String>,
     resource_limits: ResourceBudgetV1,
     run_as_non_root: bool,
     host_secrets: bool,
@@ -153,6 +155,7 @@ impl ExecutionPolicyV1 {
             tool_capabilities,
             artifact_paths: Vec::new(),
             source_output_paths: Vec::new(),
+            source_input_paths: Vec::new(),
             resource_limits,
             run_as_non_root: true,
             host_secrets: false,
@@ -198,6 +201,15 @@ impl ExecutionPolicyV1 {
         source_output_paths: Vec<String>,
     ) -> anyhow::Result<Self> {
         self.source_output_paths = source_output_paths;
+        self.validate()?;
+        Ok(self)
+    }
+
+    pub(crate) fn with_source_input_paths(
+        mut self,
+        source_input_paths: Vec<String>,
+    ) -> anyhow::Result<Self> {
+        self.source_input_paths = source_input_paths;
         self.validate()?;
         Ok(self)
     }

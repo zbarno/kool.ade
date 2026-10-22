@@ -9,29 +9,34 @@ use crate::{
 pub(crate) fn capture_reviewed(
     workspace: &ValidatedWorkspace,
     expected_sha: &str,
-    allowed_outputs: &[String],
+    allowed_source_inputs: &[String],
     scope: Option<&str>,
     budget: u64,
     read_only: bool,
 ) -> Result<WorkspaceSnapshot, ExecutionError> {
-    verify_reviewed_checkout(workspace, expected_sha, allowed_outputs)?;
+    verify_reviewed_checkout(workspace, expected_sha, allowed_source_inputs)?;
     let snapshot = if let Some(root_relative) = scope {
         capture_scoped(workspace, root_relative, budget)?
     } else {
         capture(workspace, budget, read_only)?
     };
-    verify_snapshot_matches_git_tree(&snapshot, workspace.root(), expected_sha, allowed_outputs)?;
-    verify_reviewed_checkout(workspace, expected_sha, allowed_outputs)?;
+    verify_snapshot_matches_git_tree(
+        &snapshot,
+        workspace.root(),
+        expected_sha,
+        allowed_source_inputs,
+    )?;
+    verify_reviewed_checkout(workspace, expected_sha, allowed_source_inputs)?;
     Ok(snapshot)
 }
 
 fn verify_reviewed_checkout(
     workspace: &ValidatedWorkspace,
     expected_sha: &str,
-    allowed_outputs: &[String],
+    allowed_source_inputs: &[String],
 ) -> Result<(), ExecutionError> {
     workspace.revalidate()?;
-    verify_source_checkout(workspace.root(), expected_sha, allowed_outputs)
+    verify_source_checkout(workspace.root(), expected_sha, allowed_source_inputs)
         .map_err(|_| failure("Reviewed task source changed before execution staging"))
 }
 
@@ -39,7 +44,7 @@ pub(crate) fn verify_snapshot_matches_git_tree(
     snapshot: &WorkspaceSnapshot,
     root: &std::path::Path,
     expected_sha: &str,
-    allowed_outputs: &[String],
+    allowed_source_inputs: &[String],
 ) -> Result<(), ExecutionError> {
     let mut command = crate::core::planning_sync::validated_git_command(root)
         .map_err(|_| failure("Reviewed task source Git configuration is unsafe"))?;
@@ -99,7 +104,7 @@ pub(crate) fn verify_snapshot_matches_git_tree(
                 ));
             }
             tracked_files.push((object_id.clone(), sha256.clone(), *size));
-        } else if !allowed_outputs.iter().any(|allowed| {
+        } else if !allowed_source_inputs.iter().any(|allowed| {
             allowed == "." || path == std::path::Path::new(allowed) || path.starts_with(allowed)
         }) {
             return Err(failure("Staged file is outside approved recipe outputs"));

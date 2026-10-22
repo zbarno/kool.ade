@@ -47,6 +47,17 @@ impl CliProvider {
         }
     }
 
+    pub(super) fn telemetry_id(self) -> &'static str {
+        match self {
+            Self::Codex => "codex",
+            Self::Claude => "claude",
+            Self::Antigravity => "antigravity",
+            Self::OpenCode => "opencode",
+            Self::Copilot => "copilot",
+            Self::Pi => "pi",
+        }
+    }
+
     /// Stable prerequisites for each clean launch profile. A validated launch
     /// plan binds the successful probe to the configured argv and environment.
     pub(crate) fn profile_requirements(self) -> ProfileRequirements {

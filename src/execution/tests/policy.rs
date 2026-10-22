@@ -96,6 +96,33 @@ fn approved_recipe_request_binds_exact_command_arguments_and_target_scope() {
 }
 
 #[test]
+fn approved_recipe_policy_serializes_stage_in_and_stage_out_allowlists_separately() {
+    let policy = ExecutionPolicyV1::for_approved_recipe(
+        budget(1024 * 1024 * 1024, 2000),
+        "apps/web".into(),
+        "user-approval:decision-1".into(),
+        "npm".into(),
+        vec!["test".into()],
+        ".".into(),
+        BTreeSet::new(),
+    )
+    .unwrap()
+    .with_source_output_paths(vec!["apps/web/test-results/report.xml".into()])
+    .unwrap()
+    .with_source_input_paths(vec!["apps/web/dist/site.html".into()])
+    .unwrap();
+
+    let encoded = serde_json::to_value(&policy).unwrap();
+    let decoded: ExecutionPolicyV1 = serde_json::from_value(encoded).unwrap();
+
+    assert_eq!(decoded.source_input_paths(), &["apps/web/dist/site.html"]);
+    assert_eq!(
+        decoded.source_output_paths(),
+        &["apps/web/test-results/report.xml"]
+    );
+}
+
+#[test]
 fn artifact_collection_policy_rejects_unbounded_or_unsafe_paths() {
     let base = ExecutionPolicyV1::for_mode(
         ExecutionModeV1::Verification,

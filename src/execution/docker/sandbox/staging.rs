@@ -4,6 +4,11 @@ mod artifacts;
 mod failure;
 mod reviewed;
 mod sync;
+mod synchronize;
+pub(crate) use synchronize::synchronize;
+#[cfg(test)]
+pub(crate) use synchronize::synchronize_with_artifacts;
+pub(crate) use synchronize::{collect_artifacts, synchronize_with_source_output_policy};
 
 use super::ValidatedWorkspace;
 use crate::execution::errors::{ExecutionError, ExecutionErrorKind};
@@ -194,62 +199,6 @@ pub(crate) fn capture_scoped(
     }
     snapshot.scope_root = Some(PathBuf::from(root_relative));
     Ok(snapshot)
-}
-
-pub(crate) fn synchronize(
-    workspace: &ValidatedWorkspace,
-    snapshot: &WorkspaceSnapshot,
-    returned_archive: &[u8],
-    budget: u64,
-) -> Result<(), ExecutionError> {
-    synchronize_with_artifacts(workspace, snapshot, returned_archive, budget, &[]).map(|_| ())
-}
-
-pub(crate) fn synchronize_with_artifacts(
-    workspace: &ValidatedWorkspace,
-    snapshot: &WorkspaceSnapshot,
-    returned_archive: &[u8],
-    budget: u64,
-    artifact_paths: &[String],
-) -> Result<Vec<crate::execution::contract::ArtifactManifestEntryV1>, ExecutionError> {
-    workspace.revalidate()?;
-    let limit = budget.min(MAX_STAGED_BYTES);
-    let parsed = archive::parse_returned(returned_archive, limit, MAX_ENTRIES)
-        .map_err(|_| failure("Container returned an invalid or oversized workspace archive"))?;
-    let artifacts = collect_parsed_artifacts(&parsed, artifact_paths, limit)?;
-    let entries = if let Some(scope) = &snapshot.scope_root
-        && scope != std::path::Path::new(".")
-    {
-        parsed
-            .into_iter()
-            .map(|(path, entry)| (scope.join(path), entry))
-            .collect()
-    } else {
-        parsed
-    };
-    sync::apply_entries(workspace.root(), &snapshot.manifest, entries, limit)
-        .map_err(|error| failure(&error))?;
-    Ok(artifacts)
-}
-
-pub(crate) fn collect_artifacts(
-    returned_archive: &[u8],
-    budget: u64,
-    artifact_paths: &[String],
-) -> Result<Vec<crate::execution::contract::ArtifactManifestEntryV1>, ExecutionError> {
-    let limit = budget.min(MAX_STAGED_BYTES);
-    let parsed = archive::parse_returned(returned_archive, limit, MAX_ENTRIES)
-        .map_err(|_| failure("Container returned an invalid or oversized workspace archive"))?;
-    collect_parsed_artifacts(&parsed, artifact_paths, limit)
-}
-
-fn collect_parsed_artifacts(
-    parsed: &std::collections::BTreeMap<PathBuf, archive::ReturnedEntry>,
-    artifact_paths: &[String],
-    limit: u64,
-) -> Result<Vec<crate::execution::contract::ArtifactManifestEntryV1>, ExecutionError> {
-    artifacts::collect(parsed, artifact_paths, limit)
-        .map_err(|_| failure("Container did not return the requested bounded artifacts"))
 }
 
 fn checked_scope(root: &std::path::Path, relative: &str) -> Result<PathBuf, ExecutionError> {

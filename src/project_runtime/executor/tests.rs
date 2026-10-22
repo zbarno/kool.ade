@@ -1,6 +1,6 @@
 use super::{
     artifact_capture_paths, join_workspace_path, next_timestamp, receipt_artifact_hashes,
-    validate_manifest_candidate,
+    source_input_paths, source_output_paths, validate_manifest_candidate,
 };
 use crate::{
     execution::contract::WorkspaceRef,
@@ -77,6 +77,53 @@ fn approved_manifest() -> (ProjectCapabilityManifestV1, WorkspaceRef) {
         source_sha: sha,
     };
     (manifest, workspace)
+}
+
+#[test]
+fn test_recipe_stage_in_and_stage_out_allowlists_are_separate() {
+    let (mut manifest, _) = approved_manifest();
+    let mut target = manifest.candidate_targets[0].clone();
+    target.project_relative_root = "apps/web".into();
+    target.test_recipe_refs = vec!["web-test".into()];
+    manifest.candidate_targets = vec![target.clone()];
+    manifest.recipes[0].allowed_output_paths = vec!["dist".into()];
+    manifest.recipes[0].expected_artifacts = vec!["dist/site.html".into()];
+    let mut test_recipe = manifest.recipes[0].clone();
+    test_recipe.recipe_id = "web-test".into();
+    test_recipe.allowed_output_paths = vec!["test-results".into()];
+    test_recipe.expected_artifacts = vec!["test-results/report.xml".into()];
+    manifest.recipes.push(test_recipe);
+    let mut later_test = manifest.recipes[1].clone();
+    later_test.recipe_id = "web-test-later".into();
+    later_test.allowed_output_paths = vec!["later-results".into()];
+    later_test.expected_artifacts = vec!["later-results/report.xml".into()];
+    manifest.recipes.push(later_test);
+    target.test_recipe_refs.push("web-test-later".into());
+    manifest.candidate_targets = vec![target.clone()];
+
+    assert_eq!(
+        source_input_paths(&manifest, &target, RuntimeOperation::Build, "web-build").unwrap(),
+        ["apps/web/dist", "apps/web/dist/site.html"]
+    );
+    assert_eq!(
+        source_input_paths(&manifest, &target, RuntimeOperation::Test, "web-test").unwrap(),
+        [
+            "apps/web/dist",
+            "apps/web/dist/site.html",
+            "apps/web/test-results",
+            "apps/web/test-results/report.xml"
+        ]
+    );
+    assert_eq!(
+        source_output_paths(&manifest, &target, "web-test").unwrap(),
+        ["apps/web/test-results", "apps/web/test-results/report.xml"]
+    );
+    assert!(
+        source_input_paths(&manifest, &target, RuntimeOperation::Test, "web-test")
+            .unwrap()
+            .iter()
+            .all(|path| !path.contains("later-results"))
+    );
 }
 
 #[test]

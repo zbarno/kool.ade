@@ -49,11 +49,10 @@ pub(crate) fn verify_source_checkout(
     {
         if entry.starts_with(b"?? ") {
             let path = String::from_utf8_lossy(&entry[3..]);
-            let is_approved_output = allowed_untracked_outputs.iter().any(|allowed| {
-                allowed == "."
-                    || path.as_ref() == allowed
-                    || path.starts_with(&format!("{allowed}/"))
-            });
+            let is_approved_output = allowed_untracked_outputs
+                .iter()
+                .filter_map(|allowed| normalize_output_path(allowed))
+                .any(|allowed| output_path_covers(&allowed, Path::new(path.as_ref())));
             if is_approved_output {
                 continue;
             }
@@ -81,13 +80,35 @@ pub(crate) fn verify_source_checkout(
         .filter(|path| !path.is_empty())
     {
         let path = String::from_utf8_lossy(path);
-        if !allowed_untracked_outputs.iter().any(|allowed| {
-            allowed == "." || path.as_ref() == allowed || path.starts_with(&format!("{allowed}/"))
-        }) {
+        if !allowed_untracked_outputs
+            .iter()
+            .filter_map(|allowed| normalize_output_path(allowed))
+            .any(|allowed| output_path_covers(&allowed, Path::new(path.as_ref())))
+        {
             return Err("task checkout contains ignored files outside approved outputs".into());
         }
     }
     Ok(())
+}
+
+fn normalize_output_path(value: &str) -> Option<std::path::PathBuf> {
+    let mut normalized = std::path::PathBuf::new();
+    for component in Path::new(value).components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::Normal(part) if part != ".git" => normalized.push(part),
+            _ => return None,
+        }
+    }
+    if normalized.as_os_str().is_empty() {
+        Some(std::path::PathBuf::from("."))
+    } else {
+        Some(normalized)
+    }
+}
+
+fn output_path_covers(allowed: &Path, candidate: &Path) -> bool {
+    allowed == Path::new(".") || candidate == allowed || candidate.starts_with(allowed)
 }
 
 #[cfg(test)]
@@ -149,6 +170,7 @@ mod tests {
         fs::create_dir(repo.path().join("dist")).unwrap();
         fs::write(repo.path().join("dist/index.html"), "built artifact\n").unwrap();
         verify_source_checkout(repo.path(), &head, &["dist".into()]).unwrap();
+        verify_source_checkout(repo.path(), &head, &["./dist".into()]).unwrap();
         fs::write(repo.path().join("untracked.txt"), "unreviewed\n").unwrap();
         assert!(verify_source_checkout(repo.path(), &head, &["dist".into()]).is_err());
         fs::remove_file(repo.path().join("untracked.txt")).unwrap();

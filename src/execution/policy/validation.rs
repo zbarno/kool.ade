@@ -1,4 +1,7 @@
 mod request;
+mod source_paths;
+
+use source_paths::{validate_source_input_paths, validate_source_output_paths};
 
 use super::*;
 
@@ -24,11 +27,18 @@ impl ExecutionPolicyV1 {
         self.resource_limits.validate()?;
         validate_artifact_paths(&self.artifact_paths)?;
         validate_source_output_paths(&self.source_output_paths)?;
+        validate_source_input_paths(&self.source_input_paths)?;
         anyhow::ensure!(
             self.source_output_paths.is_empty()
                 || (self.mode == ExecutionModeV1::Verification
                     && self.approved_recipe_command.is_some()),
             "source output paths require an approved verification recipe"
+        );
+        anyhow::ensure!(
+            self.source_input_paths.is_empty()
+                || (self.mode == ExecutionModeV1::Verification
+                    && self.approved_recipe_command.is_some()),
+            "source input paths require an approved verification recipe"
         );
         anyhow::ensure!(
             self.artifact_paths.is_empty()
@@ -101,6 +111,16 @@ impl ExecutionPolicyV1 {
                             .is_some_and(|suffix| suffix.starts_with('/'))
                 }),
                 "approved source outputs must remain inside the scoped recipe target"
+            );
+            anyhow::ensure!(
+                self.source_input_paths.iter().all(|path| {
+                    scope.root_relative == "."
+                        || path == &scope.root_relative
+                        || path
+                            .strip_prefix(&scope.root_relative)
+                            .is_some_and(|suffix| suffix.starts_with('/'))
+                }),
+                "approved source inputs must remain inside the scoped recipe target"
             );
         }
         if let Some(command) = &self.approved_recipe_command {
@@ -190,33 +210,6 @@ fn validate_artifact_paths(paths: &[String]) -> anyhow::Result<()> {
             "artifact paths must be normalized workspace-relative files"
         );
         anyhow::ensure!(unique.insert(value), "artifact paths must be unique");
-    }
-    Ok(())
-}
-
-fn validate_source_output_paths(paths: &[String]) -> anyhow::Result<()> {
-    anyhow::ensure!(paths.len() <= 128, "too many approved source output paths");
-    let mut unique = std::collections::BTreeSet::new();
-    for value in paths {
-        let path = std::path::Path::new(value);
-        anyhow::ensure!(
-            !value.is_empty()
-                && value.len() <= 1024
-                && !value.contains('\\')
-                && !value.chars().any(char::is_control)
-                && path.components().all(|component| matches!(
-                    component,
-                    std::path::Component::Normal(_) | std::path::Component::CurDir
-                ))
-                && !path
-                    .components()
-                    .any(|component| component.as_os_str() == ".git"),
-            "approved source output paths must remain inside the workspace"
-        );
-        anyhow::ensure!(
-            unique.insert(value),
-            "approved source output paths must be unique"
-        );
     }
     Ok(())
 }

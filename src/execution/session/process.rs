@@ -9,7 +9,10 @@ use crate::execution::{
     errors::ExecutionError,
 };
 
-use super::{ExecutionOutput, ExecutionSession, RequestParameters, internal_error, policy_error};
+use super::{
+    ExecutionOutput, ExecutionSession, RequestParameters, ScopedRuntimePaths, internal_error,
+    policy_error,
+};
 
 struct PersistentExecution {
     backend: Arc<dyn ExecutionBackend>,
@@ -98,7 +101,7 @@ impl ExecutionSession {
         timeout: Duration,
         root_relative: &str,
         authorization_ref: String,
-        artifact_paths: &[String],
+        paths: ScopedRuntimePaths<'_>,
     ) -> Result<(ExecutionOutput, Option<Arc<RuntimeProcessHandle>>), ExecutionError> {
         let policy = crate::execution::policy::ExecutionPolicyV1::for_scoped_runtime_launcher(
             self.resources.clone(),
@@ -106,12 +109,14 @@ impl ExecutionSession {
             authorization_ref,
             script,
         )
-        .and_then(|policy| policy.with_artifact_paths(artifact_paths.to_vec()))
+        .and_then(|policy| policy.with_artifact_paths(paths.artifact_paths.to_vec()))
+        .and_then(|policy| policy.with_source_output_paths(paths.source_output_paths.to_vec()))
+        .and_then(|policy| policy.with_source_input_paths(paths.source_input_paths.to_vec()))
         .map_err(|_| policy_error("Scoped runtime process authorization is invalid"))?;
         self.start_runtime_process_with_policy_and_artifacts(
             script,
             timeout,
-            artifact_paths,
+            paths.artifact_paths,
             Some(policy),
         )
     }

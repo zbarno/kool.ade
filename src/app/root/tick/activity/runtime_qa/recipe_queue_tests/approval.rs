@@ -10,10 +10,10 @@ fn queue_dispatch_requires_explicit_recipe_approval() {
         executable_id: "npm".into(),
         argv: vec!["run".into(), "build".into()],
         allowed_env_keys: Vec::new(),
-        allowed_output_paths: Vec::new(),
+        allowed_output_paths: vec!["./dist".into()],
         timeout_seconds: 60,
         expected_exit_codes: vec![0],
-        expected_artifacts: vec!["dist/index.html".into()],
+        expected_artifacts: vec!["./dist/index.html".into()],
         cache_scope: None,
         prerequisite_tool_ids: vec!["npm".into()],
         network_requirement: NetworkRequirement::Denied,
@@ -73,7 +73,39 @@ fn queue_dispatch_requires_explicit_recipe_approval() {
     assert_eq!(candidate.required_tools, ["npm"]);
     assert_eq!(
         candidate.allowed_untracked_outputs,
-        ["apps/web/dist/index.html"]
+        ["apps/web/dist", "apps/web/dist/index.html"]
+    );
+
+    let mut test_recipe = recipe.clone();
+    test_recipe.recipe_id = "web-test".into();
+    test_recipe.allowed_output_paths = vec!["test-results".into()];
+    test_recipe.expected_artifacts = vec!["test-results/report.xml".into()];
+    manifest.recipes.push(test_recipe);
+    let mut later_test = recipe.clone();
+    later_test.recipe_id = "web-test-later".into();
+    later_test.allowed_output_paths = vec!["later-results".into()];
+    later_test.expected_artifacts = vec!["later-results/report.xml".into()];
+    manifest.recipes.push(later_test);
+    let mut tested_target = target.clone();
+    tested_target.test_recipe_refs = vec!["web-test".into(), "web-test-later".into()];
+    let test_candidate = approved_candidate(
+        &manifest,
+        &tested_target,
+        std::path::Path::new("task-clone"),
+        workspace.clone(),
+        RuntimeOperation::Test,
+        vec!["web-test", "web-test-later"],
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        test_candidate.allowed_untracked_outputs,
+        [
+            "apps/web/dist",
+            "apps/web/dist/index.html",
+            "apps/web/test-results",
+            "apps/web/test-results/report.xml"
+        ]
     );
 
     for (executable, tool) in [("python", "python"), ("go", "go")] {

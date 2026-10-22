@@ -98,6 +98,7 @@ impl ExecutionSession {
             dependency_cache_refs: Mutex::new(Vec::new()),
             prepared_dependency_ids: Mutex::new(BTreeSet::new()),
             remote_dependency_requests: Mutex::new(std::collections::BTreeMap::new()),
+            remote_telemetry_attribution: Mutex::new(None),
             sequence: AtomicU64::new(1),
             cancellation_generation: AtomicU64::new(1),
             busy: AtomicBool::new(false),

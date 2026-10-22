@@ -66,6 +66,19 @@ pub(super) fn approved_candidate(
     }) {
         return Ok(None);
     }
+    let output_recipe_ids = output_recipe_ids(target, operation, &ids);
+    let output_recipes = manifest
+        .recipes
+        .iter()
+        .chain(manifest.user_overrides.iter())
+        .filter(|recipe| output_recipe_ids.contains(&recipe.recipe_id))
+        .collect::<Vec<_>>();
+    if output_recipes.iter().any(|recipe| {
+        recipe.source != crate::project_runtime::RecipeSource::TrustedAdapter
+            && !recipe.is_explicitly_user_approved()
+    }) {
+        return Ok(None);
+    }
     let required_tools = recipes
         .iter()
         .flat_map(|recipe| {
@@ -84,7 +97,14 @@ pub(super) fn approved_candidate(
         .flatten()
         .map(|path| workspace_output_path(&target.project_relative_root, path))
         .collect::<Vec<_>>();
-    allowed_untracked_outputs.extend(recipes.iter().flat_map(|recipe| {
+    let input_recipe_ids = source_input_recipe_ids(target, operation, &ids);
+    let input_recipes = manifest
+        .recipes
+        .iter()
+        .chain(manifest.user_overrides.iter())
+        .filter(|recipe| input_recipe_ids.contains(&recipe.recipe_id))
+        .collect::<Vec<_>>();
+    allowed_untracked_outputs.extend(input_recipes.iter().flat_map(|recipe| {
         recipe
             .allowed_output_paths
             .iter()
@@ -105,13 +125,58 @@ pub(super) fn approved_candidate(
     }))
 }
 
+pub(super) fn output_recipe_ids(
+    target: &AppTargetV1,
+    operation: RuntimeOperation,
+    current_ids: &[&str],
+) -> Vec<String> {
+    let mut ids = BTreeSet::new();
+    if operation != RuntimeOperation::Build {
+        ids.extend(target.build_recipe_ref.iter().cloned());
+    }
+    if operation == RuntimeOperation::Start {
+        ids.extend(target.test_recipe_refs.iter().cloned());
+    }
+    ids.extend(current_ids.iter().map(|id| (*id).to_owned()));
+    ids.into_iter().collect()
+}
+
+fn source_input_recipe_ids(
+    target: &AppTargetV1,
+    operation: RuntimeOperation,
+    current_ids: &[&str],
+) -> Vec<String> {
+    let mut ids = BTreeSet::new();
+    match operation {
+        RuntimeOperation::Build => ids.extend(current_ids.iter().map(|id| (*id).to_owned())),
+        RuntimeOperation::Test => {
+            ids.extend(target.build_recipe_ref.iter().cloned());
+            ids.extend(current_ids.first().map(|id| (*id).to_owned()));
+        }
+        RuntimeOperation::Start => {
+            ids.extend(target.build_recipe_ref.iter().cloned());
+            ids.extend(target.test_recipe_refs.iter().cloned());
+            ids.extend(current_ids.iter().map(|id| (*id).to_owned()));
+        }
+    }
+    ids.into_iter().collect()
+}
+
 fn workspace_output_path(target_root: &str, path: &str) -> String {
-    if target_root == "." || target_root == "./" {
-        path.to_owned()
-    } else if path == "." {
-        target_root.to_owned()
+    let joined = std::path::Path::new(target_root).join(path);
+    let normalized = joined
+        .components()
+        .filter_map(|component| match component {
+            std::path::Component::CurDir => None,
+            std::path::Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+    if normalized.is_empty() {
+        ".".into()
     } else {
-        format!("{target_root}/{path}")
+        normalized
     }
 }
 

@@ -13,6 +13,10 @@ pub fn policy_hash() -> String {
         ("policy_accessors", include_bytes!("accessors.rs")),
         ("policy_restriction", include_bytes!("restrict.rs")),
         ("validation", include_bytes!("validation.rs")),
+        (
+            "validation_source_paths",
+            include_bytes!("validation/source_paths.rs"),
+        ),
         ("request", include_bytes!("../contract/request.rs")),
         ("argv", include_bytes!("../contract/request/argv.rs")),
         ("ids", include_bytes!("../contract/ids.rs")),

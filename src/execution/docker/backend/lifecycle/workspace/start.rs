@@ -92,7 +92,7 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
         staging::capture_reviewed(
             &workspace,
             &request.workspace.source_sha,
-            request.policy.source_output_paths(),
+            request.policy.source_input_paths(),
             request
                 .policy
                 .workspace_write_scope()

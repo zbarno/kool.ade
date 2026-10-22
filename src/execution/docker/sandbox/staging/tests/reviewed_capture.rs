@@ -54,14 +54,15 @@ fn reviewed_capture_binds_staged_bytes_to_the_pinned_git_tree() {
     );
 }
 
-// Production boundary: reviewed task-clone staging must accept a generated
-// file authorized only by the recipe's expected-artifact list. A path matcher
-// unit test cannot prove checkout verification and snapshot comparison agree.
+// Production boundary: a Test recipe's stage-in must accept the prior Build
+// artifact authorized by the cumulative input paths. A path matcher unit test
+// cannot prove checkout verification and snapshot comparison agree. The local
+// Git fixture has low setup cost and needs no Docker or network access.
 // This uses the local Git executable to initialize and commit one temporary
 // repository; setup cost is low and Docker or network access is not required.
 
 #[test]
-fn reviewed_capture_accepts_expected_artifact_only_outputs() {
+fn reviewed_capture_accepts_prior_recipe_artifacts_as_stage_in() {
     let fixture = Fixture::new();
     git(&fixture.0, &["init", "--quiet"]);
     git(&fixture.0, &["config", "user.name", "Fixture"]);

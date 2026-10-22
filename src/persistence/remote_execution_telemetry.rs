@@ -1,10 +1,12 @@
-//! Private, operator-local byte and duration metrics for remote workspace transfers.
+//! Private, operator-local metrics for remote workspace transfer and execution.
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 
+mod attribution;
 mod legacy;
 mod query;
 mod validation;
+pub use attribution::record_attribution;
 use legacy::{normalize_legacy_metrics, now_unix_ms};
 pub use query::latest_for_task;
 use validation::{validate, validate_id, validate_worker_id};
@@ -27,6 +29,10 @@ pub struct RemoteExecutionTelemetryV1 {
     pub task_id: Option<String>,
     pub worker_id: String,
     #[serde(default)]
+    pub harness: Option<String>,
+    #[serde(default)]
+    pub requested_model: Option<String>,
+    #[serde(default)]
     pub workspace_upload_bytes: Option<u64>,
     #[serde(default)]
     pub workspace_upload_ms: Option<u64>,
@@ -35,6 +41,8 @@ pub struct RemoteExecutionTelemetryV1 {
     #[serde(default)]
     pub result_download_ms: Option<u64>,
     #[serde(default)]
+    pub worker_start_rpc_ms: Option<u64>,
+    #[serde(default)]
     pub execution_wall_ms: Option<u64>,
     #[serde(default)]
     pub execution_cpu_millis: Option<u64>,
@@ -42,6 +50,8 @@ pub struct RemoteExecutionTelemetryV1 {
     pub execution_peak_memory_bytes: Option<u64>,
     #[serde(default)]
     pub image_digest: Option<String>,
+    #[serde(default)]
+    pub failure_code: Option<crate::execution::errors::ExecutionErrorKind>,
 }
 
 pub fn record_workspace_upload(
@@ -75,9 +85,11 @@ pub fn record_execution_started(
     task_id: &str,
     worker_id: &str,
     image_digest: &str,
+    worker_start_rpc_ms: u64,
 ) -> anyhow::Result<()> {
     update(execution_id, task_id, worker_id, |record| {
-        record.image_digest = Some(image_digest.to_owned())
+        record.image_digest = Some(image_digest.to_owned());
+        record.worker_start_rpc_ms = Some(worker_start_rpc_ms);
     })
 }
 
@@ -88,6 +100,7 @@ pub fn record_execution_result(
     wall_ms: Option<u64>,
     cpu_millis: u64,
     peak_memory_bytes: u64,
+    failure_code: Option<crate::execution::errors::ExecutionErrorKind>,
 ) -> anyhow::Result<()> {
     update(execution_id, task_id, worker_id, |record| {
         if wall_ms.is_some() {
@@ -95,6 +108,7 @@ pub fn record_execution_result(
         }
         record.execution_cpu_millis = Some(cpu_millis);
         record.execution_peak_memory_bytes = Some(peak_memory_bytes);
+        record.failure_code = failure_code;
     })
 }
 
@@ -177,24 +191,28 @@ fn update_at(
         record
     } else {
         RemoteExecutionTelemetryV1 {
-            schema_version: 4,
+            schema_version: 6,
             execution_id: execution_id.to_owned(),
             started_at_unix_ms: Some(now_unix_ms()),
             task_id: Some(task_id.to_owned()),
             worker_id: worker_id.to_owned(),
+            harness: None,
+            requested_model: None,
             workspace_upload_bytes: None,
             workspace_upload_ms: None,
             result_download_bytes: None,
             result_download_ms: None,
+            worker_start_rpc_ms: None,
             execution_wall_ms: None,
             execution_cpu_millis: None,
             execution_peak_memory_bytes: None,
             image_digest: None,
+            failure_code: None,
         }
     };
     record.task_id = Some(task_id.to_owned());
     change(&mut record);
-    record.schema_version = 4;
+    record.schema_version = 6;
     validate(&record)?;
     let bytes = serde_json::to_vec(&record)?;
     let temp = directory.join(format!(".{execution_id}-{}.tmp", uuid::Uuid::new_v4()));

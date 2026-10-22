@@ -27,10 +27,12 @@ mod remote_dependency;
 mod retry;
 mod run;
 mod system_image;
+mod telemetry;
 
 mod authorization;
 pub use authorization::AuthorizationGenerationVerifier;
 pub(crate) use retry::is_confirmed_remote_worker_loss;
+use telemetry::RemoteTelemetryAttribution;
 
 #[derive(Debug)]
 pub struct ExecutionOutput {
@@ -49,6 +51,13 @@ pub(super) struct RequestParameters {
     pub cancellation_generation: u64,
     pub policy_override: Option<ExecutionPolicyV1>,
     pub artifact_paths: Vec<String>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ScopedRuntimePaths<'a> {
+    pub artifact_paths: &'a [String],
+    pub source_output_paths: &'a [String],
+    pub source_input_paths: &'a [String],
 }
 
 /// Controller-owned session that turns tool scripts into bounded backend requests.
@@ -73,6 +82,7 @@ pub struct ExecutionSession {
             crate::execution::remote::dependency::DependencyRelayRequestV1,
         >,
     >,
+    remote_telemetry_attribution: Mutex<Option<RemoteTelemetryAttribution>>,
     sequence: AtomicU64,
     cancellation_generation: AtomicU64,
     busy: AtomicBool,
@@ -293,3 +303,6 @@ fn cancelled_error() -> ExecutionError {
 #[cfg(test)]
 #[path = "session/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+pub(crate) use telemetry::telemetry_test_session;

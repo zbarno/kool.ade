@@ -69,13 +69,35 @@ impl ExecutionSession {
         target_root: &str,
         artifact_paths: &[String],
     ) -> Result<ExecutionOutput, ExecutionError> {
+        let source_output_paths = recipe_source_output_paths(recipe);
+        self.run_scoped_recipe_with_artifacts_and_source_paths(
+            runtime,
+            target_id,
+            recipe,
+            target_root,
+            crate::execution::session::ScopedRuntimePaths {
+                artifact_paths,
+                source_output_paths: &source_output_paths,
+                source_input_paths: &source_output_paths,
+            },
+        )
+    }
+
+    pub(crate) fn run_scoped_recipe_with_artifacts_and_source_paths(
+        &self,
+        runtime: &crate::project_runtime::ProjectRuntimeStore<'_>,
+        target_id: &str,
+        recipe: &crate::project_runtime::ExecutionRecipeV1,
+        target_root: &str,
+        paths: crate::execution::session::ScopedRuntimePaths<'_>,
+    ) -> Result<ExecutionOutput, ExecutionError> {
         if let Some(destination) = self.retry_destination()? {
-            return destination.run_scoped_recipe_with_artifacts(
+            return destination.run_scoped_recipe_with_artifacts_and_source_paths(
                 runtime,
                 target_id,
                 recipe,
                 target_root,
-                artifact_paths,
+                paths,
             );
         }
         use crate::execution::policy::ExecutionPolicyV1;
@@ -93,7 +115,7 @@ impl ExecutionSession {
             ));
         }
         let working_directory = strip_target_root(target_root, &recipe.working_directory_relative)?;
-        validate_artifact_outputs(recipe, target_root, artifact_paths)?;
+        validate_artifact_outputs(recipe, target_root, paths.artifact_paths)?;
         let environment = recipe
             .allowed_env_keys
             .iter()
@@ -130,7 +152,8 @@ impl ExecutionSession {
         }
         .map_err(|_| policy_error("Scoped recipe authorization is invalid"))?;
         let policy = policy
-            .with_source_output_paths(recipe_source_output_paths(recipe))
+            .with_source_output_paths(paths.source_output_paths.to_vec())
+            .and_then(|policy| policy.with_source_input_paths(paths.source_input_paths.to_vec()))
             .map_err(|_| policy_error("Scoped recipe output authorization is invalid"))?;
         if self
             .busy
@@ -155,7 +178,7 @@ impl ExecutionSession {
             request_sequence: sequence,
             cancellation_generation,
             policy_override: Some(policy),
-            artifact_paths: artifact_paths.to_vec(),
+            artifact_paths: paths.artifact_paths.to_vec(),
         });
         let request = match request {
             Ok(request) => request,
@@ -174,12 +197,12 @@ impl ExecutionSession {
             self.verify_authorization()?;
         }
         self.retry_after_confirmed_loss_with(result, |destination| {
-            destination.run_scoped_recipe_with_artifacts(
+            destination.run_scoped_recipe_with_artifacts_and_source_paths(
                 runtime,
                 target_id,
                 recipe,
                 target_root,
-                artifact_paths,
+                paths,
             )
         })
     }

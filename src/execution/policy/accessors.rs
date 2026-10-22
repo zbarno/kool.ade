@@ -48,4 +48,14 @@ impl ExecutionPolicyV1 {
     pub fn source_output_paths(&self) -> &[String] {
         &self.source_output_paths
     }
+
+    pub fn source_input_paths(&self) -> &[String] {
+        if self.source_input_paths.is_empty() {
+            // Preserve the original policy behavior for requests serialized
+            // before the stage-in and stage-out grants were separated.
+            &self.source_output_paths
+        } else {
+            &self.source_input_paths
+        }
+    }
 }
