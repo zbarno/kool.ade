@@ -109,26 +109,26 @@
     "browser_qa": [
       {
         "platform": "linux/amd64",
-        "reference": "ghcr.io/zbarno/koolade-runtime-qa-browser@sha256:4e8c30f3d276de70961b8fb8b24107c025b1dc6b295ee695841bf17bf39891d7",
-        "digest": "sha256:4e8c30f3d276de70961b8fb8b24107c025b1dc6b295ee695841bf17bf39891d7",
+        "reference": "ghcr.io/zbarno/koolade-runtime-qa-browser@sha256:cde309ff57c1c8454b18d06b4c6e3165df2184d0caafd0ff06d37ef6e9675a83",
+        "digest": "sha256:cde309ff57c1c8454b18d06b4c6e3165df2184d0caafd0ff06d37ef6e9675a83",
         "tool_versions": {
           "node": "24.11.1",
           "npm": "11.6.2",
           "python3": "Python 3.12.3",
           "playwright": "1.57.0",
           "chromium": "143.0.7499.4",
-          "driver": "koolade-runtime-qa-browser-driver-1.1.0",
+          "driver": "koolade-runtime-qa-browser-driver-1.0.0",
           "base": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
         },
         "runtime_enabled": false,
-        "build_recipe_sha256": "sha256:14ca2e706d2243f2bb16bd654a1ee2db38e70b52aa3523bb3f8a6d7b1960da05"
+        "build_recipe_sha256": "sha256:6fa69a4e5ec5a50e3721f23fabf3eb26d12732bd33fe7d254ae6d76171ada7d8"
       }
     ],
     "desktop_qa": [
       {
         "platform": "linux/amd64",
-        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:04bb043ee73d32e6e7b59aa421c668e4b0dcbeb37f229ee72fa43fdd09dfc7cf",
-        "digest": "sha256:04bb043ee73d32e6e7b59aa421c668e4b0dcbeb37f229ee72fa43fdd09dfc7cf",
+        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:c15755847cafb6da34ebe403870fe4feaa19dffad705e5619576386ca41357fb",
+        "digest": "sha256:c15755847cafb6da34ebe403870fe4feaa19dffad705e5619576386ca41357fb",
         "tool_versions": {
           "driver": "linux-x11-driver/v1",
           "xvfb": "2:21.1.12-1ubuntu1.5",
@@ -137,7 +137,7 @@
           "base": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
         },
         "runtime_enabled": false,
-        "build_recipe_sha256": "sha256:150fbbb6113f7e04352db61890bf10bfeef51d00e58c3474dc628906688bbf7a"
+        "build_recipe_sha256": "sha256:6987831e07605883ff5be7b7cceb09844ed0ca989000cfbad8b61c70aa76fe28"
       }
     ]
   }
