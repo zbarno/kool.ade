@@ -37,9 +37,11 @@ Evidence base: `README.md`, `docs/`, the `src/` module map, and the acceptance a
 
 **Host integration**
 
-- The Pi harness runs as a supervised child process with an NDJSON event stream; Bubblewrap sandboxes provide environment scrubbing, hidden credential/home directories, read-only repository mounts, and network isolation; a host-side relay serves only a configured private HTTP OpenAI-compatible provider over a Unix socket with a placeholder key inside the sandbox; public/HTTPS providers fail closed (`src/harness.rs`; `README.md`, Host execution capabilities).
+- Supported provider CLIs run as supervised controller-side child processes with validated launch profiles. Repository tools are exposed only through Kool.ad/e's application-owned Docker execution sessions; local sessions require a ready rootless Linux Docker Engine, and remote sessions use an enrolled SSH worker with a verified host key. Missing or unsupported execution targets fail closed without a host-shell fallback (`src/harness/execution_security/application_boundary.rs`; `docs/docker-engine-prerequisites.md`; `docs/harness-clean-launch-matrix.md`).
+- Planning may run without repository tools when no task workspace is assigned. Implementation, verification, and the unreleased Runtime QA path use the shared Docker execution policy; the CLI process itself never gets direct repository tools.
+- Provider authentication remains controller-side. Provider credentials are not passed into repository execution containers, and local private project configuration is not sent to remote workers without a separate worker-bound approval (`src/harness/runtime_config.rs`; `src/execution/remote/private_files.rs`).
 
 **Explicit non-goals today**
 
 - No semantic/vector retrieval by design; selection is explicit logical module IDs plus stable `F-`/`FR-`/`NFR-`/`D-` references (chg-001 AC17–AC18).
-- No Windows/macOS support; no multi-operator collaboration; unowned-lane routing relies on the seated operator inheriting them.
+- Docker repository execution is supported on Linux with rootless Docker; Docker Desktop on macOS and Windows is not production verified. Multi-operator collaboration is not supported; unowned-lane routing relies on the seated operator inheriting them.
