@@ -244,7 +244,12 @@ fn stack_recipes() -> Vec<(
             recipe(
                 "go-build",
                 "go",
-                &["build", "-o", "/tmp/stack-fixture", "main.go"],
+                &[
+                    "build",
+                    "-o",
+                    "/workspace/.koolade-target/stack-fixture",
+                    "main.go",
+                ],
             ),
             recipe("go-test", "go", &["test", "main.go", "main_test.go"]),
             recipe("go-start", "go", &["run", "main.go"]),
