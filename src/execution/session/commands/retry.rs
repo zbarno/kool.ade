@@ -26,6 +26,7 @@ impl ExecutionSession {
         let Ok(destination) = factory() else {
             return result;
         };
+        self.copy_telemetry_attribution_to(&destination);
         self.install_retry_destination(Arc::clone(&destination))?;
         retry(destination)
     }

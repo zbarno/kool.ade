@@ -124,6 +124,7 @@ fn approved_recipe_retry_preserves_the_approval_and_artifact_request() {
         },
     )
     .unwrap();
+    original_session.set_telemetry_attribution("codex", Some("gpt-5-codex"));
     let replacement_session = Arc::new(
         ExecutionSession::new(
             replacement.clone(),
@@ -164,6 +165,10 @@ fn approved_recipe_retry_preserves_the_approval_and_artifact_request() {
         .unwrap();
 
     assert_eq!(output.result.exit_code, Some(0));
+    assert_eq!(
+        replacement_session.telemetry_attribution_for_test(),
+        Some(("codex".into(), Some("gpt-5-codex".into())))
+    );
     assert!(!interrupted.workspace_result_applied.load(Ordering::Acquire));
     let request = replacement.request.lock().unwrap().clone().unwrap();
     assert_eq!(request.argv, ["npm", "run", "build"]);

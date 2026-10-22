@@ -2,9 +2,11 @@
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 
+mod attribution;
 mod legacy;
 mod query;
 mod validation;
+pub use attribution::record_attribution;
 use legacy::{normalize_legacy_metrics, now_unix_ms};
 pub use query::latest_for_task;
 use validation::{validate, validate_id, validate_worker_id};
@@ -26,6 +28,10 @@ pub struct RemoteExecutionTelemetryV1 {
     #[serde(default)]
     pub task_id: Option<String>,
     pub worker_id: String,
+    #[serde(default)]
+    pub harness: Option<String>,
+    #[serde(default)]
+    pub requested_model: Option<String>,
     #[serde(default)]
     pub workspace_upload_bytes: Option<u64>,
     #[serde(default)]
@@ -185,11 +191,13 @@ fn update_at(
         record
     } else {
         RemoteExecutionTelemetryV1 {
-            schema_version: 5,
+            schema_version: 6,
             execution_id: execution_id.to_owned(),
             started_at_unix_ms: Some(now_unix_ms()),
             task_id: Some(task_id.to_owned()),
             worker_id: worker_id.to_owned(),
+            harness: None,
+            requested_model: None,
             workspace_upload_bytes: None,
             workspace_upload_ms: None,
             result_download_bytes: None,
@@ -204,7 +212,7 @@ fn update_at(
     };
     record.task_id = Some(task_id.to_owned());
     change(&mut record);
-    record.schema_version = 5;
+    record.schema_version = 6;
     validate(&record)?;
     let bytes = serde_json::to_vec(&record)?;
     let temp = directory.join(format!(".{execution_id}-{}.tmp", uuid::Uuid::new_v4()));
