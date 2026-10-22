@@ -130,6 +130,31 @@ pub(crate) fn capture(
         .map_err(|_| failure("Workspace cannot be staged safely within its size limit"))
 }
 
+/// Capture the controller apply baseline using only files staged to a remote
+/// worker. Excluded private files stay outside both the transfer and the
+/// baseline, so an absent remote copy cannot delete the local source file.
+pub(crate) fn capture_remote(
+    workspace: &ValidatedWorkspace,
+    budget: u64,
+    read_only: bool,
+    excluded_paths: &[String],
+) -> Result<WorkspaceSnapshot, ExecutionError> {
+    workspace.revalidate()?;
+    let limit = budget.min(MAX_STAGED_BYTES);
+    archive::capture_excluding(
+        workspace.root(),
+        limit,
+        read_only,
+        MAX_ENTRIES,
+        excluded_paths,
+    )
+    .map(|mut snapshot| {
+        snapshot.scope_root = None;
+        snapshot
+    })
+    .map_err(|_| failure("Workspace cannot be staged safely within its size limit"))
+}
+
 pub(crate) fn capture_scoped(
     workspace: &ValidatedWorkspace,
     root_relative: &str,
