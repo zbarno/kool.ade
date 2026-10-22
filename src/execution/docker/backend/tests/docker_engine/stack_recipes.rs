@@ -193,7 +193,7 @@ fn recipe(id: &str, tool: &str, argv: &[&str]) -> ExecutionRecipeV1 {
         } else if tool == "python" {
             vec!["__pycache__".into()]
         } else if id == "go-build" {
-            vec![".koolade-target".into()]
+            vec!["apps/web/.koolade-target".into()]
         } else {
             Vec::new()
         },
