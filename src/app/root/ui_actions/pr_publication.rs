@@ -16,31 +16,46 @@ impl KooladeApp {
                             &project.state.planning_store,
                         );
                         match lifecycle.task_for_planning_item(planning_item_uid) {
-                        Ok(Some(task)) if task.phase == crate::core::lifecycle::TaskPhase::Done => {
-                            match task.pr_work_item_uid.as_deref() {
-                                Some(work_uid) => lifecycle
-                                    .load_pr_preparation(work_uid)
-                                    .map_err(|error| error.to_string())
-                                    .and_then(|work| {
-                                        if matches!(work.status,
-                                            crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization
-                                            | crate::core::lifecycle::PullRequestPreparationStatus::NeedsAttention)
-                                        {
-                                            Ok(())
-                                        } else {
-                                            Err(format!("PR work item is {:?}, not awaiting authorization or retry", work.status))
+                            Ok(Some(task))
+                                if task.phase == crate::core::lifecycle::TaskPhase::Done =>
+                            {
+                                match task.pr_work_item_uid.as_deref() {
+                                    Some(work_uid) => {
+                                        let implementation =
+                                            project.implementation_states.get(ticket);
+                                        match (lifecycle.load_pr_preparation(work_uid), implementation) {
+                                        (Ok(work), Some(implementation)) => {
+                                            if crate::core::lifecycle::pull_request_publication_action_enabled(
+                                                Some(work.status),
+                                                implementation.status,
+                                                implementation.pr_url.is_some(),
+                                            ) {
+                                                Ok(())
+                                            } else {
+                                                Err(format!(
+                                                    "PR work item is {:?} and implementation is {:?}; publication is not available",
+                                                    work.status, implementation.status
+                                                ))
+                                            }
                                         }
-                                    }),
-                                None => Err("completed lifecycle task has no PR work item".into()),
+                                        (Err(error), _) => Err(error.to_string()),
+                                        (_, None) => Err(
+                                            "implementation state is missing; PR authorization is unavailable".into(),
+                                        ),
+                                    }
+                                    }
+                                    None => {
+                                        Err("completed lifecycle task has no PR work item".into())
+                                    }
+                                }
                             }
+                            Ok(Some(task)) => Err(format!(
+                                "lifecycle task is {:?}; QA and specification reconciliation must finish before PR authorization",
+                                task.phase
+                            )),
+                            Ok(None) => Err("lifecycle task record is missing".into()),
+                            Err(error) => Err(error.to_string()),
                         }
-                        Ok(Some(task)) => Err(format!(
-                            "lifecycle task is {:?}; QA and specification reconciliation must finish before PR authorization",
-                            task.phase
-                        )),
-                        Ok(None) => Err("lifecycle task record is missing".into()),
-                        Err(error) => Err(error.to_string()),
-                    }
                     }
                     None => Err(
                         "task has no stable planning identity; PR authorization is unavailable"
