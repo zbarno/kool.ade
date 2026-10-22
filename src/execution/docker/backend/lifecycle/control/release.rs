@@ -105,22 +105,20 @@ pub(super) async fn release_persisted(
             let mut state = prepared.lock().map_err(|_| {
                 super::internal_error_with_context("updating recovered workspace state")
             })?;
-            if state.active_execution_id.as_deref() != Some(handle.execution_id.as_str()) {
-                return Err(ExecutionError::new(
-                    ExecutionErrorKind::PolicyDenied,
-                    "Workspace lease belongs to a different execution",
-                    false,
-                ));
+            // A terminal execution may be released after its workspace lease
+            // has already been reassigned. In that case this stale release
+            // must not clear the newer execution's ownership.
+            if state.active_execution_id.as_deref() == Some(handle.execution_id.as_str()) {
+                state.active_execution_id = None;
+                drop(state);
+                backend
+                    .workspaces
+                    .lock()
+                    .map_err(|_| {
+                        super::internal_error_with_context("removing the recovered workspace lease")
+                    })?
+                    .remove(lease_id);
             }
-            state.active_execution_id = None;
-            drop(state);
-            backend
-                .workspaces
-                .lock()
-                .map_err(|_| {
-                    super::internal_error_with_context("removing the recovered workspace lease")
-                })?
-                .remove(lease_id);
         }
     }
     backend

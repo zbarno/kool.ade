@@ -18,6 +18,8 @@ use super::{
     approved_gate_receipt, validate_scenario_set,
 };
 
+mod driver_failure;
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -133,9 +135,28 @@ impl<'a> RuntimeQaOrchestrator<'a> {
         }
 
         let started_at_unix_ms = now_ms();
-        let mut outputs = Vec::with_capacity(scenarios.len());
+        let mut outputs: Vec<QaDriverOutputV1> = Vec::with_capacity(scenarios.len());
+        let mut startup_failure: Option<String> = None;
         for scenario in scenarios {
-            let output = driver.run_scenario(request, scenario, &authorization)?;
+            let (mut output, is_blocked_output) = if let Some(reason) = &startup_failure {
+                (
+                    driver_failure::blocked_output(request, scenario, reason),
+                    true,
+                )
+            } else {
+                match driver.run_scenario(request, scenario, &authorization) {
+                    Ok(output) => (output, false),
+                    Err(reason) => {
+                        let reason = driver_failure::sanitized_reason(&reason);
+                        let output = driver_failure::blocked_output(request, scenario, &reason);
+                        startup_failure = Some(reason);
+                        (output, true)
+                    }
+                }
+            };
+            if is_blocked_output && let Some(previous_output) = outputs.last() {
+                output.display = previous_output.display.clone();
+            }
             if output.driver_version != request.driver_profile_version {
                 return Err("QA driver version does not match the approved profile".into());
             }

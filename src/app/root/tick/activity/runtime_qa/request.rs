@@ -20,6 +20,7 @@ use validated::from_reviewed_task;
 /// approved target, successful build receipt, and exact artifact hashes.
 pub(super) struct ReviewedTaskInputs<'a> {
     pub task: &'a TaskRecord,
+    pub request_task_revision: u64,
     pub task_text: &'a str,
     pub implementation: &'a Implementation,
     pub target: &'a AppTargetV1,
@@ -66,9 +67,38 @@ pub(super) fn scenario_synthesis_evidence(
     )
 }
 
+pub(super) fn request_task_revision(task: &TaskRecord) -> u64 {
+    let Some(execution) = task.qa_execution.as_ref() else {
+        return task.revision;
+    };
+    if execution.request.is_none() {
+        return task.revision;
+    }
+    execution
+        .request_task_revision
+        .or_else(|| {
+            execution
+                .dispatch_task_revision
+                .and_then(|revision| revision.checked_sub(1))
+        })
+        // Older lifecycle records did not persist the request-creation
+        // revision. A queued request event is the only revision change in
+        // Pending, and dispatch adds one further revision in Running.
+        .or_else(|| task.revision.checked_sub(1))
+        .unwrap_or(task.revision)
+}
+
 /// Resolve request inputs only from persisted task, review, runtime target,
 /// build receipt, selected artifact snapshot, and explicit scenario approval.
 pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRequest, String> {
+    prepare_at_revision(project, task, request_task_revision(task))
+}
+
+fn prepare_at_revision(
+    project: &Project,
+    task: &TaskRecord,
+    request_task_revision: u64,
+) -> Result<PreparedRequest, String> {
     let planning_item_uid = task
         .planning_item_uid
         .as_deref()
@@ -212,6 +242,7 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
     );
     let request = from_reviewed_task(ReviewedTaskInputs {
         task,
+        request_task_revision,
         task_text: &document.text,
         implementation,
         target,

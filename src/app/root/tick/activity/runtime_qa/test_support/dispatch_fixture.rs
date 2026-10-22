@@ -61,7 +61,7 @@ fn receipt(
     }
 }
 
-pub(super) fn queued_task(lifecycle: &LifecycleStore<'_>) -> (String, QaRunRequestV1, u64) {
+pub(crate) fn queued_task(lifecycle: &LifecycleStore<'_>) -> (String, QaRunRequestV1, u64) {
     let mut feature = FeatureGoal {
         schema_version: 1,
         feature_uid: id(),

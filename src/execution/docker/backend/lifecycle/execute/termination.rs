@@ -61,7 +61,7 @@ pub(in crate::execution::docker::backend::lifecycle) async fn terminate_and_sync
     let mut guard = guard::StopOnDrop::new(backend, container_id, &request.execution_id);
     let writable = super::sync::workspace_write_enabled(request);
     let artifact_paths = request.policy.artifact_paths();
-    let captured = if writable || !artifact_paths.is_empty() {
+    let captured = if !request.private_files_attached && (writable || !artifact_paths.is_empty()) {
         tokio::time::timeout(Duration::from_secs(60), async {
             backend.verify_authorization(&request.authorization_generation)?;
             let baseline = if writable {

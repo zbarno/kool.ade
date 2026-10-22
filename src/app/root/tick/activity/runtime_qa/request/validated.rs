@@ -12,6 +12,7 @@ use super::task_spec::{acceptance_criteria, hash_task_spec};
 pub(super) fn from_reviewed_task(inputs: ReviewedTaskInputs<'_>) -> Result<QaRunRequestV1, String> {
     let ReviewedTaskInputs {
         task,
+        request_task_revision,
         task_text,
         implementation,
         target,
@@ -114,7 +115,7 @@ pub(super) fn from_reviewed_task(inputs: ReviewedTaskInputs<'_>) -> Result<QaRun
     );
     let execution_key = format!(
         "runtime-qa-v1:{}:{}:{}:{}",
-        task.revision,
+        request_task_revision,
         build.source_sha,
         task.implementation_sha256.as_deref().unwrap_or_default(),
         cache_identity,

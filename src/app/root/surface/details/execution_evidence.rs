@@ -73,10 +73,12 @@ mod tests {
             workspace_upload_ms: None,
             result_download_bytes: None,
             result_download_ms: None,
+            worker_start_rpc_ms: None,
             execution_wall_ms: None,
             execution_cpu_millis: None,
             execution_peak_memory_bytes: None,
             image_digest: None,
+            failure_code: None,
         }
     }
 

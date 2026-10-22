@@ -20,6 +20,8 @@ use crate::{
     runtime_qa::{QaScenarioDriver, QaTargetAuthorization, RuntimeQaStore},
 };
 
+#[path = "tests/browser_exit.rs"]
+mod browser_exit;
 #[path = "tests/fixtures.rs"]
 mod fixtures;
 use fixtures::{driver_output, failure, request, scenario, target, uuid};
@@ -33,7 +35,7 @@ struct Observations {
     selected_image: Option<String>,
 }
 
-struct FakeBackend(Arc<Mutex<Observations>>);
+struct FakeBackend(Arc<Mutex<Observations>>, DriverContainerOutput);
 
 impl ExecutionBackend for FakeBackend {
     fn create_qa_driver<'a>(
@@ -79,7 +81,7 @@ impl ExecutionBackend for FakeBackend {
             std::io::Read::read_to_end(&mut request, &mut bytes)
                 .map_err(|_| failure("QA request file could not be read"))?;
             observation.uploaded_request = Some(bytes);
-            Ok("owned-container".into())
+            Ok("d".repeat(64))
         })
     }
 
@@ -91,16 +93,11 @@ impl ExecutionBackend for FakeBackend {
     ) -> BackendFuture<'a, DriverContainerOutput> {
         let observation = Arc::clone(&self.0);
         Box::pin(async move {
-            if container_id != "owned-container" {
+            if container_id != "d".repeat(64) {
                 return Err(failure("driver attempted to read an unowned container"));
             }
             observation.lock().unwrap().phases.push("read");
-            Ok(DriverContainerOutput {
-                exit_code: 0,
-                stdout: serde_json::to_vec(&driver_output())
-                    .map_err(|_| failure("driver response could not be encoded"))?,
-                stderr: Vec::new(),
-            })
+            Ok(self.1.clone())
         })
     }
 
@@ -208,7 +205,16 @@ fn docker_driver_uploads_request_reads_structured_output_and_cleans_owned_contai
         source_sha: request.code_head_sha.clone(),
     };
     let session = ExecutionSession::new(
-        Arc::new(FakeBackend(Arc::clone(&observations))),
+        Arc::new(FakeBackend(
+            Arc::clone(&observations),
+            DriverContainerOutput {
+                exit_code: 0,
+                stdout: serde_json::to_vec(&driver_output())
+                    .map_err(|_| failure("driver response could not be encoded"))
+                    .unwrap(),
+                stderr: Vec::new(),
+            },
+        )),
         workspace,
         ExecutionTarget::local(),
         ExecutionModeV1::RuntimeQa,
@@ -266,29 +272,4 @@ fn docker_driver_uploads_request_reads_structured_output_and_cleans_owned_contai
     assert_eq!(uploaded["request"], serde_json::to_value(&request).unwrap());
     assert_eq!(uploaded["scenario"]["id"], scenario.id);
     assert_eq!(uploaded["target"]["executable"], target.executable);
-}
-
-#[test]
-fn browser_nonzero_exit_keeps_structured_failure_and_cannot_be_mistaken_for_a_pass() {
-    let scenario = scenario();
-    let assertion = |status| crate::runtime_qa::QaAssertionV1 {
-        id: uuid(),
-        scenario_ids: vec![scenario.id.clone()],
-        requirement_ids: vec!["REQ-1".into()],
-        expected: "the save completes".into(),
-        observed: "the browser action failed".into(),
-        status,
-        evidence_refs: Vec::new(),
-    };
-    let mut interaction_failure = driver_output();
-    interaction_failure.assertions = vec![assertion(crate::runtime_qa::QaAssertionStatus::Failed)];
-    super::apply_browser_exit_status(1, &mut interaction_failure);
-    assert!(interaction_failure.completed);
-    assert!(interaction_failure.failure.is_none());
-
-    let mut inconsistent_success = driver_output();
-    inconsistent_success.assertions = vec![assertion(crate::runtime_qa::QaAssertionStatus::Passed)];
-    super::apply_browser_exit_status(1, &mut inconsistent_success);
-    assert!(!inconsistent_success.completed);
-    assert!(inconsistent_success.failure.is_some());
 }

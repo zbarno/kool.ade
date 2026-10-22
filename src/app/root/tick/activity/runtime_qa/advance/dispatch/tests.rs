@@ -1,8 +1,9 @@
 use super::*;
 use crate::core::lifecycle::QaExecutionStatusV1;
 
-#[path = "tests/fixture.rs"]
-mod fixture;
+#[path = "tests/completed_report.rs"]
+mod completed_report;
+use super::super::super::test_support::dispatch_fixture as fixture;
 
 #[test]
 // Production boundary: a failed worker start must write its blocker through
@@ -15,13 +16,16 @@ fn failed_worker_start_persists_block_and_returns_no_handle() {
         root.path(),
     );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
-    let (task_uid, request, revision) = fixture::queued_task(&lifecycle);
+    let (task_uid, request, _revision) = fixture::queued_task(&lifecycle);
     let run_id = request.qa_run_id.clone();
-    let result = start_worker_or_block(&lifecycle, &task_uid, Ok(revision), &run_id, || {
-        Err("simulated worker thread spawn failure".into())
+    let lock_path = root.path().join(&run_id).join("worker.lock");
+    let result = start_worker_or_block(&lifecycle, &task_uid, &run_id, &lock_path, || {
+        Err(worker::StartError::Failed(
+            "simulated worker thread spawn failure".into(),
+        ))
     });
     assert!(
-        matches!(result, Err((reason, None)) if reason == "simulated worker thread spawn failure")
+        matches!(result, Err(DispatchStartError::Blocked { reason, persistence_error: None }) if reason == "simulated worker thread spawn failure")
     );
 
     let task = lifecycle.load_task(&task_uid).unwrap();
@@ -41,6 +45,146 @@ fn failed_worker_start_persists_block_and_returns_no_handle() {
         .unwrap();
     assert_eq!(
         recovered.qa_execution.unwrap().status,
+        QaExecutionStatusV1::Blocked
+    );
+}
+
+#[test]
+// Production boundary: a failed start must reacquire the per-run lock before
+// writing a blocker, so another app's live run stays pending. The test uses a
+// real file lock and file-backed lifecycle; no Docker or network, low setup.
+fn active_worker_contention_keeps_qa_run_pending() {
+    let root = tempfile::tempdir().unwrap();
+    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+        uuid::Uuid::new_v4(),
+        root.path(),
+    );
+    let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
+    let (task_uid, request, _revision) = fixture::queued_task(&lifecycle);
+    let run_id = request.qa_run_id.clone();
+    let lock_path = root.path().join(&run_id).join("worker.lock");
+    let worker_lock = worker::acquire_run_lock(&lock_path).unwrap();
+    let result = start_worker_or_block(&lifecycle, &task_uid, &run_id, &lock_path, || {
+        Err(worker::StartError::Failed("simulated restart race".into()))
+    });
+
+    assert!(matches!(result, Err(DispatchStartError::ActiveWorker)));
+    let task = lifecycle.load_task(&task_uid).unwrap();
+    let execution = task.qa_execution.unwrap();
+    assert_eq!(execution.status, QaExecutionStatusV1::Pending);
+    assert_eq!(execution.request.unwrap().qa_run_id, run_id);
+    drop(worker_lock);
+}
+
+#[test]
+fn approved_dispatch_requires_the_exact_pending_task_snapshot() {
+    let root = tempfile::tempdir().unwrap();
+    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+        uuid::Uuid::new_v4(),
+        root.path(),
+    );
+    let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
+    let (task_uid, request, revision) = fixture::queued_task(&lifecycle);
+    let task = lifecycle.load_task(&task_uid).unwrap();
+
+    assert!(matches_pending_launch(&task, revision, &request));
+
+    let mut stale = task.clone();
+    stale.revision += 1;
+    assert!(!matches_pending_launch(&stale, revision, &request));
+
+    let mut running = lifecycle.load_task(&task_uid).unwrap();
+    running.revision += 1;
+    running.qa_execution.as_mut().unwrap().status = QaExecutionStatusV1::Running;
+    running
+        .qa_execution
+        .as_mut()
+        .unwrap()
+        .dispatch_task_revision = Some(revision);
+    assert!(matches_pending_launch(&running, running.revision, &request));
+
+    let mut stale = task.clone();
+    stale.phase = crate::core::lifecycle::TaskPhase::Running;
+    assert!(!matches_pending_launch(&stale, revision, &request));
+
+    let mut stale = task.clone();
+    stale.qa_execution.as_mut().unwrap().status = QaExecutionStatusV1::Blocked;
+    assert!(!matches_pending_launch(&stale, revision, &request));
+
+    let mut other_request = request.clone();
+    other_request.qa_run_id.push_str("-replacement");
+    let mut stale = task;
+    stale.qa_execution.as_mut().unwrap().request = Some(other_request);
+    assert!(!matches_pending_launch(&stale, revision, &request));
+}
+
+#[test]
+// Production boundary: app-side preflight must not turn another process's
+// Running request into Blocked while its worker owns the OS lock. The test
+// uses two LifecycleStore handles and a real file lock; unit checks cannot
+// prove cross-process lock behavior. No Docker or network; low setup cost.
+fn active_running_worker_cannot_be_blocked_by_preflight() {
+    let root = tempfile::tempdir().unwrap();
+    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+        uuid::Uuid::new_v4(),
+        root.path(),
+    );
+    let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
+    let (task_uid, request, queued_revision) = fixture::queued_task(&lifecycle);
+    let lock_path = root.path().join(&request.qa_run_id).join("worker.lock");
+    let (worker_lock, running) = worker::acquire_lock_and_claim(
+        &lock_path,
+        &lifecycle,
+        &task_uid,
+        queued_revision,
+        &request,
+    )
+    .unwrap();
+
+    let outcome = super::super::blocking::persist_block(
+        &planning,
+        root.path(),
+        &running,
+        &request,
+        "runtime-qa-preflight-test-v1",
+        "synthetic preflight failure".into(),
+    )
+    .unwrap();
+    assert!(matches!(
+        outcome,
+        super::super::blocking::BlockOutcome::ActiveWorker
+    ));
+    assert_eq!(
+        lifecycle
+            .load_task(&task_uid)
+            .unwrap()
+            .qa_execution
+            .unwrap()
+            .status,
+        QaExecutionStatusV1::Running
+    );
+
+    drop(worker_lock);
+    let outcome = super::super::blocking::persist_block(
+        &planning,
+        root.path(),
+        &running,
+        &request,
+        "runtime-qa-preflight-test-v1",
+        "synthetic preflight failure".into(),
+    )
+    .unwrap();
+    assert!(matches!(
+        outcome,
+        super::super::blocking::BlockOutcome::Persisted
+    ));
+    assert_eq!(
+        lifecycle
+            .load_task(&task_uid)
+            .unwrap()
+            .qa_execution
+            .unwrap()
+            .status,
         QaExecutionStatusV1::Blocked
     );
 }

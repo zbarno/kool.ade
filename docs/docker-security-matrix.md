@@ -49,9 +49,22 @@ worker.
 | Target | Engine and identity | Workspace transfer | Network and credentials | Status |
 | --- | --- | --- | --- | --- |
 | Native Linux local | Trusted local Engine API; require rootless Docker, compatible Linux mode, supported limits, and approved image digest | Resolve only the app-owned task clone; stage through bounded workspace handling | Container network disabled by default; controller credentials remain outside container | CI must prove this against a real rootless daemon; local rootful Docker is rejected |
-| SSH remote Linux | Explicitly enrolled SSH alias and pinned host-key fingerprint; worker must report compatible version, policy, image digest, and rootless Docker | Bounded, hashed, source-bound stage-in/out; reject `.git`, private paths, unsafe symlinks, oversized archives, and stale results | SSH carries typed protocol messages; dependency metadata is relayed to the controller broker, with approved cache data transferred separately; no unrestricted Docker TCP, provider token, or implicit private-file forwarding | Scheduling, broker relay, confirmed-loss retry/fencing, and private-file denial are implemented and have regression coverage ([#278](https://github.com/zbarno/kool.ade/pull/278), [#292](https://github.com/zbarno/kool.ade/pull/292)); two-controller authorization/recovery parity, complete per-worker telemetry attribution, and GPU/display resource provisioning remain #141 release gates |
+| SSH remote Linux | Explicitly enrolled SSH alias and pinned host-key fingerprint; worker must report compatible version, policy, image digest, and rootless Docker | Bounded, hashed, source-bound stage-in/out; reject `.git`, private paths, unsafe symlinks, oversized archives, and stale results | SSH carries typed protocol messages; dependency metadata is relayed to the controller broker, with approved cache data transferred separately; no unrestricted Docker TCP, provider token, or implicit private-file forwarding | Durable broker relay and claim recovery ([#190](https://github.com/zbarno/kool.ade/pull/190)), global claim authority ([#283](https://github.com/zbarno/kool.ade/pull/283)), confirmed-loss retry/fencing ([#278](https://github.com/zbarno/kool.ade/pull/278)), transfer and execution telemetry ([#286](https://github.com/zbarno/kool.ade/pull/286), [#294](https://github.com/zbarno/kool.ade/pull/294)), private-file denial and output suppression ([#292](https://github.com/zbarno/kool.ade/pull/292), [#296](https://github.com/zbarno/kool.ade/pull/296)) have focused regression coverage. Worker health retains GPU and isolated-display observations, but device provisioning is not implemented ([#290](https://github.com/zbarno/kool.ade/pull/290)). Per-worker telemetry includes transfer size/time, Start RPC duration, execution wall/CPU/memory, image digest, and typed result failure. Remaining #141 gates include broader two-controller/two-worker authorization and recovery acceptance, queue delay, separate dependency/image preparation, model/harness attribution, and GPU/display provisioning. |
 | Docker Desktop on macOS | Local Desktop Linux VM transport and host-path/staging behavior must be verified | Must use archive/staging, never host clone paths interpreted inside the VM | Same mode policy; VM trust limitations must be documented | Not production-verified |
 | Docker Desktop on Windows | Linux-container backend and WSL2/host path behavior must be verified; Windows containers are unsupported | Must preserve Unicode/case-collision, executable, symlink, and line-ending behavior through archive/staging | Same mode policy; no shell interpolation for SSH or paths | Not production-verified |
+
+Remote telemetry identifies the enrolled worker by its stable worker ID and
+keeps SSH aliases, credentials, and private host configuration out of shared
+project records. A recorded Start RPC duration is the end-to-end controller
+request time; it must not be interpreted as an isolated image-preparation or
+queue-delay measurement.
+
+When a user-approved private file is mounted for a remote execution, the worker
+suppresses all command output and discards workspace changes and artifacts for
+that run. This prevents copied or transformed secret contents from entering
+controller or worker journals, logs, or durable task results. It also means
+private-file runs cannot return build outputs; rerun without private files when
+durable outputs are needed.
 
 ## Authority and resource controls
 
@@ -71,9 +84,14 @@ Unit and fake-Engine tests are necessary but do not prove runtime isolation.
 The mandatory CI job must start a real rootless Linux Docker Engine, assert
 that the daemon reports rootless mode, and run the Docker integration tests
 without an opt-out skip. Local runs against rootful Docker are not evidence for
-the rootless policy. Cross-platform support and two-host remote behavior remain
-unverified until their stated smoke tests have run. Update this section with
-the exact workflow run, platform, test names, and date before release.
+the rootless policy. The exact-head hosted quality and trusted-image checks on
+PR [#296](https://github.com/zbarno/kool.ade/pull/296) passed on 2026-10-22
+([quality run](https://github.com/zbarno/kool.ade/actions/runs/39779969714),
+[image run](https://github.com/zbarno/kool.ade/actions/runs/39779969708)) and has
+since merged. Those checks provide evidence for private-file output suppression
+and the reviewed images; cross-platform support and the broader two-host remote
+acceptance remain unverified release gates. Update this section with the exact
+workflow run, platform, test names, and date before release sign-off.
 
 The executor is a practical isolation boundary, not a claim of perfect
 containment for hostile code. Docker daemon access and host mounts are powerful

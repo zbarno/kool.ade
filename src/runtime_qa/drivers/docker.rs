@@ -192,21 +192,38 @@ impl QaScenarioDriver for DockerQaScenarioDriver<'_> {
                     &output.stdout,
                     request,
                     scenario,
-                )?;
+                )
+                .map_err(|error| append_driver_stderr(error, &output.stderr))?;
                 apply_browser_exit_status(output.exit_code, &mut report);
                 Ok(report)
             }
             QaPlatform::LinuxDesktop => {
                 if output.exit_code != 0 {
-                    return Err(format!(
-                        "isolated {driver} QA driver exited with status {}",
-                        output.exit_code
+                    return Err(append_driver_stderr(
+                        format!(
+                            "isolated {driver} QA driver exited with status {}",
+                            output.exit_code
+                        ),
+                        &output.stderr,
                     ));
                 }
                 serde_json::from_slice(&output.stdout)
                     .map_err(|_| "isolated desktop QA driver returned malformed evidence".into())
             }
         }
+    }
+}
+
+fn append_driver_stderr(reason: String, stderr: &[u8]) -> String {
+    let diagnostic = String::from_utf8_lossy(&stderr[..stderr.len().min(4096)])
+        .chars()
+        .filter(|character| !character.is_control())
+        .take(1024)
+        .collect::<String>();
+    if diagnostic.trim().is_empty() {
+        reason
+    } else {
+        format!("{reason}: {}", diagnostic.trim())
     }
 }
 

@@ -116,7 +116,9 @@ impl LifecycleStore<'_> {
                 && task.qa_execution.as_ref().is_some_and(|state| {
                     matches!(
                         state.status,
-                        QaExecutionStatusV1::Pending | QaExecutionStatusV1::Blocked
+                        QaExecutionStatusV1::Pending
+                            | QaExecutionStatusV1::Running
+                            | QaExecutionStatusV1::Blocked
                     )
                 })
         });
@@ -135,6 +137,47 @@ impl LifecycleStore<'_> {
                     .is_some_and(|state| state.status == QaExecutionStatusV1::Pending)
             })
             .collect())
+    }
+
+    /// Atomically claim the exact pending QA request after its per-run lock is
+    /// held. A running request may be resumed after a process restart, but a
+    /// different request or task revision can never inherit this claim.
+    pub fn claim_runtime_qa_worker(
+        &self,
+        task_uid: &str,
+        expected_revision: u64,
+        event_uid: &str,
+        request: &QaRunRequestV1,
+    ) -> Result<TaskRecord, StoreError> {
+        let task = self.load_task(task_uid)?;
+        if task.revision != expected_revision || task.phase != TaskPhase::AwaitingRuntimeQa {
+            return Err(StoreError::MalformedState(
+                "runtime QA dispatch claim targets a stale or ineligible task".into(),
+            ));
+        }
+        let execution = task
+            .qa_execution
+            .as_ref()
+            .ok_or_else(|| StoreError::MalformedState("runtime QA state is missing".into()))?;
+        if execution.request.as_ref() != Some(request) {
+            return Err(StoreError::MalformedState(
+                "runtime QA dispatch claim does not match the queued request".into(),
+            ));
+        }
+        match execution.status {
+            QaExecutionStatusV1::Pending => self.apply_task_event(
+                task_uid,
+                expected_revision,
+                event_uid,
+                TaskEvent::RuntimeQaWorkerStarted {
+                    request_id: request.qa_run_id.clone(),
+                },
+            ),
+            QaExecutionStatusV1::Running => Ok(task),
+            _ => Err(StoreError::MalformedState(
+                "runtime QA dispatch claim requires a pending or recoverable run".into(),
+            )),
+        }
     }
 
     /// Fail closed when the selected app target has no supported isolated QA driver.

@@ -23,7 +23,6 @@ const TASK_CONTAINER_LABEL: &str = "com.koolade.qa.task-container";
 mod artifact;
 mod driver_cache;
 mod service;
-#[cfg(test)]
 pub(crate) use service::run_created_driver_with_status;
 #[cfg(test)]
 #[path = "qa_container/tests.rs"]

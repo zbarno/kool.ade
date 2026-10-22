@@ -35,6 +35,28 @@ fn missing_or_forged_screenshot_bytes_are_rejected_and_load_rechecks_hashes() {
             )
             .is_err()
     );
+    std::fs::create_dir_all(store.root()).unwrap();
+    let blocked_evidence_root = store.root().join("qa-evidence");
+    std::fs::write(&blocked_evidence_root, b"not a directory").unwrap();
+    assert!(
+        store
+            .save_run_with_screenshots(
+                &fixture.request,
+                &fixture.scenarios,
+                &fixture.evidence,
+                &fixture.result,
+                std::slice::from_ref(&fixture.screenshot),
+            )
+            .is_err()
+    );
+    assert!(
+        store
+            .root()
+            .join(&fixture.request.qa_run_id)
+            .join("report-write.json")
+            .is_file()
+    );
+    std::fs::remove_file(blocked_evidence_root).unwrap();
     store
         .save_run_with_screenshots(
             &fixture.request,

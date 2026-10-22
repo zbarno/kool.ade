@@ -43,7 +43,11 @@ impl TaskRecord {
             } if matches!(
                 self.phase,
                 TaskPhase::AwaitingReview | TaskPhase::ReReview | TaskPhase::AwaitingRuntimeQa
-            ) && self.valid_review(&receipt, &reviewed_head_sha, &review_subject_sha256) =>
+            ) && !self
+                .qa_execution
+                .as_ref()
+                .is_some_and(|qa| qa.status == QaExecutionStatusV1::Running)
+                && self.valid_review(&receipt, &reviewed_head_sha, &review_subject_sha256) =>
             {
                 if self.review_history.len() == MAX_REVIEW_ATTEMPTS
                     || self
@@ -91,8 +95,11 @@ impl TaskRecord {
                 let qa = self
                     .qa_execution
                     .get_or_insert_with(QaExecutionStateV1::pending);
-                if qa.status == QaExecutionStatusV1::Completed {
-                    return Err("completed runtime QA cannot be replaced".into());
+                if matches!(
+                    qa.status,
+                    QaExecutionStatusV1::Completed | QaExecutionStatusV1::Running
+                ) {
+                    return Err("completed or running runtime QA cannot be replaced".into());
                 }
                 qa.request = Some(request);
                 qa.applicability = None;
@@ -103,6 +110,16 @@ impl TaskRecord {
                 qa.reviewer_execution_id = None;
                 qa.reviewer_session_id = None;
                 qa.applicability = None;
+                qa.request_task_revision = Some(expected_revision);
+                qa.dispatch_task_revision = None;
+            }
+            TaskEvent::RuntimeQaWorkerStarted { request_id }
+                if self.phase == TaskPhase::AwaitingRuntimeQa =>
+            {
+                self.qa_execution
+                    .as_mut()
+                    .ok_or("runtime QA state is missing")?
+                    .record_worker_started(&request_id, expected_revision)?;
             }
             TaskEvent::RuntimeQaBlocked {
                 request_id,
@@ -240,7 +257,10 @@ impl TaskRecord {
                         | TaskPhase::PrMerged
                         | TaskPhase::Failed
                         | TaskPhase::Cancelled
-                ) =>
+                ) && !self
+                    .qa_execution
+                    .as_ref()
+                    .is_some_and(|qa| qa.status == QaExecutionStatusV1::Running) =>
             {
                 self.phase = TaskPhase::Cancelled;
             }

@@ -101,9 +101,9 @@ function locatorFor(page, locator) {
 async function main() {
   const request = readRequest();
   if (request.actions.some((action) => !validateAction(action, request.origin))) fail('action is not allowed by browser QA policy');
-  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-extensions', '--renderer-process-limit=2'] });
-  const context = await browser.newContext({ viewport: request.viewport, locale: request.locale ?? 'en-US', timezoneId: request.timezone ?? 'UTC', colorScheme: request.color_scheme === 'dark' ? 'dark' : 'light', acceptDownloads: false, serviceWorkers: 'block' });
-  const page = await context.newPage();
+  let browser = null;
+  let context = null;
+  let page = null;
   const consoleMessages = [];
   const failedRequests = [];
   const actionTrace = [];
@@ -112,39 +112,42 @@ async function main() {
   let policyViolation = null;
   let activeAction = null;
   let activeBefore = null;
-  page.on('console', (message) => { if (message.type() === 'error' && consoleMessages.length < 128) consoleMessages.push(message.text().slice(0, 1024)); });
-  page.on('pageerror', (error) => { if (consoleMessages.length < 128) consoleMessages.push(error.message.slice(0, 1024)); });
-  page.on('requestfailed', (requestEvent) => { if (failedRequests.length < 128) failedRequests.push(`${requestEvent.method()} ${requestEvent.url().slice(0, 1024)}: ${(requestEvent.failure()?.errorText ?? 'failed').slice(0, 256)}`); });
-  page.on('response', (response) => {
-    const location = response.headers().location;
-    if (!location) return;
-    let destination;
-    try { destination = new URL(location, response.url()).href; } catch { return; }
-    if (!allowedUrl(destination, request.origin)) {
-      policyViolation = `redirect escaped preview origin: ${destination}`;
-    }
-  });
-  page.on('websocket', (socket) => { if (!allowedUrl(socket.url(), request.origin)) policyViolation = `websocket escaped preview origin: ${socket.url()}`; });
-  await context.routeWebSocket('**/*', (socket) => {
-    if (!allowedUrl(socket.url(), request.origin)) {
-      policyViolation = `websocket escaped preview origin: ${socket.url()}`;
-      socket.close({ code: 1008, reason: 'QA origin policy denied websocket' });
-    } else {
-      socket.connectToServer();
-    }
-  });
-  await context.route('**/*', async (route) => {
-    const url = route.request().url();
-    if (!allowedUrl(url, request.origin)) {
-      policyViolation = `request escaped preview origin: ${url}`;
-      await route.abort('blockedbyclient');
-    } else {
-      await route.continue();
-    }
-  });
-  page.setDefaultTimeout(Math.min(ACTION_TIMEOUT_MS, request.timeout_ms));
-  const deadline = Date.now() + request.timeout_ms;
   try {
+    browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-extensions', '--renderer-process-limit=2'] });
+    context = await browser.newContext({ viewport: request.viewport, locale: request.locale ?? 'en-US', timezoneId: request.timezone ?? 'UTC', colorScheme: request.color_scheme === 'dark' ? 'dark' : 'light', acceptDownloads: false, serviceWorkers: 'block' });
+    page = await context.newPage();
+    page.on('console', (message) => { if (message.type() === 'error' && consoleMessages.length < 128) consoleMessages.push(message.text().slice(0, 1024)); });
+    page.on('pageerror', (error) => { if (consoleMessages.length < 128) consoleMessages.push(error.message.slice(0, 1024)); });
+    page.on('requestfailed', (requestEvent) => { if (failedRequests.length < 128) failedRequests.push(`${requestEvent.method()} ${requestEvent.url().slice(0, 1024)}: ${(requestEvent.failure()?.errorText ?? 'failed').slice(0, 256)}`); });
+    page.on('response', (response) => {
+      const location = response.headers().location;
+      if (!location) return;
+      let destination;
+      try { destination = new URL(location, response.url()).href; } catch { return; }
+      if (!allowedUrl(destination, request.origin)) {
+        policyViolation = `redirect escaped preview origin: ${destination}`;
+      }
+    });
+    page.on('websocket', (socket) => { if (!allowedUrl(socket.url(), request.origin)) policyViolation = `websocket escaped preview origin: ${socket.url()}`; });
+    await context.routeWebSocket('**/*', (socket) => {
+      if (!allowedUrl(socket.url(), request.origin)) {
+        policyViolation = `websocket escaped preview origin: ${socket.url()}`;
+        socket.close({ code: 1008, reason: 'QA origin policy denied websocket' });
+      } else {
+        socket.connectToServer();
+      }
+    });
+    await context.route('**/*', async (route) => {
+      const url = route.request().url();
+      if (!allowedUrl(url, request.origin)) {
+        policyViolation = `request escaped preview origin: ${url}`;
+        await route.abort('blockedbyclient');
+      } else {
+        await route.continue();
+      }
+    });
+    page.setDefaultTimeout(Math.min(ACTION_TIMEOUT_MS, request.timeout_ms));
+    const deadline = Date.now() + request.timeout_ms;
     for (let index = 0; index < request.actions.length; index += 1) {
       if (Date.now() >= deadline) fail('browser QA run timed out');
       page.setDefaultTimeout(Math.min(ACTION_TIMEOUT_MS, deadline - Date.now()));
@@ -195,7 +198,7 @@ async function main() {
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
     let failureScreenshotId = null;
-    if (screenshots.length < request.max_screenshots && page.isClosed() === false) {
+    if (page && screenshots.length < request.max_screenshots && page.isClosed() === false) {
       try {
         const bytes = await page.screenshot({ type: 'png', fullPage: false, animations: 'disabled', timeout: 2_000 });
         screenshotBytes += bytes.length;
@@ -207,14 +210,14 @@ async function main() {
     }
     if (activeAction) {
       const { action, index } = activeAction;
-      actionTrace.push({ index, action: action.action, args_redacted: action.action === 'browser_fill' ? { locator: action.locator, value: '[redacted]' } : { locator: action.locator }, pre_state: activeBefore, post_state: { url: page.url(), title: await page.title().catch(() => '') }, screenshot_ids: failureScreenshotId ? [failureScreenshotId] : [], status: 'failed' });
+      actionTrace.push({ index, action: action.action, args_redacted: action.action === 'browser_fill' ? { locator: action.locator, value: '[redacted]' } : { locator: action.locator }, pre_state: activeBefore, post_state: { url: page?.url() ?? request.origin, title: await page?.title().catch(() => '') ?? '' }, screenshot_ids: failureScreenshotId ? [failureScreenshotId] : [], status: 'failed' });
     }
-    const result = { schema_version: 1, qa_run_id: request.qa_run_id, scenario_id: request.scenario_id, task_uid: request.task_uid, code_sha: request.code_sha, build_sha256: request.build_sha256, approved_spec_hash: request.approved_spec_hash, driver_profile_version: request.driver_profile_version, outcome: 'failed', origin: request.origin, viewport: page.viewportSize(), driver_version: `playwright-${browserVersion(browser)}`, actions: actionTrace, screenshots, console_errors: consoleMessages, failed_requests: failedRequests, policy_violation: policyViolation, error: String(error?.message ?? error).slice(0, 4096) };
+    const result = { schema_version: 1, qa_run_id: request.qa_run_id, scenario_id: request.scenario_id, task_uid: request.task_uid, code_sha: request.code_sha, build_sha256: request.build_sha256, approved_spec_hash: request.approved_spec_hash, driver_profile_version: request.driver_profile_version, outcome: 'failed', origin: request.origin, viewport: page?.viewportSize() ?? request.viewport, driver_version: `playwright-${browserVersion(browser)}`, actions: actionTrace, screenshots, console_errors: consoleMessages, failed_requests: failedRequests, policy_violation: policyViolation, error: String(error?.message ?? error).slice(0, 4096) };
     process.stdout.write(`${JSON.stringify(result)}\n`);
     process.exitCode = 1;
   } finally {
-    await context.close();
-    await browser.close();
+    if (context) await context.close().catch(() => {});
+    if (browser) await browser.close().catch(() => {});
   }
 }
 

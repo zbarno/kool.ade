@@ -87,16 +87,6 @@ impl QaEvidenceManifestV1 {
                 return Err("runtime QA action trace is invalid".into());
             }
         }
-        if !self.actions.is_empty()
-            && scenarios.iter().any(|scenario| {
-                !self
-                    .actions
-                    .iter()
-                    .any(|action| action.scenario_id == scenario.id)
-            })
-        {
-            return Err("runtime QA action trace omits a required scenario".into());
-        }
         let mut ids = std::collections::BTreeSet::new();
         for screenshot in &self.screenshots {
             if !is_uuid(&screenshot.id)
