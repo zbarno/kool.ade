@@ -193,14 +193,19 @@ Desktop QA receives only the exact request-bound snapshots selected for the
 same task, with integrity and architecture rechecked before staging into
 read-only-rootfs container tmpfs. The desktop process receives ecosystem cache
 paths with offline-only settings; uncached dependencies still fail in the
-network-disabled container. For a headless service target, the
-app can now create an explicit visual-QA-not-applicable decision after an
-independent read-only reviewer checks the exact active manifest target and its
-latest source-bound passing Build and Test receipts. A Manager records the
-decision as a durable `NotApplicable` QA status and advances the task to spec
-reconciliation. This is an applicability decision, not a service QA pass: the
-Build/Test/Start receipts remain distinct, and this flow does not yet provide
-service-specific API or integration QA evidence.
+network-disabled container. For a headless service target, the app can create
+an explicit visual-QA-not-applicable decision after an independent read-only
+reviewer checks the exact active manifest target and its latest source-bound
+passing Build and Test receipts. A Manager records the decision as a durable
+`NotApplicable` visual-QA status and advances the task to spec reconciliation.
+This does not replace service testing. When an approved Start recipe has a
+`LocalServiceHealth` probe, the app can also run source-bound API scenarios
+through the pinned service driver and the same app-owned preview relay used by
+browser QA. The driver records bounded request results as QA evidence, redacts
+response bodies, and does not claim browser interaction or screenshot coverage.
+Build, Test, Start, API QA, and visual-QA applicability remain separate
+receipts. The service driver currently covers the approved API request action;
+it does not establish universal integration-test coverage for every service.
 Until released QA image digests and the remaining headless and application-level
 runtime evidence paths land, the application must not present a detected
 candidate as a verified runnable target or claim runtime QA coverage.

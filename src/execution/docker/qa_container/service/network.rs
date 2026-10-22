@@ -79,12 +79,33 @@ pub async fn validate_browser_driver_network(
     binding: &QaPreviewRelayBindingV1,
     container_id: &str,
 ) -> Result<(), ExecutionError> {
+    validate_driver_network(docker, request, binding, container_id, "browser").await
+}
+
+/// Verify an isolated headless service driver before its approved command starts.
+pub async fn validate_service_driver_network(
+    docker: &bollard::Docker,
+    request: &QaRunRequestV1,
+    binding: &QaPreviewRelayBindingV1,
+    container_id: &str,
+) -> Result<(), ExecutionError> {
+    validate_driver_network(docker, request, binding, container_id, "service").await
+}
+
+async fn validate_driver_network(
+    docker: &bollard::Docker,
+    request: &QaRunRequestV1,
+    binding: &QaPreviewRelayBindingV1,
+    container_id: &str,
+    expected_driver: &str,
+) -> Result<(), ExecutionError> {
     binding
         .validate()
         .map_err(|_| denied("QA preview relay binding is invalid"))?;
     if binding.browser_container_id.as_deref() != Some(container_id)
         || binding.qa_run_id != request.qa_run_id
         || binding.task_uid != request.parent_task_uid
+        || binding.task_execution_id != request.execution_session_id
     {
         return Err(denied("QA browser container identity is not durably bound"));
     }
@@ -141,7 +162,8 @@ pub async fn validate_browser_driver_network(
         || labels.is_none_or(|labels| {
             labels.get(super::super::RUN_LABEL) != Some(&request.qa_run_id)
                 || labels.get(super::super::TASK_LABEL) != Some(&request.parent_task_uid)
-                || labels.get(super::super::DRIVER_LABEL).map(String::as_str) != Some("browser")
+                || labels.get(super::super::DRIVER_LABEL).map(String::as_str)
+                    != Some(expected_driver)
                 || labels
                     .get(super::runner::DRIVER_MODE_LABEL)
                     .map(String::as_str)

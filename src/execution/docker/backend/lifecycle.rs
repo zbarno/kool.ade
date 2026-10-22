@@ -13,6 +13,7 @@ use crate::execution::{
 mod cache;
 mod control;
 mod execute;
+mod qa_network;
 mod recovery;
 mod runtime;
 mod workspace;
@@ -21,6 +22,7 @@ pub(in crate::execution::docker::backend) use execute::{
     inject_crash_after_stage_out, observe_cancel_race_archive, pause_after_stage_out,
     pause_before_collecting,
 };
+pub(crate) use qa_network::validate_qa_driver_network;
 #[cfg(test)]
 pub(in crate::execution::docker::backend::lifecycle) use recovery::reconcile_missing_container_404;
 pub(super) use runtime::RuntimeExecution;
@@ -144,8 +146,9 @@ impl ExecutionBackend for DockerExecutionBackend {
                         binding,
                     )
                     .await?;
-                    crate::execution::docker::qa_container::validate_browser_driver_network(
+                    validate_qa_driver_network(
                         &self.docker,
+                        spec.driver,
                         spec.request,
                         binding,
                         container_id,

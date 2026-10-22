@@ -6,8 +6,10 @@ use super::super::{QaContainerUpload, denied};
 use crate::execution::errors::ExecutionError;
 
 mod exec;
+mod mode;
 mod staging;
 use exec::run_driver_exec;
+use mode::{approved_driver_command, approved_driver_mode};
 use staging::upload_snapshots;
 
 pub(crate) use exec::start_detached_exec;
@@ -87,12 +89,8 @@ pub async fn create_driver_container(
         .map(String::as_str)
         .unwrap_or_default();
     let requested_args = body.cmd.take().unwrap_or_default();
-    let mode = match (driver, requested_args.as_slice()) {
-        ("browser", []) | ("desktop", []) => "default",
-        ("desktop", [arg]) if arg == "--fixture-smoke" => "fixture-smoke",
-        ("desktop", [arg]) if arg == "--fixture-cache-smoke" => "fixture-cache-smoke",
-        _ => return Err(denied("QA driver command is not an approved fixed mode")),
-    };
+    let mode = approved_driver_mode(driver, &requested_args)
+        .ok_or_else(|| denied("QA driver command is not an approved fixed mode"))?;
     let labels = body.labels.get_or_insert_with(Default::default);
     labels.insert(DRIVER_MODE_LABEL.into(), mode.into());
     body.entrypoint = Some(vec!["/usr/bin/sleep".into()]);
@@ -177,24 +175,11 @@ async fn execute_created_driver(
         .config
         .and_then(|config| config.labels)
         .unwrap_or_default();
-    let command = match (
+    let command = approved_driver_command(
         labels.get(DRIVER_LABEL).map(String::as_str),
         labels.get(DRIVER_MODE_LABEL).map(String::as_str),
-    ) {
-        (Some("browser"), Some("default")) => {
-            vec!["node".into(), "/opt/koolade-runtime-qa/driver.mjs".into()]
-        }
-        (Some("desktop"), Some("default")) => vec!["/usr/local/bin/koolade-qa-desktop".into()],
-        (Some("desktop"), Some("fixture-smoke")) => vec![
-            "/usr/local/bin/koolade-qa-desktop".into(),
-            "--fixture-smoke".into(),
-        ],
-        (Some("desktop"), Some("fixture-cache-smoke")) => vec![
-            "/usr/local/bin/koolade-qa-desktop".into(),
-            "--fixture-cache-smoke".into(),
-        ],
-        _ => return Err(denied("QA driver launch mode is not approved")),
-    };
+    )
+    .ok_or_else(|| denied("QA driver launch mode is not approved"))?;
     let output = run_driver_exec(
         docker,
         container_id,

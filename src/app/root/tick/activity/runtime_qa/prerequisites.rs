@@ -71,11 +71,7 @@ pub(super) fn unavailable_reason(
             "the selected target no longer has current operator-local approval for its build and start recipes ({error}); approve the exact recipes again before runtime QA."
         ));
     }
-    let requested_surface = match request.relevant_platforms.as_slice() {
-        [QaPlatform::Web] => Some(AppSurface::Web),
-        [QaPlatform::LinuxDesktop] => Some(AppSurface::LinuxDesktop),
-        _ => None,
-    };
+    let requested_surface = requested_surface(&request.relevant_platforms);
     if requested_surface != Some(target.app_surface) {
         let gap = CapabilityGap::UnsupportedSurface(format!("{:?}", target.app_surface));
         return Some(format!(
@@ -158,10 +154,9 @@ pub(super) fn unavailable_reason(
         );
     }
 
-    let profile = match request.relevant_platforms.as_slice() {
-        [QaPlatform::Web] => RuntimeProfile::BrowserQa,
-        [QaPlatform::LinuxDesktop] => RuntimeProfile::DesktopQa,
-        _ => {
+    let profile = match profile_for_platforms(&request.relevant_platforms) {
+        Some(profile) => profile,
+        None => {
             return Some(
                 "the requested platform set has no single supported app-owned runtime QA driver."
                     .into(),
@@ -183,6 +178,23 @@ pub(super) fn unavailable_reason(
         ));
     }
     None
+}
+
+fn requested_surface(platforms: &[QaPlatform]) -> Option<AppSurface> {
+    match platforms {
+        [QaPlatform::Web] => Some(AppSurface::Web),
+        [QaPlatform::HeadlessService] => Some(AppSurface::HeadlessService),
+        [QaPlatform::LinuxDesktop] => Some(AppSurface::LinuxDesktop),
+        _ => None,
+    }
+}
+
+fn profile_for_platforms(platforms: &[QaPlatform]) -> Option<RuntimeProfile> {
+    match platforms {
+        [QaPlatform::Web | QaPlatform::HeadlessService] => Some(RuntimeProfile::BrowserQa),
+        [QaPlatform::LinuxDesktop] => Some(RuntimeProfile::DesktopQa),
+        _ => None,
+    }
 }
 
 pub(super) fn task_progress_for_target<'a>(

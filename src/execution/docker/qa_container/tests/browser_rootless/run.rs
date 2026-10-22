@@ -3,10 +3,11 @@ use super::*;
 /// Boundary: app-owned startup uploads a bounded Python web artifact and a
 /// integrity-verified npm cache snapshot into service tmpfs, proves the service process can
 /// read the cache as its locked user, provisions its internal preview relay,
-/// runs the pinned browser driver, rejects browser requests to metadata,
-/// host-local and off-origin destinations, and cleans only owned resources.
+/// runs the pinned browser and headless service drivers through the app-owned
+/// relay, rejects browser requests to metadata, host-local and off-origin
+/// destinations, and cleans only owned resources.
 /// Unit tests cannot prove rootless Docker extraction, preview reachability,
-/// browser execution, request containment, or container cleanup.
+/// browser/API execution, request containment, or container cleanup.
 /// External dependency: rootless Docker plus the just-built browser candidate
 /// image. Setup cost: one image build, one small synthetic cache, and several
 /// short browser scenarios.
@@ -119,76 +120,7 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
     )
     .unwrap();
 
-    let scenario = QaScenarioV1 {
-        schema_version: 1,
-        id: uuid::Uuid::new_v4().hyphenated().to_string(),
-        requirement_ids: request.requirement_ids.clone(),
-        preconditions: vec!["The approved Python preview is running.".into()],
-        steps: vec![
-            step(
-                QaDriverActionV1::BrowserOpen {
-                    url: "http://qa-service/__cache_ready".into(),
-                },
-                "The service cache probe is visible",
-                false,
-            ),
-            step(
-                QaDriverActionV1::BrowserAssertText {
-                    locator: QaBrowserLocatorV1::TestId {
-                        test_id: "cache-status".into(),
-                    },
-                    expected_text: "available".into(),
-                },
-                "The service process can read its approved npm cache",
-                false,
-            ),
-            step(
-                QaDriverActionV1::BrowserOpen {
-                    url: "http://qa-service/".into(),
-                },
-                "Preview fixture is visible",
-                true,
-            ),
-            step(
-                QaDriverActionV1::BrowserFill {
-                    locator: QaBrowserLocatorV1::Label {
-                        label: "Message".into(),
-                    },
-                    value: "rootless synthetic input".into(),
-                },
-                "Message field contains synthetic input",
-                false,
-            ),
-            step(
-                QaDriverActionV1::BrowserPress {
-                    locator: QaBrowserLocatorV1::Label {
-                        label: "Message".into(),
-                    },
-                    key: "Enter".into(),
-                },
-                "Form submission completes",
-                false,
-            ),
-            step(
-                QaDriverActionV1::BrowserAssertText {
-                    locator: QaBrowserLocatorV1::TestId {
-                        test_id: "status".into(),
-                    },
-                    expected_text: "Saved".into(),
-                },
-                "Saved state is observed",
-                true,
-            ),
-        ],
-        expected_results: vec![
-            "The approved service process can read its staged npm cache.".into(),
-            "Submitting the form updates the page to Saved.".into(),
-        ],
-        negative_paths: vec![],
-        visual_expectations: vec!["The fixture form and status are visible.".into()],
-        redaction_regions: vec![],
-        priority: 1,
-    };
+    let scenario = scenario::browser_scenario(&request);
     request.validate().unwrap();
     scenario.validate(&request).unwrap();
     let browser_request = build_browser_request(&request, &scenario).unwrap();
@@ -281,6 +213,19 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
     if let Some(driver_id) = driver_container_id.take() {
         cleanup_driver_container(&docker, &driver_id).await.unwrap();
     }
+    let headless_service_result = service_driver::run(
+        &docker,
+        &request,
+        &scenario,
+        &browser_image,
+        &lock,
+        artifact_root.path(),
+        &artifact_upload,
+        &preview,
+        &resources,
+        &mut cancel,
+    )
+    .await;
     let origin_escape_result = redirect::assert_origin_escape_cases(
         &docker,
         &request,
@@ -319,6 +264,17 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
             .all(|assertion| { assertion.status == crate::runtime_qa::QaAssertionStatus::Passed })
     );
     assert!(output.screenshots.iter().any(|screen| screen.width >= 320));
+    let service_output = headless_service_result
+        .unwrap_or_else(|error| panic!("headless service QA failed: {error}"));
+    assert!(service_output.completed);
+    assert_eq!(service_output.assertions.len(), 1);
+    assert_eq!(
+        service_output.assertions[0].status,
+        crate::runtime_qa::QaAssertionStatus::Passed
+    );
+    let service_evidence = serde_json::to_string(&service_output).unwrap();
+    assert!(!service_evidence.contains("headless fixture input"));
+    assert!(!service_evidence.contains(r#"{"saved":true}"#));
     lifecycle::review_and_persist(
         &request,
         scenario,

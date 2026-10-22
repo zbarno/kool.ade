@@ -13,6 +13,9 @@ use crate::{
 use sha2::Digest as _;
 use std::sync::{Arc, atomic::AtomicBool};
 
+#[path = "tests/platform.rs"]
+mod platform;
+
 struct UnusedHarness;
 
 impl crate::harness::AiHarness for UnusedHarness {
