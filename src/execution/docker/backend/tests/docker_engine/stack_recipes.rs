@@ -182,6 +182,8 @@ fn recipe(id: &str, tool: &str, argv: &[&str]) -> ExecutionRecipeV1 {
         allowed_env_keys: Vec::new(),
         allowed_output_paths: if tool == "cargo" {
             vec![".koolade-target".into()]
+        } else if tool == "python" {
+            vec!["__pycache__".into()]
         } else {
             Vec::new()
         },
