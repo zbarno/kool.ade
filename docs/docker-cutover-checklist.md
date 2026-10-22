@@ -106,6 +106,24 @@ runtime sign-off.
 - [ ] Public release notes include verified platform support, migration
   behavior, and known limits.
 
+## Latest CI evidence (2026-10-22)
+
+At commit `08ee5bdd4cbff96b0b499e44b6237fcf93265ce1`, the hosted
+[quality workflow](https://github.com/zbarno/kool.ade/actions/runs/39793292401)
+passed after rerunning the initially failing test attempt. Its
+[tests and Docker runtime job](https://github.com/zbarno/kool.ade/actions/runs/39793292401/job/119886403621)
+provisioned Docker Engine 29.9.0 in rootless mode, asserted the Linux engine
+version and rootless security option, required the SSH E2E setup, ran the full
+nextest suite with Docker and remote-backend integration enabled, and passed
+the daemon-restart recovery E2E. The hosted format, documentation, clippy,
+Windows process-tree, Docker-only, and required quality aggregation jobs also
+passed on that commit.
+
+This records CI evidence for that revision only. It does not complete the
+two-Linux-host release run, real-provider checks, platform QA, or the other
+unchecked release gates above. The checklist remains blocked pending those
+applicable results and a fresh passing run on the final reviewed commit.
+
 **Release decision:** blocked until all applicable items above have linked,
 current evidence. Do not infer sign-off from code presence, a passing fake
 engine test, or an integration job that skipped.
