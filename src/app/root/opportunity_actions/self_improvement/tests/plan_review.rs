@@ -187,31 +187,15 @@ fn pursued_self_improvement_uses_current_app_plan_review_before_task_generation(
     let user_confirmation = plan_snapshot::user_confirmation_receipt(&planning, &snapshot).unwrap();
     assert!(
         user_confirmation.is_some(),
-        "app did not persist confirmation: pending={:?}, review_feature={:?}, toast={:?}",
-        match &app.screen {
-            Screen::Connected(project) => &project.activity.pending,
-            Screen::Welcome => unreachable!(),
-        },
-        match &app.screen {
-            Screen::Connected(project) => &project.activity.plan_review_feature,
-            Screen::Welcome => unreachable!(),
-        },
-        app.toasts.last_message()
+        "app did not persist user confirmation"
     );
-    let user_confirmation = user_confirmation.unwrap();
     assert_eq!(
         snapshot.capability_id.as_deref(),
         Some("self-improvement-lifecycle")
     );
-    let current_product_hash =
-        crate::core::lifecycle::product_spec::current_product_hash(&planning).unwrap();
     assert!(
         plan_snapshot::has_current_user_confirmation(&planning, &snapshot).unwrap(),
-        "confirmation {:?} is not current for product hash {} and snapshot {} / {}",
-        user_confirmation.evidence_refs,
-        current_product_hash,
-        snapshot.uid,
-        snapshot.content_hash
+        "user confirmation must still match the current product and approved plan"
     );
 
     let context = egui::Context::default();
