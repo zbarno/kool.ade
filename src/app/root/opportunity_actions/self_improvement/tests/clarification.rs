@@ -3,9 +3,16 @@ use crate::core::planning::{
     MATERIAL_AXES, QuestionCategory, QuestionOption, QuestionPriority, QuestionProposal,
     QuestionStore, ReadinessChecklistV1, propose_questions,
 };
-use std::{thread, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    thread,
+    time::Duration,
+};
 
-struct ScriptedEvolveHarness(String);
+struct ScriptedEvolveHarness {
+    output: String,
+    requests: Arc<Mutex<Vec<String>>>,
+}
 
 impl crate::harness::AiHarness for ScriptedEvolveHarness {
     fn label(&self) -> String {
@@ -18,11 +25,15 @@ impl crate::harness::AiHarness for ScriptedEvolveHarness {
 
     fn execute(
         &self,
-        _request: &crate::harness::PlanningRequest,
+        request: &crate::harness::PlanningRequest,
     ) -> Result<crate::harness::HarnessOutcome, crate::error::AppError> {
+        self.requests
+            .lock()
+            .unwrap()
+            .push(request.prompt_body.clone());
         thread::sleep(Duration::from_millis(250));
         Ok(crate::harness::HarnessOutcome {
-            final_text: self.0.clone(),
+            final_text: self.output.clone(),
             envelope: None,
             stderr_tail: String::new(),
         })
@@ -221,23 +232,34 @@ fn pursued_product_question_reaches_planner_readiness_before_any_clone_is_alloca
 
     let chat_slug = format!("evolve-clarification-{}", uuid::Uuid::new_v4());
     let chat_root = crate::persistence::project_dir(&chat_slug);
+    let manager_requests = Arc::new(Mutex::new(Vec::new()));
+    let planner_requests = Arc::new(Mutex::new(Vec::new()));
     let crate::app::root::Screen::Connected(project) = &mut app.screen else {
         panic!("fixture should remain connected")
     };
     project.chat_slug = chat_slug;
-    app.task_harness = Some(Box::new(ScriptedEvolveHarness(manager_output)));
+    app.task_harness = Some(Box::new(ScriptedEvolveHarness {
+        output: manager_output,
+        requests: Arc::clone(&manager_requests),
+    }));
     app.dispatch_ui_command(crate::ui::ApplicationCommand::AnswerClarification {
         uid: question.uid.clone(),
         expected_revision: question.revision,
         answer: "Each workspace should choose its own retention period.".into(),
         selected_option: Some("workspace".into()),
     });
-    app.task_harness = Some(Box::new(ScriptedEvolveHarness(planner_output.clone())));
+    app.task_harness = Some(Box::new(ScriptedEvolveHarness {
+        output: planner_output.clone(),
+        requests: Arc::clone(&planner_requests),
+    }));
 
     let context = egui::Context::default();
     let deadline = std::time::Instant::now() + Duration::from_secs(60);
     loop {
-        app.task_harness = Some(Box::new(ScriptedEvolveHarness(planner_output.clone())));
+        app.task_harness = Some(Box::new(ScriptedEvolveHarness {
+            output: planner_output.clone(),
+            requests: Arc::clone(&planner_requests),
+        }));
         app.tick(0.016, &context);
         let completed = match &app.screen {
             crate::app::root::Screen::Connected(project) => {
@@ -277,6 +299,38 @@ fn pursued_product_question_reaches_planner_readiness_before_any_clone_is_alloca
     assert_eq!(readiness.plan_revision, 2);
     assert!(readiness.ready);
     assert_eq!(readiness.assessed_axes, MATERIAL_AXES.to_vec());
+    let answered_question = questions.load(&question.uid).unwrap().0;
+    assert_eq!(
+        answered_question.answer_text.as_deref(),
+        Some("Each workspace should choose its own retention period.")
+    );
+    assert_eq!(
+        answered_question.selected_option.as_deref(),
+        Some("workspace")
+    );
+    let manager_prompt = manager_requests
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|prompt| prompt.contains("Each workspace should choose its own retention period."))
+        .cloned()
+        .expect("Manager receives the clarification request");
+    assert!(manager_prompt.contains("Treat the answer as explicit product intent"));
+    assert!(manager_prompt.contains("Each workspace should choose its own retention period."));
+    assert!(manager_prompt.contains("Selected workspace: Each workspace chooses"));
+    let captured_planner_prompts = planner_requests.lock().unwrap();
+    let planner_prompt = captured_planner_prompts
+        .iter()
+        .find(|prompt| prompt.contains("Selected option: workspace"))
+        .cloned()
+        .unwrap_or_else(|| {
+            panic!(
+                "follow-up Planner receives the persisted answer; captured prompts: {captured_planner_prompts:#?}"
+            )
+        });
+    assert!(planner_prompt.contains("The user chose workspace-specific retention periods."));
+    assert!(planner_prompt.contains("Each workspace should choose its own retention period."));
+    assert!(planner_prompt.contains("Selected option: workspace"));
     let run =
         crate::core::self_improvement::SelfImprovementStore::new(&project.state.planning_store)
             .load(&run_uid)
