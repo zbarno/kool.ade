@@ -1,8 +1,10 @@
 //! Local socket lifecycle and request coordination for mediated resources.
 mod cache_locks;
 mod client;
+mod concurrency;
 mod context;
 mod dependency_flow;
+mod factory;
 mod lifecycle;
 mod remote;
 mod server;
@@ -14,8 +16,9 @@ pub(super) use test_support::{
     start_with_state_root_and_cargo_operations_for_target, start_with_state_root_and_npm_operations,
 };
 
-use super::{MAX_IN_FLIGHT_REQUESTS, cargo, npm, set_private_dir, set_private_file};
+use super::{cargo, npm, set_private_dir, set_private_file};
 use crate::harness::DependencyRequest;
+use concurrency::{acquire_request_slot, reap_finished_requests};
 use context::BrokerContext;
 use std::{
     fs, io,
@@ -76,49 +79,6 @@ impl ResourceBridge {
             worktree,
             None,
             None,
-            task_id,
-            progress,
-            cancel,
-            &crate::persistence::state_root(),
-            None,
-            None,
-            None,
-        )
-    }
-
-    pub(crate) fn start_for_task_repository(
-        task_repository: &Path,
-        runtime_source: Option<&Path>,
-        task_id: Option<&str>,
-        progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
-        cancel: Arc<AtomicBool>,
-    ) -> anyhow::Result<Self> {
-        Self::start_inner(
-            task_repository,
-            None,
-            runtime_source,
-            task_id,
-            progress,
-            cancel,
-            &crate::persistence::state_root(),
-            None,
-            None,
-            None,
-        )
-    }
-
-    pub(crate) fn start_for_task_repository_target(
-        task_repository: &Path,
-        dependency_root: &Path,
-        runtime_source: Option<&Path>,
-        task_id: Option<&str>,
-        progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
-        cancel: Arc<AtomicBool>,
-    ) -> anyhow::Result<Self> {
-        Self::start_inner(
-            task_repository,
-            Some(dependency_root),
-            runtime_source,
             task_id,
             progress,
             cancel,
@@ -317,28 +277,5 @@ impl ResourceBridge {
         };
         temp_guard.0.take();
         Ok(bridge)
-    }
-}
-
-fn acquire_request_slot(in_flight: &AtomicUsize) -> bool {
-    in_flight
-        .fetch_update(Ordering::AcqRel, Ordering::Relaxed, |active| {
-            (active < MAX_IN_FLIGHT_REQUESTS).then_some(active + 1)
-        })
-        .is_ok()
-}
-
-fn reap_finished_requests(requests: &Mutex<Vec<thread::JoinHandle<()>>>) {
-    let Ok(mut requests) = requests.lock() else {
-        return;
-    };
-    let mut index = 0;
-    while index < requests.len() {
-        if requests[index].is_finished() {
-            let finished = requests.swap_remove(index);
-            let _ = finished.join();
-        } else {
-            index += 1;
-        }
     }
 }
