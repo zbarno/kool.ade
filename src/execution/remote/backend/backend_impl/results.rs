@@ -20,6 +20,13 @@ pub(super) fn collect_artifacts<'a>(
             &handle.execution_id,
             serde_json::json!({"handle": local_handle}),
         )?;
+        let workspace = backend
+            .execution_snapshots
+            .lock()
+            .map_err(|_| disconnected())?
+            .get(&handle.execution_id)
+            .cloned()
+            .ok_or_else(incompatible)?;
         let execution_wall_ms = backend
             .execution_started_at
             .lock()
@@ -29,6 +36,7 @@ pub(super) fn collect_artifacts<'a>(
         let telemetry_result =
             crate::persistence::remote_execution_telemetry::record_execution_result(
                 &handle.execution_id,
+                &workspace.workspace.task_id,
                 match &backend.target.location {
                     TargetLocation::Remote { worker_id } => worker_id,
                     TargetLocation::Local => return Err(incompatible()),
@@ -44,13 +52,6 @@ pub(super) fn collect_artifacts<'a>(
             started.remove(&handle.execution_id);
         }
         backend.stop_if_private_grant_revoked(handle).await?;
-        let workspace = backend
-            .execution_snapshots
-            .lock()
-            .map_err(|_| disconnected())?
-            .get(&handle.execution_id)
-            .cloned()
-            .ok_or_else(incompatible)?;
         let worker_id = match &backend.target.location {
             TargetLocation::Remote { worker_id } => worker_id.clone(),
             TargetLocation::Local => return Err(incompatible()),
@@ -106,6 +107,7 @@ pub(super) fn collect_artifacts<'a>(
         let elapsed_ms = transfer_started.elapsed().as_millis().min(u64::MAX as u128) as u64;
         let _ = crate::persistence::remote_execution_telemetry::record_result_download(
             &handle.execution_id,
+            &workspace.workspace.task_id,
             &worker_id,
             transferred_bytes,
             elapsed_ms,
