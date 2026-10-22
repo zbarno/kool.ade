@@ -1,34 +1,11 @@
 use super::*;
 mod actions;
 mod claim;
+mod options;
 mod publication_retry;
 mod review;
 mod target_error;
-
-struct StartOptions {
-    manual: bool,
-    capabilities: crate::harness::runtime_capabilities::RuntimeCapabilities,
-    stale_session: Option<String>,
-    allow_offline: bool,
-    lifecycle_pr_publication: bool,
-    lifecycle_gate_refresh: bool,
-}
-
-impl StartOptions {
-    fn new(
-        manual: bool,
-        capabilities: crate::harness::runtime_capabilities::RuntimeCapabilities,
-    ) -> Self {
-        Self {
-            manual,
-            capabilities,
-            stale_session: None,
-            allow_offline: false,
-            lifecycle_pr_publication: false,
-            lifecycle_gate_refresh: false,
-        }
-    }
-}
+use options::StartOptions;
 
 impl KooladeApp {
     fn start_implementation_with_claim_mode(&mut self, ticket: String, options: StartOptions) {
@@ -180,17 +157,14 @@ impl KooladeApp {
                 .find(|doc| doc.path == ticket)
                 .and_then(|doc| doc.metadata.as_ref())
                 .is_some_and(|metadata| metadata.parent_task_uid.is_some());
-            let publication_mode = if lifecycle_gate_refresh || is_subtask || allow_offline {
-                crate::core::implementation::PublicationMode::HoldForReview
-            } else if explicit_publish {
-                crate::core::implementation::PublicationMode::CreatePullRequest
-            } else if requested_changes {
-                crate::core::implementation::PublicationMode::HoldForReview
-            } else if p.queue.auto_publish {
-                crate::core::implementation::PublicationMode::AutoPublish
-            } else {
-                crate::core::implementation::PublicationMode::HoldForReview
-            };
+            let publication_mode = publication_retry::publication_mode(
+                lifecycle_gate_refresh,
+                is_subtask,
+                allow_offline,
+                explicit_publish,
+                requested_changes,
+                p.queue.auto_publish,
+            );
             let require_independent_checks = !allow_offline
                 && (publication_mode == crate::core::implementation::PublicationMode::AutoPublish
                     || p.queue.require_independent_checks);

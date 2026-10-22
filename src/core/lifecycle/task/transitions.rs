@@ -1,3 +1,4 @@
+mod publication;
 mod qa;
 
 use super::{
@@ -14,6 +15,10 @@ impl TaskRecord {
         }
         if self.revision == u64::MAX {
             return Err("task revision is exhausted".into());
+        }
+        if publication::apply(self, &event) {
+            self.revision += 1;
+            return self.validate();
         }
         match event {
             TaskEvent::Start if self.phase == TaskPhase::Ready => {
@@ -35,28 +40,6 @@ impl TaskRecord {
                 } else {
                     TaskPhase::AwaitingReview
                 };
-            }
-            TaskEvent::PublicationHeadChanged {
-                code_sha256,
-                head_sha,
-            } if self.phase == TaskPhase::Done
-                && is_sha256(&code_sha256)
-                && super::super::types::is_git_oid(&head_sha)
-                && self.reviewed_code_head_sha.as_deref() != Some(head_sha.as_str())
-                && self.pr_work_item_uid.is_some() =>
-            {
-                self.implementation_sha256 = Some(code_sha256);
-                self.reviewed_code_head_sha = None;
-                self.reviewed_code_subject_sha256 = None;
-                self.code_review = None;
-                self.runtime_qa = None;
-                self.qa_execution = None;
-                self.spec_reconciliation = None;
-                self.spec_reconciliation_blocker = None;
-                self.spec_reconciliation_proposal_sha256 = None;
-                self.spec_reconciliation_spec_sha256 = None;
-                self.spec_reconciliation_proposal_json = None;
-                self.phase = TaskPhase::ReReview;
             }
             TaskEvent::CodeReview {
                 receipt,
@@ -216,19 +199,6 @@ impl TaskRecord {
                 self.spec_reconciliation_spec_sha256 = None;
                 self.spec_reconciliation_proposal_json = None;
                 self.pr_work_item_uid = Some(pr_work_item_uid);
-                self.phase = TaskPhase::Done;
-            }
-            TaskEvent::PublicationGatesRefreshed { receipt }
-                if self.phase == TaskPhase::AwaitingSpecReconciliation
-                    && self.parent_task_uid.is_none()
-                    && self.pr_work_item_uid.is_some()
-                    && self.valid_spec_receipt(&receipt) =>
-            {
-                self.spec_reconciliation = Some(receipt);
-                self.spec_reconciliation_blocker = None;
-                self.spec_reconciliation_proposal_sha256 = None;
-                self.spec_reconciliation_spec_sha256 = None;
-                self.spec_reconciliation_proposal_json = None;
                 self.phase = TaskPhase::Done;
             }
             TaskEvent::SpecReconciliationBlocked {

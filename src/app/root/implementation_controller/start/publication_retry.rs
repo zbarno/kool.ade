@@ -1,4 +1,26 @@
 use crate::core::implementation::ImplementationStatus;
+use crate::core::implementation::PublicationMode;
+
+pub(super) fn publication_mode(
+    lifecycle_gate_refresh: bool,
+    is_subtask: bool,
+    allow_offline: bool,
+    explicit_publish: bool,
+    requested_changes: bool,
+    auto_publish: bool,
+) -> PublicationMode {
+    if lifecycle_gate_refresh || is_subtask || allow_offline {
+        PublicationMode::HoldForReview
+    } else if explicit_publish {
+        PublicationMode::CreatePullRequest
+    } else if requested_changes {
+        PublicationMode::HoldForReview
+    } else if auto_publish {
+        PublicationMode::AutoPublish
+    } else {
+        PublicationMode::HoldForReview
+    }
+}
 
 pub(super) fn is_terminal(
     status: ImplementationStatus,
