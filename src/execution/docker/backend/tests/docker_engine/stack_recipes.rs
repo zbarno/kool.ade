@@ -289,6 +289,7 @@ fn write_stack_fixture(root: &std::path::Path, tool: &str) {
             ),
         ],
         "python" => &[
+            (".gitignore", "__pycache__/\n"),
             (
                 "pyproject.toml",
                 "[project]\nname = \"stack-fixture\"\nversion = \"0.1.0\"\n",
