@@ -206,3 +206,6 @@ fn destination_head_invalidation_keeps_prior_authorization_historical() {
 
 #[path = "scope/leases.rs"]
 mod leases;
+
+#[path = "scope/stale_authorization.rs"]
+mod stale_authorization;

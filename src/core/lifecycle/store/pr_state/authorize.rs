@@ -39,7 +39,27 @@ pub(in crate::core::lifecycle) fn authorize_before_commit(
         )
     {
         gate::check_idempotent_retry(&lifecycle, &record)?;
-        if scope.is_some_and(|scope| record.publication_scope.as_ref() != Some(scope)) {
+        if record.status == PullRequestPreparationStatus::Publishing {
+            if record.publication_scope.as_ref() != scope {
+                return Err(StoreError::MalformedState(
+                    "publication retry scope differs from the frozen authorization".into(),
+                ));
+            }
+            let task = lifecycle.load_task(&record.task_uid)?;
+            let scope_is_current = scope
+                .map(|scope| scope::matches_current(&lifecycle, &record, &task, scope))
+                .transpose()?
+                .unwrap_or(true);
+            if task.phase != TaskPhase::Done
+                || task.pr_work_item_uid.as_deref() != Some(work_item_uid)
+                || !scope_is_current
+            {
+                return Err(StoreError::MalformedState(
+                    "PR publication retry requires the current completed task and frozen scope"
+                        .into(),
+                ));
+            }
+        } else if scope.is_some_and(|scope| record.publication_scope.as_ref() != Some(scope)) {
             return Err(StoreError::MalformedState(
                 "publication retry scope differs from the frozen authorization".into(),
             ));

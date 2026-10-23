@@ -42,7 +42,9 @@ pub(in crate::core::lifecycle::store::replay::pull_request) fn authorization_mat
     else {
         return false;
     };
-    if parent.reviewed_diff_hash != scope.reviewed_diff_hash {
+    if parent.reviewed_head_sha != scope.source_sha
+        || parent.reviewed_diff_hash != scope.reviewed_diff_hash
+    {
         return false;
     }
     scope.task_evidence.iter().all(|evidence| {
