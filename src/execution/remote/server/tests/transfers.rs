@@ -265,7 +265,11 @@ fn reconnect_replays_the_durable_response_without_dispatching_twice() {
     let root = tempfile::tempdir().unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let backend = Arc::new(FakeBackend(calls.clone()));
-    let request = envelope("00000000-0000-4000-8000-000000000000");
+    let mut request = envelope("00000000-0000-4000-8000-000000000000");
+    request.kind = EnvelopeKindV1::Probe;
+    request.payload = serde_json::json!({
+        "target": crate::execution::contract::ExecutionTarget::local()
+    });
     let mut input = Vec::new();
     protocol::write_frame(&mut input, &request).unwrap();
     let first = serve_with_journal(backend.clone(), input.clone(), root.path());

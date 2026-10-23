@@ -161,6 +161,23 @@ fn private_chunk_payload_is_redacted_and_cleared() {
 }
 
 #[test]
+fn health_payload_is_redacted_and_cleared() {
+    let mut request = envelope();
+    request.kind = EnvelopeKindV1::Health;
+    request.payload = serde_json::json!({
+        "wire_version": PROTOCOL_VERSION_V2,
+        "system_image_key": "1111111111111111111111111111111111111111111111111111111111111111"
+    });
+    let diagnostic = format!("{request:?}");
+    assert!(
+        !diagnostic.contains("1111111111111111111111111111111111111111111111111111111111111111")
+    );
+
+    request.clear_sensitive_payload();
+    assert_eq!(request.payload, serde_json::Value::Null);
+}
+
+#[test]
 fn generic_frame_writer_rejects_private_chunks_before_output() {
     let mut request = envelope();
     request.kind = EnvelopeKindV1::PrivateFileChunk;

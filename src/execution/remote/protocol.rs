@@ -91,7 +91,10 @@ impl std::fmt::Debug for EnvelopeV1 {
             .field("execution_id", &self.execution_id)
             .field("sequence", &self.sequence)
             .field("kind", &self.kind);
-        if self.kind == EnvelopeKindV1::PrivateFileChunk {
+        if matches!(
+            self.kind,
+            EnvelopeKindV1::PrivateFileChunk | EnvelopeKindV1::Health
+        ) {
             debug.field("payload", &"<redacted>");
         } else {
             debug.field("payload", &self.payload);
@@ -101,18 +104,22 @@ impl std::fmt::Debug for EnvelopeV1 {
 }
 
 impl EnvelopeV1 {
-    /// Clear decoded private bytes before the request leaves the transport
-    /// stack. Private chunks are encoded as Base64 strings.
+    /// Clear decoded secret-bearing values before they leave the transport
+    /// stack. Private chunks carry file bytes; health handshakes carry a
+    /// session capability key.
     pub(crate) fn clear_sensitive_payload(&mut self) {
-        if self.kind != EnvelopeKindV1::PrivateFileChunk {
+        if !matches!(
+            self.kind,
+            EnvelopeKindV1::PrivateFileChunk | EnvelopeKindV1::Health
+        ) {
             return;
         }
         clear_sensitive_payload_value(&mut self.payload);
     }
 }
 
-/// Erase secret-bearing JSON values when a private chunk is denied before it
-/// reaches the dedicated, grant-authorized transport path.
+/// Erase secret-bearing JSON values from denied private chunks and completed
+/// Health exchanges.
 pub(crate) fn clear_sensitive_payload_value(payload: &mut serde_json::Value) {
     sensitive::clear_payload(payload);
 }

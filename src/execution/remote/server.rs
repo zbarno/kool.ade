@@ -65,20 +65,21 @@ fn serve_stdio_with_journal(
             WorkerInboundFrameV1::PrivateFileChunk { envelope, chunk } => (envelope, Some(chunk)),
         };
         let secret_chunk = private_chunk.is_some();
-        let session_key_handshake = request.kind == EnvelopeKindV1::Health
-            && request.payload.get("system_image_key").is_some();
+        let health_request = request.kind == EnvelopeKindV1::Health;
         let validation = if request.version == super::protocol::PROTOCOL_VERSION_V1 {
             inbound.accept_compat_health_request(&request)
         } else {
             inbound.accept(&request)
         };
         if let Err(error) = validation {
-            if session_key_handshake {
+            if health_request {
                 request.clear_sensitive_payload();
             }
             return Err(error);
         }
-        let volatile_request = secret_chunk || session_key_handshake;
+        // Every Health payload is ephemeral: current handshakes carry the
+        // session capability key, and malformed future fields may be secret.
+        let volatile_request = secret_chunk || health_request;
         let lookup = if volatile_request {
             Lookup::New
         } else {
@@ -200,7 +201,7 @@ fn serve_stdio_with_journal(
         if secret_chunk {
             request.clear_sensitive_payload();
         }
-        if session_key_handshake {
+        if health_request {
             request.clear_sensitive_payload();
         }
         let response = EnvelopeV1 {

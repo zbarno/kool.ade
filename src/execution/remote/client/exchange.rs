@@ -79,6 +79,9 @@ impl RemoteWorkerClient {
                 match self.send_envelope(&envelope) {
                     Ok(response) => response,
                     Err(_) => {
+                        if is_health {
+                            envelope.clear_sensitive_payload();
+                        }
                         self.persist_health(
                             crate::persistence::remote_workers::RemoteWorkerHealth::Disconnected,
                         );
