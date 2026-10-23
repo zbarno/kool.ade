@@ -37,5 +37,6 @@ pub(super) fn action_platform(action: &QaDriverActionV1) -> Option<QaPlatform> {
         | QaDriverActionV1::BrowserSetViewport { .. }
         | QaDriverActionV1::BrowserScreenshot
         | QaDriverActionV1::BrowserScroll { .. } => Some(QaPlatform::Web),
+        QaDriverActionV1::ApiRequest { .. } => Some(QaPlatform::HeadlessService),
     }
 }

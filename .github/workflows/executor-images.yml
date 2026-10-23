@@ -338,6 +338,9 @@ jobs:
         with:
           shared-key: rust-1.98.1-qa-lifecycle
           cache-workspace-crates: true
+      - name: Test browser API path validation
+        if: matrix.profile == 'browser_qa'
+        run: node --test containers/runtime-qa/browser/service.test.mjs
       - name: Build rootless candidate and retain image evidence
         env:
           PROFILE: ${{ matrix.profile }}
@@ -361,15 +364,18 @@ jobs:
         if: matrix.profile == 'browser_qa'
         env:
           IMAGE_RECORD: ${{ runner.temp }}/executor-image-candidate-browser_qa-amd64/executor-image.json
+          KOOLADE_QA_REQUIRE_SERVICE_DRIVER: "1"
         run: |
           set -euo pipefail
+          test_name=execution::docker::qa_container::tests::browser_rootless::run::rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up
           export KOOLADE_QA_BROWSER_IMAGE=koolade-runtime-qa:browser_qa-candidate
           export KOOLADE_QA_BROWSER_DIGEST="$(jq -er '.digest' "$IMAGE_RECORD")"
           python_image="$(jq -er '.profiles.python[] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
           [[ "$python_image" =~ @sha256:[0-9a-f]{64}$ ]]
           docker pull --platform linux/amd64 "$python_image"
+          cargo +1.98.1 test --locked --lib "$test_name" -- --ignored --exact --list | grep -Fx "$test_name: test"
           cargo +1.98.1 test --locked --lib \
-            execution::docker::qa_container::tests::browser_rootless::rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up \
+            "$test_name" \
             -- --ignored --exact
       - name: Verify candidate record and report its immutable digest
         env:
@@ -711,11 +717,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Checkout the reviewed base image lock
+      - name: Checkout the published default-branch image lock
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: reviewed-main
+          ref: ${{ github.event.pull_request.base.repo.default_branch }}
+          path: published-main
           persist-credentials: false
       - name: Prepare rootless Docker systemd session
         run: bash scripts/prepare-rootless-docker-session.sh
@@ -727,10 +733,10 @@ jobs:
           set-host: true
           daemon-config: |
             {"features":{"cdi":false}}
-      - name: Pull the reviewed digest and browser fixture
+      - name: Pull the published digest and browser fixture
         env:
           PROFILE: ${{ matrix.profile }}
-          IMAGE_LOCK: ${{ github.workspace }}/reviewed-main/containers/images.lock.json
+          IMAGE_LOCK: ${{ github.workspace }}/published-main/containers/images.lock.json
           GHCR_TOKEN: ${{ github.token }}
           GHCR_ACTOR: ${{ github.actor }}
           DOCKER_CONFIG: ${{ runner.temp }}/qa-image-docker-config
@@ -777,7 +783,7 @@ jobs:
       - name: Exercise the reviewed immutable image through app-owned QA
         env:
           PROFILE: ${{ matrix.profile }}
-          IMAGE_LOCK: ${{ github.workspace }}/reviewed-main/containers/images.lock.json
+          IMAGE_LOCK: ${{ github.workspace }}/published-main/containers/images.lock.json
           KOOLADE_QA_REQUIRE_ROOTLESS: "1"
           KOOLADE_QA_REQUIRE_EGUI: "1"
         run: |

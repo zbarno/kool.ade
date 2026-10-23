@@ -11,10 +11,24 @@ const MAX_INTRODUCED_PACKAGES: usize = 64;
 
 pub(crate) fn decision_allowed(need: &DependencyNeed, decision: DependencyDecision) -> bool {
     if need.ecosystem == PackageEcosystem::System || need.kind == DependencyKind::SystemTool {
+        let requested_packages = need.package.as_deref().and_then(|package| {
+            super::validation::system_install_packages(
+                &need.command,
+                package,
+                need.version.as_deref(),
+            )
+        });
         return decision == DependencyDecision::UserAuthorizeForTask
             && need.ecosystem == PackageEcosystem::System
             && need.kind == DependencyKind::SystemTool
             && need.package.as_deref().is_some_and(valid_package_identity)
+            && requested_packages.as_ref().is_some_and(|requested| {
+                requested.iter().all(|name| {
+                    need.introduced_packages
+                        .iter()
+                        .any(|package| package.package == *name)
+                })
+            })
             && need.reason.trim().len() >= 12
             && need.introduced_packages.len() <= 256
             && need

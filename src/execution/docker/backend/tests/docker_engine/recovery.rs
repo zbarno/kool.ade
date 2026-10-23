@@ -1,7 +1,8 @@
 use super::*;
 use support::{
-    Fixture, OPT_IN, backend_with_owner, container_cleanup, container_id, prepare_and_start,
-    request, verification_request_with_artifacts, wait_for_stdout_with_task, workspace,
+    Fixture, OPT_IN, backend_with_owner, committed_workspace, container_cleanup, container_id,
+    prepare_and_start, request, verification_request_with_artifacts, wait_for_stdout_with_task,
+    workspace,
 };
 
 #[path = "recovery/cancel_before_collecting.rs"]

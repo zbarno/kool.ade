@@ -14,6 +14,18 @@ findings, missing screenshots, or failed/untested assertions. The result must
 also come from a reviewer run and session distinct from the implementation run
 and session.
 
+The current independent reviewer receives screenshot metadata and hashes, but
+not image pixels. A scenario with visual expectations therefore remains
+explicitly untested and cannot produce a passing gate receipt. Functional
+observations can still be reviewed from the action trace and typed assertions;
+pixel-level claims require a reviewer path that can inspect the persisted,
+redacted images.
+
+If an app or its private display fails before the first driver action, the run
+is persisted as `InfrastructureBlocked` with blocked cases and the observed
+startup reason. An empty action trace is valid only for this blocked outcome;
+it cannot be promoted to a pass.
+
 Approved screenshot redaction regions are part of the scenario and therefore
 part of its approval identity. The shared report assembler validates screenshot
 bytes and dimensions, applies opaque pixel masks before storage, and records the
@@ -43,7 +55,9 @@ typed browser actions, binds navigations and subresources to one explicit local
 preview relay origin, and emits action observations, screenshot bytes and hashes,
 console errors, and failed requests. The Python fixture at
 `tests/fixtures/runtime_qa/browser/server.py` supplies a non-Node target and
-seeded functional/visual failures.
+seeded functional/visual failures. A nonzero browser exit does not discard a
+valid structured failure report; a nonzero exit without a reported failing or
+incomplete assertion is recorded as infrastructure blocked instead of passed.
 
 The verified MCR base digests and offline derived-image recipes are in the
 rootless image workflow. CI builds and exercises candidate browser and desktop

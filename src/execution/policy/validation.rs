@@ -1,62 +1,7 @@
-use super::ExecutionPolicyV1;
-use crate::execution::{contract::ExecutionModeV1, contract::ExecutionRequestV1};
+mod request;
+mod source_paths;
 
-impl ExecutionPolicyV1 {
-    pub fn validate_request(&self, request: &ExecutionRequestV1) -> anyhow::Result<()> {
-        self.validate()?;
-        anyhow::ensure!(
-            self.mode == request.mode,
-            "policy mode does not match request mode"
-        );
-        anyhow::ensure!(
-            request
-                .environment_allowlist
-                .is_subset(&self.environment_names),
-            "request environment exceeds policy"
-        );
-        anyhow::ensure!(
-            request
-                .allowed_service_ports
-                .is_subset(&self.network_service_ports),
-            "request service ports exceed policy"
-        );
-        if let Some(approved) = self.approved_recipe_command() {
-            let mut exact_argv = Vec::with_capacity(approved.argv.len() + 1);
-            exact_argv.push(approved.executable_id.clone());
-            exact_argv.extend(approved.argv.iter().cloned());
-            anyhow::ensure!(
-                request.argv == exact_argv
-                    && request.working_directory_relative == approved.working_directory_relative
-                    && request.environment_allowlist == approved.allowed_environment_names,
-                "execution request differs from the explicitly approved project recipe"
-            );
-        } else {
-            anyhow::ensure!(
-                !self
-                    .filesystem_grants()
-                    .contains(&crate::execution::policy::FilesystemGrantV1::WorkspaceScopedWrite),
-                "scoped workspace writes require an approved exact recipe command"
-            );
-        }
-        let requested = &request.resource_budget;
-        let limit = &self.resource_limits;
-        anyhow::ensure!(
-            requested.cpu_millis <= limit.cpu_millis
-                && requested.memory_bytes <= limit.memory_bytes
-                && requested.process_count <= limit.process_count
-                && requested.temporary_disk_bytes <= limit.temporary_disk_bytes
-                && requested.output_bytes <= limit.output_bytes,
-            "request resources exceed policy"
-        );
-        if request.mode != ExecutionModeV1::RuntimeQa {
-            anyhow::ensure!(
-                request.allowed_service_ports.is_empty(),
-                "service ports are QA-only"
-            );
-        }
-        Ok(())
-    }
-}
+use source_paths::{validate_source_input_paths, validate_source_output_paths};
 
 use super::*;
 
@@ -81,6 +26,20 @@ impl ExecutionPolicyV1 {
         anyhow::ensure!(!self.privileged, "privileged execution is prohibited");
         self.resource_limits.validate()?;
         validate_artifact_paths(&self.artifact_paths)?;
+        validate_source_output_paths(&self.source_output_paths)?;
+        validate_source_input_paths(&self.source_input_paths)?;
+        anyhow::ensure!(
+            self.source_output_paths.is_empty()
+                || (self.mode == ExecutionModeV1::Verification
+                    && self.approved_recipe_command.is_some()),
+            "source output paths require an approved verification recipe"
+        );
+        anyhow::ensure!(
+            self.source_input_paths.is_empty()
+                || (self.mode == ExecutionModeV1::Verification
+                    && self.approved_recipe_command.is_some()),
+            "source input paths require an approved verification recipe"
+        );
         anyhow::ensure!(
             self.artifact_paths.is_empty()
                 || matches!(
@@ -143,6 +102,26 @@ impl ExecutionPolicyV1 {
                 !self.filesystem.contains(&FilesystemGrantV1::WorkspaceWrite),
                 "scoped and whole-workspace write grants cannot be combined"
             );
+            anyhow::ensure!(
+                self.source_output_paths.iter().all(|path| {
+                    scope.root_relative == "."
+                        || path == &scope.root_relative
+                        || path
+                            .strip_prefix(&scope.root_relative)
+                            .is_some_and(|suffix| suffix.starts_with('/'))
+                }),
+                "approved source outputs must remain inside the scoped recipe target"
+            );
+            anyhow::ensure!(
+                self.source_input_paths.iter().all(|path| {
+                    scope.root_relative == "."
+                        || path == &scope.root_relative
+                        || path
+                            .strip_prefix(&scope.root_relative)
+                            .is_some_and(|suffix| suffix.starts_with('/'))
+                }),
+                "approved source inputs must remain inside the scoped recipe target"
+            );
         }
         if let Some(command) = &self.approved_recipe_command {
             anyhow::ensure!(
@@ -150,8 +129,7 @@ impl ExecutionPolicyV1 {
                     && self
                         .filesystem
                         .contains(&FilesystemGrantV1::WorkspaceScopedWrite)
-                    && command.approval_ref.starts_with("user-approval:")
-                    && command.approval_ref.len() <= 2048
+                    && super::recipe::valid_recipe_authorization_ref(&command.approval_ref)
                     && command.executable_id.len() <= 128
                     && self.command_capabilities.contains(&command.executable_id)
                     && command.argv.len() <= 128
@@ -159,6 +137,12 @@ impl ExecutionPolicyV1 {
                         .argv
                         .iter()
                         .all(|arg| arg.len() <= 4096 && !arg.contains('\0'))
+                    && command.stdin_script_sha256.as_ref().is_none_or(|digest| {
+                        command.executable_id == "sh"
+                            && command.argv == ["-s"]
+                            && digest.len() == 64
+                            && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    })
                     && command.allowed_environment_names == self.environment_names,
                 "approved recipe command grant is invalid"
             );

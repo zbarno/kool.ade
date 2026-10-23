@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-trap 'status=$?; printf "QA image candidate failed at line %s: %s (status %s)\\n" "$LINENO" "$BASH_COMMAND" "$status" >&2' ERR
 
 profile="${1:?profile required}"
 platform="${2:?platform required}"
@@ -13,13 +12,17 @@ fi
 architecture="${platform#linux/}"
 test "$platform" = linux/amd64
 [[ "$base_image" =~ @sha256:[0-9a-f]{64}$ ]]
+buildkit_image="moby/buildkit@sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c"
 docker info --format '{{json .SecurityOptions}}' \
   | jq -e 'any(.[]; contains("name=rootless"))' >/dev/null
 
 output_directory="$RUNNER_TEMP/executor-image-candidate-${profile}-${architecture}"
 metadata_file="$RUNNER_TEMP/qa-image-build.json"
 tag="koolade-runtime-qa:${profile}-candidate"
-build_output=(--output "type=docker,rewrite-timestamp=true")
+build_output=(--output "type=docker,name=$tag,rewrite-timestamp=true")
+normalize_build_context() {
+  find "$1" -exec touch -h -d '@0' {} +
+}
 if [[ "$build_mode" == publish ]]; then
   case "$profile" in
     browser_qa) tag="ghcr.io/zbarno/koolade-runtime-qa-browser:trusted-$GITHUB_SHA" ;;
@@ -35,17 +38,21 @@ case "$profile" in
     recipe_files=(
       containers/runtime-qa/browser/Dockerfile
       containers/runtime-qa/browser/driver.mjs
+      containers/runtime-qa/browser/service.mjs
       containers/runtime-qa/browser/relay.mjs
       containers/runtime-qa/browser/package.json
       containers/runtime-qa/browser/package-lock.json
       containers/runtime-qa/browser/vendor/*.tgz
+      scripts/build-qa-image-candidate.sh
     )
     recipe_sha256="sha256:$(sha256sum "${recipe_files[@]}" | awk '{printf "%s  %s\n", $1, $2}' | sha256sum | awk '{print $1}')"
-    docker buildx create --name qa-browser-candidate --driver docker-container --use
+    docker buildx create --name qa-browser-candidate --driver docker-container \
+      --driver-opt "image=$buildkit_image" --use
     docker buildx inspect --bootstrap
+    normalize_build_context "$build_context"
     docker buildx build --platform "$platform" --network=none --provenance=false --sbom=false \
       --build-arg SOURCE_DATE_EPOCH=0 --build-arg "BASE_IMAGE=$base_image" \
-      --metadata-file "$metadata_file" "${build_output[@]}" --tag "$tag" containers/runtime-qa/browser
+      --metadata-file "$metadata_file" "${build_output[@]}" containers/runtime-qa/browser
     test "$(docker image inspect "$tag" --format '{{.Os}}/{{.Architecture}} {{.Config.User}}')" \
       = "linux/amd64 10001:10001"
     smoke="$RUNNER_TEMP/qa-browser-smoke.mjs"
@@ -75,7 +82,7 @@ if (await page.title() !== "runtime-qa-smoke") throw new Error("browser smoke fa
 const versions = { node: process.versions.node, npm: process.env.EXPECTED_NPM,
   python3: process.env.EXPECTED_PYTHON3,
   playwright: require("playwright/package.json").version, chromium: await browser.version(),
-  driver: "koolade-runtime-qa-browser-driver-1.0.0", base: process.env.BASE_IMAGE };
+  driver: "koolade-runtime-qa-browser-driver-1.1.0", base: process.env.BASE_IMAGE };
 await browser.close();
 process.stdout.write(JSON.stringify(versions));
 SMOKE
@@ -98,6 +105,7 @@ SMOKE
     cargo +1.98.1 build --locked --release --features qa-desktop-driver-image --bin koolade-qa-desktop
     binary="$RUNNER_TEMP/koolade-qa-desktop"
     cp target/release/koolade-qa-desktop "$binary"
+    strip --strip-all --remove-section=.note.gnu.build-id "$binary"
     cp "$binary" "$output_directory/koolade-qa-desktop"
     # Boundary: inspect the linked driver artifact, because unit tests cannot
     # prove the image digest was removed from the shipped executable. External
@@ -117,6 +125,7 @@ import hashlib, pathlib, sys
 files = [
     (pathlib.Path("containers/runtime-qa/desktop/Dockerfile"), "containers/runtime-qa/desktop/Dockerfile"),
     (pathlib.Path(sys.argv[1]), "containers/runtime-qa/desktop/koolade-qa-desktop"),
+    (pathlib.Path("scripts/build-qa-image-candidate.sh"), "scripts/build-qa-image-candidate.sh"),
 ]
 payload = "".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {name}\n" for path, name in files).encode()
 print("sha256:" + hashlib.sha256(payload).hexdigest())
@@ -127,11 +136,13 @@ PY
     cp containers/runtime-qa/desktop/Dockerfile "$context/Dockerfile"
     cp "$binary" "$context/koolade-qa-desktop"
     build_context="$context"
-    docker buildx create --name qa-desktop-candidate --driver docker-container --use
+    normalize_build_context "$build_context"
+    docker buildx create --name qa-desktop-candidate --driver docker-container \
+      --driver-opt "image=$buildkit_image" --use
     docker buildx inspect --bootstrap
     docker buildx build --platform "$platform" --network=none --provenance=false --sbom=false \
       --build-arg SOURCE_DATE_EPOCH=0 --build-arg "BASE_IMAGE=$base_image" \
-      --metadata-file "$metadata_file" "${build_output[@]}" --tag "$tag" "$context"
+      --metadata-file "$metadata_file" "${build_output[@]}" "$context"
     test "$(docker image inspect "$tag" --format '{{.Os}}/{{.Architecture}} {{.Config.User}}')" \
       = "linux/amd64 10001:10001"
     docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \

@@ -1,17 +1,19 @@
 use std::{collections::BTreeMap, path::Path};
 
 use crate::{
-    execution::session::ExecutionSession,
+    execution::session::{ExecutionSession, ScopedRuntimePaths},
     project_runtime::{
         AppSurface, ProjectRuntimeStore, RuntimeOperation, RuntimeReceiptState, RuntimeReceiptV1,
     },
 };
 
 mod artifacts;
+mod outputs;
 mod provenance;
 mod start;
 
 use artifacts::{artifact_capture_paths, receipt_artifact_hashes};
+use outputs::{source_input_paths, source_output_paths, validate_source_output_approvals};
 
 /// Resolves only persisted, approved target recipes and records their observed outcome.
 pub struct ProjectRuntimeExecutor<'store, 'planning> {
@@ -30,6 +32,7 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
         operation: RuntimeOperation,
     ) -> anyhow::Result<Vec<RuntimeReceiptV1>> {
         let (manifest, target) = self.validate_candidate(session, target_id, operation)?;
+        validate_source_output_approvals(self.store, &manifest, &target, operation)?;
         if operation == RuntimeOperation::Start {
             return start::execute(self.store, session, &manifest, &target);
         }
@@ -41,6 +44,9 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
         let mut receipts = Vec::with_capacity(recipe_ids.len());
         let workspace = session.workspace();
         for recipe_id in recipe_ids {
+            let allowed_source_inputs =
+                source_input_paths(&manifest, &target, operation, recipe_id)?;
+            let allowed_source_outputs = source_output_paths(&manifest, &target, recipe_id)?;
             let recipe = manifest
                 .recipes
                 .iter()
@@ -63,12 +69,16 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
                 .iter()
                 .map(|path| join_workspace_path(&target.project_relative_root, path))
                 .collect::<anyhow::Result<_>>()?;
-            let output = match session.run_scoped_recipe_with_artifacts(
+            let output = match session.run_scoped_recipe_with_artifacts_and_source_paths(
                 self.store,
                 &target.target_id,
                 &recipe,
                 &target.project_relative_root,
-                &capture_paths,
+                ScopedRuntimePaths {
+                    artifact_paths: &capture_paths,
+                    source_output_paths: &allowed_source_outputs,
+                    source_input_paths: &allowed_source_inputs,
+                },
             ) {
                 Ok(output) => output,
                 Err(error) => {
@@ -83,6 +93,7 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
                         state: RuntimeReceiptState::Failed,
                         exit_code: None,
                         artifact_hashes: BTreeMap::new(),
+                        prepared_dependency_ids: session.prepared_dependency_ids(),
                         log_reference: None,
                         observed_at_unix_ms: next_receipt_timestamp(
                             self.store,
@@ -127,6 +138,7 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
                 },
                 exit_code: output.result.exit_code,
                 artifact_hashes,
+                prepared_dependency_ids: session.prepared_dependency_ids(),
                 log_reference: Some(output.result.execution_id),
                 observed_at_unix_ms: next_receipt_timestamp(self.store, &workspace.task_id)?,
             };

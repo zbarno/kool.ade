@@ -39,15 +39,49 @@ pub(super) fn dispatch_queued_worker(
             store.load_approved_scenario_proposal(&prepared.request, task.revision)
         });
         match approved {
-            Ok(approved) => match worker::start(project, prepared, approved.scenarios, harness) {
-                Ok(worker) => {
-                    notices.push(format!("Runtime QA for task {task_uid} dispatched to the selected independent reviewer and isolated Docker session."));
-                    project.activity.runtime_qa_worker = Some(worker);
+            Ok(approved) => {
+                let qa_run_id = prepared.request.qa_run_id.clone();
+                let revision = lifecycle
+                    .load_task(&task_uid)
+                    .map(|task| task.revision)
+                    .map_err(|error| error.to_string());
+                match worker::start(project, prepared, approved.scenarios, harness) {
+                    Ok(worker) => {
+                        notices.push(format!("Runtime QA for task {task_uid} dispatched to the selected independent reviewer and isolated Docker session."));
+                        project.activity.runtime_qa_worker = Some(worker);
+                    }
+                    Err(reason) => {
+                        let blocked = revision.and_then(|revision| {
+                            let namespace = uuid::Uuid::parse_str(&task_uid)
+                                .map_err(|_| "runtime QA task identity is invalid".to_owned())?;
+                            let event_uid = uuid::Uuid::new_v5(
+                                &namespace,
+                                format!("runtime-qa-dispatch-failed-v1:{qa_run_id}").as_bytes(),
+                            )
+                            .hyphenated()
+                            .to_string();
+                            lifecycle
+                                .block_runtime_qa(
+                                    &task_uid,
+                                    revision,
+                                    &event_uid,
+                                    &qa_run_id,
+                                    reason.clone(),
+                                )
+                                .map(|_| ())
+                                .map_err(|error| error.to_string())
+                        });
+                        match blocked {
+                            Ok(()) => notices.push(format!(
+                                "Runtime QA for task {task_uid} is durably blocked because its worker could not start: {reason}"
+                            )),
+                            Err(error) => notices.push(format!(
+                                "Runtime QA for task {task_uid} could not start ({reason}) and its blocker could not be persisted ({error})"
+                            )),
+                        }
+                    }
                 }
-                Err(reason) => notices.push(format!(
-                    "Runtime QA for task {task_uid} could not start: {reason}"
-                )),
-            },
+            }
             Err(error) => notices.push(format!(
                 "Runtime QA scenario approval could not be reloaded: {error}"
             )),

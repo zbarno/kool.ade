@@ -14,6 +14,7 @@ RUN node -e 'const fs=require("node:fs"),crypto=require("node:crypto"),lock=JSON
     && mv /tmp/koolade-qa-packages/package /opt/koolade-runtime-qa/node_modules/playwright-core \
     && rm -rf vendor /tmp/koolade-qa-packages
 COPY --chown=10001:10001 driver.mjs ./driver.mjs
+COPY --chown=10001:10001 service.mjs ./service.mjs
 COPY --chown=10001:10001 relay.mjs ./relay.mjs
 RUN chown -R 10001:10001 /opt/koolade-runtime-qa \
     && find /opt/koolade-runtime-qa -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +

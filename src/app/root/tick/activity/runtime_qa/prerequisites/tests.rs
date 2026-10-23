@@ -1,5 +1,35 @@
 use super::*;
 
+#[test]
+fn headless_service_uses_its_surface_and_the_browser_qa_profile() {
+    assert_eq!(
+        super::requested_surface(&[crate::runtime_qa::QaPlatform::HeadlessService]),
+        Some(crate::project_runtime::AppSurface::HeadlessService)
+    );
+    assert_eq!(
+        super::profile_for_platforms(&[crate::runtime_qa::QaPlatform::HeadlessService]),
+        Some(RuntimeProfile::BrowserQa)
+    );
+}
+
+#[test]
+fn prerequisite_assessment_rejects_mixed_or_unsupported_platform_sets() {
+    assert_eq!(
+        super::requested_surface(&[
+            crate::runtime_qa::QaPlatform::Web,
+            crate::runtime_qa::QaPlatform::HeadlessService,
+        ]),
+        None
+    );
+    assert_eq!(
+        super::profile_for_platforms(&[
+            crate::runtime_qa::QaPlatform::HeadlessService,
+            crate::runtime_qa::QaPlatform::LinuxDesktop
+        ]),
+        None
+    );
+}
+
 fn dependency_request(
     id: &str,
     task_id: &str,

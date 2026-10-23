@@ -59,6 +59,7 @@ fn runtime_receipt(
             1
         }),
         artifact_hashes: Default::default(),
+        prepared_dependency_ids: Vec::new(),
         log_reference: None,
         observed_at_unix_ms,
     }

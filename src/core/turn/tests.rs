@@ -242,7 +242,6 @@ fn drain(controller: &TurnController) -> TurnOutcome {
             Some(TurnEvt::Done(outcome)) => return *outcome,
             Some(TurnEvt::Progress(_)) => idle = 0,
             None => {
-                idle += 1;
                 if controller.worker.as_ref().is_some_and(|h| h.is_finished()) {
                     // The worker may have enqueued its terminal event
                     // moments before it exited; `Finished` proves the
@@ -258,10 +257,8 @@ fn drain(controller: &TurnController) -> TurnOutcome {
                         }
                     }
                 } else {
-                    assert!(
-                        idle < IDLE_BUDGET,
-                        "turn vanished: no terminal event within {IDLE_BUDGET} idle probes"
-                    );
+                    idle += 1;
+                    assert!(idle < IDLE_BUDGET, "turn vanished: no terminal event");
                 }
             }
         }

@@ -1,151 +1,15 @@
 use serde::{Deserialize, Serialize};
 
+mod action;
 mod action_platform;
 mod proposal;
 mod validation;
 
 use super::{is_uuid, valid_text};
+pub use action::{QaBrowserLocatorV1, QaDriverActionV1, QaHttpMethodV1};
 use action_platform::action_platform;
 pub use proposal::QaScenarioProposalV1;
 pub use validation::validate_scenario_set;
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
-pub enum QaDriverActionV1 {
-    LaunchValidatedTarget,
-    WaitForWindow,
-    ListWindows,
-    FocusWindow {
-        window_id: String,
-    },
-    ResizeWindow {
-        window_id: String,
-        width: u16,
-        height: u16,
-    },
-    Click {
-        window_id: String,
-        x: u16,
-        y: u16,
-    },
-    DoubleClick {
-        window_id: String,
-        x: u16,
-        y: u16,
-    },
-    Drag {
-        window_id: String,
-        start_x: u16,
-        start_y: u16,
-        end_x: u16,
-        end_y: u16,
-    },
-    TypeText {
-        text: String,
-    },
-    KeyChord {
-        keys: Vec<String>,
-    },
-    Scroll {
-        window_id: String,
-        delta_x: i16,
-        delta_y: i16,
-    },
-    WaitForVisible {
-        selector: String,
-    },
-    /// Checks that a bounded native window region contains visible pixel variation.
-    /// This reports visual presence and does not claim semantic accessibility labels.
-    AssertRegionVisible {
-        window_id: String,
-        x: u16,
-        y: u16,
-        width: u16,
-        height: u16,
-    },
-    NavigateAllowedUrl {
-        url: String,
-    },
-    FindByRole {
-        role: String,
-        name: String,
-    },
-    FindByTestId {
-        test_id: String,
-    },
-    Fill {
-        selector: String,
-        value: String,
-    },
-    Press {
-        selector: String,
-        key: String,
-    },
-    Select {
-        selector: String,
-        value: String,
-    },
-    Screenshot,
-    ReadAppLogs,
-    CollectConsole,
-    CollectNetworkFailures,
-    BrowserOpen {
-        url: String,
-    },
-    BrowserClick {
-        locator: QaBrowserLocatorV1,
-    },
-    BrowserFill {
-        locator: QaBrowserLocatorV1,
-        value: String,
-    },
-    BrowserPress {
-        locator: QaBrowserLocatorV1,
-        key: String,
-    },
-    BrowserSelect {
-        locator: QaBrowserLocatorV1,
-        value: String,
-    },
-    BrowserWaitForVisible {
-        locator: QaBrowserLocatorV1,
-    },
-    BrowserAssertText {
-        locator: QaBrowserLocatorV1,
-        expected_text: String,
-    },
-    BrowserAssertUrl {
-        url: String,
-    },
-    BrowserSetViewport {
-        width: u16,
-        height: u16,
-    },
-    BrowserScreenshot,
-    BrowserScroll {
-        locator: QaBrowserLocatorV1,
-    },
-    CloseWindow {
-        window_id: String,
-    },
-}
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "locator", rename_all = "snake_case", deny_unknown_fields)]
-pub enum QaBrowserLocatorV1 {
-    Role { role: String, name: String },
-    TestId { test_id: String },
-    Label { label: String },
-}
-
-impl QaBrowserLocatorV1 {
-    fn validate(&self) -> bool {
-        match self {
-            Self::Role { role, name } => valid_text(role, 64) && valid_text(name, 512),
-            Self::TestId { test_id } => valid_text(test_id, 512),
-            Self::Label { label } => valid_text(label, 512),
-        }
-    }
-}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -208,6 +72,9 @@ impl QaScenarioV1 {
                     || u32::from(region.y) + u32::from(region.height) > 4320
             })
             || self.priority > 5
+            || (request.relevant_platforms.as_slice() == [super::QaPlatform::HeadlessService]
+                && (!self.visual_expectations.is_empty()
+                    || self.steps.iter().any(|step| step.screenshot_checkpoint)))
             || self
                 .preconditions
                 .iter()
@@ -295,6 +162,35 @@ fn valid_step(step: &QaScenarioStepV1) -> bool {
             QaDriverActionV1::NavigateAllowedUrl { url } => {
                 valid_text(url, 2048) && url.starts_with("http://qa-service/")
             }
+            QaDriverActionV1::ApiRequest {
+                method,
+                path,
+                json_body,
+                expected_status,
+                expected_body_contains,
+            } => {
+                valid_text(path, 2048)
+                    && path.starts_with('/')
+                    && !path.starts_with("//")
+                    && !path.chars().any(|character| {
+                        character.is_ascii_control() || matches!(character, '?' | '#' | '\\')
+                    })
+                    && !path.split('/').any(is_url_dot_segment)
+                    && (100..=599).contains(expected_status)
+                    && (*method != QaHttpMethodV1::Get || json_body.is_none())
+                    && json_body.as_deref().is_none_or(|body| {
+                        body.len() <= 16 * 1024
+                            && serde_json::from_str::<serde_json::Value>(body).is_ok()
+                    })
+                    && expected_body_contains
+                        .as_deref()
+                        .is_none_or(|text| valid_text(text, 4096))
+            }
             _ => true,
         }
+}
+
+fn is_url_dot_segment(part: &str) -> bool {
+    let normalized = part.to_ascii_lowercase().replace("%2e", ".");
+    matches!(normalized.as_str(), "." | "..")
 }

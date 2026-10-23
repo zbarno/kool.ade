@@ -97,6 +97,24 @@ impl QaScenarioDriver for DockerQaScenarioDriver<'_> {
                         .map_err(|_| "desktop QA request could not be encoded")?,
                 )
             }
+            (QaPlatform::HeadlessService, QaTargetAuthorization::HeadlessService(lease)) => {
+                if self.service_lease != Some(*lease) {
+                    return Err("service QA lease differs from its app-owned binding".into());
+                }
+                let relay = self
+                    .relay_binding
+                    .ok_or_else(|| "service QA has no app-owned task relay".to_owned())?;
+                (
+                    "service",
+                    QaDriverNetwork::InternalPreviewRelay {
+                        network_id: relay.relay_browser_network_id.clone(),
+                        relay_container_id: relay.relay_container_id.clone(),
+                    },
+                    Some(*lease),
+                    Some(relay),
+                    crate::runtime_qa::browser_driver::build_service_request(request, scenario)?,
+                )
+            }
             _ => return Err("QA authorization does not match the selected platform driver".into()),
         };
         let request_upload = QaContainerUpload::request_file(&request_bytes, 256 * 1024)
@@ -186,20 +204,43 @@ impl QaScenarioDriver for DockerQaScenarioDriver<'_> {
             (Err(error), _) => return Err(error.message),
             (Ok(_), Err(error)) => return Err(error.message),
         };
-        if output.exit_code != 0 {
-            return Err(format!(
-                "isolated {driver} QA driver exited with status {}",
-                output.exit_code
-            ));
-        }
         match platform {
-            QaPlatform::Web => crate::runtime_qa::browser_driver::parse_browser_output(
-                &output.stdout,
-                request,
-                scenario,
-            ),
-            QaPlatform::LinuxDesktop => serde_json::from_slice(&output.stdout)
-                .map_err(|_| "isolated desktop QA driver returned malformed evidence".into()),
+            QaPlatform::Web | QaPlatform::HeadlessService => {
+                let mut report = crate::runtime_qa::browser_driver::parse_browser_output(
+                    &output.stdout,
+                    request,
+                    scenario,
+                )?;
+                apply_browser_exit_status(output.exit_code, &mut report);
+                Ok(report)
+            }
+            QaPlatform::LinuxDesktop => {
+                if output.exit_code != 0 {
+                    return Err(format!(
+                        "isolated {driver} QA driver exited with status {}",
+                        output.exit_code
+                    ));
+                }
+                serde_json::from_slice(&output.stdout)
+                    .map_err(|_| "isolated desktop QA driver returned malformed evidence".into())
+            }
         }
     }
+}
+
+fn apply_browser_exit_status(exit_code: i64, report: &mut QaDriverOutputV1) {
+    if exit_code == 0
+        || report.failure.is_some()
+        || !report.completed
+        || report
+            .assertions
+            .iter()
+            .any(|assertion| assertion.status != crate::runtime_qa::QaAssertionStatus::Passed)
+    {
+        return;
+    }
+    report.completed = false;
+    report.failure = Some(format!(
+        "browser QA driver exited with status {exit_code} without reporting a failed or incomplete assertion"
+    ));
 }

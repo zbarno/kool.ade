@@ -10,7 +10,10 @@ pub use events::{
     ArtifactManifestEntryV1, EventAcceptance, EventPageRequestV1, EventStreamValidator,
     ExecutionEventKindV1, ExecutionEventV1, ExecutionLifecycleV1, ResourceMetricsV1,
 };
-pub use ids::{ExecutionTarget, TargetLocation, WorkspaceRef, is_valid_sha, validate_identifier};
+pub use ids::{
+    ExecutionTarget, TargetLocation, WorkspaceRef, is_valid_sha, validate_dependency_request_id,
+    validate_identifier,
+};
 pub use phase_timings::ExecutionPhaseTimingsV1;
 pub use readiness::{
     HarnessCapabilitySnapshotV1, HarnessRole, ModeReadinessV1, ProviderReadinessV1, ReadinessState,

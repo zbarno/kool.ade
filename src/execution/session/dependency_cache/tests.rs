@@ -18,7 +18,6 @@ fn snapshot() -> crate::harness::resource_bridge::CacheSnapshot {
 #[test]
 fn retry_snapshot_requires_the_authorized_worker_and_architecture() {
     let snapshot = snapshot();
-
     let original_worker = "33333333-3333-4333-8333-333333333333";
     assert!(validate_retry_snapshot_scope(original_worker, Some("amd64"), &snapshot).is_ok());
     assert!(
@@ -31,4 +30,14 @@ fn retry_snapshot_requires_the_authorized_worker_and_architecture() {
     );
     assert!(validate_retry_snapshot_scope(original_worker, Some("arm64"), &snapshot).is_err());
     assert!(validate_retry_snapshot_scope(original_worker, None, &snapshot).is_err());
+}
+
+#[test]
+fn dependency_request_ids_require_the_canonical_prefix_and_uuid() {
+    use crate::execution::contract::validate_dependency_request_id as validate;
+
+    assert!(validate("dependency-00000000-0000-4000-8000-000000000001").is_ok());
+    assert!(validate("00000000-0000-4000-8000-000000000001").is_ok());
+    assert!(validate("dependency-00000000-0000-4000-8000-00000000000A").is_err());
+    assert!(validate("dependency-not-a-uuid").is_err());
 }

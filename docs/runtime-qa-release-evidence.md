@@ -24,6 +24,13 @@ mandatory release matrix in issue [#171](https://github.com/zbarno/kool.ade/issu
 “Partial” means the cited evidence proves only the listed slice. Candidate image
 tests and local lifecycle tests do not satisfy the end-to-end release gate.
 
+This is a historical evidence snapshot for the cited PR #264 run. Its candidate
+digests are not the image references currently recorded in
+`containers/images.lock.json` after PR #264 merged, and they do not validate
+candidate recipe changes in this checkout. The current QA profiles remain
+disabled; regenerate rootless candidate evidence and reconcile the lock before
+using any candidate digest as current release evidence.
+
 | #171 requirement | Evidence on this revision | Status and remaining acceptance |
 | --- | --- | --- |
 | 1. Docker RuntimeQa security matrix across local/remote Linux | [Trusted image run 39522095369](https://github.com/zbarno/kool.ade/actions/runs/39522095369) rebuilt both rootless QA candidates and verified the reviewed digests. The browser candidate job exercised metadata redirect/fetch/iframe, external WebSocket, localhost, alternate-port denial, host TCP/UDP and WebRTC escape probes. | **Partial.** No complete RuntimeQa security matrix covering remote workers, credentials, every host resource, full role parity, and all network/filesystem boundaries. |

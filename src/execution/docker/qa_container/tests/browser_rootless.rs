@@ -11,8 +11,8 @@ use crate::{
     },
     project_runtime::{ExecutionRecipeV1, NetworkRequirement, RecipeSource},
     runtime_qa::{
-        QaBoundedLimitsV1, QaBrowserLocatorV1, QaDriverActionV1, QaScenarioStepV1, QaScenarioV1,
-        build_browser_request, parse_browser_output,
+        QaBoundedLimitsV1, QaBrowserLocatorV1, QaDriverActionV1, QaHttpMethodV1, QaScenarioStepV1,
+        QaScenarioV1, build_browser_request, build_service_request, parse_browser_output,
     },
 };
 use sha2::Digest as _;
@@ -32,3 +32,7 @@ use support::step;
 
 #[path = "browser_rootless/run.rs"]
 mod run;
+#[path = "browser_rootless/scenario.rs"]
+mod scenario;
+#[path = "browser_rootless/service_driver.rs"]
+mod service_driver;

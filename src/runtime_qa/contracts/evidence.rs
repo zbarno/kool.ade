@@ -8,9 +8,12 @@ pub use artifacts::{QaScreenshotArtifactV1, validate_screenshot_artifact};
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct QaDisplayV1 {
-    pub width: u16,
-    pub height: u16,
-    pub dpi: u16,
+    #[serde(default)]
+    pub width: Option<u16>,
+    #[serde(default)]
+    pub height: Option<u16>,
+    #[serde(default)]
+    pub dpi: Option<u16>,
     pub theme: String,
     pub locale: String,
 }
