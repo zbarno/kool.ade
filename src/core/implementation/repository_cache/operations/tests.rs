@@ -62,4 +62,3 @@ fn owned_clone_metadata_checks_reject_linked_worktrees_and_alternates() {
     );
     fs::remove_dir_all(root).unwrap();
 }
-
