@@ -18,6 +18,7 @@ fn result(failure: ExecutionErrorKind, retryable: bool) -> ExecutionResultV1 {
             process_count: 0,
             disk_bytes: 0,
         },
+        phase_timings: Default::default(),
         artifacts: Vec::new(),
         failure: Some(ExecutionError::new(failure, "fixture", retryable)),
     }

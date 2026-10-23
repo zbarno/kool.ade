@@ -1,5 +1,6 @@
 mod events;
 mod ids;
+mod phase_timings;
 mod readiness;
 mod request;
 mod result;
@@ -13,6 +14,7 @@ pub use ids::{
     ExecutionTarget, TargetLocation, WorkspaceRef, is_valid_sha, validate_dependency_request_id,
     validate_identifier,
 };
+pub use phase_timings::ExecutionPhaseTimingsV1;
 pub use readiness::{
     HarnessCapabilitySnapshotV1, HarnessRole, ModeReadinessV1, ProviderReadinessV1, ReadinessState,
     RoleReadinessV1,

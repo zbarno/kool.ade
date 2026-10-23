@@ -3,11 +3,15 @@ use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};
 
 mod attribution;
+mod execution;
 mod legacy;
+mod phases;
 mod query;
 mod validation;
 pub use attribution::record_attribution;
+pub use execution::{record_execution_result, record_execution_started};
 use legacy::{normalize_legacy_metrics, now_unix_ms};
+pub use phases::record_execution_phase_timings;
 pub use query::latest_for_task;
 use validation::{validate, validate_id, validate_worker_id};
 
@@ -49,6 +53,8 @@ pub struct RemoteExecutionTelemetryV1 {
     #[serde(default)]
     pub execution_peak_memory_bytes: Option<u64>,
     #[serde(default)]
+    pub execution_phase_timings: Option<crate::execution::contract::ExecutionPhaseTimingsV1>,
+    #[serde(default)]
     pub image_digest: Option<String>,
     #[serde(default)]
     pub failure_code: Option<crate::execution::errors::ExecutionErrorKind>,
@@ -77,38 +83,6 @@ pub fn record_result_download(
     update(execution_id, task_id, worker_id, |record| {
         record.result_download_bytes = Some(bytes);
         record.result_download_ms = Some(ms);
-    })
-}
-
-pub fn record_execution_started(
-    execution_id: &str,
-    task_id: &str,
-    worker_id: &str,
-    image_digest: &str,
-    worker_start_rpc_ms: u64,
-) -> anyhow::Result<()> {
-    update(execution_id, task_id, worker_id, |record| {
-        record.image_digest = Some(image_digest.to_owned());
-        record.worker_start_rpc_ms = Some(worker_start_rpc_ms);
-    })
-}
-
-pub fn record_execution_result(
-    execution_id: &str,
-    task_id: &str,
-    worker_id: &str,
-    wall_ms: Option<u64>,
-    cpu_millis: u64,
-    peak_memory_bytes: u64,
-    failure_code: Option<crate::execution::errors::ExecutionErrorKind>,
-) -> anyhow::Result<()> {
-    update(execution_id, task_id, worker_id, |record| {
-        if wall_ms.is_some() {
-            record.execution_wall_ms = wall_ms;
-        }
-        record.execution_cpu_millis = Some(cpu_millis);
-        record.execution_peak_memory_bytes = Some(peak_memory_bytes);
-        record.failure_code = failure_code;
     })
 }
 
@@ -191,7 +165,7 @@ fn update_at(
         record
     } else {
         RemoteExecutionTelemetryV1 {
-            schema_version: 6,
+            schema_version: 7,
             execution_id: execution_id.to_owned(),
             started_at_unix_ms: Some(now_unix_ms()),
             task_id: Some(task_id.to_owned()),
@@ -206,13 +180,14 @@ fn update_at(
             execution_wall_ms: None,
             execution_cpu_millis: None,
             execution_peak_memory_bytes: None,
+            execution_phase_timings: None,
             image_digest: None,
             failure_code: None,
         }
     };
     record.task_id = Some(task_id.to_owned());
     change(&mut record);
-    record.schema_version = 6;
+    record.schema_version = 7;
     validate(&record)?;
     let bytes = serde_json::to_vec(&record)?;
     let temp = directory.join(format!(".{execution_id}-{}.tmp", uuid::Uuid::new_v4()));

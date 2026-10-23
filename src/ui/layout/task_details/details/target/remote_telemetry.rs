@@ -52,6 +52,21 @@ pub(super) fn paint(
         metric(telemetry.execution_cpu_millis),
         metric(telemetry.execution_peak_memory_bytes)
     ));
+    if let Some(phases) = &telemetry.execution_phase_timings {
+        ui.label("Remote execution phases:");
+        ui.label(format!(
+            "Image preparation: {}; dependency cache: {}; workspace stage in: {}",
+            duration(phases.image_preparation_ms),
+            duration(phases.dependency_cache_stage_ms),
+            duration(phases.workspace_stage_in_ms)
+        ));
+        ui.label(format!(
+            "Workspace stage out: {}; QA: {}; Container cleanup: {}",
+            duration(phases.workspace_stage_out_ms),
+            duration(phases.qa_ms),
+            duration(phases.cleanup_ms)
+        ));
+    }
     if let Some(digest) = &telemetry.image_digest {
         ui.add(egui::Label::new(format!("Remote image digest: {digest}")).wrap());
     }

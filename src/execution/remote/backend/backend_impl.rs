@@ -17,22 +17,7 @@ impl ExecutionBackend for RemoteExecutionBackend {
         &'a self,
         handle: &'a ExecutionHandleV1,
     ) -> BackendFuture<'a, ()> {
-        Box::pin(async move {
-            let result = self
-                .verified_results
-                .lock()
-                .map_err(|_| disconnected())?
-                .get(&handle.execution_id)
-                .cloned();
-            if let Some(result) = result {
-                private_files::remove_result_transfer(&self.result_root, result.transfer_id())?;
-                self.verified_results
-                    .lock()
-                    .map_err(|_| disconnected())?
-                    .remove(&handle.execution_id);
-            }
-            Ok(())
-        })
+        results::discard_interrupted_result(self, handle)
     }
 
     #[allow(private_interfaces)]
@@ -291,19 +276,7 @@ impl ExecutionBackend for RemoteExecutionBackend {
     }
 
     fn release<'a>(&'a self, handle: &'a ExecutionHandleV1) -> BackendFuture<'a, ()> {
-        Box::pin(async move {
-            let local_handle = self.local_handle(handle)?;
-            let _: serde_json::Value = self.request(
-                EnvelopeKindV1::Release,
-                &handle.execution_id,
-                serde_json::json!({"handle": local_handle}),
-            )?;
-            self.execution_private_file_grants
-                .lock()
-                .map_err(|_| disconnected())?
-                .remove(&handle.execution_id);
-            Ok(())
-        })
+        release::release_execution(self, handle)
     }
 
     fn release_persistent<'a>(

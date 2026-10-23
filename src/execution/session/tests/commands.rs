@@ -214,6 +214,7 @@ fn interrupted_backend() -> Arc<FakeBackend> {
             process_count: 0,
             disk_bytes: 0,
         },
+        phase_timings: Default::default(),
         artifacts: Vec::new(),
         failure: Some(ExecutionError::new(
             ExecutionErrorKind::WorkerDisconnected,

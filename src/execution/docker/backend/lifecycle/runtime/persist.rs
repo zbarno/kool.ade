@@ -38,6 +38,10 @@ impl RuntimeExecution {
                 ExecutionRecordStateV1::Interrupted
             }
         };
+        let mut result = self.result.clone();
+        if let Some(result) = &mut result {
+            result.phase_timings = self.phase_timings.clone();
+        }
         let record = ExecutionRecordV1 {
             schema_version: 1,
             execution_id: self.request.execution_id.clone(),
@@ -58,7 +62,7 @@ impl RuntimeExecution {
             container_id: (!self.container_id.is_empty()).then(|| self.container_id.clone()),
             command_id: self.command_id.clone(),
             command_started: self.command_started,
-            result: self.result.clone(),
+            result,
             image_digest: self.request.image_digest.clone(),
             policy_version: self.policy_version.clone(),
             lease_generation: self.request.cancellation_generation,

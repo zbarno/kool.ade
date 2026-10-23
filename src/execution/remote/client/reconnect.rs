@@ -46,18 +46,24 @@ impl RemoteWorkerClient {
     ) -> Result<(), ExecutionError> {
         self.transport = connect()?;
         self.system_image_capability_key = new_capability_key();
-        let request = EnvelopeV1 {
-            version: PROTOCOL_VERSION_V1,
+        let payload = {
+            let key_hex = self.system_image_key_hex();
+            serde_json::json!({
+                "wire_version": PROTOCOL_VERSION_V2,
+                "system_image_key": key_hex.as_str(),
+            })
+        };
+        let mut request = EnvelopeV1 {
+            version: crate::execution::remote::protocol::PROTOCOL_VERSION_V1,
             request_id: uuid::Uuid::new_v4().to_string(),
             execution_id: SYSTEM_IMAGE_SESSION_ID_V1.to_owned(),
             sequence: 1,
             kind: Kind::Health,
-            payload: serde_json::json!({
-                "wire_version": PROTOCOL_VERSION_V1,
-                "system_image_key": self.system_image_key_hex(),
-            }),
+            payload,
         };
-        self.transport.send(&request).map_err(|_| disconnected())?;
+        let send_result = self.transport.send_compat_health(&request);
+        request.clear_sensitive_payload();
+        send_result.map_err(|_| disconnected())?;
         let response = self
             .transport
             .receive()
@@ -69,10 +75,21 @@ impl RemoteWorkerClient {
         {
             return Err(incompatible());
         }
+        if response.version == crate::execution::remote::protocol::PROTOCOL_VERSION_V1 {
+            self.persist_health(
+                crate::persistence::remote_workers::RemoteWorkerHealth::Incompatible,
+            );
+            return Err(incompatible());
+        }
         if response.kind == Kind::Error {
             let error: ExecutionError =
                 serde_json::from_value(response.payload.clone()).map_err(|_| incompatible())?;
             error.validate().map_err(|_| incompatible())?;
+            if error.kind == crate::execution::errors::ExecutionErrorKind::WorkerIncompatible {
+                self.persist_health(
+                    crate::persistence::remote_workers::RemoteWorkerHealth::Incompatible,
+                );
+            }
             return Err(error);
         }
         if response.kind != Kind::Acknowledge {

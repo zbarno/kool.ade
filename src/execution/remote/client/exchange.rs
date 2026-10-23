@@ -7,6 +7,18 @@ impl RemoteWorkerClient {
         execution_id: &str,
         payload: serde_json::Value,
     ) -> Result<EnvelopeV1, ExecutionError> {
+        self.exchange_with_reconnect(kind, execution_id, payload, |client| {
+            client.reconnect_and_negotiate()
+        })
+    }
+
+    pub(super) fn exchange_with_reconnect(
+        &mut self,
+        kind: Kind,
+        execution_id: &str,
+        payload: serde_json::Value,
+        mut reconnect: impl FnMut(&mut Self) -> Result<(), ExecutionError>,
+    ) -> Result<EnvelopeV1, ExecutionError> {
         let is_health = kind == Kind::Health;
         let sequence = self
             .sequences
@@ -14,8 +26,8 @@ impl RemoteWorkerClient {
             .copied()
             .unwrap_or(0)
             .saturating_add(1);
-        let envelope = EnvelopeV1 {
-            version: PROTOCOL_VERSION_V1,
+        let mut envelope = EnvelopeV1 {
+            version: PROTOCOL_VERSION_V2,
             request_id: uuid::Uuid::new_v4().to_string(),
             execution_id: execution_id.to_owned(),
             sequence,
@@ -32,7 +44,15 @@ impl RemoteWorkerClient {
         let response = match self.send_envelope(&envelope) {
             Ok(response) => response,
             Err(_) => {
-                if self.reconnect_and_negotiate().is_err() {
+                if let Err(error) = reconnect(self) {
+                    if is_health {
+                        envelope.clear_sensitive_payload();
+                    }
+                    if error.kind
+                        == crate::execution::errors::ExecutionErrorKind::WorkerIncompatible
+                    {
+                        return Err(self.health_error_with_diagnostics(error));
+                    }
                     self.persist_health(
                         crate::persistence::remote_workers::RemoteWorkerHealth::Disconnected,
                     );
@@ -42,14 +62,15 @@ impl RemoteWorkerClient {
                     // Reconnect negotiation already completed Health with the
                     // freshly rotated key on this stream. Return that probe
                     // instead of replaying an old bootstrap sequence/key.
+                    envelope.clear_sensitive_payload();
                     return Ok(EnvelopeV1 {
-                        version: PROTOCOL_VERSION_V1,
+                        version: PROTOCOL_VERSION_V2,
                         request_id: envelope.request_id.clone(),
                         execution_id: envelope.execution_id.clone(),
                         sequence: envelope.sequence,
                         kind: Kind::Acknowledge,
                         payload: serde_json::json!({
-                            "wire_version": PROTOCOL_VERSION_V1,
+                            "wire_version": PROTOCOL_VERSION_V2,
                             "authenticated_principal": self.config.ssh_principal,
                             "probe": self.probe,
                         }),
@@ -58,6 +79,9 @@ impl RemoteWorkerClient {
                 match self.send_envelope(&envelope) {
                     Ok(response) => response,
                     Err(_) => {
+                        if is_health {
+                            envelope.clear_sensitive_payload();
+                        }
                         self.persist_health(
                             crate::persistence::remote_workers::RemoteWorkerHealth::Disconnected,
                         );
@@ -66,6 +90,9 @@ impl RemoteWorkerClient {
                 }
             }
         };
+        if is_health {
+            envelope.clear_sensitive_payload();
+        }
         self.finish_response(&envelope, response)
     }
 
