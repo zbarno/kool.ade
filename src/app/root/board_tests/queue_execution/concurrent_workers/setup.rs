@@ -32,6 +32,7 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
     let remote = root.join("remote.git");
     std::fs::create_dir_all(repo.join(".koolade-packet/planning/tasks/fixture")).unwrap();
     std::fs::create_dir_all(repo.join(".koolade-packet/state")).unwrap();
+    std::fs::write(root.join("capacity-wait-barrier-enabled"), "").unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["config", "user.name", "Fixture"]);
     git(&repo, &["config", "user.email", "fixture@example.test"]);
