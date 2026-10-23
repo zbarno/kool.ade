@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-import json, os, pathlib, subprocess, sys, time
+import atexit, functools, json, os, pathlib, subprocess, sys, time
 if '--help' in sys.argv:
     print('''--print
 --mode <mode> text, json, rpc
@@ -34,6 +34,50 @@ def wait_for_marker(name):
         time.sleep(0.01)
     if not marker.exists():
         raise TimeoutError('timed out waiting for test marker: ' + name)
+def reap_mcp_server(server):
+    if server.poll() is None:
+        try:
+            if server.stdin and not server.stdin.closed:
+                server.stdin.write(json.dumps({'jsonrpc':'2.0','method':'exit'}) + '\n')
+                server.stdin.flush()
+                server.stdin.close()
+        except OSError:
+            pass
+        try:
+            server.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            server.terminate()
+            try:
+                server.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                server.kill()
+                server.wait()
+            raise TimeoutError('fixture MCP server did not stop after exit notification')
+    if server.returncode != 0:
+        raise RuntimeError('fixture MCP server exited with status ' + str(server.returncode))
+def cleanup_mcp_server(server):
+    try:
+        reap_mcp_server(server)
+    except Exception as error:
+        if server.poll() is None:
+            server.kill()
+            server.wait()
+        print('fixture MCP server cleanup failed: ' + str(error), file=sys.stderr)
+mcp_cleanup_callbacks = {}
+def spawn_mcp_server(command, args, env):
+    server = subprocess.Popen([command, *args], stdin=subprocess.PIPE,
+                               stdout=subprocess.PIPE, text=True, env=env)
+    callback = functools.partial(cleanup_mcp_server, server)
+    mcp_cleanup_callbacks[id(server)] = callback
+    atexit.register(callback)
+    return server
+def stop_mcp_server(server):
+    try:
+        reap_mcp_server(server)
+    finally:
+        callback = mcp_cleanup_callbacks.pop(id(server), None)
+        if callback is not None:
+            atexit.unregister(callback)
 if prompt.startswith('PROJECT MANAGER UPDATE'):
     assert '--no-tools' in sys.argv
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','content':[{'type':'text','text':'Manager fixture: I am monitoring the assigned worker.'}]}]}))
@@ -79,8 +123,7 @@ if prompt.startswith('Return WorkResultV1 JSON.'):
         early_env = os.environ.copy()
         early_env['GIT_SSH_COMMAND'] = str(root / 'ssh-fixture')
         early_env['KOOLADE_HOME'] = str(root / 'app-home')
-        early_server = subprocess.Popen([early_server_command, *early_server_args], stdin=subprocess.PIPE,
-                                        stdout=subprocess.PIPE, text=True, env=early_env)
+        early_server = spawn_mcp_server(early_server_command, early_server_args, early_env)
         def early_request(identifier, method, params=None):
             early_server.stdin.write(json.dumps({'jsonrpc':'2.0','id':identifier,'method':method,'params':params or {}}) + '\n')
             early_server.stdin.flush()
@@ -90,9 +133,7 @@ if prompt.startswith('Return WorkResultV1 JSON.'):
         early_server.stdin.flush()
         write_command = "printf 'write cwd=%s\\n' \"$PWD\"; mkdir -p src && printf implemented > '" + output_path + "' && printf 'wrote=%s\\n' \"$PWD/" + output_path + "\" && test -f '" + output_path + "'"
         early_response = early_request(2, 'tools/call', {'name':'koolade_bash','arguments':{'command':write_command,'timeout_seconds':60}})
-        early_server.stdin.write(json.dumps({'jsonrpc':'2.0','method':'exit'}) + '\n')
-        early_server.stdin.flush()
-        early_server.wait(timeout=3)
+        stop_mcp_server(early_server)
         if 'error' in early_response or early_response.get('result', {}).get('isError'):
             print(json.dumps(early_response), file=sys.stderr)
             sys.exit(1)
@@ -186,7 +227,7 @@ server_env['GIT_SSH_COMMAND'] = str(root / 'ssh-fixture')
 # Provider environments also omit Kool.ad/e's state root. Point this fixture
 # child at the isolated state created for the test, so task claims use its ledger.
 server_env['KOOLADE_HOME'] = str(root / 'app-home')
-server = subprocess.Popen([server_command, *server_args], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, env=server_env)
+server = spawn_mcp_server(server_command, server_args, server_env)
 def request(identifier, method, params=None):
     server.stdin.write(json.dumps({'jsonrpc':'2.0','id':identifier,'method':method,'params':params or {}}) + '\n')
     server.stdin.flush()
@@ -219,9 +260,7 @@ if output.name == 'task-3.rs':
         sys.exit(1)
 write_command = "printf 'write cwd=%s\\n' \"$PWD\"; mkdir -p '" + str(output.parent) + "' && printf implemented > '" + output_path + "' && printf 'wrote=%s\\n' \"$PWD/" + output_path + "\" && test -f '" + output_path + "'"
 response = request(4 if task_uid is not None else 2, 'tools/call', {'name':'koolade_bash','arguments':{'command':write_command,'timeout_seconds':60}})
-server.stdin.write(json.dumps({'jsonrpc':'2.0','method':'exit'}) + '\n')
-server.stdin.flush()
-server.wait(timeout=3)
+stop_mcp_server(server)
 if 'error' in response or response.get('result', {}).get('isError'):
     print(json.dumps(response), file=sys.stderr)
     sys.exit(1)
