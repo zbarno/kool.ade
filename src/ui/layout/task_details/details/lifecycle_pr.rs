@@ -17,10 +17,10 @@ pub(super) fn paint(
                 .add_enabled(
                     view.can_start
                         && record.is_some_and(|record| {
-                            matches!(
+                            crate::core::lifecycle::pull_request_publication_action_enabled(
+                                view.lifecycle_pr_status,
                                 record.status,
-                                crate::core::implementation::ImplementationStatus::ReadyToPublish
-                                    | crate::core::implementation::ImplementationStatus::AwaitingApproval
+                                record.pr_url.is_some(),
                             )
                         }),
                     egui::Button::new(

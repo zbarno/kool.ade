@@ -29,7 +29,7 @@ use records::{
     EventProjection, create_pair, event_path, event_record, feature_path, now_unix_ms, task_path,
 };
 pub use task_transition::PullRequestPublicationState;
-pub use task_transition::{PrPublicationRecoveryV1, PullRequestPreparation};
+pub use task_transition::{PrPublicationRecoveryV1, PrPublicationScopeV1, PullRequestPreparation};
 
 /// Stores mutable lifecycle snapshots and append-only transition records in the planning repo.
 pub struct LifecycleStore<'a> {
@@ -169,6 +169,25 @@ impl<'a> LifecycleStore<'a> {
             expected_revision,
             event_uid,
             receipt,
+            None,
+        )
+    }
+
+    pub fn authorize_pr_publication_with_scope(
+        &self,
+        work_item_uid: &str,
+        expected_revision: u64,
+        event_uid: &str,
+        receipt: &crate::core::lifecycle::GateReceipt,
+        scope: &PrPublicationScopeV1,
+    ) -> Result<PullRequestPreparation, StoreError> {
+        pr_state::authorize(
+            self.store,
+            work_item_uid,
+            expected_revision,
+            event_uid,
+            receipt,
+            Some(scope),
         )
     }
 

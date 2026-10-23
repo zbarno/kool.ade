@@ -14,6 +14,7 @@ pub(in crate::core::implementation) use recovery::preserve_done_after_failure;
 #[derive(Clone)]
 pub(in crate::core::implementation) struct LifecyclePublication {
     work_item_uid: String,
+    pub(in crate::core::implementation) lease_epoch: u64,
 }
 
 pub(in crate::core::implementation) enum LifecyclePublicationGate {
@@ -70,10 +71,18 @@ pub(in crate::core::implementation) fn prepare_lifecycle_publication(
     };
     let work = lifecycle.load_pr_preparation(&work_item_uid)?;
     lifecycle.ensure_product_specification_current(&task.feature_uid)?;
-    match work.status {
+    let scope = super::build_publication_scope(store, implementation, &task.task_uid, &work)?;
+    let authorized_work = match work.status {
         PullRequestPreparationStatus::AwaitingAuthorization
         | PullRequestPreparationStatus::NeedsAttention
-            if work.publication_authorization.is_none() =>
+            if work
+                .publication_authorization
+                .as_ref()
+                .is_none_or(|receipt| {
+                    receipt.subject_sha256
+                        != task.implementation_sha256.as_deref().unwrap_or_default()
+                        || work.publication_scope.as_ref() != Some(&scope)
+                }) =>
         {
             let subject_sha256 = task
                 .implementation_sha256
@@ -95,12 +104,13 @@ pub(in crate::core::implementation) fn prepare_lifecycle_publication(
                 author_session_id: None,
             };
             let event_uid = event_uid(&work_item_uid, &receipt.receipt_uid);
-            lifecycle.authorize_pr_publication(
+            lifecycle.authorize_pr_publication_with_scope(
                 &work_item_uid,
                 work.revision,
                 &event_uid,
                 &receipt,
-            )?;
+                &scope,
+            )?
         }
         PullRequestPreparationStatus::Publishing | PullRequestPreparationStatus::NeedsAttention => {
             anyhow::ensure!(
@@ -112,25 +122,28 @@ pub(in crate::core::implementation) fn prepare_lifecycle_publication(
                     }),
                 "lifecycle publication authorization is stale for the reviewed task"
             );
-            lifecycle.authorize_pr_publication(
+            lifecycle.authorize_pr_publication_with_scope(
                 &work_item_uid,
                 work.revision,
                 &uuid::Uuid::new_v4().to_string(),
                 work.publication_authorization
                     .as_ref()
                     .expect("checked authorization"),
-            )?;
+                &scope,
+            )?
         }
         PullRequestPreparationStatus::Opened => {
             anyhow::ensure!(
                 work.provider_pr_url.is_some(),
                 "opened lifecycle PR has no provider URL"
             );
+            work
         }
         status => anyhow::bail!("lifecycle PR work item is not publishable in {status:?}"),
-    }
+    };
     Ok(LifecyclePublicationGate::Authorized(LifecyclePublication {
         work_item_uid,
+        lease_epoch: authorized_work.publication_lease_epoch(),
     }))
 }
 
@@ -178,6 +191,7 @@ pub(in crate::core::implementation) fn finish_lifecycle_publication(
                 .clone()
                 .or_else(|| Some(implementation.base_commit.clone())),
             merged_commit_sha: None,
+            lease_epoch: Some(binding.lease_epoch),
         },
     )?;
     Ok(())
@@ -248,6 +262,8 @@ pub(in crate::core::implementation) fn reconcile_lifecycle_pr_state(
                     .or_else(|| Some(implementation.base_commit.clone()))
             }),
             merged_commit_sha: implementation.merged_commit.clone(),
+            lease_epoch: (work.status == PullRequestPreparationStatus::Publishing)
+                .then(|| work.publication_lease_epoch()),
         },
     )?;
     if status == PullRequestPreparationStatus::Merged {

@@ -75,6 +75,7 @@ pub(super) fn typed_event_content(
             receipt.decision, receipt.subject_sha256, receipt.actor
         ),
         LifecycleEventKind::Task(TaskEvent::ReconcileSpec { receipt, .. })
+        | LifecycleEventKind::Task(TaskEvent::PublicationGatesRefreshed { receipt })
         | LifecycleEventKind::Task(TaskEvent::SubtaskReconciled { receipt }) => format!(
             "specification reconciliation receipt: decision={:?} subject_sha256={} actor={:?}",
             receipt.decision, receipt.subject_sha256, receipt.actor

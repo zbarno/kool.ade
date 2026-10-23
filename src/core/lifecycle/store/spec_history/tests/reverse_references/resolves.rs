@@ -1,4 +1,3 @@
-use super::assertions;
 use super::assertions::assert_reverse_references;
 use super::support::{Persisted, code_review_receipt};
 use super::*;
@@ -186,6 +185,9 @@ fn reverse_lookup_resolves_decision_task_review_qa_and_pr_state_references() {
             reviewer_session_id: None,
             author_session_id: None,
         }),
+        publication_scope: None,
+        lease_epoch: 0,
+        publication_authorization_event_uids: Vec::new(),
         recovery: None,
         provider_pr_id: Some(11),
         provider_pr_url: Some("https://github.com/example/trace-fixture/pull/11".into()),
@@ -240,7 +242,7 @@ fn reverse_lookup_resolves_decision_task_review_qa_and_pr_state_references() {
     draft.decision_refs.push(operator_decision_ref.clone());
     draft.approved_target_hash = feature.approved_plan_sha256.clone();
     draft.reconciliation_status = SpecReconciliationStatusV1::OutstandingNonblockingFindings;
-    let authorization = assertions::declined_authorization(
+    let authorization = super::assertions::declined_authorization(
         &operator_decision_ref,
         &feature_uid,
         &requirement_id,

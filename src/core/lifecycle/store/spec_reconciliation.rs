@@ -1,6 +1,6 @@
 use crate::{
     artifacts::planning_store::StoreError,
-    core::lifecycle::{GateReceipt, TaskEvent, TaskPhase, TaskRecord},
+    core::lifecycle::{GateReceipt, LifecycleEventKind, TaskEvent, TaskPhase, TaskRecord},
 };
 
 use super::{LifecycleStore, records::load_tasks};
@@ -183,6 +183,22 @@ impl LifecycleStore<'_> {
         receipt: GateReceipt,
         pr_work_item_uid: &str,
     ) -> Result<TaskRecord, StoreError> {
+        let current = self.load_task(task_uid)?;
+        if current.pr_work_item_uid.is_some()
+            && self.publication_gate_refresh_pending(&current.feature_uid, task_uid)?
+        {
+            if current.pr_work_item_uid.as_deref() != Some(pr_work_item_uid) {
+                return Err(StoreError::MalformedState(
+                    "refreshed lifecycle task PR identity changed".into(),
+                ));
+            }
+            return self.apply_task_event(
+                task_uid,
+                expected_revision,
+                event_uid,
+                TaskEvent::PublicationGatesRefreshed { receipt },
+            );
+        }
         self.apply_task_event(
             task_uid,
             expected_revision,
@@ -192,6 +208,37 @@ impl LifecycleStore<'_> {
                 pr_work_item_uid: pr_work_item_uid.to_owned(),
             },
         )
+    }
+
+    fn publication_gate_refresh_pending(
+        &self,
+        feature_uid: &str,
+        task_uid: &str,
+    ) -> Result<bool, StoreError> {
+        let events = self.events_for_feature(feature_uid)?;
+        let mut latest_head_change: Option<u64> = None;
+        let mut latest_gate_completion: Option<u64> = None;
+        for event in events
+            .iter()
+            .filter(|event| event.task_uid.as_deref() == Some(task_uid))
+        {
+            let revision = event.task_revision_after.unwrap_or_default();
+            match &event.event {
+                LifecycleEventKind::Task(TaskEvent::PublicationHeadChanged { .. }) => {
+                    latest_head_change = Some(latest_head_change.unwrap_or_default().max(revision));
+                }
+                LifecycleEventKind::Task(
+                    TaskEvent::PublicationGatesRefreshed { .. } | TaskEvent::ReconcileSpec { .. },
+                ) => {
+                    latest_gate_completion =
+                        Some(latest_gate_completion.unwrap_or_default().max(revision));
+                }
+                _ => {}
+            }
+        }
+        Ok(latest_head_change.is_some_and(|changed| {
+            latest_gate_completion.is_none_or(|completed| changed > completed)
+        }))
     }
 
     pub fn reconcile_subtask_specification(

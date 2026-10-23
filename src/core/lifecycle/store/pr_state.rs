@@ -14,100 +14,13 @@ use super::{
     },
 };
 
+mod authorize;
 mod gate;
 mod recovery;
-
-pub(super) fn authorize(
-    store: &PlanningStore,
-    work_item_uid: &str,
-    expected_revision: u64,
-    event_uid: &str,
-    receipt: &GateReceipt,
-) -> Result<PullRequestPreparation, StoreError> {
-    authorize_before_commit(
-        store,
-        work_item_uid,
-        expected_revision,
-        event_uid,
-        receipt,
-        || {},
-    )
-}
-
-pub(in crate::core::lifecycle) fn authorize_before_commit(
-    store: &PlanningStore,
-    work_item_uid: &str,
-    expected_revision: u64,
-    event_uid: &str,
-    receipt: &GateReceipt,
-    before_commit: impl FnOnce(),
-) -> Result<PullRequestPreparation, StoreError> {
-    let store_revision = store.revision()?;
-    receipt.validate().map_err(StoreError::MalformedState)?;
-    let mut record = read(store, work_item_uid)?;
-    let lifecycle = LifecycleStore::new(store);
-    gate::check(&lifecycle, &record)?;
-    if record.publication_authorization.as_ref() == Some(receipt)
-        && matches!(
-            record.status,
-            PullRequestPreparationStatus::Publishing | PullRequestPreparationStatus::Opened
-        )
-    {
-        before_commit();
-        // The locked revision check is the retry attempt's linearization point.
-        store.transaction_with_revision_and_record_revisions(&[], Some(&store_revision), &[])?;
-        return Ok(record);
-    }
-    let task = lifecycle.load_task(&record.task_uid)?;
-    if record.revision != expected_revision
-        || !matches!(
-            record.status,
-            PullRequestPreparationStatus::AwaitingAuthorization
-                | PullRequestPreparationStatus::NeedsAttention
-        )
-        || task.phase != TaskPhase::Done
-        || task.pr_work_item_uid.as_deref() != Some(work_item_uid)
-        || receipt.actor != GateActor::User
-        || receipt.decision != GateDecision::Approved
-        || receipt.subject_uid != work_item_uid
-        || Some(receipt.subject_sha256.as_str()) != task.implementation_sha256.as_deref()
-        || receipt.evidence_refs != [format!("user-action:create-pr:{work_item_uid}")]
-        || record
-            .publication_authorization
-            .as_ref()
-            .is_some_and(|existing| existing != receipt)
-    {
-        return Err(StoreError::MalformedState(
-            "PR publication requires current Done gates and explicit user authorization bound to the reviewed implementation".into(),
-        ));
-    }
-    let already_authorized = record.publication_authorization.is_some();
-    let actor = if already_authorized {
-        LifecycleActor::ApplicationPolicy
-    } else {
-        LifecycleActor::User
-    };
-    record.publication_authorization = Some(receipt.clone());
-    record.status = PullRequestPreparationStatus::Publishing;
-    let recovery = record
-        .recovery
-        .get_or_insert(super::PrPublicationRecoveryV1 {
-            attempt: u64::from(already_authorized),
-            last_failure: None,
-        });
-    recovery.attempt = recovery.attempt.checked_add(1).ok_or_else(|| {
-        StoreError::MalformedState("PR publication attempt counter exhausted".into())
-    })?;
-    before_commit();
-    persist(
-        store,
-        record,
-        expected_revision,
-        event_uid,
-        actor,
-        Some(&store_revision),
-    )
-}
+mod scope;
+pub(super) use authorize::authorize;
+#[cfg(test)]
+pub(in crate::core::lifecycle) use authorize::authorize_before_commit;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn record_state(
@@ -124,6 +37,7 @@ pub(super) fn record_state(
         head_sha,
         base_sha,
         merged_commit_sha,
+        lease_epoch,
     } = update;
     let mut record = read(store, work_item_uid)?;
     if record.status == status
@@ -163,7 +77,11 @@ pub(super) fn record_state(
             PullRequestPreparationStatus::Opened
         )
     );
-    if !allowed || record.revision != expected_revision {
+    if !allowed
+        || record.revision != expected_revision
+        || ((record.status == PullRequestPreparationStatus::Publishing || lease_epoch.is_some())
+            && lease_epoch != Some(record.publication_lease_epoch()))
+    {
         return Err(StoreError::MalformedState(
             "pull request status transition is stale or not allowed".into(),
         ));
@@ -177,12 +95,18 @@ pub(super) fn record_state(
             "merged pull request requires an authoritative merge commit".into(),
         ));
     }
-    if status == PullRequestPreparationStatus::Publishing
-        && let Some(recovery) = record.recovery.as_mut()
-    {
-        recovery.attempt = recovery.attempt.checked_add(1).ok_or_else(|| {
+    if status == PullRequestPreparationStatus::Publishing {
+        let prior_epoch = record.publication_lease_epoch();
+        let recovery = record
+            .recovery
+            .get_or_insert(super::PrPublicationRecoveryV1 {
+                attempt: prior_epoch,
+                last_failure: None,
+            });
+        recovery.attempt = prior_epoch.checked_add(1).ok_or_else(|| {
             StoreError::MalformedState("PR publication attempt counter exhausted".into())
         })?;
+        record.lease_epoch = recovery.attempt;
     }
     record.status = status;
     record.provider_pr_id = provider_pr_id;

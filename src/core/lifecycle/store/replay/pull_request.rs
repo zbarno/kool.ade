@@ -49,8 +49,10 @@ pub(super) fn replay_for_task(
     if event_work_item_uid != work_item_uid
         || creation.feature_uid != task.feature_uid
         || creation.actor != LifecycleActor::ApplicationPolicy
-        || (creation.schema_version >= 3 && creation.task_revision_after != Some(task.revision))
-        || creation.expected_revision.checked_add(1) != Some(task.revision)
+        || (creation.schema_version >= 3
+            && creation.task_revision_after != creation.expected_revision.checked_add(1))
+        || (creation.schema_version < 3
+            && creation.expected_revision.checked_add(1) != Some(task.revision))
     {
         return Err(StoreError::MalformedState(
             "PR preparation event does not match the completed task".into(),
@@ -98,6 +100,13 @@ pub(super) fn replay_for_task(
         let next = event.pr_preparation_after.as_ref().ok_or_else(|| {
             StoreError::MalformedState("PR event is missing its resulting projection".into())
         })?;
+        let replaces_stale_scope = preparation.status
+            == PullRequestPreparationStatus::NeedsAttention
+            && next.status == PullRequestPreparationStatus::Publishing
+            && preparation.publication_scope != next.publication_scope
+            && preparation.publication_authorization != next.publication_authorization;
+        let first_authorization = preparation.publication_authorization.is_none()
+            && next.publication_authorization.is_some();
         if event.schema_version < 3
             || event.feature_uid != task.feature_uid
             || event.task_uid.as_deref() != Some(task.task_uid.as_str())
@@ -106,11 +115,10 @@ pub(super) fn replay_for_task(
             || next.status != *status
             || !allowed_transition(preparation.status, next.status)
             || !same_pr_identity(&preparation, next)
-            || (preparation.publication_authorization.is_none()
-                && next.publication_authorization.is_some()
-                && event.actor != LifecycleActor::User)
-            || (!(preparation.publication_authorization.is_none()
-                && next.publication_authorization.is_some())
+            || !validation::valid_authorization_event_uids(&preparation, next, event)
+            || (first_authorization && event.actor != LifecycleActor::User)
+            || (!first_authorization
+                && !replaces_stale_scope
                 && event.actor != LifecycleActor::ApplicationPolicy)
             || !validation::valid_recovery_transition(&preparation, next)
         {
@@ -118,9 +126,19 @@ pub(super) fn replay_for_task(
                 "PR event revision does not match its replay position".into(),
             ));
         }
-        if preparation.publication_authorization.is_none()
-            && next.publication_authorization.is_some()
-            && !authorization_matches_task(next, task, work_item_uid)
+        let authorization_is_valid = if next.publication_scope.is_some() {
+            validation::authorization_matches_historical_scope(
+                next,
+                task.task_uid.as_str(),
+                work_item_uid,
+                event,
+                events,
+            )
+        } else {
+            authorization_matches_task(next, task, work_item_uid)
+        };
+        if preparation.publication_authorization != next.publication_authorization
+            && !authorization_is_valid
         {
             return Err(StoreError::MalformedState(
                 "PR publication authorization is not bound to this task and user action".into(),

@@ -78,26 +78,41 @@ fn planning_item_uid(document: &TaskDocument) -> Option<&str> {
         })
 }
 
+#[derive(Default)]
+pub(super) struct PublicationPolicyOptions {
+    pub(super) is_self_improvement: bool,
+    pub(super) explicit_publish: bool,
+    pub(super) is_subtask: bool,
+    pub(super) allow_offline: bool,
+    pub(super) requested_changes: bool,
+    pub(super) auto_publish: bool,
+    pub(super) require_independent_checks: bool,
+    pub(super) lifecycle_gate_refresh: bool,
+}
+
 pub(super) fn publication_policy(
-    is_self_improvement: bool,
-    explicit_publish: bool,
-    is_subtask: bool,
-    allow_offline: bool,
-    requested_changes: bool,
-    auto_publish: bool,
-    require_independent_checks: bool,
+    options: PublicationPolicyOptions,
 ) -> (crate::core::implementation::PublicationMode, bool) {
     use crate::core::implementation::PublicationMode;
 
-    let mode = if is_subtask || allow_offline || requested_changes {
-        PublicationMode::HoldForReview
-    } else if explicit_publish {
-        PublicationMode::CreatePullRequest
-    } else if auto_publish {
-        PublicationMode::AutoPublish
-    } else {
-        PublicationMode::HoldForReview
-    };
+    let PublicationPolicyOptions {
+        is_self_improvement,
+        explicit_publish,
+        is_subtask,
+        allow_offline,
+        requested_changes,
+        auto_publish,
+        require_independent_checks,
+        lifecycle_gate_refresh,
+    } = options;
+    let mode = super::publication_retry::publication_mode(
+        lifecycle_gate_refresh,
+        is_subtask,
+        allow_offline,
+        explicit_publish,
+        requested_changes,
+        auto_publish,
+    );
     let mode = if is_self_improvement && !explicit_publish {
         PublicationMode::HoldForReview
     } else {
@@ -146,7 +161,9 @@ pub(super) fn record_start_notice(
 
 #[cfg(test)]
 mod tests {
-    use super::{authorize_task_start, planning_item_uid, publication_policy};
+    use super::{
+        PublicationPolicyOptions, authorize_task_start, planning_item_uid, publication_policy,
+    };
     use crate::core::implementation::PublicationMode;
     use crate::{
         app::root::{Screen, board_tests},
@@ -211,26 +228,60 @@ mod tests {
     #[test]
     fn self_improvement_never_inherits_auto_publish_without_explicit_pr_action() {
         assert_eq!(
-            publication_policy(true, false, false, false, false, true, true),
+            publication_policy(PublicationPolicyOptions {
+                is_self_improvement: true,
+                auto_publish: true,
+                require_independent_checks: true,
+                ..Default::default()
+            }),
             (PublicationMode::HoldForReview, true)
         );
         assert_eq!(
-            publication_policy(true, true, false, false, false, true, true),
+            publication_policy(PublicationPolicyOptions {
+                is_self_improvement: true,
+                explicit_publish: true,
+                auto_publish: true,
+                require_independent_checks: true,
+                ..Default::default()
+            }),
             (PublicationMode::CreatePullRequest, true)
         );
         assert_eq!(
-            publication_policy(false, false, false, false, false, true, false),
+            publication_policy(PublicationPolicyOptions {
+                auto_publish: true,
+                ..Default::default()
+            }),
             (PublicationMode::AutoPublish, true)
         );
         assert_eq!(
-            publication_policy(true, true, false, false, false, true, false),
+            publication_policy(PublicationPolicyOptions {
+                is_self_improvement: true,
+                explicit_publish: true,
+                auto_publish: true,
+                ..Default::default()
+            }),
             (PublicationMode::CreatePullRequest, true),
             "self-improvement must require independent checks even when the global gate is off"
         );
         assert_eq!(
-            publication_policy(true, true, false, true, false, true, false),
+            publication_policy(PublicationPolicyOptions {
+                is_self_improvement: true,
+                explicit_publish: true,
+                allow_offline: true,
+                auto_publish: true,
+                ..Default::default()
+            }),
             (PublicationMode::HoldForReview, false),
             "offline self-improvement stays held and cannot claim independent checks"
+        );
+        assert_eq!(
+            publication_policy(PublicationPolicyOptions {
+                auto_publish: true,
+                lifecycle_gate_refresh: true,
+                ..Default::default()
+            }),
+            (PublicationMode::HoldForReview, false),
+            "a lifecycle gate refresh cannot inherit automatic publication"
         );
     }
 }

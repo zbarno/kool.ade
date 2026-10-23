@@ -1,3 +1,4 @@
+mod publication;
 mod qa;
 mod spec;
 
@@ -15,6 +16,10 @@ impl TaskRecord {
         }
         if self.revision == u64::MAX {
             return Err("task revision is exhausted".into());
+        }
+        if publication::apply(self, &event) {
+            self.revision += 1;
+            return self.validate();
         }
         match event {
             TaskEvent::Start if self.phase == TaskPhase::Ready => {

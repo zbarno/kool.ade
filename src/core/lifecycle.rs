@@ -3,6 +3,7 @@
 mod feature;
 mod plan_remediation;
 pub(crate) mod plan_snapshot;
+mod pr_publication_action;
 pub(crate) mod product_spec;
 mod spec_history;
 mod spec_reconciliation;
@@ -13,6 +14,8 @@ mod types;
 pub use feature::{FeatureEvent, FeatureGoal};
 pub use plan_remediation::{PlanFindingActionV1, PlanFindingDispositionV1, PlanRemediationV1};
 pub use plan_snapshot::{PlanRequirementV1, PlanSnapshotV1};
+pub use pr_publication_action::pull_request_gate_refresh_action_enabled;
+pub use pr_publication_action::pull_request_publication_action_enabled;
 pub use spec_history::{
     ProductSpecAggregateStatusV1, ProductSpecAggregateV1, ProductSpecFeatureSummaryV1,
     ProductSpecFindingV1, SpecDeltaApprovalRefV1, SpecDeltaClassificationV1,
@@ -27,7 +30,9 @@ pub use spec_reconciliation::{
 };
 pub(crate) use store::DeploymentObservation;
 pub(crate) use store::Snapshot;
-pub use store::task_transition::PullRequestPreparationStatus;
+pub use store::task_transition::{
+    PrPublicationScopeV1, PrPublicationTaskEvidenceV1, PullRequestPreparationStatus,
+};
 pub use store::{
     CurrentImplementationEvidenceV1, DeploymentEvidenceV1, LifecycleActor, LifecycleEventKind,
     LifecycleEventRecord, LifecycleStore, PullRequestPreparation, PullRequestPublicationState,
