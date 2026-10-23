@@ -205,6 +205,7 @@ pub(super) fn task_actor(event: &TaskEvent) -> LifecycleActor {
     match event {
         TaskEvent::CodeReview { .. } => LifecycleActor::IndependentReviewer,
         TaskEvent::RuntimeQaRequested(_)
+        | TaskEvent::RuntimeQaWorkerStarted { .. }
         | TaskEvent::RuntimeQaBlocked { .. }
         | TaskEvent::RuntimeQaUnavailable { .. }
         | TaskEvent::SpecReconciliationBlocked { .. } => LifecycleActor::ApplicationPolicy,

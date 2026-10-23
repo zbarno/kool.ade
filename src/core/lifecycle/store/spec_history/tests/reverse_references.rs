@@ -146,6 +146,8 @@ fn reverse_lookup_resolves_decision_task_review_qa_and_pr_state_references() {
             schema_version: 1,
             status: QaExecutionStatusV1::Completed,
             request: Some(qa_request),
+            request_task_revision: None,
+            dispatch_task_revision: None,
             blocked_reason: None,
             result_sha256: Some("1".repeat(64)),
             evidence_manifest_sha256: Some("2".repeat(64)),

@@ -69,6 +69,7 @@ fn trigger_for_event(event: &LifecycleEventRecord) -> (SpecSyncTriggerKindV1, Op
             TaskEvent::CodeReview { .. } => (SpecSyncTriggerKindV1::CodeReview, None),
             TaskEvent::BeginRepair => (SpecSyncTriggerKindV1::Repair, None),
             TaskEvent::RuntimeQaRequested(_)
+            | TaskEvent::RuntimeQaWorkerStarted { .. }
             | TaskEvent::RuntimeQaBlocked { .. }
             | TaskEvent::RuntimeQaUnavailable { .. }
             | TaskEvent::RuntimeQaCompleted { .. }

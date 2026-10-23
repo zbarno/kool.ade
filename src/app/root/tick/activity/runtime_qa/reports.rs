@@ -1,3 +1,5 @@
+use std::{fs, io::ErrorKind, path::Path};
+
 use crate::{
     core::lifecycle::{LifecycleStore, TaskRecord},
     runtime_qa::{
@@ -25,6 +27,10 @@ pub(super) fn record_persisted_report(
         return Ok(None);
     };
     validate_request_identity(request, &persisted_request)?;
+    let receipt = match result.outcome {
+        QaOutcome::Pass | QaOutcome::Fail => Some(qa_store.load_gate_receipt(&request.qa_run_id)?),
+        QaOutcome::Incomplete | QaOutcome::InfrastructureBlocked => None,
+    };
     // Create clarification cards and persist Manager-owned dispositions before
     // advancing lifecycle state. A replay recovers the same decision IDs.
     let mut dispositions = result
@@ -43,10 +49,6 @@ pub(super) fn record_persisted_report(
         disposition.decision_id = decision_ids.get(&disposition.finding_id).cloned();
         qa_store.save_disposition(disposition)?;
     }
-    let receipt = match result.outcome {
-        QaOutcome::Pass | QaOutcome::Fail => Some(qa_store.load_gate_receipt(&request.qa_run_id)?),
-        QaOutcome::Incomplete | QaOutcome::InfrastructureBlocked => None,
-    };
     let namespace = uuid::Uuid::parse_str(&task.task_uid)
         .map_err(|_| "runtime QA lifecycle task identity is invalid")?;
     let event_uid = uuid::Uuid::new_v5(
@@ -99,6 +101,86 @@ pub(super) fn record_persisted_report(
         message.push_str(&findings.join("\n"));
     }
     Ok(Some(message))
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum PersistedReportState {
+    Missing,
+    Recordable,
+    Invalid,
+}
+
+pub(super) fn persisted_report_state(
+    qa_store: &RuntimeQaStore,
+    expected: &QaRunRequestV1,
+    running_restart: bool,
+) -> PersistedReportState {
+    let Ok((persisted, _, _, result)) = qa_store.load_run(&expected.qa_run_id) else {
+        let request_present = path_exists_or_unreadable(
+            &qa_store
+                .root()
+                .join(&expected.qa_run_id)
+                .join("request.json"),
+        );
+        // Applicability records may legitimately store the request before a
+        // pending QA dispatch. Without that validated record, request.json is
+        // ambiguous on upgraded Pending tasks and Running restarts.
+        let valid_pending_applicability =
+            !running_restart && qa_store.load_applicability_for_request(expected).is_ok();
+        let legacy_request = request_present && !valid_pending_applicability;
+        return if running_restart
+            || legacy_request
+            || partial_report_artifacts_present(qa_store, &expected.qa_run_id)
+        {
+            PersistedReportState::Invalid
+        } else {
+            PersistedReportState::Missing
+        };
+    };
+    if &persisted != expected {
+        return PersistedReportState::Invalid;
+    }
+    match result.outcome {
+        QaOutcome::Pass | QaOutcome::Fail
+            if qa_store.load_gate_receipt(&expected.qa_run_id).is_err() =>
+        {
+            PersistedReportState::Invalid
+        }
+        QaOutcome::Pass
+        | QaOutcome::Fail
+        | QaOutcome::Incomplete
+        | QaOutcome::InfrastructureBlocked => PersistedReportState::Recordable,
+    }
+}
+
+fn partial_report_artifacts_present(qa_store: &RuntimeQaStore, qa_run_id: &str) -> bool {
+    if uuid::Uuid::parse_str(qa_run_id).is_err() {
+        return true;
+    }
+
+    let run_dir = qa_store.root().join(qa_run_id);
+    for artifact in [
+        "report-write.json",
+        "scenarios.json",
+        "evidence.json",
+        "result.json",
+        "gate-receipt.json",
+        "dispositions",
+    ] {
+        if path_exists_or_unreadable(&run_dir.join(artifact)) {
+            return true;
+        }
+    }
+
+    let evidence_dir = qa_store.root().join("qa-evidence").join(qa_run_id);
+    path_exists_or_unreadable(&evidence_dir)
+}
+
+fn path_exists_or_unreadable(path: &Path) -> bool {
+    match fs::symlink_metadata(path) {
+        Ok(_) => true,
+        Err(error) => error.kind() != ErrorKind::NotFound,
+    }
 }
 
 fn disposition_for_finding(
