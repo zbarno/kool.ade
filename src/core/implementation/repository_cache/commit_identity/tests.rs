@@ -73,7 +73,10 @@ fn configure_clone_preserves_or_overrides_identity_as_requested() {
         .git(&root, &["config", "--local", "user.name", "Existing"])
         .unwrap();
     runner
-        .git(&root, &["config", "--local", "user.email", "existing@example.test"])
+        .git(
+            &root,
+            &["config", "--local", "user.email", "existing@example.test"],
+        )
         .unwrap();
     let approved = GitCommitIdentity {
         name: "Approved Agent".into(),
@@ -81,17 +84,26 @@ fn configure_clone_preserves_or_overrides_identity_as_requested() {
     };
     configure_clone(&root, &approved, true, &runner).unwrap();
     assert_eq!(
-        runner.git(&root, &["config", "--local", "user.name"]).unwrap(),
+        runner
+            .git(&root, &["config", "--local", "user.name"])
+            .unwrap(),
         "Existing"
     );
     assert_eq!(
-        runner.git(&root, &["config", "--local", "user.email"]).unwrap(),
+        runner
+            .git(&root, &["config", "--local", "user.email"])
+            .unwrap(),
         "existing@example.test"
     );
     configure_clone(&root, &approved, false, &runner).unwrap();
-    assert_eq!(GitCommitIdentity::from_repository(&root, &runner).unwrap(), approved);
     assert_eq!(
-        runner.git(&root, &["config", "--local", "user.useConfigOnly"]).unwrap(),
+        GitCommitIdentity::from_repository(&root, &runner).unwrap(),
+        approved
+    );
+    assert_eq!(
+        runner
+            .git(&root, &["config", "--local", "user.useConfigOnly"])
+            .unwrap(),
         "true"
     );
     fs::remove_dir_all(root).unwrap();

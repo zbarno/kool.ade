@@ -150,7 +150,15 @@ pub fn spawn_with_input_env_excluding(
     env: &[(String, String)],
     excluded_env: &[&str],
 ) -> anyhow::Result<ChildTask> {
-    spawn_with_input_env_policy(argv, cwd, input, env, false, excluded_env, Duration::from_millis(50))
+    spawn_with_input_env_policy(
+        argv,
+        cwd,
+        input,
+        env,
+        false,
+        excluded_env,
+        Duration::from_millis(50),
+    )
 }
 
 /// Spawn a harness with a reviewed environment baseline and provider auth vars.
