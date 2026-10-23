@@ -20,6 +20,7 @@ jobs:
     outputs:
       executor: ${{ steps.select.outputs.executor }}
       qa: ${{ steps.select.outputs.qa }}
+      image_lock: ${{ steps.select.outputs.image_lock }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -32,12 +33,14 @@ jobs:
           set -euo pipefail
           executor=true
           qa=true
+          image_lock=false
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
             executor=false
             qa=false
             git cat-file -e "${BASE_SHA}^{commit}"
             git diff --name-only -z "$BASE_SHA" HEAD > "$RUNNER_TEMP/changed-paths"
             while IFS= read -r -d '' path; do
+              if [[ "$path" == containers/images.lock.json ]]; then image_lock=true; fi
               case "$path" in
                 containers/executor/*|containers/keys/*|containers/base-images.lock.json|containers/images.lock.json|scripts/*|.github/workflows/executor-images.yml)
                   executor=true ;;
@@ -48,8 +51,9 @@ jobs:
               esac
             done < "$RUNNER_TEMP/changed-paths"
           fi
-          printf 'executor=%s\nqa=%s\n' "$executor" "$qa" >> "$GITHUB_OUTPUT"
+          printf 'executor=%s\nqa=%s\nimage_lock=%s\n' "$executor" "$qa" "$image_lock" >> "$GITHUB_OUTPUT"
           printf 'Executor image candidate validation: %s; QA image candidate validation: %s\n' "$executor" "$qa" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Reviewed image lock changed: %s\n' "$image_lock" >> "$GITHUB_STEP_SUMMARY"
   build-and-verify:
     needs: changes
     if: needs.changes.outputs.executor == 'true'
@@ -698,7 +702,12 @@ jobs:
   smoke-reviewed-qa-pull-request:
     name: Published image smoke ${{ matrix.profile }}
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.qa == 'true'
+    # Lock-update PRs test candidates in build-and-verify-qa-images; this job
+    # pulls the base lock, which cannot validate those new candidate digests.
+    if: >-
+      github.event_name == 'pull_request' &&
+      needs.changes.outputs.qa == 'true' &&
+      needs.changes.outputs.image_lock != 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
