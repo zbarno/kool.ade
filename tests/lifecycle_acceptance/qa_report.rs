@@ -75,7 +75,9 @@ pub(super) fn execute_reviewed_run(
         negative_paths: vec![],
         // This lifecycle fixture checks functional coverage; pixel review has a
         // separate safety test because this reviewer callback gets metadata only.
-        visual_expectations: vec![],
+        // This synthetic lifecycle fixture proves typed interaction and report
+        // flow; visual claims require a separate image-review receipt.
+        visual_expectations: Vec::new(),
         redaction_regions: vec![],
         priority: 1,
     };

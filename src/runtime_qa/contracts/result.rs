@@ -135,6 +135,11 @@ impl QaResultV1 {
                     .any(|id| !known_evidence.contains(id.as_str()))
                     || (matches!(case.status, QaCaseStatus::Passed | QaCaseStatus::Failed)
                         && case.evidence_refs.is_empty())
+                    || (matches!(case.status, QaCaseStatus::Passed | QaCaseStatus::Failed)
+                        && !manifest
+                            .actions
+                            .iter()
+                            .any(|action| action.scenario_id == case.scenario_id))
                     || case.observations.len() > 128
                     || case.observations.iter().any(|item| !valid_text(item, 4096))
             })
