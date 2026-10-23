@@ -15,6 +15,7 @@ pub(super) fn action_name(action: &QaDriverActionV1) -> &'static str {
         QaDriverActionV1::BrowserSetViewport { .. } => "browser_set_viewport",
         QaDriverActionV1::BrowserScreenshot => "browser_screenshot",
         QaDriverActionV1::BrowserScroll { .. } => "browser_scroll",
+        QaDriverActionV1::ApiRequest { .. } => "api_request",
         _ => "unsupported",
     }
 }
@@ -33,6 +34,7 @@ pub(super) fn action_command(action: &QaDriverActionV1) -> &'static str {
         QaDriverActionV1::BrowserSetViewport { .. } => "set_viewport",
         QaDriverActionV1::BrowserScreenshot => "screenshot",
         QaDriverActionV1::BrowserScroll { .. } => "scroll",
+        QaDriverActionV1::ApiRequest { .. } => "api_request",
         _ => "unsupported",
     }
 }

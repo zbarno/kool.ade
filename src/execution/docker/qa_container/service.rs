@@ -6,7 +6,8 @@ pub(crate) use runner::{stage_qa_uploads, start_detached_exec};
 pub(crate) use web::archive_for_runtime_user;
 
 pub use network::{
-    validate_browser_driver_network, validate_preview_relay_network, validate_task_service_network,
+    validate_browser_driver_network, validate_preview_relay_network,
+    validate_service_driver_network, validate_task_service_network,
 };
 pub use runner::{
     DriverContainerOutput, cleanup_driver_container, create_driver_container,

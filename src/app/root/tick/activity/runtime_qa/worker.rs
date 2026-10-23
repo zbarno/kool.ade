@@ -142,6 +142,7 @@ pub(super) fn start(
     let cancel = Arc::new(AtomicBool::new(false));
     let worker_cancel = Arc::clone(&cancel);
     let (cancel_sender, cancel_receiver) = tokio::sync::watch::channel(false);
+    let (progress_sender, progress_receiver) = mpsc::channel();
     let (sender, receiver) = mpsc::channel();
     std::thread::Builder::new()
         .name(format!("qa-{}", request.qa_run_id))
@@ -154,6 +155,7 @@ pub(super) fn start(
                 store_root,
                 worker_cancel,
                 cancel_receiver,
+                progress_sender,
             );
             let _ = sender.send(result);
         })
@@ -165,6 +167,7 @@ pub(super) fn start(
         request.parent_task_uid,
         cancel,
         cancel_sender,
+        progress_receiver,
         receiver,
     ))
 }

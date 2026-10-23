@@ -22,6 +22,7 @@ const TASK_CONTAINER_LABEL: &str = "com.koolade.qa.task-container";
 
 mod artifact;
 mod driver_cache;
+mod driver_spec;
 mod service;
 pub(crate) use service::run_created_driver_with_status;
 #[cfg(test)]
@@ -33,7 +34,7 @@ pub use service::{
     DriverContainerOutput, cleanup_driver_container, cleanup_web_preview, create_driver_container,
     recover_driver_container, recover_owned_web_preview, run_created_driver, run_ephemeral_driver,
     start_web_preview, validate_browser_driver_network, validate_preview_relay_network,
-    validate_task_service_network,
+    validate_service_driver_network, validate_task_service_network,
 };
 
 /// Network is either fully disabled or restricted to a separately inspected
@@ -48,6 +49,7 @@ pub enum QaDriverNetwork {
 }
 
 /// App-owned inputs for a single ephemeral QA driver container.
+#[derive(Clone)]
 pub struct QaDriverContainerSpec<'a> {
     pub owner_id: &'a str,
     pub request: &'a crate::runtime_qa::QaRunRequestV1,
@@ -223,99 +225,7 @@ impl QaDriverContainerSpec<'_> {
     }
 
     fn validate(&self) -> Result<(), ExecutionError> {
-        self.resources
-            .validate()
-            .map_err(|_| denied("QA resource budget is invalid"))?;
-        driver_cache::validate_for_driver(
-            self.driver,
-            self.request,
-            self.dependency_caches,
-            self.image,
-            self.resources,
-        )?;
-        let platform_matches = match self.driver {
-            "browser" => {
-                self.request.relevant_platforms.as_slice() == [crate::runtime_qa::QaPlatform::Web]
-            }
-            "desktop" => {
-                self.request.relevant_platforms.as_slice()
-                    == [crate::runtime_qa::QaPlatform::LinuxDesktop]
-            }
-            _ => false,
-        };
-        if self.owner_id.is_empty()
-            || self.owner_id.len() > 128
-            || self.task_uid != self.request.parent_task_uid
-            || !valid_uuid(self.owner_id)
-            || !valid_uuid(self.task_uid)
-            || !matches!(self.driver, "browser" | "desktop")
-            || !matches!(
-                (self.driver, self.image.profile),
-                ("browser", RuntimeProfile::BrowserQa) | ("desktop", RuntimeProfile::DesktopQa)
-            )
-            || !platform_matches
-            || self.artifacts.is_empty()
-            || self.artifacts.len() > 2
-        {
-            return Err(denied(
-                "QA driver container identity or artifacts are invalid",
-            ));
-        }
-        match &self.network {
-            QaDriverNetwork::Disabled => {
-                if self.driver == "browser" {
-                    return Err(denied(
-                        "Browser QA requires a validated service lease and relay binding",
-                    ));
-                }
-                if self.service_lease.is_some() || self.relay_binding.is_some() {
-                    return Err(denied(
-                        "Linux desktop QA must not receive browser service or relay bindings",
-                    ));
-                }
-                Ok(())
-            }
-            QaDriverNetwork::InternalPreviewRelay {
-                network_id,
-                relay_container_id,
-            } => {
-                let (Some(lease), Some(binding)) = (self.service_lease, self.relay_binding) else {
-                    return Err(denied(
-                        "Browser QA requires a validated service lease and relay binding",
-                    ));
-                };
-                lease
-                    .validate_for(self.request)
-                    .map_err(|_| denied("QA service lease does not match the immutable run"))?;
-                binding
-                    .validate_prelaunch()
-                    .map_err(|_| denied("QA preview relay binding is invalid"))?;
-                if self.driver != "browser"
-                    || !matches!(self.image.profile, RuntimeProfile::BrowserQa)
-                    || network_id.len() != 64
-                    || !network_id.bytes().all(|byte| byte.is_ascii_hexdigit())
-                    || relay_container_id.len() != 64
-                    || !relay_container_id
-                        .bytes()
-                        .all(|byte| byte.is_ascii_hexdigit())
-                    || *network_id != binding.relay_browser_network_id
-                    || *relay_container_id != binding.relay_container_id
-                    || lease.task_network_id != binding.task_network_id
-                    || lease.task_container_id != binding.task_container_id
-                    || lease.qa_run_id != binding.qa_run_id
-                    || lease.task_uid != binding.task_uid
-                    || binding.qa_run_id != self.request.qa_run_id
-                    || binding.task_uid != self.request.parent_task_uid
-                    || binding.task_build_sha != self.request.build_artifact_sha256
-                    || binding.approved_spec_hash != self.request.approved_spec_hash
-                {
-                    return Err(denied(
-                        "QA relay network is outside the exact task service and browser scope",
-                    ));
-                }
-                Ok(())
-            }
-        }
+        driver_spec::validate(self)
     }
 }
 

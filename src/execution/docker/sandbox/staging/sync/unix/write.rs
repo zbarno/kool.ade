@@ -28,7 +28,7 @@ pub(super) fn write_file(
         );
     }
     let temporary = CString::new(format!(".koolade-sync-{}", uuid::Uuid::new_v4())).unwrap();
-    let mode = (entry.mode & 0o777) | 0o200;
+    let mode = (entry.mode & 0o777) | 0o600;
     let fd = unsafe {
         libc::openat(
             parent.as_raw_fd(),

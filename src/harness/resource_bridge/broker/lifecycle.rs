@@ -124,7 +124,6 @@ impl ResourceBridge {
         Ok(())
     }
 
-    #[cfg(test)]
     pub(crate) fn cache_snapshot(
         &self,
         task_id: &str,
@@ -189,6 +188,7 @@ impl ResourceBridge {
     ) -> anyhow::Result<Self> {
         Self::start_inner(
             worktree,
+            None,
             None,
             task_id,
             progress,

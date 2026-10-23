@@ -73,6 +73,8 @@ pub(super) fn execute_reviewed_run(
         }],
         expected_results: vec!["Keyboard dismissal works".into()],
         negative_paths: vec![],
+        // This lifecycle fixture checks functional coverage; pixel review has a
+        // separate safety test because this reviewer callback gets metadata only.
         // This synthetic lifecycle fixture proves typed interaction and report
         // flow; visual claims require a separate image-review receipt.
         visual_expectations: Vec::new(),
@@ -192,9 +194,9 @@ impl QaScenarioDriver for LifecycleFixtureDriver {
             completed: true,
             failure: None,
             display: QaDisplayV1 {
-                width: 1024,
-                height: 768,
-                dpi: 96,
+                width: Some(1024),
+                height: Some(768),
+                dpi: Some(96),
                 theme: "light".into(),
                 locale: "en-US".into(),
             },

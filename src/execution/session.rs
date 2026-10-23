@@ -53,6 +53,13 @@ pub(super) struct RequestParameters {
     pub artifact_paths: Vec<String>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct ScopedRuntimePaths<'a> {
+    pub artifact_paths: &'a [String],
+    pub source_output_paths: &'a [String],
+    pub source_input_paths: &'a [String],
+}
+
 /// Controller-owned session that turns tool scripts into bounded backend requests.
 pub struct ExecutionSession {
     backend: Arc<dyn ExecutionBackend>,
@@ -68,6 +75,7 @@ pub struct ExecutionSession {
     retry_destination: Mutex<Option<Arc<ExecutionSession>>>,
     resources: ResourceBudgetV1,
     dependency_cache_refs: Mutex<Vec<DependencyCacheRefV1>>,
+    prepared_dependency_ids: Mutex<BTreeSet<String>>,
     remote_dependency_requests: Mutex<
         std::collections::BTreeMap<
             String,

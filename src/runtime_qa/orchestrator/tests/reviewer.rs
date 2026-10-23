@@ -1,4 +1,5 @@
 use super::*;
+use crate::harness::prompt_catalog::{CoverageStatus, CoverageV1, ReviewVerdictV1};
 
 fn run_passing_reviewer(
     assertion_status: QaAssertionStatus,

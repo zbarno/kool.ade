@@ -17,6 +17,22 @@ Status meanings:
 - **Not verified**: no qualifying runtime or review evidence is recorded.
 - **Pending**: the cited check is still running or review is outstanding.
 
+## Issue status reconciliation (2026-10-23)
+
+#143 remains closed for the implemented Bubblewrap removal/source cutover,
+but the original legacy history/dirty-clone/interrupted-attempt migration
+**release verification** stays in #144 and the cutover checklist. #146 has
+been **reopened** because the real six-provider Docker MCP/host-code-mode
+acceptance was not evidenced by the synthetic tests. #156 is separately open
+for clean provider startup. Remote queue fairness and wait telemetry merged in
+[#309](https://github.com/zbarno/kool.ade/pull/309); this does not establish
+real two-host acceptance under #141. [#310](https://github.com/zbarno/kool.ade/pull/310)
+merged CI sharding, but its first main run hit a queue-concurrency E2E failure;
+[draft #311](https://github.com/zbarno/kool.ade/pull/311) and
+[verification issue #312](https://github.com/zbarno/kool.ade/issues/312)
+track required post-fix green checks and measured latency. These updates do
+not retroactively change the statuses or tested commit in the dated table.
+
 ## Evidence matrix
 
 | Gate | Status | Evidence | Remaining proof |
@@ -29,7 +45,7 @@ Status meanings:
 | Confirmed worker-loss retry and ownership fencing | Partial | [PR #278](https://github.com/zbarno/kool.ade/pull/278) is merged. | The broader multi-controller recovery and authorization acceptance in #141 is still open. |
 | Worker-private file approval and transfer | Partial | [PR #269](https://github.com/zbarno/kool.ade/pull/269) is merged with scoped approvals and transfer coverage. | Reconcile with the full broker, cancellation, expiry, and multi-controller matrix in #141. |
 | Six-provider fake launch and role/mode authority matrix | Partial | [PR #192](https://github.com/zbarno/kool.ade/pull/192) and [`harness-clean-launch-matrix.md`](harness-clean-launch-matrix.md) cover fake CLIs, every execution mode, and role authority through the application-owned bridge. | This proves application behavior against fakes only; it does not prove vendor runtime semantics. |
-| Docker-backed provider role parity and host code-mode behavior ([#146](https://github.com/zbarno/kool.ade/issues/146)) | Not verified | [PR #302](https://github.com/zbarno/kool.ade/pull/302) verifies mock registrations and explicitly says it does not satisfy #146. The #146 acceptance reconciliation records the real-provider Docker MCP matrix as outstanding, although the issue tracker is closed. | Verify eligible roles across all six actual provider CLIs, including host code-mode denial and app-owned Docker MCP. Keep this release prerequisite visible until the matrix has passing evidence. |
+| Docker-backed provider role parity and host code-mode behavior ([#146](https://github.com/zbarno/kool.ade/issues/146)) | Not verified | [PR #302](https://github.com/zbarno/kool.ade/pull/302) verifies mock registrations and explicitly says it does not satisfy #146. #146 was reopened on 2026-10-23 because its original real-provider Docker MCP matrix remains unverified. | Verify eligible roles across all six actual provider CLIs, including host code-mode denial and app-owned Docker MCP. Keep this release prerequisite visible until the matrix has passing evidence. |
 | Real clean-launch semantics ([#156](https://github.com/zbarno/kool.ade/issues/156)) | Not verified | [`harness-clean-launch-matrix.md`](harness-clean-launch-matrix.md) documents the fake-provider gate and provider-specific unknowns. No live provider prompt was run for this snapshot. | Verify supported real CLI authentication, ambient instruction/plugin suppression, model selection, session lifecycle, and provider-side bridge behavior before closing #156. |
 | Legacy runtime source assertion | Verified | [PR #297](https://github.com/zbarno/kool.ade/pull/297) is merged; #143 is closed. [`assert-docker-only.sh`](../scripts/assert-docker-only.sh) rejects retired runtime and configuration references, and [PR #306's Docker-only job](https://github.com/zbarno/kool.ade/actions/runs/39901084075/job/120242573688) passed. | This verifies the source assertion and cutover item; it does not by itself satisfy the wider release matrix in #144. |
 | Filesystem and staging traversal negatives | Partial | The repository has focused rejection tests for symlinked `.git`, escaping source links, and unsafe returned archive entries, for example [`staging tests`](../src/execution/docker/sandbox/staging/tests.rs) and [`remote workspace scan tests`](../src/execution/remote/workspace/scan/tests.rs). | Map each required attack from #144 to an actual Docker-backed denial test and cite its passing hosted result. |
@@ -40,7 +56,7 @@ Status meanings:
 
 ## Release decision
 
-The release gate remains **blocked**. Issues #141, #144, and #156 are open;
+The release gate remains **blocked**. Issues #141, #144, #146, and #156 are open;
 #171 remains the separate runtime QA release gate. The current CI and fake
 provider results are useful evidence, but they do not establish multi-host
 remote behavior, full adversarial Docker coverage, live provider semantics,

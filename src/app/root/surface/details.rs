@@ -144,7 +144,9 @@ impl KooladeApp {
             .get(&target_key)
             .cloned()
             .unwrap_or_default();
-        let target_choices = target_choices::build(&target_preference, settings_error.as_deref());
+        let mut target_choices =
+            target_choices::build(&target_preference, settings_error.as_deref());
+        target_choices::apply_task_requirements(&mut target_choices, task_capabilities);
         let remote_private_file_workers = target_choices
             .iter()
             .filter(|choice| choice.available)

@@ -1,7 +1,6 @@
 use super::*;
 
 mod proposal;
-use proposal::system_install_command;
 
 impl ExecutionSession {
     pub(crate) fn resolve_system_dependency_manifest(
@@ -30,11 +29,13 @@ impl ExecutionSession {
                     || source == "debian:bookworm"),
             "only the approved Debian Bookworm archive is supported"
         );
-        anyhow::ensure!(
-            system_install_command(&need.command, package, need.version.as_deref()),
-            "system package request command is not a single bounded apt install"
-        );
-        let proposal = self.system_proposal(package, &need.reason)?;
+        let packages = crate::harness::resource_bridge::system_install_packages(
+            &need.command,
+            package,
+            need.version.as_deref(),
+        )
+        .ok_or_else(|| anyhow::anyhow!("system package request is not a bounded apt install"))?;
+        let proposal = self.system_proposal(&packages, &need.reason)?;
         let manifest = self
             .resolve_bookworm_package_manifest(&proposal)
             .map_err(|error| anyhow::anyhow!("{error}"))?;
@@ -46,6 +47,12 @@ impl ExecutionSession {
                 "requested Debian version is not the signed repository candidate"
             );
         }
+        anyhow::ensure!(
+            packages
+                .iter()
+                .all(|package| manifest.iter().any(|identity| identity.name == *package)),
+            "signed package closure omitted a requested Debian package"
+        );
         Ok(manifest
             .into_iter()
             .map(|identity| crate::harness::DependencyPackageIdentity {
@@ -84,11 +91,14 @@ impl ExecutionSession {
             .package
             .as_deref()
             .ok_or_else(|| policy_error("System package name is missing"))?;
-        if !system_install_command(&need.command, package, need.version.as_deref()) {
-            return Err(policy_error(
-                "System package request command is not a single bounded apt install",
-            ));
-        }
+        let packages = crate::harness::resource_bridge::system_install_packages(
+            &need.command,
+            package,
+            need.version.as_deref(),
+        )
+        .ok_or_else(|| {
+            policy_error("System package request command is not a bounded apt install")
+        })?;
         let manifest = need
             .introduced_packages
             .iter()
@@ -114,7 +124,7 @@ impl ExecutionSession {
             })
             .collect::<Vec<_>>();
         let proposal = self
-            .system_proposal(package, &need.reason)
+            .system_proposal(&packages, &need.reason)
             .map_err(|error| {
                 policy_error(&format!("System package proposal was rejected: {error:#}"))
             })?;
@@ -194,6 +204,33 @@ impl ExecutionSession {
             .read()
             .map(|digest| digest.clone())
             .map_err(|_| internal_error())
+    }
+
+    pub(crate) fn missing_locked_tools(
+        &self,
+        required_tools: &[String],
+    ) -> Result<Vec<String>, ExecutionError> {
+        let digest = self.selected_image_digest()?;
+        let lock = crate::execution::docker::images::ImageLock::bundled().map_err(|error| {
+            ExecutionError::new(
+                crate::execution::errors::ExecutionErrorKind::ImageUnavailable,
+                error.message,
+                error.retryable,
+            )
+        })?;
+        let image = lock
+            .profiles
+            .values()
+            .flatten()
+            .find(|image| image.digest == digest)
+            .ok_or_else(|| {
+                policy_error("Selected recipe base image is not present in the approved lock")
+            })?;
+        Ok(required_tools
+            .iter()
+            .filter(|tool| !image.tool_versions.contains_key(*tool))
+            .cloned()
+            .collect())
     }
 
     /// Ask the selected controller backend to derive and verify a system image

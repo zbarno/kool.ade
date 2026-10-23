@@ -37,7 +37,7 @@ impl DependencyCacheSnapshotStore {
         dependency_request_id: &str,
         snapshot: &CacheSnapshot,
     ) -> anyhow::Result<()> {
-        crate::execution::contract::validate_identifier(dependency_request_id)?;
+        crate::execution::contract::validate_dependency_request_id(dependency_request_id)?;
         snapshot
             .manifest
             .validate_ref(&snapshot.cache_ref, &snapshot.archive)?;
@@ -121,7 +121,7 @@ impl DependencyCacheSnapshotStore {
         dependency_request_id: &str,
         expected_ref: &crate::execution::contract::DependencyCacheRefV1,
     ) -> anyhow::Result<CacheSnapshot> {
-        crate::execution::contract::validate_identifier(dependency_request_id)?;
+        crate::execution::contract::validate_dependency_request_id(dependency_request_id)?;
         expected_ref.validate()?;
         let directory = self.snapshot_dir(dependency_request_id, expected_ref)?;
         ensure_real_directory(&directory)?;

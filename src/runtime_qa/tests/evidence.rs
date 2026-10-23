@@ -33,9 +33,9 @@ fn report_fixture() -> ReportFixture {
         platform: QaPlatform::Web,
         driver_version: request.driver_profile_version.clone(),
         display: QaDisplayV1 {
-            width: 1024,
-            height: 768,
-            dpi: 96,
+            width: Some(1024),
+            height: Some(768),
+            dpi: Some(96),
             theme: "light".into(),
             locale: "en-US".into(),
         },
@@ -179,12 +179,15 @@ fn report_is_bound_to_exact_code_build_spec_and_driver() {
     );
 }
 
+#[path = "evidence/artifacts.rs"]
+mod artifacts;
+#[path = "evidence/contract_validation.rs"]
+mod contract_validation;
 #[path = "evidence/dispositions.rs"]
 mod dispositions;
 #[path = "evidence/git_object_ids.rs"]
 mod git_object_ids;
 #[path = "evidence/isolation.rs"]
 mod isolation;
-
-#[path = "evidence/artifacts.rs"]
-mod artifacts;
+#[path = "evidence/storage.rs"]
+mod storage;

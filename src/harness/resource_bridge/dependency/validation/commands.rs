@@ -220,6 +220,62 @@ pub(crate) fn valid_package_identity(package: &str) -> bool {
     }
 }
 
+pub(crate) fn system_install_packages(
+    command: &str,
+    primary_package: &str,
+    version: Option<&str>,
+) -> Option<Vec<String>> {
+    let tokens = command.split_ascii_whitespace().collect::<Vec<_>>();
+    if tokens.len() < 3
+        || tokens.len() > 20
+        || !matches!(tokens[0], "apt" | "apt-get")
+        || tokens[1] != "install"
+    {
+        return None;
+    }
+    let mut packages = Vec::new();
+    for token in tokens[2..]
+        .iter()
+        .copied()
+        .filter(|token| *token != "-y" && *token != "--yes")
+    {
+        let (name, exact_version) = token.split_once('=').unwrap_or((token, ""));
+        if name.is_empty()
+            || name.len() > 128
+            || !name.as_bytes()[0].is_ascii_lowercase()
+            || !name.bytes().all(|byte| {
+                byte.is_ascii_lowercase()
+                    || byte.is_ascii_digit()
+                    || matches!(byte, b'+' | b'.' | b'-')
+            })
+            || (token.contains('=')
+                && (exact_version.is_empty()
+                    || !exact_version.bytes().all(|byte| {
+                        byte.is_ascii_alphanumeric()
+                            || matches!(byte, b'.' | b'+' | b'~' | b'-' | b':')
+                    })))
+        {
+            return None;
+        }
+        packages.push(name.to_owned());
+    }
+    if packages.is_empty()
+        || packages.len() > 16
+        || packages.first().map(String::as_str) != Some(primary_package)
+        || packages.windows(2).any(|pair| pair[0] >= pair[1])
+        || (version.is_some() && packages.len() != 1)
+        || version.is_some_and(|version| {
+            !tokens
+                .iter()
+                .any(|token| token.ends_with(&format!("={version}")))
+        })
+        || (version.is_none() && tokens.iter().any(|token| token.contains('=')))
+    {
+        return None;
+    }
+    Some(packages)
+}
+
 pub(crate) fn valid_version(version: &str) -> bool {
     !version.trim().is_empty()
         && version.len() <= 128

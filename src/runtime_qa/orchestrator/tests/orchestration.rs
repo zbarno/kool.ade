@@ -1,4 +1,5 @@
 use super::*;
+use sha2::Digest as _;
 
 #[test]
 fn immutable_approved_run_persists_report_and_returns_gate_receipt() {
@@ -78,8 +79,8 @@ fn driver_start_failure_before_first_action_is_persisted_as_infrastructure_block
     let mut driver = FakeDriver {
         calls: 0,
         assertion_status: QaAssertionStatus::Untested,
-        failure_before_actions: true,
-        failure_on_call: None,
+        failure_before_actions: false,
+        failure_on_call: Some(1),
     };
     let mut reviewer = |_evidence: &QaEvidenceManifestV1, _candidate: &QaResultV1| {
         Err("no runtime observations are available to review".into())

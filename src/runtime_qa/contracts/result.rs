@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    QaCaseStatus, QaEvidenceManifestV1, QaFindingV1, QaOutcome, is_git_oid, is_uuid, valid_text,
+    QaCaseStatus, QaEvidenceManifestV1, QaFindingV1, QaOutcome, QaPlatform, is_git_oid, is_uuid,
+    valid_text,
 };
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -99,11 +100,17 @@ impl QaResultV1 {
         {
             return Err("runtime QA result does not match its immutable request/evidence".into());
         }
-        let known_evidence = manifest
+        let mut known_evidence = manifest
             .screenshots
             .iter()
             .map(|shot| shot.id.as_str())
             .collect::<std::collections::BTreeSet<_>>();
+        known_evidence.extend(
+            manifest
+                .actions
+                .iter()
+                .flat_map(|action| action.evidence_ids.iter().map(String::as_str)),
+        );
         let case_ids = self
             .cases
             .iter()
@@ -175,7 +182,10 @@ impl QaResultV1 {
                     .requirements
                     .iter()
                     .any(|item| item.status != super::QaCoverageStatus::Observed)
-                || manifest.screenshots.is_empty()
+                || (!matches!(
+                    request.relevant_platforms.as_slice(),
+                    [QaPlatform::HeadlessService]
+                ) && manifest.screenshots.is_empty())
                 || manifest
                     .assertions
                     .iter()

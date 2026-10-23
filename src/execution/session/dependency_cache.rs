@@ -1,6 +1,33 @@
 use super::*;
 
+#[cfg(test)]
+mod tests;
+
 impl ExecutionSession {
+    pub(crate) fn record_prepared_dependency_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<(), ExecutionError> {
+        if ids.len() > 128 {
+            return Err(policy_error(
+                "Prepared dependency evidence exceeds its limit",
+            ));
+        }
+        let mut prepared = self
+            .prepared_dependency_ids
+            .lock()
+            .map_err(|_| internal_error())?;
+        prepared.extend(ids.iter().cloned());
+        Ok(())
+    }
+
+    pub(crate) fn prepared_dependency_ids(&self) -> Vec<String> {
+        self.prepared_dependency_ids
+            .lock()
+            .map(|prepared| prepared.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
     pub(crate) fn set_dependency_approval_waiting(
         &self,
         waiting: bool,
@@ -170,7 +197,7 @@ impl ExecutionSession {
         dependency_request_id: &str,
         snapshot: crate::harness::resource_bridge::CacheSnapshot,
     ) -> Result<(), ExecutionError> {
-        crate::execution::contract::validate_identifier(dependency_request_id)
+        crate::execution::contract::validate_dependency_request_id(dependency_request_id)
             .map_err(|_| policy_error("Dependency cache request identity is invalid"))?;
         if let Some(destination) = self.retry_destination()? {
             validate_retry_snapshot_scope(
@@ -236,7 +263,3 @@ fn validate_retry_snapshot_scope(
     }
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "dependency_cache/tests.rs"]
-mod tests;

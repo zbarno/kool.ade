@@ -25,6 +25,7 @@ pub(in crate::execution::docker::backend::lifecycle) async fn sync_workspace(
         writable,
         private_files_attached,
         artifact_paths,
+        source_output_paths,
         authorization_generation,
     } = request;
     if private_files_attached {
@@ -50,7 +51,14 @@ pub(in crate::execution::docker::backend::lifecycle) async fn sync_workspace(
                 false,
             ));
         };
-        staging::synchronize_with_artifacts(workspace, snapshot, &archive, budget, artifact_paths)
+        staging::synchronize_with_source_output_policy(
+            workspace,
+            snapshot,
+            &archive,
+            budget,
+            artifact_paths,
+            source_output_paths,
+        )
     } else {
         staging::collect_artifacts(&archive, budget, artifact_paths)
     }

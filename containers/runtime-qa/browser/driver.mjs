@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
 import { chromium } from 'playwright';
+import { runService } from './service.mjs';
 
 const MAX_REQUEST_BYTES = 256 * 1024;
 const MAX_STEPS = 512;
@@ -29,23 +30,50 @@ function readRequest() {
   const input = readFileSync('/run/koolade-runtime-qa/request.json');
   if (input.length === 0 || input.length > MAX_REQUEST_BYTES) fail('request size is outside bounds');
   const request = JSON.parse(input.toString('utf8'));
-  if (request?.schema_version !== 1 || !UUID.test(request.qa_run_id) || !UUID.test(request.scenario_id) ||
-      !UUID.test(request.task_uid) || !GIT_OID.test(request.code_sha) || !SHA256.test(request.build_sha256) ||
-      !SHA256.test(request.approved_spec_hash) || typeof request.driver_profile_version !== 'string' ||
-      request.driver_profile_version.length > 128 || typeof request.origin !== 'string' ||
-      !Array.isArray(request.actions) || request.actions.length === 0 || request.actions.length > MAX_STEPS ||
-      !Number.isInteger(request.viewport?.width) || !Number.isInteger(request.viewport?.height) ||
-      request.viewport.width < 320 || request.viewport.width > 3840 ||
-      request.viewport.height < 240 || request.viewport.height > 2160 ||
-      !Number.isInteger(request.max_screenshots) || request.max_screenshots < 1 || request.max_screenshots > MAX_SCREENSHOTS ||
-      !Number.isInteger(request.max_evidence_bytes) || request.max_evidence_bytes < 1024 || request.max_evidence_bytes > MAX_TOTAL_EVIDENCE_BYTES ||
-      !Number.isInteger(request.timeout_ms) || request.timeout_ms < 1000 || request.timeout_ms > 600_000) {
-    fail('browser QA request is malformed or exceeds bounds');
+  const invalid = [];
+  if (!request || typeof request !== 'object' || Array.isArray(request)) {
+    invalid.push('request');
+  } else {
+    if (request.schema_version !== 1) invalid.push('schema_version');
+    if (!UUID.test(request.qa_run_id)) invalid.push('qa_run_id');
+    if (!UUID.test(request.scenario_id)) invalid.push('scenario_id');
+    if (!UUID.test(request.task_uid)) invalid.push('task_uid');
+    if (!GIT_OID.test(request.code_sha)) invalid.push('code_sha');
+    if (!SHA256.test(request.build_sha256)) invalid.push('build_sha256');
+    if (!SHA256.test(request.approved_spec_hash)) invalid.push('approved_spec_hash');
+    if (typeof request.driver_profile_version !== 'string' || request.driver_profile_version.length > 128) {
+      invalid.push('driver_profile_version');
+    }
+    if (typeof request.origin !== 'string') invalid.push('origin');
+    if (!Array.isArray(request.actions) || request.actions.length === 0 || request.actions.length > MAX_STEPS) {
+      invalid.push('actions');
+    }
+    if (!Number.isInteger(request.viewport?.width) || request.viewport.width < 320 || request.viewport.width > 3840 ||
+        !Number.isInteger(request.viewport?.height) || request.viewport.height < 240 || request.viewport.height > 2160) {
+      invalid.push('viewport');
+    }
+    if (!Number.isInteger(request.max_screenshots) || request.max_screenshots < 0 || request.max_screenshots > MAX_SCREENSHOTS) {
+      invalid.push('max_screenshots');
+    }
+    if (!Number.isInteger(request.max_evidence_bytes) || request.max_evidence_bytes < 1024 ||
+        request.max_evidence_bytes > MAX_TOTAL_EVIDENCE_BYTES) {
+      invalid.push('max_evidence_bytes');
+    }
+    if (!Number.isInteger(request.timeout_ms) || request.timeout_ms < 1000 || request.timeout_ms > 600_000) {
+      invalid.push('timeout_ms');
+    }
+  }
+  if (invalid.length > 0) {
+    fail(`browser QA request is malformed or exceeds bounds: ${invalid.join(', ')}`);
   }
   const origin = new URL(request.origin);
   if (origin.protocol !== 'http:' || origin.username || origin.password || origin.pathname !== '/' ||
       origin.search || origin.hash || origin.hostname !== 'qa-preview' || origin.port !== '8080') {
     fail('preview origin must be the one app-owned relay origin');
+  }
+  const serviceOnly = request.actions.every((action) => action?.action === 'api_request');
+  if ((serviceOnly && request.max_screenshots !== 0) || (!serviceOnly && request.max_screenshots === 0)) {
+    fail('screenshot quota does not match the approved QA platform');
   }
   return { ...request, origin: origin.origin };
 }
@@ -100,6 +128,10 @@ function locatorFor(page, locator) {
 
 async function main() {
   const request = readRequest();
+  if (request.actions.every((action) => action?.action === 'api_request')) {
+    await runService(request);
+    return;
+  }
   if (request.actions.some((action) => !validateAction(action, request.origin))) fail('action is not allowed by browser QA policy');
   let browser = null;
   let context = null;

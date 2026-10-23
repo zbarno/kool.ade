@@ -13,6 +13,9 @@ use crate::{
 use sha2::Digest as _;
 use std::sync::{Arc, atomic::AtomicBool};
 
+#[path = "tests/platform.rs"]
+mod platform;
+
 struct UnusedHarness;
 
 impl crate::harness::AiHarness for UnusedHarness {
@@ -246,6 +249,7 @@ fn worker_rejects_revoked_prepared_start_after_selection_changes_to_new_target()
             state: RuntimeReceiptState::Passed,
             exit_code: Some(0),
             artifact_hashes: Default::default(),
+            prepared_dependency_ids: Vec::new(),
             log_reference: None,
             observed_at_unix_ms: 1,
         },
@@ -258,6 +262,7 @@ fn worker_rejects_revoked_prepared_start_after_selection_changes_to_new_target()
         task_routes: Default::default(),
     };
     let (_cancel_sender, cancel_receiver) = tokio::sync::watch::channel(false);
+    let (progress_sender, _progress_receiver) = std::sync::mpsc::channel();
     let error = run(
         prepared,
         Vec::new(),
@@ -265,6 +270,7 @@ fn worker_rejects_revoked_prepared_start_after_selection_changes_to_new_target()
         root.path().join("runtime-qa"),
         Arc::new(AtomicBool::new(false)),
         cancel_receiver,
+        progress_sender,
     )
     .unwrap_err();
     assert!(error.contains("runtime target is no longer the active selection"));

@@ -97,6 +97,24 @@ impl QaScenarioDriver for DockerQaScenarioDriver<'_> {
                         .map_err(|_| "desktop QA request could not be encoded")?,
                 )
             }
+            (QaPlatform::HeadlessService, QaTargetAuthorization::HeadlessService(lease)) => {
+                if self.service_lease != Some(*lease) {
+                    return Err("service QA lease differs from its app-owned binding".into());
+                }
+                let relay = self
+                    .relay_binding
+                    .ok_or_else(|| "service QA has no app-owned task relay".to_owned())?;
+                (
+                    "service",
+                    QaDriverNetwork::InternalPreviewRelay {
+                        network_id: relay.relay_browser_network_id.clone(),
+                        relay_container_id: relay.relay_container_id.clone(),
+                    },
+                    Some(*lease),
+                    Some(relay),
+                    crate::runtime_qa::browser_driver::build_service_request(request, scenario)?,
+                )
+            }
             _ => return Err("QA authorization does not match the selected platform driver".into()),
         };
         let request_upload = QaContainerUpload::request_file(&request_bytes, 256 * 1024)
@@ -187,7 +205,7 @@ impl QaScenarioDriver for DockerQaScenarioDriver<'_> {
             (Ok(_), Err(error)) => return Err(error.message),
         };
         match platform {
-            QaPlatform::Web => {
+            QaPlatform::Web | QaPlatform::HeadlessService => {
                 let mut report = crate::runtime_qa::browser_driver::parse_browser_output(
                     &output.stdout,
                     request,
@@ -226,7 +244,6 @@ fn append_driver_stderr(reason: String, stderr: &[u8]) -> String {
         format!("{reason}: {}", diagnostic.trim())
     }
 }
-
 fn apply_browser_exit_status(exit_code: i64, report: &mut QaDriverOutputV1) {
     if exit_code == 0
         || report.failure.is_some()

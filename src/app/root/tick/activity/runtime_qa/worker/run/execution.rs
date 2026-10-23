@@ -11,12 +11,13 @@ use crate::{
         session::ExecutionSession,
     },
     runtime_qa::{
-        QaRunRequestV1, QaScenarioV1, QaTargetAuthorization, QaValidatedTargetV1, RuntimeQaStore,
+        QaPlatform, QaRunRequestV1, QaScenarioV1, QaTargetAuthorization, QaValidatedTargetV1,
+        RuntimeQaStore,
     },
 };
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn run_web(
+pub(super) fn run_service(
     session: &ExecutionSession,
     prepared: &PreparedRequest,
     request: &QaRunRequestV1,
@@ -32,7 +33,7 @@ pub(super) fn run_web(
     cancel: &mut tokio::sync::watch::Receiver<bool>,
     cancelled: Arc<AtomicBool>,
 ) -> Result<(), String> {
-    let (port, health_path) = web_readiness(prepared)?;
+    let (port, health_path) = service_readiness(prepared)?;
     session.recover_qa_web_preview(request).map_err(|error| {
         format!(
             "stale task-scoped QA preview recovery failed: {}",
@@ -99,10 +100,17 @@ pub(super) fn run_web(
         store,
         cancellation: cancel,
     };
+    let authorization = match request.relevant_platforms.as_slice() {
+        [QaPlatform::Web] => QaTargetAuthorization::Web(&preview.service_lease),
+        [QaPlatform::HeadlessService] => {
+            QaTargetAuthorization::HeadlessService(&preview.service_lease)
+        }
+        _ => return Err("task service preview does not match the approved QA platform".into()),
+    };
     let result = run_reviewed(
         request,
         scenarios,
-        QaTargetAuthorization::Web(&preview.service_lease),
+        authorization,
         driver,
         harness,
         &prepared.workspace,
@@ -160,20 +168,40 @@ pub(super) fn run_desktop(
     )
 }
 
-fn web_readiness(prepared: &PreparedRequest) -> Result<(u16, String), String> {
-    let probe = prepared
-        .readiness_probe
-        .as_ref()
-        .ok_or_else(|| "web target has no approved readiness probe".to_owned())?;
-    let (port, path) = match probe {
-        crate::project_runtime::ReadinessProbeV1::HttpOnApprovedPort { port, path, .. }
-        | crate::project_runtime::ReadinessProbeV1::LocalServiceHealth { port, path } => {
-            (*port, path.clone())
+fn service_readiness(prepared: &PreparedRequest) -> Result<(u16, String), String> {
+    service_readiness_for(
+        prepared.target.app_surface,
+        prepared.readiness_probe.as_ref(),
+        &prepared.target.port_needs,
+    )
+}
+
+pub(super) fn service_readiness_for(
+    surface: crate::project_runtime::AppSurface,
+    probe: Option<&crate::project_runtime::ReadinessProbeV1>,
+    port_needs: &[u16],
+) -> Result<(u16, String), String> {
+    let probe = probe.ok_or_else(|| "service target has no approved readiness probe".to_owned())?;
+    let (port, path) = match (surface, probe) {
+        (
+            crate::project_runtime::AppSurface::Web,
+            crate::project_runtime::ReadinessProbeV1::HttpOnApprovedPort { port, path, .. },
+        )
+        | (
+            crate::project_runtime::AppSurface::HeadlessService,
+            crate::project_runtime::ReadinessProbeV1::LocalServiceHealth { port, path },
+        ) => (*port, path.clone()),
+        _ => {
+            return Err(
+                "service QA requires a readiness probe approved for the selected target surface"
+                    .into(),
+            );
         }
-        _ => return Err("web QA requires an approved HTTP port/path readiness probe".into()),
     };
-    if !prepared.target.port_needs.contains(&port) {
-        return Err("web readiness port is not listed in the approved target capability".into());
+    if !port_needs.contains(&port) {
+        return Err(
+            "service readiness port is not listed in the approved target capability".into(),
+        );
     }
     Ok((port, path))
 }

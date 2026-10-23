@@ -71,3 +71,48 @@ pub fn build_browser_request(
     }))
     .map_err(|_| "browser QA request cannot be encoded".into())
 }
+
+/// Serialize an API-only headless-service scenario for the isolated service
+/// driver. The request has no user supplied network or container settings.
+pub fn build_service_request(
+    request: &QaRunRequestV1,
+    scenario: &QaScenarioV1,
+) -> Result<Vec<u8>, String> {
+    request.validate()?;
+    scenario.validate(request)?;
+    if request.relevant_platforms.as_slice() != [crate::runtime_qa::QaPlatform::HeadlessService]
+        || scenario.steps.iter().any(|step| {
+            !matches!(step.driver_action, QaDriverActionV1::ApiRequest { .. })
+                || step.screenshot_checkpoint
+        })
+        || !scenario.visual_expectations.is_empty()
+    {
+        return Err("service driver received a non-API or visual QA scenario".into());
+    }
+    let actions = scenario
+        .steps
+        .iter()
+        .map(|step| serde_json::to_value(&step.driver_action))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "service QA action cannot be encoded")?;
+    serde_json::to_vec(&json!({
+        "schema_version": 1,
+        "qa_run_id": request.qa_run_id,
+        "scenario_id": scenario.id,
+        "task_uid": request.parent_task_uid,
+        "code_sha": request.code_head_sha,
+        "build_sha256": request.build_artifact_sha256,
+        "approved_spec_hash": request.approved_spec_hash,
+        "driver_profile_version": request.driver_profile_version,
+        "origin": "http://qa-preview:8080",
+        "viewport": { "width": 1280, "height": 720 },
+        "locale": "en-US",
+        "timezone": "UTC",
+        "color_scheme": "light",
+        "actions": actions,
+        "max_screenshots": 0,
+        "max_evidence_bytes": request.bounded_limits.max_evidence_bytes.min(MAX_DRIVER_EVIDENCE_BYTES),
+        "timeout_ms": request.bounded_limits.timeout_seconds.saturating_mul(1000).min(600_000),
+    }))
+    .map_err(|_| "service QA request cannot be encoded".into())
+}

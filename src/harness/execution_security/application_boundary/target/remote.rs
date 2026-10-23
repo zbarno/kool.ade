@@ -14,6 +14,8 @@ use std::path::PathBuf;
 
 mod resource_availability;
 use resource_availability::verify_resource_availability;
+mod task_capabilities;
+use task_capabilities::verify_task_capabilities;
 
 #[cfg(test)]
 #[path = "remote/tests.rs"]
@@ -231,21 +233,6 @@ fn verify_registration_capabilities(
     anyhow::ensure!(
         matches!(latest.health, remote_workers::RemoteWorkerHealth::Healthy),
         "Remote worker is not healthy"
-    );
-    Ok(())
-}
-
-fn verify_task_capabilities(
-    capabilities: &crate::execution::backend::BackendCapabilitiesV1,
-    requirements: crate::persistence::execution_environment_settings::TaskCapabilityRequirements,
-) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        !requirements.requires_gpu || capabilities.gpu_available,
-        "Remote worker does not provide the GPU capability required by this task"
-    );
-    anyhow::ensure!(
-        !requirements.requires_display || capabilities.display_available,
-        "Remote worker does not provide the display capability required by this task"
     );
     Ok(())
 }

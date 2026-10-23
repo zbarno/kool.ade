@@ -82,9 +82,9 @@ fn save_failed_report_with_nonblocking_finding(
         platform: QaPlatform::Web,
         driver_version: request.driver_profile_version.clone(),
         display: QaDisplayV1 {
-            width: 1024,
-            height: 768,
-            dpi: 96,
+            width: Some(1024),
+            height: Some(768),
+            dpi: Some(96),
             theme: "light".into(),
             locale: "en-US".into(),
         },

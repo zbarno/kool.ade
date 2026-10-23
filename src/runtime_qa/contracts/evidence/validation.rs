@@ -17,9 +17,7 @@ impl QaEvidenceManifestV1 {
             || self.build_hash != request.build_artifact_sha256
             || !request.relevant_platforms.contains(&self.platform)
             || self.driver_version != request.driver_profile_version
-            || !(320..=7680).contains(&self.display.width)
-            || !(240..=4320).contains(&self.display.height)
-            || !(48..=960).contains(&self.display.dpi)
+            || !valid_display(self.platform, &self.display)
             || !valid_text(&self.display.theme, 64)
             || !valid_text(&self.display.locale, 64)
             || self.scenario_ids.len() != scenarios.len()
@@ -83,9 +81,25 @@ impl QaEvidenceManifestV1 {
                 || (requires_state_transition(&action.command)
                     && (action.pre_state.is_none() || action.post_state.is_none()))
                 || action.evidence_ids.len() > 128
+                || action.evidence_ids.iter().any(|id| !is_uuid(id))
             {
                 return Err("runtime QA action trace is invalid".into());
             }
+        }
+        if !self.actions.is_empty()
+            && scenarios.iter().any(|scenario| {
+                let has_action = self
+                    .actions
+                    .iter()
+                    .any(|action| action.scenario_id == scenario.id);
+                let has_blocked_assertion = self.assertions.iter().any(|assertion| {
+                    assertion.scenario_ids.contains(&scenario.id)
+                        && assertion.status == QaAssertionStatus::Blocked
+                });
+                !has_action && !has_blocked_assertion
+            })
+        {
+            return Err("runtime QA action trace omits a required scenario".into());
         }
         let mut ids = std::collections::BTreeSet::new();
         for screenshot in &self.screenshots {
@@ -96,8 +110,14 @@ impl QaEvidenceManifestV1 {
                 || screenshot.mime != "image/png"
                 || screenshot.width == 0
                 || screenshot.height == 0
-                || screenshot.width > self.display.width
-                || screenshot.height > self.display.height
+                || self
+                    .display
+                    .width
+                    .is_none_or(|width| screenshot.width > width)
+                || self
+                    .display
+                    .height
+                    .is_none_or(|height| screenshot.height > height)
                 || screenshot.source_action as usize >= self.actions.len()
                 || screenshot.storage_ref
                     != format!(
@@ -119,6 +139,11 @@ impl QaEvidenceManifestV1 {
                     .any(|mask| !valid_text(mask, 512))
             {
                 return Err("runtime QA screenshot metadata is invalid".into());
+            }
+        }
+        for action in &self.actions {
+            for evidence_id in &action.evidence_ids {
+                ids.insert(evidence_id.as_str());
             }
         }
         for assertion in &self.assertions {
@@ -201,6 +226,26 @@ impl QaEvidenceManifestV1 {
     }
 }
 
+fn valid_display(platform: super::super::QaPlatform, display: &super::super::QaDisplayV1) -> bool {
+    match platform {
+        super::super::QaPlatform::HeadlessService => {
+            display.width.is_none()
+                && display.height.is_none()
+                && display.dpi.is_none()
+                && display.theme == "headless-service"
+        }
+        super::super::QaPlatform::LinuxDesktop | super::super::QaPlatform::Web => {
+            display
+                .width
+                .is_some_and(|width| (320..=7680).contains(&width))
+                && display
+                    .height
+                    .is_some_and(|height| (240..=4320).contains(&height))
+                && display.dpi.is_some_and(|dpi| (48..=960).contains(&dpi))
+        }
+    }
+}
+
 fn safe_evidence_path(path: &str, run_id: &str) -> bool {
     path.starts_with(&format!("qa-evidence/{run_id}/"))
         && !path
@@ -212,7 +257,8 @@ fn safe_evidence_path(path: &str, run_id: &str) -> bool {
 fn valid_action_command(command: &str) -> bool {
     matches!(
         command,
-        "launch_validated_target"
+        "api_request"
+            | "launch_validated_target"
             | "wait_for_window"
             | "list_windows"
             | "focus_window"
@@ -245,6 +291,14 @@ fn valid_action_command(command: &str) -> bool {
 fn requires_state_transition(command: &str) -> bool {
     matches!(
         command,
-        "click" | "double_click" | "drag" | "type_text" | "key_chord" | "fill" | "press" | "select"
+        "api_request"
+            | "click"
+            | "double_click"
+            | "drag"
+            | "type_text"
+            | "key_chord"
+            | "fill"
+            | "press"
+            | "select"
     )
 }

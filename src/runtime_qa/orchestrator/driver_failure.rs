@@ -40,9 +40,9 @@ pub(super) fn blocked_output(
         completed: false,
         failure: Some(reason.clone()),
         display: QaDisplayV1 {
-            width: 1280,
-            height: 720,
-            dpi: 96,
+            width: Some(1280),
+            height: Some(720),
+            dpi: Some(96),
             theme: "unobserved".into(),
             locale: "unknown".into(),
         },

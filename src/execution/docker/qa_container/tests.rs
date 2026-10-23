@@ -4,6 +4,8 @@ use super::*;
 mod browser_rootless;
 #[path = "tests/desktop_rootless.rs"]
 mod desktop_rootless;
+#[path = "tests/driver_policy.rs"]
+mod driver_policy;
 
 fn request() -> crate::runtime_qa::QaRunRequestV1 {
     let uid = || uuid::Uuid::new_v4().hyphenated().to_string();
@@ -272,63 +274,4 @@ fn rootless_qa_candidates_are_locked_but_runtime_stays_disabled_until_approved()
             crate::execution::docker::discovery::PrerequisiteCode::ProfileUnsupported
         );
     }
-}
-
-#[test]
-fn desktop_driver_accepts_only_desktop_image_and_exact_platform() {
-    let mut desktop_request = request();
-    desktop_request.relevant_platforms = vec![crate::runtime_qa::QaPlatform::LinuxDesktop];
-    let image = selected_qa_image(RuntimeProfile::DesktopQa);
-    let owner = uuid::Uuid::new_v4().hyphenated().to_string();
-    let root = std::env::temp_dir().join(format!("qa-desktop-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&root).unwrap();
-    let mount = QaArtifactMount::inspect(&root, "/workspace").unwrap();
-    let resource_budget = resources();
-    let spec = QaDriverContainerSpec {
-        owner_id: &owner,
-        request: &desktop_request,
-        task_uid: &desktop_request.parent_task_uid,
-        driver: "desktop",
-        image: &image,
-        artifacts: &[mount],
-        dependency_caches: &[],
-        network: QaDriverNetwork::Disabled,
-        service_lease: None,
-        relay_binding: None,
-        resources: &resource_budget,
-    };
-    assert!(spec.validate().is_ok());
-    let _ = std::fs::remove_dir_all(root);
-
-    let mut mismatched_request = desktop_request.clone();
-    mismatched_request.relevant_platforms = vec![crate::runtime_qa::QaPlatform::Web];
-    let mismatched = QaDriverContainerSpec {
-        request: &mismatched_request,
-        ..spec
-    };
-    assert!(mismatched.validate().is_err());
-
-    let mut desktop_request = request();
-    desktop_request.relevant_platforms = vec![crate::runtime_qa::QaPlatform::LinuxDesktop];
-    let browser_image = selected_qa_image(RuntimeProfile::BrowserQa);
-    let root = std::env::temp_dir().join(format!("qa-desktop-mismatch-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&root).unwrap();
-    let mount = QaArtifactMount::inspect(&root, "/workspace").unwrap();
-    let owner = uuid::Uuid::new_v4().hyphenated().to_string();
-    let resource_budget = resources();
-    let wrong_image = QaDriverContainerSpec {
-        owner_id: &owner,
-        task_uid: &desktop_request.parent_task_uid,
-        driver: "desktop",
-        request: &desktop_request,
-        image: &browser_image,
-        artifacts: &[mount],
-        dependency_caches: &[],
-        network: QaDriverNetwork::Disabled,
-        service_lease: None,
-        relay_binding: None,
-        resources: &resource_budget,
-    };
-    assert!(wrong_image.validate().is_err());
-    let _ = std::fs::remove_dir_all(root);
 }

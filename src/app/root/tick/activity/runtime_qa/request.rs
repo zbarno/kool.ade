@@ -128,10 +128,7 @@ fn prepare_at_revision(
         .find(|target| {
             target.owning_task_id == planning_item_uid
                 && manifest.is_active_target(planning_item_uid, &target.target_id)
-                && matches!(
-                    target.app_surface,
-                    AppSurface::Web | AppSurface::LinuxDesktop
-                )
+                && supports_qa_surface(target.app_surface)
         })
         .ok_or_else(|| "the manifest has no supported target for this exact task".to_owned())?;
     let runtime = ProjectRuntimeStore::new(&project.state.planning_store);
@@ -210,7 +207,7 @@ fn prepare_at_revision(
         &recipe.working_directory_relative,
     )?;
     let profile = match target.app_surface {
-        AppSurface::Web => RuntimeProfile::BrowserQa,
+        AppSurface::Web | AppSurface::HeadlessService => RuntimeProfile::BrowserQa,
         AppSurface::LinuxDesktop => RuntimeProfile::DesktopQa,
         _ => return Err("the target platform has no supported QA profile".into()),
     };
@@ -284,6 +281,13 @@ fn prepare_at_revision(
             .map(|metadata| metadata.routing_overrides.clone())
             .unwrap_or_default(),
     })
+}
+
+fn supports_qa_surface(surface: AppSurface) -> bool {
+    matches!(
+        surface,
+        AppSurface::Web | AppSurface::LinuxDesktop | AppSurface::HeadlessService
+    )
 }
 
 fn workspace_target_path(target_root: &str, path: &str) -> Result<String, String> {
