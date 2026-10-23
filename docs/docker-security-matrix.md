@@ -3,6 +3,8 @@
 This matrix describes the security contract and current support status for the
 Docker migration. It is a release checklist as well as a design reference;
 rows marked **not verified** must not be described as production support.
+The dated hosted evidence and remaining release gaps are tracked in the
+[Docker release evidence matrix](docker-release-evidence.md).
 
 ## Provider and role parity
 
