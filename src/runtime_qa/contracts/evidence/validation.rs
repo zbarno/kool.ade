@@ -25,7 +25,6 @@ impl QaEvidenceManifestV1 {
                 .scenario_ids
                 .iter()
                 .any(|id| !scenarios.iter().any(|scenario| &scenario.id == id))
-            || self.actions.is_empty()
             || self.actions.len() > request.bounded_limits.max_total_actions as usize
             || self.screenshots.len() > request.bounded_limits.max_screenshots as usize
             || self.assertions.len() > 4096
@@ -87,12 +86,14 @@ impl QaEvidenceManifestV1 {
                 return Err("runtime QA action trace is invalid".into());
             }
         }
-        if scenarios.iter().any(|scenario| {
-            !self
-                .actions
-                .iter()
-                .any(|action| action.scenario_id == scenario.id)
-        }) {
+        if !self.actions.is_empty()
+            && scenarios.iter().any(|scenario| {
+                !self
+                    .actions
+                    .iter()
+                    .any(|action| action.scenario_id == scenario.id)
+            })
+        {
             return Err("runtime QA action trace omits a required scenario".into());
         }
         let mut ids = std::collections::BTreeSet::new();

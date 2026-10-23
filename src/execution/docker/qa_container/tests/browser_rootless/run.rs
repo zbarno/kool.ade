@@ -123,7 +123,10 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
     )
     .unwrap();
 
-    let scenario = scenario::browser_scenario(&request);
+    let mut scenario = scenario::browser_scenario(&request);
+    // This test double reviews functional traces and metadata, not pixels.
+    // Pixel expectations are covered by the fail-closed visual-review test.
+    scenario.visual_expectations.clear();
     request.validate().unwrap();
     scenario.validate(&request).unwrap();
     let browser_request = build_browser_request(&request, &scenario).unwrap();

@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    QaCaseStatus, QaEvidenceManifestV1, QaFindingV1, QaOutcome, is_git_oid, is_uuid, valid_text,
+    QaCaseStatus, QaEvidenceManifestV1, QaFindingV1, QaOutcome, QaPlatform, is_git_oid, is_uuid,
+    valid_text,
 };
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -72,6 +73,12 @@ impl QaResultV1 {
             || self.reviewer_execution_id == request.author_run_id
             || self.reviewer_session_id == request.author_session_id
             || self.evidence_manifest_sha256 != evidence_hash
+            || (manifest.actions.is_empty()
+                && (self.outcome != QaOutcome::InfrastructureBlocked
+                    || self
+                        .cases
+                        .iter()
+                        .any(|case| case.status != QaCaseStatus::Blocked)))
             || self.cases.len() != scenarios.len()
             || self.coverage.requirements.len() != request.requirement_ids.len()
             || self.coverage.scenario_ids.len() != scenarios.len()
@@ -170,7 +177,10 @@ impl QaResultV1 {
                     .requirements
                     .iter()
                     .any(|item| item.status != super::QaCoverageStatus::Observed)
-                || manifest.screenshots.is_empty()
+                || (!matches!(
+                    request.relevant_platforms.as_slice(),
+                    [QaPlatform::HeadlessService]
+                ) && manifest.screenshots.is_empty())
                 || manifest
                     .assertions
                     .iter()
