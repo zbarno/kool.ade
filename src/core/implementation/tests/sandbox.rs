@@ -110,8 +110,8 @@ impl Sandbox {
                 peer.to_str().unwrap(),
             ],
         );
-        self.git(&peer, &["config", "user.name", "Fixture"]);
-        self.git(&peer, &["config", "user.email", "fixture@example.test"]);
+        // Sandbox::git supplies the fixture identity with -c, so these
+        // ephemeral peers need no persistent identity config writes.
         let upstream = peer.join("upstream.txt");
         let contents = fs::read_to_string(&upstream).unwrap_or_default();
         let next_contents = if contents.is_empty() {

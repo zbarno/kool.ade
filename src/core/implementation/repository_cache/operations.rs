@@ -138,15 +138,25 @@ pub(super) fn verify_independent_repository(path: &Path, runner: &Runner) -> any
         "Task repository must have its own .git directory"
     );
     let git_entry = git_entry.canonicalize()?;
-    let top = runner.git(
+    // Batch the independent checkout and object-store checks into one Git
+    // process without relaxing the separate path and history invariants.
+    let metadata = runner.git(
         &root,
-        &["rev-parse", "--path-format=absolute", "--show-toplevel"],
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--show-toplevel",
+            "--git-dir",
+            "--git-common-dir",
+            "--is-shallow-repository",
+        ],
     )?;
-    let admin = runner.git(&root, &["rev-parse", "--path-format=absolute", "--git-dir"])?;
-    let common = runner.git(
-        &root,
-        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    )?;
+    let fields = metadata.lines().collect::<Vec<_>>();
+    anyhow::ensure!(
+        fields.len() == 4,
+        "Task repository Git metadata is incomplete"
+    );
+    let (top, admin, common, shallow) = (fields[0], fields[1], fields[2], fields[3]);
     anyhow::ensure!(
         Path::new(&top).canonicalize()? == root
             && Path::new(&admin).canonicalize()? == git_entry
@@ -158,7 +168,7 @@ pub(super) fn verify_independent_repository(path: &Path, runner: &Runner) -> any
         "Task repository uses an external Git object store"
     );
     anyhow::ensure!(
-        runner.git(&root, &["rev-parse", "--is-shallow-repository"])? == "false",
+        shallow == "false",
         "Task repository must contain complete history"
     );
     Ok(())
@@ -223,4 +233,60 @@ fn temporary_sibling(path: &Path, purpose: &str) -> std::path::PathBuf {
 fn path_text(path: &Path) -> anyhow::Result<&str> {
     path.to_str()
         .ok_or_else(|| anyhow::anyhow!("Non-UTF8 repository path"))
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+    use std::sync::{Arc, atomic::AtomicBool, mpsc};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn owned_clone_metadata_checks_reject_linked_worktrees_and_alternates() {
+        let root = std::env::temp_dir().join(format!(
+            "koolade-clone-metadata-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let repo = root.join("repo");
+        let linked = root.join("linked");
+        fs::create_dir_all(&repo).unwrap();
+        let (progress, _updates) = mpsc::channel();
+        let runner = Runner {
+            gh: "gh".into(),
+            runtime_config_source: None,
+            deadline: Instant::now() + Duration::from_secs(30),
+            cancel: Arc::new(AtomicBool::new(false)),
+            progress,
+            authorization_verifier: None,
+        };
+        runner.git(&repo, &["init", "-q", "-b", "main"]).unwrap();
+        runner
+            .git(
+                &repo,
+                &[
+                    "-c", "user.name=Fixture",
+                    "-c", "user.email=fixture@example.test",
+                    "commit", "--allow-empty", "-qm", "baseline",
+                ],
+            )
+            .unwrap();
+        verify_independent_repository(&repo, &runner).unwrap();
+        runner
+            .git(
+                &repo,
+                &["worktree", "add", "-q", "-b", "linked", linked.to_str().unwrap()],
+            )
+            .unwrap();
+        assert!(verify_independent_repository(&linked, &runner).is_err());
+        let alternates = repo.join(".git/objects/info/alternates");
+        fs::write(&alternates, root.to_string_lossy().as_bytes()).unwrap();
+        assert!(
+            verify_independent_repository(&repo, &runner)
+                .unwrap_err()
+                .to_string()
+                .contains("external Git object store")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 }
