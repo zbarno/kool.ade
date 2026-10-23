@@ -125,7 +125,7 @@ pub fn select_target(
 }
 
 fn local_target_eligible(local_eligible: bool, requirements: &SchedulingRequirements<'_>) -> bool {
-    local_eligible && !requirements.requires_gpu && !requirements.requires_display
+    local_eligible && !requires_unsupported_capability(requirements)
 }
 
 fn candidate_eligible(
@@ -133,6 +133,11 @@ fn candidate_eligible(
     requirements: &SchedulingRequirements<'_>,
     now_unix_ms: u64,
 ) -> bool {
+    // Worker probes are observations only. GPU and display task execution stay
+    // unavailable until the runtime and device-grant policies are defined.
+    if requires_unsupported_capability(requirements) {
+        return false;
+    }
     let worker = candidate.registration;
     let Some(probe) = worker.last_probe.as_ref() else {
         return false;
@@ -177,8 +182,6 @@ fn candidate_eligible(
             .disk_available_bytes
             .is_none_or(|available| available < requirements.resource_budget.temporary_disk_bytes)
         || unusable_health(&probe.health)
-        || (requirements.requires_gpu && !candidate.capabilities.gpu_available)
-        || (requirements.requires_display && !candidate.capabilities.display_available)
     {
         return false;
     }
@@ -189,6 +192,10 @@ fn candidate_eligible(
             .resource_limit
             .as_ref()
             .is_none_or(|limit| request_fits(request, limit))
+}
+
+fn requires_unsupported_capability(requirements: &SchedulingRequirements<'_>) -> bool {
+    requirements.requires_gpu || requirements.requires_display
 }
 
 fn request_fits(request: &ResourceBudgetV1, ceiling: &ResourceBudgetV1) -> bool {

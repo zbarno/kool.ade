@@ -40,10 +40,11 @@ pub(super) fn paint_card(ui: &mut egui::Ui, worker: &RemoteWorkerRegistration) {
                 empty_label(&probe.policy_revision)
             ));
             ui.label(format!(
-                "Container capabilities: GPU {} · isolated display {}",
+                "Worker-reported observations: GPU {} · display {}",
                 capability_label(probe.gpu_available),
                 capability_label(probe.display_available)
             ));
+            ui.label(egui::RichText::new("These observations do not grant device access. GPU and display tasks remain unavailable until supported runtime, display-mode, and device-grant policies are defined.").small().weak());
             if let Some(ceiling) = &probe.resource_ceiling {
                 ui.label(format!(
                     "Reported capacity: {} CPU millicores, {} GiB memory, {} processes, {} GiB task disk, {} GiB output; {} GiB free staging disk",

@@ -43,15 +43,25 @@ fn explicit_remote_target_requires_rootless_docker_evidence() {
 }
 
 #[test]
-fn explicit_remote_target_rejects_missing_required_capabilities() {
-    let requirements = TaskCapabilityRequirements {
-        requires_gpu: true,
-        requires_display: false,
-    };
-    assert!(verify_task_capabilities(&capabilities(Some(true)), requirements).is_err());
-    let mut supported = capabilities(Some(true));
-    supported.gpu_available = true;
-    assert!(verify_task_capabilities(&supported, requirements).is_ok());
+fn explicit_remote_target_rejects_reported_gpu_and_display_observations() {
+    let mut reported = capabilities(Some(true));
+    reported.gpu_available = true;
+    reported.display_available = true;
+    for (requires_gpu, requires_display) in [(true, false), (false, true), (true, true)] {
+        let requirements = TaskCapabilityRequirements {
+            requires_gpu,
+            requires_display,
+        };
+        assert!(verify_task_capabilities(&reported, requirements).is_err());
+    }
+}
+
+#[test]
+fn explicit_remote_target_allows_tasks_without_unsupported_device_requirements() {
+    let mut reported = capabilities(Some(true));
+    reported.gpu_available = true;
+    reported.display_available = true;
+    assert!(verify_task_capabilities(&reported, TaskCapabilityRequirements::default()).is_ok());
 }
 
 #[test]
