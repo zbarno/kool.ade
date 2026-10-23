@@ -1,0 +1,79 @@
+use super::*;
+
+#[path = "task_generation/graph.rs"]
+mod graph;
+#[path = "task_generation/harness.rs"]
+mod harness;
+
+pub(super) fn generate_and_sync(
+    app: &mut crate::app::root::KooladeApp,
+    planning: &crate::artifacts::planning_store::PlanningStore,
+    feature_id: &str,
+    feature_uid: &str,
+    run_uid: &str,
+) {
+    let task_key = match &app.screen {
+        Screen::Connected(project) => project
+            .planning_work
+            .iter()
+            .find(|work| {
+                work.kind == crate::core::planning_work::WorkKind::TaskGeneration
+                    && work.feature_uid.as_deref() == Some(feature_uid)
+            })
+            .map(|work| work.key.clone())
+            .expect("reviewed Pursue creates a task-generation card"),
+        Screen::Welcome => panic!("project remains connected"),
+    };
+
+    let Screen::Connected(project) = &mut app.screen else {
+        panic!("project remains connected")
+    };
+    project
+        .state
+        .resync()
+        .expect("reviewed plan and readiness reload from the planning store");
+    assert!(matches!(
+        &app.screen,
+        Screen::Connected(project)
+            if project.state.workflow.ready(project.state.planning_contract())
+    ));
+    assert!(app.feature_approved(feature_id));
+    let graph = graph::decomposer_graph(app);
+    app.task_harness = Some(harness::response_harness(graph));
+    app.start_task_generation(&task_key, feature_id);
+    assert!(app.pending_feature_generation.is_none());
+    assert!(
+        matches!(&app.screen, Screen::Connected(project) if project.active_turn.is_some()),
+        "the current approved Evolve plan should start task generation; messages: {:?}",
+        app.chat_messages()
+    );
+    assert!(
+        harness::finish_main_turn(app),
+        "task generation should apply; messages: {:?}",
+        app.chat_messages()
+    );
+    assert!(matches!(
+        &app.screen,
+        Screen::Connected(project)
+            if crate::app::root::has_current_task_batch(project)
+    ));
+
+    crate::app::root::self_improvement_test_support::synchronize_run(app, planning, run_uid)
+        .unwrap();
+    let run = SelfImprovementStore::new(planning).load(run_uid).unwrap();
+    assert_eq!(run.phase, Phase::Ready);
+    assert_eq!(run.feature_uid, feature_uid);
+    assert!(!run.task_uids.is_empty());
+    assert!(run.owner_task_uid.is_some());
+    assert!(run.plan_approval_hash.is_some());
+    assert!(run.independent_plan_review_uid.is_some());
+    assert!(
+        run.clone_uid.is_none(),
+        "planning must not allocate a clone"
+    );
+
+    let lifecycle = LifecycleStore::new(planning);
+    let feature = lifecycle.load_feature(feature_uid).unwrap();
+    assert_eq!(feature.phase, FeaturePhase::Executing);
+    assert_eq!(run.task_uids, feature.task_uids);
+}
