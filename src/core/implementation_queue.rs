@@ -6,8 +6,8 @@ mod state;
 pub use scope_conflicts::active_scope_conflict;
 pub use selection::{
     next_ready_ticket, next_ready_ticket_with_lifecycle_subtasks,
-    next_ready_ticket_with_running_scopes, next_ticket, ticket_readiness,
-    ticket_readiness_with_lifecycle_subtasks,
+    next_ready_ticket_with_running_scopes, next_ticket, ready_tickets_with_lifecycle_subtasks,
+    ticket_readiness, ticket_readiness_with_lifecycle_subtasks,
 };
 pub use state::Queue;
 #[cfg(test)]

@@ -76,6 +76,15 @@ impl KooladeApp {
             }
             for (ticket, result) in finished {
                 let cancellation_requested = project.task_cancelled(&ticket);
+                if let Some(task_id) = project
+                    .task_documents
+                    .iter()
+                    .find(|document| document.path == ticket)
+                    .and_then(|document| document.metadata.as_ref())
+                    .map(|metadata| metadata.uid.as_str())
+                {
+                    crate::persistence::remote_execution_telemetry::clear_task_queue_wait(task_id);
+                }
                 project.active_implementations.remove(&ticket);
                 project.queue.in_flight.remove(&ticket);
                 if project.queue.current_ticket.as_ref() == Some(&ticket) {

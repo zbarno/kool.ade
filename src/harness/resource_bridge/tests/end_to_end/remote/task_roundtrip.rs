@@ -58,6 +58,8 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
             .to_owned(),
     };
     let task_id = workspace.task_id.clone();
+    crate::persistence::remote_execution_telemetry::set_task_queue_wait_ms(&task_id, Some(17))
+        .unwrap();
     let generation = uuid::Uuid::new_v4().hyphenated().to_string();
     let session = ExecutionSession::connect_remote_with_task_clone(
         workspace,
@@ -89,7 +91,12 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
         )
         .expect("remote task command and verified result synchronization must succeed");
     assert_eq!(output.result.exit_code, Some(0));
-    // Production boundary: this crosses authenticated SSH, worker Docker, staging, verified result application, and local telemetry persistence. Attribution is synthetic here; the provider boundary has a separate mock test. A unit test cannot prove backend metrics follow the real execution identity. It requires Linux, sshd, the worker binary, and rootless Docker, with high setup cost.
+    // Production boundary: this crosses authenticated SSH, worker Docker,
+    // staging, verified result application, and local telemetry persistence.
+    // It proves queue wait and execution metrics follow the task identity into
+    // the real remote run. A unit test cannot prove that end-to-end binding.
+    // It requires Linux, sshd, the worker binary, and rootless Docker, with
+    // high setup cost. Provider behavior remains covered by mock tests.
     let telemetry =
         crate::persistence::remote_execution_telemetry::load(&output.result.execution_id)
             .unwrap()
@@ -105,6 +112,7 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
             .is_some_and(|value| value > 0)
     );
     assert_eq!(telemetry.task_id.as_deref(), Some(task_id.as_str()));
+    assert_eq!(telemetry.queue_wait_ms, Some(17));
     assert_eq!(telemetry.harness.as_deref(), Some("codex"));
     assert_eq!(telemetry.requested_model.as_deref(), Some("gpt-5-codex"));
     assert!(
@@ -147,6 +155,7 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
         "?? remote-result.txt"
     );
     drop(session);
+    crate::persistence::remote_execution_telemetry::clear_task_queue_wait(&task_id);
     drop(sshd);
     fs::remove_dir_all(root).unwrap();
 }

@@ -72,6 +72,7 @@ fn blocked_retry_and_running_state_follow_uid_after_rename() {
     }
     queue.current_ticket = Some(old.into());
     queue.in_flight.insert(old.into());
+    assert!(queue.update_ready_waits(&[old.into()], 100, true));
     assert!(
         queue
             .bind_task_documents(&[first.clone(), second.clone()])
@@ -81,7 +82,7 @@ fn blocked_retry_and_running_state_follow_uid_after_rename() {
 
     let path = directory(&root).unwrap().join("koolade-queue.json");
     let stored: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(stored["schemaVersion"], 4);
+    assert_eq!(stored["schemaVersion"], 5);
     assert!(stored["tasks"].get(&current.uid).is_some());
     assert!(stored["tasks"].get(&historical.uid).is_some());
     assert!(
@@ -101,6 +102,7 @@ fn blocked_retry_and_running_state_follow_uid_after_rename() {
         "preserve this blocker"
     );
     assert_eq!(queue.recovery_attempts[&moved_doc.path], 1);
+    assert_eq!(queue.take_queue_wait_ms(&moved_doc.path, 200), Some(100));
     assert_eq!(
         queue.current_ticket.as_deref(),
         Some(moved_doc.path.as_str())

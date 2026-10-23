@@ -1,5 +1,7 @@
 use super::*;
 
+mod queue_state;
+
 impl KooladeApp {
     pub(super) fn start_implementation_with_claim_mode(
         &mut self,
@@ -166,43 +168,10 @@ impl KooladeApp {
                     p.queue.auto_publish,
                     p.queue.require_independent_checks,
                 );
-            if p.queue_lock.is_none() {
-                match crate::core::implementation_queue::Queue::acquire(&p.state.repo_root) {
-                    Ok(lock) => p.queue_lock = Some(lock),
-                    Err(error) => {
-                        p.queue.last_error = error.to_string();
-                        return;
-                    }
-                }
-            }
-            let previous_queue = p.queue.clone();
-            let resuming = p.implementation_states.get(&ticket).is_some_and(|state| {
-                matches!(
-                    state.status,
-                    ImplementationStatus::Blocked | ImplementationStatus::Interrupted
-                )
-            });
-            if p.queue.auto_build {
-                p.queue.running = true;
-                p.queue.recovery_paused = false;
-            }
-            if manual {
-                p.queue.recovery_attempts.remove(&ticket);
-                p.queue.recovery_paused = false;
-            }
-            p.queue.in_flight.insert(ticket.clone());
-            p.queue.blocked.remove(&ticket);
-            p.queue.last_error.clear();
-            if let Err(error) = p.queue.save(&p.state.repo_root) {
-                p.queue.running = false;
-                p.queue.last_error = error.to_string();
-                p.queue.in_flight.remove(&ticket);
-                if p.active_implementations.is_empty() {
-                    p.queue_lock = None;
-                }
+            let Some(queue_start) = queue_state::begin(p, &ticket, manual) else {
                 return;
-            }
-            if resuming {
+            };
+            if queue_start.resuming {
                 match crate::core::implementation::mark_resume_started_for_action(
                     &p.state.repo_root,
                     &ticket,
@@ -213,7 +182,7 @@ impl KooladeApp {
                     }
                     Ok(None) => {}
                     Err(error) => {
-                        p.queue = previous_queue;
+                        p.queue = queue_start.previous_queue;
                         p.queue.last_error =
                             format!("Cannot record the resumed attempt: {error:#}");
                         if let Err(save_error) = p.queue.save(&p.state.repo_root) {
@@ -229,6 +198,7 @@ impl KooladeApp {
                     }
                 }
             }
+            super::queue_wait::record(queue_start.task_id.as_deref(), queue_start.wait_ms);
             self_improvement::record_start_notice(&mut p.activity, &ticket, allow_offline);
             p.remember_chat(vec![ChatMessage::new(
                 ChatRole::System,

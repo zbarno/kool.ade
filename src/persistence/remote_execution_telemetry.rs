@@ -7,12 +7,14 @@ mod execution;
 mod legacy;
 mod phases;
 mod query;
+mod queue_wait;
 mod validation;
 pub use attribution::record_attribution;
 pub use execution::{record_execution_result, record_execution_started};
 use legacy::{normalize_legacy_metrics, now_unix_ms};
 pub use phases::record_execution_phase_timings;
 pub use query::latest_for_task;
+pub use queue_wait::{clear_task_queue_wait, set_task_queue_wait_ms};
 use validation::{validate, validate_id, validate_worker_id};
 
 #[cfg(test)]
@@ -32,6 +34,8 @@ pub struct RemoteExecutionTelemetryV1 {
     #[serde(default)]
     pub task_id: Option<String>,
     pub worker_id: String,
+    #[serde(default)]
+    pub queue_wait_ms: Option<u64>,
     #[serde(default)]
     pub harness: Option<String>,
     #[serde(default)]
@@ -165,11 +169,12 @@ fn update_at(
         record
     } else {
         RemoteExecutionTelemetryV1 {
-            schema_version: 7,
+            schema_version: 8,
             execution_id: execution_id.to_owned(),
             started_at_unix_ms: Some(now_unix_ms()),
             task_id: Some(task_id.to_owned()),
             worker_id: worker_id.to_owned(),
+            queue_wait_ms: None,
             harness: None,
             requested_model: None,
             workspace_upload_bytes: None,
@@ -187,7 +192,7 @@ fn update_at(
     };
     record.task_id = Some(task_id.to_owned());
     change(&mut record);
-    record.schema_version = 7;
+    record.schema_version = 8;
     validate(&record)?;
     let bytes = serde_json::to_vec(&record)?;
     let temp = directory.join(format!(".{execution_id}-{}.tmp", uuid::Uuid::new_v4()));
