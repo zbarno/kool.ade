@@ -9,6 +9,7 @@ use std::{
     thread::JoinHandle,
     time::{Duration, Instant},
 };
+mod two_worker_concurrency;
 
 #[test]
 fn concurrent_ssh_controllers_share_worker_and_reject_revoked_result() {
