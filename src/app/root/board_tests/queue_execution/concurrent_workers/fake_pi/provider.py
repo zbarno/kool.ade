@@ -101,6 +101,9 @@ if prompt.startswith('Return WorkResultV1 JSON.'):
             # Keep Task 4 active until the UI observes it alongside planning.
             (root / '004-task.started').touch()
             wait_for_marker('planning-overlap-observed')
+    if output_path in ('src/task-1.rs', 'src/task-2.rs') and (root / 'capacity-wait-barrier-enabled').exists():
+        # Hold both worker slots until the UI observes Task 4 waiting for capacity.
+        wait_for_marker('capacity-wait-observed')
     output = {'schema_version':2,'status':'complete','blocker_disposition':'none',
               'summary':'Implemented fixture task',
               'acceptance_criteria':[{'criterion':'File exists.','evidence':output_path+' exists in the isolated fixture workspace.'}],
@@ -205,6 +208,9 @@ if output.name == 'task-4.rs':
     # Keep Task 4 live until the UI observes it alongside the planning turn.
     (root / '004-task.started').touch()
     wait_for_marker('planning-overlap-observed')
+if output.name in ('task-1.rs', 'task-2.rs') and (root / 'capacity-wait-barrier-enabled').exists():
+    # Hold both worker slots until the UI observes Task 4 waiting for capacity.
+    wait_for_marker('capacity-wait-observed')
 if output.name == 'task-3.rs':
     dependency_check = "test -f src/task-1.rs && test -f src/task-2.rs"
     response = request(3, 'tools/call', {'name':'koolade_bash','arguments':{'command':dependency_check,'timeout_seconds':60}})

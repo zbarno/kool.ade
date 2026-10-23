@@ -51,7 +51,8 @@ pub(super) fn exercise(prepared: Prepared) -> PathBuf {
             planning_and_queued_task_overlap = true;
             std::fs::write(root.join("planning-overlap-observed"), "").unwrap();
         }
-        if matches!(&app.screen, Screen::Connected(project) if project.active_implementations.len() == 2 && !project.active_implementations.contains_key(&docs[3].path) && project.queue.waiting_for_capacity.contains(&docs[3].path))
+        if !saw_capacity_wait
+            && matches!(&app.screen, Screen::Connected(project) if project.active_implementations.len() == 2 && !project.active_implementations.contains_key(&docs[3].path) && project.queue.waiting_for_capacity.contains(&docs[3].path))
         {
             assert!(
                 app.queue_status()
@@ -63,6 +64,8 @@ pub(super) fn exercise(prepared: Prepared) -> PathBuf {
                 "Queued · implementation slots are full"
             ));
             saw_capacity_wait = true;
+            std::fs::write(root.join("capacity-wait-observed"), "")
+                .expect("release the two fixture workers after observing queued capacity");
         }
         let finished = matches!(&app.screen, Screen::Connected(project) if !project.queue.running && project.active_implementations.is_empty() && project.active_turn.is_none());
         if finished {
