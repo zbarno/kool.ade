@@ -8,10 +8,18 @@ pub fn record_execution_started(
     image_digest: &str,
     worker_start_rpc_ms: u64,
 ) -> anyhow::Result<()> {
+    let queue_wait_ms = super::queue_wait::task_queue_wait_ms(task_id);
     update(execution_id, task_id, worker_id, |record| {
+        if let Some(queue_wait_ms) = queue_wait_ms {
+            record.queue_wait_ms = Some(queue_wait_ms);
+        }
         record.image_digest = Some(image_digest.to_owned());
         record.worker_start_rpc_ms = Some(worker_start_rpc_ms);
-    })
+    })?;
+    if queue_wait_ms.is_some() {
+        super::queue_wait::clear_task_queue_wait(task_id);
+    }
+    Ok(())
 }
 
 pub fn record_execution_result(
