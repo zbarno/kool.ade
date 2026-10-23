@@ -1,5 +1,16 @@
 # Docker cutover and release checklist
 
+**Tracker reconciliation (2026-10-23):** #143 is closed for Bubblewrap
+removal and Docker-only source/documentation cutover, **not** for a final
+migration/release certification. Preserve the unchecked legacy history,
+dirty-clone, authorization and interrupted-run migration requirement here
+under #144 until real samples pass. #146 has been reopened for real
+provider role/host-code-mode acceptance, while #156 owns clean startup.
+Parallel CI changes from #310 need an exact-main reliability check for the
+queue-concurrency E2E in draft #311 / tracking issue #312. No checkbox is
+implicitly passed by these status updates.
+
+
 This checklist is the final Docker migration gate. A checked box needs a
 current test result, workflow run, or manual sign-off recorded beside it.
 Keep unmet items unchecked; a mock or skipped integration test is not a
