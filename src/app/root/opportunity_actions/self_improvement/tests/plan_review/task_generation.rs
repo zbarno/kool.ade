@@ -157,7 +157,79 @@ pub(super) fn generate_and_sync(
         .is_err()
     );
 
+    let owner_task_path = owner_document.path.clone();
+    let mut drifted_manifest = manifest.clone();
+    drifted_manifest
+        .repositories
+        .iter_mut()
+        .find(|candidate| candidate.id == code_repository_id)
+        .expect("the approved repository remains in the manifest")
+        .remote = "https://github.com/attacker/kool.ade".into();
+    planning
+        .transaction(
+            &[(
+                crate::artifacts::planning_store::paths::PROJECT_MANIFEST.to_owned(),
+                serde_json::to_vec(&drifted_manifest).unwrap(),
+            )],
+            None,
+        )
+        .unwrap();
+    set_app_repo_origin(app, "https://github.com/attacker/kool.ade");
+    app.start_implementation_with_capabilities(
+        owner_task_path,
+        true,
+        crate::harness::runtime_capabilities::RuntimeCapabilities {
+            planning_access:
+                crate::harness::runtime_capabilities::PlanningAccess::SandboxedRepositoryReads,
+            implementation: true,
+        },
+    );
+    let Screen::Connected(project) = &app.screen else {
+        panic!("the app remains connected after a denied dispatch")
+    };
+    assert!(project.active_implementations.is_empty());
+    assert!(project.queue.in_flight.is_empty());
+    assert!(
+        project
+            .queue
+            .last_error
+            .contains("Self-improvement target check blocked implementation"),
+        "unexpected controller denial: {}",
+        project.queue.last_error
+    );
+    let still_ready = runs.load(run_uid).unwrap();
+    assert_eq!(still_ready.phase, Phase::Ready);
+    assert!(still_ready.clone_uid.is_none());
+
+    planning
+        .transaction(
+            &[(
+                crate::artifacts::planning_store::paths::PROJECT_MANIFEST.to_owned(),
+                serde_json::to_vec(&manifest).unwrap(),
+            )],
+            None,
+        )
+        .unwrap();
+    set_app_repo_origin(app, "https://github.com/zbarno/kool.ade");
+
     let feature = lifecycle.load_feature(feature_uid).unwrap();
     assert_eq!(feature.phase, FeaturePhase::Executing);
     assert_eq!(run.task_uids, feature.task_uids);
+}
+
+fn set_app_repo_origin(app: &crate::app::root::KooladeApp, remote: &str) {
+    let repo_root = match &app.screen {
+        Screen::Connected(project) => &project.state.repo_root,
+        Screen::Welcome => panic!("fixture should remain connected"),
+    };
+    let output = std::process::Command::new("git")
+        .args(["remote", "set-url", "origin", remote])
+        .current_dir(repo_root)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "cannot update the local fixture origin: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
