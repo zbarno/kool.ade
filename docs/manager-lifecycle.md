@@ -1,5 +1,19 @@
 # Man.ager lifecycle contract
 
+## Implementation status (2026-10-23)
+
+The durable event-driven planning, reviewer, living-spec and parent/subtask
+contracts are implemented, as are the Board and Task Details lifecycle
+projections (#157–#163, #165). This **does not** mean every legacy app entry
+point has been migrated into one end-to-end coordinator; the integration
+statement below is still a current limitation. Runtime QA browser/Linux
+desktop drivers have merged candidate implementations (#264), but both QA
+image profiles remain disabled pending #171's release gate. The remaining
+frozen-scope PR publication work is in open PR #288 for #164, not yet on
+`main`. #146 was reopened for real provider role/host-code-mode parity;
+#156 and #144 separately gate clean launch and Docker production readiness.
+
+
 `LifecycleStore` is the durable application-owned state machine for the
 feature-plan and implementation pipeline. Manager and worker output supplies
 proposals and evidence; Rust validates every transition before persisting it
@@ -163,8 +177,13 @@ attempt. Failure and retry events retain their snapshots for replay and record
 an explicit no-new-specification-evidence disposition. New requirements or
 other pending specification triggers continue to block authorization.
 
-Older PR records without recovery metadata remain readable. This recovery
-contract does not yet provide the full publication-generation/lease snapshot
-specified by issue #164. The separate Generate PR board task and dry-run
-Details flow, automatic integrated-head gate renewal, and verified child-commit
-aggregation also remain incomplete; child integration depends on issue #162.
+Older PR records without recovery metadata remain readable. Parent/child
+integration and one parent branch/PR identity from #162 are merged, as are
+separate PR-preparation Board work items (#282), durable provider recovery
+(#277) and parent/child publication acceptance fixtures (#284/#285/#287).
+The full frozen publication scope, lease/authorization fencing, integrated
+head drift gate renewal and final PR acceptance are the scope of open PR #288
+(issue #164). They are **not yet** on `main`; the current release contract
+must not assume that candidate PR implementation has been integrated.
+The wider real application-driven end-to-end lifecycle, including runtime QA,
+remains subject to #172 and #171 independent acceptance.
