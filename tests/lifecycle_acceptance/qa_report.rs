@@ -73,7 +73,9 @@ pub(super) fn execute_reviewed_run(
         }],
         expected_results: vec!["Keyboard dismissal works".into()],
         negative_paths: vec![],
-        visual_expectations: vec!["Dialog content is visible".into()],
+        // This lifecycle fixture checks functional coverage; pixel review has a
+        // separate safety test because this reviewer callback gets metadata only.
+        visual_expectations: vec![],
         redaction_regions: vec![],
         priority: 1,
     };

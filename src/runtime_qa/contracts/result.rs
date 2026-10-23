@@ -72,6 +72,12 @@ impl QaResultV1 {
             || self.reviewer_execution_id == request.author_run_id
             || self.reviewer_session_id == request.author_session_id
             || self.evidence_manifest_sha256 != evidence_hash
+            || (manifest.actions.is_empty()
+                && (self.outcome != QaOutcome::InfrastructureBlocked
+                    || self
+                        .cases
+                        .iter()
+                        .any(|case| case.status != QaCaseStatus::Blocked)))
             || self.cases.len() != scenarios.len()
             || self.coverage.requirements.len() != request.requirement_ids.len()
             || self.coverage.scenario_ids.len() != scenarios.len()
