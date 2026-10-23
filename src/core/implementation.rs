@@ -21,6 +21,7 @@ mod repair_context;
 pub(crate) mod report;
 mod repository_cache;
 mod runner;
+mod self_improvement;
 mod state;
 mod state_paths;
 pub mod status;

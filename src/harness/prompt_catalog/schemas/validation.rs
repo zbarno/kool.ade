@@ -135,7 +135,7 @@ pub fn validate_output_with_context(
             }
         }
     }
-    refs::validate_output_refs(&decoded, context)?;
+    refs::validate_output_refs(role, &decoded, context)?;
     Ok(decoded)
 }
 

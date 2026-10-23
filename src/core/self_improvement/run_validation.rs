@@ -1,15 +1,28 @@
-use super::validation::{is_digest, is_git_sha, is_uuid, valid_pr_url, valid_ref, valid_text};
+use super::validation::{
+    is_digest, is_git_sha, is_uuid, pr_number, valid_pr_url, valid_ref, valid_text,
+};
 use super::{SelfImprovementPhaseV1, SelfImprovementRunV1};
 
 impl SelfImprovementRunV1 {
     pub fn validate(&self) -> Result<(), String> {
         let valid_optional_digest = |value: &Option<String>| value.as_deref().is_none_or(is_digest);
-        if self.schema_version != 1
+        if !matches!(self.schema_version, 1..=4)
             || !is_uuid(&self.run_uid)
             || !is_uuid(&self.opportunity_uid)
             || !is_uuid(&self.approved_decision_uid)
             || !is_uuid(&self.target_repository_uid)
             || !is_uuid(&self.feature_uid)
+            || self
+                .parent_run_uid
+                .as_deref()
+                .is_some_and(|uid| !is_uuid(uid) || uid == self.run_uid)
+            || self.chain_depth > super::MAX_SELF_IMPROVEMENT_CHAIN_DEPTH
+            || self.parent_run_uid.is_some() != (self.chain_depth > 0)
+            || (self.schema_version < 3 && (self.parent_run_uid.is_some() || self.chain_depth != 0))
+            || self
+                .capability_id
+                .as_deref()
+                .is_some_and(|value| !super::capability_probe::valid_capability_id(value))
             || self.task_uids.len() > 128
             || self.task_uids.iter().any(|uid| !is_uuid(uid))
             || self
@@ -52,6 +65,18 @@ impl SelfImprovementRunV1 {
                         .pr_head_sha
                         .as_deref()
                         .is_some_and(|sha| !is_git_sha(sha))
+                    || progress
+                        .pr_base_branch
+                        .as_deref()
+                        .is_some_and(|branch| !valid_ref(&format!("refs/heads/{branch}")))
+                    || progress
+                        .pr_merged_commit_sha
+                        .as_deref()
+                        .is_some_and(|sha| !is_git_sha(sha))
+                    || progress
+                        .pr_merged_at
+                        .as_deref()
+                        .is_some_and(|value| chrono::DateTime::parse_from_rfc3339(value).is_err())
             })
             || self
                 .parent_task_progress
@@ -105,6 +130,14 @@ impl SelfImprovementRunV1 {
                 .as_deref()
                 .is_some_and(|sha| !is_git_sha(sha))
             || self
+                .installed_version
+                .as_deref()
+                .is_some_and(|version| !valid_text(version, 128))
+            || self
+                .installed_build_commit_sha
+                .as_deref()
+                .is_some_and(|sha| !is_git_sha(sha))
+            || self
                 .activated_version
                 .as_deref()
                 .is_some_and(|version| !valid_text(version, 128))
@@ -112,8 +145,52 @@ impl SelfImprovementRunV1 {
         {
             return Err("self-improvement run identity or provenance is invalid".into());
         }
+        let parent_pr_work_items = self
+            .parent_task_progress
+            .iter()
+            .filter_map(|progress| progress.pr_work_item_uid.as_ref())
+            .collect::<std::collections::BTreeSet<_>>();
+        let parent_pr_urls = self
+            .parent_task_progress
+            .iter()
+            .filter_map(|progress| progress.pr_url.as_deref().and_then(pr_number))
+            .collect::<std::collections::BTreeSet<_>>();
+        if parent_pr_work_items.len()
+            != self
+                .parent_task_progress
+                .iter()
+                .filter(|progress| progress.pr_work_item_uid.is_some())
+                .count()
+            || parent_pr_urls.len()
+                != self
+                    .parent_task_progress
+                    .iter()
+                    .filter(|progress| progress.pr_url.is_some())
+                    .count()
+        {
+            return Err(
+                "each self-improvement parent task must use a distinct PR work item and URL".into(),
+            );
+        }
         if self.task_uids.is_empty() != self.owner_task_uid.is_none() {
             return Err("self-improvement task ownership is incomplete".into());
+        }
+        if self.schema_version >= 2
+            && self.plan_approval_hash.is_some() != self.capability_id.is_some()
+        {
+            return Err(
+                "approved self-improvement plan must bind one stable product capability".into(),
+            );
+        }
+        if self.installed_version.is_some() != self.installed_build_commit_sha.is_some()
+            || self
+                .installed_build_commit_sha
+                .as_ref()
+                .is_some_and(|sha| self.merged_sha.as_ref() != Some(sha))
+        {
+            return Err(
+                "installed build identity must match the merged self-improvement commit".into(),
+            );
         }
         let has_task_owner = !self.task_uids.is_empty() && self.owner_task_uid.is_some();
         let requirements_met = match self.phase {
@@ -155,9 +232,22 @@ impl SelfImprovementRunV1 {
             SelfImprovementPhaseV1::PrOpened => {
                 self.pr_work_item_uid.is_some() && self.pr_url.is_some()
             }
+            SelfImprovementPhaseV1::PrClosedUnmerged => {
+                self.pr_work_item_uid.is_some() && self.pr_url.is_some()
+            }
             SelfImprovementPhaseV1::MergedNotActivated => {
                 self.pr_url.is_some()
                     && self.merged_sha.is_some()
+                    && self.activated_version.is_none()
+                    && self.installed_version.is_none()
+                    && self.installed_build_commit_sha.is_none()
+            }
+            SelfImprovementPhaseV1::InstalledNotActivated => {
+                self.schema_version >= 2
+                    && self.pr_url.is_some()
+                    && self.merged_sha.is_some()
+                    && self.installed_version.is_some()
+                    && self.installed_build_commit_sha.is_some()
                     && self.activated_version.is_none()
             }
             SelfImprovementPhaseV1::Activated => {
@@ -166,8 +256,20 @@ impl SelfImprovementRunV1 {
                         .activated_version
                         .as_ref()
                         .is_some_and(|value| valid_text(value, 128))
+                    && (self.schema_version == 1
+                        || (self.installed_version.is_some()
+                            && self.installed_build_commit_sha.is_some()
+                            && self.activated_version == self.installed_version))
             }
-            SelfImprovementPhaseV1::NeedsAttention | SelfImprovementPhaseV1::Cancelled => true,
+            SelfImprovementPhaseV1::NeedsAttention => {
+                self.plan_approval_hash.is_some()
+                    && self.independent_plan_review_uid.is_some()
+                    && self.source_ref.is_some()
+                    && self.destination_ref.is_some()
+                    && has_task_owner
+                    && !self.parent_task_progress.is_empty()
+            }
+            SelfImprovementPhaseV1::Cancelled => true,
         };
         if !requirements_met {
             return Err("self-improvement phase is missing its required lifecycle evidence".into());

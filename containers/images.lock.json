@@ -109,8 +109,8 @@
     "browser_qa": [
       {
         "platform": "linux/amd64",
-        "reference": "ghcr.io/zbarno/koolade-runtime-qa-browser@sha256:cde309ff57c1c8454b18d06b4c6e3165df2184d0caafd0ff06d37ef6e9675a83",
-        "digest": "sha256:cde309ff57c1c8454b18d06b4c6e3165df2184d0caafd0ff06d37ef6e9675a83",
+        "reference": "ghcr.io/zbarno/koolade-runtime-qa-browser@sha256:5aadbb26f019b6d2b8111220f3adb7083efe224235cba479edced92d50c3bd50",
+        "digest": "sha256:5aadbb26f019b6d2b8111220f3adb7083efe224235cba479edced92d50c3bd50",
         "tool_versions": {
           "node": "24.11.1",
           "npm": "11.6.2",
@@ -121,14 +121,14 @@
           "base": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
         },
         "runtime_enabled": false,
-        "build_recipe_sha256": "sha256:6fa69a4e5ec5a50e3721f23fabf3eb26d12732bd33fe7d254ae6d76171ada7d8"
+        "build_recipe_sha256": "sha256:e5f6e4b61c0c30ebfc134c4ca88e4dbdf43ff953124ed16992a9541c841b1b64"
       }
     ],
     "desktop_qa": [
       {
         "platform": "linux/amd64",
-        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:1f0816e996be0fa2055dfaf5870989672b75325b3c31c6b921c04423ad64eb70",
-        "digest": "sha256:1f0816e996be0fa2055dfaf5870989672b75325b3c31c6b921c04423ad64eb70",
+        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:25e606901230d9407d71fc59c0925a3dab165dc71c6dd3d79e40fc86cbec1715",
+        "digest": "sha256:25e606901230d9407d71fc59c0925a3dab165dc71c6dd3d79e40fc86cbec1715",
         "tool_versions": {
           "driver": "linux-x11-driver/v1",
           "xvfb": "2:21.1.12-1ubuntu1.5",
@@ -137,7 +137,7 @@
           "base": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
         },
         "runtime_enabled": false,
-        "build_recipe_sha256": "sha256:77193a2e11c83770eb2fc78e11b2a67342882b1ceba1c73cb2205825e694a90e"
+        "build_recipe_sha256": "sha256:b7f9ef2fa69ee9e63bf2044fe01d31e49065df303bf81bce8037ce6f2cffd7cc"
       }
     ]
   }

@@ -6,21 +6,31 @@ fn product_proposals_use_bound_public_product_evidence() {
     proposal.target = OpportunityTarget::KooladeProduct;
     proposal.target_repository_ref = "koolade".into();
     proposal.target_repository = "https://github.com/zbarno/kool.ade".into();
-    proposal.evidence_refs = vec!["koolade-product-opportunity-contract".into()];
+    proposal.evidence_refs = vec![
+        "koolade-product-capability-inventory".into(),
+        "koolade-product-opportunity-contract".into(),
+    ];
     proposal.generic_capability_check =
-        "Checked koolade-product-opportunity-contract for the documented product contract".into();
+        "Checked koolade-product-capability-inventory and koolade-product-opportunity-contract"
+            .into();
     let mut context = context();
     context.allowed_repositories.insert(
         "koolade".into(),
         "https://github.com/zbarno/kool.ade".into(),
     );
     context.koolade_product_repository_ref = Some("koolade".into());
-    context
-        .evidence_ids
-        .insert("koolade-product-opportunity-contract".into());
-    context
-        .public_evidence_ids
-        .insert("koolade-product-opportunity-contract".into());
+    context.evidence_ids.extend([
+        "koolade-product-capability-inventory".into(),
+        "koolade-product-opportunity-contract".into(),
+    ]);
+    context.public_evidence_ids.extend([
+        "koolade-product-capability-inventory".into(),
+        "koolade-product-opportunity-contract".into(),
+    ]);
+    context.evidence_repository_refs.insert(
+        "koolade-product-capability-inventory".into(),
+        "koolade".into(),
+    );
     context.evidence_repository_refs.insert(
         "koolade-product-opportunity-contract".into(),
         "koolade".into(),
@@ -54,6 +64,36 @@ fn product_proposals_use_bound_public_product_evidence() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn manager_v7_requires_both_product_sources_while_v6_remains_compatible() {
+    let mut proposal = proposal();
+    proposal.target = OpportunityTarget::KooladeProduct;
+    proposal.target_repository_ref = "koolade".into();
+    proposal.target_repository = "https://github.com/zbarno/kool.ade".into();
+    proposal.evidence_refs = vec!["koolade-product-opportunity-contract".into()];
+    proposal.generic_capability_check =
+        "Checked koolade-product-opportunity-contract for product support".into();
+    let mut context = context();
+    context.allowed_repositories.insert(
+        "koolade".into(),
+        "https://github.com/zbarno/kool.ade".into(),
+    );
+    context.koolade_product_repository_ref = Some("koolade".into());
+    context
+        .evidence_ids
+        .insert("koolade-product-opportunity-contract".into());
+    context
+        .public_evidence_ids
+        .insert("koolade-product-opportunity-contract".into());
+    context.evidence_repository_refs.insert(
+        "koolade-product-opportunity-contract".into(),
+        "koolade".into(),
+    );
+    let output = manager_output(&proposal);
+    assert!(validate_output_with_context(PromptRole::ManagerV6, &output, &context).is_ok());
+    assert!(validate_output_with_context(PromptRole::Manager, &output, &context).is_err());
 }
 
 #[test]

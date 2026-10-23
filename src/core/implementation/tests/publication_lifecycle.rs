@@ -6,14 +6,27 @@ use crate::core::implementation::publication::{
 };
 use crate::core::lifecycle::{LifecycleStore, PullRequestPreparationStatus};
 
-/// Production boundary: explicit lifecycle authorization, Git push, provider PR
-/// creation/readback, and durable Opened projection across a lost application
-/// response. Reducer tests cannot prove the application reuses an unknown
-/// provider outcome. Uses a temporary task clone, local SSH remote, fake `gh`,
-/// and file-backed lifecycle store; no external network, Docker, or browser.
+#[path = "publication_lifecycle/evolve.rs"]
+mod evolve;
+
+/// Production boundary: authenticated app Pursue, persisted Evolve run,
+/// explicit publication authorization, Git push, provider PR creation/readback,
+/// and app projection after a lost response and store/app reconstruction. The
+/// invariant is that an unknown provider outcome stays PrPending and recovery
+/// opens the same PR once. Unit tests cannot prove this durable cross-module
+/// handoff. Plan/review/QA/spec receipts remain synthetic at this boundary.
+/// Uses a temporary task clone, local SSH remote, fake `gh`, and headless app
+/// fixture; no external network, Docker, model, or browser. Setup cost is a
+/// temporary repository, lifecycle store, and a few provider-fixture processes.
 #[test]
 fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_pr() {
     let sandbox = Sandbox::new();
+    let product_pr_url = "https://github.com/zbarno/kool.ade/pull/999999";
+    let gh_script = fs::read_to_string(&sandbox.gh).unwrap();
+    let product_gh_script =
+        gh_script.replace("https://github.com/fixture/repo/pull/1", product_pr_url);
+    assert_ne!(product_gh_script, gh_script, "fake provider has a PR URL");
+    fs::write(&sandbox.gh, product_gh_script).unwrap();
     let mut state = sandbox
         .run_with_publication_policy(
             "complete",
@@ -36,14 +49,67 @@ fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_
     let reviewed_head = sandbox.git(&state.task_repository, &["rev-parse", "HEAD"]);
     state.verified_head = Some(reviewed_head.clone());
 
-    let fixture = LifecycleFixture::with_subtask_head(
-        reviewed_head.len(),
+    let (mut pursuit_app, planning, product_root) =
+        crate::app::root::self_improvement_test_support::app_fixture();
+    let (opportunity_uid, opportunity_revision) =
+        evolve::save_product_proposal(&planning, &product_root, &state.base_commit);
+    crate::app::root::self_improvement_test_support::refresh_planning_state(
+        &mut pursuit_app,
+        &planning,
+    );
+    let identity_gh = sandbox.root.join("identity-gh");
+    fs::write(
+        &identity_gh,
+        "#!/bin/sh\n[ \"$1\" = api ] && [ \"$2\" = user ] || exit 2\nprintf '987654321\\n'\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&identity_gh, fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let pursue_message = crate::app::root::self_improvement_test_support::decide_product_pursuit(
+        &mut pursuit_app,
+        &opportunity_uid,
+        opportunity_revision,
+        &identity_gh,
+    );
+    assert!(
+        pursue_message
+            .as_deref()
+            .is_some_and(|message| message.contains("self-improvement run were added")),
+        "app Pursue should create a self-improvement run, got: {pursue_message:?}"
+    );
+    let opportunities = crate::core::opportunity::OpportunityStore::new(&planning);
+    let decision = opportunities
+        .decision_for_opportunity(&opportunity_uid)
+        .unwrap()
+        .expect("the app Pursue action persists its decision");
+    assert_eq!(decision.user_id, "github:987654321");
+    let run_uid =
+        crate::core::self_improvement::SelfImprovementStore::run_uid_for_decision(&decision.uid)
+            .unwrap();
+    let pursued_run = crate::core::self_improvement::SelfImprovementStore::new(&planning)
+        .load(&run_uid)
+        .unwrap();
+    assert_eq!(
+        pursued_run.phase,
+        crate::core::self_improvement::SelfImprovementPhaseV1::Planning
+    );
+    assert!(pursued_run.clone_uid.is_none());
+
+    let fixture = LifecycleFixture::with_store(
+        planning.clone(),
+        product_root,
+        pursued_run.feature_uid,
         &reviewed_head,
         state
             .task_uid
             .clone()
             .expect("fixture task has lifecycle binding"),
+        true,
     );
+    evolve::seed_pr_pending_run(&fixture, &run_uid, &state.base_commit);
     let store = fixture.store.clone();
     let lifecycle = LifecycleStore::new(&store);
     let LifecyclePublicationGate::Authorized(_binding) =
@@ -118,6 +184,26 @@ fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_
             .count(),
         1
     );
+    let mut interrupted_app = crate::app::root::self_improvement_test_support::app_with_publication(
+        &store,
+        interrupted_state.clone(),
+    );
+    crate::app::root::self_improvement_test_support::synchronize_run(
+        &mut interrupted_app,
+        &store,
+        &run_uid,
+    )
+    .unwrap();
+    let interrupted_run = crate::core::self_improvement::SelfImprovementStore::new(&store)
+        .load(&run_uid)
+        .unwrap();
+    assert_eq!(
+        interrupted_run.phase,
+        crate::core::self_improvement::SelfImprovementPhaseV1::PrPending,
+        "an unknown provider outcome must not project an unverified PR URL"
+    );
+    assert!(interrupted_run.pr_url.is_none());
+    drop(interrupted_app);
 
     let reopened = fixture.reopen();
     let LifecyclePublicationGate::Authorized(retry_binding) =
@@ -135,10 +221,7 @@ fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_
     .unwrap();
     finish_lifecycle_publication(&reopened, &recovered_state, Some(retry_binding)).unwrap();
 
-    assert_eq!(
-        recovered_state.pr_url.as_deref(),
-        Some("https://github.com/fixture/repo/pull/1")
-    );
+    assert_eq!(recovered_state.pr_url.as_deref(), Some(product_pr_url));
     assert_eq!(
         fs::read_to_string(sandbox.root.join("pr-created"))
             .unwrap()
@@ -165,5 +248,37 @@ fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_
             .parent_task_uid
             .as_deref(),
         Some(fixture.task.task_uid.as_str())
+    );
+
+    let mut recovered_app = crate::app::root::self_improvement_test_support::app_with_publication(
+        &reopened_store,
+        recovered_state.clone(),
+    );
+    crate::app::root::self_improvement_test_support::synchronize_run(
+        &mut recovered_app,
+        &reopened_store,
+        &run_uid,
+    )
+    .unwrap();
+    let runs = crate::core::self_improvement::SelfImprovementStore::new(&reopened_store);
+    let projected = runs.load(&run_uid).unwrap();
+    assert_eq!(
+        projected.phase,
+        crate::core::self_improvement::SelfImprovementPhaseV1::PrOpened
+    );
+    assert_eq!(
+        projected.pr_url.as_deref(),
+        recovered_state.pr_url.as_deref()
+    );
+    crate::app::root::self_improvement_test_support::synchronize_run(
+        &mut recovered_app,
+        &reopened_store,
+        &run_uid,
+    )
+    .unwrap();
+    assert_eq!(
+        runs.load(&run_uid).unwrap().revision,
+        projected.revision,
+        "repeating projection must not duplicate PrOpened"
     );
 }

@@ -21,7 +21,7 @@ pub(super) fn inspect_pull_request(
             "--repo",
             repository,
             "--json",
-            "url,state,number,headRefOid,baseRefOid,baseRefName",
+            "url,state,number,headRefOid,baseRefOid,baseRefName,mergedAt",
         ],
     )?;
     let value: serde_json::Value = serde_json::from_str(&response)?;
@@ -78,6 +78,7 @@ fn pull_request_details(
             head_sha: head_sha.to_owned(),
             base_sha,
             base_branch: base_branch.to_owned(),
+            merged_at: value["mergedAt"].as_str().map(str::to_owned),
         }
     })
 }

@@ -1,0 +1,97 @@
+use crate::{
+    core::{
+        opportunity::{
+            EvidenceConfidentialityV1, OpportunityEvidenceRefV1, OpportunityKindV1,
+            OpportunityOriginV1, OpportunityScopeV1, OpportunityStatusV1, OpportunityTargetKindV1,
+            OpportunityTargetV1, OpportunityV1,
+        },
+        self_improvement::{SelfImprovementPhaseV1, SelfImprovementRunV1, SelfImprovementStore},
+    },
+    harness::prompt_catalog::OpportunityDecisionV1,
+};
+
+pub(crate) fn opportunity(
+    workspace_uid: &str,
+    repository_uid: &str,
+    source_sha: &str,
+) -> OpportunityV1 {
+    OpportunityV1 {
+        schema_version: 1,
+        opportunity_uid: uuid::Uuid::new_v4().to_string(),
+        workspace_uid: workspace_uid.into(),
+        origin: OpportunityOriginV1::Roadmap,
+        kind: OpportunityKindV1::NewFeature,
+        target: OpportunityTargetV1 {
+            kind: OpportunityTargetKindV1::KooladeProduct,
+            repository_uid: repository_uid.into(),
+            canonical_remote: "https://github.com/zbarno/kool.ade".into(),
+            source_sha: source_sha.into(),
+        },
+        related_feature_uids: Vec::new(),
+        related_task_uids: Vec::new(),
+        discovered_at_ms: 10,
+        observation_revision: 1,
+        evidence_refs: vec![OpportunityEvidenceRefV1 {
+            evidence_uid: uuid::Uuid::new_v4().to_string(),
+            sha256: "b".repeat(64),
+            confidentiality: EvidenceConfidentialityV1::Public,
+        }],
+        problem_or_opportunity: "Self improvement needs a persisted dispatch fence".into(),
+        user_value: "Product code runs only with reviewed authorization".into(),
+        expected_outcome: "A reviewed task clone is authorized".into(),
+        possible_approaches: vec!["Use the lifecycle gate".into()],
+        recommended_approach: "Use the persisted review and task".into(),
+        alternatives: vec!["Do not dispatch".into()],
+        estimated_scope: OpportunityScopeV1::Small,
+        impact: "Prevents unapproved product execution".into(),
+        cost_or_risk: "Adds persisted evidence checks".into(),
+        affected_systems: vec!["implementation".into()],
+        current_capability_state: "Not implemented".into(),
+        generic_workaround: None,
+        proposed_approach: "Require the exact reviewed plan".into(),
+        dedup_fingerprint: "c".repeat(64),
+        status: OpportunityStatusV1::Proposed,
+        revision: 1,
+    }
+}
+
+pub(crate) fn self_improvement_run(
+    decision: &OpportunityDecisionV1,
+    proposal: &OpportunityV1,
+    feature_uid: &str,
+) -> SelfImprovementRunV1 {
+    SelfImprovementRunV1 {
+        schema_version: 3,
+        run_uid: SelfImprovementStore::run_uid_for_decision(&decision.uid).unwrap(),
+        opportunity_uid: proposal.opportunity_uid.clone(),
+        approved_decision_uid: decision.uid.clone(),
+        target_repository_uid: proposal.target.repository_uid.clone(),
+        canonical_remote: proposal.target.canonical_remote.clone(),
+        source_ref: None,
+        source_sha: proposal.target.source_sha.clone(),
+        destination_ref: None,
+        feature_uid: feature_uid.into(),
+        parent_run_uid: None,
+        chain_depth: 0,
+        capability_id: None,
+        task_uids: Vec::new(),
+        owner_task_uid: None,
+        parent_task_progress: Vec::new(),
+        clone_uid: None,
+        plan_approval_hash: None,
+        independent_plan_review_uid: None,
+        implementation_head_sha: None,
+        implementation_subject_sha256: None,
+        code_review_uids: Vec::new(),
+        runtime_qa_uids: Vec::new(),
+        spec_receipt_uid: None,
+        pr_work_item_uid: None,
+        pr_url: None,
+        merged_sha: None,
+        installed_version: None,
+        installed_build_commit_sha: None,
+        activated_version: None,
+        phase: SelfImprovementPhaseV1::ApprovedToPlan,
+        revision: 0,
+    }
+}

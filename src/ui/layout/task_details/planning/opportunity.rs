@@ -2,6 +2,7 @@ use crate::ui::{ApplicationCommand, Surface, planning_board::ViewModel, theme};
 use egui::Ui;
 
 mod evidence;
+mod self_improvement;
 
 pub(super) fn paint(
     ui: &mut Ui,
@@ -182,27 +183,7 @@ fn details(
         }
     }
     if let Some(run) = run {
-        ui.collapsing("Self-improvement progress", |ui| {
-            ui.label(format!("Current phase: {:?}", run.phase));
-            ui.label(format!("{} parent task(s)", run.task_uids.len()));
-            if let Some(url) = &run.pr_url {
-                ui.hyperlink_to("Open pull request", url);
-            }
-            if run.phase
-                == crate::core::self_improvement::SelfImprovementPhaseV1::MergedNotActivated
-            {
-                ui.colored_label(
-                    egui::Color32::YELLOW,
-                    "Merged; awaiting authorized activation and readiness probe",
-                );
-            } else if run.phase == crate::core::self_improvement::SelfImprovementPhaseV1::Activated
-            {
-                ui.label(format!(
-                    "Activated version: {}",
-                    run.activated_version.as_deref().unwrap_or("unknown")
-                ));
-            }
-        });
+        self_improvement::paint_progress(ui, surface, run);
     }
 }
 

@@ -1,5 +1,15 @@
 use super::*;
 
+#[cfg(test)]
+pub(crate) fn synchronize_self_improvement_run_for_test(
+    project: &mut crate::app::session::Project,
+    lifecycle: &crate::core::lifecycle::LifecycleStore<'_>,
+    runs: &crate::core::self_improvement::SelfImprovementStore<'_>,
+    run_uid: &str,
+) -> Result<(), String> {
+    self_improvement::synchronize_run(project, lifecycle, runs, run_uid)
+}
+
 impl KooladeApp {
     pub(super) fn advance_activity(&mut self) {
         let mut plan_repair = None;

@@ -8,15 +8,14 @@ use super::{
     TaskEvent, TaskRecord,
 };
 
+mod additional_transition;
 mod load;
 mod queue;
+pub(super) use additional_transition::{
+    AdditionalTransition, append_transition_with_additional_checks,
+};
 pub(super) use load::{load_features, load_tasks};
 use queue::queued_record;
-
-pub(super) struct AdditionalTransition {
-    pub changes: Vec<(String, Vec<u8>)>,
-    pub checks: Vec<RecordRevisionCheck>,
-}
 
 pub(super) fn create_pair<T: Serialize>(
     store: &PlanningStore,
@@ -127,45 +126,6 @@ pub(super) fn append_transition_at_store_revision<T: Serialize>(
     ];
     store
         .transaction_with_revision_and_record_revisions(&changes, store_revision, &checks)
-        .map(|_| ())
-}
-
-pub(super) fn append_transition_with_additional_checks<T: Serialize>(
-    store: &PlanningStore,
-    path: &str,
-    snapshot: &Snapshot<T>,
-    expected_revision: u64,
-    event_path: String,
-    event: LifecycleEventRecord,
-    additional: AdditionalTransition,
-) -> Result<(), StoreError> {
-    let (queue_path, queue_bytes, queue_check) = queued_record(&event)?;
-    let mut changes = vec![
-        (path.to_owned(), encode(snapshot)?),
-        (event_path.clone(), encode(&event)?),
-        (queue_path.clone(), queue_bytes),
-    ];
-    let mut checks = vec![
-        RecordRevisionCheck {
-            path: path.to_owned(),
-            expected_revision,
-        },
-        RecordRevisionCheck {
-            path: event_path,
-            expected_revision: 0,
-        },
-        queue_check,
-    ];
-    for (path, contents) in additional.changes {
-        checks.push(RecordRevisionCheck {
-            path: path.clone(),
-            expected_revision: 0,
-        });
-        changes.push((path, contents));
-    }
-    checks.extend(additional.checks);
-    store
-        .transaction_with_record_revisions(&changes, &checks)
         .map(|_| ())
 }
 
