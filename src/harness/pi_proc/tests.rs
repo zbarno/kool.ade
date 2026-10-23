@@ -150,6 +150,32 @@ fn echoes_lines_and_reports_success() {
 }
 
 #[test]
+fn fast_git_supervisor_preserves_output_and_failure_events() {
+    let task = spawn_git(
+        &sh("printf 'result\\n'; printf 'diagnostic\\n' >&2; exit 7"),
+        Path::new("/"),
+    )
+    .unwrap();
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    loop {
+        match task.poll_next(Duration::from_secs(3)) {
+            Ok(StreamEvt::Stdout(line)) => stdout.push(line),
+            Ok(StreamEvt::Stderr(line)) => stderr.push(line),
+            Ok(StreamEvt::Exited(ok)) => {
+                assert!(!ok);
+                assert_eq!(task.exit_code(), Some(7));
+                break;
+            }
+            Err(PollState::Pending) => continue,
+            Err(PollState::Closed) => panic!("Git subprocess ended without an exit event"),
+        }
+    }
+    assert_eq!(stdout, ["result"]);
+    assert_eq!(stderr, ["diagnostic"]);
+}
+
+#[test]
 fn failing_child_reports_failure_with_stderr() {
     let task = spawn(&sh("echo oops >&2; exit 3"), Path::new("/")).unwrap();
     let mut saw_fail = false;
