@@ -25,6 +25,9 @@ if '--version' in sys.argv:
 prompt = sys.stdin.read()
 ticket_line = next((line for line in prompt.splitlines() if line.startswith('TICKET PATH: ')), None)
 root = pathlib.Path(__file__).parent
+def write_progress_marker(task_number, name):
+    if task_number in (1, 2):
+        (root / f'{name}-task-{task_number}').touch()
 def wait_for_marker(name):
     # The Rust test's 180-second deadline owns failure; give the child ten
     # additional seconds to exit cleanly after a failed overlap proof.
@@ -138,6 +141,7 @@ if prompt.startswith('Return WorkResultV1 JSON.'):
         early_env['GIT_SSH_COMMAND'] = str(root / 'ssh-fixture')
         early_env['KOOLADE_HOME'] = str(root / 'app-home')
         early_server = spawn_mcp_server(early_server_command, early_server_args, early_env)
+        write_progress_marker(task_number, 'mcp-started')
         def early_request(identifier, method, params=None):
             early_server.stdin.write(json.dumps({'jsonrpc':'2.0','id':identifier,'method':method,'params':params or {}}) + '\n')
             early_server.stdin.flush()
@@ -146,8 +150,12 @@ if prompt.startswith('Return WorkResultV1 JSON.'):
         early_server.stdin.write(json.dumps({'jsonrpc':'2.0','method':'notifications/initialized'}) + '\n')
         early_server.stdin.flush()
         write_command = "printf 'write cwd=%s\\n' \"$PWD\"; mkdir -p src && printf implemented > '" + output_path + "' && printf 'wrote=%s\\n' \"$PWD/" + output_path + "\" && test -f '" + output_path + "'"
+        write_progress_marker(task_number, 'mcp-tool-call-started')
         early_response = early_request(2, 'tools/call', {'name':'koolade_bash','arguments':{'command':write_command,'timeout_seconds':60}})
+        write_progress_marker(task_number, 'mcp-tool-call-returned')
+        write_progress_marker(task_number, 'mcp-stop-started')
         stop_mcp_server(early_server)
+        write_progress_marker(task_number, 'mcp-stop-finished')
         if 'error' in early_response or early_response.get('result', {}).get('isError'):
             print(json.dumps(early_response), file=sys.stderr)
             sys.exit(1)
@@ -158,7 +166,9 @@ if prompt.startswith('Return WorkResultV1 JSON.'):
             wait_for_marker('planning-overlap-observed')
     if output_path in ('src/task-1.rs', 'src/task-2.rs') and (root / 'capacity-wait-barrier-enabled').exists():
         # Hold both worker slots until the UI observes Task 4 waiting for capacity.
+        write_progress_marker(task_number, 'capacity-wait-entered')
         wait_for_marker('capacity-wait-observed')
+        write_progress_marker(task_number, 'capacity-wait-released')
     output = {'schema_version':2,'status':'complete','blocker_disposition':'none',
               'summary':'Implemented fixture task',
               'acceptance_criteria':[{'criterion':'File exists.','evidence':output_path+' exists in the isolated fixture workspace.'}],
@@ -220,6 +230,7 @@ if ticket_line is None and not implementation_call:
 assert 'koolade_bash' in tool_names, 'Ticketed worker did not receive koolade_bash; tools=' + repr(tool_args)
 time.sleep(0.3)
 task_uid = None
+task_number = None
 if ticket_line is not None:
     ticket_text = prompt.split('TICKET CONTENT:\n', 1)[1].split('\n\nAPPROVED SPECIFICATION:', 1)[0]
     affected_section = ticket_text.split('## Affected files and components\n', 1)[1].split('\n## ', 1)[0]
@@ -259,6 +270,7 @@ if output_path is None:
         sys.exit(1)
     output_path = response['result']['content'][0]['text'].splitlines()[0]
 output = pathlib.Path(output_path)
+task_number = int(output.stem[5:]) if output.stem.startswith('task-') else None
 if output.name == 'task-4.rs':
     # Keep Task 4 live until the UI observes it alongside the planning turn.
     (root / '004-task.started').touch()
