@@ -103,29 +103,35 @@ fn local_target_rejects_unavailable_gpu_or_display_requirements() {
 }
 
 #[test]
-fn auto_selects_remote_worker_when_required_gpu_is_reported() {
+fn auto_and_explicit_worker_selection_fail_closed_for_reported_gpu_or_display() {
     let now = 1_900_000_000_000;
-    let worker = worker("worker-a", 0, now);
+    let mut worker = worker("worker-a", 0, now);
+    let probe = worker.last_probe.as_mut().unwrap();
+    probe.gpu_available = Some(true);
+    probe.display_available = Some(true);
     let mut caps = capabilities(0);
     caps.gpu_available = true;
+    caps.display_available = true;
     let candidates = [WorkerCandidate {
         registration: &worker,
         capabilities: &caps,
     }];
     let budget = budget();
-    let mut requirements = requirements(&budget, &[]);
-    requirements.requires_gpu = true;
-    assert_eq!(
-        select_target(
-            &TargetPreference::Auto,
-            true,
-            &candidates,
-            &requirements,
-            now
-        )
-        .unwrap(),
-        ExecutionTarget::remote("worker-a")
-    );
+    for (requires_gpu, requires_display) in [(true, false), (false, true), (true, true)] {
+        let mut requirements = requirements(&budget, &[]);
+        requirements.requires_gpu = requires_gpu;
+        requirements.requires_display = requires_display;
+        for preference in [
+            TargetPreference::Auto,
+            TargetPreference::Worker("worker-a".into()),
+        ] {
+            assert_eq!(
+                select_target(&preference, true, &candidates, &requirements, now),
+                Err(SelectionFailure::NoCompatibleTarget),
+                "unsupported device requirements must not route to reported worker capability"
+            );
+        }
+    }
 }
 
 #[test]

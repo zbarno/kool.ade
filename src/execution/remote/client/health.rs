@@ -140,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn health_probe_persists_gpu_and_isolated_display_capabilities() {
+    fn health_probe_persists_worker_reported_gpu_and_display_observations() {
         let probe = BackendProbeV1 {
             wire_version: 1,
             available: true,
