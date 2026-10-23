@@ -266,8 +266,18 @@ if [[ "$build_mode" == publish ]]; then
   docker pull --platform "$platform" "$image_reference"
   scan_reference="$image_reference"
 fi
-"$SYFT" "docker:$scan_reference" -o spdx-json="$output_directory/executor-sbom.spdx.json"
-sbom_sha256="sha256:$(sha256sum "$output_directory/executor-sbom.spdx.json" | awk '{print $1}')"
+sbom_path="$output_directory/executor-sbom.spdx.json"
+# SHA-256 preserves strong file integrity while avoiding redundant SHA-1 file
+# metadata entries that can push the SPDX document past GitHub's 16 MiB limit.
+SYFT_FILE_METADATA_DIGESTS=sha256 \
+  "$SYFT" "docker:$scan_reference" -o "spdx-json=$sbom_path"
+sbom_bytes="$(wc -c < "$sbom_path" | tr -d '[:space:]')"
+if (( sbom_bytes > 16 * 1024 * 1024 )); then
+  printf 'QA image SBOM exceeds the 16 MiB attestation limit: %s bytes\n' \
+    "$sbom_bytes" >&2
+  exit 1
+fi
+sbom_sha256="sha256:$(sha256sum "$sbom_path" | awk '{print $1}')"
 jq -n \
   --arg profile "$profile" --arg platform "$platform" --arg digest "$image_digest" \
   --arg reference "$image_reference" --arg base_image "$base_image" \
