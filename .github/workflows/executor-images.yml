@@ -653,11 +653,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Checkout the reviewed base image lock
+      - name: Checkout the published default-branch image lock
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: reviewed-main
+          ref: ${{ github.event.pull_request.base.repo.default_branch }}
+          path: published-main
           persist-credentials: false
       - name: Prepare rootless Docker systemd session
         run: bash scripts/prepare-rootless-docker-session.sh
@@ -669,10 +669,10 @@ jobs:
           set-host: true
           daemon-config: |
             {"features":{"cdi":false}}
-      - name: Pull the reviewed digest and browser fixture
+      - name: Pull the published digest and browser fixture
         env:
           PROFILE: ${{ matrix.profile }}
-          IMAGE_LOCK: ${{ github.workspace }}/reviewed-main/containers/images.lock.json
+          IMAGE_LOCK: ${{ github.workspace }}/published-main/containers/images.lock.json
           GHCR_TOKEN: ${{ github.token }}
           GHCR_ACTOR: ${{ github.actor }}
           DOCKER_CONFIG: ${{ runner.temp }}/qa-image-docker-config
@@ -719,7 +719,7 @@ jobs:
       - name: Exercise the reviewed immutable image through app-owned QA
         env:
           PROFILE: ${{ matrix.profile }}
-          IMAGE_LOCK: ${{ github.workspace }}/reviewed-main/containers/images.lock.json
+          IMAGE_LOCK: ${{ github.workspace }}/published-main/containers/images.lock.json
           KOOLADE_QA_REQUIRE_ROOTLESS: "1"
           KOOLADE_QA_REQUIRE_EGUI: "1"
         run: |
