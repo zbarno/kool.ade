@@ -87,7 +87,7 @@ fn separate_controllers_run_distinct_tasks_on_two_workers_without_cross_applying
     let mut controller_a = Some(std::thread::spawn(move || {
         gate_a.wait();
         run_a.run_tool_command(
-            "printf 'worker-a-started\\n'; sleep 20; printf 'worker-a-result\\n' > worker-a-result.txt",
+            "sleep 30; printf 'worker-a-result\\n' > worker-a-result.txt",
             Duration::from_secs(120),
         )
     }));
@@ -96,31 +96,12 @@ fn separate_controllers_run_distinct_tasks_on_two_workers_without_cross_applying
     let mut controller_b = Some(std::thread::spawn(move || {
         gate_b.wait();
         run_b.run_tool_command(
-            "printf 'worker-b-started\\n'; sleep 20; printf 'worker-b-result\\n' > worker-b-result.txt",
+            "sleep 30; printf 'worker-b-result\\n' > worker-b-result.txt",
             Duration::from_secs(120),
         )
     }));
+    let execution_started = std::time::Instant::now();
     barrier.wait();
-    wait_for_remote_stdout(
-        &session_a,
-        "worker-a-started",
-        &mut controller_a,
-        &task_home,
-        &worker_a_root.join("sshd.log"),
-    );
-    wait_for_remote_stdout(
-        &session_b,
-        "worker-b-started",
-        &mut controller_b,
-        &task_home,
-        &worker_b_root.join("sshd.log"),
-    );
-    assert!(
-        controller_a
-            .as_ref()
-            .is_some_and(|controller| !controller.is_finished()),
-        "worker A must still be running when worker B starts"
-    );
 
     let output_a = controller_a
         .take()
@@ -134,8 +115,13 @@ fn separate_controllers_run_distinct_tasks_on_two_workers_without_cross_applying
         .join()
         .expect("controller B thread should not panic")
         .expect("worker B should return its own task result");
+    assert!(
+        execution_started.elapsed() < Duration::from_secs(50),
+        "two 30-second remote tasks should finish concurrently, not serially"
+    );
     assert_eq!(output_a.result.exit_code, Some(0));
     assert_eq!(output_b.result.exit_code, Some(0));
+    assert_ne!(output_a.result.execution_id, output_b.result.execution_id);
     assert_eq!(
         fs::read(clone_a.join("worker-a-result.txt")).unwrap(),
         b"worker-a-result\n"
