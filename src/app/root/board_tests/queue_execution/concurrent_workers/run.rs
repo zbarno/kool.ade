@@ -236,7 +236,7 @@ fn execution_lock_diagnostics(root: &std::path::Path, task_uid: &str) -> String 
         .map(|(_, _, summary)| summary)
         .collect::<Vec<_>>();
     format!(
-        "task={task_uid}, lock={lock_state}, newest_records={summaries:?}, total_records={total_records}, omitted_records={}",
+        "lock={lock_state}, newest_records={summaries:?}, total_records={total_records}, omitted_records={}",
         total_records.saturating_sub(summaries.len())
     )
 }
