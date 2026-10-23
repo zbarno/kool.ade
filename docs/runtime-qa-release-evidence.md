@@ -1,5 +1,19 @@
 # Runtime QA release evidence
 
+## Current tracker context (2026-10-23)
+
+The dated table below is a **historical evidence snapshot for PR #264**, not
+the current `main` release sign-off. #264 has now **merged**, as have #295
+(published-image digest smoke testing) and #305 (block false screenshot-free
+passes on mixed/visual targets). Open PR #298 proposes more report-ordering,
+redaction and source-bound evidence hardening. These implementations do not
+prove the full approved task-to-build-to-independent browser/desktop QA run
+on production-enabled pinned images; both image profiles remain
+`runtime_enabled: false`. Visual requirements without independently inspected
+screenshot pixels must remain **untested**. The release gate #171 stays open
+until updated exact-candidate CI/security/UX/manual proof is recorded.
+
+
 Evidence snapshot: 2026-10-21 for PR head
 [`930f1a6`](https://github.com/zbarno/kool.ade/commit/930f1a64a23edd5830b65eba4a55103bffd77c0c)
 on PR [#264](https://github.com/zbarno/kool.ade/pull/264); candidate image provenance
@@ -26,8 +40,9 @@ tests and local lifecycle tests do not satisfy the end-to-end release gate.
 ## Acceptance rule
 
 Do not enable either QA image profile, describe Runtime QA as shipped, close
-issues #166, #167, #168, #169, #171, or #173, or mark PR #264 ready until every
-row above has a passing, reviewable artifact for the supported platform matrix.
+issues #166, #167, #168, #169, #171, or #173 until every
+applicable row has a passing, reviewable artifact for the supported platform
+matrix. Merged PR #264 was a partial candidate delivery, not release approval.
 For each update, record the exact commit, workflow run or manual smoke artifact,
 image digest, fixture/scenario, and observed failure result. A passing source
 test or candidate-image smoke only changes the row it directly covers.
