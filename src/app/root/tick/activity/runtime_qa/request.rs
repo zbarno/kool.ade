@@ -3,14 +3,18 @@ use crate::{
     core::{implementation::Implementation, lifecycle::TaskRecord},
     execution::docker::images::{ImageLock, RuntimeProfile},
     project_runtime::{
-        AppSurface, AppTargetV1, ProjectRuntimeStore, RuntimeOperation, RuntimeReceiptState,
-        RuntimeReceiptV1,
+        AppSurface, AppTargetV1, ProjectRuntimeStore, RuntimeReceiptState, RuntimeReceiptV1,
     },
     runtime_qa::QaRunRequestV1,
 };
 mod artifact;
 mod provenance;
+mod targets;
 pub(super) use provenance::{verify_prepared_candidate, verify_provenance_for_request};
+pub(super) use targets::{
+    latest_start_receipt, latest_successful_build_receipt, selected_headless_target,
+    supports_qa_surface, workspace_target_path,
+};
 mod task_spec;
 mod validated;
 use artifact::recipe_sha256;
@@ -20,6 +24,7 @@ use validated::from_reviewed_task;
 /// approved target, successful build receipt, and exact artifact hashes.
 pub(super) struct ReviewedTaskInputs<'a> {
     pub task: &'a TaskRecord,
+    pub request_task_revision: u64,
     pub task_text: &'a str,
     pub implementation: &'a Implementation,
     pub target: &'a AppTargetV1,
@@ -66,9 +71,38 @@ pub(super) fn scenario_synthesis_evidence(
     )
 }
 
+pub(super) fn request_task_revision(task: &TaskRecord) -> u64 {
+    let Some(execution) = task.qa_execution.as_ref() else {
+        return task.revision;
+    };
+    if execution.request.is_none() {
+        return task.revision;
+    }
+    execution
+        .request_task_revision
+        .or_else(|| {
+            execution
+                .dispatch_task_revision
+                .and_then(|revision| revision.checked_sub(1))
+        })
+        // Older lifecycle records did not persist the request-creation
+        // revision. A queued request event is the only revision change in
+        // Pending, and dispatch adds one further revision in Running.
+        .or_else(|| task.revision.checked_sub(1))
+        .unwrap_or(task.revision)
+}
+
 /// Resolve request inputs only from persisted task, review, runtime target,
 /// build receipt, selected artifact snapshot, and explicit scenario approval.
 pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRequest, String> {
+    prepare_at_revision(project, task, request_task_revision(task))
+}
+
+fn prepare_at_revision(
+    project: &Project,
+    task: &TaskRecord,
+    request_task_revision: u64,
+) -> Result<PreparedRequest, String> {
     let planning_item_uid = task
         .planning_item_uid
         .as_deref()
@@ -209,6 +243,7 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
     );
     let request = from_reviewed_task(ReviewedTaskInputs {
         task,
+        request_task_revision,
         task_text: &document.text,
         implementation,
         target,
@@ -250,76 +285,6 @@ pub(super) fn prepare(project: &Project, task: &TaskRecord) -> Result<PreparedRe
             .map(|metadata| metadata.routing_overrides.clone())
             .unwrap_or_default(),
     })
-}
-
-fn supports_qa_surface(surface: AppSurface) -> bool {
-    matches!(
-        surface,
-        AppSurface::Web | AppSurface::LinuxDesktop | AppSurface::HeadlessService
-    )
-}
-
-fn workspace_target_path(target_root: &str, path: &str) -> Result<String, String> {
-    if target_root == "." || target_root == "./" {
-        Ok(path.to_owned())
-    } else if path == "." {
-        Ok(target_root.to_owned())
-    } else {
-        Ok(format!("{target_root}/{path}"))
-    }
-}
-
-pub(super) fn selected_headless_target(project: &Project, task: &TaskRecord) -> bool {
-    let Some(planning_uid) = task.planning_item_uid.as_deref() else {
-        return false;
-    };
-    let Ok(Some(manifest)) =
-        ProjectRuntimeStore::new(&project.state.planning_store).load_manifest()
-    else {
-        return false;
-    };
-    manifest.candidate_targets.iter().any(|target| {
-        target.app_surface == AppSurface::HeadlessService
-            && target.owning_task_id == planning_uid
-            && manifest.is_active_target(planning_uid, &target.target_id)
-    })
-}
-
-pub(super) fn latest_successful_build_receipt<'a>(
-    receipts: &'a [RuntimeReceiptV1],
-    target_id: &str,
-    source_sha: &str,
-    recipe_id: &str,
-) -> Option<&'a RuntimeReceiptV1> {
-    receipts
-        .iter()
-        .filter(|receipt| {
-            receipt.operation == RuntimeOperation::Build
-                && receipt.state == RuntimeReceiptState::Passed
-                && receipt.target_id == target_id
-                && receipt.source_sha == source_sha
-                && receipt.recipe_id.as_deref() == Some(recipe_id)
-        })
-        .max_by_key(|receipt| (receipt.observed_at_unix_ms, receipt.receipt_id.clone()))
-}
-
-pub(super) fn latest_start_receipt<'a>(
-    receipts: &'a [RuntimeReceiptV1],
-    task_id: &str,
-    target_id: &str,
-    source_sha: &str,
-    recipe_id: &str,
-) -> Option<&'a RuntimeReceiptV1> {
-    receipts
-        .iter()
-        .filter(|receipt| {
-            receipt.operation == RuntimeOperation::Start
-                && receipt.task_id == task_id
-                && receipt.target_id == target_id
-                && receipt.source_sha == source_sha
-                && receipt.recipe_id.as_deref() == Some(recipe_id)
-        })
-        .max_by_key(|receipt| (receipt.observed_at_unix_ms, receipt.receipt_id.clone()))
 }
 
 #[cfg(test)]

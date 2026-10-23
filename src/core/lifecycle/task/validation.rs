@@ -190,7 +190,9 @@ impl TaskRecord {
             && !self.qa_execution.as_ref().is_some_and(|state| {
                 matches!(
                     state.status,
-                    QaExecutionStatusV1::Pending | QaExecutionStatusV1::Blocked
+                    QaExecutionStatusV1::Pending
+                        | QaExecutionStatusV1::Running
+                        | QaExecutionStatusV1::Blocked
                 )
             })
         {

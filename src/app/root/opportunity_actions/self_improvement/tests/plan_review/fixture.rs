@@ -111,6 +111,28 @@ pub(super) fn prepare_reviewable_plan(project: &mut Project, feature_id: &str) {
     workflow
         .plan_comparisons
         .insert(feature_id.to_owned(), record);
+    workflow.brief = Some(crate::core::workflow::InterviewBrief {
+        feature_name: format!("{feature_id}: {title}"),
+        problem: "A pursued product improvement needs a reviewed plan before task work.".into(),
+        goal: "Create implementation tasks from the exact confirmed and reviewed plan.".into(),
+        target_users: "Kool.ad/e maintainers planning product improvements.".into(),
+        intended_outcome: "The approved Evolve plan appears as actionable task stories.".into(),
+        success_criteria: vec![
+            "The generated tasks cover each requirement in the reviewed plan.".into(),
+        ],
+        in_scope: vec!["Generate tasks for the selected reviewed plan.".into()],
+        out_of_scope: vec!["Allocate implementation clones before task approval.".into()],
+        constraints: vec!["Pursue authorizes planning, not implementation.".into()],
+        ready_for_tasks: true,
+    });
+    workflow.reviewed_specification = Some(markdown.clone());
+    workflow.feature_branch_targets.insert(
+        feature_id.to_owned(),
+        crate::core::workflow::BranchTargets {
+            source: "main".into(),
+            destination: "main".into(),
+        },
+    );
     crate::artifacts::task_docs::save_workflow(store, &workflow).unwrap();
     project.state.workflow = crate::artifacts::task_docs::load_workflow(store).unwrap();
     project
@@ -140,6 +162,11 @@ pub(super) fn prepare_plan_review_snapshot(project: &mut Project, feature_id: &s
         .find(|(id, _)| id == feature_id)
         .map(|(_, body)| body.clone())
         .expect("adopted feature is active");
+    let mut workflow = crate::artifacts::task_docs::load_workflow(store).unwrap();
+    workflow.reviewed_specification = Some(markdown.clone());
+    crate::artifacts::task_docs::save_workflow(store, &workflow).unwrap();
+    project.state.workflow = crate::artifacts::task_docs::load_workflow(store).unwrap();
+    project.state.baseline_planning_revision = store.revision().unwrap();
     let contract = crate::core::workflow::feature_contract(&markdown);
     let identity = ArtifactIdentity::from_markdown(&markdown)
         .unwrap()

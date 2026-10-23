@@ -2,10 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::runtime_qa::QaRunRequestV1;
 
-use super::TaskRecord;
 use crate::core::lifecycle::{GateActor, GateDecision, GateReceipt, types::is_sha256};
 
 mod applicability;
+mod validation;
 pub(super) use applicability::valid_not_applicable;
 
 pub(super) struct QaCompletion {
@@ -20,6 +20,7 @@ pub(super) struct QaCompletion {
 #[serde(rename_all = "snake_case")]
 pub enum QaExecutionStatusV1 {
     Pending,
+    Running,
     Blocked,
     Completed,
     NotApplicable,
@@ -32,6 +33,10 @@ pub struct QaExecutionStateV1 {
     pub schema_version: u16,
     pub status: QaExecutionStatusV1,
     pub request: Option<QaRunRequestV1>,
+    #[serde(default)]
+    pub request_task_revision: Option<u64>,
+    #[serde(default)]
+    pub dispatch_task_revision: Option<u64>,
     pub blocked_reason: Option<String>,
     pub result_sha256: Option<String>,
     pub evidence_manifest_sha256: Option<String>,
@@ -47,6 +52,8 @@ impl QaExecutionStateV1 {
             schema_version: 1,
             status: QaExecutionStatusV1::Pending,
             request: None,
+            request_task_revision: None,
+            dispatch_task_revision: None,
             blocked_reason: None,
             result_sha256: None,
             evidence_manifest_sha256: None,
@@ -56,92 +63,6 @@ impl QaExecutionStateV1 {
         }
     }
 
-    pub(super) fn validate(&self, task: &TaskRecord) -> Result<(), String> {
-        let request_valid = self.request.as_ref().is_some_and(|request| {
-            request.validate().is_ok()
-                && request.parent_task_uid == task.task_uid
-                && request.feature_uid == task.feature_uid
-                && Some(request.code_head_sha.as_str()) == task.reviewed_code_head_sha.as_deref()
-                && Some(request.complete_diff_hash.as_str())
-                    == task.implementation_sha256.as_deref()
-                && Some(request.review_subject_sha256.as_str())
-                    == task.reviewed_code_subject_sha256.as_deref()
-                && request.approved_spec_hash == task.approved_plan_sha256
-                && task.code_review.as_ref().is_some_and(|review| {
-                    review.decision == GateDecision::Approved
-                        && review.subject_sha256 == request.complete_diff_hash
-                        && review.author_run_id.as_deref() == Some(request.author_run_id.as_str())
-                        && review.author_session_id.as_deref()
-                            == Some(request.author_session_id.as_str())
-                })
-        });
-        let valid = match self.status {
-            QaExecutionStatusV1::Pending => {
-                self.blocked_reason.is_none()
-                    && self.result_sha256.is_none()
-                    && self.evidence_manifest_sha256.is_none()
-                    && self.reviewer_execution_id.is_none()
-                    && self.reviewer_session_id.is_none()
-                    && self.applicability.is_none()
-                    && (self.request.is_none() || request_valid)
-            }
-            QaExecutionStatusV1::Blocked => {
-                self.blocked_reason
-                    .as_ref()
-                    .is_some_and(|reason| !reason.trim().is_empty() && reason.len() <= 2048)
-                    && (request_valid
-                        || (self.request.is_none()
-                            && self.result_sha256.is_none()
-                            && self.evidence_manifest_sha256.is_none()))
-                    && self
-                        .result_sha256
-                        .as_ref()
-                        .is_none_or(|hash| is_sha256(hash))
-                    && self
-                        .evidence_manifest_sha256
-                        .as_ref()
-                        .is_none_or(|hash| is_sha256(hash))
-                    && self.result_sha256.is_some() == self.evidence_manifest_sha256.is_some()
-                    && self.reviewer_execution_id.is_none()
-                    && self.reviewer_session_id.is_none()
-                    && self.applicability.is_none()
-            }
-            QaExecutionStatusV1::Completed => {
-                request_valid
-                    && self.blocked_reason.is_none()
-                    && self.result_sha256.as_deref().is_some_and(is_sha256)
-                    && self
-                        .evidence_manifest_sha256
-                        .as_deref()
-                        .is_some_and(is_sha256)
-                    && self.reviewer_execution_id.as_deref().is_some_and(is_uuid)
-                    && self.reviewer_session_id.as_deref().is_some_and(is_uuid)
-                    && self.applicability.is_none()
-            }
-            QaExecutionStatusV1::NotApplicable => {
-                self.request.is_none()
-                    && self.blocked_reason.is_none()
-                    && self.result_sha256.is_none()
-                    && self.evidence_manifest_sha256.is_none()
-                    && self.reviewer_execution_id.is_none()
-                    && self.reviewer_session_id.is_none()
-                    && self.applicability.as_ref().is_some_and(|assessment| {
-                        assessment.validate().is_ok()
-                            && assessment.applicability
-                                == crate::runtime_qa::QaApplicability::NotApplicable
-                            && assessment.task_uid == task.task_uid
-                            && Some(assessment.code_sha.as_str())
-                                == task.reviewed_code_head_sha.as_deref()
-                            && assessment.approved_spec_hash == task.approved_plan_sha256
-                    })
-            }
-        };
-        if self.schema_version != 1 || !valid {
-            return Err("runtime QA lifecycle state is stale or malformed".into());
-        }
-        Ok(())
-    }
-
     pub(super) fn record_block(
         &mut self,
         request_id: &str,
@@ -149,12 +70,14 @@ impl QaExecutionStateV1 {
         result_sha256: Option<String>,
         evidence_manifest_sha256: Option<String>,
     ) -> Result<(), String> {
-        if self.status != QaExecutionStatusV1::Pending
-            || self
-                .request
-                .as_ref()
-                .map(|request| request.qa_run_id.as_str())
-                != Some(request_id)
+        if !matches!(
+            self.status,
+            QaExecutionStatusV1::Pending | QaExecutionStatusV1::Running
+        ) || self
+            .request
+            .as_ref()
+            .map(|request| request.qa_run_id.as_str())
+            != Some(request_id)
             || reason.trim().is_empty()
             || reason.len() > 2048
             || result_sha256.as_ref().is_some_and(|hash| !is_sha256(hash))
@@ -173,9 +96,30 @@ impl QaExecutionStateV1 {
         Ok(())
     }
 
-    pub(super) fn record_unavailable(&mut self, reason: String) -> Result<(), String> {
+    pub(super) fn record_worker_started(
+        &mut self,
+        request_id: &str,
+        task_revision: u64,
+    ) -> Result<(), String> {
         if self.status != QaExecutionStatusV1::Pending
-            || self.request.is_some()
+            || self
+                .request
+                .as_ref()
+                .map(|request| request.qa_run_id.as_str())
+                != Some(request_id)
+        {
+            return Err("runtime QA dispatch claim does not match the pending request".into());
+        }
+        self.status = QaExecutionStatusV1::Running;
+        self.dispatch_task_revision = Some(task_revision);
+        Ok(())
+    }
+
+    pub(super) fn record_unavailable(&mut self, reason: String) -> Result<(), String> {
+        if !matches!(
+            self.status,
+            QaExecutionStatusV1::Pending | QaExecutionStatusV1::Running
+        ) || self.request.is_some()
             || reason.trim().is_empty()
             || reason.len() > 2048
         {
@@ -204,8 +148,10 @@ impl QaExecutionStateV1 {
             .request
             .as_ref()
             .ok_or("runtime QA request is missing")?;
-        if self.status != QaExecutionStatusV1::Pending
-            || request.qa_run_id != qa_run_id
+        if !matches!(
+            self.status,
+            QaExecutionStatusV1::Pending | QaExecutionStatusV1::Running
+        ) || request.qa_run_id != qa_run_id
             || !is_sha256(&result_sha256)
             || !is_sha256(&evidence_manifest_sha256)
             || !is_uuid(&reviewer_execution_id)

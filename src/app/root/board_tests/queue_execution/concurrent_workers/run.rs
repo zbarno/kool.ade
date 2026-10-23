@@ -89,8 +89,26 @@ pub(super) fn exercise(prepared: Prepared) -> PathBuf {
             };
             let provider_trace = std::fs::read_to_string(root.join("fake-pi-trace.jsonl"))
                 .unwrap_or_else(|error| format!("trace unavailable: {error}"));
+            let fixture_progress = [
+                "capacity-wait-observed",
+                "mcp-started-task-1",
+                "mcp-tool-call-started-task-1",
+                "mcp-tool-call-returned-task-1",
+                "mcp-stop-started-task-1",
+                "mcp-stop-finished-task-1",
+                "capacity-wait-entered-task-1",
+                "capacity-wait-released-task-1",
+                "mcp-started-task-2",
+                "mcp-tool-call-started-task-2",
+                "mcp-tool-call-returned-task-2",
+                "mcp-stop-started-task-2",
+                "mcp-stop-finished-task-2",
+                "capacity-wait-entered-task-2",
+                "capacity-wait-released-task-2",
+            ]
+            .map(|marker| (marker, root.join(marker).exists()));
             panic!(
-                "queue did not finish: {}; {progress}; provider_trace={provider_trace}",
+                "queue did not finish: {}; {progress}; fixture_progress={fixture_progress:?}; provider_trace={provider_trace}",
                 app.queue_status()
             );
         }
