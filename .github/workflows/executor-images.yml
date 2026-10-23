@@ -14,7 +14,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Determine affected trusted-image families
+    runs-on: ubuntu-24.04
+    outputs:
+      executor: ${{ steps.select.outputs.executor }}
+      qa: ${{ steps.select.outputs.qa }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Identify image-dependent changes
+        id: select
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          executor=true
+          qa=true
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            executor=false
+            qa=false
+            git cat-file -e "${BASE_SHA}^{commit}"
+            git diff --name-only -z "$BASE_SHA" HEAD > "$RUNNER_TEMP/changed-paths"
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                containers/executor/*|containers/base-images.lock.json|containers/images.lock.json|scripts/*|.github/workflows/executor-images.yml)
+                  executor=true ;;
+              esac
+              case "$path" in
+                containers/runtime-qa/*|containers/base-images.lock.json|containers/images.lock.json|src/*|tests/*|assets/*|scripts/*|Cargo.toml|Cargo.lock|build.rs|.config/nextest.toml|.github/workflows/executor-images.yml)
+                  qa=true ;;
+              esac
+            done < "$RUNNER_TEMP/changed-paths"
+          fi
+          printf 'executor=%s\nqa=%s\n' "$executor" "$qa" >> "$GITHUB_OUTPUT"
+          printf 'Executor image candidate validation: %s; QA image candidate validation: %s\n' "$executor" "$qa" >> "$GITHUB_STEP_SUMMARY"
   build-and-verify:
+    needs: changes
+    if: needs.changes.outputs.executor == 'true'
     name: Build and verify ${{ matrix.profile }} (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
     permissions:
@@ -251,6 +289,8 @@ jobs:
           retention-days: 90
 
   build-and-verify-qa-images:
+    needs: changes
+    if: needs.changes.outputs.qa == 'true'
     name: Build and verify ${{ matrix.profile }} (linux/amd64)
     runs-on: ubuntu-24.04
     permissions:
@@ -366,21 +406,41 @@ jobs:
 
   verify-executor-image-lock:
     name: Verify reviewed image digests
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
-    needs: [build-and-verify, build-and-verify-qa-images]
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
+    needs: [changes, build-and-verify, build-and-verify-qa-images]
     runs-on: ubuntu-24.04
     steps:
+      - name: Require successful change discovery and selected image builders
+        env:
+          CHANGE_RESULT: ${{ needs.changes.result }}
+          EXECUTOR_REQUIRED: ${{ needs.changes.outputs.executor }}
+          QA_REQUIRED: ${{ needs.changes.outputs.qa }}
+          EXECUTOR_RESULT: ${{ needs.build-and-verify.result }}
+          QA_RESULT: ${{ needs.build-and-verify-qa-images.result }}
+        run: |
+          test "$CHANGE_RESULT" = success
+          if [[ "$EXECUTOR_REQUIRED" == true ]]; then test "$EXECUTOR_RESULT" = success; fi
+          if [[ "$QA_REQUIRED" == true ]]; then test "$QA_RESULT" = success; fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.executor == 'true' || needs.changes.outputs.qa == 'true'
       - name: Download rootless-built executor evidence
+        if: needs.changes.outputs.executor == 'true' || needs.changes.outputs.qa == 'true'
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           pattern: executor-image-candidate-*
           path: ${{ runner.temp }}/executor-image-candidates
       - name: Combine evidence and require exact manifest digests
+        if: needs.changes.outputs.executor == 'true' || needs.changes.outputs.qa == 'true'
+        env:
+          VERIFY_EXECUTOR: ${{ needs.changes.outputs.executor }}
+          VERIFY_QA: ${{ needs.changes.outputs.qa }}
         run: |
           set -euo pipefail
           mapfile -t evidence < <(find "$RUNNER_TEMP/executor-image-candidates" -name executor-image.json -type f | sort)
-          test "${#evidence[@]}" -eq 12
+          expected=0
+          if [[ "$VERIFY_EXECUTOR" == true ]]; then expected=$((expected + 10)); fi
+          if [[ "$VERIFY_QA" == true ]]; then expected=$((expected + 2)); fi
+          test "${#evidence[@]}" -eq "$expected"
           for image_record in "${evidence[@]}"; do
             artifact_dir="$(dirname "$image_record")"
             actual_sbom="sha256:$(sha256sum "$artifact_dir/executor-sbom.spdx.json" | awk '{print $1}')"
@@ -389,11 +449,13 @@ jobs:
             test "$actual_provenance" = "$(jq -er '.provenance_sha256' "$image_record")"
           done
           jq -s '{schema_version:1,images:.}' "${evidence[@]}" > "$RUNNER_TEMP/executor-image-candidates.json"
-          common_args=(--source-revision "$GITHUB_SHA" --require-profiles general rust node python go browser_qa desktop_qa)
+          common_args=(--source-revision "$GITHUB_SHA" --require-profiles)
+          if [[ "$VERIFY_EXECUTOR" == true ]]; then common_args+=(general rust node python go); fi
+          if [[ "$VERIFY_QA" == true ]]; then common_args+=(browser_qa desktop_qa); fi
           python3 scripts/promote-image-digests.py \
             "$RUNNER_TEMP/executor-image-candidates.json" \
             --evidence-root "$RUNNER_TEMP/executor-image-candidates" "${common_args[@]}"
-          if jq -e '
+          if [[ "$VERIFY_EXECUTOR" == true ]] && jq -e '
             all([.profiles.general[], .profiles.rust[], .profiles.node[], .profiles.python[], .profiles.go[]][];
               (.reference | startswith("ghcr.io/zbarno/koolade-executor@sha256:")))
           ' containers/images.lock.json >/dev/null; then
@@ -406,7 +468,7 @@ jobs:
           else
             printf 'Derived image candidates are validated and retained for review. Promote their digests in a lock-update pull request.\n' >> "$GITHUB_STEP_SUMMARY"
           fi
-          if jq -e '
+          if [[ "$VERIFY_QA" == true ]] && jq -e '
             all([.profiles.browser_qa[], .profiles.desktop_qa[]][];
               . as $image |
               ($image.reference | startswith("ghcr.io/zbarno/koolade-runtime-qa-")) and
@@ -421,6 +483,7 @@ jobs:
               --source-revision "$GITHUB_SHA" --require-profiles browser_qa desktop_qa --check-lock
           fi
       - name: Retain combined candidate manifest
+        if: needs.changes.outputs.executor == 'true' || needs.changes.outputs.qa == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: executor-image-evidence-manifest
@@ -634,7 +697,8 @@ jobs:
 
   smoke-reviewed-qa-pull-request:
     name: Published image smoke ${{ matrix.profile }}
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.qa == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
