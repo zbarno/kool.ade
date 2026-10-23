@@ -39,11 +39,11 @@ jobs:
             git diff --name-only -z "$BASE_SHA" HEAD > "$RUNNER_TEMP/changed-paths"
             while IFS= read -r -d '' path; do
               case "$path" in
-                containers/executor/*|containers/base-images.lock.json|containers/images.lock.json|scripts/*|.github/workflows/executor-images.yml)
+                containers/executor/*|containers/keys/*|containers/base-images.lock.json|containers/images.lock.json|scripts/*|.github/workflows/executor-images.yml)
                   executor=true ;;
               esac
               case "$path" in
-                containers/runtime-qa/*|containers/base-images.lock.json|containers/images.lock.json|src/*|tests/*|assets/*|scripts/*|Cargo.toml|Cargo.lock|build.rs|.config/nextest.toml|.github/workflows/executor-images.yml)
+                containers/runtime-qa/*|containers/keys/*|containers/base-images.lock.json|containers/images.lock.json|src/*|tests/*|assets/*|scripts/*|Cargo.toml|Cargo.lock|build.rs|.config/nextest.toml|.github/workflows/executor-images.yml)
                   qa=true ;;
               esac
             done < "$RUNNER_TEMP/changed-paths"
