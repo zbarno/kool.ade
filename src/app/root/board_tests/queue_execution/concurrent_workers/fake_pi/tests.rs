@@ -3,6 +3,9 @@ use std::{
     process::{Command, Stdio},
 };
 
+#[path = "tests/mcp_cleanup.rs"]
+mod mcp_cleanup;
+
 #[test]
 fn reviewer_fixture_covers_explicit_and_task_scope_requirements() {
     let root = tempfile::tempdir().unwrap();

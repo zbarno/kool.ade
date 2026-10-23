@@ -161,7 +161,9 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
         // Plan confirmation binds to the current product specification, just
         // as a connected project does after its initial bootstrap.
         project.state.bootstrap_missing().unwrap();
-        project.task_documents = docs.clone();
+        // Queue the capacity waiter only after the two intended workers are
+        // active, so task 4 cannot race ahead while task 2 is retrying.
+        project.task_documents = docs[..3].to_vec();
         project.queue.max_parallel = 2;
         project.queue.auto_publish = true;
         project.queue.blocked.insert(

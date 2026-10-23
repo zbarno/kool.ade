@@ -19,11 +19,26 @@ pub(super) fn exercise(prepared: Prepared) -> PathBuf {
     let mut concurrent_chat = false;
     let mut planning_and_queued_task_overlap = false;
     let mut saw_capacity_wait = false;
+    let mut task_four_queued = false;
     let mut max_workers = 0;
     loop {
         app.tick(0.1, &ctx);
         max_workers = max_workers.max(app.active_task_count());
         assert!(app.active_task_count() <= 2);
+        let first_two_active = matches!(
+            &app.screen,
+            Screen::Connected(project)
+                if project.active_implementations.contains_key(&docs[0].path)
+                    && project.active_implementations.contains_key(&docs[1].path)
+        );
+        if !task_four_queued && first_two_active {
+            // Add the capacity waiter only after both slots are occupied. This
+            // makes the queue assertion independent of retry scheduling order.
+            if let Screen::Connected(project) = &mut app.screen {
+                project.task_documents.push(docs[3].clone());
+                task_four_queued = true;
+            }
+        }
         let task_four_active = matches!(
             &app.screen,
             Screen::Connected(project)
@@ -89,8 +104,26 @@ pub(super) fn exercise(prepared: Prepared) -> PathBuf {
             };
             let provider_trace = std::fs::read_to_string(root.join("fake-pi-trace.jsonl"))
                 .unwrap_or_else(|error| format!("trace unavailable: {error}"));
+            let fixture_progress = [
+                "capacity-wait-observed",
+                "mcp-started-task-1",
+                "mcp-tool-call-started-task-1",
+                "mcp-tool-call-returned-task-1",
+                "mcp-stop-started-task-1",
+                "mcp-stop-finished-task-1",
+                "capacity-wait-entered-task-1",
+                "capacity-wait-released-task-1",
+                "mcp-started-task-2",
+                "mcp-tool-call-started-task-2",
+                "mcp-tool-call-returned-task-2",
+                "mcp-stop-started-task-2",
+                "mcp-stop-finished-task-2",
+                "capacity-wait-entered-task-2",
+                "capacity-wait-released-task-2",
+            ]
+            .map(|marker| (marker, root.join(marker).exists()));
             panic!(
-                "queue did not finish: {}; {progress}; provider_trace={provider_trace}",
+                "queue did not finish: {}; {progress}; fixture_progress={fixture_progress:?}; provider_trace={provider_trace}",
                 app.queue_status()
             );
         }
