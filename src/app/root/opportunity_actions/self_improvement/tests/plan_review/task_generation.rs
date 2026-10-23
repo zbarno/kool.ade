@@ -72,7 +72,85 @@ pub(super) fn generate_and_sync(
         "planning must not allocate a clone"
     );
 
+    let runs = SelfImprovementStore::new(planning);
+    let owner_task_uid = run
+        .owner_task_uid
+        .as_deref()
+        .expect("the approved Evolve plan has an owner task");
     let lifecycle = LifecycleStore::new(planning);
+    let owner_task = lifecycle.load_task(owner_task_uid).unwrap();
+    assert_eq!(owner_task.feature_uid, run.feature_uid);
+    let owner_planning_item_uid = owner_task
+        .planning_item_uid
+        .as_deref()
+        .expect("the generated task maps to a planning item");
+    let owner_document = match &app.screen {
+        Screen::Connected(project) => project
+            .task_documents
+            .iter()
+            .find(|document| {
+                document
+                    .metadata
+                    .as_ref()
+                    .is_some_and(|metadata| metadata.uid == owner_planning_item_uid)
+            })
+            .expect("the generated owner task is available in the app task board"),
+        Screen::Welcome => panic!("the app remains connected after task generation"),
+    };
+    let code_repository_id =
+        crate::core::implementation::task_repository_id_with_store(planning, &owner_document.path)
+            .unwrap();
+    assert_eq!(
+        owner_document.metadata.as_ref().unwrap().repository_id,
+        code_repository_id
+    );
+    let manifest = crate::core::project_repos::ProjectManifest::load(planning).unwrap();
+    let repository = manifest
+        .repositories
+        .iter()
+        .find(|repository| repository.id == code_repository_id)
+        .expect("the generated task repository is in the app manifest");
+    let workspace_uid = planning.project_id.hyphenated().to_string();
+    let repository_uid =
+        crate::core::project_repos::stable_uid(&workspace_uid, "repository", &code_repository_id);
+    assert_eq!(repository_uid, run.target_repository_uid);
+    assert_eq!(repository.remote, run.canonical_remote);
+    runs.authorize_task_start(
+        &run.feature_uid,
+        Some(owner_task_uid),
+        &repository_uid,
+        &repository.remote,
+    )
+    .expect("the app-generated task is dispatchable for its manifest target");
+    assert!(
+        runs.authorize_task_start(
+            &run.feature_uid,
+            Some("unplanned-task"),
+            &repository_uid,
+            &repository.remote,
+        )
+        .is_err()
+    );
+    let other_repository = format!("{}-other", repository_uid);
+    assert!(
+        runs.authorize_task_start(
+            &run.feature_uid,
+            Some(owner_task_uid),
+            &other_repository,
+            &repository.remote,
+        )
+        .is_err()
+    );
+    assert!(
+        runs.authorize_task_start(
+            &run.feature_uid,
+            Some(owner_task_uid),
+            &repository_uid,
+            "https://github.com/unapproved/other",
+        )
+        .is_err()
+    );
+
     let feature = lifecycle.load_feature(feature_uid).unwrap();
     assert_eq!(feature.phase, FeaturePhase::Executing);
     assert_eq!(run.task_uids, feature.task_uids);
