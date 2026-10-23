@@ -415,8 +415,8 @@ jobs:
           CHANGE_RESULT: ${{ needs.changes.result }}
           EXECUTOR_REQUIRED: ${{ needs.changes.outputs.executor }}
           QA_REQUIRED: ${{ needs.changes.outputs.qa }}
-          EXECUTOR_RESULT: ${{ needs.build-and-verify.result }}
-          QA_RESULT: ${{ needs.build-and-verify-qa-images.result }}
+          EXECUTOR_RESULT: ${{ needs['build-and-verify'].result }}
+          QA_RESULT: ${{ needs['build-and-verify-qa-images'].result }}
         run: |
           test "$CHANGE_RESULT" = success
           if [[ "$EXECUTOR_REQUIRED" == true ]]; then test "$EXECUTOR_RESULT" = success; fi
