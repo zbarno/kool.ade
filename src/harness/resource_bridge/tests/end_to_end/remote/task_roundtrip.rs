@@ -57,14 +57,19 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
             .trim()
             .to_owned(),
     };
+    let expected_upload_bytes =
+        crate::execution::remote::WorkspaceManifestV1::capture(workspace.clone(), &task_clone)
+            .expect("task workspace manifest should be valid")
+            .total_bytes;
     let task_id = workspace.task_id.clone();
+    let expected_worker_id = worker_id.clone();
     crate::persistence::remote_execution_telemetry::set_task_queue_wait_ms(&task_id, Some(17))
         .unwrap();
     let generation = uuid::Uuid::new_v4().hyphenated().to_string();
     let session = ExecutionSession::connect_remote_with_task_clone(
-        workspace,
+        workspace.clone(),
         crate::execution::session::RemoteSessionOptions {
-            target: crate::execution::contract::ExecutionTarget::remote(worker_id),
+            target: crate::execution::contract::ExecutionTarget::remote(worker_id.clone()),
             worker: &worker,
             mode: ExecutionModeV1::Implementation,
             profile: RuntimeProfile::General,
@@ -91,26 +96,28 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
         )
         .expect("remote task command and verified result synchronization must succeed");
     assert_eq!(output.result.exit_code, Some(0));
+    let expected_result_bytes =
+        crate::execution::remote::WorkspaceManifestV1::capture(workspace, &task_clone)
+            .expect("applied task workspace manifest should be valid")
+            .total_bytes;
     // Production boundary: this crosses authenticated SSH, worker Docker,
     // staging, verified result application, and local telemetry persistence.
-    // It proves queue wait and execution metrics follow the task identity into
-    // the real remote run. A unit test cannot prove that end-to-end binding.
-    // It requires Linux, sshd, the worker binary, and rootless Docker, with
-    // high setup cost. Provider behavior remains covered by mock tests.
+    // It proves transfer byte counts match the verified workspace manifests,
+    // and that queue wait and execution metrics follow the task and worker
+    // identities into the real remote run. Unit tests cannot prove those
+    // transport measurements. It requires Linux, sshd, the worker binary, and
+    // rootless Docker, with high setup cost. Provider behavior remains covered
+    // by mock tests.
     let telemetry =
         crate::persistence::remote_execution_telemetry::load(&output.result.execution_id)
             .unwrap()
             .expect("remote execution should persist transfer metrics");
-    assert!(
-        telemetry
-            .workspace_upload_bytes
-            .is_some_and(|value| value > 0)
+    assert_eq!(telemetry.worker_id, expected_worker_id);
+    assert_eq!(
+        telemetry.workspace_upload_bytes,
+        Some(expected_upload_bytes)
     );
-    assert!(
-        telemetry
-            .result_download_bytes
-            .is_some_and(|value| value > 0)
-    );
+    assert_eq!(telemetry.result_download_bytes, Some(expected_result_bytes));
     assert_eq!(telemetry.task_id.as_deref(), Some(task_id.as_str()));
     assert_eq!(telemetry.queue_wait_ms, Some(17));
     assert_eq!(telemetry.harness.as_deref(), Some("codex"));
