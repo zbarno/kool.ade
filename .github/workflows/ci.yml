@@ -116,8 +116,9 @@ jobs:
         uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
         with:
           tool: nextest@0.9.148
-      - name: Run all tests in parallel and report timing
+      - name: Run Docker, SSH, and remaining tests in parallel
         env:
+          KOOLADE_TEST_SUITE_LABEL: Docker/SSH and remaining tests
           KOOLADE_DOCKER_BACKEND_INTEGRATION: "1"
           KOOLADE_REMOTE_DOCKER_BACKEND_INTEGRATION: "1"
           KOOLADE_REQUIRE_SSHD_E2E: "1"
@@ -132,7 +133,8 @@ jobs:
           trap 'kill "$diagnostics_pid" 2>/dev/null || true; wait "$diagnostics_pid" 2>/dev/null || true' EXIT
           set +e
           /usr/bin/time -p -o "$RUNNER_TEMP/nextest-time.txt" \
-            cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast --test-threads 16
+            cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast --test-threads 16 \
+              -E 'not (test(/^core::implementation::tests::/) and not test(/docker_lifecycle/))'
           test_status=$?
           set -e
 
@@ -156,6 +158,85 @@ jobs:
             cat "$KOOLADE_TEST_DIAGNOSTICS_FILE"
           fi
 
+      - name: Retain per-test timing inventory
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: nextest-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/nextest/default/nextest.xml
+          if-no-files-found: error
+          retention-days: 14
+
+  core-implementation:
+    name: Git and implementation tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: rust-1.98.1-implementation-tests
+          cache-workspace-crates: true
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        with:
+          tool: nextest@0.9.148
+      - name: Run isolated Git and reconciliation tests
+        env:
+          KOOLADE_TEST_SUITE_LABEL: Git/reconciliation shard
+        run: |
+          /usr/bin/time -p -o "$RUNNER_TEMP/nextest-time.txt" \
+            cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast --test-threads 16 \
+              -E 'test(/^core::implementation::tests::/) and not test(/docker_lifecycle/)'
+          cat "$RUNNER_TEMP/nextest-time.txt"
+          python3 scripts/summarize-nextest-junit.py \
+            "$RUNNER_TEMP/nextest-time.txt" target/nextest/default/nextest.xml \
+            >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain Git/reconciliation timing inventory
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: nextest-implementation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: target/nextest/default/nextest.xml
+          if-no-files-found: warn
+          retention-days: 14
+  daemon-recovery:
+    name: isolated Docker daemon recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install isolated rootless-daemon prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes uidmap slirp4netns
+      - name: Prepare rootless Docker systemd session
+        run: bash scripts/prepare-rootless-docker-session.sh
+      - name: Start an isolated rootless Docker Engine
+        uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
+        with:
+          version: v29.9.0
+          rootless: true
+          set-host: true
+      - name: Require rootless Linux container support
+        run: |
+          test "$(docker info --format '{{.OSType}}')" = linux
+          docker info --format '{{json .SecurityOptions}}' \
+            | jq -e 'any(.[]; contains("name=rootless"))' >/dev/null
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: rust-1.98.1-daemon-recovery
+          cache-workspace-crates: true
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        with:
+          tool: nextest@0.9.148
       - name: Verify isolated rootless-daemon restart prerequisites
         run: |
           set -euo pipefail
@@ -173,16 +254,6 @@ jobs:
           unset DOCKER_CONTEXT
           cargo +1.98.1 nextest run --locked --lib --no-fail-fast --test-threads 1 \
             -E 'test(restarted_rootless_daemon_preserves_dirty_clone_without_command_replay)'
-
-      - name: Retain per-test timing inventory
-        if: success()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: nextest-inventory-${{ github.run_id }}-${{ github.run_attempt }}
-          path: target/nextest/default/nextest.xml
-          if-no-files-found: error
-          retention-days: 14
-
   docs:
     name: documentation tests
     runs-on: ubuntu-latest
@@ -253,13 +324,15 @@ jobs:
   quality:
     name: format, tests, and clippy
     if: always()
-    needs: [format, tests, docs, clippy, windows-process-tree, docker-only-check]
+    needs: [format, tests, core-implementation, daemon-recovery, docs, clippy, windows-process-tree, docker-only-check]
     runs-on: ubuntu-latest
     steps:
       - name: Require every quality gate
         env:
           FORMAT_RESULT: ${{ needs.format.result }}
           TESTS_RESULT: ${{ needs.tests.result }}
+          CORE_RESULT: ${{ needs['core-implementation'].result }}
+          DAEMON_RESULT: ${{ needs['daemon-recovery'].result }}
           DOCS_RESULT: ${{ needs.docs.result }}
           CLIPPY_RESULT: ${{ needs.clippy.result }}
           WINDOWS_PROCESS_TREE_RESULT: ${{ needs['windows-process-tree'].result }}
@@ -267,11 +340,15 @@ jobs:
         run: |
           printf 'format: %s\ntests: %s\nclippy: %s\n' \
             "$FORMAT_RESULT" "$TESTS_RESULT" "$CLIPPY_RESULT"
+          printf 'Git/reconciliation shard: %s\n' "$CORE_RESULT"
+          printf 'isolated daemon recovery: %s\n' "$DAEMON_RESULT"
           printf 'documentation tests: %s\n' "$DOCS_RESULT"
           printf 'Windows process-tree regression: %s\n' "$WINDOWS_PROCESS_TREE_RESULT"
           printf 'Docker-only runtime: %s\n' "$DOCKER_ONLY_RESULT"
           test "$FORMAT_RESULT" = success
           test "$TESTS_RESULT" = success
+          test "$CORE_RESULT" = success
+          test "$DAEMON_RESULT" = success
           test "$DOCS_RESULT" = success
           test "$CLIPPY_RESULT" = success
           test "$WINDOWS_PROCESS_TREE_RESULT" = success
