@@ -3,11 +3,12 @@ use super::*;
 /// Production boundary: authenticated Pursue must flow through the app's current
 /// user confirmation, isolated PlanReviewer dispatch, receipt persistence,
 /// task generation, Evolve projection to Ready, and the persisted dispatch fence
-/// for the generated task. Store or state-machine tests cannot prove this
-/// cross-module ordering and binding. Uses a headless app, temporary planning
-/// store, local fake `gh`, and deterministic in-process reviewers; no network,
-/// Docker, or model service. Setup cost is one app fixture and two short worker
-/// turns.
+/// for the generated task; normal controller start must also reject a drifted
+/// canonical remote before allocating a worker. Store or state-machine tests
+/// cannot prove this cross-module ordering and binding. Uses a headless app,
+/// temporary planning store, local fake `gh`, and deterministic in-process
+/// reviewers; no network, Docker, or model service. Setup cost is one app
+/// fixture and two short worker turns.
 #[cfg(unix)]
 #[test]
 fn pursued_self_improvement_uses_current_app_plan_review_before_task_generation() {
