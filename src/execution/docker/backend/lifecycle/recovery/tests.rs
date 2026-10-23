@@ -188,6 +188,7 @@ fn terminal_reconciliation_preserves_an_already_persisted_execution_result() {
             process_count: 7,
             disk_bytes: 89,
         },
+        phase_timings: Default::default(),
         artifacts: Vec::new(),
         failure: None,
     });

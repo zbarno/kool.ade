@@ -4,7 +4,7 @@ use std::io::Cursor;
 
 fn envelope() -> EnvelopeV1 {
     EnvelopeV1 {
-        version: PROTOCOL_VERSION_V1,
+        version: PROTOCOL_VERSION_V2,
         request_id: "00000000-0000-4000-8000-000000000001".into(),
         execution_id: "00000000-0000-4000-8000-000000000002".into(),
         sequence: 1,
@@ -20,6 +20,59 @@ fn round_trip_uses_bounded_length_prefixed_json() {
     let mut input = Cursor::new(bytes);
     assert_eq!(read_frame(&mut input).unwrap(), Some(envelope()));
     assert_eq!(read_frame(&mut input).unwrap(), None);
+}
+
+#[test]
+fn legacy_protocol_is_limited_to_the_single_version_two_health_bootstrap() {
+    let request = EnvelopeV1 {
+        version: PROTOCOL_VERSION_V1,
+        request_id: "00000000-0000-4000-8000-000000000003".into(),
+        execution_id: SYSTEM_IMAGE_SESSION_ID_V1.into(),
+        sequence: 1,
+        kind: EnvelopeKindV1::Health,
+        payload: serde_json::json!({
+            "wire_version": PROTOCOL_VERSION_V2,
+            "system_image_key":"1111111111111111111111111111111111111111111111111111111111111111"
+        }),
+    };
+    let mut wire = Vec::new();
+    write_frame(&mut wire, &request).unwrap();
+    assert_eq!(
+        read_frame(&mut Cursor::new(wire)).unwrap(),
+        Some(request.clone())
+    );
+
+    let mut validator = SessionValidator::default();
+    validator.accept_compat_health_request(&request).unwrap();
+    assert!(validator.accept_compat_health_request(&request).is_err());
+
+    let mut bootstrap_without_key = request.clone();
+    bootstrap_without_key.payload = serde_json::json!({"wire_version": PROTOCOL_VERSION_V2});
+    assert!(
+        SessionValidator::default()
+            .accept_compat_health_request(&bootstrap_without_key)
+            .is_err()
+    );
+
+    let response = EnvelopeV1 {
+        version: PROTOCOL_VERSION_V1,
+        request_id: request.request_id.clone(),
+        execution_id: request.execution_id.clone(),
+        sequence: request.sequence,
+        kind: EnvelopeKindV1::Error,
+        payload: serde_json::json!({"kind":"worker_incompatible","message":"unsupported","retryable":false}),
+    };
+    let mut validator = SessionValidator::default();
+    validator.accept_compat_health_response(&response).unwrap();
+
+    let mut non_health = request;
+    non_health.kind = EnvelopeKindV1::Exec;
+    assert!(write_frame(Vec::new(), &non_health).is_err());
+    assert!(
+        SessionValidator::default()
+            .accept_compat_health_request(&non_health)
+            .is_err()
+    );
 }
 
 #[test]
@@ -41,13 +94,13 @@ fn oversized_and_truncated_frames_are_rejected_before_decode() {
 fn rejects_unknown_fields_and_incompatible_versions() {
     let mut bytes = Vec::new();
     let mut bad = envelope();
-    bad.version = 2;
+    bad.version = PROTOCOL_VERSION_V2 - 1;
     assert_eq!(
         write_frame(&mut bytes, &bad).unwrap_err().kind(),
         io::ErrorKind::InvalidData
     );
 
-    let json = br#"{"version":1,"request_id":"00000000-0000-4000-8000-000000000001","execution_id":"00000000-0000-4000-8000-000000000002","sequence":1,"kind":"probe","payload":{},"extra":true}"#;
+    let json = br#"{"version":2,"request_id":"00000000-0000-4000-8000-000000000001","execution_id":"00000000-0000-4000-8000-000000000002","sequence":1,"kind":"probe","payload":{},"extra":true}"#;
     let mut framed = (json.len() as u32).to_be_bytes().to_vec();
     framed.extend_from_slice(json);
     assert_eq!(
@@ -108,6 +161,23 @@ fn private_chunk_payload_is_redacted_and_cleared() {
 }
 
 #[test]
+fn health_payload_is_redacted_and_cleared() {
+    let mut request = envelope();
+    request.kind = EnvelopeKindV1::Health;
+    request.payload = serde_json::json!({
+        "wire_version": PROTOCOL_VERSION_V2,
+        "system_image_key": "1111111111111111111111111111111111111111111111111111111111111111"
+    });
+    let diagnostic = format!("{request:?}");
+    assert!(
+        !diagnostic.contains("1111111111111111111111111111111111111111111111111111111111111111")
+    );
+
+    request.clear_sensitive_payload();
+    assert_eq!(request.payload, serde_json::Value::Null);
+}
+
+#[test]
 fn generic_frame_writer_rejects_private_chunks_before_output() {
     let mut request = envelope();
     request.kind = EnvelopeKindV1::PrivateFileChunk;
@@ -122,7 +192,7 @@ fn generic_frame_writer_rejects_private_chunks_before_output() {
 
 #[test]
 fn private_payload_raw_scan_covers_partial_envelope_parse_errors() {
-    let body = br#"{"version":1,"request_id":"00000000-0000-4000-8000-000000000001","execution_id":"00000000-0000-4000-8000-000000000002","kind":"private_file_chunk","payload":{"bytes":"c2Vuc2l0aXZl"},"sequence":"invalid"}"#;
+    let body = br#"{"version":2,"request_id":"00000000-0000-4000-8000-000000000001","execution_id":"00000000-0000-4000-8000-000000000002","kind":"private_file_chunk","payload":{"bytes":"c2Vuc2l0aXZl"},"sequence":"invalid"}"#;
     let mut frame = (body.len() as u32).to_be_bytes().to_vec();
     frame.extend_from_slice(body);
 
@@ -134,7 +204,7 @@ fn private_payload_raw_scan_covers_partial_envelope_parse_errors() {
 
 #[test]
 fn malformed_private_payload_is_rejected_before_value_decode() {
-    let body = br#"{"version":1,"request_id":"00000000-0000-4000-8000-000000000001","execution_id":"00000000-0000-4000-8000-000000000002","sequence":1,"kind":"private_file_chunk","payload":{"bytes":"c2Vuc2l0aXZl",}}"#;
+    let body = br#"{"version":2,"request_id":"00000000-0000-4000-8000-000000000001","execution_id":"00000000-0000-4000-8000-000000000002","sequence":1,"kind":"private_file_chunk","payload":{"bytes":"c2Vuc2l0aXZl",}}"#;
     let mut frame = (body.len() as u32).to_be_bytes().to_vec();
     frame.extend_from_slice(body);
 
@@ -146,7 +216,7 @@ fn malformed_private_payload_is_rejected_before_value_decode() {
 
 #[test]
 fn private_payload_inside_json_is_rejected_as_an_invalid_header() {
-    let body = br#"{"version":1,"request_id":"00000000-0000-4000-8000-000000000001","execution_id":"00000000-0000-4000-8000-000000000002","sequence":1,"kind":"private_file_chunk","payload":{"bytes":"c2Vuc2l0aXZl","untrusted_number":1e9999}}"#;
+    let body = br#"{"version":2,"request_id":"00000000-0000-4000-8000-000000000001","execution_id":"00000000-0000-4000-8000-000000000002","sequence":1,"kind":"private_file_chunk","payload":{"bytes":"c2Vuc2l0aXZl","untrusted_number":1e9999}}"#;
     let mut frame = (body.len() as u32).to_be_bytes().to_vec();
     frame.extend_from_slice(body);
 
@@ -157,7 +227,7 @@ fn private_payload_inside_json_is_rejected_as_an_invalid_header() {
 #[test]
 fn invalid_private_envelope_is_rejected_after_validation() {
     let request = EnvelopeV1 {
-        version: PROTOCOL_VERSION_V1,
+        version: PROTOCOL_VERSION_V2,
         request_id: "00000000-0000-4000-8000-000000000001".into(),
         execution_id: "00000000-0000-4000-8000-000000000002".into(),
         sequence: 0,

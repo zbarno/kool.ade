@@ -83,7 +83,7 @@ impl RemoteWorkerClient {
         let payload = serde_json::to_value(chunk.header().map_err(|_| incompatible())?)
             .map_err(|_| incompatible())?;
         let envelope = EnvelopeV1 {
-            version: PROTOCOL_VERSION_V1,
+            version: PROTOCOL_VERSION_V2,
             request_id: uuid::Uuid::new_v4().hyphenated().to_string(),
             execution_id: execution_id.to_owned(),
             sequence,

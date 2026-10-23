@@ -19,6 +19,7 @@ fn result_manifest(bytes: &[u8]) -> TransferManifestV1 {
                 process_count: 1,
                 disk_bytes: 0,
             },
+            phase_timings: Default::default(),
             artifacts: vec![ArtifactManifestEntryV1 {
                 relative_path: "result.bin".into(),
                 size_bytes: bytes.len() as u64,

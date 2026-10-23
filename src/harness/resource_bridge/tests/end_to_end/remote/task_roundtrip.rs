@@ -114,6 +114,15 @@ fn ssh_worker_applies_verified_remote_file_change_to_the_task_clone() {
             .is_some_and(|digest| { digest.starts_with("sha256:") && digest.len() == 71 })
     );
     assert!(telemetry.execution_wall_ms.is_some());
+    let phases = telemetry
+        .execution_phase_timings
+        .as_ref()
+        .expect("worker phase timings should be relayed to controller telemetry");
+    assert!(phases.image_preparation_ms.is_some());
+    assert!(phases.dependency_cache_stage_ms.is_some());
+    assert!(phases.workspace_stage_in_ms.is_some());
+    assert!(phases.workspace_stage_out_ms.is_some());
+    assert!(phases.cleanup_ms.is_some());
     assert_eq!(
         telemetry.execution_cpu_millis,
         Some(output.result.metrics.cpu_millis)

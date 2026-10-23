@@ -110,7 +110,7 @@ pub(crate) fn read_worker_frame(input: &mut impl Read) -> io::Result<Option<Work
         kind: raw.kind,
         payload,
     };
-    envelope.validate()?;
+    envelope.validate_compat_frame()?;
     match chunk {
         Some(chunk) => Ok(Some(WorkerInboundFrameV1::PrivateFileChunk {
             envelope,

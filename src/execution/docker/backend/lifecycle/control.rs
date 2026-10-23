@@ -107,31 +107,32 @@ pub(super) async fn collect(
             true,
         ));
     }
-    let execution = match backend.lookup_execution(handle) {
-        Ok(execution) => execution,
-        Err(error) if error.kind == ExecutionErrorKind::WorkerDisconnected => {
-            return record.result.ok_or_else(|| {
+    let mut result = match backend.lookup_execution(handle) {
+        Ok(execution) => execution
+            .lock()
+            .map_err(|_| internal_error_with_context("reading the terminal execution result"))?
+            .result
+            .clone()
+            .ok_or_else(|| {
                 ExecutionError::new(
                     ExecutionErrorKind::ExecutionFailed,
                     "Execution has no confirmed terminal result",
                     false,
                 )
-            });
+            })?,
+        Err(error) if error.kind == ExecutionErrorKind::WorkerDisconnected => {
+            record.result.ok_or_else(|| {
+                ExecutionError::new(
+                    ExecutionErrorKind::ExecutionFailed,
+                    "Execution has no confirmed terminal result",
+                    false,
+                )
+            })?
         }
         Err(error) => return Err(error),
     };
-    execution
-        .lock()
-        .map_err(|_| internal_error_with_context("reading the terminal execution result"))?
-        .result
-        .clone()
-        .ok_or_else(|| {
-            ExecutionError::new(
-                ExecutionErrorKind::ExecutionFailed,
-                "Execution has no confirmed terminal result",
-                false,
-            )
-        })
+    result.phase_timings = record.phase_timings;
+    Ok(result)
 }
 
 fn is_worker_loss_result(result: &ExecutionResultV1) -> bool {
