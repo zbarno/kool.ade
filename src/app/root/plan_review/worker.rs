@@ -3,20 +3,22 @@ use super::*;
 use crate::harness::{AiHarness, ExecutionMode, LiveProgress, PlanningRequest};
 
 impl PlanReview {
-    #[cfg(not(test))]
     pub(crate) fn start(
         project: &crate::app::session::Project,
         feature_id: String,
         harness: Box<dyn AiHarness>,
     ) -> Result<Self, String> {
-        if let Some(outcome) = super::prepare::recover_persisted_review(project, &feature_id)? {
-            let (done, result) = mpsc::channel();
-            done.send(Ok(outcome))
-                .map_err(|_| "could not queue the persisted plan review result".to_owned())?;
-            return Ok(Self {
-                result,
-                cancel: Arc::new(AtomicBool::new(false)),
-            });
+        #[cfg(not(test))]
+        {
+            if let Some(outcome) = super::prepare::recover_persisted_review(project, &feature_id)? {
+                let (done, result) = mpsc::channel();
+                done.send(Ok(outcome))
+                    .map_err(|_| "could not queue the persisted plan review result".to_owned())?;
+                return Ok(Self {
+                    result,
+                    cancel: Arc::new(AtomicBool::new(false)),
+                });
+            }
         }
         Self::start_with_context(project, feature_id, harness, None)
     }

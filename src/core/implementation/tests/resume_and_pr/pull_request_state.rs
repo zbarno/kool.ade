@@ -25,8 +25,10 @@ fn pr_checks_persist_closed_reopened_merged_and_keep_state_on_failure() {
             let payload = serde_json::json!({
                 "state": "MERGED",
                 "mergeCommit": {"oid": merge_commit},
+                "mergedAt": "2026-10-18T10:00:00Z",
                 "number": 1,
                 "headRefOid": "f".repeat(40),
+                "baseRefOid": "e".repeat(40),
                 "baseRefName": "main"
             });
             format!("#!/bin/sh\nprintf '%s\\n' '{payload}'\n")
@@ -48,6 +50,7 @@ fn pr_checks_persist_closed_reopened_merged_and_keep_state_on_failure() {
             assert_eq!(details.number, 1);
             assert_eq!(details.head_sha, "f".repeat(40));
             assert_eq!(details.base_branch, "main");
+            assert_eq!(details.merged_at.as_deref(), Some("2026-10-18T10:00:00Z"));
             assert!(
                 state
                     .detail

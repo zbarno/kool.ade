@@ -178,6 +178,8 @@ pub struct PullRequestDetails {
     pub head_sha: String,
     pub base_sha: Option<String>,
     pub base_branch: String,
+    #[serde(default)]
+    pub merged_at: Option<String>,
 }
 
 impl PublicationStatus {

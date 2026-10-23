@@ -14,6 +14,19 @@ pub use save::{save_display_names, save_display_names_expected};
 pub const PROJECT_FILE: &str = crate::artifacts::layout::canonical::PROJECT_MANIFEST;
 pub const MAX_PROJECT_MANIFEST_BYTES: usize = 1024 * 1024;
 
+/// Derive the portable identity used for repository and evidence references in
+/// persisted opportunity proposals. The planning workspace scopes each ID.
+pub fn stable_uid(workspace_uid: &str, kind: &str, value: &str) -> String {
+    use sha2::Digest;
+
+    let digest = sha2::Sha256::digest(format!("{workspace_uid}\0{kind}\0{value}").as_bytes());
+    let mut bytes = [0u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    uuid::Uuid::from_bytes(bytes).hyphenated().to_string()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Repository {
     pub id: String,

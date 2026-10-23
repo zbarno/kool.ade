@@ -188,6 +188,14 @@ impl OpportunityV1 {
                 "Kool.ad/e opportunities must target the canonical product repository".into(),
             );
         }
+        if self.target.kind != OpportunityTargetKindV1::ActiveUserProject
+            && self
+                .evidence_refs
+                .iter()
+                .any(|item| item.confidentiality != EvidenceConfidentialityV1::Public)
+        {
+            return Err("cross-repository opportunities cannot cite user-local evidence".into());
+        }
         Ok(())
     }
 

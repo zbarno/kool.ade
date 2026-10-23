@@ -2,6 +2,24 @@ use super::*;
 
 impl KooladeApp {
     pub(super) fn approve_feature_action(&mut self, id: &str, _prepare_tasks: bool) {
+        self.approve_feature_action_inner(id, _prepare_tasks, None);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn approve_feature_action_with_harness_for_test(
+        &mut self,
+        id: &str,
+        harness: Box<dyn crate::harness::AiHarness>,
+    ) {
+        self.approve_feature_action_inner(id, false, Some(harness));
+    }
+
+    fn approve_feature_action_inner(
+        &mut self,
+        id: &str,
+        _prepare_tasks: bool,
+        review_harness: Option<Box<dyn crate::harness::AiHarness>>,
+    ) {
         let Some(action) = self
             .available_feature_actions(None)
             .into_iter()
@@ -96,17 +114,22 @@ impl KooladeApp {
             ));
             return;
         }
-        #[cfg(test)]
-        let review_start: Result<_, String> =
-            Err("test-only reviewer outcomes must be supplied explicitly".into());
-        #[cfg(not(test))]
-        let review_start = {
-            let harness = crate::app::root::configured_harness_for_project(
-                &mut self.task_harness,
-                Some(crate::persistence::harness_settings::PLAN_REVIEW),
-                &p.state.harness_routes.routes,
-            );
+        let review_start = if let Some(harness) = review_harness {
             crate::app::root::plan_review::PlanReview::start(p, id.to_owned(), harness)
+        } else {
+            #[cfg(test)]
+            {
+                Err("test-only reviewer outcomes must be supplied explicitly".into())
+            }
+            #[cfg(not(test))]
+            {
+                let harness = crate::app::root::configured_harness_for_project(
+                    &mut self.task_harness,
+                    Some(crate::persistence::harness_settings::PLAN_REVIEW),
+                    &p.state.harness_routes.routes,
+                );
+                crate::app::root::plan_review::PlanReview::start(p, id.to_owned(), harness)
+            }
         };
         match review_start {
             Ok(review) => {

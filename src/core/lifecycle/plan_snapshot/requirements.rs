@@ -64,3 +64,36 @@ pub(super) fn valid_acceptance_id(id: &str) -> bool {
     id.strip_prefix("AC-")
         .is_some_and(|suffix| suffix.len() == 3 && suffix.bytes().all(|byte| byte.is_ascii_digit()))
 }
+
+pub(super) fn validate_acceptance_criteria(
+    schema_version: u8,
+    requirements: &[PlanRequirementV1],
+    acceptance_criteria: &[String],
+) -> Result<(), String> {
+    let ids = acceptance_criteria
+        .iter()
+        .filter_map(|criterion| criterion.split_once(':').map(|(id, _)| id))
+        .collect::<std::collections::HashSet<_>>();
+    let identified = acceptance_criteria.iter().all(|criterion| {
+        criterion.split_once(':').is_some_and(|(id, text)| {
+            valid_acceptance_id(id) && !text.trim().is_empty()
+        })
+    });
+    if (schema_version == 2 && !identified)
+        || (identified && ids.len() != acceptance_criteria.len())
+    {
+        return Err("plan acceptance criteria need unique IDs and nonempty text".into());
+    }
+    if requirements.iter().any(|requirement| {
+        requirement.acceptance_criteria_ids.iter().any(|id| {
+            !acceptance_criteria.iter().any(|criterion| {
+                criterion
+                    .split_once(':')
+                    .is_some_and(|(criterion_id, _)| criterion_id == id)
+            })
+        })
+    }) {
+        return Err("plan requirement references an unknown acceptance criterion".into());
+    }
+    Ok(())
+}

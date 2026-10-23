@@ -62,6 +62,11 @@ fn product_proposal_must_use_canonical_repository() {
     value.target.kind = OpportunityTargetKindV1::KooladeProduct;
     assert!(value.validate().is_err());
     value.target.canonical_remote = "https://github.com/zbarno/kool.ade".into();
+    assert!(
+        value.validate().is_err(),
+        "private evidence cannot cross to the public product repo"
+    );
+    value.evidence_refs[0].confidentiality = EvidenceConfidentialityV1::Public;
     assert!(value.validate().is_ok());
 }
 

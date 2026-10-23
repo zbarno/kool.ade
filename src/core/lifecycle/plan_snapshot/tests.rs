@@ -29,6 +29,68 @@ fn identified(markdown: &str) -> (ArtifactIdentity, String) {
     (identity, identified)
 }
 
+#[test]
+fn capability_id_is_validated_and_bound_to_the_confirmed_snapshot_hash() {
+    let markdown = format!(
+        "{}\n## Capability ID\n\nself-improvement-lifecycle\n",
+        spec()
+    );
+    let (identity, markdown) = identified(&markdown);
+    let contract = crate::core::workflow::feature_contract(&markdown);
+    let snapshot = PlanSnapshotV1::from_feature_with_original_goal(
+        "CHG-021",
+        &identity,
+        &markdown,
+        &contract,
+        "planning_work:fixture:request_sha256:abc",
+        "Add self-improvement lifecycle support",
+    )
+    .unwrap();
+    assert_eq!(
+        snapshot.capability_id.as_deref(),
+        Some("self-improvement-lifecycle")
+    );
+
+    let mut tampered = snapshot.clone();
+    tampered.capability_id = Some("other-capability".into());
+    assert!(tampered.validate().is_err());
+
+    let invalid = format!("{}\n## Capability ID\n\nSelf-Improvement\n", spec());
+    let (identity, invalid) = identified(&invalid);
+    let contract = crate::core::workflow::feature_contract(&invalid);
+    assert!(
+        PlanSnapshotV1::from_feature_with_original_goal(
+            "CHG-021",
+            &identity,
+            &invalid,
+            &contract,
+            "planning_work:fixture:request_sha256:abc",
+            "Add a capability",
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn capability_without_original_goal_uses_the_legacy_compatible_schema() {
+    let markdown = format!(
+        "{}\n## Capability ID\n\nself-improvement-lifecycle\n",
+        spec()
+    );
+    let (identity, markdown) = identified(&markdown);
+    let contract = crate::core::workflow::feature_contract(&markdown);
+    let snapshot =
+        PlanSnapshotV1::from_feature("CHG-021", &identity, &markdown, &contract).unwrap();
+
+    assert_eq!(snapshot.schema_version, 2);
+    assert!(snapshot.original_goal.is_empty());
+    assert_eq!(
+        snapshot.capability_id.as_deref(),
+        Some("self-improvement-lifecycle")
+    );
+    snapshot.validate().unwrap();
+}
+
 fn legacy_snapshot() -> PlanSnapshotV1 {
     let (identity, markdown) = identified(&spec());
     let contract = crate::core::workflow::feature_contract(&markdown);
