@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-import atexit, functools, json, os, pathlib, subprocess, sys, time
+import atexit, functools, json, os, pathlib, subprocess, sys, threading, time
 if '--help' in sys.argv:
     print('''--print
 --mode <mode> text, json, rpc
@@ -34,25 +34,39 @@ def wait_for_marker(name):
         time.sleep(0.01)
     if not marker.exists():
         raise TimeoutError('timed out waiting for test marker: ' + name)
-def reap_mcp_server(server):
-    if server.poll() is None:
-        try:
-            if server.stdin and not server.stdin.closed:
-                server.stdin.write(json.dumps({'jsonrpc':'2.0','method':'exit'}) + '\n')
-                server.stdin.flush()
-                server.stdin.close()
-        except OSError:
+def drain_mcp_stdout(stream):
+    try:
+        while stream.read(65536):
             pass
-        try:
-            server.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            server.terminate()
+    except (OSError, ValueError):
+        pass
+def reap_mcp_server(server):
+    drainer = None
+    if server.stdout and not server.stdout.closed:
+        drainer = threading.Thread(target=drain_mcp_stdout, args=(server.stdout,), daemon=True)
+        drainer.start()
+    try:
+        if server.poll() is None:
             try:
-                server.wait(timeout=5)
+                if server.stdin and not server.stdin.closed:
+                    server.stdin.write(json.dumps({'jsonrpc':'2.0','method':'exit'}) + '\n')
+                    server.stdin.flush()
+                    server.stdin.close()
+            except OSError:
+                pass
+            try:
+                server.wait(timeout=30)
             except subprocess.TimeoutExpired:
-                server.kill()
-                server.wait()
-            raise TimeoutError('fixture MCP server did not stop after exit notification')
+                server.terminate()
+                try:
+                    server.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    server.kill()
+                    server.wait()
+                raise TimeoutError('fixture MCP server did not stop after exit notification')
+    finally:
+        if drainer is not None:
+            drainer.join(timeout=5)
     if server.returncode != 0:
         raise RuntimeError('fixture MCP server exited with status ' + str(server.returncode))
 def cleanup_mcp_server(server):

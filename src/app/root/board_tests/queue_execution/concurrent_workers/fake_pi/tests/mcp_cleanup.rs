@@ -6,12 +6,11 @@ use std::{
 };
 
 #[test]
-fn provider_waits_for_slow_mcp_child_shutdown_before_returning() {
+fn provider_drains_mcp_output_and_waits_for_child_before_returning() {
     // Boundary: fake provider -> app-owned MCP child process. Invariant: the
-    // provider must not return while its MCP child can still hold task execution
-    // state that a queue retry needs. A Rust unit cannot prove child exit. This
-    // uses temporary scripts and config only; no Docker or vendor API, with low
-    // setup cost.
+    // provider must drain child output and reap it before a queue retry can need
+    // the task execution state. A Rust unit cannot prove child exit. This uses
+    // temporary scripts and config only; no Docker or vendor API, with low cost.
     let root = tempfile::tempdir().unwrap();
     let provider = super::super::create(root.path());
     let config = root.path().join("mcp-config.json");
@@ -35,6 +34,8 @@ for line in sys.stdin:
     method = request.get('method')
     if method == 'exit':
         Path(os.environ['MCP_EXIT_MARKER']).write_text('received')
+        sys.stdout.write('x' * (1024 * 1024))
+        sys.stdout.flush()
         release = Path(os.environ['MCP_RELEASE_MARKER'])
         deadline = time.monotonic() + 10
         while not release.exists() and time.monotonic() < deadline:
@@ -79,8 +80,8 @@ for line in sys.stdin:
         std::thread::sleep(Duration::from_millis(10));
     }
     let cleanup_requested_exit = exit_marker.is_file();
-    // The old provider called wait(timeout=3). Keep the child alive beyond that
-    // deadline so this test detects a provider that exits while its child lives.
+    // The old provider called wait(timeout=3) without draining stdout. Keep the
+    // child alive beyond that deadline and flood its pipe to exercise both gaps.
     let verification_deadline = Instant::now() + Duration::from_millis(3500);
     let mut provider_exited_before_release = false;
     while Instant::now() < verification_deadline {
