@@ -115,13 +115,19 @@ pub(super) fn generate_and_sync(
         crate::core::project_repos::stable_uid(&workspace_uid, "repository", &code_repository_id);
     assert_eq!(repository_uid, run.target_repository_uid);
     assert_eq!(repository.remote, run.canonical_remote);
-    runs.authorize_task_start(
-        &run.feature_uid,
-        Some(owner_task_uid),
-        &repository_uid,
-        &repository.remote,
-    )
-    .expect("the app-generated task is dispatchable for its manifest target");
+    assert!(
+        crate::app::root::implementation_controller::authorize_self_improvement_task_start_for_test(
+            planning,
+            match &app.screen {
+                Screen::Connected(project) => &project.task_documents,
+                Screen::Welcome => panic!("the app remains connected after task generation"),
+            },
+            &owner_document.path,
+            &code_repository_id,
+        )
+        .expect("the app-generated task is dispatchable for its manifest target"),
+        "the controller must identify the generated task as a self-improvement run"
+    );
     assert!(
         runs.authorize_task_start(
             &run.feature_uid,
