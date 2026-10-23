@@ -26,8 +26,9 @@ jobs but its queue E2E timed out after 182.3 seconds. Tasks 001 and 002 were
 held behind the fixture's capacity-release marker after task 004 had already
 reached approval, so the expected capacity-wait state was never observed. PR
 #317 is adding deterministic fixture ordering; a fresh hosted result is still
-required. This differs from the earlier lock and clone-registration failure,
-which #319 has since fixed and passed on main.
+required; the queue E2E was its only underlying gate failure, causing the
+required quality aggregate to fail. This differs from the earlier lock and
+clone-registration failure, which #319 has since fixed and passed on main.
 
 Status meanings:
 
@@ -61,7 +62,7 @@ retroactively change older statuses or tested commits in the dated table.
 
 | Gate | Status | Evidence | Remaining proof |
 | --- | --- | --- | --- |
-| Pinned Rust gates and required quality aggregation | Partial | Main [quality run #39994319817](https://github.com/zbarno/kool.ade/actions/runs/39994319817) at `6fec626` passed format, tests, docs, Clippy, Docker/SSH coverage, daemon recovery, queue E2E, and the Docker-only assertion. Refreshed PR #317 head `7a1cacb` failed only the queue E2E in [run #39998474373](https://github.com/zbarno/kool.ade/actions/runs/39998474373): task 004 completed before the capacity-wait barrier, leaving tasks 001 and 002 waiting until timeout. A deterministic test-fixture ordering fix is under validation. | Obtain fresh green hosted checks on the reviewed heads and final main; keep #312 open until measured latency is recorded. |
+| Pinned Rust gates and required quality aggregation | Partial | Main [quality run #39994319817](https://github.com/zbarno/kool.ade/actions/runs/39994319817) at `6fec626` passed format, tests, docs, Clippy, Docker/SSH coverage, daemon recovery, queue E2E, and the Docker-only assertion. Refreshed PR #317 head `7a1cacb` failed the queue E2E in [run #39998474373](https://github.com/zbarno/kool.ade/actions/runs/39998474373): task 004 completed before the capacity-wait barrier, leaving tasks 001 and 002 waiting until timeout. This was the only underlying gate failure; the required aggregate failed as a consequence. A deterministic test-fixture ordering fix is under validation. | Obtain fresh green hosted checks on the reviewed heads and final main; keep #312 open until measured latency is recorded. |
 | Native Linux rootless Docker integration | Partial | PR #304 and #306 hosted runs start a rootless daemon, assert the rootless container mode, and pass the Docker integration job. See [`ci.yml`](../.github/workflows/ci.yml). | The passing runs cover PR heads, not a final release candidate. Record the exact candidate run before release. |
 | Authenticated SSH worker round trip | Partial | PR #304 and #306 rootless Docker jobs pass the loopback SSH integration suite, including staging and result handling. | This fixture runs on one host. It does not prove behavior across two independent Linux hosts. |
 | Two controllers sharing a worker and rejecting revoked results | Partial | [`concurrent_ssh_controllers_share_worker_and_reject_revoked_result`](../src/harness/resource_bridge/tests/end_to_end/remote/two_controllers.rs) passed in PR #306's hosted run. | Full same-task/different-task, takeover, cancellation, resource contention, and independent acceptance review remain tracked by #141. |

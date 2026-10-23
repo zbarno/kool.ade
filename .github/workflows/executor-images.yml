@@ -821,8 +821,6 @@ jobs:
     name: Attest ${{ matrix.profile }}
     needs: [publish-reviewed-qa-main, smoke-reviewed-qa-main]
     runs-on: ubuntu-24.04
-    env:
-      DOCKER_CONFIG: ${{ runner.temp }}/qa-image-docker-config
     permissions:
       contents: read
       packages: write
@@ -843,6 +841,7 @@ jobs:
           path: ${{ runner.temp }}/published-qa-image
       - name: Authenticate to GitHub Container Registry
         env:
+          DOCKER_CONFIG: ${{ runner.temp }}/qa-image-docker-config
           GHCR_TOKEN: ${{ github.token }}
           GHCR_ACTOR: ${{ github.actor }}
         run: |
@@ -895,6 +894,8 @@ jobs:
           retention-days: 90
       - name: Remove registry credentials
         if: always()
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/qa-image-docker-config
         run: rm -rf "$DOCKER_CONFIG"
 
   publish-reviewed-main:
