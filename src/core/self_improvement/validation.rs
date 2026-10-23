@@ -35,12 +35,26 @@ pub(super) fn valid_ref(value: &str) -> bool {
             && !part.bytes().any(|byte| byte.is_ascii_control())
     })
 }
+
+pub(crate) fn canonical_product_remote(value: &str) -> Option<&'static str> {
+    match value.trim_end_matches('/') {
+        "https://github.com/zbarno/kool.ade"
+        | "ssh://git@github.com/zbarno/kool.ade"
+        | "git@github.com:zbarno/kool.ade" => Some("https://github.com/zbarno/kool.ade"),
+        _ => None,
+    }
+}
+
 pub(super) fn valid_pr_url(value: &str) -> bool {
+    pr_number(value).is_some()
+}
+
+pub(super) fn pr_number(value: &str) -> Option<u64> {
     let Ok(url) = url::Url::parse(value) else {
-        return false;
+        return None;
     };
     let segments: Vec<_> = url.path_segments().into_iter().flatten().collect();
-    url.scheme() == "https"
+    let valid = url.scheme() == "https"
         && url.host_str() == Some("github.com")
         && url.port().is_none()
         && url.username().is_empty()
@@ -53,5 +67,10 @@ pub(super) fn valid_pr_url(value: &str) -> bool {
         && segments[2] == "pull"
         && !segments[3].is_empty()
         && segments[3].bytes().all(|byte| byte.is_ascii_digit())
-        && valid_text(value, 512)
+        && valid_text(value, 512);
+    if valid {
+        segments[3].parse().ok()
+    } else {
+        None
+    }
 }

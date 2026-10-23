@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::artifacts::planning_store::{PlanningStore, RecordRevisionCheck, StoreError};
 
-use super::{RunRecord, SelfImprovementPhaseV1, records::validate_run_record};
+use super::{
+    RunRecord, SelfImprovementPhaseV1, SelfImprovementStore, records::validate_run_record,
+};
 
 const PATH: &str = "state/self_improvement_active_runs.json";
 const RUNS: &str = "state/self_improvements";
@@ -86,6 +88,7 @@ fn rebuild(store: &PlanningStore) -> Result<ActiveRunsRecord, StoreError> {
     for path in store.list_record_paths(RUNS)? {
         let (record, revision) = store.read_record::<RunRecord>(&path)?;
         validate_run_record(&record, revision, &record.uid, &path)?;
+        super::lineage::validate_parent(&SelfImprovementStore::new(store), &record.data)?;
         if active(record.data.phase) {
             run_uids.push(record.uid);
         }

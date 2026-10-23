@@ -7,9 +7,9 @@ fn stale_revisions_and_noncanonical_pull_request_urls_are_rejected() {
     run.apply(1, Event::BeginPlanning).unwrap();
     assert!(run.apply(1, Event::NeedsAttention).is_err());
     for url in [
-        "http://github.com/zbarno/kool.ade/pull/1",
-        "https://github.com.evil/zbarno/kool.ade/pull/1",
-        "https://github.com/zbarno/kool.ade/pull/1?token=secret",
+        "http://github.com/zbarno/kool.ade/pull/999999",
+        "https://github.com.evil/zbarno/kool.ade/pull/999999",
+        "https://github.com/zbarno/kool.ade/pull/999999?token=secret",
         "https://github.com/zbarno/kool.ade/pull/not-a-number",
     ] {
         assert!(
@@ -30,6 +30,7 @@ fn persisted_run_and_events_retain_versioned_lifecycle_state() {
 
     let event = Event::PlanApproved {
         approval_sha256: sha('b'),
+        capability_id: Some("self-improvement-lifecycle".into()),
         review_uid: uid(8),
         source_ref: "feature/approved-source".into(),
         destination_ref: "main".into(),
@@ -42,6 +43,62 @@ fn persisted_run_and_events_retain_versioned_lifecycle_state() {
 }
 
 #[test]
+fn legacy_approved_run_and_plan_event_remain_readable_without_a_capability_id() {
+    let mut run = run();
+    run.apply(1, Event::BeginPlanning).unwrap();
+    run.apply(
+        2,
+        Event::PlanApproved {
+            approval_sha256: sha('b'),
+            capability_id: Some("self-improvement-lifecycle".into()),
+            review_uid: uid(8),
+            source_ref: "feature/approved-source".into(),
+            destination_ref: "main".into(),
+            task_uids: vec![uid(6)],
+            owner_task_uid: uid(6),
+            parent_task_uids: vec![uid(6)],
+        },
+    )
+    .unwrap();
+    let mut old_run = serde_json::to_value(run).unwrap();
+    old_run["schema_version"] = serde_json::json!(1);
+    old_run.as_object_mut().unwrap().remove("capability_id");
+    old_run.as_object_mut().unwrap().remove("parent_run_uid");
+    old_run.as_object_mut().unwrap().remove("chain_depth");
+    let old_run: SelfImprovementRunV1 = serde_json::from_value(old_run).unwrap();
+    old_run
+        .validate()
+        .expect("schema v1 approved runs remain readable but cannot activate");
+    assert!(old_run.capability_id.is_none());
+    assert!(old_run.parent_run_uid.is_none());
+    assert_eq!(old_run.chain_depth, 0);
+
+    let mut old_event = serde_json::to_value(Event::PlanApproved {
+        approval_sha256: sha('b'),
+        capability_id: Some("self-improvement-lifecycle".into()),
+        review_uid: uid(8),
+        source_ref: "feature/approved-source".into(),
+        destination_ref: "main".into(),
+        task_uids: vec![uid(6)],
+        owner_task_uid: uid(6),
+        parent_task_uids: vec![uid(6)],
+    })
+    .unwrap();
+    old_event["plan_approved"]
+        .as_object_mut()
+        .unwrap()
+        .remove("capability_id");
+    let decoded: Event = serde_json::from_value(old_event).unwrap();
+    assert!(matches!(
+        decoded,
+        Event::PlanApproved {
+            capability_id: None,
+            ..
+        }
+    ));
+}
+
+#[test]
 fn changed_implementation_hash_invalidates_downstream_evidence_and_terminal_runs_cannot_repair() {
     let mut run = run();
     run.apply(1, Event::BeginPlanning).unwrap();
@@ -49,6 +106,7 @@ fn changed_implementation_hash_invalidates_downstream_evidence_and_terminal_runs
         2,
         Event::PlanApproved {
             approval_sha256: sha('b'),
+            capability_id: Some("self-improvement-lifecycle".into()),
             review_uid: uid(8),
             source_ref: "feature/approved-source".into(),
             destination_ref: "main".into(),

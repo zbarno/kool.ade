@@ -36,13 +36,163 @@ impl SelfImprovementStore<'_> {
         Ok(events)
     }
 
-    pub fn apply_event(
+    pub(crate) fn apply_event(
         &self,
         run_uid: &str,
         expected_revision: u64,
         event_uid: &str,
         event: SelfImprovementEventV1,
     ) -> Result<super::SelfImprovementRunV1, StoreError> {
+        self.apply_event_inner(run_uid, expected_revision, event_uid, event, false)
+    }
+
+    pub(crate) fn record_active_build_probe(
+        &self,
+        run_uid: &str,
+        expected_revision: u64,
+    ) -> Result<super::SelfImprovementRunV1, StoreError> {
+        let run = self.load(run_uid)?;
+        let Some((active_version, active_commit)) = crate::build_identity::current() else {
+            return Ok(run);
+        };
+        let destination = run
+            .destination_ref
+            .as_deref()
+            .map(|value| value.strip_prefix("refs/heads/").unwrap_or(value));
+        let mut merge_records = Vec::with_capacity(run.parent_task_progress.len());
+        let parent_evidence_complete = !run.parent_task_progress.is_empty()
+            && run.parent_task_progress.iter().all(|parent| {
+                let merge_at = parent
+                    .pr_merged_at
+                    .as_deref()
+                    .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok());
+                let merge_sha = parent.pr_merged_commit_sha.as_deref();
+                if let (Some(merge_at), Some(merge_sha)) = (merge_at, merge_sha) {
+                    merge_records.push((merge_at, merge_sha));
+                }
+                parent.code_review_uid.is_some()
+                    && parent.runtime_qa_uid.is_some()
+                    && parent.spec_receipt_uid.is_some()
+                    && parent.pr_head_sha.is_some()
+                    && parent.pr_status
+                        == Some(crate::core::lifecycle::PullRequestPreparationStatus::Merged)
+                    && destination.is_some()
+                    && parent.pr_base_branch.as_deref() == destination
+                    && merge_sha.is_some_and(crate::core::self_improvement::validation::is_git_sha)
+                    && merge_at.is_some()
+            });
+        if !parent_evidence_complete {
+            return Ok(run);
+        }
+        merge_records.sort_by_key(|(merged_at, _)| *merged_at);
+        let Some((latest_time, latest_sha)) = merge_records.last() else {
+            return Ok(run);
+        };
+        if merge_records.len() != run.parent_task_progress.len()
+            || merge_records
+                .iter()
+                .rev()
+                .skip(1)
+                .any(|(time, sha)| *time == *latest_time && *sha != *latest_sha)
+        {
+            return Ok(run);
+        }
+        let merged_sha = run.merged_sha.as_deref().ok_or_else(|| {
+            StoreError::MalformedState("self-improvement run has no merged commit".into())
+        })?;
+        if merged_sha != *latest_sha {
+            return Ok(run);
+        }
+        if merged_sha != active_commit {
+            return Ok(run);
+        }
+        if run.phase == SelfImprovementPhaseV1::MergedNotActivated {
+            return Ok(run);
+        }
+        if run.phase != SelfImprovementPhaseV1::InstalledNotActivated
+            || run.installed_version.as_deref() != Some(active_version)
+            || run.installed_build_commit_sha.as_deref() != Some(active_commit)
+        {
+            return Ok(run);
+        }
+        let evidence = super::super::SelfImprovementActivationEvidenceV1::probe_active_build(&run)
+            .map_err(StoreError::MalformedState)?;
+        let event_uid = evidence.readiness_probe_uid.clone();
+        self.apply_event_inner(
+            run_uid,
+            expected_revision,
+            &event_uid,
+            SelfImprovementEventV1::Activated { evidence },
+            true,
+        )
+    }
+
+    pub(crate) fn record_installation_confirmation(
+        &self,
+        run_uid: &str,
+        expected_revision: u64,
+        operator_id: &str,
+        github_user_id: &str,
+    ) -> Result<super::SelfImprovementRunV1, StoreError> {
+        let run = self.load(run_uid)?;
+        if run.schema_version < 2
+            || run.phase != SelfImprovementPhaseV1::MergedNotActivated
+            || !crate::core::self_improvement::validation::valid_text(operator_id, 128)
+            || !super::super::github_auth::valid_github_user_id(github_user_id)
+        {
+            return Err(StoreError::MalformedState(
+                "installation confirmation requires an authenticated GitHub operator and a merged run".into(),
+            ));
+        }
+        let Some((version, commit)) = crate::build_identity::current() else {
+            return Err(StoreError::MalformedState(
+                "active build identity is unavailable".into(),
+            ));
+        };
+        if run.merged_sha.as_deref() != Some(commit) {
+            return Err(StoreError::MalformedState(
+                "running build does not match the merged self-improvement commit".into(),
+            ));
+        }
+        let namespace = uuid::Uuid::parse_str(run_uid)
+            .map_err(|error| StoreError::MalformedState(error.to_string()))?;
+        let event_uid = uuid::Uuid::new_v5(
+            &namespace,
+            format!("installed:{operator_id}:{version}:{commit}").as_bytes(),
+        )
+        .hyphenated()
+        .to_string();
+        self.apply_event_inner(
+            run_uid,
+            expected_revision,
+            &event_uid,
+            SelfImprovementEventV1::Installed {
+                version: version.to_owned(),
+                build_commit_sha: commit.to_owned(),
+                operator_id: operator_id.to_owned(),
+                github_user_id: Some(github_user_id.to_owned()),
+            },
+            true,
+        )
+    }
+
+    fn apply_event_inner(
+        &self,
+        run_uid: &str,
+        expected_revision: u64,
+        event_uid: &str,
+        event: SelfImprovementEventV1,
+        active_build_probe: bool,
+    ) -> Result<super::SelfImprovementRunV1, StoreError> {
+        if matches!(
+            event,
+            SelfImprovementEventV1::Installed { .. } | SelfImprovementEventV1::Activated { .. }
+        ) && !active_build_probe
+        {
+            return Err(StoreError::MalformedState(
+                "installation evidence requires the app-owned active-build probe".into(),
+            ));
+        }
         let path = run_path(run_uid)?;
         let event_path = transition_path(run_uid, event_uid)?;
         if let Some(existing) = read_transition(self.store, &event_path)? {
@@ -56,6 +206,7 @@ impl SelfImprovementStore<'_> {
         }
         let (mut record, actual_revision) = self.store.read_record::<RunRecord>(&path)?;
         validate_run_record(&record, actual_revision, run_uid, &path)?;
+        super::lineage::validate_parent(self, &record.data)?;
         if actual_revision != expected_revision {
             return Err(StoreError::StaleRecordRevision {
                 path,
@@ -64,6 +215,15 @@ impl SelfImprovementStore<'_> {
             });
         }
         let from_phase = record.data.phase;
+        if matches!(
+            &event,
+            SelfImprovementEventV1::Installed {
+                github_user_id: Some(_),
+                ..
+            }
+        ) {
+            record.data.schema_version = 4;
+        }
         record
             .data
             .apply(expected_revision, event.clone())

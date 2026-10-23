@@ -9,8 +9,11 @@ use crate::harness::prompt_catalog::{
 
 pub(in crate::app::manager) mod code_reviews;
 mod opportunities;
+mod product;
 pub(in crate::app::manager) mod reviews;
 pub(super) use opportunities::persist_opportunities;
+pub(super) use product::render_product;
+pub(super) const KOOLADE_PRODUCT_TARGET_REF: &str = "koolade-product";
 
 #[cfg(test)]
 #[path = "catalog/tests.rs"]
@@ -20,8 +23,11 @@ pub(super) struct ManagerPrompt {
     pub rendered: RenderedPrompt,
     pub validation: OutputValidationContext<'static>,
     pub evidence_hashes: std::collections::HashMap<String, String>,
+    pub evidence_confidentialities: std::collections::HashMap<String, EvidenceConfidentiality>,
     pub planning_revision: String,
     pub review_targets: std::collections::HashMap<String, reviews::ReviewTarget>,
+    pub repo_root: Option<std::path::PathBuf>,
+    pub _workspace_guard: Option<tempfile::TempDir>,
     pub code_review_targets: std::collections::HashMap<String, code_reviews::FindingTarget>,
 }
 
@@ -87,14 +93,11 @@ pub(super) fn render(
         .map(|(item, target)| (item.id.clone(), target.clone()))
         .collect();
     evidence_manifest.extend(code_review_evidence.into_iter().map(|(item, _)| item));
-    let mut public_evidence_ids = HashSet::new();
-    let mut evidence_repository_refs = HashMap::new();
-    if let Some(repository_ref) = &koolade_product_repository_ref {
-        let product_evidence = opportunities::koolade_product_contract_evidence(&workspace_uid);
-        public_evidence_ids.insert(product_evidence.id.clone());
-        evidence_repository_refs.insert(product_evidence.id.clone(), repository_ref.clone());
-        evidence_manifest.push(product_evidence);
-    }
+    // Product discovery runs in its own product-only prompt and empty app-owned
+    // cwd. A workspace Manager must never mix even public product evidence into
+    // a user-project context.
+    let public_evidence_ids = HashSet::new();
+    let evidence_repository_refs = HashMap::new();
     let latest_review_receipts = plan_review_evidence
         .iter()
         .map(|review| review.id.clone())
@@ -133,6 +136,10 @@ pub(super) fn render(
     let evidence_content = evidence_manifest
         .iter()
         .map(|item| (item.id.clone(), item.content.clone()))
+        .collect();
+    let evidence_confidentialities = evidence_manifest
+        .iter()
+        .map(|item| (item.id.clone(), item.confidentiality))
         .collect();
     let allowed_repositories = project
         .state
@@ -192,8 +199,11 @@ pub(super) fn render(
             ..Default::default()
         },
         evidence_hashes,
+        evidence_confidentialities,
         planning_revision: project.state.baseline_planning_revision.clone(),
         review_targets,
+        repo_root: None,
+        _workspace_guard: None,
         code_review_targets,
     })
 }
@@ -252,6 +262,7 @@ pub(super) fn decode(
     text: &str,
     context: &OutputValidationContext<'_>,
     evidence_hashes: std::collections::HashMap<String, String>,
+    evidence_confidentialities: std::collections::HashMap<String, EvidenceConfidentiality>,
     planning_revision: String,
     review_targets: &std::collections::HashMap<String, reviews::ReviewTarget>,
     code_review_targets: &std::collections::HashMap<String, code_reviews::FindingTarget>,
@@ -298,6 +309,7 @@ pub(super) fn decode(
         proposed_actions,
         opportunities: output.opportunities,
         evidence_hashes,
+        evidence_confidentialities,
         planning_revision,
         code_review_targets: code_review_targets.clone(),
     })

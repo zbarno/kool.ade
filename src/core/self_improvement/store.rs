@@ -1,11 +1,14 @@
 use serde::{Deserialize, Serialize};
 
 mod active_runs;
+mod authorization;
+mod lineage;
 mod records;
 #[cfg(test)]
 #[path = "store/tests.rs"]
 mod tests;
 mod transitions;
+pub use authorization::TaskSourceAuthorization;
 use records::{
     canonical_uuid, encode, now_unix_ms, run_path, transition_path, validate_run_record,
 };
@@ -87,9 +90,11 @@ impl<'a> SelfImprovementStore<'a> {
         if (proposal.status != OpportunityStatusV1::ApprovedToPlan && !already_linked)
             || proposal.target.kind != OpportunityTargetKindV1::KooladeProduct
             || proposal.target.repository_uid != run.target_repository_uid
-            || proposal.target.canonical_remote != run.canonical_remote
+            || super::canonical_product_remote(&proposal.target.canonical_remote)
+                != Some(run.canonical_remote.as_str())
             || proposal.target.source_sha != run.source_sha
             || run.phase != SelfImprovementPhaseV1::ApprovedToPlan
+            || run.schema_version != 3
             || run.revision != 0
         {
             return Err(StoreError::MalformedState(
@@ -102,6 +107,7 @@ impl<'a> SelfImprovementStore<'a> {
                 "self-improvement identity must be derived from its Pursue decision".into(),
             ));
         }
+        lineage::bind_parent(self, &proposal, &mut run)?;
         run.revision = 1;
         run.validate().map_err(StoreError::MalformedState)?;
         let now = now_unix_ms();
@@ -196,6 +202,7 @@ impl<'a> SelfImprovementStore<'a> {
         let path = run_path(uid)?;
         let (record, actual_revision) = self.store.read_record::<RunRecord>(&path)?;
         validate_run_record(&record, actual_revision, uid, &path)?;
+        lineage::validate_parent(self, &record.data)?;
         Ok(record.data)
     }
 
