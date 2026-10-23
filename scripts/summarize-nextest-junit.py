@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -38,7 +39,7 @@ def summary(report: Path, timing: Path) -> str:
         "",
         "| Run | Wall time | Executed | Passed | Failed | Skipped |",
         "| --- | ---: | ---: | ---: | ---: | ---: |",
-        f"| Full nextest suite | {real_seconds}s | {executed} | {passed} | {len(failed)} | {len(skipped)} |",
+        f"| {os.environ.get('KOOLADE_TEST_SUITE_LABEL', 'Nextest selection')} | {real_seconds}s | {executed} | {passed} | {len(failed)} | {len(skipped)} |",
         "",
         "This reports the exact suite and outcomes for this run. Compare only equivalent suites and CI environments.",
         "",
