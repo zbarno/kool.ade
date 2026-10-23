@@ -127,8 +127,8 @@
     "desktop_qa": [
       {
         "platform": "linux/amd64",
-        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:a21b2fcff086ee91b54ac71611f475ee96b58ec7952d03ec9dc41d42df3c9010",
-        "digest": "sha256:a21b2fcff086ee91b54ac71611f475ee96b58ec7952d03ec9dc41d42df3c9010",
+        "reference": "ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:911f4be66606722d9669c464d637156b1f43c69679aca3ece5b1fb2e844ea39f",
+        "digest": "sha256:911f4be66606722d9669c464d637156b1f43c69679aca3ece5b1fb2e844ea39f",
         "tool_versions": {
           "driver": "linux-x11-driver/v1",
           "xvfb": "2:21.1.12-1ubuntu1.5",
@@ -137,7 +137,7 @@
           "base": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
         },
         "runtime_enabled": false,
-        "build_recipe_sha256": "sha256:0f0865cbe38865fd6d94cfb2c05ba4c100008438caa58e463932a08c046e76c1"
+        "build_recipe_sha256": "sha256:d96e3c799d3404aefc772f16745d127d8fc199f4dc01e21d5c1b6d18c76a39a4"
       }
     ]
   }
