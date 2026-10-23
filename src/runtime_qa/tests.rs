@@ -1,6 +1,8 @@
 use super::*;
 
 mod browser_driver;
+#[path = "tests/contracts.rs"]
+mod contract_tests;
 mod evidence;
 mod polyglot_recipe_path;
 mod scenario_approval;
@@ -14,6 +16,7 @@ fn request() -> QaRunRequestV1 {
         schema_version: 1,
         qa_run_id: uid(),
         parent_task_uid: uid(),
+        target_id: Some("fixture-target".into()),
         planning_item_uid: None,
         feature_uid: uid(),
         code_head_sha: sha(),
@@ -62,19 +65,6 @@ fn scenario(request: &QaRunRequestV1) -> QaScenarioV1 {
         redaction_regions: vec![],
         priority: 1,
     }
-}
-
-#[test]
-fn request_and_scenario_are_bounded_and_cover_requirements() {
-    let request = request();
-    let scenario = scenario(&request);
-    assert!(validate_scenario_set(&request, std::slice::from_ref(&scenario)).is_ok());
-
-    let mut bad = scenario;
-    bad.steps[0].driver_action = QaDriverActionV1::NavigateAllowedUrl {
-        url: "https://outside.invalid/".into(),
-    };
-    assert!(bad.validate(&request).is_err());
 }
 
 #[test]

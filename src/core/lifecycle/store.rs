@@ -258,6 +258,22 @@ impl<'a> LifecycleStore<'a> {
         event_uid: &str,
         proposal: TaskEvent,
     ) -> Result<TaskRecord, StoreError> {
+        if matches!(
+            &proposal,
+            TaskEvent::RuntimeQaRequested(request) if request.target_id.is_none()
+        ) {
+            return Err(StoreError::MalformedState(
+                "new runtime QA requests require an exact target binding".into(),
+            ));
+        }
+        if matches!(
+            &proposal,
+            TaskEvent::RuntimeQaCompleted { .. } | TaskEvent::RuntimeQaNotApplicable { .. }
+        ) {
+            return Err(StoreError::MalformedState(
+                "runtime QA completion and applicability decisions must be recorded through validated evidence paths".into(),
+            ));
+        }
         task_transition::apply_task_event(
             self.store,
             task_uid,

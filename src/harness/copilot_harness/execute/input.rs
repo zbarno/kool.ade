@@ -20,6 +20,7 @@ pub(crate) fn command(
         crate::harness::ToolAccess::None => "",
         crate::harness::ToolAccess::ReadOnly => "read",
         crate::harness::ToolAccess::BoundedImplementation => "read,edit",
+        crate::harness::ToolAccess::RuntimeQaScreenshots => "",
     };
     args.push(format!("--available-tools={tools}"));
     if access == crate::harness::ToolAccess::BoundedImplementation {

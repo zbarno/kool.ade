@@ -54,6 +54,7 @@ pub(super) fn server_session(
             target_arch: binding.target_arch.clone(),
             resource_socket: Some(case_dir.join("resource.sock")),
             resource_cache: Some(case_dir.join("cache")),
+            screenshot_access: None,
         }
     };
     let path = case_dir.join("server.json");

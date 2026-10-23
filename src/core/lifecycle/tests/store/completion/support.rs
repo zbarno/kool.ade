@@ -1,5 +1,7 @@
 #[path = "support/feature_graph.rs"]
 mod feature_graph;
+#[path = "support/runtime_qa.rs"]
+mod runtime_qa;
 #[path = "support/task_qa.rs"]
 mod task_qa;
 

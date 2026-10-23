@@ -1,3 +1,4 @@
+use super::runtime_qa::record_completed_qa;
 use crate::core::lifecycle::{
     FeatureEvent, GateActor, GateDecision, GateReceipt, LifecycleStore, TaskEvent, TaskPhase,
     TaskRecord,
@@ -54,15 +55,7 @@ fn complete_subtask(lifecycle: &LifecycleStore<'_>, task_uid: &str) {
             TaskEvent::RuntimeQaRequested(request.clone()),
         )
         .unwrap();
-    let qa_event = super::super::super::super::completed_qa_event(&task, &request);
-    task = lifecycle
-        .apply_task_event(
-            task_uid,
-            task.revision,
-            &uuid::Uuid::new_v4().to_string(),
-            qa_event,
-        )
-        .unwrap();
+    task = record_completed_qa(lifecycle, &task, &request);
     spec_baseline::record(lifecycle, &task);
     let spec = GateReceipt {
         receipt_uid: uuid::Uuid::new_v4().hyphenated().to_string(),

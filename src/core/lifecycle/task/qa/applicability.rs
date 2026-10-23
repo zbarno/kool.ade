@@ -37,6 +37,7 @@ pub fn valid_not_applicable(
             Some(
                 crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewer
                     | crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV2
+                    | crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV3
             )
         )
         && reviewer_receipt

@@ -1,5 +1,7 @@
 use super::super::*;
-use crate::harness::prompt_catalog::{EvidenceItem, RoleInputV1, RolePayloadV1, render};
+use crate::harness::prompt_catalog::{
+    EvidenceItem, PromptRole, RoleInputV1, RolePayloadV1, render,
+};
 use crate::runtime_qa::*;
 use sha2::Digest as _;
 use std::io::Cursor;
@@ -138,6 +140,7 @@ pub(super) fn fixture() -> (QaRunRequestV1, Vec<QaScenarioV1>, QaTaskServiceLeas
         schema_version: 1,
         qa_run_id: uid(),
         parent_task_uid: uid(),
+        target_id: Some("fixture-target".into()),
         planning_item_uid: None,
         feature_uid: uid(),
         code_head_sha: sha(),
@@ -206,8 +209,22 @@ pub(super) fn reviewer_prompt(
     reviewer_run: &str,
     reviewer_session: &str,
 ) -> PromptManifest {
+    reviewer_prompt_for_role(
+        request,
+        reviewer_run,
+        reviewer_session,
+        PromptRole::RuntimeQaReviewerV3,
+    )
+}
+
+pub(super) fn reviewer_prompt_for_role(
+    request: &QaRunRequestV1,
+    reviewer_run: &str,
+    reviewer_session: &str,
+    role: PromptRole,
+) -> PromptManifest {
     render(&RoleInputV1 {
-        role: PromptRole::RuntimeQaReviewerV2,
+        role,
         workspace_uid: request.feature_uid.clone(),
         feature_uid: request.feature_uid.clone(),
         task_uid: Some(request.parent_task_uid.clone()),
@@ -217,7 +234,7 @@ pub(super) fn reviewer_prompt(
         decision_refs: vec![],
         evidence_manifest: Vec::<EvidenceItem>::new(),
         execution_policy_ref: "read-only isolated reviewer".into(),
-        output_schema_version: "ReviewVerdictV1".into(),
+        output_schema_version: role.output_schema_version().into(),
         payload: RolePayloadV1::Review {
             subject_revision: "immutable-build".into(),
             subject_hash: request.code_head_sha.clone(),

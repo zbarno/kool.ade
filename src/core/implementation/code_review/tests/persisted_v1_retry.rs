@@ -144,6 +144,7 @@ fn failed_v1_receipt(
     let author = ReviewExecutionIdentity {
         execution_id: "00000000-0000-4000-8000-000000000003".into(),
         session_id: "00000000-0000-4000-8000-000000000005".into(),
+        runtime_qa_screenshot_review: None,
     };
     let feature_uid = crate::core::workflow::feature_ids_in("F1")
         .into_iter()

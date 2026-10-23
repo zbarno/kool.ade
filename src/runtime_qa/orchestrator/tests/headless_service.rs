@@ -92,9 +92,13 @@ fn headless_service_pass_uses_action_evidence_without_screenshots() {
     let temp = tempfile::tempdir().unwrap();
     let store = RuntimeQaStore::new(temp.path().join("qa"));
     let mut driver = ParsedServiceDriver;
-    let mut reviewer = |evidence: &QaEvidenceManifestV1, _candidate: &QaResultV1| {
+    let mut reviewer = |evidence: &QaEvidenceManifestV1,
+                        candidate: &QaResultV1,
+                        _screenshots: &[QaScreenshotArtifactV1]| {
         Ok(ReviewVerdictV1 {
-            subject_hash: evidence.sha256()?,
+            subject_hash: crate::runtime_qa::qa_review_subject_sha256(
+                &request, candidate, evidence,
+            )?,
             examined_files: Vec::new(),
             tested_evidence_ids: Vec::new(),
             unexamined_areas: Vec::new(),
@@ -103,7 +107,10 @@ fn headless_service_pass_uses_action_evidence_without_screenshots() {
             coverage: vec![CoverageV1 {
                 requirement: request.requirement_ids[0].clone(),
                 status: CoverageStatus::Pass,
-                evidence: vec![evidence.actions[0].index.to_string()],
+                evidence: vec![
+                    evidence.actions[0].index.to_string(),
+                    evidence.actions[0].evidence_ids[0].clone(),
+                ],
             }],
             findings: Vec::new(),
             untested: Vec::new(),

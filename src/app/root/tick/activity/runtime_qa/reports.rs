@@ -4,7 +4,7 @@ use crate::{
     core::lifecycle::{LifecycleStore, TaskRecord},
     runtime_qa::{
         QaFindingDispositionKind, QaFindingDispositionStatus, QaFindingDispositionV1, QaOutcome,
-        QaRunRequestV1, RuntimeQaStore,
+        QaRunRequestV1, RuntimeQaStore, validate_current_report,
     },
 };
 
@@ -23,14 +23,19 @@ pub(super) fn record_persisted_report(
     else {
         return Ok(None);
     };
-    let Ok((persisted_request, _, _, result)) = qa_store.load_run(&request.qa_run_id) else {
+    let Ok((persisted_request, scenarios, evidence, result)) =
+        qa_store.load_run(&request.qa_run_id)
+    else {
         return Ok(None);
     };
     validate_request_identity(request, &persisted_request)?;
-    let receipt = match result.outcome {
-        QaOutcome::Pass | QaOutcome::Fail => Some(qa_store.load_gate_receipt(&request.qa_run_id)?),
-        QaOutcome::Incomplete | QaOutcome::InfrastructureBlocked => None,
-    };
+    validate_current_report(&persisted_request, &scenarios, &evidence, &result)?;
+    if matches!(result.outcome, QaOutcome::Pass | QaOutcome::Fail) {
+        // Validate the reviewer attestation before creating durable Manager
+        // decisions. LifecycleStore repeats this check when it records the
+        // event, but that happens after decision persistence below.
+        qa_store.load_gate_receipt(&request.qa_run_id)?;
+    }
     // Create clarification cards and persist Manager-owned dispositions before
     // advancing lifecycle state. A replay recovers the same decision IDs.
     let mut dispositions = result
@@ -58,7 +63,7 @@ pub(super) fn record_persisted_report(
     .hyphenated()
     .to_string();
     let updated = lifecycle
-        .record_runtime_qa_report(&task.task_uid, task.revision, &event_uid, qa_store, receipt)
+        .record_runtime_qa_report(&task.task_uid, task.revision, &event_uid, qa_store)
         .map_err(|error| error.to_string())?;
     let label = task
         .planning_item_uid
@@ -115,7 +120,8 @@ pub(super) fn persisted_report_state(
     expected: &QaRunRequestV1,
     running_restart: bool,
 ) -> PersistedReportState {
-    let Ok((persisted, _, _, result)) = qa_store.load_run(&expected.qa_run_id) else {
+    let Ok((persisted, scenarios, evidence, result)) = qa_store.load_run(&expected.qa_run_id)
+    else {
         let request_present = path_exists_or_unreadable(
             &qa_store
                 .root()
@@ -138,6 +144,9 @@ pub(super) fn persisted_report_state(
         };
     };
     if &persisted != expected {
+        return PersistedReportState::Invalid;
+    }
+    if validate_current_report(&persisted, &scenarios, &evidence, &result).is_err() {
         return PersistedReportState::Invalid;
     }
     match result.outcome {

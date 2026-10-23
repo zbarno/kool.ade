@@ -23,7 +23,7 @@ impl AiHarness for FakeReviewer {
         assert_eq!(request.mode, ExecutionMode::ReadOnlyAnalysis);
         assert!(request.execution_workspace.is_none());
         assert!(request.prompt_manifest.as_ref().is_some_and(|manifest| {
-            manifest.role_version == PromptRole::RuntimeQaReviewerV2.id()
+            manifest.role_version == PromptRole::RuntimeQaReviewerV3.id()
         }));
         assert_eq!(request.review_identity.as_ref(), Some(&self.identity));
         Ok(HarnessOutcome {
@@ -69,6 +69,7 @@ fn independent_headless_applicability_review_creates_a_durable_proposal_only() {
     let identity = ReviewExecutionIdentity {
         execution_id: assessment.reviewer_execution_id.clone(),
         session_id: assessment.reviewer_session_id.clone(),
+        runtime_qa_screenshot_review: None,
     };
     let response = serde_json::json!({
         "subject_hash": assessment_hash,

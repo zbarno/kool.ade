@@ -72,6 +72,9 @@ pub struct QaEvidenceManifestV1 {
     pub schema_version: u16,
     pub qa_run_id: String,
     pub task_uid: String,
+    /// Selected approved target; absent only on readable historical reports.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_id: Option<String>,
     pub code_sha: String,
     pub approved_spec_hash: String,
     pub build_hash: String,

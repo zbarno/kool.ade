@@ -4,7 +4,10 @@ use super::super::{
     QaEvidenceManifestV1, QaResultV1, QaRunRequestV1, QaScenarioV1, QaScreenshotArtifactV1,
     validate_report, validate_screenshot_artifact,
 };
-use super::{QaPersistedRunV1, RuntimeQaStore, read_json, safe_uuid};
+use super::{
+    QaPersistedRunV1, RuntimeQaStore, read_json, safe_uuid,
+    storage_permissions::{ensure_private_directory_chain, secure_private_file},
+};
 
 impl RuntimeQaStore {
     /// Load one bounded page after validating the report and screenshot inventory.
@@ -25,10 +28,12 @@ impl RuntimeQaStore {
             return Err("runtime QA screenshot page is outside its bounds".into());
         }
         let directory = self.root.join(safe_uuid(qa_run_id)?);
-        let request: QaRunRequestV1 = read_json(&directory.join("request.json"))?;
-        let scenarios: Vec<QaScenarioV1> = read_json(&directory.join("scenarios.json"))?;
-        let evidence: QaEvidenceManifestV1 = read_json(&directory.join("evidence.json"))?;
-        let result: QaResultV1 = read_json(&directory.join("result.json"))?;
+        let request: QaRunRequestV1 = read_json(&self.root, &directory.join("request.json"))?;
+        let scenarios: Vec<QaScenarioV1> =
+            read_json(&self.root, &directory.join("scenarios.json"))?;
+        let evidence: QaEvidenceManifestV1 =
+            read_json(&self.root, &directory.join("evidence.json"))?;
+        let result: QaResultV1 = read_json(&self.root, &directory.join("result.json"))?;
         if request.qa_run_id != qa_run_id {
             return Err("runtime QA record path does not match its request identity".into());
         }
@@ -68,9 +73,10 @@ impl RuntimeQaStore {
             .skip(offset)
             .take(limit)
             .map(|metadata| {
-                let bytes = planning
-                    .read(Path::new(&metadata.storage_ref))
-                    .map_err(|error| format!("cannot read local runtime QA screenshot: {error}"))?;
+                let bytes = self.read_screenshot(
+                    &metadata.storage_ref,
+                    request.bounded_limits.max_evidence_bytes,
+                )?;
                 validate_screenshot_artifact(
                     metadata,
                     &bytes,
@@ -88,10 +94,10 @@ impl RuntimeQaStore {
     /// Load a complete QA report and its image bytes in one validated pass.
     pub fn load_run_with_screenshots(&self, qa_run_id: &str) -> Result<QaPersistedRunV1, String> {
         let dir = self.root.join(safe_uuid(qa_run_id)?);
-        let request: QaRunRequestV1 = read_json(&dir.join("request.json"))?;
-        let scenarios: Vec<QaScenarioV1> = read_json(&dir.join("scenarios.json"))?;
-        let evidence: QaEvidenceManifestV1 = read_json(&dir.join("evidence.json"))?;
-        let result: QaResultV1 = read_json(&dir.join("result.json"))?;
+        let request: QaRunRequestV1 = read_json(&self.root, &dir.join("request.json"))?;
+        let scenarios: Vec<QaScenarioV1> = read_json(&self.root, &dir.join("scenarios.json"))?;
+        let evidence: QaEvidenceManifestV1 = read_json(&self.root, &dir.join("evidence.json"))?;
+        let result: QaResultV1 = read_json(&self.root, &dir.join("result.json"))?;
         if request.qa_run_id != qa_run_id {
             return Err("runtime QA record path does not match its request identity".into());
         }
@@ -161,15 +167,20 @@ impl RuntimeQaStore {
     }
 
     pub(super) fn write_screenshot(&self, path: &str, bytes: &[u8]) -> Result<(), String> {
+        let relative = Path::new(path);
+        let parent = relative
+            .parent()
+            .ok_or_else(|| "runtime QA screenshot path is invalid".to_owned())?;
+        ensure_private_directory_chain(&self.root, &self.root.join(parent))?;
         let planning = self.planning_store();
         match planning.atomic_create(path, bytes) {
-            Ok(()) => Ok(()),
+            Ok(()) => secure_private_file(&self.root, &self.root.join(relative)),
             Err(_)
                 if self
                     .read_screenshot(path, bytes.len() as u64)
                     .is_ok_and(|existing| existing == bytes) =>
             {
-                Ok(())
+                secure_private_file(&self.root, &self.root.join(relative))
             }
             Err(error) => Err(format!(
                 "cannot persist immutable local runtime QA screenshot: {error}"
@@ -180,6 +191,10 @@ impl RuntimeQaStore {
     pub(super) fn read_screenshot(&self, path: &str, max_bytes: u64) -> Result<Vec<u8>, String> {
         let planning = self.planning_store();
         let relative = Path::new(path);
+        let absolute = self.root.join(relative);
+        if std::fs::symlink_metadata(&absolute).is_ok() {
+            secure_private_file(&self.root, &absolute)?;
+        }
         let parent = relative
             .parent()
             .ok_or_else(|| "runtime QA screenshot path is invalid".to_owned())?;

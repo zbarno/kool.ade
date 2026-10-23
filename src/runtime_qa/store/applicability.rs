@@ -36,7 +36,11 @@ impl RuntimeQaStore {
         let directory = self.root.join("applicability").join(task);
         fs::create_dir_all(&directory)
             .map_err(|error| format!("cannot create applicability proposal directory: {error}"))?;
-        create_or_match_json(&directory.join(format!("{hash}.json")), proposal)?;
+        create_or_match_json(
+            &self.root,
+            &directory.join(format!("{hash}.json")),
+            proposal,
+        )?;
         Ok(hash)
     }
 
@@ -52,6 +56,7 @@ impl RuntimeQaStore {
             return Err("applicability proposal hash is invalid".into());
         }
         let proposal: QaApplicabilityProposalV1 = read_json(
+            &self.root,
             &self
                 .root
                 .join("applicability")
@@ -96,7 +101,7 @@ impl RuntimeQaStore {
             {
                 continue;
             }
-            let proposal: QaApplicabilityProposalV1 = read_json(&entry.path())?;
+            let proposal: QaApplicabilityProposalV1 = read_json(&self.root, &entry.path())?;
             proposal.validate()?;
             if proposal.assessment.task_uid == task_uid
                 && proposal.assessment.code_sha == code_sha
@@ -117,12 +122,13 @@ fn load_applicability_record(
 ) -> Result<(QaRunRequestV1, QaApplicabilityAssessmentV1), String> {
     let run = safe_uuid(qa_run_id)?;
     let directory = store.root.join(run);
-    let request: QaRunRequestV1 = read_json(&directory.join("request.json"))?;
+    let request: QaRunRequestV1 = read_json(&store.root, &directory.join("request.json"))?;
     request.validate()?;
     if request.qa_run_id != run {
         return Err("runtime QA record path does not match its request identity".into());
     }
-    let assessment: QaApplicabilityAssessmentV1 = read_json(&directory.join("applicability.json"))?;
+    let assessment: QaApplicabilityAssessmentV1 =
+        read_json(&store.root, &directory.join("applicability.json"))?;
     assessment.validate()?;
     if assessment.task_uid != request.parent_task_uid
         || assessment.code_sha != request.code_head_sha

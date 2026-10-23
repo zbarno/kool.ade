@@ -21,7 +21,9 @@ pub(crate) fn command(binary: &Path, request: &PlanningRequest) -> Vec<String> {
     ];
     let tools = if request.mode == ExecutionMode::Implementation {
         "Read,Glob,Grep,Edit,Write"
-    } else if request.mode.tool_access() == ToolAccess::None {
+    } else if request.mode.tool_access() == ToolAccess::None
+        || request.mode == ExecutionMode::RuntimeQaVisualReview
+    {
         ""
     } else {
         "Read,Glob,Grep"

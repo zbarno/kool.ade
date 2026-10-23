@@ -29,7 +29,7 @@ pub(super) fn review_and_persist(
     let reviewer_execution_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let reviewer_session_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let prompt = render(&RoleInputV1 {
-        role: PromptRole::RuntimeQaReviewerV2,
+        role: PromptRole::RuntimeQaReviewerV3,
         workspace_uid: request.feature_uid.clone(),
         feature_uid: request.feature_uid.clone(),
         task_uid: Some(request.parent_task_uid.clone()),
@@ -39,7 +39,7 @@ pub(super) fn review_and_persist(
         decision_refs: vec![],
         evidence_manifest: vec![],
         execution_policy_ref: "runtime-qa-review/rootless-fixture-v1".into(),
-        output_schema_version: PromptRole::RuntimeQaReviewerV2
+        output_schema_version: PromptRole::RuntimeQaReviewerV3
             .output_schema_version()
             .into(),
         payload: RolePayloadV1::Review {
@@ -62,48 +62,57 @@ pub(super) fn review_and_persist(
     .manifest;
 
     let mut driver = RootlessBrowserOutput(Some(output));
-    let mut reviewer = |evidence: &QaEvidenceManifestV1, candidate: &QaResultV1| {
-        let observed_pass = candidate.outcome == QaOutcome::Pass
-            && !evidence.actions.is_empty()
-            && !evidence.screenshots.is_empty()
-            && evidence.browser_console.is_empty()
-            && evidence.failed_requests.is_empty();
-        Ok(ReviewVerdictV1 {
-            subject_hash: evidence.sha256()?,
-            examined_files: vec![],
-            tested_evidence_ids: evidence
-                .actions
-                .iter()
-                .map(|action| action.index.to_string())
-                .collect(),
-            unexamined_areas: vec![],
-            pass: observed_pass,
-            outcome: Some(if observed_pass {
-                ReviewOutcomeV1::Pass
-            } else {
-                ReviewOutcomeV1::BlockingFindings
-            }),
-            coverage: request
-                .requirement_ids
-                .iter()
-                .map(|requirement| CoverageV1 {
-                    requirement: requirement.clone(),
-                    status: if observed_pass {
-                        CoverageStatus::Pass
-                    } else {
-                        CoverageStatus::Fail
-                    },
-                    evidence: evidence
-                        .actions
-                        .iter()
-                        .map(|action| action.index.to_string())
-                        .collect(),
-                })
-                .collect(),
-            findings: vec![],
-            untested: vec![],
-        })
-    };
+    let mut reviewer =
+        |evidence: &QaEvidenceManifestV1,
+         candidate: &QaResultV1,
+         screenshots: &[crate::runtime_qa::QaScreenshotArtifactV1]| {
+            let observed_pass = candidate.outcome == QaOutcome::Pass
+                && !evidence.actions.is_empty()
+                && !evidence.screenshots.is_empty()
+                && evidence.browser_console.is_empty()
+                && evidence.failed_requests.is_empty();
+            Ok(ReviewVerdictV1 {
+                subject_hash: crate::runtime_qa::qa_review_subject_sha256(
+                    request, candidate, evidence,
+                )?,
+                examined_files: vec![],
+                tested_evidence_ids: screenshots
+                    .iter()
+                    .map(|screenshot| screenshot.id.clone())
+                    .collect(),
+                unexamined_areas: vec![],
+                pass: observed_pass,
+                outcome: Some(if observed_pass {
+                    ReviewOutcomeV1::Pass
+                } else {
+                    ReviewOutcomeV1::BlockingFindings
+                }),
+                coverage: request
+                    .requirement_ids
+                    .iter()
+                    .map(|requirement| CoverageV1 {
+                        requirement: requirement.clone(),
+                        status: if observed_pass {
+                            CoverageStatus::Pass
+                        } else {
+                            CoverageStatus::Fail
+                        },
+                        evidence: screenshots
+                            .iter()
+                            .map(|screenshot| screenshot.id.clone())
+                            .chain(
+                                evidence
+                                    .actions
+                                    .iter()
+                                    .map(|action| action.index.to_string()),
+                            )
+                            .collect(),
+                    })
+                    .collect(),
+                findings: vec![],
+                untested: vec![],
+            })
+        };
 
     let store = RuntimeQaStore::new(store_root);
     let (result, receipt) = RuntimeQaOrchestrator::new(&store)

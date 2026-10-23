@@ -233,6 +233,7 @@ pub(super) fn prepare(
         review_identity: Some(crate::harness::ReviewExecutionIdentity {
             execution_id: reviewer_run_id.clone(),
             session_id: reviewer_session_id.clone(),
+            runtime_qa_screenshot_review: None,
         }),
     };
     Ok((

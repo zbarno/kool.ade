@@ -149,6 +149,7 @@ pub(super) fn qa_request(
         schema_version: 1,
         qa_run_id: uid(),
         parent_task_uid: context.owning_task_id.clone(),
+        target_id: Some("fixture-target".into()),
         planning_item_uid: None,
         feature_uid: uid(),
         code_head_sha: context.source_sha.clone(),
@@ -185,7 +186,7 @@ pub(super) fn reviewer_prompt(
 ) -> crate::harness::prompt_catalog::PromptManifest {
     use crate::harness::prompt_catalog::{EvidenceItem, RoleInputV1, RolePayloadV1, render};
     render(&RoleInputV1 {
-        role: crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV2,
+        role: crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV3,
         workspace_uid: request.feature_uid.clone(),
         feature_uid: request.feature_uid.clone(),
         task_uid: Some(request.parent_task_uid.clone()),

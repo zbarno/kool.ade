@@ -1,5 +1,9 @@
 use serde::Serialize;
 
+mod context;
+pub use context::{
+    EvidenceConfidentiality, EvidenceItem, EvidenceOrigin, RoleInputV1, RolePayloadV1,
+};
 mod payload;
 pub(crate) use payload::validate_payload;
 
@@ -24,6 +28,7 @@ pub enum PromptRole {
     CodeReviewerV1,
     RuntimeQaReviewer,
     RuntimeQaReviewerV2,
+    RuntimeQaReviewerV3,
     RuntimeQaScenarioSynthesizer,
     SpecReconciler,
     RepairWorker,
@@ -50,6 +55,7 @@ impl PromptRole {
             Self::CodeReviewerV1 => "code_review/v1",
             Self::RuntimeQaReviewer => "runtime_qa/v1",
             Self::RuntimeQaReviewerV2 => "runtime_qa/v2",
+            Self::RuntimeQaReviewerV3 => "runtime_qa/v3",
             Self::RuntimeQaScenarioSynthesizer => "runtime_qa_scenarios/v1",
             Self::SpecReconciler => "spec_sync/v1",
             Self::RepairWorker => "repair/v1",
@@ -73,7 +79,8 @@ impl PromptRole {
             | Self::CodeReviewer
             | Self::CodeReviewerV1
             | Self::RuntimeQaReviewer
-            | Self::RuntimeQaReviewerV2 => "ReviewVerdictV1",
+            | Self::RuntimeQaReviewerV2
+            | Self::RuntimeQaReviewerV3 => "ReviewVerdictV1",
             Self::RuntimeQaScenarioSynthesizer => "QaScenarioDraftV1",
             Self::Decomposer => "TaskGraphV1",
             Self::Implementer | Self::RepairWorker => "WorkResultV1",
@@ -103,6 +110,9 @@ impl PromptRole {
             Self::RuntimeQaReviewerV2 => {
                 include_str!("../../../prompts/v2/runtime_qa.system.md")
             }
+            Self::RuntimeQaReviewerV3 => {
+                include_str!("../../../prompts/v3/runtime_qa.system.md")
+            }
             Self::RuntimeQaScenarioSynthesizer => {
                 include_str!("../../prompts/v1/runtime_qa_scenarios.system.md")
             }
@@ -131,6 +141,7 @@ impl PromptRole {
             Self::CodeReviewerV1 => include_str!("../../../prompts/v1/code_review.user.md"),
             Self::RuntimeQaReviewer => include_str!("../../../prompts/v1/runtime_qa.user.md"),
             Self::RuntimeQaReviewerV2 => include_str!("../../../prompts/v2/runtime_qa.user.md"),
+            Self::RuntimeQaReviewerV3 => include_str!("../../../prompts/v3/runtime_qa.user.md"),
             Self::RuntimeQaScenarioSynthesizer => {
                 include_str!("../../prompts/v1/runtime_qa_scenarios.user.md")
             }
@@ -159,7 +170,8 @@ impl PromptRole {
             | Self::CodeReviewer
             | Self::CodeReviewerV1
             | Self::RuntimeQaReviewer
-            | Self::RuntimeQaReviewerV2 => "read_only; isolated_fresh_review_context",
+            | Self::RuntimeQaReviewerV2
+            | Self::RuntimeQaReviewerV3 => "read_only; isolated_fresh_review_context",
             Self::RuntimeQaScenarioSynthesizer => "no_tools; propose_typed_actions_only",
             Self::Implementer | Self::RepairWorker => {
                 "bounded_task_execution; no_publish_or_self_approval"
@@ -183,122 +195,4 @@ impl PromptRole {
             }
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EvidenceOrigin {
-    User,
-    Repository,
-    Tool,
-    Application,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EvidenceConfidentiality {
-    Public,
-    WorkspacePrivate,
-    Restricted,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct EvidenceItem {
-    pub id: String,
-    pub workspace_uid: String,
-    pub origin: EvidenceOrigin,
-    pub confidentiality: EvidenceConfidentiality,
-    pub source: String,
-    pub content: String,
-}
-
-/// Typed context common to every prompt. Dynamic repository and user material is
-/// serialized only into the user message, after the trusted role and policy.
-#[derive(Debug, Clone, Serialize)]
-pub struct RoleInputV1 {
-    pub role: PromptRole,
-    pub workspace_uid: String,
-    pub feature_uid: String,
-    pub task_uid: Option<String>,
-    pub original_goal: String,
-    pub approved_spec_ref: Option<String>,
-    pub approved_spec_hash: Option<String>,
-    pub decision_refs: Vec<String>,
-    pub evidence_manifest: Vec<EvidenceItem>,
-    pub execution_policy_ref: String,
-    pub output_schema_version: String,
-    pub payload: RolePayloadV1,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", content = "request", rename_all = "snake_case")]
-pub enum RolePayloadV1 {
-    Manager {
-        board_event_cursor: String,
-        work_graph: Vec<String>,
-        unresolved_findings: Vec<String>,
-        latest_review_receipts: Vec<String>,
-    },
-    Planner {
-        open_questions: Vec<String>,
-        previous_answers: Vec<String>,
-        research_evidence: Vec<String>,
-        requested_scope: String,
-    },
-    PlannerOpportunity {
-        open_questions: Vec<String>,
-        previous_answers: Vec<String>,
-        research_evidence: Vec<String>,
-        requested_scope: String,
-        opportunity_origin: Option<String>,
-        existing_support_evidence: Vec<String>,
-        workaround: Option<String>,
-        user_value: Option<String>,
-        confidentiality_class: EvidenceConfidentiality,
-        concrete_target_repo: Option<String>,
-    },
-    PlannerTurn {
-        turn_context: String,
-        workflow_instructions: Option<String>,
-        operator_persona: String,
-        task_mode_note: Option<String>,
-    },
-    Review {
-        subject_revision: String,
-        subject_hash: String,
-        author_run_id: String,
-        reviewer_run_id: String,
-        author_session_id: Option<String>,
-        reviewer_session_id: Option<String>,
-        requirements_matrix: Vec<String>,
-        explicit_exclusions: Vec<String>,
-    },
-    QaScenarioSynthesis {
-        immutable_request_json: String,
-    },
-    Decomposer {
-        approved_plan_hash: String,
-        approved_scope: String,
-    },
-    Worker {
-        assigned_task: String,
-        assigned_subtasks: Vec<String>,
-        immutable_baseline: String,
-        allowed_execution_tools: Vec<String>,
-    },
-    SpecSync {
-        approved_requirements: Vec<String>,
-        verified_implementation_refs: Vec<String>,
-    },
-    Repair {
-        assigned_blocking_findings: Vec<String>,
-        approved_task_baseline: String,
-        allowed_execution_tools: Vec<String>,
-    },
-    Pr {
-        reviewed_task_refs: Vec<String>,
-        approved_subtasks: Vec<String>,
-        base_ref: String,
-        head_ref: String,
-    },
 }

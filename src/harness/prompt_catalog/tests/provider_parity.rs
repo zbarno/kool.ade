@@ -34,8 +34,12 @@ fn rendered_role_messages_survive_all_six_provider_adapters() {
         review_identity: None,
     };
 
-    let (codex_args, codex_user) =
-        crate::harness::codex_harness::command(std::path::Path::new("codex"), &request, None);
+    let (codex_args, codex_user) = crate::harness::codex_harness::command(
+        std::path::Path::new("codex"),
+        &request,
+        None,
+        std::path::Path::new("/private/review"),
+    );
     let codex_system = codex_args
         .iter()
         .find_map(|arg| arg.strip_prefix("developer_instructions="))

@@ -52,6 +52,10 @@ pub struct QaRunRequestV1 {
     pub schema_version: u16,
     pub qa_run_id: String,
     pub parent_task_uid: String,
+    /// The exact operator-approved runtime target selected for this run.
+    /// Optional only when reading historical records written before target binding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub planning_item_uid: Option<String>,
     pub feature_uid: String,
@@ -82,6 +86,10 @@ impl QaRunRequestV1 {
         if self.schema_version != 1
             || !is_uuid(&self.qa_run_id)
             || !is_uuid(&self.parent_task_uid)
+            || self
+                .target_id
+                .as_ref()
+                .is_some_and(|target_id| !valid_text(target_id, 128))
             || self
                 .planning_item_uid
                 .as_ref()

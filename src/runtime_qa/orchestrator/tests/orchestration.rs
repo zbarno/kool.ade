@@ -1,4 +1,7 @@
 use super::*;
+use crate::harness::prompt_catalog::{
+    CoverageStatus, CoverageV1, ReviewOutcomeV1, ReviewVerdictV1,
+};
 use sha2::Digest as _;
 
 #[test]
@@ -21,16 +24,46 @@ fn immutable_approved_run_persists_report_and_returns_gate_receipt() {
         failure_before_actions: false,
         failure_on_call: None,
     };
-    let (result, receipt) = RuntimeQaOrchestrator::new(&store)
-        .execute(QaExecutionContext {
-            request: &request,
-            scenarios: &scenarios,
-            authorization: QaTargetAuthorization::Web(&lease),
-            driver: &mut driver,
-            reviewer_execution_id: &reviewer_run,
-            reviewer_session_id: &reviewer_session,
-            prompt,
+    let mut reviewer = |evidence: &QaEvidenceManifestV1,
+                        candidate: &QaResultV1,
+                        screenshots: &[QaScreenshotArtifactV1]| {
+        Ok(ReviewVerdictV1 {
+            subject_hash: crate::runtime_qa::qa_review_subject_sha256(
+                &request, candidate, evidence,
+            )?,
+            examined_files: Vec::new(),
+            tested_evidence_ids: screenshots
+                .iter()
+                .map(|screenshot| screenshot.id.clone())
+                .collect(),
+            unexamined_areas: Vec::new(),
+            pass: true,
+            outcome: Some(ReviewOutcomeV1::Pass),
+            coverage: vec![CoverageV1 {
+                requirement: request.requirement_ids[0].clone(),
+                status: CoverageStatus::Pass,
+                evidence: vec![
+                    evidence.actions[1].index.to_string(),
+                    screenshots[0].id.clone(),
+                ],
+            }],
+            findings: Vec::new(),
+            untested: Vec::new(),
         })
+    };
+    let (result, receipt) = RuntimeQaOrchestrator::new(&store)
+        .execute_reviewed(
+            QaExecutionContext {
+                request: &request,
+                scenarios: &scenarios,
+                authorization: QaTargetAuthorization::Web(&lease),
+                driver: &mut driver,
+                reviewer_execution_id: &reviewer_run,
+                reviewer_session_id: &reviewer_session,
+                prompt,
+            },
+            &mut reviewer,
+        )
         .unwrap();
     assert_eq!(result.outcome, QaOutcome::Pass);
     assert_eq!(
@@ -82,9 +115,12 @@ fn driver_start_failure_before_first_action_is_persisted_as_infrastructure_block
         failure_before_actions: false,
         failure_on_call: Some(1),
     };
-    let mut reviewer = |_evidence: &QaEvidenceManifestV1, _candidate: &QaResultV1| {
-        Err("no runtime observations are available to review".into())
-    };
+    let mut reviewer =
+        |_evidence: &QaEvidenceManifestV1,
+         _candidate: &QaResultV1,
+         _screenshots: &[crate::runtime_qa::QaScreenshotArtifactV1]| {
+            Err("no runtime observations are available to review".into())
+        };
 
     let (result, receipt) = RuntimeQaOrchestrator::new(&store)
         .execute_reviewed(

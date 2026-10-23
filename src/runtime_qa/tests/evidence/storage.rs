@@ -24,7 +24,14 @@ fn missing_or_forged_screenshot_bytes_are_rejected_and_load_rechecks_hashes() {
     );
 
     let root = tempfile::tempdir().unwrap();
-    let store = RuntimeQaStore::new(root.path().join("qa"));
+    let store_root = root.path().join("qa");
+    std::fs::create_dir(&store_root).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&store_root, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let store = RuntimeQaStore::new(&store_root);
     assert!(
         store
             .save_run_with_screenshots(
@@ -45,6 +52,22 @@ fn missing_or_forged_screenshot_bytes_are_rejected_and_load_rechecks_hashes() {
             std::slice::from_ref(&fixture.screenshot),
         )
         .unwrap();
+    // Production boundary: persisted screenshots and reports are private even
+    // when an existing store root or the process umask permits group access. A
+    // serializer test cannot cover PlanningStore's image write path; this uses
+    // a temporary filesystem only and has low setup cost.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode();
+        let run_dir = store_root.join(&fixture.request.qa_run_id);
+        let screenshot_path = store_root.join(&fixture.evidence.screenshots[0].storage_ref);
+        assert_eq!(mode(&store_root) & 0o777, 0o700);
+        assert_eq!(mode(&run_dir) & 0o777, 0o700);
+        assert_eq!(mode(&run_dir.join("request.json")) & 0o777, 0o600);
+        assert_eq!(mode(screenshot_path.parent().unwrap()) & 0o777, 0o700);
+        assert_eq!(mode(&screenshot_path) & 0o777, 0o600);
+    }
     assert!(store.load_run(&fixture.request.qa_run_id).is_ok());
     assert_eq!(
         store
@@ -78,6 +101,71 @@ fn missing_or_forged_screenshot_bytes_are_rejected_and_load_rechecks_hashes() {
             .load_screenshot_gallery(&fixture.request.qa_run_id, 0, 0)
             .is_err()
     );
+
+    // Existing schema-1/2 stores may have been created before private
+    // permissions were enforced. Reading the report and its screenshots must
+    // harden that existing tree before returning any content.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let run_dir = store_root.join(&fixture.request.qa_run_id);
+        let screenshot_path = store_root.join(&fixture.evidence.screenshots[0].storage_ref);
+        let screenshot_dir = screenshot_path.parent().unwrap();
+        let evidence_run_dir = screenshot_dir.parent().unwrap();
+        let evidence_root = evidence_run_dir.parent().unwrap();
+        let permissive_dir = std::fs::Permissions::from_mode(0o755);
+        for directory in [
+            store_root.as_path(),
+            run_dir.as_path(),
+            evidence_root,
+            evidence_run_dir,
+            screenshot_dir,
+        ] {
+            std::fs::set_permissions(directory, permissive_dir.clone()).unwrap();
+        }
+        let permissive_file = std::fs::Permissions::from_mode(0o644);
+        for name in [
+            "request.json",
+            "scenarios.json",
+            "evidence.json",
+            "result.json",
+        ] {
+            std::fs::set_permissions(run_dir.join(name), permissive_file.clone()).unwrap();
+        }
+        std::fs::set_permissions(&screenshot_path, permissive_file).unwrap();
+
+        let loaded = store
+            .load_run_with_screenshots(&fixture.request.qa_run_id)
+            .unwrap();
+        assert_eq!(loaded.screenshots.len(), 1);
+        let mode =
+            |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&store_root), 0o700);
+        assert_eq!(mode(&run_dir), 0o700);
+        assert_eq!(mode(&run_dir.join("request.json")), 0o600);
+        assert_eq!(mode(screenshot_dir), 0o700);
+        assert_eq!(mode(&screenshot_path), 0o600);
+    }
+
+    let scenario_path = store
+        .root()
+        .join(&fixture.request.qa_run_id)
+        .join("scenarios.json");
+    let mut changed_scenarios = fixture.scenarios.clone();
+    changed_scenarios[0]
+        .visual_expectations
+        .push("Text remains readable after a resize".into());
+    std::fs::write(
+        &scenario_path,
+        serde_json::to_vec(&changed_scenarios).unwrap(),
+    )
+    .unwrap();
+    assert!(store.load_run(&fixture.request.qa_run_id).is_err());
+    std::fs::write(
+        &scenario_path,
+        serde_json::to_vec(&fixture.scenarios).unwrap(),
+    )
+    .unwrap();
 
     let artifact_path = store
         .root()

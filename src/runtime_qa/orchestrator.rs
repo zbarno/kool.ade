@@ -3,11 +3,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod driver_failure;
 mod report;
 mod review;
+mod visual;
+pub(super) const VISUAL_REVIEW_PENDING_LOG: &str =
+    "visual expectations are awaiting independent screenshot inspection";
 #[cfg(test)]
 #[path = "orchestrator/tests.rs"]
 mod tests;
 use report::{ReportAssembly, assemble_report};
 use review::{apply_review_verdict, failed_assertion_findings};
+use visual::mark_unreviewed_visual_expectations;
 
 use crate::harness::prompt_catalog::{PromptManifest, PromptRole, validate_prompt_manifest};
 
@@ -16,7 +20,7 @@ use super::{
     QaDisplayV1, QaDriverOutputV1, QaEvidenceManifestV1, QaOutcome, QaPlatform,
     QaRequirementCoverageV1, QaResultV1, QaRunRequestV1, QaScenarioV1, QaScreenshotArtifactV1,
     QaScreenshotV1, QaTaskServiceLeaseV1, QaValidatedTargetV1, RuntimeQaStore,
-    approved_gate_receipt, validate_scenario_set,
+    approved_gate_receipt, scenario_set_sha256, validate_scenario_set,
 };
 
 fn now_ms() -> u64 {
@@ -61,6 +65,7 @@ pub struct QaExecutionContext<'a> {
 pub type QaReviewer<'a> = dyn FnMut(
         &QaEvidenceManifestV1,
         &QaResultV1,
+        &[QaScreenshotArtifactV1],
     ) -> Result<crate::harness::prompt_catalog::ReviewVerdictV1, String>
     + 'a;
 
@@ -121,10 +126,8 @@ impl<'a> RuntimeQaOrchestrator<'a> {
             _ => return Err("QA target authorization does not match the selected driver".into()),
         }
         let role = validate_prompt_manifest(&prompt)?;
-        if !matches!(
-            role,
-            PromptRole::RuntimeQaReviewer | PromptRole::RuntimeQaReviewerV2
-        ) || reviewer_execution_id == request.author_run_id
+        if !matches!(role, PromptRole::RuntimeQaReviewerV3)
+            || reviewer_execution_id == request.author_run_id
             || reviewer_session_id == request.author_session_id
             || !crate::runtime_qa::contracts::is_uuid(reviewer_execution_id)
             || !crate::runtime_qa::contracts::is_uuid(reviewer_session_id)
@@ -179,13 +182,16 @@ impl<'a> RuntimeQaOrchestrator<'a> {
             finding.validate(&evidence)?;
         }
         let mut result = QaResultV1 {
-            schema_version: 1,
+            schema_version: super::CURRENT_QA_RESULT_SCHEMA_VERSION,
             subject_sha: request.code_head_sha.clone(),
             run_id: request.qa_run_id.clone(),
             reviewer_execution_id: reviewer_execution_id.to_owned(),
             reviewer_session_id: reviewer_session_id.to_owned(),
             outcome,
             evidence_manifest_sha256: evidence.sha256()?,
+            scenario_set_sha256: scenario_set_sha256(scenarios)?,
+            reviewed_screenshot_ids: Vec::new(),
+            review_coverage: Vec::new(),
             cases,
             coverage,
             findings,
@@ -198,8 +204,8 @@ impl<'a> RuntimeQaOrchestrator<'a> {
         mark_unreviewed_visual_expectations(scenarios, &mut evidence, &mut result)?;
         if let Some(review) = reviewer.as_mut() {
             let candidate = result.clone();
-            let reviewed = review(&evidence, &candidate).and_then(|verdict| {
-                apply_review_verdict(request, scenarios, &evidence, &mut result, verdict)
+            let reviewed = review(&evidence, &candidate, &screenshots).and_then(|verdict| {
+                apply_review_verdict(request, scenarios, &mut evidence, &mut result, verdict)
             });
             if reviewed.is_err() {
                 result = candidate;
@@ -220,7 +226,10 @@ impl<'a> RuntimeQaOrchestrator<'a> {
                 result.evidence_manifest_sha256 = evidence.sha256()?;
             }
         }
-        super::validate_report(request, scenarios, &evidence, &result)?;
+        if reviewer.is_none() && result.outcome == QaOutcome::Pass {
+            result.outcome = QaOutcome::Incomplete;
+        }
+        super::validate_current_report(request, scenarios, &evidence, &result)?;
         // Constructing the gate here verifies that the exact independent role
         // and exact report produce a lifecycle-compatible receipt.
         let receipt = match result.outcome {
@@ -246,54 +255,4 @@ impl<'a> RuntimeQaOrchestrator<'a> {
         }
         Ok((result, receipt))
     }
-}
-
-/// The current review prompt receives screenshot metadata and hashes, not image
-/// pixels. Keep visual criteria explicitly untested until a vision-capable
-/// reviewer can inspect the persisted image bytes.
-fn mark_unreviewed_visual_expectations(
-    scenarios: &[QaScenarioV1],
-    evidence: &mut QaEvidenceManifestV1,
-    result: &mut QaResultV1,
-) -> Result<(), String> {
-    let requirements = scenarios
-        .iter()
-        .filter(|scenario| !scenario.visual_expectations.is_empty())
-        .flat_map(|scenario| scenario.requirement_ids.iter().cloned())
-        .collect::<std::collections::BTreeSet<_>>();
-    if requirements.is_empty() {
-        return Ok(());
-    }
-    for coverage in &mut result.coverage.requirements {
-        if requirements.contains(&coverage.requirement_id) {
-            coverage.status = super::QaCoverageStatus::Untested;
-            coverage.evidence_refs.clear();
-        }
-    }
-    for assertion in &mut evidence.assertions {
-        if assertion.status == super::QaAssertionStatus::Passed
-            && assertion
-                .requirement_ids
-                .iter()
-                .any(|requirement| requirements.contains(requirement))
-        {
-            assertion.status = super::QaAssertionStatus::Untested;
-            assertion.evidence_refs.clear();
-        }
-    }
-    evidence.coverage = result
-        .coverage
-        .requirements
-        .iter()
-        .map(|coverage| format!("{}:{:?}", coverage.requirement_id, coverage.status))
-        .collect();
-    evidence.logs.truncate(255);
-    evidence.logs.push(
-        "visual expectations remain untested because the selected reviewer cannot inspect screenshot pixels".into(),
-    );
-    if result.outcome == QaOutcome::Pass {
-        result.outcome = QaOutcome::Incomplete;
-    }
-    result.evidence_manifest_sha256 = evidence.sha256()?;
-    Ok(())
 }

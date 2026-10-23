@@ -92,7 +92,9 @@ pub(super) fn validate_input(input: &RoleInputV1) -> Result<(), String> {
                 RolePayloadV1::Review { .. }
             )
             | (
-                PromptRole::RuntimeQaReviewer | PromptRole::RuntimeQaReviewerV2,
+                PromptRole::RuntimeQaReviewer
+                    | PromptRole::RuntimeQaReviewerV2
+                    | PromptRole::RuntimeQaReviewerV3,
                 RolePayloadV1::Review { .. }
             )
             | (
@@ -122,6 +124,7 @@ pub(super) fn validate_input(input: &RoleInputV1) -> Result<(), String> {
             && input.role != PromptRole::CodeReviewerV1
             && input.role != PromptRole::RuntimeQaReviewer
             && input.role != PromptRole::RuntimeQaReviewerV2
+            && input.role != PromptRole::RuntimeQaReviewerV3
         {
             return Err("review payload is only valid for reviewer roles".into());
         }

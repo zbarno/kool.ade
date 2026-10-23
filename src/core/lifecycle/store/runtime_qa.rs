@@ -2,7 +2,9 @@ use sha2::Digest as _;
 
 use crate::{
     artifacts::planning_store::StoreError,
-    core::lifecycle::{GateReceipt, QaExecutionStatusV1, TaskEvent, TaskPhase, TaskRecord},
+    core::lifecycle::{
+        GateActor, GateDecision, GateReceipt, QaExecutionStatusV1, TaskEvent, TaskPhase, TaskRecord,
+    },
     runtime_qa::QaRunRequestV1,
 };
 
@@ -17,14 +19,20 @@ impl LifecycleStore<'_> {
         task_uid: &str,
         expected_revision: u64,
         event_uid: &str,
-        assessment: crate::runtime_qa::QaApplicabilityAssessmentV1,
-        reviewer_receipt: GateReceipt,
+        proposal: crate::runtime_qa::QaApplicabilityProposalV1,
         receipt: GateReceipt,
     ) -> Result<TaskRecord, StoreError> {
+        proposal.validate().map_err(StoreError::MalformedState)?;
+        let assessment = &proposal.assessment;
+        let reviewer_receipt = &proposal.reviewer_receipt;
         let task = self.load_task(task_uid)?;
-        if task.revision != expected_revision {
+        if task.revision != expected_revision
+            || task.phase != TaskPhase::AwaitingRuntimeQa
+            || proposal.task_revision != expected_revision
+            || assessment.task_uid != task_uid
+        {
             return Err(StoreError::MalformedState(
-                "runtime QA applicability targets a stale task revision".into(),
+                "runtime QA applicability targets a stale or mismatched task revision".into(),
             ));
         }
         let manifest = crate::project_runtime::ProjectRuntimeStore::new(self.store)
@@ -79,13 +87,52 @@ impl LifecycleStore<'_> {
                 "headless applicability review omitted declared build or test evidence".into(),
             ));
         }
-        self.apply_task_event(
+        let assessment_hash = sha256(
+            &serde_json::to_vec(assessment)
+                .map_err(|error| StoreError::MalformedState(error.to_string()))?,
+        );
+        let proposal_hash = proposal
+            .proposal_sha256()
+            .map_err(StoreError::MalformedState)?;
+        let implementation_sha = task.implementation_sha256.as_deref().ok_or_else(|| {
+            StoreError::MalformedState("runtime QA applicability has no implementation hash".into())
+        })?;
+        if receipt.validate().is_err()
+            || receipt.actor != GateActor::ApplicationPolicy
+            || receipt.decision != GateDecision::NotApplicable
+            || receipt.subject_uid != task.task_uid
+            || receipt.subject_sha256 != implementation_sha
+            || receipt.reviewer_run_id.as_deref() != Some(assessment.approved_by.as_str())
+            || receipt.reviewer_session_id.as_deref()
+                != Some(assessment.manager_session_id.as_str())
+            || receipt.author_run_id.is_some()
+            || receipt.author_session_id.is_some()
+            || receipt.prompt_sha256.is_some()
+            || receipt.prompt_manifest.is_some()
+            || receipt.evidence_refs.len() != 3
+            || !receipt.evidence_refs.iter().any(|reference| {
+                reference == &format!("runtime-qa-applicability:{assessment_hash}")
+            })
+            || !receipt.evidence_refs.iter().any(|reference| {
+                reference == &format!("gate-receipt:{}", reviewer_receipt.receipt_uid)
+            })
+            || !receipt.evidence_refs.iter().any(|reference| {
+                reference == &format!("runtime-qa-applicability-proposal:{proposal_hash}")
+            })
+        {
+            return Err(StoreError::MalformedState(
+                "runtime QA applicability manager receipt does not match the current proposal"
+                    .into(),
+            ));
+        }
+        super::task_transition::apply_task_event(
+            self.store,
             task_uid,
             expected_revision,
             event_uid,
             TaskEvent::RuntimeQaNotApplicable {
-                assessment: Box::new(assessment),
-                reviewer_receipt: Box::new(reviewer_receipt),
+                assessment: Box::new(proposal.assessment),
+                reviewer_receipt: Box::new(proposal.reviewer_receipt),
                 receipt: Box::new(receipt),
             },
         )

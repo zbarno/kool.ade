@@ -131,8 +131,7 @@ pub(super) fn record(
             &task.task_uid,
             expected_revision,
             &event_uid,
-            proposal.assessment,
-            proposal.reviewer_receipt,
+            proposal,
             receipt,
         )
         .map_err(|error| error.to_string())?;
