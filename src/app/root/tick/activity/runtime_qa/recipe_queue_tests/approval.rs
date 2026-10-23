@@ -71,6 +71,52 @@ fn queue_dispatch_requires_explicit_recipe_approval() {
     .unwrap()
     .unwrap();
     assert_eq!(candidate.required_tools, ["npm"]);
+
+    let mut start_recipe = recipe.clone();
+    start_recipe.recipe_id = "web-start".into();
+    start_recipe.executable_id = "node".into();
+    start_recipe.prerequisite_tool_ids = vec!["node".into()];
+    manifest.recipes.push(start_recipe);
+    let mut readiness_recipe = recipe.clone();
+    readiness_recipe.recipe_id = "custom-ready".into();
+    readiness_recipe.executable_id = "python3".into();
+    readiness_recipe.prerequisite_tool_ids = vec!["python3".into()];
+    manifest.recipes.push(readiness_recipe);
+    let mut start_target = target.clone();
+    start_target.start_recipe_ref = Some("web-start".into());
+    start_target.readiness_probe_ref = Some("custom-ready-v1".into());
+    manifest.readiness_probes.insert(
+        "custom-ready-v1".into(),
+        crate::project_runtime::ReadinessProbeV1::CustomApprovedProbe {
+            recipe_id: "custom-ready".into(),
+        },
+    );
+    let start_candidate = approved_candidate(
+        &manifest,
+        &start_target,
+        std::path::Path::new("task-clone"),
+        workspace.clone(),
+        RuntimeOperation::Start,
+        vec!["web-start"],
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(start_candidate.required_tools, ["node", "python3"]);
+    manifest.recipes.last_mut().unwrap().source = RecipeSource::ValidatedProjectConfig;
+    manifest.recipes.last_mut().unwrap().evidence_refs.clear();
+    assert!(
+        approved_candidate(
+            &manifest,
+            &start_target,
+            std::path::Path::new("task-clone"),
+            workspace.clone(),
+            RuntimeOperation::Start,
+            vec!["web-start"],
+        )
+        .unwrap()
+        .is_none()
+    );
+
     assert_eq!(
         candidate.allowed_untracked_outputs,
         ["apps/web/dist", "apps/web/dist/index.html"]

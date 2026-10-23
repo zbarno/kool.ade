@@ -35,8 +35,6 @@ pub(super) fn build_artifacts(
         .iter()
         .filter(|receipt| {
             receipt.operation == RuntimeOperation::Build
-                && receipt.state == RuntimeReceiptState::Passed
-                && receipt.exit_code == Some(0)
                 && receipt.task_id == target.owning_task_id
                 && receipt.target_id == target.target_id
                 && receipt.source_sha == source_sha
@@ -46,6 +44,10 @@ pub(super) fn build_artifacts(
     else {
         return Ok(None);
     };
+    anyhow::ensure!(
+        build.state == RuntimeReceiptState::Passed && build.exit_code == Some(0),
+        "latest runtime Build receipt is not passing for the exact reviewed source"
+    );
     let artifact_paths = if let Some(reference) = target.artifact_spec_ref.as_ref() {
         manifest
             .artifact_specs

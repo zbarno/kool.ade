@@ -10,6 +10,8 @@ use crate::{
     },
 };
 
+mod tools;
+
 pub(super) fn supports_recipe_surface(surface: AppSurface) -> bool {
     matches!(
         surface,
@@ -79,16 +81,9 @@ pub(super) fn approved_candidate(
     }) {
         return Ok(None);
     }
-    let required_tools = recipes
-        .iter()
-        .flat_map(|recipe| {
-            std::iter::once(recipe.executable_id.as_str())
-                .chain(recipe.prerequisite_tool_ids.iter().map(String::as_str))
-        })
-        .map(str::to_owned)
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect();
+    let Some(required_tools) = tools::required_tools(manifest, target, operation, &recipes)? else {
+        return Ok(None);
+    };
     let mut allowed_untracked_outputs = target
         .artifact_spec_ref
         .as_ref()

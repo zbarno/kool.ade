@@ -23,7 +23,6 @@ pub(super) fn execute(
     manifest: &ProjectCapabilityManifestV1,
     target: &super::super::AppTargetV1,
 ) -> anyhow::Result<Vec<RuntimeReceiptV1>> {
-    require_startable_state(&target.capability_state)?;
     let recipe_id = target
         .start_recipe_ref
         .as_deref()
@@ -68,6 +67,7 @@ pub(super) fn execute(
     else {
         return failed_start(store, session, target, recipe.recipe_id.clone());
     };
+    require_startable_state(&target.capability_state)?;
     let artifact_paths = build_artifacts.paths;
     let build_hashes = build_artifacts.hashes;
     let script = start_script(manifest, target, recipe, probe)?;
@@ -167,12 +167,19 @@ pub(super) fn execute(
 }
 
 fn require_startable_state(state: &TargetCapabilityState) -> anyhow::Result<()> {
+    // Capability states are discovery-time hints. A successful exact-source
+    // Build, passed Test receipts, and the connected session's prerequisite
+    // preflight prove that these recoverable gaps have been resolved.
     anyhow::ensure!(
         matches!(
             state,
-            TargetCapabilityState::Ready | TargetCapabilityState::ReadyButUntested
+            TargetCapabilityState::Ready
+                | TargetCapabilityState::ReadyButUntested
+                | TargetCapabilityState::MissingToolchain
+                | TargetCapabilityState::MissingDependencies
+                | TargetCapabilityState::DriverUnavailable
         ),
-        "runtime target is not approved as ready to start"
+        "runtime target is not startable after prerequisite recovery"
     );
     Ok(())
 }
