@@ -2,6 +2,34 @@ use super::*;
 use crate::core::task_claim::{ClaimLease, ClaimLeaseHandle, ClaimRecord};
 
 #[test]
+fn active_claim_is_denied_from_a_second_planning_clone() {
+    // Production boundary: separate controller repositories share one Git-backed claim ref.
+    // Unit tests cannot prove that independent clones observe the same remote compare-and-swap.
+    // Dependencies: local Git only; moderate setup cost for a bare remote and two clones.
+    let root = tempfile::tempdir().unwrap();
+    let (_, controller_a, controller_b) = super::planning_repositories::create(root.path());
+    let project_uid = uuid::Uuid::new_v4();
+    let task_id = uuid::Uuid::new_v4().hyphenated().to_string();
+    let source_sha = git_output(&controller_a, &["rev-parse", "HEAD"]);
+    let lease = ClaimLease::acquire(&controller_a, project_uid, &task_id, "web", &source_sha)
+        .unwrap()
+        .expect("the first controller must acquire the task claim");
+    let session_id = lease.record().unwrap().session_id;
+
+    let duplicate = ClaimLease::acquire(&controller_b, project_uid, &task_id, "web", &source_sha);
+    assert!(matches!(
+        duplicate,
+        Err(crate::core::task_claim::ClaimError::AlreadyClaimed {
+            stale: false,
+            record
+        }) if record.session_id == session_id
+    ));
+}
+
+/// Production boundary: separate controller Git clones contend for the same task claim.
+/// Unit tests cannot prove both clones observe the shared claim ref before either dispatches.
+/// External dependencies: the gated rootless Docker and loopback SSH fixture; high setup cost.
+#[test]
 fn git_claim_takeover_fences_the_stale_remote_worker_result() {
     if !cfg!(target_os = "linux")
         || std::env::var("KOOLADE_REMOTE_DOCKER_BACKEND_INTEGRATION").as_deref() != Ok("1")
@@ -72,6 +100,17 @@ fn git_claim_takeover_fences_the_stale_remote_worker_result() {
         &mut stale_controller,
         &task_home_path,
         &root.join("sshd.log"),
+    );
+
+    let duplicate_lease =
+        ClaimLease::acquire(&planning_b, project_uid, &task_id, "web", &source_sha);
+    assert!(
+        matches!(
+            duplicate_lease,
+            Err(crate::core::task_claim::ClaimError::AlreadyClaimed { stale: false, record })
+                if record.session_id == old_session
+        ),
+        "a second controller must be denied while the first task is executing"
     );
 
     // Install a genuinely expired Git claim object at the shared claim ref,

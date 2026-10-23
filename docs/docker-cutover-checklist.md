@@ -6,7 +6,8 @@ Keep unmet items unchecked; a mock or skipped integration test is not a
 runtime sign-off.
 
 Current hosted evidence and its limits are recorded in the [Docker execution
-security matrix](docker-security-matrix.md). That snapshot does not check off
+security matrix](docker-security-matrix.md) and the [dated release evidence
+matrix](docker-release-evidence.md). Neither snapshot checks off
 the release gates below.
 
 ## Application and provider paths
