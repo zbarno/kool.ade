@@ -46,12 +46,17 @@ fn versioned_opportunity_golden_outputs_match_policy_contract_and_validate() {
         );
     }
 
-    let manager_system = include_str!("../../../../../prompts/v6/manager.system.md");
-    let manager_user = include_str!("../../../../../prompts/v6/manager.user.md");
+    let manager_system = include_str!("../../../../../prompts/v7/manager.system.md");
+    let manager_user = include_str!("../../../../../prompts/v7/manager.user.md");
     assert!(manager_system.contains("Only an explicit user choice may start planning"));
     assert!(manager_system.contains("Before proposing a missing feature, verify existing general-purpose capabilities and workarounds"));
     assert!(manager_system.contains("A generic capability that solves the task is not a blocker"));
     assert!(manager_system.contains("koolade-product-opportunity-contract"));
+    assert!(manager_system.contains("koolade-product-capability-inventory"));
+    assert!(
+        manager_system
+            .contains("exact target repository ref and identity supplied by the application")
+    );
     assert!(manager_system.contains("spec-finding:"));
     assert!(manager_system.contains("telemetry-regression:"));
     assert!(manager_system.contains("provider-capability-mismatch:"));
@@ -69,7 +74,25 @@ fn versioned_opportunity_golden_outputs_match_policy_contract_and_validate() {
                 "https://github.com/zbarno/kool.ade".into(),
             );
             validation.koolade_product_repository_ref = Some("koolade".into());
-            validation.public_evidence_ids = ["generic-capability-inventory".into()].into();
+            validation.evidence_ids.extend([
+                "koolade-product-capability-inventory".into(),
+                "koolade-product-opportunity-contract".into(),
+            ]);
+            validation.public_evidence_ids = [
+                "koolade-product-capability-inventory".into(),
+                "koolade-product-opportunity-contract".into(),
+            ]
+            .into();
+            validation.evidence_repository_refs.extend([
+                (
+                    "koolade-product-capability-inventory".into(),
+                    "koolade".into(),
+                ),
+                (
+                    "koolade-product-opportunity-contract".into(),
+                    "koolade".into(),
+                ),
+            ]);
         }
         let opportunities = fixture.output["opportunities"]
             .as_array()

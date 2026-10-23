@@ -1,9 +1,11 @@
 use super::super::{OpportunityConfidence, OpportunityProposalV1, OpportunityTarget};
 use super::OutputValidationContext;
+use crate::harness::prompt_catalog::PromptRole;
 
 pub(super) fn validate(
     proposal: &OpportunityProposalV1,
     context: &OutputValidationContext<'_>,
+    role: PromptRole,
 ) -> Result<(), String> {
     let nonempty = |value: &str, max: usize| {
         !value.trim().is_empty() && value.len() <= max && !value.contains('\0')
@@ -12,6 +14,9 @@ pub(super) fn validate(
         values.len() <= max_count && values.iter().all(|value| nonempty(value, max_value))
     };
     let required_capability_evidence = match &proposal.target {
+        OpportunityTarget::KooladeProduct if role == PromptRole::Manager => {
+            "koolade-product-capability-inventory"
+        }
         OpportunityTarget::KooladeProduct => "koolade-product-opportunity-contract",
         _ => "generic-capability-inventory",
     };
@@ -70,6 +75,15 @@ pub(super) fn validate(
         || (proposal.speculative && matches!(proposal.confidence, OpportunityConfidence::High))
     {
         return Err("opportunity proposal is incomplete, inconsistent, or exceeds bounds".into());
+    }
+    if role == PromptRole::Manager
+        && matches!(&proposal.target, OpportunityTarget::KooladeProduct)
+        && !proposal
+            .evidence_refs
+            .iter()
+            .any(|reference| reference == "koolade-product-opportunity-contract")
+    {
+        return Err("product proposals must cite the public product opportunity contract".into());
     }
 
     let target_is_valid = match &proposal.target {

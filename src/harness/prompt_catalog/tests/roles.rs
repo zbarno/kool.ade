@@ -45,8 +45,8 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
     let pinned = [
         (
             PromptRole::Manager,
-            "4465546882650dd9b966b159976f43ac9304cde29d357bb9efade494fb4651ff",
-            "cea363eae955b21cf70404f722b6ff5448eae3ae457df59bf5ba18cd1bc00b25",
+            "879d8c647d8b7e49b8f522ffe248c039481dd80ff6d5f1744a68c733b469d921",
+            "b845b50de27043e90e20825ff59ed35cac004e524e18d58f64273802818743ca",
         ),
         (
             PromptRole::ManagerV6,
@@ -160,6 +160,7 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         PromptRole::Decomposer,
         PromptRole::Implementer,
         PromptRole::CodeReviewer,
+        PromptRole::CodeReviewerV1,
         PromptRole::RuntimeQaReviewer,
         PromptRole::RuntimeQaReviewerV2,
         PromptRole::SpecReconciler,

@@ -2,11 +2,13 @@
 mod catalog;
 mod dependency;
 mod dispositions;
+mod execute;
 mod prompt;
 mod telemetry;
 pub(crate) const MAX_PLAN_ARBITRATION_ATTEMPTS: usize = 2;
 pub(crate) use dependency::{DependencyReview, DependencyTriage, enforce_policy};
 pub(crate) use dispositions::has_unpromoted_nonblocking_findings;
+pub(super) use dispositions::persist_dispositions;
 #[cfg(test)]
 pub(super) use dispositions::persist_plan_dispositions;
 pub(crate) use dispositions::{
@@ -16,7 +18,6 @@ pub(crate) use dispositions::{
 };
 pub(super) use dispositions::{
     has_pending_plan_contest, has_pending_plan_repair, next_plan_arbitration, next_plan_repair,
-    persist_dispositions,
 };
 
 use crate::harness::{AiHarness, LiveProgress, PlanningRequest};
@@ -41,6 +42,8 @@ pub(super) struct ManagerOutput {
     pub proposed_actions: Vec<crate::harness::prompt_catalog::ManagerActionV1>,
     pub opportunities: Vec<crate::harness::prompt_catalog::OpportunityProposalV1>,
     pub evidence_hashes: std::collections::HashMap<String, String>,
+    pub evidence_confidentialities:
+        std::collections::HashMap<String, crate::harness::prompt_catalog::EvidenceConfidentiality>,
     pub planning_revision: String,
     pub code_review_targets:
         std::collections::HashMap<String, catalog::code_reviews::FindingTarget>,
@@ -67,22 +70,7 @@ impl Manager {
         let (done, result) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let prepared = catalog::render(project, events);
-        let evidence_hashes = prepared
-            .as_ref()
-            .map(|prompt| prompt.evidence_hashes.clone())
-            .unwrap_or_default();
-        let planning_revision = prepared
-            .as_ref()
-            .map(|prompt| prompt.planning_revision.clone())
-            .unwrap_or_default();
-        let review_targets = prepared
-            .as_ref()
-            .map(|prompt| prompt.review_targets.clone())
-            .unwrap_or_default();
-        let code_review_targets = prepared
-            .as_ref()
-            .map(|prompt| prompt.code_review_targets.clone())
-            .unwrap_or_default();
+        let product_prepared = catalog::render_product(project);
         let prompt_body = prepared
             .as_ref()
             .map(|prompt| prompt.rendered.user.clone())
@@ -101,11 +89,10 @@ impl Manager {
             ..Default::default()
         });
         let manager_task_id = uuid::Uuid::new_v4().hyphenated().to_string();
-        let execution_workspace = manager_execution_workspace(project, &manager_task_id);
         let request = PlanningRequest {
             mode: crate::harness::ExecutionMode::Planning,
             task_id: Some(manager_task_id.clone()),
-            execution_workspace,
+            execution_workspace: manager_execution_workspace(project, &manager_task_id),
             destination_sha: None,
             prompt_manifest: prompt_manifest.clone(),
             reasoning_level: "xhigh".into(),
@@ -124,7 +111,6 @@ impl Manager {
         let route = harness.route_provenance(&request);
         let harness_label = harness.label();
         let project_root = project.state.repo_root.clone();
-        let execution_id = manager_task_id;
         if request.execution_workspace.is_none() {
             let message = "Kool.ad/e could not bind the current project revision to a read-only Manager workspace. Repair or refresh the project Git checkout, then retry. Manager did not invoke a provider or run repository commands.";
             let failure = crate::error::AppError::HarnessExecutionFailed {
@@ -151,7 +137,7 @@ impl Manager {
                 &harness_label,
                 route.as_ref(),
                 &request,
-                &execution_id,
+                &manager_task_id,
                 telemetry::InvocationOutcome {
                     status: "blocked",
                     failure_category: Some("tool_bridge_unavailable"),
@@ -166,81 +152,19 @@ impl Manager {
                 prompt_manifest,
             };
         }
-        std::thread::spawn(move || {
-            let prepared = match prepared {
-                Ok(prepared) => prepared,
-                Err(error) => {
-                    let _ = done.send(Err(error));
-                    return;
-                }
-            };
-            let mut outcome = Err("Project manager did not complete".into());
-            let mut failure_category = None;
-            let mut failure_message = None;
-            for attempt in 0..2 {
-                if request.cancel.load(Ordering::Relaxed) {
-                    failure_category = Some("cancelled".into());
-                    failure_message = Some("Manager invocation was cancelled.".into());
-                    outcome = Err("Manager invocation was cancelled.".into());
-                    break;
-                }
-                let response = match harness.execute(&request) {
-                    Ok(response) => response,
-                    Err(error) => {
-                        let retryable = matches!(
-                            &error,
-                            crate::error::AppError::HarnessExecutionFailed {
-                                failure,
-                            }
-                                if failure.retryable
-                        );
-                        let detail = error.detail();
-                        failure_category = Some(telemetry::failure_category(&error));
-                        failure_message = Some(crate::error::redact_secrets(&detail));
-                        outcome = Err(detail);
-                        if !retryable || attempt == 1 {
-                            break;
-                        }
-                        continue;
-                    }
-                };
-                outcome = catalog::decode(
-                    &response.final_text,
-                    &prepared.validation,
-                    evidence_hashes.clone(),
-                    planning_revision.clone(),
-                    &review_targets,
-                    &code_review_targets,
-                );
-                if outcome.is_ok() {
-                    failure_category = None;
-                    failure_message = None;
-                    break;
-                }
-                failure_category = Some("invalid_response".into());
-                failure_message = outcome
-                    .as_ref()
-                    .err()
-                    .map(|detail| crate::error::redact_secrets(detail));
-            }
-            telemetry::persist_invocation(
-                &project_root,
-                &harness_label,
-                route.as_ref(),
-                &request,
-                &execution_id,
-                telemetry::InvocationOutcome {
-                    status: if outcome.is_ok() {
-                        "completed"
-                    } else {
-                        "failed"
-                    },
-                    failure_category: failure_category.as_deref(),
-                    failure_message: failure_message.as_deref(),
-                },
-            );
-            let _ = done.send(outcome);
-        });
+        execute::launch(
+            harness,
+            request,
+            prepared,
+            product_prepared,
+            execute::InvocationContext {
+                route,
+                harness_label,
+                project_root,
+                execution_id: manager_task_id,
+            },
+            done,
+        );
         Self {
             progress,
             result,
@@ -266,6 +190,14 @@ impl Manager {
         }
     }
 }
+impl Drop for Manager {
+    fn drop(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests;
 
 fn manager_execution_workspace(
     project: &super::session::Project,
@@ -301,11 +233,3 @@ fn manager_execution_workspace(
         source_sha,
     })
 }
-impl Drop for Manager {
-    fn drop(&mut self) {
-        self.cancel.store(true, Ordering::Relaxed);
-    }
-}
-
-#[cfg(test)]
-mod tests;

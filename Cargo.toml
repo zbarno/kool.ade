@@ -40,14 +40,12 @@ unicode-general-category = "1.1.0"
 url = "2.5.8"
 bollard = { version = "0.21.1", default-features = false, features = ["pipe", "buildkit_providerless", "chrono"] }
 fs2 = "0.4.3"
+tempfile = "3.27.0"
 futures-util = { version = "0.3.34", default-features = false, features = ["io", "std"] }
 tokio = { version = "1.53.2", default-features = false, features = ["fs", "io-util", "rt-multi-thread", "time", "sync", "macros"] }
 tar = "0.4.46"
 flate2 = "1.1.10"
 zeroize = "1.8.2"
-
-[dev-dependencies]
-tempfile = "3.27.0"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Registry", "Win32_System_Threading"] }

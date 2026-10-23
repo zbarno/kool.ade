@@ -232,6 +232,7 @@ mod tests {
             head_sha: head.clone(),
             base_sha: None,
             base_branch: "develop".into(),
+            merged_at: None,
         });
         let closed_link = execution_linkage(&metadata, &closed);
         assert_eq!(closed_link.repository_id, "api");

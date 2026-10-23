@@ -3,10 +3,14 @@ use crate::artifacts::planning_store::{PlanningStore, RecordRevisionCheck, Store
 use serde::{Deserialize, Serialize};
 
 mod readiness;
+mod revision;
 
 type RecordChanges = Vec<(String, Vec<u8>)>;
 type RecordChangesWithChecks = (RecordChanges, Vec<RecordRevisionCheck>);
 
+#[cfg(test)]
+#[path = "store/tests/catalog_fence.rs"]
+mod catalog_fence_tests;
 #[cfg(test)]
 #[path = "store/tests/deferral.rs"]
 mod deferral_tests;
@@ -112,7 +116,12 @@ impl<'a> QuestionStore<'a> {
         expected_revision: u64,
         expected_planning_revision: Option<&str>,
     ) -> Result<String, StoreError> {
-        let (changes, checks) = question_record_changes(self.store, question, expected_revision)?;
+        let (mut changes, mut checks) =
+            question_record_changes(self.store, question, expected_revision)?;
+        let (catalog_changes, catalog_checks) =
+            revision::catalog_revision_changes(self.store, &question.feature_uid)?;
+        changes.extend(catalog_changes);
+        checks.extend(catalog_checks);
         let (_, revision) = if let Some(planning_revision) = expected_planning_revision {
             self.store.transaction_with_revision_and_record_revisions(
                 &changes,
@@ -162,6 +171,11 @@ impl<'a> QuestionStore<'a> {
             changes.extend(question_changes);
             checks.extend(question_checks);
         }
+        let feature_uids = questions
+            .iter()
+            .map(|(question, _)| question.feature_uid.clone())
+            .collect::<Vec<_>>();
+        revision::append_catalog_changes(self.store, &feature_uids, &mut changes, &mut checks)?;
         let (readiness_changes, readiness_checks) =
             readiness::readiness_record_changes(self, checklist, expected_readiness_revision)?;
         changes.extend(documents.iter().cloned());

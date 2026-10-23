@@ -4,8 +4,9 @@ use crate::core::lifecycle::{FeatureEvent, FeatureGoal};
 use super::{
     Snapshot,
     records::{
-        EventProjection, append_transition, event_path, event_record, feature_actor, feature_path,
-        now_unix_ms, stale,
+        AdditionalTransition, EventProjection, append_transition,
+        append_transition_with_additional_checks, event_path, event_record, feature_actor,
+        feature_path, now_unix_ms, stale,
     },
     task_transition,
 };
@@ -55,6 +56,15 @@ fn commit_after_read(
     proposal: FeatureEvent,
     mut snapshot: Snapshot<FeatureGoal>,
 ) -> Result<FeatureGoal, StoreError> {
+    let answers_resolved = matches!(proposal, FeatureEvent::AnswersResolved);
+    let question_fence = if answers_resolved {
+        ensure_blocking_questions_resolved(store, feature_uid)?
+    } else {
+        AdditionalTransition {
+            changes: Vec::new(),
+            checks: Vec::new(),
+        }
+    };
     if matches!(proposal, FeatureEvent::TasksCompleted) {
         task_transition::ensure_feature_tasks_complete(
             store,
@@ -81,6 +91,63 @@ fn commit_after_read(
             ..EventProjection::default()
         },
     )?;
-    append_transition(store, path, &snapshot, expected_revision, event_path, event)?;
+    if answers_resolved {
+        append_transition_with_additional_checks(
+            store,
+            path,
+            &snapshot,
+            expected_revision,
+            event_path,
+            event,
+            question_fence,
+        )?;
+    } else {
+        append_transition(store, path, &snapshot, expected_revision, event_path, event)?;
+    }
     Ok(snapshot.record)
+}
+
+fn ensure_blocking_questions_resolved(
+    store: &PlanningStore,
+    feature_uid: &str,
+) -> Result<AdditionalTransition, StoreError> {
+    use crate::core::planning::{QuestionPriority, QuestionStatus, QuestionStore};
+
+    let questions = QuestionStore::new(store);
+    let catalog_check = questions.feature_revision_check(feature_uid)?;
+    let feature_questions = questions
+        .list()?
+        .into_iter()
+        .filter(|question| {
+            question.feature_uid == feature_uid && question.priority == QuestionPriority::Blocking
+        })
+        .collect::<Vec<_>>();
+    let unresolved = feature_questions
+        .iter()
+        .filter(|question| {
+            matches!(
+                question.status,
+                QuestionStatus::Draft | QuestionStatus::Open | QuestionStatus::Declined
+            ) && question.deferred.is_none()
+        })
+        .map(|question| question.uid.as_str())
+        .collect::<Vec<_>>();
+    if unresolved.is_empty() {
+        Ok(AdditionalTransition {
+            changes: Vec::new(),
+            checks: std::iter::once(catalog_check)
+                .chain(
+                    feature_questions
+                        .iter()
+                        .map(|question| questions.revision_check(&question.uid))
+                        .collect::<Result<Vec<_>, _>>()?,
+                )
+                .collect(),
+        })
+    } else {
+        Err(StoreError::MalformedState(format!(
+            "cannot resolve feature answers while blocking planning questions remain: {}",
+            unresolved.join(", ")
+        )))
+    }
 }

@@ -1,5 +1,19 @@
 use super::repository_evidence;
 
+#[cfg(test)]
+#[path = "prompt/tests.rs"]
+mod tests;
+
+fn capability_plan_guidance(
+    target: &crate::core::opportunity::OpportunityTargetKindV1,
+) -> &'static str {
+    if *target == crate::core::opportunity::OpportunityTargetKindV1::KooladeProduct {
+        " This is a pursued Kool.ad/e product improvement: the plan must include a `## Capability ID` section with a stable, lower-case product capability slug. This identifier is part of the user-confirmed plan and must not be a run, task, or feature UUID. The implementation plan must add that exact ID to the compiled active-capability inventory with an app-owned feature-specific readiness probe, and must not claim readiness until the probe is implemented. The current self-improvement lifecycle capability uses `self-improvement-lifecycle` with probe `self-improvement-lifecycle-v1`; choosing another ID requires implementing and registering its matching probe in the same reviewed change."
+    } else {
+        ""
+    }
+}
+
 fn opportunity_planner_context(
     project: &super::super::session::Project,
     feature_text: &str,
@@ -75,6 +89,9 @@ pub(super) fn render(
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "the clarified feature has no stable identity".to_owned())?;
     let opportunity_context = opportunity_planner_context(project, feature_text, feature_uid)?;
+    let capability_plan_guidance = opportunity_context.as_ref().map_or("", |proposal| {
+        capability_plan_guidance(&proposal.target.kind)
+    });
     let contract = crate::core::workflow::feature_contract(feature_text);
     let snapshot = crate::core::lifecycle::plan_snapshot::from_feature_with_author(
         &project.state.planning_store,
@@ -188,7 +205,8 @@ pub(super) fn render(
             previous_answers,
             research_evidence,
             requested_scope: format!(
-                "Reassess feature plan revision {plan_revision} after the recorded clarification. Inspect the supplied read-only repository overview before asking. Use strong repository precedent to resolve technical choices, cite its evidence ID and rationale, and ask only when a choice changes user intent or exceeds agent authority. Put an evidence-backed resolution for an existing technical question in resolvedQuestions. Only resolve Integration, Api, Performance, Operations, Testing, or Deployment choices; never resolve user intent, scope, UX, security, privacy, data ownership, or failure policy for the user. Do not repeat a resolved question. Preserve explicit optional deferrals with their owner, risk, verification test, and follow-up task; do not treat a deferral as a product decision. Propose only material new questions and traceable readiness evidence."
+                "Reassess feature plan revision {plan_revision} after the recorded clarification. Inspect the supplied read-only repository overview before asking. Use strong repository precedent to resolve technical choices, cite its evidence ID and rationale, and ask only when a choice changes user intent or exceeds agent authority. Put an evidence-backed resolution for an existing technical question in resolvedQuestions. Only resolve Integration, Api, Performance, Operations, Testing, or Deployment choices; never resolve user intent, scope, UX, security, privacy, data ownership, or failure policy for the user. Do not repeat a resolved question. Preserve explicit optional deferrals with their owner, risk, verification test, and follow-up task; do not treat a deferral as a product decision. Propose only material new questions and traceable readiness evidence.{}",
+                capability_plan_guidance
             ),
             opportunity_origin: opportunity_context
                 .as_ref()
