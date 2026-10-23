@@ -106,6 +106,8 @@ impl Runner {
             .collect::<Vec<_>>();
         let child = if clean_env {
             crate::harness::pi_proc::spawn_with_input_clear_env(&argv, cwd, None, &[])?
+        } else if program == "git" {
+            crate::harness::pi_proc::spawn_git(&argv, cwd)?
         } else {
             crate::harness::pi_proc::spawn(&argv, cwd)?
         };
@@ -221,7 +223,7 @@ impl Runner {
         right: &str,
     ) -> anyhow::Result<Option<String>> {
         self.remaining()?;
-        let child = crate::harness::pi_proc::spawn(
+        let child = crate::harness::pi_proc::spawn_git(
             &["git".into(), "merge-base".into(), left.into(), right.into()],
             cwd,
         )?;

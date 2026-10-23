@@ -138,7 +138,7 @@ pub fn spawn_with_input_env(
     input: Option<String>,
     env: &[(String, String)],
 ) -> anyhow::Result<ChildTask> {
-    spawn_with_input_env_policy(argv, cwd, input, env, false, &[])
+    spawn_with_input_env_policy(argv, cwd, input, env, false, &[], Duration::from_millis(50))
 }
 
 /// Pipe a prompt while adding child environment values and removing selected
@@ -150,7 +150,7 @@ pub fn spawn_with_input_env_excluding(
     env: &[(String, String)],
     excluded_env: &[&str],
 ) -> anyhow::Result<ChildTask> {
-    spawn_with_input_env_policy(argv, cwd, input, env, false, excluded_env)
+    spawn_with_input_env_policy(argv, cwd, input, env, false, excluded_env, Duration::from_millis(50))
 }
 
 /// Spawn a harness with a reviewed environment baseline and provider auth vars.
@@ -178,7 +178,13 @@ pub fn spawn_with_input_clear_env(
     input: Option<String>,
     env: &[(String, String)],
 ) -> anyhow::Result<ChildTask> {
-    spawn_with_input_env_policy(argv, cwd, input, env, true, &[])
+    spawn_with_input_env_policy(argv, cwd, input, env, true, &[], Duration::from_millis(50))
+}
+
+/// Reap short Git subprocesses promptly without increasing the polling
+/// frequency of long-running AI provider processes.
+pub(crate) fn spawn_git(argv: &[String], cwd: &Path) -> anyhow::Result<ChildTask> {
+    spawn_with_input_env_policy(argv, cwd, None, &[], false, &[], Duration::from_millis(5))
 }
 
 fn spawn_with_input_env_policy(
@@ -188,6 +194,7 @@ fn spawn_with_input_env_policy(
     env: &[(String, String)],
     clear_env: bool,
     excluded_env: &[&str],
+    watcher_poll_interval: Duration,
 ) -> anyhow::Result<ChildTask> {
     let (tx, rx) = std::sync::mpsc::channel();
     let mut cmd = Command::new(&argv[0]);
@@ -270,7 +277,7 @@ fn spawn_with_input_env_policy(
                 let _ = exit_sender.send(StreamEvt::Exited(success));
                 break;
             }
-            std::thread::sleep(Duration::from_millis(50));
+            std::thread::sleep(watcher_poll_interval);
         }
     });
     // All senders are thread-owned clones; when every thread exits the
