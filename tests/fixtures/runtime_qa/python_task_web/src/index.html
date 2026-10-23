@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Task runtime fixture</title></head>
+  <body>
+    <main>
+      <h1>Task runtime fixture</h1>
+      <form id="message-form">
+        <label for="message">Message</label>
+        <input id="message" name="message" autocomplete="off">
+      </form>
+      <p data-testid="status">Waiting</p>
+    </main>
+    <script>
+      document.querySelector("#message-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const message = document.querySelector("#message").value;
+        const response = await fetch("/save", { method: "POST", body: message });
+        document.querySelector("[data-testid=status]").textContent = response.ok ? "Saved" : "Save failed";
+      });
+    </script>
+  </body>
+</html>

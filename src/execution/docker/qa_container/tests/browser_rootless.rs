@@ -36,3 +36,5 @@ mod run;
 mod scenario;
 #[path = "browser_rootless/service_driver.rs"]
 mod service_driver;
+#[path = "browser_rootless/task_runtime.rs"]
+mod task_runtime;

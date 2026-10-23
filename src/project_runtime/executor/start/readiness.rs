@@ -125,16 +125,25 @@ fn http_readiness_command(
     if start
         .prerequisite_tool_ids
         .iter()
-        .any(|tool| tool == "python3")
+        .any(|tool| matches!(tool.as_str(), "python" | "python3"))
     {
         let path = serde_json::to_string(path)?;
         let script = format!(
-            "import http.client,sys; c=http.client.HTTPConnection('127.0.0.1',{port},timeout=1.5); c.request('GET',{path}); s=c.getresponse().status; sys.exit(0 if {expected} else 1)"
+            "import http.client,sys; c=http.client.HTTPConnection('127.0.0.1',{port},timeout=1.5); c.request('GET',{path}); status=c.getresponse().status; sys.exit(0 if {expected} else 1)"
         );
-        return Ok(shell_argv("python3", &["-c".into(), script]));
+        let python_tool = if start
+            .prerequisite_tool_ids
+            .iter()
+            .any(|tool| tool == "python")
+        {
+            "python"
+        } else {
+            "python3"
+        };
+        return Ok(shell_argv(python_tool, &["-c".into(), script]));
     }
     anyhow::bail!(
-        "HTTP readiness requires the approved start recipe to declare the node or python3 probe prerequisite"
+        "HTTP readiness requires the approved start recipe to declare the node, python, or python3 probe prerequisite"
     )
 }
 
