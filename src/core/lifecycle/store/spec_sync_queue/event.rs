@@ -76,7 +76,9 @@ fn trigger_for_event(event: &LifecycleEventRecord) -> (SpecSyncTriggerKindV1, Op
             | TaskEvent::RuntimeQaNotApplicable { .. } => {
                 (SpecSyncTriggerKindV1::RuntimeQa, None)
             }
-            TaskEvent::ReconcileSpec { .. } | TaskEvent::SubtaskReconciled { .. } => (
+            TaskEvent::ReconcileSpec { .. }
+            | TaskEvent::PublicationGatesRefreshed { .. }
+            | TaskEvent::SubtaskReconciled { .. } => (
                 SpecSyncTriggerKindV1::SpecificationReconciliation,
                 Some("validated reconciliation completion records the preceding specification review; it introduces no new implementation evidence or requirement change".into()),
             ),
@@ -85,9 +87,9 @@ fn trigger_for_event(event: &LifecycleEventRecord) -> (SpecSyncTriggerKindV1, Op
              => {
                 (SpecSyncTriggerKindV1::SpecificationReconciliation, None)
             }
-            TaskEvent::Start | TaskEvent::Cancel => (
+            TaskEvent::Start | TaskEvent::Cancel | TaskEvent::PublicationHeadChanged { .. } => (
                 SpecSyncTriggerKindV1::LifecycleOther,
-                Some("task start/cancel does not change reviewed specification evidence".into()),
+                Some("task start/cancel or publication-head invalidation does not itself pass specification gates".into()),
             ),
         },
         LifecycleEventKind::PullRequestState { status, .. } => (

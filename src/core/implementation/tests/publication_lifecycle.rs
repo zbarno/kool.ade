@@ -48,6 +48,10 @@ fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_
     );
     let reviewed_head = sandbox.git(&state.task_repository, &["rev-parse", "HEAD"]);
     state.verified_head = Some(reviewed_head.clone());
+    state.repository_id = Some("synthetic-publication-repository".into());
+    // The default destination is held in `base`; `destination_branch` is only
+    // populated when the user explicitly chose one.
+    state.destination_branch = None;
 
     let (mut pursuit_app, planning, product_root) =
         crate::app::root::self_improvement_test_support::app_fixture();
@@ -148,6 +152,7 @@ fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_
             &store,
             &state_dir(&sandbox.repo, &sandbox.ticket).unwrap(),
             &mut interrupted_state,
+            Some(authorized.publication_lease_epoch()),
             &error,
         )
         .unwrap()

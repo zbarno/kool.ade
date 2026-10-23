@@ -169,6 +169,7 @@ pub(super) fn validate_draft(
                 crate::core::lifecycle::TaskEvent::CodeReview { receipt, .. }
                 | crate::core::lifecycle::TaskEvent::RuntimeQaCompleted { receipt, .. }
                 | crate::core::lifecycle::TaskEvent::ReconcileSpec { receipt, .. }
+                | crate::core::lifecycle::TaskEvent::PublicationGatesRefreshed { receipt }
                 | crate::core::lifecycle::TaskEvent::SubtaskReconciled { receipt },
             ) => add_receipt(&mut known_evidence, receipt),
             LifecycleEventKind::Task(

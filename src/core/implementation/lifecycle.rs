@@ -1,5 +1,10 @@
 use super::*;
 use crate::artifacts::planning_store::PlanningStore;
+use sha2::{Digest, Sha256};
+
+#[cfg(test)]
+#[path = "lifecycle/tests.rs"]
+mod tests;
 
 pub(super) struct LifecycleExecutionContext<'a> {
     pub(super) planning_store: &'a PlanningStore,
@@ -123,6 +128,14 @@ fn prepare_and_publish(
     let done = publication::implementation_is_done(planning_store, state)?;
     if done {
         integration::prepare_reviewed_for_pull_request(repo, dir, state, harness, runner, policy)?;
+        if reopen_if_publication_head_changed(planning_store, dir, state, runner)? {
+            state.status = ImplementationStatus::AwaitingApproval;
+            state.auto_merge = false;
+            state.detail = "Destination integration changed the reviewed head. The old review, QA, and specification receipts were invalidated. Refresh those gates before authorizing PR publication.".into();
+            save(dir, state)?;
+            runner.update("Destination integration changed the reviewed head. The old review, QA, and specification gates were invalidated; refresh them before PR publication.");
+            return Ok(());
+        }
     } else {
         integration::prepare_for_pull_request(repo, dir, state, harness, runner, policy)?;
     }
@@ -140,6 +153,7 @@ fn prepare_and_publish(
                     planning_store,
                     dir,
                     state,
+                    None,
                     &anyhow::anyhow!(reason),
                 )?;
                 Ok(())
@@ -148,8 +162,97 @@ fn prepare_and_publish(
             }
         }
         publication::LifecyclePublicationGate::Authorized(binding) => {
-            publication::create_pull_request(dir, state, runner, policy.claim_lease)?;
-            publication::finish_lifecycle_publication(planning_store, state, Some(binding))
+            if let Err(error) =
+                publication::create_pull_request(dir, state, runner, policy.claim_lease)
+            {
+                publication::preserve_done_after_failure(
+                    planning_store,
+                    dir,
+                    state,
+                    Some(binding.lease_epoch),
+                    &error,
+                )?;
+                Ok(())
+            } else {
+                match publication::finish_lifecycle_publication(
+                    planning_store,
+                    state,
+                    Some(binding.clone()),
+                ) {
+                    Ok(()) => Ok(()),
+                    Err(error) => {
+                        publication::preserve_done_after_failure(
+                            planning_store,
+                            dir,
+                            state,
+                            Some(binding.lease_epoch),
+                            &error,
+                        )?;
+                        Ok(())
+                    }
+                }
+            }
         }
     }
+}
+
+fn reopen_if_publication_head_changed(
+    planning_store: &PlanningStore,
+    dir: &Path,
+    state: &Implementation,
+    runner: &Runner,
+) -> anyhow::Result<bool> {
+    let (Some(planning_uid), Some(head_sha)) =
+        (state.task_uid.as_deref(), state.verified_head.as_deref())
+    else {
+        return Ok(false);
+    };
+    let lifecycle = crate::core::lifecycle::LifecycleStore::new(planning_store);
+    let Some(task) = lifecycle.task_for_planning_item(planning_uid)? else {
+        return Ok(false);
+    };
+    let Some(work_uid) = task.pr_work_item_uid.as_deref() else {
+        return Ok(false);
+    };
+    let work = lifecycle.load_pr_preparation(work_uid)?;
+    if task.phase != crate::core::lifecycle::TaskPhase::Done
+        || task.reviewed_code_head_sha.as_deref() == Some(head_sha)
+        || work.provider_pr_url.is_some()
+        || !matches!(
+            work.status,
+            crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization
+                | crate::core::lifecycle::PullRequestPreparationStatus::NeedsAttention
+        )
+    {
+        return Ok(false);
+    }
+
+    const MAX_REVIEW_DIFF_BYTES: u64 = 48 * 1024;
+    let patch_path = dir.join("publication-head-change.patch");
+    runner.git_to_file_bounded(
+        &state.task_repository,
+        &[
+            "diff",
+            "--binary",
+            &format!("{}...{head_sha}", state.base_commit),
+        ],
+        &patch_path,
+        MAX_REVIEW_DIFF_BYTES,
+    )?;
+    let code_sha256 = format!("{:x}", Sha256::digest(std::fs::read(patch_path)?));
+    lifecycle.apply_task_event(
+        &task.task_uid,
+        task.revision,
+        &uuid::Uuid::new_v5(
+            &uuid::Uuid::parse_str(&task.task_uid)?,
+            format!("publication-head-changed:v1:{head_sha}:{code_sha256}").as_bytes(),
+        )
+        .hyphenated()
+        .to_string(),
+        crate::core::lifecycle::TaskEvent::PublicationHeadChanged {
+            code_sha256,
+            head_sha: head_sha.to_owned(),
+        },
+    )?;
+    Ok(true)
 }

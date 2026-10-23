@@ -186,6 +186,9 @@ impl Fixture {
             updated_at_ms: 1,
             status: PullRequestPreparationStatus::AwaitingAuthorization,
             publication_authorization: None,
+            publication_scope: None,
+            lease_epoch: 0,
+            publication_authorization_event_uids: Vec::new(),
             recovery: None,
             provider_pr_id: None,
             provider_pr_url: None,
@@ -230,6 +233,7 @@ impl Fixture {
             "ticket": "TASK-001.md", "task_uid": self.task.planning_item_uid,
             "ticket_text": "# Synthetic publication fixture", "branch": "task/fixture",
             "base": "main", "base_commit": "d".repeat(40),
+            "repository_id": "fixture-repository", "destination_branch": "main",
             "task_repository": self.repository_root, "status": "awaiting_approval", "detail": "",
             "pr_url": null, "verified_head": self.reviewed_head,
         }))

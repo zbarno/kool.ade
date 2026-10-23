@@ -1,5 +1,6 @@
 use super::super::{
-    LifecyclePublicationGate, prepare_lifecycle_publication, preserve_done_after_failure,
+    LifecyclePublication, LifecyclePublicationGate, prepare_lifecycle_publication,
+    preserve_done_after_failure,
 };
 use super::fixture::Fixture;
 use crate::core::{
@@ -17,16 +18,26 @@ fn publication_error_is_actionable_pr_work_without_interrupting_done_implementat
         let fixture = Fixture::new(40);
         let lifecycle = LifecycleStore::new(&fixture.store);
         let mut implementation = fixture.implementation();
-        if authorized_first {
+        let expected_lease_epoch = if authorized_first {
             assert!(matches!(
                 prepare_lifecycle_publication(&fixture.store, &implementation).unwrap(),
-                LifecyclePublicationGate::Authorized(_)
+                LifecyclePublicationGate::Authorized(LifecyclePublication { lease_epoch: 1, .. })
             ));
-        }
+            Some(1)
+        } else {
+            None
+        };
         let dir = implementation.task_repository.clone();
         let error = anyhow::anyhow!("Provider request timed out after submission");
         assert!(
-            preserve_done_after_failure(&fixture.store, &dir, &mut implementation, &error).unwrap()
+            preserve_done_after_failure(
+                &fixture.store,
+                &dir,
+                &mut implementation,
+                expected_lease_epoch,
+                &error,
+            )
+            .unwrap()
         );
         assert_eq!(implementation.status, ImplementationStatus::Completed);
         assert!(

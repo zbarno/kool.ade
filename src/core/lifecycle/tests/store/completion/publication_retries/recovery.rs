@@ -21,6 +21,7 @@ fn publication_failures_preserve_done_and_recover_one_authorized_attempt() {
                 &work.work_item_uid,
                 work.revision,
                 &uuid::Uuid::new_v4().to_string(),
+                authorized_first.then(|| work.publication_lease_epoch()),
                 "Provider response timed out; remote outcome is unknown",
             )
             .unwrap();
@@ -49,6 +50,7 @@ fn publication_failures_preserve_done_and_recover_one_authorized_attempt() {
                 &work.work_item_uid,
                 failure.revision,
                 &uuid::Uuid::new_v4().to_string(),
+                authorized_first.then(|| failure.publication_lease_epoch()),
                 "Provider response timed out; remote outcome is unknown",
             )
             .unwrap();

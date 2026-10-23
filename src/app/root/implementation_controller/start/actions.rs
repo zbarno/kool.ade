@@ -13,7 +13,13 @@ impl KooladeApp {
         };
         let Some(session) = session else { return };
         let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
-        self.start_implementation_with_claim_mode(ticket, true, capabilities, Some(session), false);
+        self.start_implementation_with_claim_mode(
+            ticket,
+            StartOptions {
+                stale_session: Some(session),
+                ..StartOptions::new(true, capabilities)
+            },
+        );
     }
 
     pub(in crate::app::root) fn start_implementation(&mut self, ticket: String, manual: bool) {
@@ -25,7 +31,13 @@ impl KooladeApp {
     /// cross-clone coordination. Automatic starts cannot reach this entry point.
     pub(in crate::app::root) fn start_without_shared_coordination(&mut self, ticket: String) {
         let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
-        self.start_implementation_with_claim_mode(ticket, true, capabilities, None, true);
+        self.start_implementation_with_claim_mode(
+            ticket,
+            StartOptions {
+                allow_offline: true,
+                ..StartOptions::new(true, capabilities)
+            },
+        );
     }
 
     pub(in crate::app::root) fn start_implementation_with_capabilities(
@@ -34,6 +46,28 @@ impl KooladeApp {
         manual: bool,
         capabilities: crate::harness::runtime_capabilities::RuntimeCapabilities,
     ) {
-        self.start_implementation_with_claim_mode(ticket, manual, capabilities, None, false);
+        self.start_implementation_with_claim_mode(ticket, StartOptions::new(manual, capabilities));
+    }
+
+    pub(in crate::app::root) fn start_lifecycle_pr_publication(&mut self, ticket: String) {
+        let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
+        self.start_implementation_with_claim_mode(
+            ticket,
+            StartOptions {
+                lifecycle_pr_publication: true,
+                ..StartOptions::new(true, capabilities)
+            },
+        );
+    }
+
+    pub(in crate::app::root) fn start_lifecycle_gate_refresh(&mut self, ticket: String) {
+        let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
+        self.start_implementation_with_claim_mode(
+            ticket,
+            StartOptions {
+                lifecycle_gate_refresh: true,
+                ..StartOptions::new(true, capabilities)
+            },
+        );
     }
 }

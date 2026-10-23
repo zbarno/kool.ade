@@ -9,6 +9,12 @@ pub enum TaskEvent {
     ImplementationFinished {
         code_sha256: String,
     },
+    /// Invalidate completion gates when application-controlled destination
+    /// integration changes the exact parent head before PR publication.
+    PublicationHeadChanged {
+        code_sha256: String,
+        head_sha: String,
+    },
     CodeReview {
         receipt: GateReceipt,
         reviewed_head_sha: String,
@@ -47,6 +53,11 @@ pub enum TaskEvent {
     ReconcileSpec {
         receipt: GateReceipt,
         pr_work_item_uid: String,
+    },
+    /// Complete a refreshed parent after destination integration; retain its
+    /// existing PR preparation work item instead of creating a duplicate.
+    PublicationGatesRefreshed {
+        receipt: GateReceipt,
     },
     SpecReconciliationBlocked {
         reason: String,

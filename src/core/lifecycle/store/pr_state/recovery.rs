@@ -8,11 +8,15 @@ impl LifecycleStore<'_> {
         work_item_uid: &str,
         expected_revision: u64,
         event_uid: &str,
+        expected_lease_epoch: Option<u64>,
         reason: &str,
     ) -> Result<PullRequestPreparation, StoreError> {
         let mut record = read(self.store, work_item_uid)?;
         let task = self.load_task(&record.task_uid)?;
         if record.revision != expected_revision
+            || expected_lease_epoch.is_some_and(|epoch| epoch != record.publication_lease_epoch())
+            || (record.status == PullRequestPreparationStatus::Publishing
+                && expected_lease_epoch != Some(record.publication_lease_epoch()))
             || task.phase != TaskPhase::Done
             || task.pr_work_item_uid.as_deref() != Some(work_item_uid)
             || !matches!(

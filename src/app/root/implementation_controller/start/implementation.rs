@@ -6,11 +6,16 @@ impl KooladeApp {
     pub(super) fn start_implementation_with_claim_mode(
         &mut self,
         ticket: String,
-        manual: bool,
-        capabilities: crate::harness::runtime_capabilities::RuntimeCapabilities,
-        stale_session: Option<String>,
-        allow_offline: bool,
+        options: StartOptions,
     ) {
+        let StartOptions {
+            manual,
+            capabilities,
+            stale_session,
+            allow_offline,
+            lifecycle_pr_publication,
+            lifecycle_gate_refresh,
+        } = options;
         if matches!(&self.screen, Screen::Connected(p) if p.active_implementations.contains_key(&ticket) || p.active_implementations.len() >= p.queue.max_parallel.clamp(1, 8))
         {
             return;
@@ -28,7 +33,12 @@ impl KooladeApp {
                 return;
             }
             if p.implementation_states.get(&ticket).is_some_and(|state| {
-                state.pr_url.is_some() || state.status == ImplementationStatus::Completed
+                publication_retry::is_terminal(
+                    state.status,
+                    state.pr_url.is_some(),
+                    lifecycle_pr_publication,
+                    lifecycle_gate_refresh,
+                )
             }) {
                 return;
             }
@@ -138,14 +148,15 @@ impl KooladeApp {
                 p.queue.last_error = reason;
                 return;
             }
-            let explicit_publish = manual
-                && p.implementation_states.get(&ticket).is_some_and(|state| {
-                    matches!(
-                        state.status,
-                        ImplementationStatus::ReadyToPublish
-                            | ImplementationStatus::AwaitingApproval
-                    )
-                });
+            let explicit_publish = lifecycle_pr_publication
+                || (manual
+                    && p.implementation_states.get(&ticket).is_some_and(|state| {
+                        matches!(
+                            state.status,
+                            ImplementationStatus::ReadyToPublish
+                                | ImplementationStatus::AwaitingApproval
+                        )
+                    }));
             let requested_changes = p
                 .implementation_states
                 .get(&ticket)
@@ -159,15 +170,16 @@ impl KooladeApp {
                 .and_then(|doc| doc.metadata.as_ref())
                 .is_some_and(|metadata| metadata.parent_task_uid.is_some());
             let (publication_mode, require_independent_checks) =
-                self_improvement::publication_policy(
-                    self_improvement_task,
+                self_improvement::publication_policy(self_improvement::PublicationPolicyOptions {
+                    is_self_improvement: self_improvement_task,
                     explicit_publish,
                     is_subtask,
                     allow_offline,
                     requested_changes,
-                    p.queue.auto_publish,
-                    p.queue.require_independent_checks,
-                );
+                    auto_publish: p.queue.auto_publish,
+                    require_independent_checks: p.queue.require_independent_checks,
+                    lifecycle_gate_refresh,
+                });
             let Some(queue_start) = queue_state::begin(p, &ticket, manual) else {
                 return;
             };
@@ -206,7 +218,7 @@ impl KooladeApp {
                     "Assigned {ticket}; the worker will verify and {}.",
                     self_improvement::start_message(
                         allow_offline,
-                        explicit_publish,
+                        explicit_publish && !lifecycle_gate_refresh,
                         publication_mode,
                         p.queue.auto_build,
                     )

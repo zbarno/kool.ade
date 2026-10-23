@@ -65,6 +65,7 @@ pub(super) fn verify_persisted_pr_state_projection(
                 head_sha: Some(head_sha.clone()),
                 base_sha: Some(base_sha.clone()),
                 merged_commit_sha: None,
+                lease_epoch: Some(publishing.publication_lease_epoch()),
             },
         )
         .unwrap();
@@ -105,6 +106,7 @@ pub(super) fn verify_persisted_pr_state_projection(
                 head_sha: Some(head_sha.clone()),
                 base_sha: Some(base_sha),
                 merged_commit_sha: Some(merged_sha.clone()),
+                lease_epoch: None,
             },
         )
         .unwrap();
