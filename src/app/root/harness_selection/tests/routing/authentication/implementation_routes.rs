@@ -75,14 +75,9 @@ fn context_only_default_route_does_not_require_implementation_runtime() {
 
     crate::persistence::harness_settings::with_settings_path(path.clone(), || {
         crate::persistence::harness_settings::save(&settings).unwrap();
-        let mut override_harness = None;
-        let harness = configured_harness_for_task(
-            &mut override_harness,
-            None,
-            &std::collections::BTreeMap::new(),
-        );
-        assert!(harness.label().to_ascii_lowercase().contains("codex"));
-        assert!(!harness.label().to_ascii_lowercase().contains("unavailable"));
+        let (selected, route) = route_selection(&settings, None, None, None);
+        assert_eq!(selected, Some("codex"));
+        assert!(route.is_none());
     });
     let _ = std::fs::remove_file(path);
 }

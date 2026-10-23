@@ -1,194 +1,19 @@
-use std::{
-    path::PathBuf,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
-};
-
 use crate::{
     app::session::Project,
     core::lifecycle::{GateDecision, TaskPhase, TaskRecord},
-    execution::{
-        contract::{ExecutionModeV1, ResourceBudgetV1, WorkspaceRef},
-        session::ExecutionSession,
-    },
-    project_runtime::{
-        ProjectRuntimeExecutor, ProjectRuntimeStore, RuntimeOperation, RuntimeReceiptState,
-        RuntimeReceiptV1, TargetCapabilityState,
-    },
+    execution::contract::WorkspaceRef,
+    project_runtime::ProjectRuntimeStore,
 };
 
 mod candidate;
-use candidate::{approved_candidate, next_operation, now_unix_ms};
-mod toolchains;
+use candidate::{ApprovedCandidate as RecipeCandidate, approved_candidate, next_operation};
+mod start;
+pub(crate) use start::start;
+mod completion;
+pub(crate) mod prerequisites;
 
-type RecipeCandidate = (String, RuntimeOperation, PathBuf, WorkspaceRef, Vec<String>);
-
-pub(crate) fn start(
-    project: &Project,
-    task: &TaskRecord,
-) -> Result<crate::runtime_qa::RuntimeRecipeWorkerHandle, String> {
-    let (target_id, operation, clone_path, workspace, required_tools) =
-        candidate(project, task)?
-            .ok_or_else(|| "no approved runtime recipe operation is ready".to_owned())?;
-    let planning_store = project.state.planning_store.clone();
-    let store = ProjectRuntimeStore::new(&planning_store);
-    let manifest = store
-        .load_manifest()
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "runtime manifest disappeared before recipe claim".to_owned())?;
-    let target = manifest
-        .candidate_targets
-        .iter()
-        .find(|target| target.target_id == target_id)
-        .ok_or_else(|| "runtime target disappeared before recipe claim".to_owned())?;
-    let recipe_ids: Vec<&str> = match operation {
-        RuntimeOperation::Build => target.build_recipe_ref.iter().map(String::as_str).collect(),
-        RuntimeOperation::Test => target.test_recipe_refs.iter().map(String::as_str).collect(),
-        RuntimeOperation::Start => target.start_recipe_ref.iter().map(String::as_str).collect(),
-    };
-    let mut claim_time = store
-        .receipts_for_task(&workspace.task_id)
-        .map_err(|error| error.to_string())?
-        .iter()
-        .map(|receipt| receipt.observed_at_unix_ms)
-        .max()
-        .unwrap_or_default()
-        .saturating_add(1)
-        .max(now_unix_ms());
-    for recipe_id in recipe_ids {
-        store
-            .append_receipt(&RuntimeReceiptV1 {
-                schema_version: 1,
-                receipt_id: uuid::Uuid::new_v4().hyphenated().to_string(),
-                operation,
-                task_id: workspace.task_id.clone(),
-                target_id: target_id.clone(),
-                source_sha: workspace.source_sha.clone(),
-                recipe_id: Some(recipe_id.to_owned()),
-                state: RuntimeReceiptState::Running,
-                exit_code: None,
-                artifact_hashes: Default::default(),
-                log_reference: None,
-                observed_at_unix_ms: claim_time,
-            })
-            .map_err(|error| format!("runtime recipe attempt could not be claimed: {error}"))?;
-        claim_time = claim_time.saturating_add(1);
-    }
-    let task_uid = task.task_uid.clone();
-    let cancel = Arc::new(AtomicBool::new(false));
-    let worker_cancel = Arc::clone(&cancel);
-    let session_slot = Arc::new(Mutex::new(None));
-    let worker_session_slot = Arc::clone(&session_slot);
-    let (sender, result) = std::sync::mpsc::channel();
-    std::thread::Builder::new()
-        .name(format!("runtime-recipe-{task_uid}"))
-        .spawn(move || {
-            let outcome = (|| {
-                if worker_cancel.load(Ordering::Acquire) {
-                    return Err("runtime recipe was cancelled before session creation".into());
-                }
-                let limits = ResourceBudgetV1 {
-                    cpu_millis: 2_000,
-                    memory_bytes: 4 * 1024 * 1024 * 1024,
-                    process_count: 128,
-                    temporary_disk_bytes: 2 * 1024 * 1024 * 1024,
-                    output_bytes: 64 * 1024 * 1024,
-                };
-                let session = Arc::new(
-                    ExecutionSession::connect_local_with_tools(
-                        workspace,
-                        &clone_path,
-                        ExecutionModeV1::Verification,
-                        &required_tools,
-                        limits,
-                    )
-                    .map_err(|error| {
-                        format!("isolated recipe executor unavailable: {}", error.message)
-                    })?,
-                );
-                *worker_session_slot
-                    .lock()
-                    .map_err(|_| "recipe worker cancellation state is unavailable".to_owned())? =
-                    Some(Arc::clone(&session));
-                if worker_cancel.load(Ordering::Acquire) {
-                    let _ = session.cancel();
-                    return Err("runtime recipe was cancelled before execution".into());
-                }
-                let store = ProjectRuntimeStore::new(&planning_store);
-                let executor = ProjectRuntimeExecutor::new(&store);
-                let receipts = executor
-                    .execute(&session, &target_id, operation)
-                    .map_err(|error| format!("runtime recipe execution failed: {error}"))?;
-                if worker_cancel.load(Ordering::Acquire) {
-                    return Err("runtime recipe was cancelled".into());
-                }
-                if receipts.is_empty()
-                    || receipts
-                        .iter()
-                        .any(|receipt| receipt.state != RuntimeReceiptState::Passed)
-                {
-                    return Err(format!("approved {operation:?} recipe did not pass"));
-                }
-                Ok(receipts)
-            })();
-            let _ = sender.send(outcome);
-        })
-        .map_err(|error| format!("runtime recipe worker could not start: {error}"))?;
-    Ok(crate::runtime_qa::RuntimeRecipeWorkerHandle::new(
-        task_uid,
-        cancel,
-        session_slot,
-        result,
-    ))
-}
-
-pub(crate) fn ready(project: &mut Project, task: &TaskRecord) -> Result<bool, String> {
-    let Some((target_id, operation, _, workspace, required_tools)) = candidate(project, task)?
-    else {
-        return Ok(false);
-    };
-    let lock =
-        crate::execution::docker::images::ImageLock::bundled().map_err(|error| error.message)?;
-    let missing_tools = toolchains::missing_toolchains(&lock, &required_tools);
-    if !missing_tools.is_empty() {
-        let store = ProjectRuntimeStore::new(&project.state.planning_store);
-        let manifest = store
-            .load_manifest()
-            .map_err(|error| error.to_string())?
-            .ok_or_else(|| "runtime manifest disappeared before toolchain review".to_owned())?;
-        let target = manifest
-            .candidate_targets
-            .iter()
-            .find(|target| target.target_id == target_id)
-            .ok_or_else(|| "runtime target disappeared before toolchain review".to_owned())?;
-        let recipe_ids = match operation {
-            RuntimeOperation::Build => target.build_recipe_ref.iter().cloned().collect(),
-            RuntimeOperation::Test => target.test_recipe_refs.clone(),
-            RuntimeOperation::Start => target.start_recipe_ref.iter().cloned().collect(),
-        };
-        super::prerequisites::queue_missing_recipe_toolchain_reviews(
-            project,
-            task,
-            &target_id,
-            &workspace.project_id,
-            &workspace.source_sha,
-            &recipe_ids,
-            &missing_tools,
-        );
-        return Err(format!(
-            "No approved image provides the declared toolchains [{}] for this target's next recipe. Man.ager review is queued or already pending; no installation command was run.",
-            missing_tools.join(", ")
-        ));
-    }
-    if !toolchains::has_compatible_image(&lock, &required_tools) {
-        return Err(format!(
-            "No single approved pinned image provides all toolchains declared by this target's next recipe: {}.",
-            required_tools.join(", ")
-        ));
-    }
-    Ok(true)
+pub(crate) fn ready(project: &Project, task: &TaskRecord) -> Result<bool, String> {
+    candidate(project, task).map(|candidate| candidate.is_some())
 }
 
 fn candidate(project: &Project, task: &TaskRecord) -> Result<Option<RecipeCandidate>, String> {
@@ -249,10 +74,7 @@ fn candidate(project: &Project, task: &TaskRecord) -> Result<Option<RecipeCandid
             && target.repository_id == manifest.repository_id
             && manifest.is_active_target(item_uid, &target.target_id)
             && candidate::supports_recipe_surface(target.app_surface)
-            && matches!(
-                target.capability_state,
-                TargetCapabilityState::Ready | TargetCapabilityState::ReadyButUntested
-            )
+            && candidate::can_queue_prerequisite_recovery(&target.capability_state)
     }) else {
         return Ok(None);
     };
@@ -273,12 +95,23 @@ fn candidate(project: &Project, task: &TaskRecord) -> Result<Option<RecipeCandid
             return Ok(None);
         }
     }
-    approved_candidate(
+    let candidate = approved_candidate(
         &manifest,
         target,
         &implementation.task_repository,
         workspace,
         operation,
         recipe_ids.iter().map(String::as_str).collect(),
-    )
+    )?;
+    if candidate.as_ref().is_some_and(|candidate| {
+        crate::project_runtime::verify_source_checkout(
+            &implementation.task_repository,
+            source_sha,
+            &candidate.allowed_untracked_outputs,
+        )
+        .is_err()
+    }) {
+        return Ok(None);
+    }
+    Ok(candidate)
 }

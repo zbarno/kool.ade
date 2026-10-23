@@ -10,6 +10,8 @@ use crate::{
     },
 };
 
+mod tools;
+
 pub(super) fn supports_recipe_surface(surface: AppSurface) -> bool {
     matches!(
         surface,
@@ -17,13 +19,29 @@ pub(super) fn supports_recipe_surface(surface: AppSurface) -> bool {
     )
 }
 
-pub(super) type ApprovedCandidate = (
-    String,
-    RuntimeOperation,
-    std::path::PathBuf,
-    WorkspaceRef,
-    Vec<String>,
-);
+pub(super) fn can_queue_prerequisite_recovery(
+    state: &crate::project_runtime::TargetCapabilityState,
+) -> bool {
+    matches!(
+        state,
+        crate::project_runtime::TargetCapabilityState::Ready
+            | crate::project_runtime::TargetCapabilityState::ReadyButUntested
+            | crate::project_runtime::TargetCapabilityState::MissingToolchain
+            | crate::project_runtime::TargetCapabilityState::MissingDependencies
+            | crate::project_runtime::TargetCapabilityState::DriverUnavailable
+    )
+}
+
+pub(super) struct ApprovedCandidate {
+    pub(super) target_id: String,
+    pub(super) operation: RuntimeOperation,
+    pub(super) clone_path: std::path::PathBuf,
+    pub(super) workspace: WorkspaceRef,
+    pub(super) required_tools: Vec<String>,
+    pub(super) project_relative_root: String,
+    pub(super) required_dependencies: Vec<String>,
+    pub(super) allowed_untracked_outputs: Vec<String>,
+}
 
 pub(super) fn approved_candidate(
     manifest: &ProjectCapabilityManifestV1,
@@ -44,29 +62,117 @@ pub(super) fn approved_candidate(
                 .ok_or("approved target recipe is missing")
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if recipes
-        .iter()
-        .any(|recipe| !recipe.is_explicitly_user_approved())
-    {
+    if recipes.iter().any(|recipe| {
+        recipe.source != crate::project_runtime::RecipeSource::TrustedAdapter
+            && !recipe.is_explicitly_user_approved()
+    }) {
         return Ok(None);
     }
-    let required_tools = recipes
+    let output_recipe_ids = output_recipe_ids(target, operation, &ids);
+    let output_recipes = manifest
+        .recipes
         .iter()
-        .flat_map(|recipe| {
-            std::iter::once(recipe.executable_id.as_str())
-                .chain(recipe.prerequisite_tool_ids.iter().map(String::as_str))
-        })
-        .map(str::to_owned)
-        .collect::<BTreeSet<_>>()
+        .chain(manifest.user_overrides.iter())
+        .filter(|recipe| output_recipe_ids.contains(&recipe.recipe_id))
+        .collect::<Vec<_>>();
+    if output_recipes.iter().any(|recipe| {
+        recipe.source != crate::project_runtime::RecipeSource::TrustedAdapter
+            && !recipe.is_explicitly_user_approved()
+    }) {
+        return Ok(None);
+    }
+    let Some(required_tools) = tools::required_tools(manifest, target, operation, &recipes)? else {
+        return Ok(None);
+    };
+    let mut allowed_untracked_outputs = target
+        .artifact_spec_ref
+        .as_ref()
+        .and_then(|id| manifest.artifact_specs.get(id))
         .into_iter()
-        .collect();
-    Ok(Some((
-        target.target_id.clone(),
+        .flatten()
+        .map(|path| workspace_output_path(&target.project_relative_root, path))
+        .collect::<Vec<_>>();
+    let input_recipe_ids = source_input_recipe_ids(target, operation, &ids);
+    let input_recipes = manifest
+        .recipes
+        .iter()
+        .chain(manifest.user_overrides.iter())
+        .filter(|recipe| input_recipe_ids.contains(&recipe.recipe_id))
+        .collect::<Vec<_>>();
+    allowed_untracked_outputs.extend(input_recipes.iter().flat_map(|recipe| {
+        recipe
+            .allowed_output_paths
+            .iter()
+            .chain(recipe.expected_artifacts.iter())
+            .map(|path| workspace_output_path(&target.project_relative_root, path))
+    }));
+    allowed_untracked_outputs.sort();
+    allowed_untracked_outputs.dedup();
+    Ok(Some(ApprovedCandidate {
+        target_id: target.target_id.clone(),
         operation,
-        clone_path.to_owned(),
+        clone_path: clone_path.to_owned(),
         workspace,
         required_tools,
-    )))
+        project_relative_root: target.project_relative_root.clone(),
+        required_dependencies: target.required_dependencies.clone(),
+        allowed_untracked_outputs,
+    }))
+}
+
+pub(super) fn output_recipe_ids(
+    target: &AppTargetV1,
+    operation: RuntimeOperation,
+    current_ids: &[&str],
+) -> Vec<String> {
+    let mut ids = BTreeSet::new();
+    if operation != RuntimeOperation::Build {
+        ids.extend(target.build_recipe_ref.iter().cloned());
+    }
+    if operation == RuntimeOperation::Start {
+        ids.extend(target.test_recipe_refs.iter().cloned());
+    }
+    ids.extend(current_ids.iter().map(|id| (*id).to_owned()));
+    ids.into_iter().collect()
+}
+
+fn source_input_recipe_ids(
+    target: &AppTargetV1,
+    operation: RuntimeOperation,
+    current_ids: &[&str],
+) -> Vec<String> {
+    let mut ids = BTreeSet::new();
+    match operation {
+        RuntimeOperation::Build => ids.extend(current_ids.iter().map(|id| (*id).to_owned())),
+        RuntimeOperation::Test => {
+            ids.extend(target.build_recipe_ref.iter().cloned());
+            ids.extend(current_ids.first().map(|id| (*id).to_owned()));
+        }
+        RuntimeOperation::Start => {
+            ids.extend(target.build_recipe_ref.iter().cloned());
+            ids.extend(target.test_recipe_refs.iter().cloned());
+            ids.extend(current_ids.iter().map(|id| (*id).to_owned()));
+        }
+    }
+    ids.into_iter().collect()
+}
+
+fn workspace_output_path(target_root: &str, path: &str) -> String {
+    let joined = std::path::Path::new(target_root).join(path);
+    let normalized = joined
+        .components()
+        .filter_map(|component| match component {
+            std::path::Component::CurDir => None,
+            std::path::Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/");
+    if normalized.is_empty() {
+        ".".into()
+    } else {
+        normalized
+    }
 }
 
 pub(super) fn latest_receipt<'a>(

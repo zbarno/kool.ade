@@ -1,6 +1,46 @@
 use crate::app::session::Project;
 
 pub(super) fn record_recipe_worker_completion(project: &mut Project) {
+    let progress_updates = project
+        .activity
+        .runtime_recipe_worker
+        .as_ref()
+        .map(|worker| {
+            let mut updates = Vec::new();
+            while let Some(update) = worker.take_progress() {
+                updates.push(update);
+            }
+            (worker.ticket.clone(), updates)
+        });
+    if let Some((ticket, updates)) = progress_updates {
+        for update in updates {
+            let requests = update.dependency_requests.clone();
+            let new_requests = {
+                let activity = project.activity.tasks.entry(ticket.clone()).or_default();
+                let new_requests = requests
+                    .into_iter()
+                    .filter(|request| {
+                        !activity
+                            .dependency_requests
+                            .iter()
+                            .any(|known| known.id == request.id)
+                    })
+                    .collect::<Vec<_>>();
+                activity.update(update);
+                new_requests
+            };
+            for request in new_requests {
+                if request.status != crate::harness::DependencyRequestStatus::Failed {
+                    project
+                        .activity
+                        .pending_dependency_reviews
+                        .push((ticket.clone(), request));
+                }
+            }
+            project.save_task_activity(&ticket);
+            project.activity.mark_ticket_dirty(&ticket);
+        }
+    }
     let recipe_worker_task = project
         .activity
         .runtime_recipe_worker

@@ -1,3 +1,5 @@
+mod service;
+
 use super::{
     MAX_DRIVER_EVIDENCE_BYTES, MAX_DRIVER_SCREENSHOT_BYTES, base64::decode_base64, fields::*,
 };
@@ -46,8 +48,11 @@ pub fn parse_browser_output(
     let has_failed_action = raw_actions
         .iter()
         .any(|action| action.get("status").and_then(Value::as_str) == Some("failed"));
-    let interaction_failure =
-        outcome == "failed" && has_failed_action && policy_violation.is_none();
+    let interaction_failure = outcome == "failed"
+        && has_failed_action
+        && policy_violation.is_none()
+        && request.relevant_platforms.as_slice()
+            != [crate::runtime_qa::QaPlatform::HeadlessService];
     let completed = (outcome == "completed" || interaction_failure) && policy_violation.is_none();
     if outcome != "completed" && outcome != "failed" {
         return Err("browser driver reported an unsupported outcome".into());
@@ -82,7 +87,17 @@ pub fn parse_browser_output(
             .collect();
         let before = state_text(raw, "pre_state")?;
         let after = state_text(raw, "post_state")?;
-        let ids = string_array(raw, "screenshot_ids", 64)?;
+        let ids = string_array(
+            raw,
+            if request.relevant_platforms.as_slice()
+                == [crate::runtime_qa::QaPlatform::HeadlessService]
+            {
+                "evidence_ids"
+            } else {
+                "screenshot_ids"
+            },
+            64,
+        )?;
         let command = action_command(&scenario.steps[expected_index].driver_action);
         action_rows.push(QaActionEvidenceV1 {
             index: expected_index as u32,
@@ -138,8 +153,11 @@ pub fn parse_browser_output(
     {
         return Err("browser driver exceeded its total evidence byte bound".into());
     }
-    let mut assertions = Vec::new();
+    let mut assertions = service::service_assertions(scenario, raw_actions, &action_rows)?;
     for (index, step) in scenario.steps.iter().enumerate() {
+        if matches!(step.driver_action, QaDriverActionV1::ApiRequest { .. }) {
+            continue;
+        }
         let expected = match &step.driver_action {
             QaDriverActionV1::BrowserAssertText { expected_text, .. } => expected_text,
             QaDriverActionV1::BrowserAssertUrl { url } => url,
@@ -183,6 +201,7 @@ pub fn parse_browser_output(
                 scenario.steps[index].driver_action,
                 QaDriverActionV1::BrowserAssertText { .. }
                     | QaDriverActionV1::BrowserAssertUrl { .. }
+                    | QaDriverActionV1::ApiRequest { .. }
             )
         {
             continue;
@@ -225,10 +244,22 @@ pub fn parse_browser_output(
         completed,
         failure: failure.map(str::to_owned),
         display: crate::runtime_qa::QaDisplayV1 {
-            width,
-            height,
-            dpi: 96,
-            theme: "light".into(),
+            width: (request.relevant_platforms.as_slice()
+                != [crate::runtime_qa::QaPlatform::HeadlessService])
+            .then_some(width),
+            height: (request.relevant_platforms.as_slice()
+                != [crate::runtime_qa::QaPlatform::HeadlessService])
+            .then_some(height),
+            dpi: (request.relevant_platforms.as_slice()
+                != [crate::runtime_qa::QaPlatform::HeadlessService])
+            .then_some(96),
+            theme: if request.relevant_platforms.as_slice()
+                == [crate::runtime_qa::QaPlatform::HeadlessService]
+            {
+                "headless-service".into()
+            } else {
+                "light".into()
+            },
             locale: "en-US".into(),
         },
         actions: action_rows,

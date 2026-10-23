@@ -95,12 +95,16 @@ pub(in crate::execution::docker::backend::lifecycle) async fn terminate_and_sync
     if let Some((baseline, archive)) = captured? {
         backend.verify_authorization(&request.authorization_generation)?;
         return if let Some(baseline) = baseline {
-            staging::synchronize_with_artifacts(
+            staging::synchronize_with_source_output_policy(
                 workspace,
                 baseline,
                 &archive,
                 request.resource_budget.temporary_disk_bytes,
                 artifact_paths,
+                request
+                    .policy
+                    .approved_recipe_command()
+                    .map(|_| request.policy.source_output_paths()),
             )
         } else {
             staging::collect_artifacts(

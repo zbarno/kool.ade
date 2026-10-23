@@ -7,10 +7,11 @@ use std::collections::BTreeSet;
 
 mod accessors;
 mod fingerprint;
+mod recipe;
 mod restrict;
 mod validation;
 pub use fingerprint::policy_hash;
-use validation::{validate_environment_allowlist, validate_service_ports, validate_write_scope};
+use validation::{validate_service_ports, validate_write_scope};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
@@ -36,6 +37,8 @@ pub struct ApprovedRecipeCommandV1 {
     pub argv: Vec<String>,
     pub working_directory_relative: String,
     pub allowed_environment_names: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdin_script_sha256: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -63,6 +66,10 @@ pub struct ExecutionPolicyV1 {
     tool_capabilities: BTreeSet<String>,
     #[serde(default)]
     artifact_paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    source_output_paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    source_input_paths: Vec<String>,
     resource_limits: ResourceBudgetV1,
     run_as_non_root: bool,
     host_secrets: bool,
@@ -147,6 +154,8 @@ impl ExecutionPolicyV1 {
             command_capabilities,
             tool_capabilities,
             artifact_paths: Vec::new(),
+            source_output_paths: Vec::new(),
+            source_input_paths: Vec::new(),
             resource_limits,
             run_as_non_root: true,
             host_secrets: false,
@@ -173,66 +182,6 @@ impl ExecutionPolicyV1 {
         Ok(policy)
     }
 
-    pub(crate) fn without_scoped_workspace_write(mut self) -> Self {
-        self.filesystem
-            .remove(&FilesystemGrantV1::WorkspaceScopedWrite);
-        self
-    }
-
-    pub fn for_approved_recipe(
-        resource_limits: ResourceBudgetV1,
-        root_relative: String,
-        approval_ref: String,
-        executable_id: String,
-        argv: Vec<String>,
-        working_directory_relative: String,
-        allowed_environment_names: BTreeSet<String>,
-    ) -> anyhow::Result<Self> {
-        anyhow::ensure!(
-            approval_ref.starts_with("user-approval:") && approval_ref.len() <= 2048,
-            "recipe command requires an explicit user approval receipt"
-        );
-        anyhow::ensure!(
-            !matches!(
-                executable_id.as_str(),
-                "sh" | "bash" | "pwsh" | "powershell"
-            ),
-            "approved recipes cannot select a command interpreter"
-        );
-        anyhow::ensure!(
-            !executable_id.is_empty()
-                && executable_id.len() <= 128
-                && executable_id
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.')),
-            "approved recipe executable is invalid"
-        );
-        anyhow::ensure!(
-            !argv.is_empty()
-                && argv.len() <= 128
-                && argv
-                    .iter()
-                    .all(|arg| arg.len() <= 4096 && !arg.contains('\0')),
-            "approved recipe arguments are invalid"
-        );
-        let mut policy = Self::for_scoped_workspace_write(
-            ExecutionModeV1::Verification,
-            resource_limits,
-            root_relative,
-        )?;
-        policy.command_capabilities.insert(executable_id.clone());
-        policy.environment_names = allowed_environment_names.clone();
-        validate_environment_allowlist(&policy.environment_names)?;
-        policy.approved_recipe_command = Some(ApprovedRecipeCommandV1 {
-            approval_ref,
-            executable_id,
-            argv,
-            working_directory_relative,
-            allowed_environment_names,
-        });
-        Ok(policy)
-    }
-
     /// Intersect grants and lower limits. The returned policy cannot widen either input.
     pub fn failure_kind_for_invalid(&self) -> ExecutionErrorKind {
         ExecutionErrorKind::PolicyDenied
@@ -243,6 +192,24 @@ impl ExecutionPolicyV1 {
         artifact_paths: Vec<String>,
     ) -> anyhow::Result<Self> {
         self.artifact_paths = artifact_paths;
+        self.validate()?;
+        Ok(self)
+    }
+
+    pub(crate) fn with_source_output_paths(
+        mut self,
+        source_output_paths: Vec<String>,
+    ) -> anyhow::Result<Self> {
+        self.source_output_paths = source_output_paths;
+        self.validate()?;
+        Ok(self)
+    }
+
+    pub(crate) fn with_source_input_paths(
+        mut self,
+        source_input_paths: Vec<String>,
+    ) -> anyhow::Result<Self> {
+        self.source_input_paths = source_input_paths;
         self.validate()?;
         Ok(self)
     }

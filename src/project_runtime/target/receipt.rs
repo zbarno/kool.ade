@@ -16,6 +16,9 @@ pub struct RuntimeReceiptV1 {
     pub state: RuntimeReceiptState,
     pub exit_code: Option<i32>,
     pub artifact_hashes: std::collections::BTreeMap<String, String>,
+    /// Target lockfile dependencies authorized and staged before this recipe ran.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prepared_dependency_ids: Vec<String>,
     pub log_reference: Option<String>,
     pub observed_at_unix_ms: u64,
 }
@@ -31,8 +34,19 @@ impl RuntimeReceiptV1 {
             || !valid_id(&self.target_id)
             || !valid_sha(&self.source_sha)
             || self.artifact_hashes.len() > 256
+            || self.prepared_dependency_ids.len() > 128
         {
             return Err("runtime receipt is invalid or exceeds limits".into());
+        }
+        let mut prepared_ids = std::collections::BTreeSet::new();
+        if self
+            .prepared_dependency_ids
+            .iter()
+            .any(|id| !super::manifest::valid_dependency_id(id) || !prepared_ids.insert(id))
+        {
+            return Err(
+                "runtime receipt contains invalid or duplicate prepared dependencies".into(),
+            );
         }
         if self.state == RuntimeReceiptState::Passed && self.exit_code != Some(0) {
             return Err("a successful runtime receipt must have observed exit code zero".into());

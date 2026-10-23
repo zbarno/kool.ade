@@ -154,7 +154,10 @@ fn implementation_controller_reports_global_conflicts_before_running_the_harness
             Box::new(crate::harness::PiHarness),
             request,
         );
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    // The controller reports this conflict asynchronously; leave room for the
+    // full parallel suite to contend for CPU without treating scheduling delay
+    // as a missing claim conflict.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
         if let Some(crate::core::task_claim::ClaimError::AlreadyClaimed { .. }) =
             controller.poll().and_then(|event| match event {

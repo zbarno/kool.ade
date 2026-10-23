@@ -66,7 +66,7 @@ pub(crate) struct CacheSnapshotRequest {
     pub target_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub(crate) enum BrokerWireRequest {
     CacheSnapshot(CacheSnapshotRequest),
@@ -107,6 +107,7 @@ pub(crate) use broker::ResourceBridge;
 pub(crate) use cache_snapshot::CacheSnapshot;
 pub(crate) use cache_snapshot::CacheSnapshotManifest;
 pub(crate) use cache_snapshot::MAX_CACHE_SNAPSHOT_BYTES;
+pub(crate) use dependency::{has_locked_package, system_install_packages, valid_package_identity};
 
 impl ResourceResponse {
     fn needs_attention(summary: String) -> Self {

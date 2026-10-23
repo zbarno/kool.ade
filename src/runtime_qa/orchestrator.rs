@@ -30,6 +30,7 @@ fn now_ms() -> u64 {
 /// paths or service network identities.
 pub enum QaTargetAuthorization<'a> {
     LinuxDesktop(&'a QaValidatedTargetV1),
+    HeadlessService(&'a QaTaskServiceLeaseV1),
     Web(&'a QaTaskServiceLeaseV1),
 }
 
@@ -111,6 +112,9 @@ impl<'a> RuntimeQaOrchestrator<'a> {
         match (&authorization, driver.platform()) {
             (QaTargetAuthorization::LinuxDesktop(target), QaPlatform::LinuxDesktop) => {
                 target.validate_for(request)?;
+            }
+            (QaTargetAuthorization::HeadlessService(lease), QaPlatform::HeadlessService) => {
+                lease.validate_for(request)?;
             }
             (QaTargetAuthorization::Web(lease), QaPlatform::Web) => lease.validate_for(request)?,
             _ => return Err("QA target authorization does not match the selected driver".into()),

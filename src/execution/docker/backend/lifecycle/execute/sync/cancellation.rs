@@ -19,6 +19,7 @@ pub(in crate::execution::docker::backend::lifecycle) struct WorkspaceSyncRequest
     pub writable: bool,
     pub private_files_attached: bool,
     pub artifact_paths: &'a [String],
+    pub source_output_paths: Option<&'a [String]>,
     pub authorization_generation: &'a str,
 }
 

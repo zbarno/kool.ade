@@ -18,7 +18,7 @@ async fn persisted_cancellation_keeps_previously_collected_artifact_manifest() {
     }
 
     let fixture = Fixture::new();
-    let workspace = workspace();
+    let (workspace, _) = committed_workspace(&fixture);
     let (backend, task_clone) = backend_with_owner(
         &fixture,
         workspace.clone(),

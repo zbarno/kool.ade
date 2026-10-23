@@ -69,6 +69,13 @@ pub fn validate_identifier(value: &str) -> anyhow::Result<()> {
     validate_uuid(value, "identifier")
 }
 
+/// Broker dependency request IDs are namespaced UUIDs; accept the legacy bare
+/// UUID form for persisted cache snapshots created before namespacing.
+pub fn validate_dependency_request_id(value: &str) -> anyhow::Result<()> {
+    let uuid = value.strip_prefix("dependency-").unwrap_or(value);
+    validate_uuid(uuid, "dependency request ID")
+}
+
 fn validate_uuid(value: &str, name: &str) -> anyhow::Result<()> {
     let id = uuid::Uuid::parse_str(value).map_err(|_| anyhow::anyhow!("{name} is invalid"))?;
     anyhow::ensure!(

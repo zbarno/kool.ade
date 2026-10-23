@@ -229,13 +229,20 @@ fn web_preview_transfers_only_request_bound_caches_into_offline_service_paths() 
     let environment = body.env.unwrap();
     assert!(environment.contains(&"NPM_CONFIG_CACHE=/home/executor/.npm".into()));
     assert!(environment.contains(&"NPM_CONFIG_OFFLINE=true".into()));
-    assert!(
-        body.host_config
-            .unwrap()
-            .tmpfs
-            .unwrap()
-            .contains_key("/home/executor/.npm")
-    );
+    let tmpfs = body.host_config.unwrap().tmpfs.unwrap();
+    assert!(tmpfs.contains_key("/home/executor/.npm"));
+    let allocated_bytes = tmpfs
+        .values()
+        .map(|mount| {
+            mount
+                .split(',')
+                .find_map(|option| option.strip_prefix("size="))
+                .unwrap()
+                .parse::<u64>()
+                .unwrap()
+        })
+        .sum::<u64>();
+    assert!(allocated_bytes <= resources.temporary_disk_bytes);
 }
 
 #[test]

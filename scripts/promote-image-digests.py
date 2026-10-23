@@ -175,11 +175,14 @@ def recipe_sources(profile: str) -> list[tuple[Path, str]]:
             for name in (
                 "Dockerfile",
                 "driver.mjs",
+                "service.mjs",
                 "relay.mjs",
                 "package.json",
                 "package-lock.json",
             )
-        ] + sorted((directory / "vendor").glob("*.tgz"))
+        ] + sorted((directory / "vendor").glob("*.tgz")) + [
+            ROOT / "scripts/build-qa-image-candidate.sh"
+        ]
     elif profile == "desktop_qa":
         paths = [ROOT / "containers/runtime-qa/desktop/Dockerfile"]
     else:
@@ -195,6 +198,9 @@ def expected_recipe_hash(profile: str, evidence_directory: Path) -> str:
                 evidence_directory / "koolade-qa-desktop",
                 "containers/runtime-qa/desktop/koolade-qa-desktop",
             )
+        )
+        sources.append(
+            (ROOT / "scripts/build-qa-image-candidate.sh", "scripts/build-qa-image-candidate.sh")
         )
     payload = "".join(
         f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {relative_path}\n"

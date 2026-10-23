@@ -9,24 +9,34 @@ use crate::{execution::session::ExecutionSession, project_runtime::RuntimeReceip
 /// One app-owned build or test worker dispatched by the activity queue.
 pub(crate) struct RuntimeRecipeWorkerHandle {
     pub task_uid: String,
+    pub ticket: String,
     cancel: Arc<AtomicBool>,
     session: Arc<Mutex<Option<Arc<ExecutionSession>>>>,
+    progress: mpsc::Receiver<crate::harness::LiveProgress>,
     result: mpsc::Receiver<Result<Vec<RuntimeReceiptV1>, String>>,
 }
 
 impl RuntimeRecipeWorkerHandle {
     pub(crate) fn new(
         task_uid: String,
+        ticket: String,
         cancel: Arc<AtomicBool>,
         session: Arc<Mutex<Option<Arc<ExecutionSession>>>>,
+        progress: mpsc::Receiver<crate::harness::LiveProgress>,
         result: mpsc::Receiver<Result<Vec<RuntimeReceiptV1>, String>>,
     ) -> Self {
         Self {
             task_uid,
+            ticket,
             cancel,
             session,
+            progress,
             result,
         }
+    }
+
+    pub(crate) fn take_progress(&self) -> Option<crate::harness::LiveProgress> {
+        self.progress.try_recv().ok()
     }
 
     pub(crate) fn take_result(&self) -> Result<Option<Result<Vec<RuntimeReceiptV1>, String>>, ()> {
@@ -60,11 +70,14 @@ mod tests {
     #[test]
     fn cancellation_is_visible_to_the_detached_worker() {
         let cancelled = Arc::new(AtomicBool::new(false));
+        let (_progress_sender, progress) = mpsc::channel();
         let (_sender, receiver) = mpsc::channel();
         let handle = RuntimeRecipeWorkerHandle::new(
             "task-1".into(),
+            "task.md".into(),
             Arc::clone(&cancelled),
             Arc::new(Mutex::new(None)),
+            progress,
             receiver,
         );
         handle.cancel();

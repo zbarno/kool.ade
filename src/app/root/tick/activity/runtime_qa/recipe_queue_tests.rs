@@ -1,6 +1,6 @@
 use super::{
-    approved_candidate, latest_receipt, next_operation, receipt_allows_next,
-    supports_recipe_surface,
+    approved_candidate, can_queue_prerequisite_recovery, latest_receipt, next_operation,
+    receipt_allows_next, supports_recipe_surface,
 };
 use crate::{
     execution::contract::WorkspaceRef,
@@ -17,6 +17,26 @@ fn generic_recipe_queue_accepts_headless_targets_but_rejects_unsupported_surface
     assert!(supports_recipe_surface(AppSurface::Web));
     assert!(supports_recipe_surface(AppSurface::LinuxDesktop));
     assert!(!supports_recipe_surface(AppSurface::UnsupportedTarget));
+}
+
+#[test]
+fn brokerable_capability_gaps_do_not_block_recipe_prerequisite_recovery() {
+    for state in [
+        TargetCapabilityState::Ready,
+        TargetCapabilityState::ReadyButUntested,
+        TargetCapabilityState::MissingToolchain,
+        TargetCapabilityState::MissingDependencies,
+        TargetCapabilityState::DriverUnavailable,
+    ] {
+        assert!(can_queue_prerequisite_recovery(&state), "{state:?}");
+    }
+    for state in [
+        TargetCapabilityState::UnsupportedPlatform,
+        TargetCapabilityState::BuildFailed,
+        TargetCapabilityState::StartFailed,
+    ] {
+        assert!(!can_queue_prerequisite_recovery(&state), "{state:?}");
+    }
 }
 
 fn receipt(state: RuntimeReceiptState, observed_at_unix_ms: u64) -> RuntimeReceiptV1 {
@@ -45,6 +65,7 @@ fn operation_receipt(
         state,
         exit_code: (state == RuntimeReceiptState::Passed).then_some(0),
         artifact_hashes: Default::default(),
+        prepared_dependency_ids: Vec::new(),
         log_reference: None,
         observed_at_unix_ms,
     }
@@ -131,6 +152,79 @@ fn runtime_recipe_queue_requires_build_test_then_start_readiness_receipts() {
 }
 
 #[test]
+fn headless_targets_run_approved_build_test_and_start_recipes_without_visual_claims() {
+    let mut target = AppTargetV1 {
+        target_id: "service".into(),
+        owning_task_id: "task-1".into(),
+        repository_id: "repo".into(),
+        app_surface: AppSurface::HeadlessService,
+        project_relative_root: "services/api".into(),
+        build_recipe_ref: Some("build-v1".into()),
+        test_recipe_refs: vec!["test-v1".into()],
+        start_recipe_ref: Some("start-v1".into()),
+        readiness_probe_ref: Some("ready-v1".into()),
+        artifact_spec_ref: None,
+        fixture_ref: None,
+        required_dependencies: Vec::new(),
+        supported_driver_ids: Vec::new(),
+        port_needs: Vec::new(),
+        environment_policy_ref: "default".into(),
+        capability_state: TargetCapabilityState::ReadyButUntested,
+    };
+    let source_sha = "a".repeat(40);
+    let build = RuntimeReceiptV1 {
+        target_id: "service".into(),
+        ..operation_receipt(
+            RuntimeOperation::Build,
+            "build-v1",
+            RuntimeReceiptState::Passed,
+            10,
+        )
+    };
+    let test = RuntimeReceiptV1 {
+        operation: RuntimeOperation::Test,
+        target_id: "service".into(),
+        ..operation_receipt(
+            RuntimeOperation::Test,
+            "test-v1",
+            RuntimeReceiptState::Passed,
+            20,
+        )
+    };
+
+    assert!(supports_recipe_surface(target.app_surface));
+    assert_eq!(
+        next_operation(&target, &[], &source_sha).unwrap(),
+        Some((RuntimeOperation::Build, vec!["build-v1".into()]))
+    );
+    assert_eq!(
+        next_operation(&target, std::slice::from_ref(&build), &source_sha).unwrap(),
+        Some((RuntimeOperation::Test, vec!["test-v1".into()]))
+    );
+    assert_eq!(
+        next_operation(&target, &[build.clone(), test.clone()], &source_sha).unwrap(),
+        Some((RuntimeOperation::Start, vec!["start-v1".into()]))
+    );
+    let start = RuntimeReceiptV1 {
+        operation: RuntimeOperation::Start,
+        target_id: "service".into(),
+        ..operation_receipt(
+            RuntimeOperation::Start,
+            "start-v1",
+            RuntimeReceiptState::Passed,
+            30,
+        )
+    };
+    assert_eq!(
+        next_operation(&target, &[build, test, start], &source_sha).unwrap(),
+        None
+    );
+
+    target.app_surface = AppSurface::UnsupportedTarget;
+    assert!(!supports_recipe_surface(target.app_surface));
+}
+
+#[test]
 fn restart_does_not_replay_an_attempt_claimed_before_execution() {
     let old_success = receipt(RuntimeReceiptState::Passed, 10);
     let interrupted_attempt = receipt(RuntimeReceiptState::Running, 20);
@@ -154,140 +248,5 @@ fn failed_attempt_requires_a_fresh_explicit_approval() {
     assert!(receipt_allows_next(&receipt(RuntimeReceiptState::Passed, 31), "test").is_ok());
 }
 
-#[test]
-fn queue_dispatch_requires_explicit_recipe_approval() {
-    let recipe = ExecutionRecipeV1 {
-        schema_version: 1,
-        recipe_id: "web-build".into(),
-        source: RecipeSource::UserApproved,
-        working_directory_relative: ".".into(),
-        executable_id: "npm".into(),
-        argv: vec!["run".into(), "build".into()],
-        allowed_env_keys: Vec::new(),
-        allowed_output_paths: vec!["dist".into()],
-        timeout_seconds: 60,
-        expected_exit_codes: vec![0],
-        expected_artifacts: Vec::new(),
-        cache_scope: None,
-        prerequisite_tool_ids: vec!["npm".into()],
-        network_requirement: NetworkRequirement::Denied,
-        evidence_refs: vec!["user-approval:reviewed-recipe".into()],
-    };
-    let target = AppTargetV1 {
-        target_id: "web".into(),
-        owning_task_id: "planning-item".into(),
-        repository_id: "repo".into(),
-        app_surface: AppSurface::Web,
-        project_relative_root: "apps/web".into(),
-        build_recipe_ref: Some("web-build".into()),
-        test_recipe_refs: Vec::new(),
-        start_recipe_ref: None,
-        readiness_probe_ref: None,
-        artifact_spec_ref: None,
-        fixture_ref: None,
-        required_dependencies: Vec::new(),
-        supported_driver_ids: Vec::new(),
-        port_needs: Vec::new(),
-        environment_policy_ref: "default".into(),
-        capability_state: TargetCapabilityState::Ready,
-    };
-    let mut manifest = ProjectCapabilityManifestV1 {
-        schema_version: 1,
-        workspace_id: "project".into(),
-        repository_id: "repo".into(),
-        source_sha: "a".repeat(40),
-        detected_languages: vec!["JavaScript".into()],
-        frameworks: Vec::new(),
-        candidate_targets: vec![target.clone()],
-        selected_target_id: None,
-        target_capabilities: vec![TargetCapabilityState::Ready],
-        recipes: vec![recipe.clone()],
-        readiness_probes: Default::default(),
-        artifact_specs: Default::default(),
-        confidence: 80,
-        evidence_refs: vec!["package.json".into()],
-        user_overrides: Vec::new(),
-        revision: 1,
-    };
-    let workspace = WorkspaceRef {
-        project_id: "project".into(),
-        task_id: "planning-item".into(),
-        source_sha: "a".repeat(40),
-    };
-    let candidate = approved_candidate(
-        &manifest,
-        &target,
-        std::path::Path::new("task-clone"),
-        workspace.clone(),
-        RuntimeOperation::Build,
-        vec!["web-build"],
-    )
-    .unwrap()
-    .unwrap();
-    assert_eq!(candidate.4, ["npm"]);
-
-    for (executable, tool) in [("python", "python"), ("go", "go")] {
-        manifest.recipes[0].executable_id = executable.into();
-        manifest.recipes[0].prerequisite_tool_ids = vec![tool.into()];
-        let selected = approved_candidate(
-            &manifest,
-            &target,
-            std::path::Path::new("task-clone"),
-            workspace.clone(),
-            RuntimeOperation::Build,
-            vec!["web-build"],
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(selected.4, [tool]);
-    }
-
-    manifest.recipes[0].executable_id = "custom-compiler".into();
-    manifest.recipes[0].prerequisite_tool_ids = vec!["custom-compiler".into()];
-    let custom = approved_candidate(
-        &manifest,
-        &target,
-        std::path::Path::new("task-clone"),
-        workspace.clone(),
-        RuntimeOperation::Build,
-        vec!["web-build"],
-    )
-    .unwrap()
-    .unwrap();
-    assert_eq!(custom.4, ["custom-compiler"]);
-
-    let lock = crate::execution::docker::images::ImageLock::bundled().unwrap();
-    let profiles = [
-        crate::execution::docker::images::RuntimeProfile::General,
-        crate::execution::docker::images::RuntimeProfile::Rust,
-        crate::execution::docker::images::RuntimeProfile::Node,
-        crate::execution::docker::images::RuntimeProfile::Python,
-        crate::execution::docker::images::RuntimeProfile::Go,
-    ];
-    let selected = lock
-        .select_with_tools(&profiles, "amd64", &candidate.4)
-        .unwrap();
-    assert_eq!(
-        selected.profile,
-        crate::execution::docker::images::RuntimeProfile::Node
-    );
-    assert!(
-        lock.select_with_tools(&profiles, "amd64", &custom.4)
-            .is_err()
-    );
-
-    manifest.recipes[0].source = RecipeSource::ValidatedProjectConfig;
-    manifest.recipes[0].evidence_refs.clear();
-    assert!(
-        approved_candidate(
-            &manifest,
-            &target,
-            std::path::Path::new("task-clone"),
-            workspace,
-            RuntimeOperation::Build,
-            vec!["web-build"]
-        )
-        .unwrap()
-        .is_none()
-    );
-}
+#[path = "recipe_queue_tests/approval.rs"]
+mod approval;

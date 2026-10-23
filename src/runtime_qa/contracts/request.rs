@@ -9,6 +9,7 @@ const MAX_ACCEPTANCE: usize = 512;
 #[serde(rename_all = "snake_case")]
 pub enum QaPlatform {
     LinuxDesktop,
+    HeadlessService,
     Web,
 }
 

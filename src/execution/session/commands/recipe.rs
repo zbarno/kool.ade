@@ -1,5 +1,12 @@
 use super::*;
 
+mod authorization;
+mod target;
+
+pub(super) use target::{
+    join_target_root, recipe_source_output_paths, strip_target_root, validate_artifact_outputs,
+};
+
 impl ExecutionSession {
     /// Executes an approved recipe without a shell or script interpolation.
     pub fn run_recipe(
@@ -62,52 +69,92 @@ impl ExecutionSession {
         target_root: &str,
         artifact_paths: &[String],
     ) -> Result<ExecutionOutput, ExecutionError> {
+        let source_output_paths = recipe_source_output_paths(recipe);
+        self.run_scoped_recipe_with_artifacts_and_source_paths(
+            runtime,
+            target_id,
+            recipe,
+            target_root,
+            crate::execution::session::ScopedRuntimePaths {
+                artifact_paths,
+                source_output_paths: &source_output_paths,
+                source_input_paths: &source_output_paths,
+            },
+        )
+    }
+
+    pub(crate) fn run_scoped_recipe_with_artifacts_and_source_paths(
+        &self,
+        runtime: &crate::project_runtime::ProjectRuntimeStore<'_>,
+        target_id: &str,
+        recipe: &crate::project_runtime::ExecutionRecipeV1,
+        target_root: &str,
+        paths: crate::execution::session::ScopedRuntimePaths<'_>,
+    ) -> Result<ExecutionOutput, ExecutionError> {
         if let Some(destination) = self.retry_destination()? {
-            return destination.run_scoped_recipe_with_artifacts(
+            return destination.run_scoped_recipe_with_artifacts_and_source_paths(
                 runtime,
                 target_id,
                 recipe,
                 target_root,
-                artifact_paths,
+                paths,
             );
         }
         use crate::execution::policy::ExecutionPolicyV1;
         use std::collections::BTreeSet;
 
         self.renew_remote_capacity_lease()?;
-        self.verify_local_recipe_approval(runtime, target_id, recipe, Some(target_root))?;
+        let authorization_ref =
+            self.verify_local_recipe_approval(runtime, target_id, recipe, Some(target_root))?;
         recipe
             .validate()
             .map_err(|_| policy_error("Project execution recipe failed validation"))?;
-        if self.mode != crate::execution::contract::ExecutionModeV1::Verification
-            || recipe.source != crate::project_runtime::RecipeSource::UserApproved
-        {
+        if self.mode != crate::execution::contract::ExecutionModeV1::Verification {
             return Err(policy_error(
-                "Scoped recipe execution requires an explicitly user-approved verification recipe",
+                "Scoped recipe execution requires verification mode",
             ));
         }
-        let approval = recipe
-            .evidence_refs
-            .iter()
-            .find(|reference| reference.starts_with("user-approval:"))
-            .cloned()
-            .ok_or_else(|| policy_error("Recipe approval evidence is missing"))?;
         let working_directory = strip_target_root(target_root, &recipe.working_directory_relative)?;
-        validate_artifact_outputs(recipe, target_root, artifact_paths)?;
-        let policy = ExecutionPolicyV1::for_approved_recipe(
-            self.resources.clone(),
-            target_root.to_owned(),
-            approval,
-            recipe.executable_id.clone(),
-            recipe.argv.clone(),
-            working_directory.clone(),
-            recipe
-                .allowed_env_keys
-                .iter()
-                .cloned()
-                .collect::<BTreeSet<_>>(),
-        )
+        validate_artifact_outputs(recipe, target_root, paths.artifact_paths)?;
+        let environment = recipe
+            .allowed_env_keys
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let policy = match &recipe.source {
+            crate::project_runtime::RecipeSource::UserApproved => {
+                ExecutionPolicyV1::for_approved_recipe(
+                    self.resources.clone(),
+                    target_root.to_owned(),
+                    authorization_ref,
+                    recipe.executable_id.clone(),
+                    recipe.argv.clone(),
+                    working_directory.clone(),
+                    environment,
+                )
+            }
+            crate::project_runtime::RecipeSource::TrustedAdapter => {
+                ExecutionPolicyV1::for_trusted_adapter_recipe(
+                    self.resources.clone(),
+                    target_root.to_owned(),
+                    authorization_ref,
+                    recipe.executable_id.clone(),
+                    recipe.argv.clone(),
+                    working_directory.clone(),
+                    environment,
+                )
+            }
+            crate::project_runtime::RecipeSource::ValidatedProjectConfig => {
+                return Err(policy_error(
+                    "Project-config recipes require independent validation before execution",
+                ));
+            }
+        }
         .map_err(|_| policy_error("Scoped recipe authorization is invalid"))?;
+        let policy = policy
+            .with_source_output_paths(paths.source_output_paths.to_vec())
+            .and_then(|policy| policy.with_source_input_paths(paths.source_input_paths.to_vec()))
+            .map_err(|_| policy_error("Scoped recipe output authorization is invalid"))?;
         if self
             .busy
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -131,7 +178,7 @@ impl ExecutionSession {
             request_sequence: sequence,
             cancellation_generation,
             policy_override: Some(policy),
-            artifact_paths: artifact_paths.to_vec(),
+            artifact_paths: paths.artifact_paths.to_vec(),
         });
         let request = match request {
             Ok(request) => request,
@@ -150,151 +197,13 @@ impl ExecutionSession {
             self.verify_authorization()?;
         }
         self.retry_after_confirmed_loss_with(result, |destination| {
-            destination.run_scoped_recipe_with_artifacts(
+            destination.run_scoped_recipe_with_artifacts_and_source_paths(
                 runtime,
                 target_id,
                 recipe,
                 target_root,
-                artifact_paths,
+                paths,
             )
         })
     }
-
-    fn verify_local_recipe_approval(
-        &self,
-        runtime: &crate::project_runtime::ProjectRuntimeStore<'_>,
-        target_id: &str,
-        recipe: &crate::project_runtime::ExecutionRecipeV1,
-        expected_root: Option<&str>,
-    ) -> Result<(), ExecutionError> {
-        let manifest = runtime
-            .load_manifest()
-            .map_err(|_| policy_error("Project runtime approval state is unavailable"))?
-            .ok_or_else(|| policy_error("Project runtime approval state is missing"))?;
-        let workspace = self.workspace();
-        if manifest.workspace_id != workspace.project_id
-            || manifest.source_sha != workspace.source_sha
-        {
-            return Err(policy_error(
-                "Project runtime approval does not match the pinned task workspace",
-            ));
-        }
-        let target = manifest
-            .candidate_targets
-            .iter()
-            .find(|target| target.target_id == target_id)
-            .ok_or_else(|| policy_error("Approved runtime target is missing"))?;
-        if target.owning_task_id != workspace.task_id
-            || target.repository_id != manifest.repository_id
-            || expected_root.is_some_and(|root| target.project_relative_root != root)
-            || !manifest.is_active_target(&workspace.task_id, target_id)
-            || !target
-                .build_recipe_ref
-                .iter()
-                .chain(target.test_recipe_refs.iter())
-                .chain(target.start_recipe_ref.iter())
-                .any(|recipe_id| recipe_id == &recipe.recipe_id)
-            || !approved_recipe_matches(runtime, &manifest, target, recipe)
-        {
-            return Err(policy_error(
-                "Recipe has no matching local approval for this selected task target",
-            ));
-        }
-        Ok(())
-    }
-}
-
-fn approved_recipe_matches(
-    runtime: &crate::project_runtime::ProjectRuntimeStore<'_>,
-    manifest: &crate::project_runtime::ProjectCapabilityManifestV1,
-    target: &crate::project_runtime::AppTargetV1,
-    recipe: &crate::project_runtime::ExecutionRecipeV1,
-) -> bool {
-    let mut approved = recipe.clone();
-    let root = &target.project_relative_root;
-    let normalize = |path: &str| {
-        if root == "." {
-            Ok(path.to_owned())
-        } else {
-            strip_target_root(root, path)
-        }
-    };
-    let Ok(working_directory_relative) = normalize(&recipe.working_directory_relative) else {
-        return false;
-    };
-    approved.working_directory_relative = working_directory_relative;
-    approved.allowed_output_paths = match recipe
-        .allowed_output_paths
-        .iter()
-        .map(|path| normalize(path))
-        .collect::<Result<Vec<_>, _>>()
-    {
-        Ok(paths) => paths,
-        Err(_) => return false,
-    };
-    approved.expected_artifacts = match recipe
-        .expected_artifacts
-        .iter()
-        .map(|path| normalize(path))
-        .collect::<Result<Vec<_>, _>>()
-    {
-        Ok(paths) => paths,
-        Err(_) => return false,
-    };
-    runtime.recipe_is_locally_approved(manifest, target, &approved)
-}
-
-fn join_target_root(target_root: &str, path: &str) -> Result<String, ExecutionError> {
-    if target_root == "." {
-        Ok(path.to_owned())
-    } else if path == "." {
-        Ok(target_root.to_owned())
-    } else {
-        Ok(format!("{target_root}/{path}"))
-    }
-}
-
-pub(super) fn strip_target_root(target_root: &str, path: &str) -> Result<String, ExecutionError> {
-    if target_root == "." {
-        return Ok(path.to_owned());
-    }
-    let relative = path
-        .strip_prefix(target_root)
-        .filter(|suffix| suffix.is_empty() || suffix.starts_with('/'))
-        .ok_or_else(|| {
-            policy_error("Recipe working directory is outside its approved target root")
-        })?;
-    let relative = relative.strip_prefix('/').unwrap_or(relative);
-    if relative.is_empty() {
-        Ok(".".into())
-    } else {
-        Ok(relative.to_owned())
-    }
-}
-
-pub(super) fn validate_artifact_outputs(
-    recipe: &crate::project_runtime::ExecutionRecipeV1,
-    target_root: &str,
-    artifact_paths: &[String],
-) -> Result<(), ExecutionError> {
-    for artifact in artifact_paths {
-        let allowed = recipe
-            .allowed_output_paths
-            .iter()
-            .chain(recipe.expected_artifacts.iter())
-            .filter_map(|path| strip_target_root(target_root, path).ok())
-            .any(|root| {
-                root == "."
-                    || artifact == &root
-                    || artifact
-                        .strip_prefix(&root)
-                        .is_some_and(|suffix| suffix.starts_with('/'))
-            });
-        if !allowed {
-            return Err(policy_error(
-                "Requested artifact is outside the approved recipe outputs",
-            ));
-        }
-    }
-    Ok(())
 }

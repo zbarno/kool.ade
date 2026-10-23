@@ -11,8 +11,10 @@ pub(super) fn dependency_request(
     disconnected: &std::sync::atomic::AtomicBool,
 ) -> anyhow::Result<ResourceResponse> {
     let mut request = dependency::triage(context.task_id, need);
-    if let Err(error) = dependency::enrich_lock_identity(
+    if let Err(error) = dependency::enrich_lock_identity_scoped(
         context.worktree,
+        context.dependency_root,
+        context.dependency_relative_root,
         context.baseline_commit,
         &mut request.need,
     ) {

@@ -80,7 +80,7 @@ pub(super) fn authorized_dependency(
     let preparation = adapter::PreparationContext {
         decision: request.decision,
         allow_downloads: !context.private_configuration,
-        worktree: context.worktree,
+        worktree: context.dependency_root,
         resource_dir: context.resource_dir,
         npm_cache: context.npm_cache,
         npm_snapshot: context.npm_snapshot,

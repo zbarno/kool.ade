@@ -1,4 +1,4 @@
-use std::{fs, process::Command, sync::Arc};
+use std::{process::Command, sync::Arc};
 
 use crate::{
     artifacts::planning_store::PlanningStore,
@@ -16,6 +16,17 @@ use crate::{
 
 use super::support::{Fixture, backend, workspace};
 
+#[path = "stack_recipes/diagnostics.rs"]
+mod diagnostics;
+#[path = "stack_recipes/fixtures.rs"]
+mod fixtures;
+
+/// Boundary: approved Rust, Node, Python, and Go build/test/start recipes run
+/// in their selected Docker profiles with the task-root and network policy,
+/// and an attempt to widen the selected root is denied. Unit tests cannot
+/// prove the executor images, tool resolution, workspace mounts, or command
+/// isolation together. External dependency: rootless Docker and locked runtime
+/// images. Setup cost: four small synthetic projects and twelve short recipes.
 #[test]
 fn approved_stack_recipes_execute_across_runtime_profiles() {
     const OPT_IN: &str = "KOOLADE_DOCKER_BACKEND_INTEGRATION";
@@ -33,12 +44,14 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
     let lock = ImageLock::bundled().expect("reviewed runtime image lock");
     for (profile, tool, build, test, start) in stack_recipes() {
         let fixture = Fixture::new();
-        let workspace = workspace();
+        let mut workspace = workspace();
         let _approval_cleanup = crate::persistence::runtime_target_approvals::WorkspaceCleanup::new(
             &workspace.project_id,
         );
-        let (docker, clone) = backend(&fixture, workspace.clone());
-        write_stack_fixture(&clone.join("apps/web"), tool);
+        let clone = fixture.task_clone(&workspace);
+        fixtures::write_stack_fixture(&clone.join("apps/web"), tool);
+        workspace.source_sha = Fixture::commit_task_clone(&clone);
+        let (docker, _) = backend(&fixture, workspace.clone());
         let planning = PlanningStore::legacy_embedded(
             uuid::Uuid::parse_str(&workspace.project_id).unwrap(),
             &fixture.root,
@@ -128,7 +141,13 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
             assert_eq!(widened_root.kind, ExecutionErrorKind::PolicyDenied);
             let output = session
                 .run_recipe(&runtime_store, &target_id, &recipe)
-                .unwrap_or_else(|error| panic!("{} recipe failed: {error}", recipe.recipe_id));
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "{} recipe failed: {error}; checkout: {}",
+                        recipe.recipe_id,
+                        diagnostics::checkout(&clone)
+                    )
+                });
             assert_eq!(
                 output.result.exit_code,
                 Some(0),
@@ -169,7 +188,16 @@ fn recipe(id: &str, tool: &str, argv: &[&str]) -> ExecutionRecipeV1 {
         executable_id: tool.into(),
         argv: argv.iter().map(|arg| (*arg).into()).collect(),
         allowed_env_keys: Vec::new(),
-        allowed_output_paths: Vec::new(),
+        allowed_output_paths: if tool == "cargo" {
+            vec![".koolade-target".into()]
+        } else if tool == "python" {
+            vec!["__pycache__".into()]
+        } else if tool == "go" {
+            // Build output remains in the task clone for the following test recipe.
+            vec![".koolade-target".into()]
+        } else {
+            Vec::new()
+        },
         timeout_seconds: 180,
         expected_exit_codes: vec![0],
         expected_artifacts: Vec::new(),
@@ -191,9 +219,17 @@ fn stack_recipes() -> Vec<(
         (
             RuntimeProfile::Rust,
             "cargo",
-            recipe("rust-build", "cargo", &["build", "--offline"]),
-            recipe("rust-test", "cargo", &["test", "--offline", "-vv"]),
-            recipe("rust-start", "cargo", &["run", "--offline", "--quiet"]),
+            recipe("rust-build", "cargo", &["build", "--offline", "--locked"]),
+            recipe(
+                "rust-test",
+                "cargo",
+                &["test", "--offline", "--locked", "-vv"],
+            ),
+            recipe(
+                "rust-start",
+                "cargo",
+                &["run", "--offline", "--locked", "--quiet"],
+            ),
         ),
         (
             RuntimeProfile::Node,
@@ -216,78 +252,13 @@ fn stack_recipes() -> Vec<(
         (
             RuntimeProfile::Go,
             "go",
-            recipe("go-build", "go", &["build", "-o", "app", "main.go"]),
+            recipe(
+                "go-build",
+                "go",
+                &["build", "-o", ".koolade-target/stack-fixture", "main.go"],
+            ),
             recipe("go-test", "go", &["test", "main.go", "main_test.go"]),
             recipe("go-start", "go", &["run", "main.go"]),
         ),
     ]
-}
-
-fn write_stack_fixture(root: &std::path::Path, tool: &str) {
-    fs::create_dir_all(root).expect("task clone exists");
-    let files: &[(&str, &str)] = match tool {
-        "cargo" => &[
-            (
-                "Cargo.toml",
-                "[package]\nname = \"stack_fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[profile.dev]\ndebug = 0\nincremental = false\n",
-            ),
-            (
-                "src/main.rs",
-                "fn main() { println!(\"STARTED\"); }\n#[cfg(test)] mod tests { #[test] fn passes() { assert_eq!(2 + 2, 4); } }\n",
-            ),
-            (
-                ".cargo/config.toml",
-                // The executor's /tmp is intentionally mounted noexec, so
-                // Cargo's test binary must live on the executable workspace tmpfs.
-                "[build]\ntarget-dir = \"/workspace/.koolade-target\"\n",
-            ),
-        ],
-        "node" => &[
-            (
-                "package.json",
-                "{\"name\":\"stack_fixture\",\"private\":true}\n",
-            ),
-            ("app.js", "console.log('STARTED');\n"),
-            (
-                "app.test.js",
-                "const test = require('node:test'); const assert = require('node:assert/strict'); test('math', () => assert.equal(2 + 2, 4));\n",
-            ),
-        ],
-        "python" => &[
-            (
-                "pyproject.toml",
-                "[project]\nname = \"stack-fixture\"\nversion = \"0.1.0\"\n",
-            ),
-            (
-                "app.py",
-                "def main(): print('STARTED')\nif __name__ == '__main__': main()\n",
-            ),
-            (
-                "test_app.py",
-                "import unittest\nclass MathTest(unittest.TestCase):\n def test_math(self): self.assertEqual(2 + 2, 4)\n",
-            ),
-        ],
-        "go" => &[
-            (
-                "go.mod",
-                "module example.invalid/stackfixture\n\ngo 1.26.8\n",
-            ),
-            (
-                "main.go",
-                "package main\nimport \"fmt\"\nfunc main() { fmt.Println(\"STARTED\") }\n",
-            ),
-            (
-                "main_test.go",
-                "package main\nimport \"testing\"\nfunc TestReady(t *testing.T) {}\n",
-            ),
-        ],
-        _ => panic!("unknown stack tool"),
-    };
-    for (relative, contents) in files {
-        let path = root.join(relative);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).expect("fixture parent");
-        }
-        fs::write(path, contents).expect("stack fixture source");
-    }
 }

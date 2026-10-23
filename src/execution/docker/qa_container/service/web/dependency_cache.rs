@@ -42,29 +42,6 @@ pub(super) fn service_tmpfs(
     env: &mut Vec<String>,
 ) -> Result<HashMap<String, String>, ExecutionError> {
     let (uid, gid) = runtime_uid_gid(&spec.service_image.runtime_user)?;
-    let mut tmpfs = HashMap::from([
-        (
-            "/tmp".into(),
-            format!(
-                "rw,nosuid,nodev,noexec,size={},uid={uid},gid={gid}",
-                spec.resources.temporary_disk_bytes / 2,
-            ),
-        ),
-        (
-            "/workspace".into(),
-            format!(
-                "rw,nosuid,nodev,size={},uid={uid},gid={gid}",
-                spec.resources.temporary_disk_bytes / 2,
-            ),
-        ),
-    ]);
-    if spec.dependency_caches.is_empty() {
-        return Ok(tmpfs);
-    }
-    let cache_mount = format!(
-        "rw,nosuid,nodev,noexec,size={},uid={uid},gid={gid}",
-        spec.resources.temporary_disk_bytes / 4
-    );
     let mut has_npm = false;
     let mut has_cargo = false;
     for cache in spec.dependency_caches {
@@ -73,6 +50,36 @@ pub(super) fn service_tmpfs(
             DependencyCacheEcosystemV1::Cargo => has_cargo = true,
         }
     }
+    let mount_count = 2 + [has_npm, has_cargo]
+        .into_iter()
+        .filter(|enabled| *enabled)
+        .count();
+    let mount_size = spec.resources.temporary_disk_bytes / mount_count as u64;
+    if mount_size == 0 {
+        return Err(super::super::super::denied(
+            "QA service temporary disk budget cannot cover its isolated mounts",
+        ));
+    }
+    let mut tmpfs = HashMap::from([
+        (
+            "/tmp".into(),
+            format!(
+                "rw,nosuid,nodev,noexec,size={},uid={uid},gid={gid}",
+                mount_size,
+            ),
+        ),
+        (
+            "/workspace".into(),
+            format!("rw,nosuid,nodev,size={},uid={uid},gid={gid}", mount_size,),
+        ),
+    ]);
+    if spec.dependency_caches.is_empty() {
+        return Ok(tmpfs);
+    }
+    let cache_mount = format!(
+        "rw,nosuid,nodev,noexec,size={},uid={uid},gid={gid}",
+        mount_size
+    );
     if has_npm {
         tmpfs.insert("/home/executor/.npm".into(), cache_mount.clone());
         env.extend([

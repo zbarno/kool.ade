@@ -13,6 +13,10 @@ impl ExecutionPolicyV1 {
         self.approved_recipe_command.as_ref()
     }
 
+    pub fn requires_reviewed_source_checkout(&self) -> bool {
+        self.mode == ExecutionModeV1::Verification && self.approved_recipe_command.is_some()
+    }
+
     pub fn mode(&self) -> ExecutionModeV1 {
         self.mode
     }
@@ -39,5 +43,19 @@ impl ExecutionPolicyV1 {
 
     pub fn artifact_paths(&self) -> &[String] {
         &self.artifact_paths
+    }
+
+    pub fn source_output_paths(&self) -> &[String] {
+        &self.source_output_paths
+    }
+
+    pub fn source_input_paths(&self) -> &[String] {
+        if self.source_input_paths.is_empty() {
+            // Preserve the original policy behavior for requests serialized
+            // before the stage-in and stage-out grants were separated.
+            &self.source_output_paths
+        } else {
+            &self.source_input_paths
+        }
     }
 }

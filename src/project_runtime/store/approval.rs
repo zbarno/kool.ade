@@ -14,6 +14,20 @@ impl ProjectRuntimeStore<'_> {
         target: &AppTargetV1,
         recipe: &ExecutionRecipeV1,
     ) -> bool {
+        if recipe.source == crate::project_runtime::RecipeSource::TrustedAdapter {
+            let stored_recipe = manifest
+                .recipes
+                .iter()
+                .chain(manifest.user_overrides.iter())
+                .find(|candidate| candidate.recipe_id == recipe.recipe_id);
+            if stored_recipe != Some(recipe) {
+                return false;
+            }
+            return recipe_operation(target, recipe).is_some_and(|operation| {
+                self.verify_execution_provenance(manifest, target, operation)
+                    .is_ok()
+            });
+        }
         if !recipe.is_explicitly_user_approved() {
             return false;
         }
@@ -62,19 +76,21 @@ fn recipe_operation(
 ) -> Option<crate::project_runtime::RuntimeOperation> {
     use crate::project_runtime::RuntimeOperation;
 
-    if target.build_recipe_ref.as_deref() == Some(recipe.recipe_id.as_str()) {
-        Some(RuntimeOperation::Build)
-    } else if target
-        .test_recipe_refs
-        .iter()
-        .any(|recipe_id| recipe_id == &recipe.recipe_id)
-    {
-        Some(RuntimeOperation::Test)
-    } else if target.start_recipe_ref.as_deref() == Some(recipe.recipe_id.as_str()) {
-        Some(RuntimeOperation::Start)
-    } else {
-        None
-    }
+    let mut operations = [
+        (target.build_recipe_ref.as_deref() == Some(recipe.recipe_id.as_str()))
+            .then_some(RuntimeOperation::Build),
+        target
+            .test_recipe_refs
+            .iter()
+            .any(|recipe_id| recipe_id == &recipe.recipe_id)
+            .then_some(RuntimeOperation::Test),
+        (target.start_recipe_ref.as_deref() == Some(recipe.recipe_id.as_str()))
+            .then_some(RuntimeOperation::Start),
+    ]
+    .into_iter()
+    .flatten();
+    let operation = operations.next()?;
+    operations.next().is_none().then_some(operation)
 }
 
 fn recipe_approval_fingerprints(
