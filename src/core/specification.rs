@@ -123,6 +123,7 @@ pub fn validate_feature(id: &str, markdown: &str) -> anyhow::Result<()> {
     );
     let extras = &sections[REQUIRED.len()..];
     let allowed = [
+        "Capability ID",
         "Plan Comparison",
         "Plan Comparison History",
         "Selected Plan",
@@ -256,5 +257,11 @@ mod tests {
             normalize_feature_headings(text),
             "# F1: Example\n## Current Behavior\r\nThe Behaviour stays as written.\n```md\n## Desired Behaviour\n```\n"
         );
+    }
+
+    #[test]
+    fn feature_capability_id_is_allowed_after_the_required_sections() {
+        let markdown = "# F1: Capability binding\n\n## Intent\n\nIntent.\n\n## Current Behavior\n\nCurrent.\n\n## Desired Behavior\n\nDesired.\n\n## Scope\n\nScope.\n\n## Affected Product Areas\n\n- planning\n\n## Requirements\n\n- REQ-001: Keep the approved behavior.\n\n## Decisions and Assumptions\n\nNone.\n\n## Acceptance Criteria\n\n- AC-001: The approved behavior is observable.\n\n## Capability ID\n\nself-improvement-lifecycle\n";
+        validate_feature("F1", markdown).unwrap();
     }
 }

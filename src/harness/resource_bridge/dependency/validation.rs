@@ -1,9 +1,10 @@
 use crate::harness::DependencyNeed;
 
 mod commands;
-pub(super) use commands::{
+pub(crate) use commands::{
     command_mentions_package, safe_cargo_restore_command, safe_npm_add_command,
-    safe_npm_restore_command, valid_exact_version, valid_package_identity, valid_version,
+    safe_npm_restore_command, system_install_packages, valid_exact_version, valid_package_identity,
+    valid_version,
 };
 
 pub(super) fn validate(need: &DependencyNeed) -> anyhow::Result<()> {

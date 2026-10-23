@@ -67,7 +67,7 @@ pub(super) fn run_with_planning_store_options(
             == repo.canonicalize()?,
         "Implementation checkout does not match the task repository manifest"
     );
-    let runner = Runner {
+    let mut runner = Runner {
         gh: gh.into(),
         runtime_config_source: Some(repo.to_path_buf()),
         deadline: Instant::now() + crate::core::turn::configured_turn_timeout(),
@@ -128,6 +128,17 @@ pub(super) fn run_with_planning_store_options(
     })?;
     if state.task_repository_kind == TaskRepositoryKind::Clone {
         task_repository::validate_task_path(state_root, &state)?;
+    }
+    if let Some(verifier) = super::self_improvement::authorize_resolved_task_source(
+        planning_store,
+        state_root,
+        dir.join("state.json"),
+        task_uid.as_deref(),
+        metadata.as_ref(),
+        &state,
+        runner.authorization_verifier.clone(),
+    )? {
+        runner.authorization_verifier = Some(verifier);
     }
     if state.pr_url.is_none() && state.merged_commit.is_none() {
         state.auto_merge = publication_mode == PublicationMode::AutoPublish;

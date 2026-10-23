@@ -5,8 +5,15 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+#[path = "legacy_health_tests.rs"]
+mod legacy_health_tests;
+#[path = "private_chunk_tests.rs"]
+mod private_chunk_tests;
+
 struct FakeTransport {
     generation: u8,
+    legacy_response: bool,
+    fail_version_two_health: bool,
     sent: Arc<Mutex<Vec<(u8, EnvelopeV1)>>>,
     responses: VecDeque<EnvelopeV1>,
 }
@@ -17,18 +24,46 @@ impl RemoteRpcTransport for FakeTransport {
             .lock()
             .unwrap()
             .push((self.generation, request.clone()));
+        if self.fail_version_two_health
+            && request.kind == Kind::Health
+            && request.version == PROTOCOL_VERSION_V2
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "legacy worker rejected protocol version two",
+            ));
+        }
         let payload = if request.kind == Kind::Health {
-            serde_json::json!({"wire_version":PROTOCOL_VERSION_V1,"authenticated_principal":"builder","probe":healthy_probe()})
+            serde_json::json!({"wire_version":PROTOCOL_VERSION_V2,"authenticated_principal":"builder","probe":healthy_probe()})
         } else {
             serde_json::Value::Null
         };
+        let legacy_response = self.legacy_response
+            && request.version == crate::execution::remote::protocol::PROTOCOL_VERSION_V1;
         self.responses.push_back(EnvelopeV1 {
-            version: request.version,
+            version: if legacy_response {
+                crate::execution::remote::protocol::PROTOCOL_VERSION_V1
+            } else {
+                PROTOCOL_VERSION_V2
+            },
             request_id: request.request_id.clone(),
             execution_id: request.execution_id.clone(),
             sequence: request.sequence,
-            kind: Kind::Acknowledge,
-            payload,
+            kind: if legacy_response {
+                Kind::Error
+            } else {
+                Kind::Acknowledge
+            },
+            payload: if legacy_response {
+                serde_json::to_value(crate::execution::errors::ExecutionError::new(
+                    crate::execution::errors::ExecutionErrorKind::WorkerIncompatible,
+                    "worker protocol version is unsupported",
+                    false,
+                ))
+                .unwrap()
+            } else {
+                payload
+            },
         });
         Ok(())
     }
@@ -48,10 +83,10 @@ impl RemoteRpcTransport for FakeTransport {
 fn healthy_probe() -> crate::execution::backend::BackendProbeV1 {
     use crate::execution::{
         backend::{BackendCapabilitiesV1, BackendProbeV1},
-        contract::ResourceBudgetV1,
+        contract::{EXECUTION_WIRE_VERSION_V1, ResourceBudgetV1},
     };
     BackendProbeV1 {
-        wire_version: PROTOCOL_VERSION_V1,
+        wire_version: EXECUTION_WIRE_VERSION_V1,
         available: true,
         compatible: true,
         architecture: Some("amd64".into()),
@@ -116,6 +151,8 @@ fn reconnect_keeps_bootstrap_and_authorized_image_rpc_on_the_same_client_transpo
         },
         transport: Box::new(FakeTransport {
             generation: 1,
+            legacy_response: false,
+            fail_version_two_health: false,
             sent: Arc::clone(&sent),
             responses: VecDeque::new(),
         }),
@@ -123,13 +160,15 @@ fn reconnect_keeps_bootstrap_and_authorized_image_rpc_on_the_same_client_transpo
         probe: unavailable_probe(),
         sequences: HashMap::new(),
         last_health_check: Instant::now(),
-        system_image_capability_key: [0x22; 32],
+        system_image_capability_key: zeroize::Zeroizing::new([0x22; 32]),
     };
     client
         .reconnect_and_negotiate_with(
             || {
                 Ok(Box::new(FakeTransport {
                     generation: 2,
+                    legacy_response: false,
+                    fail_version_two_health: false,
                     sent: Arc::clone(&sent),
                     responses: VecDeque::new(),
                 }))
@@ -167,7 +206,7 @@ fn reconnect_keeps_bootstrap_and_authorized_image_rpc_on_the_same_client_transpo
         .system_image_capability(transfer_id, &proposal, decision, &workspace, &manifest)
         .unwrap();
     let request = EnvelopeV1 {
-        version: PROTOCOL_VERSION_V1,
+        version: PROTOCOL_VERSION_V2,
         request_id: uuid::Uuid::new_v4().to_string(),
         execution_id: "00000000-0000-4000-8000-000000000000".into(),
         sequence: 1,
@@ -201,67 +240,4 @@ fn reconnect_keeps_bootstrap_and_authorized_image_rpc_on_the_same_client_transpo
             &manifest,
         )
     );
-}
-
-#[test]
-fn generic_client_request_rejects_private_bytes_before_transport() {
-    let sent = Arc::new(Mutex::new(Vec::new()));
-    let mut client = RemoteWorkerClient {
-        config: crate::execution::remote::ssh::SshWorkerConfig {
-            stable_id: "test-worker".into(),
-            host_alias: "worker".into(),
-            ssh_principal: "builder".into(),
-            verified_host_key_fingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-                .into(),
-            known_hosts_path: std::path::PathBuf::new(),
-            ssh_binary: std::path::PathBuf::new(),
-        },
-        transport: Box::new(FakeTransport {
-            generation: 1,
-            sent: Arc::clone(&sent),
-            responses: VecDeque::new(),
-        }),
-        worker_id: "test-worker".into(),
-        probe: unavailable_probe(),
-        sequences: HashMap::new(),
-        last_health_check: Instant::now(),
-        system_image_capability_key: [0x22; 32],
-    };
-
-    let error = client
-        .request(
-            Kind::PrivateFileChunk,
-            "00000000-0000-4000-8000-000000000142",
-            serde_json::json!({"chunk":{"bytes":"c3ludGhldGljLXNlY3JldA=="}}),
-        )
-        .unwrap_err();
-
-    assert_eq!(
-        error.kind,
-        crate::execution::errors::ExecutionErrorKind::PolicyDenied
-    );
-    let direct_envelope = EnvelopeV1 {
-        version: PROTOCOL_VERSION_V1,
-        request_id: "00000000-0000-4000-8000-000000000147".into(),
-        execution_id: "00000000-0000-4000-8000-000000000142".into(),
-        sequence: 1,
-        kind: Kind::PrivateFileChunk,
-        payload: serde_json::json!({"token":"synthetic-secret"}),
-    };
-    assert!(client.send_envelope(&direct_envelope).is_err());
-    assert!(sent.lock().unwrap().is_empty());
-}
-
-#[test]
-fn denied_private_chunk_payload_is_zeroized_before_return() {
-    let mut payload = serde_json::json!({
-        "chunk": {"bytes": "c3ludGhldGljLXNlY3JldA=="}
-    });
-    let error = super::deny_private_chunk_payload(&mut payload);
-    assert_eq!(
-        error.kind,
-        crate::execution::errors::ExecutionErrorKind::PolicyDenied
-    );
-    assert_eq!(payload, serde_json::Value::Null);
-    assert!(!format!("{error:?}").contains("secret"));
 }

@@ -5,32 +5,54 @@ pub(super) fn remote_telemetry(
     Option<crate::persistence::remote_execution_telemetry::RemoteExecutionTelemetryV1>,
     Option<String>,
 ) {
-    match record {
-        Some(record) => {
-            let Some(worker_id) = record
-                .controller_target_id
-                .as_deref()
-                .filter(|target| *target != "local")
-            else {
-                return (None, None);
-            };
-            match crate::persistence::remote_execution_telemetry::load(&record.execution_id) {
-                Ok(telemetry) => {
-                    match bind_remote_telemetry(&record.execution_id, worker_id, telemetry) {
-                        Ok(telemetry) => (telemetry, None),
-                        Err(error) => (None, Some(error.to_owned())),
-                    }
-                }
-                Err(error) => (None, Some(error.to_string())),
-            }
-        }
-        None if is_canonical_task_id(task_id) => {
-            match crate::persistence::remote_execution_telemetry::latest_for_task(task_id) {
+    let record = record.map(|record| {
+        (
+            record.execution_id.as_str(),
+            record.controller_target_id.as_deref(),
+        )
+    });
+    remote_telemetry_with(
+        record,
+        task_id,
+        crate::persistence::remote_execution_telemetry::load,
+        crate::persistence::remote_execution_telemetry::latest_for_task,
+    )
+}
+
+fn remote_telemetry_with(
+    record: Option<(&str, Option<&str>)>,
+    task_id: &str,
+    mut load: impl FnMut(
+        &str,
+    ) -> anyhow::Result<
+        Option<crate::persistence::remote_execution_telemetry::RemoteExecutionTelemetryV1>,
+    >,
+    mut latest_for_task: impl FnMut(
+        &str,
+    ) -> anyhow::Result<
+        Option<crate::persistence::remote_execution_telemetry::RemoteExecutionTelemetryV1>,
+    >,
+) -> (
+    Option<crate::persistence::remote_execution_telemetry::RemoteExecutionTelemetryV1>,
+    Option<String>,
+) {
+    if let Some((execution_id, Some(worker_id))) =
+        record.filter(|(_, target)| target.is_some_and(|target| target != "local"))
+    {
+        return match load(execution_id) {
+            Ok(telemetry) => match bind_remote_telemetry(execution_id, worker_id, telemetry) {
                 Ok(telemetry) => (telemetry, None),
-                Err(error) => (None, Some(error.to_string())),
-            }
-        }
-        None => (None, None),
+                Err(error) => (None, Some(error.to_owned())),
+            },
+            Err(error) => (None, Some(error.to_string())),
+        };
+    }
+    if !is_canonical_task_id(task_id) {
+        return (None, None);
+    }
+    match latest_for_task(task_id) {
+        Ok(telemetry) => (telemetry, None),
+        Err(error) => (None, Some(error.to_string())),
     }
 }
 
@@ -69,6 +91,9 @@ mod tests {
             started_at_unix_ms: Some(1),
             task_id: Some("00000000-0000-4000-8000-000000000005".into()),
             worker_id: worker_id.into(),
+            queue_wait_ms: None,
+            harness: None,
+            requested_model: None,
             workspace_upload_bytes: None,
             workspace_upload_ms: None,
             result_download_bytes: None,
@@ -77,6 +102,7 @@ mod tests {
             execution_wall_ms: None,
             execution_cpu_millis: None,
             execution_peak_memory_bytes: None,
+            execution_phase_timings: None,
             image_digest: None,
             failure_code: None,
         }
@@ -105,5 +131,29 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn local_execution_record_falls_back_to_latest_remote_task_telemetry() {
+        let task_id = "00000000-0000-4000-8000-000000000005";
+        let remote = telemetry(
+            "00000000-0000-4000-8000-000000000006",
+            "00000000-0000-4000-8000-000000000007",
+        );
+        let mut latest_called = false;
+
+        let result = remote_telemetry_with(
+            Some(("00000000-0000-4000-8000-000000000008", Some("local"))),
+            task_id,
+            |_| panic!("local execution record must not load remote execution telemetry"),
+            |queried_task_id| {
+                latest_called = true;
+                assert_eq!(queried_task_id, task_id);
+                Ok(Some(remote.clone()))
+            },
+        );
+
+        assert!(latest_called);
+        assert_eq!(result, (Some(remote), None));
     }
 }

@@ -64,6 +64,7 @@ impl AiHarness for ClaudeHarness {
             .map_err(|error| {
                 AppError::Other(format!("Cannot configure Claude sandbox tools: {error:#}"))
             })?;
+        boundary.set_telemetry_model(requested_model.as_deref());
         let provider = crate::harness::execution_security::CliProvider::Claude;
         let evidence = crate::harness::execution_security::ProfileProbeEvidence::probe(
             provider, &binary, version,

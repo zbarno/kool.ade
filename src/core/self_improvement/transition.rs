@@ -19,6 +19,7 @@ impl SelfImprovementRunV1 {
             }
             SelfImprovementEventV1::PlanApproved {
                 approval_sha256,
+                capability_id,
                 review_uid,
                 source_ref,
                 destination_ref,
@@ -27,6 +28,9 @@ impl SelfImprovementRunV1 {
                 parent_task_uids,
             } if self.phase == SelfImprovementPhaseV1::Planning
                 && is_digest(&approval_sha256)
+                && capability_id
+                    .as_deref()
+                    .is_some_and(super::capability_probe::valid_capability_id)
                 && is_uuid(&review_uid)
                 && super::validation::valid_ref(&source_ref)
                 && super::validation::valid_ref(&destination_ref)
@@ -74,9 +78,13 @@ impl SelfImprovementRunV1 {
                         pr_status: None,
                         pr_url: None,
                         pr_head_sha: None,
+                        pr_base_branch: None,
+                        pr_merged_commit_sha: None,
+                        pr_merged_at: None,
                     })
                     .collect();
                 self.plan_approval_hash = Some(approval_sha256);
+                self.capability_id = capability_id;
                 self.independent_plan_review_uid = Some(review_uid);
                 self.source_ref = Some(source_ref);
                 self.destination_ref = Some(destination_ref);
@@ -178,23 +186,77 @@ impl SelfImprovementRunV1 {
                 self.pr_url = Some(url);
                 self.phase = SelfImprovementPhaseV1::PrOpened;
             }
+            SelfImprovementEventV1::PrClosedUnmerged { url }
+                if self.phase == SelfImprovementPhaseV1::PrOpened && valid_pr_url(&url) =>
+            {
+                self.pr_url = Some(url);
+                self.phase = SelfImprovementPhaseV1::PrClosedUnmerged;
+            }
+            SelfImprovementEventV1::PrReopened
+                if self.phase == SelfImprovementPhaseV1::PrClosedUnmerged
+                    && self.pr_url.as_deref().is_some_and(valid_pr_url) =>
+            {
+                self.phase = SelfImprovementPhaseV1::PrOpened;
+            }
             SelfImprovementEventV1::Merged { sha }
                 if self.phase == SelfImprovementPhaseV1::PrOpened && is_git_sha(&sha) =>
             {
                 self.merged_sha = Some(sha);
                 self.phase = SelfImprovementPhaseV1::MergedNotActivated;
             }
-            SelfImprovementEventV1::Activated {
+            SelfImprovementEventV1::Installed {
                 version,
-                readiness_probe_passed: true,
-            } if self.phase == SelfImprovementPhaseV1::MergedNotActivated
-                && valid_text(&version, 128) =>
+                build_commit_sha,
+                operator_id,
+                github_user_id,
+            } if self.schema_version >= 2
+                && self.phase == SelfImprovementPhaseV1::MergedNotActivated
+                && valid_text(&version, 128)
+                && valid_text(&operator_id, 128)
+                && if self.schema_version >= 4 {
+                    github_user_id
+                        .as_deref()
+                        .is_some_and(super::github_auth::valid_github_user_id)
+                } else {
+                    github_user_id.is_none()
+                }
+                && Some(build_commit_sha.as_str()) == self.merged_sha.as_deref()
+                && is_git_sha(&build_commit_sha) =>
             {
-                self.activated_version = Some(version);
+                self.installed_version = Some(version);
+                self.installed_build_commit_sha = Some(build_commit_sha);
+                self.phase = SelfImprovementPhaseV1::InstalledNotActivated;
+            }
+            SelfImprovementEventV1::Activated { evidence }
+                if self.phase == SelfImprovementPhaseV1::InstalledNotActivated
+                    && evidence.feature_uid == self.feature_uid
+                    && Some(evidence.merged_sha.as_str()) == self.merged_sha.as_deref()
+                    && Some(evidence.version.as_str()) == self.installed_version.as_deref()
+                    && Some(evidence.build_commit_sha.as_str())
+                        == self.installed_build_commit_sha.as_deref()
+                    && evidence.build_commit_sha == evidence.merged_sha
+                    && is_git_sha(&evidence.build_commit_sha)
+                    && is_digest(&evidence.capability_manifest_sha256)
+                    && self.capability_id.as_deref() == Some(evidence.capability_id.as_str())
+                    && super::capability_probe::valid_capability_id(&evidence.capability_id)
+                    && super::capability_probe::valid_capability_id(
+                        &evidence.readiness_probe_id,
+                    )
+                    && is_uuid(&evidence.readiness_probe_uid)
+                    && valid_text(&evidence.version, 128) =>
+            {
+                self.activated_version = Some(evidence.version);
                 self.phase = SelfImprovementPhaseV1::Activated;
             }
             SelfImprovementEventV1::NeedsAttention
-                if self.phase != SelfImprovementPhaseV1::Activated =>
+                if matches!(
+                    self.phase,
+                    SelfImprovementPhaseV1::Ready
+                        | SelfImprovementPhaseV1::Implementing
+                        | SelfImprovementPhaseV1::Reviewing
+                        | SelfImprovementPhaseV1::Qa
+                        | SelfImprovementPhaseV1::SpecSync
+                ) =>
             {
                 self.phase = SelfImprovementPhaseV1::NeedsAttention;
             }
@@ -202,7 +264,9 @@ impl SelfImprovementRunV1 {
                 if !matches!(
                     self.phase,
                     SelfImprovementPhaseV1::PrOpened
+                        | SelfImprovementPhaseV1::PrClosedUnmerged
                         | SelfImprovementPhaseV1::MergedNotActivated
+                        | SelfImprovementPhaseV1::InstalledNotActivated
                         | SelfImprovementPhaseV1::Activated
                 ) =>
             {

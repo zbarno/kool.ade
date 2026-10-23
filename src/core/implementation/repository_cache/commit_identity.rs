@@ -99,11 +99,17 @@ pub(crate) fn configure_clone(
         ("user.name", identity.name.as_str()),
         ("user.email", identity.email.as_str()),
     ] {
+        // New clones deliberately replace identity with the saved explicit
+        // values. Avoid reading config entries we will always overwrite.
+        if !preserve_existing {
+            runner.git(repository, &["config", "--local", key, value])?;
+            continue;
+        }
         let current = runner.git(
             repository,
             &["config", "--local", "--get", "--default=", key],
         )?;
-        if !preserve_existing || current.is_empty() {
+        if current.is_empty() {
             runner.git(repository, &["config", "--local", key, value])?;
         }
     }

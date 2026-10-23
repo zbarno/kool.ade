@@ -84,6 +84,7 @@ pub(in crate::execution::docker::backend::lifecycle) fn mark_interrupted(
                 process_count: 0,
                 disk_bytes: 0,
             },
+            phase_timings: Default::default(),
             artifacts: record
                 .artifacts
                 .iter()
@@ -231,6 +232,7 @@ fn reconcile_terminal_record(
                 process_count: 0,
                 disk_bytes: 0,
             },
+            phase_timings: Default::default(),
             artifacts,
             failure: terminal_failure,
         });

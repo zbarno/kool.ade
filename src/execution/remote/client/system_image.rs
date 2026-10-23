@@ -20,7 +20,7 @@ impl RemoteWorkerClient {
         .map_err(|_| incompatible())
     }
 
-    pub(super) fn system_image_key_hex(&self) -> String {
+    pub(super) fn system_image_key_hex(&self) -> zeroize::Zeroizing<String> {
         encode_capability_key(&self.system_image_capability_key)
     }
 }

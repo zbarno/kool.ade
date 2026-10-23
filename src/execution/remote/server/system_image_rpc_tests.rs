@@ -10,7 +10,7 @@ use crate::execution::{
     },
     remote::{
         WorkspaceManifestV1,
-        protocol::{EnvelopeKindV1, EnvelopeV1, PROTOCOL_VERSION_V1, read_frame, write_frame},
+        protocol::{EnvelopeKindV1, EnvelopeV1, PROTOCOL_VERSION_V2, read_frame, write_frame},
         staging::{TransferManifestV1, WorkerStager, stream_file_chunks},
     },
 };
@@ -120,7 +120,7 @@ fn framed_remote_system_image_transfer_derives_and_returns_pinned_digest_after_r
     let frames = [
         (
             EnvelopeKindV1::Health,
-            serde_json::json!({"wire_version":PROTOCOL_VERSION_V1,"system_image_key":encode_key(&RECONNECTED_CAPABILITY_KEY)}),
+            serde_json::json!({"wire_version":PROTOCOL_VERSION_V2,"system_image_key":encode_key(&RECONNECTED_CAPABILITY_KEY)}),
         ),
         (
             EnvelopeKindV1::BeginSystemImageTransfer,
@@ -154,7 +154,7 @@ fn framed_remote_system_image_transfer_derives_and_returns_pinned_digest_after_r
         write_frame(
             &mut input,
             &EnvelopeV1 {
-                version: PROTOCOL_VERSION_V1,
+                version: PROTOCOL_VERSION_V2,
                 request_id: uuid::Uuid::new_v4().hyphenated().to_string(),
                 execution_id: if is_health {
                     crate::execution::remote::protocol::SYSTEM_IMAGE_SESSION_ID_V1.into()
@@ -177,12 +177,12 @@ fn framed_remote_system_image_transfer_derives_and_returns_pinned_digest_after_r
     // that receives the subsequent transfer frames.
     let mut bootstrap = Vec::new();
     write_frame(&mut bootstrap, &EnvelopeV1 {
-        version: PROTOCOL_VERSION_V1,
+        version: PROTOCOL_VERSION_V2,
         request_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         execution_id: crate::execution::remote::protocol::SYSTEM_IMAGE_SESSION_ID_V1.into(),
         sequence: 1,
         kind: EnvelopeKindV1::Health,
-        payload: serde_json::json!({"wire_version":PROTOCOL_VERSION_V1,"system_image_key":encode_key(&CAPABILITY_KEY)}),
+        payload: serde_json::json!({"wire_version":PROTOCOL_VERSION_V2,"system_image_key":encode_key(&CAPABILITY_KEY)}),
     }).unwrap();
     let mut bootstrap_output = Vec::new();
     serve_stdio_with_journal(

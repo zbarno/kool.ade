@@ -1,15 +1,16 @@
 use super::*;
 use crate::execution::{backend::BackendProbeV1, contract::ExecutionTarget};
+use zeroize::Zeroizing;
 
 pub(super) fn dispatch(
     backend: Arc<dyn ExecutionBackend>,
     stager: Option<&crate::execution::remote::staging::WorkerStager>,
     runtime: &tokio::runtime::Runtime,
     capacity: Option<&crate::execution::remote::WorkerCapacityPool>,
-    system_image_capability_key: &mut Option<[u8; 32]>,
+    system_image_capability_key: &mut Option<Zeroizing<[u8; 32]>>,
     envelope: &EnvelopeV1,
 ) -> Result<(Kind, Value), ExecutionError> {
-    let request: HealthRequest = decode(&envelope.payload)?;
+    let request = decode_health_request(&envelope.payload)?;
     let control_id = "00000000-0000-4000-8000-000000000000";
     let session_id = crate::execution::remote::protocol::SYSTEM_IMAGE_SESSION_ID_V1;
     if envelope.execution_id != control_id
@@ -19,7 +20,7 @@ pub(super) fn dispatch(
             "health request is outside the control session",
         ));
     }
-    if request.wire_version != super::super::super::protocol::PROTOCOL_VERSION_V1 {
+    if request.wire_version != super::super::super::protocol::PROTOCOL_VERSION_V2 {
         return Err(super::super::incompatible(
             "remote worker protocol version is unsupported",
         ));
@@ -27,7 +28,10 @@ pub(super) fn dispatch(
     if let Some(encoded_key) = request.system_image_key {
         let key = decode_system_image_key(&encoded_key)
             .ok_or_else(|| super::super::incompatible("system image capability key is invalid"))?;
-        if system_image_capability_key.is_some_and(|current| current != key) {
+        if system_image_capability_key
+            .as_ref()
+            .is_some_and(|current| **current != *key)
+        {
             return Err(super::super::incompatible(
                 "system image capability key changed during the worker session",
             ));
@@ -66,11 +70,44 @@ pub(super) fn dispatch(
     ))
 }
 
-fn decode_system_image_key(encoded: &str) -> Option<[u8; 32]> {
+struct HealthRequest {
+    wire_version: u16,
+    system_image_key: Option<Zeroizing<String>>,
+}
+
+fn decode_health_request(payload: &Value) -> Result<HealthRequest, ExecutionError> {
+    let object = payload
+        .as_object()
+        .ok_or_else(|| super::super::incompatible("health request is invalid"))?;
+    if object
+        .keys()
+        .any(|key| !matches!(key.as_str(), "wire_version" | "system_image_key"))
+    {
+        return Err(super::super::incompatible(
+            "health request has unknown fields",
+        ));
+    }
+    let wire_version = object
+        .get("wire_version")
+        .and_then(Value::as_u64)
+        .and_then(|version| u16::try_from(version).ok())
+        .ok_or_else(|| super::super::incompatible("health request version is invalid"))?;
+    let system_image_key = match object.get("system_image_key") {
+        None => None,
+        Some(Value::String(encoded_key)) => Some(Zeroizing::new(encoded_key.clone())),
+        Some(_) => return Err(super::super::incompatible("health request key is invalid")),
+    };
+    Ok(HealthRequest {
+        wire_version,
+        system_image_key,
+    })
+}
+
+fn decode_system_image_key(encoded: &str) -> Option<Zeroizing<[u8; 32]>> {
     if encoded.len() != 64 || !encoded.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return None;
     }
-    let mut key = [0_u8; 32];
+    let mut key = Zeroizing::new([0_u8; 32]);
     for (index, pair) in encoded.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         key[index] = u8::from_str_radix(std::str::from_utf8(pair).ok()?, 16).ok()?;
     }

@@ -57,7 +57,7 @@ pub(super) fn dispatch(
     stager: Option<&Arc<crate::execution::remote::staging::WorkerStager>>,
     transfers: &mut SystemImageTransfers,
     runtime: &tokio::runtime::Runtime,
-    capability_key: &mut Option<[u8; 32]>,
+    capability_key: &mut Option<zeroize::Zeroizing<[u8; 32]>>,
     envelope: &EnvelopeV1,
 ) -> Result<(Kind, Value), crate::execution::errors::ExecutionError> {
     match envelope.kind {
@@ -94,7 +94,7 @@ pub(super) fn begin(
     transfers: &mut SystemImageTransfers,
     envelope: &EnvelopeV1,
     stager: Option<&Arc<crate::execution::remote::staging::WorkerStager>>,
-    capability_key: &Option<[u8; 32]>,
+    capability_key: &Option<zeroize::Zeroizing<[u8; 32]>>,
 ) -> Result<(Kind, Value), crate::execution::errors::ExecutionError> {
     super::support::require_control_id(envelope)?;
     let request: BeginRequest = super::support::decode(payload)?;

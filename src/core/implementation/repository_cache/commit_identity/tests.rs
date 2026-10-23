@@ -50,3 +50,61 @@ fn null_identity_is_recaptured_and_inherited_by_integration_state() {
     assert_eq!(read_for_task(&integration_dir).unwrap(), identity);
     let _ = fs::remove_dir_all(root);
 }
+
+#[test]
+fn configure_clone_preserves_or_overrides_identity_as_requested() {
+    let root = std::env::temp_dir().join(format!(
+        "koolade-configure-identity-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let (progress, _updates) = mpsc::channel();
+    let runner = Runner {
+        gh: "gh".into(),
+        runtime_config_source: None,
+        deadline: Instant::now() + Duration::from_secs(30),
+        cancel: Arc::new(AtomicBool::new(false)),
+        progress,
+        authorization_verifier: None,
+    };
+    runner.git(&root, &["init", "-q"]).unwrap();
+    runner
+        .git(&root, &["config", "--local", "user.name", "Existing"])
+        .unwrap();
+    runner
+        .git(
+            &root,
+            &["config", "--local", "user.email", "existing@example.test"],
+        )
+        .unwrap();
+    let approved = GitCommitIdentity {
+        name: "Approved Agent".into(),
+        email: "approved@example.test".into(),
+    };
+    configure_clone(&root, &approved, true, &runner).unwrap();
+    assert_eq!(
+        runner
+            .git(&root, &["config", "--local", "user.name"])
+            .unwrap(),
+        "Existing"
+    );
+    assert_eq!(
+        runner
+            .git(&root, &["config", "--local", "user.email"])
+            .unwrap(),
+        "existing@example.test"
+    );
+    configure_clone(&root, &approved, false, &runner).unwrap();
+    assert_eq!(
+        GitCommitIdentity::from_repository(&root, &runner).unwrap(),
+        approved
+    );
+    assert_eq!(
+        runner
+            .git(&root, &["config", "--local", "user.useConfigOnly"])
+            .unwrap(),
+        "true"
+    );
+    fs::remove_dir_all(root).unwrap();
+}

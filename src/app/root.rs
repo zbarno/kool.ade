@@ -323,6 +323,9 @@ pub(crate) mod board_tests;
 #[path = "root/icon_tests.rs"]
 mod icon_tests;
 #[cfg(test)]
+#[path = "root/self_improvement_test_support.rs"]
+pub(crate) mod self_improvement_test_support;
+#[cfg(test)]
 #[path = "root/workspace_tests.rs"]
 mod tests;
 

@@ -152,7 +152,14 @@ fn stale_pr_preparer_receipts_are_removed_so_restart_can_rebuild_them() {
 // one temporary directory, no network/provider/Docker; negligible setup.
 #[test]
 fn publication_body_uses_current_validated_proposal_after_restart() {
-    let scope = scope();
+    let mut scope = scope();
+    let private_marker = "SYNTHETIC_PRIVATE_CONTEXT_7f2a";
+    scope.feature_plan = format!("private planning note: {private_marker}");
+    scope.task_spec = format!("private task context: {private_marker}");
+    scope.gate_evidence = format!("private gate output: {private_marker}");
+    scope.verified_report = format!("private report: {private_marker}");
+    scope.diff = format!("private adjacent diff: {private_marker}");
+    scope.scope_manifest = format!("private manifest context: {private_marker}");
     let current = receipt(&scope);
     let temp = tempfile::tempdir().unwrap();
     let receipt_path = temp.path().join("pr-preparer-v1.json");
@@ -168,9 +175,84 @@ fn publication_body_uses_current_validated_proposal_after_restart() {
     assert!(body.contains(&scope.scope_sha256));
     assert!(body.contains("src/main.rs"));
     assert!(!body.contains("Old verification-only summary"));
+    assert!(!body.contains(private_marker));
 
     let mut stale = current;
     stale.scope_sha256 = "b".repeat(64);
     assert!(super::body::write(temp.path(), &stale, &scope).is_err());
     assert_eq!(fs::read_to_string(body_path).unwrap(), body);
+}
+
+#[test]
+fn publication_body_rejects_private_values_from_the_scoped_evidence() {
+    let mut scope = scope();
+    scope.feature_plan = "Customer contact: synthetic.user@example.invalid".into();
+    let mut prepared = receipt(&scope);
+    prepared.proposal.description =
+        "Coordinate follow-up with synthetic.user@example.invalid".into();
+    let temp = tempfile::tempdir().unwrap();
+
+    let error = super::body::write(temp.path(), &prepared, &scope).unwrap_err();
+
+    assert!(error.to_string().contains("sensitive value"));
+    assert!(!temp.path().join("pr-body.md").exists());
+}
+
+#[test]
+fn publication_body_rejects_model_generated_private_values_without_source_echo() {
+    let mut scope = scope();
+    scope.feature_plan = "Adds an account recovery workflow.".into();
+    let mut prepared = receipt(&scope);
+    prepared.proposal.description =
+        "Adds recovery instructions; contact synthetic.user@example.invalid for help.".into();
+    let temp = tempfile::tempdir().unwrap();
+
+    let error = super::body::write(temp.path(), &prepared, &scope).unwrap_err();
+
+    assert!(error.to_string().contains("sensitive value"));
+    assert!(super::privacy::is_sensitive_content_error(&error));
+    assert!(!temp.path().join("pr-body.md").exists());
+}
+
+#[test]
+fn publication_body_rejects_model_generated_spaced_phone_number() {
+    let mut scope = scope();
+    scope.feature_plan = "Adds an account recovery workflow.".into();
+    let mut prepared = receipt(&scope);
+    prepared.proposal.description =
+        "Adds recovery instructions; call 202 555 0199 for help.".into();
+    let temp = tempfile::tempdir().unwrap();
+
+    let error = super::body::write(temp.path(), &prepared, &scope).unwrap_err();
+
+    assert!(super::privacy::is_sensitive_content_error(&error));
+    assert!(!temp.path().join("pr-body.md").exists());
+}
+
+#[test]
+fn publication_body_rejects_lowercase_name_after_context_marker() {
+    let mut scope = scope();
+    scope.feature_plan = "The customer jane doe asked for a change.".into();
+    let mut prepared = receipt(&scope);
+    prepared.proposal.description = "Adds the change requested by jane doe.".into();
+    let temp = tempfile::tempdir().unwrap();
+
+    let error = super::body::write(temp.path(), &prepared, &scope).unwrap_err();
+
+    assert!(super::privacy::is_sensitive_content_error(&error));
+    assert!(!temp.path().join("pr-body.md").exists());
+}
+
+#[test]
+fn publication_body_rejects_private_values_in_rendered_scope_metadata() {
+    let mut scope = scope();
+    scope.feature_plan = "Customer contact: synthetic.user@example.invalid".into();
+    scope.expected.head_ref = "refs/heads/synthetic.user@example.invalid".into();
+    let prepared = receipt(&scope);
+    let temp = tempfile::tempdir().unwrap();
+
+    let error = super::body::write(temp.path(), &prepared, &scope).unwrap_err();
+
+    assert!(error.to_string().contains("sensitive value"));
+    assert!(!temp.path().join("pr-body.md").exists());
 }

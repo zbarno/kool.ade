@@ -49,6 +49,27 @@ document.querySelector('#close-dialog').addEventListener('click',()=>document.qu
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/__cache_ready":
+            cache_root = os.environ.get("NPM_CONFIG_CACHE", "")
+            try:
+                with open(os.path.join(cache_root, "package.tgz"), "rb") as cache_file:
+                    cache_ready = (
+                        cache_file.read() == b"approved offline browser cache fixture"
+                        and os.environ.get("NPM_CONFIG_OFFLINE") == "true"
+                    )
+            except (OSError, ValueError):
+                cache_ready = False
+            body = (
+                b'<!doctype html><p data-testid="cache-status">available</p>'
+                if cache_ready
+                else b'<!doctype html><p data-testid="cache-status">missing</p>'
+            )
+            self.send_response(200 if cache_ready else 503)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path == "/__udp_seen":
             body = b"yes" if UDP_SEEN.is_set() else b"no"
             self.send_response(200)

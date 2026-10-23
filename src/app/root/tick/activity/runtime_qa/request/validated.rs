@@ -85,6 +85,7 @@ pub(super) fn from_reviewed_task(inputs: ReviewedTaskInputs<'_>) -> Result<QaRun
     let platform = match target.app_surface {
         AppSurface::Web => QaPlatform::Web,
         AppSurface::LinuxDesktop => QaPlatform::LinuxDesktop,
+        AppSurface::HeadlessService => QaPlatform::HeadlessService,
         _ => {
             return Err(
                 "the approved application target has no supported runtime QA driver".into(),

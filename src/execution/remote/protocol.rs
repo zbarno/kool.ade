@@ -11,7 +11,10 @@ pub(crate) use private_chunks::{
     WorkerInboundFrameV1, read_worker_frame, write_private_file_chunk_frame,
 };
 
+/// Protocol 2 adds phase timing data to terminal execution results. A version 1
+/// health-only bootstrap identifies older workers before any execution RPC.
 pub const PROTOCOL_VERSION_V1: u16 = 1;
+pub const PROTOCOL_VERSION_V2: u16 = 2;
 /// Reserved execution identity for the key-bootstrap handshake on each SSH session.
 pub const SYSTEM_IMAGE_SESSION_ID_V1: &str = "00000000-0000-4000-8000-000000000001";
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
@@ -88,7 +91,10 @@ impl std::fmt::Debug for EnvelopeV1 {
             .field("execution_id", &self.execution_id)
             .field("sequence", &self.sequence)
             .field("kind", &self.kind);
-        if self.kind == EnvelopeKindV1::PrivateFileChunk {
+        if matches!(
+            self.kind,
+            EnvelopeKindV1::PrivateFileChunk | EnvelopeKindV1::Health
+        ) {
             debug.field("payload", &"<redacted>");
         } else {
             debug.field("payload", &self.payload);
@@ -98,18 +104,22 @@ impl std::fmt::Debug for EnvelopeV1 {
 }
 
 impl EnvelopeV1 {
-    /// Clear decoded private bytes before the request leaves the transport
-    /// stack. Private chunks are encoded as Base64 strings.
+    /// Clear decoded secret-bearing values before they leave the transport
+    /// stack. Private chunks carry file bytes; health handshakes carry a
+    /// session capability key.
     pub(crate) fn clear_sensitive_payload(&mut self) {
-        if self.kind != EnvelopeKindV1::PrivateFileChunk {
+        if !matches!(
+            self.kind,
+            EnvelopeKindV1::PrivateFileChunk | EnvelopeKindV1::Health
+        ) {
             return;
         }
         clear_sensitive_payload_value(&mut self.payload);
     }
 }
 
-/// Erase secret-bearing JSON values when a private chunk is denied before it
-/// reaches the dedicated, grant-authorized transport path.
+/// Erase secret-bearing JSON values from denied private chunks and completed
+/// Health exchanges.
 pub(crate) fn clear_sensitive_payload_value(payload: &mut serde_json::Value) {
     sensitive::clear_payload(payload);
 }
@@ -126,6 +136,39 @@ pub struct SessionValidator {
 impl SessionValidator {
     pub fn accept(&mut self, envelope: &EnvelopeV1) -> io::Result<()> {
         envelope.validate()?;
+        self.accept_identity(envelope)
+    }
+
+    /// Accept the one version 1 health bootstrap used to identify an older
+    /// worker. All ordinary requests remain version 2 only.
+    pub fn accept_compat_health_request(&mut self, envelope: &EnvelopeV1) -> io::Result<()> {
+        envelope.validate_compat_frame()?;
+        if !envelope.is_compat_health_request()
+            || envelope.sequence != 1
+            || !self.request_ids.is_empty()
+        {
+            return Err(invalid_data("legacy worker health request is invalid"));
+        }
+        self.accept_identity(envelope)
+    }
+
+    /// A version 1 worker can only answer the compatibility health bootstrap.
+    /// Its response is classified as incompatible by the controller.
+    pub fn accept_compat_health_response(&mut self, envelope: &EnvelopeV1) -> io::Result<()> {
+        if envelope.version == PROTOCOL_VERSION_V2 {
+            return self.accept(envelope);
+        }
+        envelope.validate_compat_frame()?;
+        if !envelope.is_compat_health_response()
+            || envelope.sequence != 1
+            || !self.request_ids.is_empty()
+        {
+            return Err(invalid_data("legacy worker health response is invalid"));
+        }
+        self.accept_identity(envelope)
+    }
+
+    fn accept_identity(&mut self, envelope: &EnvelopeV1) -> io::Result<()> {
         if self.request_ids.len() >= MAX_SESSION_MESSAGES {
             return Err(invalid_data("remote worker session message limit exceeded"));
         }
@@ -148,8 +191,26 @@ impl SessionValidator {
 
 impl EnvelopeV1 {
     pub fn validate(&self) -> io::Result<()> {
-        if self.version != PROTOCOL_VERSION_V1
-            || self.sequence == 0
+        if self.version != PROTOCOL_VERSION_V2 {
+            return Err(invalid_data("remote worker protocol version is invalid"));
+        }
+        self.validate_identity()
+    }
+
+    fn validate_compat_frame(&self) -> io::Result<()> {
+        match self.version {
+            PROTOCOL_VERSION_V2 => self.validate(),
+            PROTOCOL_VERSION_V1
+                if self.is_compat_health_request() || self.is_compat_health_response() =>
+            {
+                self.validate_identity()
+            }
+            _ => Err(invalid_data("remote worker protocol version is invalid")),
+        }
+    }
+
+    fn validate_identity(&self) -> io::Result<()> {
+        if self.sequence == 0
             || uuid::Uuid::parse_str(&self.request_id)
                 .map_or(true, |id| id.hyphenated().to_string() != self.request_id)
             || uuid::Uuid::parse_str(&self.execution_id)
@@ -162,11 +223,35 @@ impl EnvelopeV1 {
         }
         Ok(())
     }
+
+    fn is_compat_health_request(&self) -> bool {
+        self.version == PROTOCOL_VERSION_V1
+            && self.kind == EnvelopeKindV1::Health
+            && self.execution_id == SYSTEM_IMAGE_SESSION_ID_V1
+            && self
+                .payload
+                .get("wire_version")
+                .and_then(serde_json::Value::as_u64)
+                == Some(u64::from(PROTOCOL_VERSION_V2))
+            && self
+                .payload
+                .get("system_image_key")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|key| {
+                    key.len() == 64 && key.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
+    }
+
+    fn is_compat_health_response(&self) -> bool {
+        self.version == PROTOCOL_VERSION_V1
+            && (self.kind == EnvelopeKindV1::Acknowledge || self.kind == EnvelopeKindV1::Error)
+            && self.execution_id == SYSTEM_IMAGE_SESSION_ID_V1
+    }
 }
 
 /// Writes one UTF-8 JSON envelope with a big-endian length prefix.
 pub fn write_frame(mut output: impl Write, envelope: &EnvelopeV1) -> io::Result<()> {
-    envelope.validate()?;
+    envelope.validate_compat_frame()?;
     if envelope.kind == EnvelopeKindV1::PrivateFileChunk {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,

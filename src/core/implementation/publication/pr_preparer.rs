@@ -7,6 +7,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 mod body;
+mod privacy;
 mod request;
 mod validation;
 
@@ -82,7 +83,13 @@ pub(in crate::core::implementation) fn prepare_lifecycle_pr_proposal(
     let receipt_path = dir.join(RECEIPT_FILE);
     let had_receipt = receipt_path.exists();
     if let Some(receipt) = validation::read_reusable_receipt(&receipt_path, &scope)? {
-        body::write(dir, &receipt, &scope)?;
+        if let Err(error) = body::write(dir, &receipt, &scope) {
+            if privacy::is_sensitive_content_error(&error) {
+                std::fs::remove_file(&receipt_path)?;
+                body::discard(dir)?;
+            }
+            return Err(error);
+        }
         runner.update(
             "Reusing the validated PR Preparer proposal for the unchanged integrated diff…",
         );
@@ -119,6 +126,12 @@ pub(in crate::core::implementation) fn prepare_lifecycle_pr_proposal(
         prompt: request.manifest,
         proposal,
     };
+    if let Err(error) = body::render(&receipt, &scope) {
+        if privacy::is_sensitive_content_error(&error) {
+            body::discard(dir)?;
+        }
+        return Err(error);
+    }
     crate::artifacts::atomic_write_bytes(&receipt_path, &serde_json::to_vec_pretty(&receipt)?)?;
     body::write(dir, &receipt, &scope)?;
     runner.update("PR Preparer matched the application-validated publication scope.");

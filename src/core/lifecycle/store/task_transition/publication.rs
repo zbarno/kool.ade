@@ -1,6 +1,8 @@
 use crate::artifacts::planning_store::StoreError;
 use serde::{Deserialize, Serialize};
 
+mod compatibility;
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PullRequestPreparationStatus {
@@ -25,8 +27,8 @@ mod snapshot;
 pub use snapshot::{PrPublicationScopeV1, PrPublicationTaskEvidenceV1};
 
 /// Durable, idempotently identified follow-up work created with task Done.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PullRequestPreparation {
     pub schema_version: u16,
     /// Canonical planning-store record identity.

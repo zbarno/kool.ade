@@ -138,15 +138,25 @@ pub(super) fn verify_independent_repository(path: &Path, runner: &Runner) -> any
         "Task repository must have its own .git directory"
     );
     let git_entry = git_entry.canonicalize()?;
-    let top = runner.git(
+    // Batch the independent checkout and object-store checks into one Git
+    // process without relaxing the separate path and history invariants.
+    let metadata = runner.git(
         &root,
-        &["rev-parse", "--path-format=absolute", "--show-toplevel"],
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--show-toplevel",
+            "--git-dir",
+            "--git-common-dir",
+            "--is-shallow-repository",
+        ],
     )?;
-    let admin = runner.git(&root, &["rev-parse", "--path-format=absolute", "--git-dir"])?;
-    let common = runner.git(
-        &root,
-        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    )?;
+    let fields = metadata.lines().collect::<Vec<_>>();
+    anyhow::ensure!(
+        fields.len() == 4,
+        "Task repository Git metadata is incomplete"
+    );
+    let (top, admin, common, shallow) = (fields[0], fields[1], fields[2], fields[3]);
     anyhow::ensure!(
         Path::new(&top).canonicalize()? == root
             && Path::new(&admin).canonicalize()? == git_entry
@@ -158,7 +168,7 @@ pub(super) fn verify_independent_repository(path: &Path, runner: &Runner) -> any
         "Task repository uses an external Git object store"
     );
     anyhow::ensure!(
-        runner.git(&root, &["rev-parse", "--is-shallow-repository"])? == "false",
+        shallow == "false",
         "Task repository must contain complete history"
     );
     Ok(())
@@ -224,3 +234,7 @@ fn path_text(path: &Path) -> anyhow::Result<&str> {
     path.to_str()
         .ok_or_else(|| anyhow::anyhow!("Non-UTF8 repository path"))
 }
+
+#[cfg(test)]
+#[path = "operations/tests.rs"]
+mod metadata_tests;

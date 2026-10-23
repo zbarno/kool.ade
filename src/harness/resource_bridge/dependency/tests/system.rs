@@ -37,3 +37,16 @@ fn system_packages_require_one_time_user_authorization() {
         DependencyDecision::UserAuthorizeForTask
     ));
 }
+
+#[test]
+fn system_tool_request_binds_every_root_package_to_the_bounded_command() {
+    let parse = super::super::validation::system_install_packages;
+    assert_eq!(
+        parse("apt-get install -y nodejs python3", "nodejs", None),
+        Some(vec!["nodejs".into(), "python3".into()])
+    );
+    assert!(parse("apt-get install -y nodejs; id", "nodejs", None).is_none());
+    assert!(parse("apt-get install -y python3 nodejs", "nodejs", None).is_none());
+    assert!(parse("apt-get install -y nodejs=1.0 python3", "nodejs", None).is_none());
+    assert!(parse("apt-get install -y nodejs=1.0", "nodejs", Some("2.0")).is_none());
+}

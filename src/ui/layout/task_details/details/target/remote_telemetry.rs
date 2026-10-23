@@ -19,6 +19,21 @@ pub(super) fn paint(
     };
     ui.label(format!("Telemetry worker: {}", telemetry.worker_id));
     ui.label(format!(
+        "Task queue wait: {}",
+        duration(telemetry.queue_wait_ms)
+    ));
+    ui.label(format!(
+        "Harness: {}",
+        telemetry.harness.as_deref().unwrap_or("Not recorded")
+    ));
+    ui.label(format!(
+        "Requested model: {}",
+        telemetry
+            .requested_model
+            .as_deref()
+            .unwrap_or("Not recorded")
+    ));
+    ui.label(format!(
         "Workspace upload: {} bytes in {} ms",
         metric(telemetry.workspace_upload_bytes),
         metric(telemetry.workspace_upload_ms)
@@ -41,6 +56,21 @@ pub(super) fn paint(
         metric(telemetry.execution_cpu_millis),
         metric(telemetry.execution_peak_memory_bytes)
     ));
+    if let Some(phases) = &telemetry.execution_phase_timings {
+        ui.label("Remote execution phases:");
+        ui.label(format!(
+            "Image preparation: {}; dependency cache: {}; workspace stage in: {}",
+            duration(phases.image_preparation_ms),
+            duration(phases.dependency_cache_stage_ms),
+            duration(phases.workspace_stage_in_ms)
+        ));
+        ui.label(format!(
+            "Workspace stage out: {}; QA: {}; Container cleanup: {}",
+            duration(phases.workspace_stage_out_ms),
+            duration(phases.qa_ms),
+            duration(phases.cleanup_ms)
+        ));
+    }
     if let Some(digest) = &telemetry.image_digest {
         ui.add(egui::Label::new(format!("Remote image digest: {digest}")).wrap());
     }

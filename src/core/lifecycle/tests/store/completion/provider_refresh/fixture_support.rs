@@ -114,9 +114,15 @@ pub(super) fn write_provider_response(gh: &Path, state: &str, base: &str, head: 
     } else {
         serde_json::Value::Null
     };
+    let merged_at = if state == "MERGED" {
+        serde_json::Value::String("2026-10-18T10:00:00Z".into())
+    } else {
+        serde_json::Value::Null
+    };
     let payload = serde_json::json!({
         "state": state,
         "mergeCommit": merge_commit,
+        "mergedAt": merged_at,
         "number": 42,
         "headRefOid": head,
         "baseRefOid": base,

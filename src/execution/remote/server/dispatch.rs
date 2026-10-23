@@ -11,6 +11,7 @@ mod cache_transfer;
 mod exec;
 mod health;
 mod private_files;
+mod release;
 mod support;
 mod system_image;
 mod workspace;
@@ -33,7 +34,7 @@ pub(super) struct DispatchContext<'a> {
     pub capacity: Option<&'a super::super::WorkerCapacityPool>,
     pub capacity_leases: Arc<Mutex<HashMap<String, super::super::WorkerCapacityLease>>>,
     pub runtime: &'a tokio::runtime::Runtime,
-    pub system_image_capability_key: &'a mut Option<[u8; 32]>,
+    pub system_image_capability_key: &'a mut Option<zeroize::Zeroizing<[u8; 32]>>,
 }
 
 pub(super) fn dispatch(
@@ -252,23 +253,7 @@ pub(super) fn dispatch(
             json_value(runtime.block_on(backend.collect_artifacts(&request.handle))?)
                 .map(|value| (Kind::Acknowledge, value))
         }
-        Kind::Release => {
-            let request: HandleRequest = decode(&envelope.payload)?;
-            require_execution_id(envelope, &request.handle.execution_id)?;
-            runtime.block_on(backend.release(&request.handle))?;
-            capacity_leases
-                .lock()
-                .map_err(|_| super::incompatible("worker capacity registry is unavailable"))?
-                .remove(&request.handle.execution_id);
-            if let Some(stager) = &stager {
-                stager
-                    .release_execution(&request.handle.execution_id)
-                    .map_err(|_| {
-                        super::incompatible("execution generation could not be released")
-                    })?;
-            }
-            Ok((Kind::Acknowledge, json!({"released": true})))
-        }
+        Kind::Release => release::dispatch(backend, stager, capacity_leases, runtime, envelope),
 
         Kind::Health => health::dispatch(
             backend,

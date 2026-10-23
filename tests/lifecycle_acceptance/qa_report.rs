@@ -73,7 +73,9 @@ pub(super) fn execute_reviewed_run(
         }],
         expected_results: vec!["Keyboard dismissal works".into()],
         negative_paths: vec![],
-        visual_expectations: vec!["Dialog content is visible".into()],
+        // This lifecycle fixture checks functional coverage; pixel review has a
+        // separate safety test because this reviewer callback gets metadata only.
+        visual_expectations: vec![],
         redaction_regions: vec![],
         priority: 1,
     };
@@ -190,9 +192,9 @@ impl QaScenarioDriver for LifecycleFixtureDriver {
             completed: true,
             failure: None,
             display: QaDisplayV1 {
-                width: 1024,
-                height: 768,
-                dpi: 96,
+                width: Some(1024),
+                height: Some(768),
+                dpi: Some(96),
                 theme: "light".into(),
                 locale: "en-US".into(),
             },

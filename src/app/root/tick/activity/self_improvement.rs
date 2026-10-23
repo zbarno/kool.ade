@@ -2,16 +2,18 @@ use crate::{
     app::session::Project,
     core::{
         implementation::TaskRepositoryKind,
-        lifecycle::{
-            FeatureEvent, FeaturePhase, GateActor, GateDecision, LifecycleEventKind, LifecycleStore,
-        },
+        lifecycle::{FeaturePhase, LifecycleStore},
         opportunity::{OpportunityDecisionKindV1, OpportunityStore, OpportunityTargetKindV1},
         self_improvement::{
             SelfImprovementEventV1 as Event, SelfImprovementPhaseV1 as Phase, SelfImprovementStore,
         },
     },
 };
+mod pr_evidence;
+mod review;
+mod target;
 mod task_evidence;
+use review::reviewed_plan_receipts;
 use task_evidence::implementation_for;
 #[cfg(test)]
 #[path = "self_improvement/tests.rs"]
@@ -66,10 +68,24 @@ pub(super) fn synchronize(project: &mut Project) {
                 continue;
             }
         };
-        let Ok(run) = runs.load(&run_uid) else {
-            continue;
+        let run = match runs.load(&run_uid) {
+            Ok(run) => run,
+            Err(error) => {
+                warn_once(
+                    project,
+                    format!("Could not load pursued self-improvement run {run_uid}: {error}"),
+                );
+                continue;
+            }
         };
         if !proposal.related_feature_uids.contains(&run.feature_uid) {
+            warn_once(
+                project,
+                format!(
+                    "Pursued opportunity {} is not linked to self-improvement feature {}",
+                    proposal.opportunity_uid, run.feature_uid
+                ),
+            );
             continue;
         }
         if let Err(error) = synchronize_run(project, &lifecycle, &runs, &run_uid) {
@@ -84,8 +100,8 @@ pub(super) fn synchronize(project: &mut Project) {
     }
 }
 
-fn synchronize_run(
-    project: &Project,
+pub(super) fn synchronize_run(
+    project: &mut Project,
     lifecycle: &LifecycleStore<'_>,
     runs: &SelfImprovementStore<'_>,
     run_uid: &str,
@@ -96,7 +112,7 @@ fn synchronize_run(
         let feature_exists = project
             .state
             .planning_store
-            .list_record_paths("state/lifecycle_features/")
+            .list_record_paths("state/lifecycle_features")
             .map_err(|error| error.to_string())?
             .iter()
             .any(|path| path == &feature_path);
@@ -113,7 +129,11 @@ fn synchronize_run(
     if feature.phase == FeaturePhase::Cancelled
         && !matches!(
             run.phase,
-            Phase::PrOpened | Phase::MergedNotActivated | Phase::Activated | Phase::Cancelled
+            Phase::PrOpened
+                | Phase::MergedNotActivated
+                | Phase::InstalledNotActivated
+                | Phase::Activated
+                | Phase::Cancelled
         )
     {
         apply(runs, &mut run, "cancel", Event::Cancel)?;
@@ -123,11 +143,31 @@ fn synchronize_run(
         let Some(plan_hash) = feature.approved_plan_sha256.as_ref() else {
             return Ok(());
         };
+        let snapshot_uid = feature
+            .plan_snapshot_uid
+            .as_deref()
+            .ok_or_else(|| "approved self-improvement plan has no persisted snapshot".to_owned())?;
+        let snapshot = crate::core::lifecycle::plan_snapshot::load_persisted(
+            &project.state.planning_store,
+            snapshot_uid,
+        )
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "approved self-improvement plan snapshot is missing".to_owned())?;
+        snapshot.validate()?;
+        if snapshot.uid != snapshot_uid
+            || snapshot.feature_uid != run.feature_uid
+            || snapshot.content_hash != *plan_hash
+            || feature.plan_snapshot_sha256.as_deref() != Some(snapshot.content_hash.as_str())
+        {
+            return Err(
+                "persisted plan snapshot does not match the approved self-improvement plan".into(),
+            );
+        }
         let Some(targets) = project
             .state
             .workflow
             .feature_branch_targets
-            .get(&run.feature_uid)
+            .get(&snapshot.feature_id)
         else {
             return Ok(());
         };
@@ -137,11 +177,12 @@ fn synchronize_run(
         let Some((_user, review)) = reviewed_plan_receipts(&feature, &records, plan_hash) else {
             return Ok(());
         };
-        if feature.plan_snapshot_sha256.as_deref() != Some(plan_hash)
-            || feature.task_uids.is_empty()
-        {
+        if feature.task_uids.is_empty() {
             return Ok(());
         }
+        let capability_id = snapshot.capability_id.clone().ok_or_else(|| {
+            "approved self-improvement plan must name its stable Capability ID".to_owned()
+        })?;
         let tasks = feature
             .task_uids
             .iter()
@@ -165,6 +206,7 @@ fn synchronize_run(
             &format!("approved:{plan_hash}"),
             Event::PlanApproved {
                 approval_sha256: plan_hash.to_owned(),
+                capability_id: Some(capability_id),
                 review_uid: review.receipt_uid.clone(),
                 source_ref: targets.source.to_owned(),
                 destination_ref: targets.destination.to_owned(),
@@ -179,6 +221,7 @@ fn synchronize_run(
         let Some(owner) = run.owner_task_uid.as_deref() else {
             return Ok(());
         };
+        target::verify_canonical_target(project, &run)?;
         let task = lifecycle
             .load_task(owner)
             .map_err(|error| error.to_string())?;
@@ -215,6 +258,13 @@ fn synchronize_run(
     }
 
     task_evidence::synchronize(project, lifecycle, runs, &mut run)?;
+    if matches!(
+        run.phase,
+        Phase::MergedNotActivated | Phase::InstalledNotActivated
+    ) {
+        runs.record_active_build_probe(&run.run_uid, run.revision)
+            .map_err(|error| error.to_string())?;
+    }
     Ok(())
 }
 
@@ -236,49 +286,6 @@ fn transition_uid(run_uid: &str, evidence_key: &str) -> Result<String, String> {
     Ok(uuid::Uuid::new_v5(&namespace, evidence_key.as_bytes())
         .hyphenated()
         .to_string())
-}
-
-fn reviewed_plan_receipts<'a>(
-    feature: &crate::core::lifecycle::FeatureGoal,
-    records: &'a [crate::core::lifecycle::LifecycleEventRecord],
-    plan_hash: &str,
-) -> Option<(
-    &'a crate::core::lifecycle::GateReceipt,
-    &'a crate::core::lifecycle::GateReceipt,
-)> {
-    let user = records.iter().find_map(|record| match &record.event {
-        LifecycleEventKind::Feature(FeatureEvent::UserPlanDecision(receipt))
-            if record.actor == crate::core::lifecycle::LifecycleActor::User
-                && receipt.actor == GateActor::User
-                && receipt.decision == GateDecision::Approved
-                && receipt.subject_uid
-                    == feature.plan_snapshot_uid.as_deref().unwrap_or_default()
-                && receipt.subject_sha256 == plan_hash
-                && feature.decision_refs.len() == 1
-                && feature.decision_refs.first() == Some(&receipt.receipt_uid) =>
-        {
-            Some(receipt)
-        }
-        _ => None,
-    })?;
-    let review = records.iter().find_map(|record| match &record.event {
-        LifecycleEventKind::Feature(FeatureEvent::PlanReview(receipt))
-            if record.actor == crate::core::lifecycle::LifecycleActor::IndependentReviewer
-                && receipt.actor == GateActor::IndependentReviewer
-                && receipt.decision == GateDecision::Approved
-                && receipt.subject_uid
-                    == feature.plan_snapshot_uid.as_deref().unwrap_or_default()
-                && receipt.subject_sha256 == plan_hash
-                && receipt.prompt_role()
-                    == Some(crate::harness::prompt_catalog::PromptRole::PlanReviewer)
-                && feature.review_refs.len() == 1
-                && feature.review_refs.first() == Some(&receipt.receipt_uid) =>
-        {
-            Some(receipt)
-        }
-        _ => None,
-    })?;
-    Some((user, review))
 }
 
 fn warn_once(project: &mut Project, message: String) {

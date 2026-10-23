@@ -16,11 +16,21 @@ pub(super) fn apply(
     baseline: &Manifest,
     returned: &BTreeMap<PathBuf, ReturnedEntry>,
     byte_limit: u64,
+    source_output_paths: Option<&[String]>,
 ) -> Result<(), String> {
     let root = open_root_nofollow(root)?;
     let changed = changed_entries(baseline, returned);
     if changed.is_empty() {
         return Ok(());
+    }
+    if let Some(allowed_outputs) = source_output_paths
+        && changed.iter().any(|path| {
+            !allowed_outputs
+                .iter()
+                .any(|allowed| output_path_covers(allowed, path, baseline, returned))
+        })
+    {
+        return Err("Container changed a path outside the approved recipe outputs".into());
     }
 
     // Preflight all paths through directory descriptors. Parent swaps and
@@ -92,6 +102,25 @@ pub(super) fn apply(
         remove_entry(&root, &path, baseline.get(&path), byte_limit)?;
     }
     Ok(())
+}
+
+fn output_path_covers(
+    allowed: &str,
+    changed: &Path,
+    baseline: &Manifest,
+    returned: &BTreeMap<PathBuf, ReturnedEntry>,
+) -> bool {
+    if allowed == "." {
+        return true;
+    }
+    let allowed = Path::new(allowed);
+    changed == allowed
+        || changed.starts_with(allowed)
+        || (allowed.starts_with(changed)
+            && !baseline.contains_key(changed)
+            && returned
+                .get(changed)
+                .is_some_and(|entry| entry.fingerprint == Fingerprint::Directory))
 }
 
 fn changed_entries(

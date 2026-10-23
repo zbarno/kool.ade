@@ -33,6 +33,7 @@ pub(super) fn run(
     store_root: PathBuf,
     cancelled: Arc<AtomicBool>,
     mut docker_cancel: tokio::sync::watch::Receiver<bool>,
+    _progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
 ) -> Result<(), String> {
     let request = prepared.request.clone();
     let store = RuntimeQaStore::new(store_root);
@@ -75,11 +76,7 @@ pub(super) fn run(
             "immutable task artifact snapshot no longer matches the approved build receipt".into(),
         );
     }
-    let profile = match request.relevant_platforms.as_slice() {
-        [QaPlatform::Web] => RuntimeProfile::BrowserQa,
-        [QaPlatform::LinuxDesktop] => RuntimeProfile::DesktopQa,
-        _ => return Err("runtime QA request has no single supported platform".into()),
-    };
+    let profile = profile_for_platforms(&request.relevant_platforms)?;
     let resources = ResourceBudgetV1 {
         cpu_millis: 2_000,
         memory_bytes: 4 * 1024 * 1024 * 1024,
@@ -131,7 +128,7 @@ pub(super) fn run(
     let artifact_mount = QaArtifactMount::inspect(&prepared.task_clone, "/workspace")
         .map_err(|error| error.message)?;
     match profile {
-        RuntimeProfile::BrowserQa => execution::run_web(
+        RuntimeProfile::BrowserQa => execution::run_service(
             &session,
             &prepared,
             &request,
@@ -163,6 +160,14 @@ pub(super) fn run(
             cancelled,
         ),
         _ => unreachable!(),
+    }
+}
+
+fn profile_for_platforms(platforms: &[QaPlatform]) -> Result<RuntimeProfile, String> {
+    match platforms {
+        [QaPlatform::Web | QaPlatform::HeadlessService] => Ok(RuntimeProfile::BrowserQa),
+        [QaPlatform::LinuxDesktop] => Ok(RuntimeProfile::DesktopQa),
+        _ => Err("runtime QA request has no single supported platform".into()),
     }
 }
 

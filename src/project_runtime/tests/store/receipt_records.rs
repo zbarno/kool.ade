@@ -16,6 +16,7 @@ fn receipt_records_are_append_only_and_task_source_pinned() {
         state: RuntimeReceiptState::Passed,
         exit_code: Some(0),
         artifact_hashes: Default::default(),
+        prepared_dependency_ids: Vec::new(),
         log_reference: Some("log-001".into()),
         observed_at_unix_ms: 1,
     };

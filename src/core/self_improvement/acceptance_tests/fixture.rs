@@ -1,10 +1,16 @@
-//! User-facing opportunity and self-improvement path for #174/#175.
-//! The proposal is inert until a persisted Pursue decision; a published or
-//! merged PR remains distinct from activating a newly built application.
-
+use super::{
+    OpportunityScenario,
+    support::{
+        apply, assert_activation_requires_probe, git, implement_in_isolated_local_clone, proposal,
+        pursue_decision, restart_store, self_improvement_run, uid,
+    },
+};
 use std::process::Command;
 
-use koolade::{
+#[path = "fixture/restarts.rs"]
+mod restarts;
+
+use crate::{
     artifacts::planning_store::{PlanningStore, StoreMode},
     core::{
         opportunity::{
@@ -16,14 +22,8 @@ use koolade::{
         },
     },
 };
-use sha2::{Digest, Sha256};
 
-#[path = "opportunity_self_improvement_acceptance/support.rs"]
-mod support;
-use support::{apply, git, proposal, pursue_decision, self_improvement_run, uid};
-
-#[test]
-fn opportunity_requires_opt_in_and_user_pursuit_then_clone_review_qa_pr_and_activation_gates() {
+pub(super) fn run_opportunity_acceptance(scenario: OpportunityScenario) {
     let temp = tempfile::tempdir().unwrap();
     let source = temp.path().join("source");
     std::fs::create_dir(&source).unwrap();
@@ -35,7 +35,23 @@ fn opportunity_requires_opt_in_and_user_pursuit_then_clone_review_qa_pr_and_acti
             .unwrap()
             .success()
     );
-    std::fs::write(source.join("product.txt"), "approved source\n").unwrap();
+    let (initial, changed, problem, value, outcome) = match scenario {
+        OpportunityScenario::UnsupportedLanguage => (
+            "runtime_language=odin\n",
+            "runtime_language=odin\ncapability=odin_adapter\n",
+            "Kool.ad/e cannot inspect an Odin project",
+            "Plan and validate Odin projects through the ordinary workflow",
+            "A reviewed Odin adapter is available",
+        ),
+        OpportunityScenario::UnrelatedUx => (
+            "board_navigation=pointer_only\n",
+            "board_navigation=pointer_and_keyboard\n",
+            "Board navigation requires too many pointer actions",
+            "Move between board columns with keyboard shortcuts",
+            "A reviewed keyboard navigation improvement is available",
+        ),
+    };
+    std::fs::write(source.join("product.txt"), initial).unwrap();
     git(&source, &["add", "product.txt"]);
     git(
         &source,
@@ -55,7 +71,10 @@ fn opportunity_requires_opt_in_and_user_pursuit_then_clone_review_qa_pr_and_acti
         opportunities.discovery_settings().unwrap().exploration,
         OpportunityExploreModeV1::Disabled
     );
-    let idea = proposal(&source_sha);
+    let mut idea = proposal(&source_sha);
+    idea.problem_or_opportunity = problem.into();
+    idea.user_value = value.into();
+    idea.expected_outcome = outcome.into();
     assert!(
         opportunities.save_advisory(idea.clone()).is_err(),
         "scheduled discovery is disabled by default"
@@ -63,7 +82,7 @@ fn opportunity_requires_opt_in_and_user_pursuit_then_clone_review_qa_pr_and_acti
     let defaults = opportunities.discovery_settings().unwrap();
     opportunities
         .save_discovery_settings(
-            &koolade::core::opportunity::OpportunityDiscoverySettingsV1 {
+            &crate::core::opportunity::OpportunityDiscoverySettingsV1 {
                 exploration: OpportunityExploreModeV1::OptedIn,
                 ..defaults.clone()
             },
@@ -121,6 +140,7 @@ fn opportunity_requires_opt_in_and_user_pursuit_then_clone_review_qa_pr_and_acti
         run,
         Event::PlanApproved {
             approval_sha256: "d".repeat(64),
+            capability_id: Some("self-improvement-lifecycle".into()),
             review_uid: uid(),
             source_ref: "koolade/self-improvement-test".into(),
             destination_ref: "main".into(),
@@ -131,55 +151,47 @@ fn opportunity_requires_opt_in_and_user_pursuit_then_clone_review_qa_pr_and_acti
     );
     assert_eq!(run.phase, Phase::Ready);
     let clone_uid = uid();
-    run = apply(&runs, run, Event::CloneAllocated { clone_uid });
-    assert_eq!(run.phase, Phase::Implementing);
+    let clone_event_uid = uid();
+    let (planning, mut run) =
+        restarts::verify_clone_allocation_restart(planning, &run, &clone_event_uid, &clone_uid);
+    let runs = SelfImprovementStore::new(&planning);
 
-    let clone = temp.path().join("self-improvement-clone");
-    let source_argument = source.display().to_string();
-    let clone_argument = clone.display().to_string();
-    let output = Command::new("git")
-        .args([
-            "clone",
-            "--quiet",
-            "--no-hardlinks",
-            "--",
-            &source_argument,
-            &clone_argument,
-        ])
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "isolated task clone failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    std::fs::write(
-        clone.join("product.txt"),
-        "approved source\nplanned product change\n",
-    )
-    .unwrap();
-    git(&clone, &["add", "product.txt"]);
-    git(
-        &clone,
-        &[
-            "commit",
-            "--quiet",
-            "-m",
-            "implement approved product change",
-        ],
-    );
-    let implementation_head = git(&clone, &["rev-parse", "HEAD"]);
+    let (clone, implementation_head, subject_sha256) =
+        implement_in_isolated_local_clone(temp.path(), &source, changed);
     assert_ne!(implementation_head, source_sha);
-    let changed_bytes = std::fs::read(clone.join("product.txt")).unwrap();
-    let subject_sha256 = format!("{:x}", Sha256::digest(&changed_bytes));
-    run = apply(
-        &runs,
-        run,
-        Event::ImplementationFinished {
-            head_sha: implementation_head.clone(),
-            subject_sha256: subject_sha256.clone(),
-        },
+    let implementation_event = Event::ImplementationFinished {
+        head_sha: implementation_head.clone(),
+        subject_sha256: subject_sha256.clone(),
+    };
+    let implementation_event_uid = uid();
+    run = runs
+        .apply_event(
+            &run.run_uid,
+            run.revision,
+            &implementation_event_uid,
+            implementation_event.clone(),
+        )
+        .unwrap();
+    let (planning, resumed) = restart_store(planning, &run.run_uid).unwrap();
+    // Production boundary: close and reopen the managed planning store after
+    // implementation, then replay the same receipt. This verifies durable
+    // self-improvement recovery across a store reopen, beyond an
+    // in-memory state-machine test. It uses a local temp store and Git clone;
+    // no Docker or network service is required.
+    let runs = SelfImprovementStore::new(&planning);
+    assert_eq!(resumed, run);
+    assert_eq!(
+        runs.apply_event(
+            &resumed.run_uid,
+            resumed.revision,
+            &implementation_event_uid,
+            implementation_event,
+        )
+        .unwrap(),
+        resumed,
+        "replaying a committed implementation receipt after restart is idempotent"
     );
+    run = resumed;
     assert!(
         runs.apply_event(
             &run.run_uid,
@@ -244,6 +256,17 @@ fn opportunity_requires_opt_in_and_user_pursuit_then_clone_review_qa_pr_and_acti
             url: "https://github.com/zbarno/kool.ade/pull/999999".into(),
         },
     );
+    let planning = restarts::verify_pr_open_restart(planning, &run);
+    // A prepared PR can survive a planning-store reopen while the controller
+    // waits for an external merge. Reopen before applying merge evidence, and
+    // assert the PR state and URL come from durable records.
+    let (planning, mut run) = restart_store(planning, &run.run_uid).unwrap();
+    let runs = SelfImprovementStore::new(&planning);
+    assert_eq!(run.phase, Phase::PrOpened);
+    assert_eq!(
+        run.pr_url.as_deref(),
+        Some("https://github.com/zbarno/kool.ade/pull/999999")
+    );
     run = apply(
         &runs,
         run,
@@ -253,21 +276,12 @@ fn opportunity_requires_opt_in_and_user_pursuit_then_clone_review_qa_pr_and_acti
     );
     assert_eq!(run.phase, Phase::MergedNotActivated);
     assert!(run.activated_version.is_none());
-    assert!(
-        runs.apply_event(
-            &run.run_uid,
-            run.revision,
-            &uid(),
-            Event::Activated {
-                version: "unprobed build".into(),
-                readiness_probe_passed: false,
-            }
-        )
-        .is_err()
-    );
-    let after_merge = runs.load(&run.run_uid).unwrap();
-    assert_eq!(after_merge.phase, Phase::MergedNotActivated);
-    assert!(after_merge.activated_version.is_none());
+    let planning = restarts::verify_merged_restart(planning, &run);
+    let runs = SelfImprovementStore::new(&planning);
+    run = runs.load(&run.run_uid).unwrap();
+    assert_eq!(run.phase, Phase::MergedNotActivated);
+    assert!(run.installed_version.is_none());
+    assert_activation_requires_probe(&runs, &run);
 
     assert_eq!(
         std::fs::read(source.join("product.txt")).unwrap(),

@@ -40,7 +40,7 @@ fn remote_package_stream_rejects_replayed_offsets_and_unknown_package_indexes() 
         },
     );
     let envelope = |sequence| EnvelopeV1 {
-        version: crate::execution::remote::protocol::PROTOCOL_VERSION_V1,
+        version: crate::execution::remote::protocol::PROTOCOL_VERSION_V2,
         request_id: format!("00000000-0000-4000-8000-{sequence:012}"),
         execution_id: "00000000-0000-4000-8000-000000000000".into(),
         sequence,

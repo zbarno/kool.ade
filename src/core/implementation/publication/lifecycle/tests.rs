@@ -180,6 +180,7 @@ fn closed_provider_observation_is_durably_recorded_as_closed_unmerged() {
         head_sha: fixture.reviewed_head.clone(),
         base_sha: Some("d".repeat(40)),
         base_branch: "main".into(),
+        merged_at: None,
     });
     implementation.pr_state = Some(PullRequestState::Closed);
 

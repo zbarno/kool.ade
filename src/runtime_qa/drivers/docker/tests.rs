@@ -267,3 +267,28 @@ fn docker_driver_uploads_request_reads_structured_output_and_cleans_owned_contai
     assert_eq!(uploaded["scenario"]["id"], scenario.id);
     assert_eq!(uploaded["target"]["executable"], target.executable);
 }
+
+#[test]
+fn browser_nonzero_exit_keeps_structured_failure_and_cannot_be_mistaken_for_a_pass() {
+    let scenario = scenario();
+    let assertion = |status| crate::runtime_qa::QaAssertionV1 {
+        id: uuid(),
+        scenario_ids: vec![scenario.id.clone()],
+        requirement_ids: vec!["REQ-1".into()],
+        expected: "the save completes".into(),
+        observed: "the browser action failed".into(),
+        status,
+        evidence_refs: Vec::new(),
+    };
+    let mut interaction_failure = driver_output();
+    interaction_failure.assertions = vec![assertion(crate::runtime_qa::QaAssertionStatus::Failed)];
+    super::apply_browser_exit_status(1, &mut interaction_failure);
+    assert!(interaction_failure.completed);
+    assert!(interaction_failure.failure.is_none());
+
+    let mut inconsistent_success = driver_output();
+    inconsistent_success.assertions = vec![assertion(crate::runtime_qa::QaAssertionStatus::Passed)];
+    super::apply_browser_exit_status(1, &mut inconsistent_success);
+    assert!(!inconsistent_success.completed);
+    assert!(inconsistent_success.failure.is_some());
+}

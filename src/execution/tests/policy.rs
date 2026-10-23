@@ -10,6 +10,7 @@ fn verification_policy_allows_the_python_and_go_stack_recipes() {
     .unwrap();
     assert!(policy.command_capabilities().contains("python"));
     assert!(policy.command_capabilities().contains("go"));
+    assert!(!policy.requires_reviewed_source_checkout());
 }
 
 #[test]
@@ -88,9 +89,37 @@ fn approved_recipe_request_binds_exact_command_arguments_and_target_scope() {
     )
     .unwrap();
     request.validate_under_policy(1, &ceiling).unwrap();
+    assert!(request.policy.requires_reviewed_source_checkout());
 
     request.argv[2] = "../sibling".into();
     assert!(request.validate_at(1).is_err());
+}
+
+#[test]
+fn approved_recipe_policy_serializes_stage_in_and_stage_out_allowlists_separately() {
+    let policy = ExecutionPolicyV1::for_approved_recipe(
+        budget(1024 * 1024 * 1024, 2000),
+        "apps/web".into(),
+        "user-approval:decision-1".into(),
+        "npm".into(),
+        vec!["test".into()],
+        ".".into(),
+        BTreeSet::new(),
+    )
+    .unwrap()
+    .with_source_output_paths(vec!["apps/web/test-results/report.xml".into()])
+    .unwrap()
+    .with_source_input_paths(vec!["apps/web/dist/site.html".into()])
+    .unwrap();
+
+    let encoded = serde_json::to_value(&policy).unwrap();
+    let decoded: ExecutionPolicyV1 = serde_json::from_value(encoded).unwrap();
+
+    assert_eq!(decoded.source_input_paths(), &["apps/web/dist/site.html"]);
+    assert_eq!(
+        decoded.source_output_paths(),
+        &["apps/web/test-results/report.xml"]
+    );
 }
 
 #[test]

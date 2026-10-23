@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use super::{CONTROL_ID, HEALTH_REFRESH_INTERVAL, RemoteWorkerClient, helpers::negotiated_probe};
-use crate::execution::remote::protocol::{EnvelopeKindV1 as Kind, PROTOCOL_VERSION_V1};
+use crate::execution::remote::protocol::{EnvelopeKindV1 as Kind, PROTOCOL_VERSION_V2};
 
 impl RemoteWorkerClient {
     pub(super) fn refresh_health_if_due(
@@ -14,14 +14,14 @@ impl RemoteWorkerClient {
     }
 
     pub fn refresh_probe_now(&mut self) -> Result<(), crate::execution::errors::ExecutionError> {
-        let response = self.exchange(
-            Kind::Health,
-            CONTROL_ID,
+        let payload = {
+            let key_hex = self.system_image_key_hex();
             serde_json::json!({
-                "wire_version": PROTOCOL_VERSION_V1,
-                "system_image_key": self.system_image_key_hex(),
-            }),
-        )?;
+                "wire_version": PROTOCOL_VERSION_V2,
+                "system_image_key": key_hex.as_str(),
+            })
+        };
+        let response = self.exchange(Kind::Health, CONTROL_ID, payload)?;
         self.probe = match negotiated_probe(response.payload, &self.config.ssh_principal) {
             Ok(probe) => probe,
             Err(error) => {
@@ -140,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn health_probe_persists_gpu_and_isolated_display_capabilities() {
+    fn health_probe_persists_worker_reported_gpu_and_display_observations() {
         let probe = BackendProbeV1 {
             wire_version: 1,
             available: true,

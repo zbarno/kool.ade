@@ -18,7 +18,9 @@ pub(super) fn id() -> String {
 }
 
 pub(in crate::core::implementation) struct Fixture {
-    root: tempfile::TempDir,
+    _owned_root: Option<tempfile::TempDir>,
+    repository_root: std::path::PathBuf,
+    store_root: std::path::PathBuf,
     pub store: PlanningStore,
     pub work_uid: String,
     pub reviewed_head: String,
@@ -36,14 +38,6 @@ impl Fixture {
         planning_item_uid: String,
     ) -> Self {
         Self::build(oid_length, reviewed_head, planning_item_uid, false)
-    }
-
-    pub fn with_subtask_head(
-        oid_length: usize,
-        reviewed_head: &str,
-        planning_item_uid: String,
-    ) -> Self {
-        Self::build(oid_length, reviewed_head, planning_item_uid, true)
     }
 
     fn build(
@@ -65,8 +59,49 @@ impl Fixture {
         );
         migration::bootstrap_product(root.path(), "Publication Fixture").unwrap();
         let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), root.path());
+        let repository_root = store.root.parent().unwrap().to_path_buf();
+        Self::build_records(
+            Some(root),
+            store,
+            repository_root,
+            id(),
+            reviewed_head,
+            planning_item_uid,
+            include_subtask,
+        )
+    }
+
+    pub(in crate::core::implementation) fn with_store(
+        store: PlanningStore,
+        repository_root: std::path::PathBuf,
+        feature_uid: String,
+        reviewed_head: &str,
+        planning_item_uid: String,
+        include_subtask: bool,
+    ) -> Self {
+        assert!(matches!(reviewed_head.len(), 40 | 64));
+        Self::build_records(
+            None,
+            store,
+            repository_root,
+            feature_uid,
+            reviewed_head,
+            planning_item_uid,
+            include_subtask,
+        )
+    }
+
+    fn build_records(
+        owned_root: Option<tempfile::TempDir>,
+        store: PlanningStore,
+        repository_root: std::path::PathBuf,
+        feature_uid: String,
+        reviewed_head: &str,
+        planning_item_uid: String,
+        include_subtask: bool,
+    ) -> Self {
+        let store_root = store.root.clone();
         let lifecycle = LifecycleStore::new(&store);
-        let feature_uid = id();
         let origin_uid = id();
         lifecycle
             .create_feature(
@@ -175,7 +210,9 @@ impl Fixture {
         }
         store.transaction(&records, None).unwrap();
         Self {
-            root,
+            _owned_root: owned_root,
+            repository_root,
+            store_root,
             store,
             work_uid,
             reviewed_head: reviewed_head.to_owned(),
@@ -184,7 +221,11 @@ impl Fixture {
     }
 
     pub fn reopen(&self) -> PlanningStore {
-        PlanningStore::legacy_embedded(self.store.project_id, self.root.path())
+        PlanningStore::new(
+            self.store.project_id,
+            self.store_root.clone(),
+            self.store.mode,
+        )
     }
 
     pub fn implementation(&self) -> Implementation {
@@ -193,7 +234,7 @@ impl Fixture {
             "ticket_text": "# Synthetic publication fixture", "branch": "task/fixture",
             "base": "main", "base_commit": "d".repeat(40),
             "repository_id": "fixture-repository", "destination_branch": "main",
-            "task_repository": self.root.path(), "status": "awaiting_approval", "detail": "",
+            "task_repository": self.repository_root, "status": "awaiting_approval", "detail": "",
             "pr_url": null, "verified_head": self.reviewed_head,
         }))
         .unwrap()

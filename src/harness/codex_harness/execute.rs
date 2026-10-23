@@ -66,6 +66,7 @@ impl AiHarness for CodexHarness {
             .map_err(|error| {
                 AppError::Other(format!("Cannot configure Codex sandbox tools: {error:#}"))
             })?;
+        boundary.set_telemetry_model(requested_model_name.as_deref());
         let provider = crate::harness::execution_security::CliProvider::Codex;
         let evidence = crate::harness::execution_security::ProfileProbeEvidence::probe(
             provider, &binary, version,

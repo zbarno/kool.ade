@@ -256,6 +256,7 @@ fn backend() -> Arc<FakeBackend> {
                 process_count: 0,
                 disk_bytes: 0,
             },
+            phase_timings: Default::default(),
             artifacts: Vec::new(),
             failure: None,
         }),
@@ -289,6 +290,10 @@ fn session(backend: Arc<FakeBackend>) -> ExecutionSession {
         },
     )
     .unwrap()
+}
+
+pub(super) fn telemetry_test_session() -> ExecutionSession {
+    session(backend())
 }
 
 #[path = "tests/commands.rs"]

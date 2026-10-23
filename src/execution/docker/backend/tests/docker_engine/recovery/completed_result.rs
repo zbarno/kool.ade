@@ -18,7 +18,7 @@ async fn restart_preserves_terminal_artifacts_and_completes_pending_cleanup() {
     }
 
     let fixture = Fixture::new();
-    let workspace = workspace();
+    let (workspace, _) = committed_workspace(&fixture);
     let (backend, task_clone) = backend_with_owner(
         &fixture,
         workspace.clone(),

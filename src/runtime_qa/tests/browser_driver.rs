@@ -1,5 +1,7 @@
 use super::*;
 
+mod service;
+
 #[test]
 fn browser_scenarios_use_typed_locators_and_preview_service_urls() {
     let request = request();

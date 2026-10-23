@@ -12,9 +12,9 @@ pub(super) fn driver_output() -> QaDriverOutputV1 {
         completed: true,
         failure: None,
         display: QaDisplayV1 {
-            width: 1440,
-            height: 900,
-            dpi: 96,
+            width: Some(1440),
+            height: Some(900),
+            dpi: Some(96),
             theme: "light".into(),
             locale: "en-US".into(),
         },

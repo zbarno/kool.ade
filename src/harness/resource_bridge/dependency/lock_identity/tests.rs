@@ -48,6 +48,49 @@ fn baseline_package_scan_uses_the_current_npm_lockfile_exclusions() {
 }
 
 #[test]
+fn scoped_baseline_does_not_treat_a_sibling_projects_package_as_present() {
+    let root = std::env::temp_dir().join(format!(
+        "koolade-scoped-lock-baseline-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let sibling = root.join("sibling");
+    let target = root.join("nested/target");
+    fs::create_dir_all(&sibling).unwrap();
+    fs::create_dir_all(&target).unwrap();
+    let lock = r#"{"lockfileVersion":3,"packages":{"node_modules/zod":{"version":"4.0.0","resolved":"https://registry.npmjs.org/zod/-/zod-4.0.0.tgz","integrity":"sha512-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="}}}"#;
+    fs::write(sibling.join("package-lock.json"), lock).unwrap();
+    git(&root, &["init", "--quiet"]);
+    git(&root, &["add", "sibling/package-lock.json"]);
+    git(
+        &root,
+        &[
+            "-c",
+            "user.name=Synthetic Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "baseline sibling lockfile",
+        ],
+    );
+    let baseline = baseline_commit(&root).unwrap();
+    fs::write(
+        target.join("package.json"),
+        r#"{"name":"target","version":"1.0.0"}"#,
+    )
+    .unwrap();
+    fs::write(target.join("package-lock.json"), lock).unwrap();
+    let mut need = npm_restore();
+
+    enrich_scoped(&root, &target, "nested/target", Some(&baseline), &mut need).unwrap();
+
+    assert_eq!(need.introduced_packages.len(), 1);
+    assert_eq!(need.introduced_packages[0].package, "zod");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn new_npm_add_rejects_a_preedited_lockfile_package_before_authorization() {
     let root = baseline_project();
     let baseline = baseline_commit(&root).unwrap();
@@ -150,6 +193,20 @@ fn new_npm_add() -> DependencyNeed {
         command: "npm install zod@^4.0.0".into(),
         reason: "Validate imported settings data".into(),
         kind: DependencyKind::NewProjectDependency,
+        lockfile_identity: None,
+        introduced_packages: Vec::new(),
+    }
+}
+
+fn npm_restore() -> DependencyNeed {
+    DependencyNeed {
+        ecosystem: PackageEcosystem::Npm,
+        package: None,
+        version: None,
+        source: Some("https://registry.npmjs.org".into()),
+        command: "npm ci".into(),
+        reason: "Restore selected target dependencies".into(),
+        kind: DependencyKind::ExistingRestore,
         lockfile_identity: None,
         introduced_packages: Vec::new(),
     }

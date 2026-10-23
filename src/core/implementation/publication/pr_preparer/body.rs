@@ -1,4 +1,4 @@
-use super::{PreparedProposalV1, ProposalScope, validation};
+use super::{PreparedProposalV1, ProposalScope, privacy, validation};
 use std::path::Path;
 
 /// Materialize the validated proposal at the exact path consumed by the
@@ -9,6 +9,15 @@ pub(super) fn write(
     receipt: &PreparedProposalV1,
     scope: &ProposalScope,
 ) -> anyhow::Result<()> {
+    let body = render(receipt, scope)?;
+    crate::artifacts::atomic_write(&dir.join("pr-body.md"), &body)
+}
+
+pub(super) fn render(
+    receipt: &PreparedProposalV1,
+    scope: &ProposalScope,
+) -> anyhow::Result<String> {
+    privacy::validate_model_description(&receipt.proposal.description)?;
     anyhow::ensure!(
         validation::validate_receipt(receipt, scope)?,
         "PR description is stale for the current publication scope"
@@ -28,8 +37,17 @@ pub(super) fn write(
     for path in &scope.expected.files {
         body.push_str(&format!("- `{}`\n", crate::error::redact_secrets(path)));
     }
+    privacy::validate_public_description(&body, scope)?;
     // Do not upload the raw evidence bundle: it contains complete diffs,
     // internal artifact references and adjacent feature context. The validated
     // proposal describes only this task; immutable identifiers bind its scope.
-    crate::artifacts::atomic_write(&dir.join("pr-body.md"), &body)
+    Ok(body)
+}
+
+pub(super) fn discard(dir: &Path) -> anyhow::Result<()> {
+    match std::fs::remove_file(dir.join("pr-body.md")) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }
