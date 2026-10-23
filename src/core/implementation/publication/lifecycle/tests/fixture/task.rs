@@ -66,6 +66,8 @@ pub(super) fn completed(feature_uid: &str, work_uid: &str, head: &str) -> TaskRe
             schema_version: 1,
             status: QaExecutionStatusV1::Completed,
             request: Some(request),
+            request_task_revision: None,
+            dispatch_task_revision: None,
             blocked_reason: None,
             result_sha256: Some("2".repeat(64)),
             evidence_manifest_sha256: Some("3".repeat(64)),

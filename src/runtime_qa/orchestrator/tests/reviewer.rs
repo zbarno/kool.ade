@@ -37,6 +37,7 @@ fn run_passing_reviewer_with_visual_expectations(
         calls: 0,
         assertion_status,
         failure_before_actions: false,
+        failure_on_call: None,
     };
     let mut reviewer = |evidence: &QaEvidenceManifestV1, _candidate: &QaResultV1| {
         Ok(ReviewVerdictV1 {
@@ -83,11 +84,12 @@ fn screenshot_metadata_alone_cannot_pass_visual_expectations() {
         result.coverage.requirements[0].status,
         super::super::QaCoverageStatus::Untested
     );
+    let evidence = store.load_run(&run_id).unwrap().2;
+    assert!(evidence.assertions.iter().any(|assertion| {
+        assertion.status == QaAssertionStatus::Untested && assertion.evidence_refs.is_empty()
+    }));
     assert!(
-        store
-            .load_run(&run_id)
-            .unwrap()
-            .2
+        evidence
             .logs
             .iter()
             .any(|log| log.contains("cannot inspect screenshot pixels"))
@@ -106,6 +108,7 @@ fn independent_reviewer_rejection_prevents_driver_candidate_pass() {
         calls: 0,
         assertion_status: QaAssertionStatus::Passed,
         failure_before_actions: false,
+        failure_on_call: None,
     };
     let mut reviewer = |evidence: &QaEvidenceManifestV1, _candidate: &QaResultV1| {
         Ok(ReviewVerdictV1 {
@@ -168,6 +171,7 @@ fn author_session_cannot_execute_qa_or_invoke_the_driver() {
         calls: 0,
         assertion_status: QaAssertionStatus::Passed,
         failure_before_actions: false,
+        failure_on_call: None,
     };
     assert!(
         RuntimeQaOrchestrator::new(&store)
@@ -216,6 +220,7 @@ fn failed_reviewer_persists_observed_driver_evidence_as_blocked() {
         calls: 0,
         assertion_status: QaAssertionStatus::Passed,
         failure_before_actions: false,
+        failure_on_call: None,
     };
     let mut reviewer = |_evidence: &QaEvidenceManifestV1, _candidate: &QaResultV1| {
         Err("synthetic reviewer transport failure".into())

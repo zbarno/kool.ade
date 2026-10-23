@@ -179,6 +179,8 @@ fn report_is_bound_to_exact_code_build_spec_and_driver() {
     );
 }
 
+#[path = "evidence/artifacts.rs"]
+mod artifacts;
 #[path = "evidence/contract_validation.rs"]
 mod contract_validation;
 #[path = "evidence/dispositions.rs"]

@@ -141,7 +141,6 @@ pub async fn run_created_driver(
     Ok(output)
 }
 
-#[cfg(test)]
 pub(crate) async fn run_created_driver_with_status(
     docker: &bollard::Docker,
     container_id: &str,

@@ -4,6 +4,9 @@ use crate::{
     runtime_qa::{QaFindingCategory, QaFindingSeverity},
 };
 
+#[path = "tests/receipt_order.rs"]
+mod receipt_order;
+
 fn task() -> TaskRecord {
     TaskRecord {
         schema_version: 1,

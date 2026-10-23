@@ -8,6 +8,7 @@ pub(super) struct FakeDriver {
     pub(super) calls: usize,
     pub(super) assertion_status: QaAssertionStatus,
     pub(super) failure_before_actions: bool,
+    pub(super) failure_on_call: Option<usize>,
 }
 
 impl QaScenarioDriver for FakeDriver {
@@ -22,6 +23,12 @@ impl QaScenarioDriver for FakeDriver {
         _authorization: &QaTargetAuthorization<'_>,
     ) -> Result<QaDriverOutputV1, String> {
         self.calls += 1;
+        if self.failure_on_call == Some(self.calls) {
+            return Err(
+                "private QA display did not start at /private/worker Authorization: Bearer abc123 token=secret"
+                    .into(),
+            );
+        }
         if self.failure_before_actions {
             return Ok(QaDriverOutputV1 {
                 driver_version: request.driver_profile_version.clone(),

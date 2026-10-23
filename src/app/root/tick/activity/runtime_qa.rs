@@ -6,6 +6,9 @@ mod prerequisites;
 pub(crate) mod recipe_queue;
 mod reports;
 mod request;
+#[cfg(test)]
+#[path = "runtime_qa/test_support.rs"]
+pub(crate) mod test_support;
 mod worker;
 
 /// Reconciles durable QA requests on every project tick. Missing trusted

@@ -16,6 +16,9 @@ pub enum TaskEvent {
     },
     BeginRepair,
     RuntimeQaRequested(crate::runtime_qa::QaRunRequestV1),
+    RuntimeQaWorkerStarted {
+        request_id: String,
+    },
     RuntimeQaBlocked {
         request_id: String,
         reason: String,
