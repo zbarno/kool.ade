@@ -142,7 +142,9 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
         ],
         expected_results: vec!["Submitting the form updates the page to Saved.".into()],
         negative_paths: vec![],
-        visual_expectations: vec!["The fixture form and status are visible.".into()],
+        // This test double reviews functional traces and metadata, not pixels.
+        // Pixel expectations are covered by the fail-closed visual-review test.
+        visual_expectations: vec![],
         redaction_regions: vec![],
         priority: 1,
     };
