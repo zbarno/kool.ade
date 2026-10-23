@@ -1,6 +1,6 @@
 # Docker cutover and release checklist
 
-**Tracker reconciliation (2026-10-23):** #143 is closed for Bubblewrap
+**Tracker reconciliation (2026-10-23):** #143 is closed for legacy sandbox
 removal and Docker-only source/documentation cutover, **not** for a final
 migration/release certification. Preserve the unchecked legacy history,
 dirty-clone, authorization and interrupted-run migration requirement here

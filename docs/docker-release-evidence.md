@@ -19,7 +19,7 @@ Status meanings:
 
 ## Issue status reconciliation (2026-10-23)
 
-#143 remains closed for the implemented Bubblewrap removal/source cutover,
+#143 remains closed for the implemented legacy sandbox removal/source cutover,
 but the original legacy history/dirty-clone/interrupted-attempt migration
 **release verification** stays in #144 and the cutover checklist. #146 has
 been **reopened** because the real six-provider Docker MCP/host-code-mode

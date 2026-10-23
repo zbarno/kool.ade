@@ -128,7 +128,9 @@ pub(super) fn persisted_report_state(
         let valid_pending_applicability =
             !running_restart && qa_store.load_applicability_for_request(expected).is_ok();
         let legacy_request = request_present && !valid_pending_applicability;
-        return if legacy_request || partial_report_artifacts_present(qa_store, &expected.qa_run_id)
+        return if running_restart
+            || legacy_request
+            || partial_report_artifacts_present(qa_store, &expected.qa_run_id)
         {
             PersistedReportState::Invalid
         } else {

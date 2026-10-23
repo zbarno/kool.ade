@@ -64,7 +64,7 @@ fn stale_request_replacement_wins_before_dispatch_claim_and_no_worker_lock_leaks
 // Production boundary: the claim is durably tied to the exact pre-dispatch
 // approval revision, while the OS lock prevents a second app instance from
 // launching the same run. File-backed stores only; no Docker or network.
-fn dispatch_claim_records_approval_revision_and_restart_can_reacquire_lock() {
+fn stale_running_request_without_report_fails_closed_after_lock_recovery() {
     let root = tempfile::tempdir().unwrap();
     let project_id = uuid::Uuid::new_v4();
     let planning =
@@ -122,26 +122,27 @@ fn dispatch_claim_records_approval_revision_and_restart_can_reacquire_lock() {
     ));
     drop(lock);
 
-    let (recovered_lock, recovered) = acquire_lock_and_claim(
+    let result = acquire_lock_and_claim(
         &lock_path,
         &lifecycle,
         &task_uid,
         claimed.revision,
         &request,
-    )
-    .unwrap();
-    assert_eq!(recovered.revision, claimed.revision);
+    );
+    assert!(
+        matches!(result, Err(StartError::Failed(reason)) if reason.contains("fresh reviewed request"))
+    );
+    assert!(acquire_worker_lock(&lock_path).is_ok());
+    let stopped = lifecycle.load_task(&task_uid).unwrap();
+    assert_eq!(stopped.revision, claimed.revision);
+    let execution = stopped.qa_execution.as_ref().unwrap();
     assert_eq!(
-        recovered
-            .qa_execution
-            .as_ref()
-            .unwrap()
-            .dispatch_task_revision,
-        Some(revision)
+        execution.status,
+        crate::core::lifecycle::QaExecutionStatusV1::Running
     );
     assert_eq!(
-        super::super::request::request_task_revision(&recovered),
+        super::super::request::request_task_revision(&stopped),
         request_revision.unwrap()
     );
-    drop(recovered_lock);
+    assert_eq!(execution.dispatch_task_revision, Some(revision));
 }

@@ -94,7 +94,7 @@ pub(super) fn acquire_lock_and_claim(
         }
         super::reports::PersistedReportState::Invalid => {
             return Err(StartError::Failed(
-                "a persisted Runtime QA report is partial, legacy, mismatched, or lacks its required reviewer receipt; create a fresh reviewed request".into(),
+                "the persisted Runtime QA report is absent for a stale Running attempt or is partial, legacy, mismatched, or lacks its required reviewer receipt; create a fresh reviewed request".into(),
             ));
         }
     }

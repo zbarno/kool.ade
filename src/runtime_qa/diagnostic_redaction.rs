@@ -102,7 +102,7 @@ fn normalize_key_token(token: &str) -> String {
 }
 
 fn is_sensitive_key(key: &str) -> bool {
-    matches!(
+    let exact_sensitive = matches!(
         key,
         "authorization"
             | "proxy_authorization"
@@ -123,7 +123,28 @@ fn is_sensitive_key(key: &str) -> bool {
             | "private_key"
             | "credential"
             | "credentials"
-    )
+    );
+    if exact_sensitive {
+        return true;
+    }
+    let parts = key.split('_').collect::<Vec<_>>();
+    parts.iter().any(|part| {
+        matches!(
+            *part,
+            "secret"
+                | "token"
+                | "password"
+                | "passwd"
+                | "passphrase"
+                | "credential"
+                | "credentials"
+        )
+    }) || parts.windows(2).any(|pair| {
+        matches!(
+            pair,
+            ["private", "key"] | ["api", "key"] | ["access", "key"] | ["auth", "key"]
+        )
+    })
 }
 
 fn normalize_sensitive_key(key: &str) -> String {

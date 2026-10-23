@@ -59,6 +59,62 @@ fn failed_worker_start_persists_block_and_returns_no_handle() {
 }
 
 #[test]
+// Production boundary: a recovered Running lifecycle claim with no report
+// must stop before replaying driver work and persist a fresh-review blocker.
+// File-backed lifecycle/evidence stores and the OS run lock are exercised;
+// no Docker or network is needed, with low setup cost.
+fn stale_running_attempt_without_durable_report_is_blocked_for_fresh_review() {
+    let root = tempfile::tempdir().unwrap();
+    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+        uuid::Uuid::new_v4(),
+        root.path(),
+    );
+    let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
+    let (task_uid, request, revision) = fixture::queued_task(&lifecycle);
+    let running = lifecycle
+        .claim_runtime_qa_worker(
+            &task_uid,
+            revision,
+            &uuid::Uuid::new_v4().hyphenated().to_string(),
+            &request,
+        )
+        .unwrap();
+    let qa_root = root.path().join("qa");
+    let qa_store = crate::runtime_qa::RuntimeQaStore::new(&qa_root);
+    let lock_path = qa_root.join(&request.qa_run_id).join("worker.lock");
+    let result = start_worker_or_block(
+        &lifecycle,
+        &qa_store,
+        &task_uid,
+        &request,
+        &lock_path,
+        || {
+            Err(worker::acquire_lock_and_claim(
+                &lock_path,
+                &lifecycle,
+                &task_uid,
+                running.revision,
+                &request,
+            )
+            .unwrap_err())
+        },
+    );
+
+    assert!(
+        matches!(result, Err(DispatchStartError::Blocked { reason, persistence_error: None }) if reason.contains("fresh reviewed request"))
+    );
+    let blocked = lifecycle.load_task(&task_uid).unwrap();
+    let execution = blocked.qa_execution.unwrap();
+    assert_eq!(execution.status, QaExecutionStatusV1::Blocked);
+    assert!(
+        execution
+            .blocked_reason
+            .unwrap()
+            .contains("fresh reviewed request")
+    );
+}
+
+#[test]
 // Production boundary: a failed start must reacquire the per-run lock before
 // writing a blocker, so another app's live run stays pending. The test uses a
 // real file lock and file-backed lifecycle; no Docker or network, low setup.
