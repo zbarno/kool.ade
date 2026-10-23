@@ -108,14 +108,6 @@ pub(super) struct ReleaseWorkspaceRequest {
     pub(super) lease: WorkspaceLeaseV1,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct HealthRequest {
-    pub(super) wire_version: u16,
-    #[serde(default)]
-    pub(super) system_image_key: Option<String>,
-}
-
 #[derive(Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct HeartbeatRequest {

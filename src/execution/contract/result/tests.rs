@@ -23,6 +23,7 @@ fn result(artifacts: Vec<ArtifactManifestEntryV1>) -> ExecutionResultV1 {
             process_count: 0,
             disk_bytes: 0,
         },
+        phase_timings: Default::default(),
         artifacts,
         failure: None,
     }
@@ -44,4 +45,17 @@ fn artifact_manifest_enforces_entry_count_and_aggregate_byte_quotas() {
             .validate()
             .is_err()
     );
+}
+
+#[test]
+fn legacy_results_default_phase_timings_and_new_results_validate_them() {
+    let mut current = result(Vec::new());
+    current.phase_timings.image_preparation_ms = Some(13);
+    let mut encoded = serde_json::to_value(&current).unwrap();
+    encoded.as_object_mut().unwrap().remove("phase_timings");
+    let restored: ExecutionResultV1 = serde_json::from_value(encoded).unwrap();
+    assert!(restored.phase_timings.is_empty());
+
+    current.phase_timings.cleanup_ms = Some(24 * 60 * 60 * 1000 + 1);
+    assert!(current.validate().is_err());
 }

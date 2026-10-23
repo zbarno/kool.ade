@@ -1,14 +1,14 @@
 use super::*;
-use crate::execution::remote::protocol::{EnvelopeKindV1, PROTOCOL_VERSION_V1};
+use crate::execution::remote::protocol::{EnvelopeKindV1, PROTOCOL_VERSION_V2};
 
 fn envelope() -> crate::execution::remote::protocol::EnvelopeV1 {
     crate::execution::remote::protocol::EnvelopeV1 {
-        version: PROTOCOL_VERSION_V1,
+        version: PROTOCOL_VERSION_V2,
         request_id: "00000000-0000-4000-8000-000000000001".into(),
         execution_id: "00000000-0000-4000-8000-000000000002".into(),
         sequence: 1,
         kind: EnvelopeKindV1::Health,
-        payload: serde_json::json!({"wire_version": PROTOCOL_VERSION_V1}),
+        payload: serde_json::json!({"wire_version": PROTOCOL_VERSION_V2}),
     }
 }
 
@@ -115,7 +115,7 @@ fn pending_request_ids_cannot_be_rebound_and_symlink_roots_are_rejected() {
     let request = envelope();
     save_pending_at(root.path(), "worker-east", &request).unwrap();
     let mut conflicting = request.clone();
-    conflicting.payload = serde_json::json!({"wire_version": 2});
+    conflicting.payload = serde_json::json!({"wire_version": PROTOCOL_VERSION_V2 + 1});
     assert!(save_pending_at(root.path(), "worker-east", &conflicting).is_err());
 
     #[cfg(unix)]

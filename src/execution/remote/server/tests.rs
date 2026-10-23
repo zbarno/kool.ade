@@ -16,6 +16,8 @@ use crate::execution::{
 };
 use std::collections::BTreeSet;
 
+#[path = "health_compat_tests.rs"]
+mod health_compat_tests;
 #[path = "system_image_rpc_tests.rs"]
 mod system_image_rpc_tests;
 
@@ -220,12 +222,12 @@ fn request_failure_names_the_operation_and_preserves_error_policy() {
 
 fn envelope(execution_id: &str) -> EnvelopeV1 {
     EnvelopeV1 {
-        version: protocol::PROTOCOL_VERSION_V1,
+        version: protocol::PROTOCOL_VERSION_V2,
         request_id: "00000000-0000-4000-8000-000000000001".into(),
         execution_id: execution_id.into(),
         sequence: 1,
         kind: EnvelopeKindV1::Health,
-        payload: serde_json::json!({"wire_version": 1}),
+        payload: serde_json::json!({"wire_version": protocol::PROTOCOL_VERSION_V2}),
     }
 }
 
@@ -245,7 +247,10 @@ fn stdio_worker_answers_health_using_the_backend_probe() {
         .unwrap();
     assert_eq!(response.kind, EnvelopeKindV1::Acknowledge);
     assert_eq!(response.request_id, request.request_id);
-    assert_eq!(response.payload["wire_version"], 1);
+    assert_eq!(
+        response.payload["wire_version"],
+        protocol::PROTOCOL_VERSION_V2
+    );
     assert_eq!(
         response.payload["authenticated_principal"],
         crate::execution::remote::worker::authenticated_ssh_principal().unwrap()

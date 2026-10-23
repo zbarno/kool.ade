@@ -104,7 +104,7 @@ fn framed_remote_system_image_rpc_rejects_forgery_wrong_task_decision_and_replay
     let frames = vec![
         (
             EnvelopeKindV1::Health,
-            serde_json::json!({"wire_version":PROTOCOL_VERSION_V1,"system_image_key":encode_key(&CAPABILITY_KEY)}),
+            serde_json::json!({"wire_version":PROTOCOL_VERSION_V2,"system_image_key":encode_key(&CAPABILITY_KEY)}),
         ),
         (
             EnvelopeKindV1::BeginSystemImageTransfer,
@@ -155,7 +155,7 @@ fn framed_remote_system_image_rpc_rejects_forgery_wrong_task_decision_and_replay
         write_frame(
             &mut input,
             &EnvelopeV1 {
-                version: PROTOCOL_VERSION_V1,
+                version: PROTOCOL_VERSION_V2,
                 request_id: uuid::Uuid::new_v4().hyphenated().to_string(),
                 execution_id: CONTROL_ID.into(),
                 sequence: index as u64 + 1,

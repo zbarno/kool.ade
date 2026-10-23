@@ -4,6 +4,7 @@ use std::{
     collections::HashMap,
     time::{Duration, Instant},
 };
+use zeroize::Zeroizing;
 
 use crate::{
     execution::{
@@ -15,7 +16,7 @@ use crate::{
 
 use super::{
     protocol::{
-        EnvelopeKindV1 as Kind, EnvelopeV1, PROTOCOL_VERSION_V1, SYSTEM_IMAGE_SESSION_ID_V1,
+        EnvelopeKindV1 as Kind, EnvelopeV1, PROTOCOL_VERSION_V2, SYSTEM_IMAGE_SESSION_ID_V1,
     },
     ssh::SshWorkerConfig,
     transport::{RemoteRpcTransport, SshTransport},
@@ -34,15 +35,21 @@ use helpers::{
 const CONTROL_ID: &str = "00000000-0000-4000-8000-000000000000";
 const HEALTH_REFRESH_INTERVAL: Duration = Duration::from_secs(15);
 
-fn new_capability_key() -> [u8; 32] {
-    let mut key = [0_u8; 32];
+fn new_capability_key() -> Zeroizing<[u8; 32]> {
+    let mut key = Zeroizing::new([0_u8; 32]);
     key[..16].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
     key[16..].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
     key
 }
 
-fn encode_capability_key(key: &[u8; 32]) -> String {
-    key.iter().map(|byte| format!("{byte:02x}")).collect()
+fn encode_capability_key(key: &[u8; 32]) -> Zeroizing<String> {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = Zeroizing::new(String::with_capacity(64));
+    for byte in key {
+        encoded.push(HEX[usize::from(byte >> 4)] as char);
+        encoded.push(HEX[usize::from(byte & 0x0f)] as char);
+    }
+    encoded
 }
 
 fn deny_private_chunk_payload(payload: &mut serde_json::Value) -> ExecutionError {
@@ -61,7 +68,7 @@ pub struct RemoteWorkerClient {
     probe: BackendProbeV1,
     sequences: HashMap<String, u64>,
     last_health_check: Instant,
-    system_image_capability_key: [u8; 32],
+    system_image_capability_key: Zeroizing<[u8; 32]>,
 }
 
 impl RemoteWorkerClient {
@@ -102,15 +109,15 @@ impl RemoteWorkerClient {
             last_health_check: Instant::now(),
             system_image_capability_key,
         };
+        let payload = {
+            let key_hex = encode_capability_key(&client.system_image_capability_key);
+            serde_json::json!({
+                "wire_version": PROTOCOL_VERSION_V2,
+                "system_image_key": key_hex.as_str(),
+            })
+        };
         let ack = client
-            .exchange(
-                Kind::Health,
-                SYSTEM_IMAGE_SESSION_ID_V1,
-                serde_json::json!({
-                    "wire_version": PROTOCOL_VERSION_V1,
-                    "system_image_key": encode_capability_key(&client.system_image_capability_key),
-                }),
-            )
+            .exchange(Kind::Health, SYSTEM_IMAGE_SESSION_ID_V1, payload)
             .map_err(|error| client.health_error_with_diagnostics(error))?;
         client.probe = match negotiated_probe(ack.payload, &client.config.ssh_principal) {
             Ok(probe) => probe,

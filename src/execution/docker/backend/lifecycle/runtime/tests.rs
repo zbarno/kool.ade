@@ -5,7 +5,7 @@ use super::RuntimeExecutionContext;
 use crate::execution::{
     contract::{
         ExecutionEventKindV1, ExecutionLifecycleV1, ExecutionModeV1, ExecutionRequestV1,
-        ExecutionTarget, ResourceBudgetV1, WorkspaceRef,
+        ExecutionResultV1, ExecutionTarget, ResourceBudgetV1, ResourceMetricsV1, WorkspaceRef,
     },
     docker::{
         images::{ImageLock, RuntimeProfile},
@@ -171,11 +171,48 @@ fn lifecycle_updates_replace_the_durable_cursor_and_state() {
         Some(lease_expires_at_unix_ms)
     );
 
+    execution.phase_timings.image_preparation_ms = Some(37);
+    execution.phase_timings.workspace_stage_out_ms = Some(19);
+    execution.result = Some(ExecutionResultV1 {
+        schema_version: 1,
+        execution_id: execution_id.clone(),
+        exit_code: Some(0),
+        signal: None,
+        timed_out: false,
+        cancelled: false,
+        metrics: ResourceMetricsV1 {
+            cpu_millis: 0,
+            peak_memory_bytes: 0,
+            process_count: 0,
+            disk_bytes: 0,
+        },
+        phase_timings: Default::default(),
+        artifacts: Vec::new(),
+        failure: None,
+    });
+    execution.mark_collecting().unwrap();
     execution.terminal = true;
+    execution
+        .push(ExecutionEventKindV1::Lifecycle {
+            state: ExecutionLifecycleV1::Succeeded,
+        })
+        .unwrap();
+    let terminal = crate::persistence::execution_records::load(&task_id, &execution_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        terminal.result.as_ref().unwrap().phase_timings,
+        terminal.phase_timings,
+        "persisted terminal result must carry the same phase timings as its record"
+    );
+    assert_eq!(
+        terminal.result.unwrap().phase_timings.image_preparation_ms,
+        Some(37)
+    );
     assert!(execution.mark_collecting().is_err());
     assert_eq!(
         crate::persistence::execution_records::journal_cursor(&task_id, &execution_id).unwrap(),
-        3,
+        5,
         "a terminal execution must not append Collecting after its terminal event"
     );
 

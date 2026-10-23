@@ -12,7 +12,7 @@ pub(super) fn validate_id(id: &str) -> anyhow::Result<()> {
 pub(super) fn validate(record: &RemoteExecutionTelemetryV1) -> anyhow::Result<()> {
     validate_id(&record.execution_id)?;
     anyhow::ensure!(
-        matches!(record.schema_version, 1..=6)
+        matches!(record.schema_version, 1..=7)
             && [record.workspace_upload_bytes, record.result_download_bytes]
                 .iter()
                 .flatten()
@@ -30,7 +30,11 @@ pub(super) fn validate(record: &RemoteExecutionTelemetryV1) -> anyhow::Result<()
                 .is_none_or(|value| value <= MAX_MS * 16)
             && record
                 .execution_peak_memory_bytes
-                .is_none_or(|value| value <= 64 * 1024 * 1024 * 1024),
+                .is_none_or(|value| value <= 64 * 1024 * 1024 * 1024)
+            && record
+                .execution_phase_timings
+                .as_ref()
+                .is_none_or(crate::execution::contract::ExecutionPhaseTimingsV1::validate),
         "remote execution telemetry is invalid"
     );
     validate_worker_id(&record.worker_id)?;

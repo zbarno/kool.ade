@@ -8,6 +8,29 @@ use crate::execution::{
     },
 };
 
+pub(super) fn discard_interrupted_result<'a>(
+    backend: &'a RemoteExecutionBackend,
+    handle: &'a ExecutionHandleV1,
+) -> BackendFuture<'a, ()> {
+    Box::pin(async move {
+        let result = backend
+            .verified_results
+            .lock()
+            .map_err(|_| disconnected())?
+            .get(&handle.execution_id)
+            .cloned();
+        if let Some(result) = result {
+            private_files::remove_result_transfer(&backend.result_root, result.transfer_id())?;
+            backend
+                .verified_results
+                .lock()
+                .map_err(|_| disconnected())?
+                .remove(&handle.execution_id);
+        }
+        Ok(())
+    })
+}
+
 pub(super) fn collect_artifacts<'a>(
     backend: &'a RemoteExecutionBackend,
     handle: &'a ExecutionHandleV1,
@@ -42,9 +65,7 @@ pub(super) fn collect_artifacts<'a>(
                     TargetLocation::Local => return Err(incompatible()),
                 },
                 execution_wall_ms,
-                result.metrics.cpu_millis,
-                result.metrics.peak_memory_bytes,
-                result.failure.as_ref().map(|failure| failure.kind),
+                &result,
             );
         if execution_wall_ms.is_some()
             && telemetry_result.is_ok()

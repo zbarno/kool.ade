@@ -162,6 +162,7 @@ fn results_validate_failure_status_and_bounded_artifact_manifest() {
             process_count: 1,
             disk_bytes: 0,
         },
+        phase_timings: Default::default(),
         artifacts: vec![ArtifactManifestEntryV1 {
             relative_path: "evidence/result.json".into(),
             size_bytes: 32,

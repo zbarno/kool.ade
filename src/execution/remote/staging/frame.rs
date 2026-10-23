@@ -9,6 +9,10 @@ pub const MAX_TRANSFER_FRAME_BYTES: usize = 768 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "type", content = "payload", rename_all = "snake_case")]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Preserve the exported wire-model API; encoded frames have an explicit size bound."
+)]
 pub enum TransferFrameV1 {
     Manifest(TransferManifestV1),
     Chunk(TransferChunkV1),
