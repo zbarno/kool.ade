@@ -7,6 +7,7 @@ mod applicability;
 mod browser_binding;
 mod gate;
 mod proposal;
+mod report_write;
 mod scenarios;
 mod screenshots;
 mod storage_root;
@@ -72,6 +73,7 @@ impl RuntimeQaStore {
     ) -> Result<(), String> {
         validate_report(request, scenarios, evidence, result)?;
         screenshots::validate_screenshot_set(request, evidence, screenshots)?;
+        self.start_report_write(request)?;
         for metadata in &evidence.screenshots {
             let artifact = screenshots
                 .iter()
@@ -89,6 +91,7 @@ impl RuntimeQaStore {
         evidence: &QaEvidenceManifestV1,
         result: &QaResultV1,
     ) -> Result<(), String> {
+        self.start_report_write(request)?;
         let run = safe_uuid(&request.qa_run_id)?;
         let dir = self.root.join(run);
         fs::create_dir_all(&dir)
@@ -138,29 +141,6 @@ impl RuntimeQaStore {
             .map_err(|error| format!("cannot create runtime QA record directory: {error}"))?;
         create_or_match_json(&dir.join("request.json"), request)?;
         create_json(&dir.join("applicability.json"), assessment)
-    }
-
-    pub fn load_applicability(
-        &self,
-        qa_run_id: &str,
-    ) -> Result<super::QaApplicabilityAssessmentV1, String> {
-        let run = safe_uuid(qa_run_id)?;
-        let dir = self.root.join(run);
-        let request: QaRunRequestV1 = read_json(&dir.join("request.json"))?;
-        request.validate()?;
-        if request.qa_run_id != run {
-            return Err("runtime QA record path does not match its request identity".into());
-        }
-        let assessment: super::QaApplicabilityAssessmentV1 =
-            read_json(&dir.join("applicability.json"))?;
-        assessment.validate()?;
-        if assessment.task_uid != request.parent_task_uid
-            || assessment.code_sha != request.code_head_sha
-            || assessment.approved_spec_hash != request.approved_spec_hash
-        {
-            return Err("persisted runtime QA applicability assessment is stale".into());
-        }
-        Ok(assessment)
     }
 
     pub fn save_disposition(&self, disposition: &QaFindingDispositionV1) -> Result<(), String> {

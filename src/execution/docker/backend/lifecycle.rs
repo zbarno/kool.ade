@@ -157,7 +157,10 @@ impl ExecutionBackend for DockerExecutionBackend {
                 }
                 _ => return Err(state_error("validating the QA driver network binding")),
             }
-            crate::execution::docker::qa_container::run_created_driver(
+            // Preserve the container's structured report and exit status.
+            // Platform adapters decide whether a nonzero exit is a test
+            // failure (browser) or a strict execution failure (desktop).
+            crate::execution::docker::qa_container::run_created_driver_with_status(
                 &self.docker,
                 container_id,
                 std::time::Duration::from_secs(u64::from(
