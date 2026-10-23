@@ -140,12 +140,16 @@ dispatching it again. Pending outcomes remain available for reconciliation
 after a controller restart.
 
 Remote protocol version 2 records measured image preparation, dependency-cache
-staging, workspace stage-in/out, QA, and container cleanup durations in
-operator-local telemetry. Execution phases arrive with the terminal result;
-container cleanup timing is returned in the authenticated `Release`
-acknowledgment when the matching persisted execution record is available. It
-does not measure queue wait, broker authorization, or dependency resolution
-separately.
+staging, workspace stage-in/out, QA, container cleanup, and task queue wait in
+operator-local telemetry. Queue wait starts when an approved, dependency-ready
+task is runnable while all implementation slots are occupied; time awaiting
+approval or dependencies is excluded. The queue age is persisted locally while
+the controller is running and reset on the next controller load so downtime
+does not count; it is reported with the task's first remote execution. Execution
+phases arrive with the terminal result; container cleanup timing is returned
+in the authenticated `Release` acknowledgment when the matching persisted
+execution record is available. Broker authorization and dynamic dependency
+resolution are not measured separately.
 The controller uses a version 1 health-only bootstrap carrying wire version 2
 to identify older workers. Version 1 workers are marked incompatible; execution
 RPCs require protocol version 2 on both controller and worker.

@@ -58,7 +58,7 @@ fn merges_upload_and_download_metrics_without_sensitive_fields() {
             .image_preparation_ms,
         Some(100)
     );
-    assert_eq!(record.schema_version, 7);
+    assert_eq!(record.schema_version, 8);
     assert_eq!(
         record.failure_code,
         Some(crate::execution::errors::ExecutionErrorKind::ExecutionFailed)
