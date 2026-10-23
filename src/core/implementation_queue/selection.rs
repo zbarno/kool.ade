@@ -93,6 +93,30 @@ pub fn next_ready_ticket_with_lifecycle_subtasks(
     }
 }
 
+/// Collect every runnable ticket in deterministic legacy path order.
+/// The queue uses this complete set to age and schedule work fairly.
+pub fn ready_tickets_with_lifecycle_subtasks(
+    docs: &[TaskDocument],
+    states: &BTreeMap<String, Implementation>,
+    excluded: &std::collections::BTreeSet<String>,
+    running: &std::collections::BTreeSet<String>,
+    completed_subtasks: &std::collections::BTreeSet<String>,
+) -> Vec<String> {
+    let mut excluded = excluded.clone();
+    let mut ready = Vec::new();
+    while let Ok(Some(ticket)) = next_ready_ticket_with_lifecycle_subtasks(
+        docs,
+        states,
+        &excluded,
+        running,
+        completed_subtasks,
+    ) {
+        excluded.insert(ticket.clone());
+        ready.push(ticket);
+    }
+    ready
+}
+
 pub fn ticket_readiness(
     docs: &[TaskDocument],
     states: &BTreeMap<String, Implementation>,

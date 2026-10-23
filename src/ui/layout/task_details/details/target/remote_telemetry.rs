@@ -19,6 +19,10 @@ pub(super) fn paint(
     };
     ui.label(format!("Telemetry worker: {}", telemetry.worker_id));
     ui.label(format!(
+        "Task queue wait: {}",
+        duration(telemetry.queue_wait_ms)
+    ));
+    ui.label(format!(
         "Harness: {}",
         telemetry.harness.as_deref().unwrap_or("Not recorded")
     ));

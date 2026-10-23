@@ -165,7 +165,7 @@ fn version_two_auto_mode_migrates_to_separate_policy_without_granting_auto_publi
     assert!(queue.running && queue.in_flight.contains("tasks/001-task.md"));
 
     let saved = serde_json::to_value(&queue).unwrap();
-    assert_eq!(saved["schemaVersion"], 4);
+    assert_eq!(saved["schemaVersion"], 5);
     assert_eq!(saved["tasks"]["task-uid"]["in_flight"], true);
     assert_eq!(
         saved["task_identity_aliases"]["tasks/001-task.md"],
@@ -198,7 +198,7 @@ fn version_three_auto_publish_migration_requires_independent_checks() {
 #[test]
 fn current_auto_publish_without_independent_checks_is_repaired_and_saved() {
     let current = serde_json::json!({
-        "schemaVersion": 4,
+        "schemaVersion": 5,
         "auto_plan": true,
         "auto_build": false,
         "auto_publish": true,
@@ -246,7 +246,7 @@ fn loading_legacy_queue_rewrites_typed_failure_state_atomically() {
         RecoveryDisposition::AutomaticRetry
     );
     let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(saved["schemaVersion"], 4);
+    assert_eq!(saved["schemaVersion"], 5);
     assert_eq!(
         saved["legacy_tasks"]["task"]["blocked"]["kind"],
         "remote_diverged"
@@ -384,4 +384,81 @@ fn preferences_and_inflight_ticket_survive_restart_and_lock_excludes_another_win
     assert_eq!(loaded.max_parallel, 4);
     drop(_new_lock);
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn loading_after_a_controller_restart_clears_saved_wall_clock_queue_age() {
+    let root = std::env::temp_dir().join(format!(
+        "koolade-queue-restart-{}",
+        chrono::Utc::now().timestamp_nanos_opt().unwrap()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let mut queue = Queue::load(&root).unwrap();
+    assert!(queue.update_ready_waits(&["task-a".into()], 100, true));
+    queue.save(&root).unwrap();
+
+    let mut restored = Queue::load(&root).unwrap();
+    assert_eq!(restored.take_queue_wait_ms("task-a", 10_000), None);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn queue_load_does_not_rewrite_age_while_another_controller_holds_the_lock() {
+    let root = std::env::temp_dir().join(format!(
+        "koolade-queue-owned-{}",
+        chrono::Utc::now().timestamp_nanos_opt().unwrap()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let mut queue = Queue::load(&root).unwrap();
+    assert!(queue.update_ready_waits(&["task-a".into()], 100, true));
+    queue.save(&root).unwrap();
+
+    let active_lock = Queue::acquire(&root).unwrap();
+    let mut restored = Queue::load(&root).unwrap();
+    let queue_path = directory(&root).unwrap().join("koolade-queue.json");
+    let stored: serde_json::Value =
+        serde_json::from_slice(&fs::read(&queue_path).unwrap()).unwrap();
+    assert_eq!(
+        stored["legacy_tasks"]["task-a"]["waiting_since_unix_ms"],
+        100
+    );
+    drop(active_lock);
+    assert_eq!(restored.take_queue_wait_ms("task-a", 10_000), None);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn runnable_ticket_collection_returns_all_eligible_work() {
+    let docs = vec![doc(3, "None."), doc(1, "None."), doc(2, "None.")];
+    let ready = ready_tickets_with_lifecycle_subtasks(
+        &docs,
+        &BTreeMap::new(),
+        &Default::default(),
+        &Default::default(),
+        &Default::default(),
+    );
+    assert_eq!(
+        ready,
+        vec![
+            docs[1].path.clone(),
+            docs[2].path.clone(),
+            docs[0].path.clone()
+        ]
+    );
 }
