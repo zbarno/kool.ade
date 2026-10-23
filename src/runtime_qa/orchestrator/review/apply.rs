@@ -15,6 +15,27 @@ pub(in crate::runtime_qa::orchestrator) fn apply_review_verdict(
     result: &mut QaResultV1,
     verdict: crate::harness::prompt_catalog::ReviewVerdictV1,
 ) -> Result<(), String> {
+    let mut staged_evidence = evidence.clone();
+    let mut staged_result = result.clone();
+    apply_review_verdict_staged(
+        request,
+        scenarios,
+        &mut staged_evidence,
+        &mut staged_result,
+        verdict,
+    )?;
+    *evidence = staged_evidence;
+    *result = staged_result;
+    Ok(())
+}
+
+fn apply_review_verdict_staged(
+    request: &QaRunRequestV1,
+    scenarios: &[QaScenarioV1],
+    evidence: &mut QaEvidenceManifestV1,
+    result: &mut QaResultV1,
+    verdict: crate::harness::prompt_catalog::ReviewVerdictV1,
+) -> Result<(), String> {
     let expected_hash = crate::runtime_qa::qa_review_subject_sha256(request, result, evidence)?;
     let inspected_screenshots = verdict
         .tested_evidence_ids

@@ -188,3 +188,99 @@ fn visual_requirement_pass_requires_inspecting_each_scenario_screenshot() {
     assert_eq!(partial.reviewed_screenshot_ids.len(), 1);
     assert_eq!(store.load_run(&run_id).unwrap().3, partial);
 }
+
+/// Production boundary: a reviewer verdict that updates visual assertions and
+/// then fails finding mapping must persist as blocked without reviewer-derived
+/// evidence. A helper-only test cannot prove the orchestrator stores the
+/// rollback; this uses its in-memory store and fake driver/reviewer, with no
+/// Docker, SSH, network, credentials, or browser and low setup cost.
+#[test]
+fn rejected_review_does_not_persist_visual_assertions_from_partial_apply() {
+    use crate::harness::prompt_catalog::{
+        FindingKind, ReviewFindingActionV1, ReviewFindingV1, Severity,
+    };
+
+    let (request, mut scenarios, lease) = fixture();
+    scenarios[0].visual_expectations = vec!["Controls remain readable".into()];
+    let reviewer_run = uuid::Uuid::new_v4().hyphenated().to_string();
+    let reviewer_session = uuid::Uuid::new_v4().hyphenated().to_string();
+    let prompt = reviewer_prompt(&request, &reviewer_run, &reviewer_session);
+    let temp = tempfile::tempdir().unwrap();
+    let store = RuntimeQaStore::new(temp.path().join("qa"));
+    let mut driver = FakeDriver {
+        calls: 0,
+        assertion_status: QaAssertionStatus::Untested,
+        failure_before_actions: false,
+        failure_on_call: None,
+    };
+    let mut reviewer = |evidence: &QaEvidenceManifestV1,
+                        candidate: &QaResultV1,
+                        screenshots: &[QaScreenshotArtifactV1]| {
+        Ok(ReviewVerdictV1 {
+            subject_hash: crate::runtime_qa::qa_review_subject_sha256(
+                &request, candidate, evidence,
+            )?,
+            examined_files: Vec::new(),
+            tested_evidence_ids: vec![screenshots[0].id.clone()],
+            unexamined_areas: Vec::new(),
+            pass: true,
+            outcome: Some(crate::harness::prompt_catalog::ReviewOutcomeV1::Pass),
+            coverage: vec![CoverageV1 {
+                requirement: request.requirement_ids[0].clone(),
+                status: CoverageStatus::Pass,
+                evidence: vec![
+                    evidence.actions[0].index.to_string(),
+                    screenshots[0].id.clone(),
+                ],
+            }],
+            findings: vec![ReviewFindingV1 {
+                id: "unmapped-finding".into(),
+                requirement: request.requirement_ids[0].clone(),
+                severity: Severity::High,
+                kind: FindingKind::SpecMismatch,
+                scope: Some(crate::harness::prompt_catalog::FindingScopeV1::Blocking),
+                location: "reviewed window".into(),
+                location_detail: None,
+                evidence: vec!["missing-evidence-reference".into()],
+                repro: Some("The visual defect can be reproduced.".into()),
+                proposed_correction: "Correct the visual defect.".into(),
+                rationale: "The finding cites no observed evidence.".into(),
+                affected_requirement_ids: vec![request.requirement_ids[0].clone()],
+                suggested_action: Some(ReviewFindingActionV1::Repair),
+            }],
+            untested: Vec::new(),
+        })
+    };
+
+    let (result, receipt) = RuntimeQaOrchestrator::new(&store)
+        .execute_reviewed(
+            QaExecutionContext {
+                request: &request,
+                scenarios: &scenarios,
+                authorization: QaTargetAuthorization::Web(&lease),
+                driver: &mut driver,
+                reviewer_execution_id: &reviewer_run,
+                reviewer_session_id: &reviewer_session,
+                prompt,
+            },
+            &mut reviewer,
+        )
+        .unwrap();
+
+    assert_eq!(result.outcome, QaOutcome::InfrastructureBlocked);
+    assert!(receipt.is_none());
+    assert!(result.reviewed_screenshot_ids.is_empty());
+    assert!(result.review_coverage.is_empty());
+    let (_, _, evidence, stored_result) = store.load_run(&request.qa_run_id).unwrap();
+    assert_eq!(stored_result, result);
+    assert_eq!(evidence.assertions[0].status, QaAssertionStatus::Untested);
+    assert!(
+        !evidence.assertions[0]
+            .observed
+            .contains("independent reviewer inspected the redacted screenshot")
+    );
+    assert!(!evidence.logs.iter().any(|line| {
+        line == "independent reviewer inspected screenshot pixels for every visual scenario"
+    }));
+    assert!(store.load_gate_receipt(&request.qa_run_id).is_err());
+}
