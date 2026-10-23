@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    QaCaseStatus, QaEvidenceManifestV1, QaFindingV1, QaOutcome, is_git_oid, is_uuid, valid_text,
+    QaCaseStatus, QaEvidenceManifestV1, QaFindingV1, QaOutcome, QaPlatform, is_git_oid, is_uuid,
+    valid_text,
 };
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -176,7 +177,10 @@ impl QaResultV1 {
                     .requirements
                     .iter()
                     .any(|item| item.status != super::QaCoverageStatus::Observed)
-                || manifest.screenshots.is_empty()
+                || (!matches!(
+                    request.relevant_platforms.as_slice(),
+                    [QaPlatform::HeadlessService]
+                ) && manifest.screenshots.is_empty())
                 || manifest
                     .assertions
                     .iter()
