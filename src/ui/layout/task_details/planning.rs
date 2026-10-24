@@ -1,5 +1,6 @@
 use super::*;
 
+mod approved_image;
 mod clarification;
 mod conversation;
 mod details;
@@ -85,8 +86,11 @@ pub(super) fn paint_machine_setup(
     ui.label(crate::ui::theme::section_heading("What to do next"));
     ui.label(&task.next_step);
     ui.label(crate::ui::theme::helper_text(
-        "Kool.ad/e stores setup state on this machine, not in the project Git repository.         Automatic repairs and dedicated task conversations are being implemented separately.",
+        "Setup state stays on this machine, never in the shared project repository.",
     ));
+    if task.id.starts_with("setup:images:general:") {
+        approved_image::paint(ui, surface);
+    }
     if ui.button("Open coding tools").clicked() {
         ui.ctx().data_mut(|data| {
             data.insert_temp(egui::Id::new("koolade_open_coding_settings"), true);
