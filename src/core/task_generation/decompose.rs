@@ -58,6 +58,7 @@ pub(super) fn run(
         .as_ref()
         .and_then(|(id, _)| state.workflow.feature_branch_targets.get(id))
         .ok_or_else(|| anyhow::anyhow!("Approved task branch targets are missing"))?;
+    let approved_source_pin = approved_source_pin(state, &identity.uid)?;
     let mut allowed_repositories = std::collections::HashMap::new();
     let mut approved_branch_targets = std::collections::HashMap::new();
     let mut repository_source_shas = std::collections::HashMap::new();
@@ -69,7 +70,12 @@ pub(super) fn run(
             .map_err(|error| {
                 anyhow::anyhow!("Repository {} has no trusted checkout: {error}", repo.id)
             })?;
-        let sha = source_sha(&checkout, &branches.source)?;
+        let sha = repository_source_sha(
+            &repo.id,
+            &checkout,
+            &branches.source,
+            approved_source_pin.as_ref(),
+        )?;
         allowed_repositories.insert(repo.id.clone(), repo.remote.clone());
         approved_branch_targets.insert(
             repo.id.clone(),
@@ -159,6 +165,15 @@ pub(super) fn run(
 }
 
 pub(super) fn checkpoint_matches(state: &PlannerState, stories: &[TaskStory]) -> bool {
+    let Some((_, markdown)) = state.active_feature.as_ref() else {
+        return false;
+    };
+    let Ok(Some(identity)) = crate::domain::ArtifactIdentity::from_markdown(markdown) else {
+        return false;
+    };
+    let Ok(approved_source_pin) = approved_source_pin(state, &identity.uid) else {
+        return false;
+    };
     let Some(branches) = state
         .active_feature
         .as_ref()
@@ -177,8 +192,66 @@ pub(super) fn checkpoint_matches(state: &PlannerState, stories: &[TaskStory]) ->
         else {
             return false;
         };
-        source_sha(&checkout, &branches.source).is_ok_and(|current| current == expected_sha)
+        repository_source_sha(
+            &story.target_repository,
+            &checkout,
+            &branches.source,
+            approved_source_pin.as_ref(),
+        )
+        .is_ok_and(|current| current == expected_sha)
     })
+}
+
+struct ApprovedSourcePin {
+    repository_id: String,
+    source_ref: Option<String>,
+    source_sha: String,
+}
+
+fn approved_source_pin(
+    state: &PlannerState,
+    feature_uid: &str,
+) -> anyhow::Result<Option<ApprovedSourcePin>> {
+    let Some(run) = crate::core::self_improvement::SelfImprovementStore::new(&state.planning_store)
+        .run_for_feature(feature_uid)?
+    else {
+        return Ok(None);
+    };
+    let workspace_uid = state.planning_store.project_id.hyphenated().to_string();
+    let manifest = crate::core::project_repos::ProjectManifest::load(&state.planning_store)?;
+    let repository = manifest
+        .repositories
+        .iter()
+        .find(|repository| {
+            crate::core::project_repos::stable_uid(&workspace_uid, "repository", &repository.id)
+                == run.target_repository_uid
+        })
+        .ok_or_else(|| {
+            anyhow::anyhow!("Approved self-improvement repository is missing from the manifest")
+        })?;
+    Ok(Some(ApprovedSourcePin {
+        repository_id: repository.id.clone(),
+        source_ref: run.source_ref,
+        source_sha: run.source_sha,
+    }))
+}
+
+fn repository_source_sha(
+    repository_id: &str,
+    checkout: &std::path::Path,
+    branch: &str,
+    approved_pin: Option<&ApprovedSourcePin>,
+) -> anyhow::Result<String> {
+    if let Some(pin) = approved_pin.filter(|pin| pin.repository_id == repository_id) {
+        anyhow::ensure!(
+            pin.source_ref
+                .as_deref()
+                .is_none_or(|source_ref| source_ref == branch),
+            "Approved self-improvement source branch changed before task generation"
+        );
+        return Ok(pin.source_sha.clone());
+    }
+    source_sha(checkout, branch)
 }
 
 fn source_sha(checkout: &std::path::Path, branch: &str) -> anyhow::Result<String> {

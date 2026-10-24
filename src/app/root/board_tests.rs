@@ -29,6 +29,8 @@ mod card_navigation;
 mod conversation_navigation;
 #[path = "board_tests/implementation_gates.rs"]
 mod implementation_gates;
+#[path = "board_tests/implementation_pause.rs"]
+mod implementation_pause;
 #[path = "board_tests/kanban_states.rs"]
 mod kanban_states;
 #[path = "board_tests/opportunity_details.rs"]

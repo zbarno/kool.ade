@@ -1,3 +1,6 @@
+#[cfg(target_os = "linux")]
+#[path = "production_dispatch/app_controller.rs"]
+mod app_controller;
 #[path = "production_dispatch/docker.rs"]
 mod docker;
 #[path = "production_dispatch/setup.rs"]

@@ -261,7 +261,7 @@ pub(super) fn pause(app: &mut KooladeApp, target: Option<String>) {
             return;
         }
         let title = target::task_title(&project.task_documents, &ticket);
-        app.cancel_task_for(&ticket);
+        app.pause_task_for(&ticket);
         action_feedback(
             app,
             &format!("Paused {title}. Its work is preserved for resume."),
