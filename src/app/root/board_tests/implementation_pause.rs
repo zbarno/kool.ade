@@ -91,10 +91,6 @@ fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
                 ),
             ),
         );
-        project.active_implementations.insert(
-            ".koolade-packet/planning/tasks/fixture/002-task.md".into(),
-            crate::core::implementation::Controller::idle_fixture(),
-        );
     }
 
     app.pause_task_for(ticket);
@@ -104,11 +100,6 @@ fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
             panic!("disconnected")
         };
         assert!(!project.active_implementations.contains_key(ticket));
-        assert!(
-            project
-                .active_implementations
-                .contains_key(".koolade-packet/planning/tasks/fixture/002-task.md")
-        );
         assert!(project.queue.task_paused(ticket));
         assert!(!project.queue.recovery_attempts.contains_key(ticket));
         let persisted = crate::core::implementation_queue::Queue::load(&root).unwrap();

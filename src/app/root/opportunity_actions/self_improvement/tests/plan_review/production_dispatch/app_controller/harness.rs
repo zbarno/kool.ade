@@ -18,12 +18,10 @@ pub(super) struct InitialDispatch {
     pub(super) workspace: Option<WorkspaceRef>,
     pub(super) has_authorization: bool,
     pub(super) command_succeeded: bool,
-    pub(super) detail: String,
 }
 
 pub(super) struct RevokedDispatch {
     pub(super) denied_by_policy: bool,
-    pub(super) detail: String,
 }
 
 pub(super) struct ControllerDockerHarness {
@@ -51,7 +49,6 @@ impl AiHarness for ControllerDockerHarness {
                 workspace,
                 has_authorization,
                 command_succeeded: false,
-                detail: "controller omitted the execution workspace".into(),
             });
             return Err(fixture_error("controller omitted the execution workspace"));
         };
@@ -61,7 +58,6 @@ impl AiHarness for ControllerDockerHarness {
                 workspace: Some(workspace),
                 has_authorization,
                 command_succeeded: false,
-                detail: "controller omitted the app-owned task authorization".into(),
             });
             return Err(fixture_error(
                 "controller omitted the app-owned task authorization",
@@ -76,32 +72,22 @@ impl AiHarness for ControllerDockerHarness {
             Some(authorization),
         ) {
             Ok(session) => session,
-            Err(error) => {
-                let detail = format!("cannot open authorized Docker session: {error:#}");
+            Err(_) => {
                 let _ = self.initial.send(InitialDispatch {
                     repository,
                     workspace: Some(workspace),
                     has_authorization,
                     command_succeeded: false,
-                    detail: detail.clone(),
                 });
-                return Err(fixture_error(&detail));
+                return Err(fixture_error("cannot open authorized Docker session"));
             }
         };
-        let command = session.run_tool_command(
-            "touch .self-improvement-controller-authorized",
-            Duration::from_secs(30),
-        );
-        let (command_succeeded, detail) = match command {
-            Ok(output) => (
-                output.result.exit_code == Some(0),
-                format!(
-                    "exit={:?}; stderr={}",
-                    output.result.exit_code, output.stderr
-                ),
-            ),
-            Err(error) => (false, format!("{:?}: {}", error.kind, error.message)),
-        };
+        let command_succeeded = session
+            .run_tool_command(
+                "touch .self-improvement-controller-authorized",
+                Duration::from_secs(30),
+            )
+            .is_ok_and(|output| output.result.exit_code == Some(0));
         if self
             .initial
             .send(InitialDispatch {
@@ -109,7 +95,6 @@ impl AiHarness for ControllerDockerHarness {
                 workspace: Some(workspace),
                 has_authorization,
                 command_succeeded,
-                detail,
             })
             .is_err()
         {
@@ -127,19 +112,11 @@ impl AiHarness for ControllerDockerHarness {
             "touch .self-improvement-controller-denied",
             Duration::from_secs(30),
         );
-        let revoked = match cancellation {
-            Err(error) => RevokedDispatch {
-                denied_by_policy: error.kind == ExecutionErrorKind::PolicyDenied,
-                detail: error.message,
-            },
-            Ok(output) => RevokedDispatch {
-                denied_by_policy: false,
-                detail: format!(
-                    "cancelled task unexpectedly ran with exit {:?}",
-                    output.result.exit_code
-                ),
-            },
-        };
+        let denied_by_policy = matches!(
+            cancellation,
+            Err(error) if error.kind == ExecutionErrorKind::PolicyDenied
+        );
+        let revoked = RevokedDispatch { denied_by_policy };
         let _ = self.revoked.send(revoked);
         Err(fixture_error(
             "controller dispatch fixture ended after cancellation was verified",

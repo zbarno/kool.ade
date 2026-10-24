@@ -51,15 +51,14 @@ fn app_controller_dispatches_approved_task_to_isolated_docker_and_revokes_it_on_
     assert!(
         engine.status.success()
             && String::from_utf8_lossy(&engine.stdout).contains("name=rootless"),
-        "Evolve controller dispatch requires rootless Docker: {}",
-        String::from_utf8_lossy(&engine.stderr)
+        "Evolve controller dispatch requires a reachable rootless Docker engine"
     );
     let runtime_dir = std::env::var("XDG_RUNTIME_DIR").expect("rootless Docker runtime dir");
     let docker_host = format!("unix://{runtime_dir}/docker.sock");
     assert!(std::env::var_os("DOCKER_CONTEXT").is_none());
-    assert_eq!(
-        std::env::var("DOCKER_HOST").as_deref(),
-        Ok(docker_host.as_str())
+    assert!(
+        std::env::var("DOCKER_HOST").is_ok_and(|host| host == docker_host),
+        "the Docker client must target the test's rootless engine"
     );
 
     // Keep the canonical repository identity while resolving Git transport to
@@ -98,22 +97,46 @@ fn app_controller_dispatches_approved_task_to_isolated_docker_and_revokes_it_on_
             implementation: true,
         },
     );
-    let started = match &ready._app.screen {
-        Screen::Connected(project) => project.active_implementations.contains_key(&ticket),
-        Screen::Welcome => false,
+    let (started, failure_recorded) = match &ready._app.screen {
+        Screen::Connected(project) => (
+            project.active_implementations.contains_key(&ticket),
+            !project.queue.last_error.is_empty(),
+        ),
+        Screen::Welcome => (false, false),
     };
     assert!(
         started,
-        "approved task did not enter the normal implementation controller: {}",
-        match &ready._app.screen {
-            Screen::Connected(project) => &project.queue.last_error,
-            Screen::Welcome => "project disconnected",
-        }
+        "approved task did not enter the normal implementation controller; app recorded failure={failure_recorded}"
     );
 
-    let initial = initial_rx
-        .recv_timeout(Duration::from_secs(180))
-        .expect("normal controller reaches the configured execution harness");
+    let deadline = Instant::now() + Duration::from_secs(180);
+    let initial = loop {
+        match initial_rx.recv_timeout(Duration::from_millis(50)) {
+            Ok(initial) => break initial,
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                crate::app::root::tick::poll_implementations_for_test(&mut ready._app);
+                let failure_class = match &ready._app.screen {
+                    Screen::Connected(project) => project
+                        .queue
+                        .blocked
+                        .get(&ticket)
+                        .map(|failure| format!("{:?}/{:?}", failure.kind, failure.recovery))
+                        .unwrap_or_else(|| "no typed failure recorded".into()),
+                    Screen::Welcome => "project disconnected".into(),
+                };
+                panic!(
+                    "normal controller stopped before reaching the configured execution harness; failure_class={failure_class} (detail withheld from public CI logs)"
+                );
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                crate::app::root::tick::poll_implementations_for_test(&mut ready._app);
+                assert!(
+                    Instant::now() < deadline,
+                    "normal controller did not reach the configured execution harness"
+                );
+            }
+        }
+    };
     assert_eq!(
         initial
             .workspace
@@ -138,15 +161,13 @@ fn app_controller_dispatches_approved_task_to_isolated_docker_and_revokes_it_on_
         initial.has_authorization,
         "controller omitted the persisted self-improvement fence"
     );
-    assert_ne!(
-        initial.repository.canonicalize().unwrap(),
-        source_repo,
+    assert!(
+        initial.repository.canonicalize().unwrap() != source_repo,
         "self-improvement must execute from its isolated task clone"
     );
     assert!(
         initial.command_succeeded,
-        "app-authorized rootless Docker command failed: {}",
-        initial.detail
+        "app-authorized rootless Docker command failed (details withheld from public CI logs)"
     );
     assert!(
         initial
@@ -177,8 +198,7 @@ fn app_controller_dispatches_approved_task_to_isolated_docker_and_revokes_it_on_
         .expect("cancelled app task reaches a second authorization check");
     assert!(
         revoked.denied_by_policy,
-        "cancelled task was not denied by the authorization fence: {}",
-        revoked.detail
+        "cancelled task was not denied by the authorization fence (details withheld from public CI logs)"
     );
     assert!(
         !initial
