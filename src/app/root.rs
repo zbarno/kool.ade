@@ -115,6 +115,8 @@ pub struct KooladeApp {
     setup_attention_notified: Option<String>,
     setup_probe: Option<std::thread::JoinHandle<Option<super::setup_attention::SetupIssue>>>,
     setup_retry_requested: bool,
+    setup_refresh_pending: Option<bool>,
+    setup_image_preparation: super::bootstrap_image_prepare::Controller,
     #[cfg(test)]
     attention_fixture: std::collections::BTreeMap<String, crate::core::attention::Brief>,
     #[cfg(test)]
@@ -312,6 +314,8 @@ impl Default for KooladeApp {
             setup_attention_notified: None,
             setup_probe,
             setup_retry_requested: false,
+            setup_refresh_pending: None,
+            setup_image_preparation: super::bootstrap_image_prepare::Controller::default(),
             #[cfg(test)]
             attention_fixture: Default::default(),
             #[cfg(test)]

@@ -5,6 +5,12 @@ mod plan_review;
 mod runtime_qa;
 
 impl Surface for KooladeApp {
+    fn setup_image_preparation(&mut self, ui: &mut egui::Ui, prerequisite_id: &str) {
+        if self.setup_image_preparation.paint(ui, prerequisite_id) {
+            self.refresh_setup_attention(true);
+        }
+    }
+
     fn planning_repository(&self) -> Option<crate::ui::PlanningRepositoryViewModel> {
         self.planning_repository_view()
     }

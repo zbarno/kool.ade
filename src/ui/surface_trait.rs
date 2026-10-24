@@ -143,6 +143,7 @@ pub trait Surface {
     fn planning_board(&self) -> planning_board::ViewModel {
         planning_board::ViewModel::default()
     }
+    fn setup_image_preparation(&mut self, _ui: &mut egui::Ui, _prerequisite_id: &str) {}
     fn implementation_state(
         &self,
         ticket: &str,

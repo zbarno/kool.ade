@@ -1,19 +1,30 @@
 use super::*;
-use std::sync::Mutex;
+use std::sync::{
+    Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 
-use crate::execution::docker::{images::ImageObservation, images::SelectedImage};
+use crate::execution::docker::images::{ImageObservation, RuntimeProfile, SelectedImage};
+
+#[path = "smoke/approved.rs"]
+mod approved;
 
 struct SmokeApi {
     smoke_image: Mutex<Option<String>>,
     smoke_name: Mutex<Option<String>>,
     derived_observation: Mutex<Option<ImageObservation>>,
+    daemon_id: Mutex<String>,
+    pull_count: AtomicUsize,
+    swap_after_pull: Mutex<Option<String>>,
+    available_images: Mutex<Vec<String>>,
 }
 
 impl DockerApi for SmokeApi {
     fn inspect<'a>(&'a self) -> EngineFuture<'a, Result<EngineSnapshot, PrerequisiteFailure>> {
-        Box::pin(async {
+        let daemon_id = self.daemon_id.lock().unwrap().clone();
+        Box::pin(async move {
             Ok(EngineSnapshot {
-                daemon_id: "fake-daemon".into(),
+                daemon_id,
                 daemon_version: "28.0.0".into(),
                 api_version: "1.53".into(),
                 minimum_api_version: "1.41".into(),
@@ -35,14 +46,23 @@ impl DockerApi for SmokeApi {
     }
 
     fn image_digests<'a>(&'a self) -> EngineFuture<'a, Result<Vec<String>, PrerequisiteFailure>> {
-        Box::pin(async { Ok(Vec::new()) })
+        Box::pin(async move { Ok(self.available_images.lock().unwrap().clone()) })
     }
 
     fn ensure_image<'a>(
         &'a self,
         image: &'a SelectedImage,
+        _expected_engine_fingerprint: Option<&'a str>,
     ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
         Box::pin(async move {
+            self.pull_count.fetch_add(1, Ordering::Relaxed);
+            self.available_images
+                .lock()
+                .unwrap()
+                .push(image.reference.clone());
+            if let Some(daemon_id) = self.swap_after_pull.lock().unwrap().take() {
+                *self.daemon_id.lock().unwrap() = daemon_id;
+            }
             Ok(ImageObservation {
                 image_id: image.digest.clone(),
                 repo_digests: vec![image.reference.clone()],
@@ -77,6 +97,7 @@ impl DockerApi for SmokeApi {
         &'a self,
         image: &'a SelectedImage,
         container_name: &'a str,
+        _expected_engine_fingerprint: Option<&'a str>,
     ) -> EngineFuture<'a, Result<(), PrerequisiteFailure>> {
         Box::pin(async move {
             *self.smoke_image.lock().unwrap() = Some(image.reference.clone());
@@ -88,10 +109,18 @@ impl DockerApi for SmokeApi {
 
 #[test]
 fn environment_test_uses_general_locked_image_and_scoped_smoke_name() {
+    let general = ImageLock::bundled()
+        .unwrap()
+        .select(RuntimeProfile::General, "amd64")
+        .unwrap();
     let api = std::sync::Arc::new(SmokeApi {
         smoke_image: Mutex::new(None),
         smoke_name: Mutex::new(None),
         derived_observation: Mutex::new(None),
+        daemon_id: Mutex::new("fake-daemon".into()),
+        pull_count: AtomicUsize::new(0),
+        swap_after_pull: Mutex::new(None),
+        available_images: Mutex::new(vec![general.reference]),
     });
     let engine = EngineDiscovery::with_api(
         DockerEndpoint::Unix {
@@ -118,6 +147,39 @@ fn environment_test_uses_general_locked_image_and_scoped_smoke_name() {
     let name = api.smoke_name.lock().unwrap().clone().unwrap();
     assert!(name.starts_with("koolade-smoke-"));
     assert_eq!(name.len(), "koolade-smoke-".len() + 32);
+    assert_eq!(api.pull_count.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn environment_test_does_not_pull_a_missing_general_image() {
+    let api = std::sync::Arc::new(SmokeApi {
+        smoke_image: Mutex::new(None),
+        smoke_name: Mutex::new(None),
+        derived_observation: Mutex::new(None),
+        daemon_id: Mutex::new("fake-daemon".into()),
+        pull_count: AtomicUsize::new(0),
+        swap_after_pull: Mutex::new(None),
+        available_images: Mutex::new(Vec::new()),
+    });
+    let engine = EngineDiscovery::with_api(
+        DockerEndpoint::Unix {
+            path: "/tmp/fake-docker.sock".into(),
+            desktop: false,
+        },
+        api.clone(),
+    );
+    let staging = tempfile::tempdir().unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let error = runtime
+        .block_on(engine.test_environment(staging.path()))
+        .unwrap_err();
+    assert_eq!(error.code, PrerequisiteCode::ImageUnavailable);
+    assert_eq!(api.pull_count.load(Ordering::Relaxed), 0);
+    assert!(api.smoke_image.lock().unwrap().is_none());
 }
 
 #[test]
@@ -146,6 +208,10 @@ fn registered_derived_image_is_inspected_without_pull_and_mismatches_fail_closed
                 ("io.koolade.base-digest".into(), base_digest.clone()),
             ]),
         })),
+        daemon_id: Mutex::new("fake-daemon".into()),
+        pull_count: AtomicUsize::new(0),
+        swap_after_pull: Mutex::new(None),
+        available_images: Mutex::new(Vec::new()),
     });
     let engine = EngineDiscovery::with_api(
         DockerEndpoint::Unix {

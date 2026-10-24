@@ -219,7 +219,7 @@ pub fn run_smoke_test() -> Result<(), PrerequisiteFailure> {
     runtime.block_on(engine.test_environment(&staging))
 }
 
-fn app_staging_root() -> Result<PathBuf, PrerequisiteFailure> {
+pub(crate) fn app_staging_root() -> Result<PathBuf, PrerequisiteFailure> {
     let state_root = crate::persistence::state_root();
     let staging = state_root.join("execution-staging");
     if std::fs::symlink_metadata(&staging).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
