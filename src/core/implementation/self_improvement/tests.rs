@@ -34,6 +34,7 @@ fn verifier(planning: PlanningStore) -> SelfImprovementExecutionVerifier {
         expected_generation: uuid::Uuid::new_v4().hyphenated().to_string(),
         feature_uid: uuid::Uuid::new_v4().to_string(),
         task_uid: uuid::Uuid::new_v4().to_string(),
+        manifest_repository_id: "root".into(),
         repository_uid: uuid::Uuid::new_v4().to_string(),
         repository_remote: "https://github.com/zbarno/kool.ade".into(),
         source_ref: Some("feature/approved".into()),

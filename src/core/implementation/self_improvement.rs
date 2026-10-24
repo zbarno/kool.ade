@@ -54,7 +54,7 @@ pub(super) fn authorize_resolved_task_source(
             anyhow::anyhow!("Self-improvement target is missing from the repository manifest")
         })?;
     anyhow::ensure!(
-        implementation.repository_id.as_deref() == Some(run.target_repository_uid.as_str()),
+        implementation.repository_id.as_deref() == Some(repository.id.as_str()),
         "Resolved implementation repository differs from the approved self-improvement target"
     );
     runs.authorize_task_source(TaskSourceAuthorization {
@@ -83,6 +83,7 @@ pub(super) fn authorize_resolved_task_source(
         expected_generation: generation,
         feature_uid: task.feature_uid,
         task_uid: task.task_uid,
+        manifest_repository_id: repository.id.clone(),
         repository_uid: run.target_repository_uid,
         repository_remote: repository.remote.clone(),
         source_ref: implementation.source_ref.clone(),
@@ -185,6 +186,7 @@ struct SelfImprovementExecutionVerifier {
     expected_generation: String,
     feature_uid: String,
     task_uid: String,
+    manifest_repository_id: String,
     repository_uid: String,
     repository_remote: String,
     source_ref: Option<String>,
@@ -233,7 +235,7 @@ impl crate::execution::session::AuthorizationGenerationVerifier
         let implementation =
             super::read_state_file(&self.state_path).map_err(|error| denied(error.to_string()))?;
         if implementation.task_uid.as_deref() != Some(self.planning_item_uid.as_str())
-            || implementation.repository_id.as_deref() != Some(self.repository_uid.as_str())
+            || implementation.repository_id.as_deref() != Some(self.manifest_repository_id.as_str())
             || implementation.source_ref != self.source_ref
             || implementation.source_commit != self.source_sha
             || implementation.destination_branch != self.destination_ref
