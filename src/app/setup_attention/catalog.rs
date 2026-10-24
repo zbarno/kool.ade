@@ -272,7 +272,22 @@ pub fn assess(
         host,
         checked_at_unix_ms,
         findings,
-        checked_domains: vec!["cli".into(), "docker".into()],
+        checked_domains: {
+            let mut domains = Vec::new();
+            if probes
+                .iter()
+                .all(|probe| probe.status != ProbeStatus::Failed)
+            {
+                domains.push("cli".into());
+            }
+            if docker.state != DockerEnvironmentState::CapabilitiesIncompatible {
+                domains.push("docker".into());
+            }
+            if docker.engine_ready {
+                domains.push("images".into());
+            }
+            domains
+        },
     }
 }
 
