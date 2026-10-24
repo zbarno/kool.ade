@@ -1,3 +1,5 @@
+#[path = "app_controller/claim_remote.rs"]
+mod claim_remote;
 #[path = "app_controller/harness.rs"]
 mod harness;
 #[path = "app_controller/revocation_retry.rs"]
@@ -8,6 +10,7 @@ use crate::{
     app::root::Screen, core::self_improvement::SelfImprovementStore,
     execution::contract::is_valid_sha,
 };
+use claim_remote::configure_local_claim_remote;
 use harness::{CommandFailure, ControllerDockerHarness};
 use std::{
     path::{Path, PathBuf},
@@ -267,31 +270,4 @@ fn fake_gh(root: &Path) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o700)).unwrap();
     gh
-}
-
-fn configure_local_claim_remote(root: &Path, repository: &Path) {
-    let remote = root.join("claim-remote.git");
-    let initialized = std::process::Command::new("git")
-        .args(["init", "--bare", "--initial-branch=main"])
-        .arg(&remote)
-        .output()
-        .expect("Git can initialize the fixture claim remote");
-    assert!(initialized.status.success());
-
-    let push_url = url::Url::from_file_path(&remote)
-        .expect("fixture claim remote has a file URL")
-        .to_string();
-    let configured = std::process::Command::new("git")
-        .args(["config", "--local", "remote.origin.pushurl", &push_url])
-        .current_dir(repository)
-        .output()
-        .expect("Git can configure the fixture claim push URL");
-    assert!(configured.status.success());
-
-    let seeded = std::process::Command::new("git")
-        .args(["push", "--no-verify", "origin", "main"])
-        .current_dir(repository)
-        .output()
-        .expect("Git can seed the fixture claim remote");
-    assert!(seeded.status.success());
 }

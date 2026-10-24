@@ -46,11 +46,29 @@ fn safe_command_failure_category(error: &crate::execution::errors::ExecutionErro
     let message = error.message.to_ascii_lowercase();
     if message.contains("another execution already owns this task clone") {
         "task-lock"
-    } else if message.contains("self-improvement")
-        || message.contains("authorization")
-        || message.contains("task claim")
+    } else if message.contains("execution authorization generation changed") {
+        "authorization-generation"
+    } else if message.contains("authorization disappeared") {
+        "authorization-missing"
+    } else if message.contains("authorization changed run identity") {
+        "authorization-run-identity"
+    } else if message.contains("approved ready task clone") {
+        "authorization-task-state"
+    } else if message.contains("does not match the approved source sha") {
+        "authorization-source-binding"
+    } else if message.contains("task dispatch is not authorized") {
+        "authorization-task-dispatch"
+    } else if message.contains("task claim") {
+        "authorization-task-claim"
+    } else if message.contains("lifecycle feature, task")
+        || message.contains("planreviewer")
+        || message.contains("plan reviewer")
     {
-        "authorization-fence"
+        "authorization-plan-binding"
+    } else if message.contains("self-improvement") {
+        "authorization-self-improvement"
+    } else if message.contains("authorization") {
+        "authorization-other"
     } else if message.contains("workspace") || message.contains("task clone") {
         "workspace-fence"
     } else if message.contains("request") || message.contains("policy") {
