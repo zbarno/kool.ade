@@ -45,6 +45,15 @@ pub(super) fn review_and_persist(
                 && !evidence.screenshots.is_empty()
                 && evidence.browser_console.is_empty()
                 && evidence.failed_requests.is_empty();
+            assert!(
+                observed_pass,
+                "runtime QA fixture expected clean browser evidence: candidate={:?}, actions={}, screenshots={}, browser_console={:?}, failed_requests={:?}",
+                candidate.outcome,
+                evidence.actions.len(),
+                evidence.screenshots.len(),
+                evidence.browser_console,
+                evidence.failed_requests
+            );
             Ok(ReviewVerdictV1 {
                 subject_hash: crate::runtime_qa::qa_review_subject_sha256(
                     request, candidate, evidence,
