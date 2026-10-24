@@ -27,6 +27,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - name: Test image promotion classification and evidence guards
+        run: python3 -m unittest discover -s scripts/tests -p 'test_image_lock_policy.py' -v
       - name: Identify image-dependent changes
         id: select
         env:
@@ -68,14 +70,9 @@ jobs:
               if git cat-file -e "${compare_sha}:containers/images.lock.json" 2>/dev/null; then
                 previous_lock="$RUNNER_TEMP/previous-images.lock.json"
                 git show "${compare_sha}:containers/images.lock.json" > "$previous_lock"
-                executor_selector='{schema_version,image_set_version,profiles:{general:.profiles.general,rust:.profiles.rust,node:.profiles.node,python:.profiles.python,go:.profiles.go}}'
-                qa_selector='{schema_version,image_set_version,profiles:{browser_qa:.profiles.browser_qa,desktop_qa:.profiles.desktop_qa}}'
-                if [[ "$(jq -cS "$executor_selector" "$previous_lock")" != "$(jq -cS "$executor_selector" containers/images.lock.json)" ]]; then
-                  executor_lock_changed=true
-                fi
-                if [[ "$(jq -cS "$qa_selector" "$previous_lock")" != "$(jq -cS "$qa_selector" containers/images.lock.json)" ]]; then
-                  qa_lock_changed=true
-                fi
+                python3 scripts/image_lock_policy.py classify "$previous_lock" containers/images.lock.json > "$RUNNER_TEMP/image-lock-changes.json"
+                executor_lock_changed="$(jq -er '.executor_lock_changed' "$RUNNER_TEMP/image-lock-changes.json")"
+                qa_lock_changed="$(jq -er '.qa_lock_changed' "$RUNNER_TEMP/image-lock-changes.json")"
               else
                 # A newly introduced manifest must pass both promotion gates.
                 executor_lock_changed=true
@@ -508,18 +505,22 @@ jobs:
             --evidence-root "$RUNNER_TEMP/executor-image-candidates" "${common_args[@]}"
           # Exact candidate-to-lock equality is a promotion check, not a
           # requirement for source-only feature PRs.
-          if [[ "$VERIFY_EXECUTOR" == true && "$EXECUTOR_LOCK_CHANGED" == true ]] && jq -e '
-            all([.profiles.general[], .profiles.rust[], .profiles.node[], .profiles.python[], .profiles.go[]][];
-              (.reference | startswith("ghcr.io/zbarno/koolade-executor@sha256:")))
-          ' containers/images.lock.json >/dev/null; then
+          if [[ "$VERIFY_EXECUTOR" == true && "$EXECUTOR_LOCK_CHANGED" == true ]]; then
+            jq -e '
+              all([.profiles.general[], .profiles.rust[], .profiles.node[], .profiles.python[], .profiles.go[]][];
+                . as $image |
+                ($image.reference | startswith("ghcr.io/zbarno/koolade-executor@sha256:")) and
+                ($image.digest | test("^sha256:[0-9a-f]{64}$")) and
+                ($image.reference | endswith($image.digest)))
+            ' containers/images.lock.json >/dev/null
             jq '{schema_version:1,images:[.images[] | select(.profile == "general" or .profile == "rust" or .profile == "node" or .profile == "python" or .profile == "go")]}' \
               "$RUNNER_TEMP/executor-image-candidates.json" > "$RUNNER_TEMP/executor-only-candidates.json"
             python3 scripts/promote-image-digests.py \
               "$RUNNER_TEMP/executor-only-candidates.json" \
               --evidence-root "$RUNNER_TEMP/executor-image-candidates" \
               --source-revision "$GITHUB_SHA" --require-profiles general rust node python go --check-lock
-          else
-            printf 'Derived image candidates are validated and retained for review. Promote their digests in a lock-update pull request.\n' >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$VERIFY_EXECUTOR" == true ]]; then
+            printf 'Executor candidates validated; equality check runs only on a reviewed promotion PR.\n' >> "$GITHUB_STEP_SUMMARY"
           fi
           if [[ "$VERIFY_QA" == true && "$QA_LOCK_CHANGED" == true ]]; then
             jq -e '
@@ -527,7 +528,8 @@ jobs:
               . as $image |
               ($image.reference | startswith("ghcr.io/zbarno/koolade-runtime-qa-")) and
               ($image.digest | test("^sha256:[0-9a-f]{64}$")) and
-              ($image.reference | endswith($image.digest)))
+              ($image.reference | endswith($image.digest)) and
+              ($image.runtime_enabled == false))
             ' containers/images.lock.json >/dev/null
             jq '{schema_version:1,images:[.images[] | select(.profile == "browser_qa" or .profile == "desktop_qa")]}' \
               "$RUNNER_TEMP/executor-image-candidates.json" > "$RUNNER_TEMP/qa-only-candidates.json"
@@ -644,6 +646,16 @@ jobs:
             '.profiles[$profile][] | select(.platform == "linux/amd64") | .reference' \
             containers/base-images.lock.json)"
           scripts/build-qa-image-candidate.sh "$PROFILE" linux/amd64 "$base_image" candidate
+      - name: Verify reviewed candidate before registry authentication
+        env:
+          PROFILE: ${{ matrix.profile }}
+        run: |
+          set -euo pipefail
+          candidate="$RUNNER_TEMP/executor-image-candidate-${PROFILE}-amd64/executor-image.json"
+          python3 scripts/image_lock_policy.py verify \
+            --lock containers/images.lock.json --base-lock containers/base-images.lock.json \
+            --candidate "$candidate" --profile "$PROFILE" --platform linux/amd64 \
+            --source-revision "$GITHUB_SHA"
       - name: Authenticate for the fixed image publication step
         env:
           GHCR_TOKEN: ${{ github.token }}
@@ -1038,6 +1050,35 @@ jobs:
             containers/base-images.lock.json)"
           [[ "$base_image" =~ @sha256:[0-9a-f]{64}$ ]]
           printf 'base_image=%s\n' "$base_image" >> "$GITHUB_OUTPUT"
+      - name: Verify exported executor candidate before registry authentication
+        env:
+          PROFILE: ${{ matrix.profile }}
+          PLATFORM: ${{ matrix.platform }}
+          BASE_IMAGE: ${{ steps.image.outputs.base_image }}
+        run: |
+          set -euo pipefail
+          repository=ghcr.io/zbarno/koolade-executor
+          architecture="${PLATFORM#linux/}"
+          tag="$repository:$PROFILE-$GITHUB_SHA-$architecture"
+          docker buildx build --platform "$PLATFORM" --network=none \
+            --provenance=false --sbom=false --build-arg SOURCE_DATE_EPOCH=0 \
+            --build-arg "BASE_IMAGE=$BASE_IMAGE" --build-arg "EXECUTOR_PROFILE=$PROFILE" \
+            --output "type=image,name=$tag,push=false,rewrite-timestamp=true" \
+            --metadata-file "$RUNNER_TEMP/executor-preflight-metadata.json" containers/executor
+          candidate_digest="$(jq -er '."containerimage.digest"' "$RUNNER_TEMP/executor-preflight-metadata.json")"
+          expected_digest="$(jq -er --arg profile "$PROFILE" --arg platform "$PLATFORM" \
+            '.profiles[$profile][] | select(.platform == $platform) | .digest' containers/images.lock.json)"
+          expected_reference="$(jq -er --arg profile "$PROFILE" --arg platform "$PLATFORM" \
+            '.profiles[$profile][] | select(.platform == $platform) | .reference' containers/images.lock.json)"
+          recipe_sha256="sha256:$(sha256sum containers/executor/Dockerfile containers/executor/README.md | awk '{printf "%s  %s\n", $1, $2}' | sha256sum | awk '{print $1}')"
+          expected_recipe="$(jq -er --arg profile "$PROFILE" --arg platform "$PLATFORM" \
+            '.profiles[$profile][] | select(.platform == $platform) | .build_recipe_sha256' containers/images.lock.json)"
+          if [[ "$candidate_digest" != "$expected_digest" ||
+                "$expected_reference" != "$repository@$expected_digest" ||
+                "$recipe_sha256" != "$expected_recipe" ]]; then
+            echo "Refusing executor registry publication before credentials: $PROFILE/$PLATFORM candidate=$candidate_digest approved=$expected_digest recipe=$recipe_sha256 approved_recipe=$expected_recipe" >&2
+            exit 1
+          fi
       - name: Authenticate to GitHub Container Registry
         env:
           GHCR_TOKEN: ${{ github.token }}
@@ -1061,14 +1102,13 @@ jobs:
           docker buildx build \
             --platform "$PLATFORM" \
             --network=none \
-            --push \
             --provenance=false \
             --sbom=false \
             --build-arg SOURCE_DATE_EPOCH=0 \
             --build-arg "BASE_IMAGE=$BASE_IMAGE" \
             --build-arg "EXECUTOR_PROFILE=$PROFILE" \
             --metadata-file "$metadata_file" \
-            --tag "$image_tag" \
+            --output "type=image,name=$image_tag,push=true,rewrite-timestamp=true" \
             containers/executor
           image_digest="$(jq -er '.["containerimage.digest"]' "$metadata_file")"
           [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
