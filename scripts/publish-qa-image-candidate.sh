@@ -18,6 +18,12 @@ test -s "$record"
 test "$(jq -er '.profile' "$record")" = "$profile"
 test "$(jq -er '.platform' "$record")" = "$platform"
 test "$(jq -er '.source_revision' "$record")" = "$GITHUB_SHA"
+# Verify approved identity and source-bound candidate evidence before the
+# publisher can access registry credentials or emit a registry image.
+python3 scripts/image_lock_policy.py verify \
+  --lock containers/images.lock.json --base-lock containers/base-images.lock.json \
+  --candidate "$record" --profile "$profile" --platform "$platform" \
+  --source-revision "$GITHUB_SHA"
 
 buildkit_image="moby/buildkit@sha256:b059f8d7226d0b326bc871af489a5dddf65e36af4d20d14251b072974d9ee87c"
 builder="qa-${profile}-publisher"
@@ -46,6 +52,23 @@ docker buildx create --name "$builder" --driver docker-container \
 docker buildx inspect --bootstrap
 
 tag="${repository}:trusted-${GITHUB_SHA}"
+expected_digest="$(jq -er --arg profile "$profile" \
+  '.profiles[$profile][] | select(.platform == "linux/amd64") | .digest' containers/images.lock.json)"
+# The image exporter used for the preflight must match the publishing
+# exporter, including the reproducible timestamp option. No push may happen
+# until the *exported image* has been compared with the reviewed digest.
+preflight_metadata="$RUNNER_TEMP/qa-image-preflight.json"
+docker buildx build --platform "$platform" --network=none --provenance=false --sbom=false \
+  --build-arg SOURCE_DATE_EPOCH=0 --build-arg "BASE_IMAGE=$base_image" \
+  --metadata-file "$preflight_metadata" \
+  --output "type=image,name=$tag,push=false,rewrite-timestamp=true" "$build_context"
+preflight_digest="$(jq -er '."containerimage.digest"' "$preflight_metadata")"
+[[ "$preflight_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+if [[ "$preflight_digest" != "$expected_digest" ]]; then
+  echo "$profile: refusing registry publication: preflight digest $preflight_digest does not match reviewed digest $expected_digest" >&2
+  exit 1
+fi
+
 metadata_file="$RUNNER_TEMP/qa-image-publish.json"
 docker buildx build --platform "$platform" --network=none --provenance=false --sbom=false \
   --build-arg SOURCE_DATE_EPOCH=0 --build-arg "BASE_IMAGE=$base_image" \
@@ -54,9 +77,10 @@ docker buildx build --platform "$platform" --network=none --provenance=false --s
 
 digest="$(jq -er '."containerimage.digest"' "$metadata_file")"
 [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-expected_digest="$(jq -er --arg profile "$profile" \
-  '.profiles[$profile][] | select(.platform == "linux/amd64") | .digest' containers/images.lock.json)"
-test "$digest" = "$expected_digest"
+if [[ "$digest" != "$expected_digest" ]]; then
+  echo "$profile: published digest $digest differs from reviewed digest $expected_digest" >&2
+  exit 1
+fi
 image_reference="$repository@$digest"
 docker pull --platform "$platform" "$image_reference"
 
