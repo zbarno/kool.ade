@@ -10,12 +10,10 @@ impl KooladeApp {
                 for _ in 0..64 {
                     match ctrl.poll() {
                         Some(crate::core::implementation::Event::Progress(p)) => {
-                            project
-                                .activity
-                                .overall
-                                .as_mut()
-                                .unwrap()
-                                .update(Default::default());
+                            project.activity.ensure_overall();
+                            if let Some(overall) = project.activity.overall.as_mut() {
+                                overall.update(Default::default());
+                            }
                             let checklist_changed = {
                                 let activity =
                                     project.activity.tasks.entry(ticket.clone()).or_default();
