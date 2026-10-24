@@ -133,7 +133,7 @@ pub(super) fn configure_desktop_cache_mounts(
     if tmpfs.contains_key("/workspace") {
         tmpfs.insert(
             "/workspace".into(),
-            format!("rw,nosuid,nodev,size={base_mount_size},uid={uid},gid={gid},mode=0755"),
+            format!("rw,nosuid,nodev,exec,size={base_mount_size},uid={uid},gid={gid},mode=0755"),
         );
     }
     for (ecosystem, mount_size) in cache_sizes {

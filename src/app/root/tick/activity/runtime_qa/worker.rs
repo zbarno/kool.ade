@@ -10,6 +10,9 @@ use super::request::PreparedRequest;
 use crate::{app::session::Project, runtime_qa::QaScenarioV1};
 use run::run;
 
+#[cfg(test)]
+pub(crate) use run::{RootlessDesktopDispatch, prepare_rootless_desktop_dispatch};
+
 mod reviewer;
 mod run;
 #[cfg(test)]

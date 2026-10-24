@@ -400,6 +400,8 @@ jobs:
         if: matrix.profile == 'desktop_qa'
         env:
           IMAGE_RECORD: ${{ runner.temp }}/executor-image-candidate-desktop_qa-amd64/executor-image.json
+          KOOLADE_QA_DESKTOP_FIXTURE_EXECUTABLE: ${{ runner.temp }}/koolade-qa-desktop-fixture
+          KOOLADE_QA_REQUIRE_TASK_ARTIFACT: "1"
           KOOLADE_QA_REQUIRE_ROOTLESS: "1"
           KOOLADE_QA_REQUIRE_EGUI: "1"
         run: |

@@ -30,11 +30,20 @@ pub(super) fn execute(
             let deadline = std::time::Instant::now() + wait_limit.min(Duration::from_secs(10));
             loop {
                 let windows = display.windows(owner_pids)?;
-                if !windows.is_empty() {
-                    return Ok(ActionResult::State(window::describe(&windows)));
+                let observed = window::describe(&windows);
+                let expectation_met = step
+                    .expected_state
+                    .as_deref()
+                    .is_none_or(|expected| super::run::expected_state_met(expected, &observed));
+                if !windows.is_empty() && expectation_met {
+                    return Ok(ActionResult::State(observed));
                 }
                 if std::time::Instant::now() >= deadline {
-                    return Err("timed out waiting for a visible application window".into());
+                    return Err(if step.expected_state.is_some() {
+                        "timed out waiting for the expected application window state".into()
+                    } else {
+                        "timed out waiting for a visible application window".into()
+                    });
                 }
                 thread::sleep(Duration::from_millis(50));
             }
@@ -181,6 +190,13 @@ fn click(
     let window = window::require(display, window_id, owner_pids)?;
     let rect = display.window(window, owner_pids)?;
     let point = absolute_point(&rect, x, y)?;
+    // The private Xvfb has no window manager to focus a clicked application.
+    display
+        .connection
+        .set_input_focus(InputFocus::PARENT, window, x11rb::CURRENT_TIME)
+        .map_err(x_error)?
+        .check()
+        .map_err(x_error)?;
     let count = if double { 2 } else { 1 };
     input(display, 6, 0, point)?;
     for _ in 0..count {

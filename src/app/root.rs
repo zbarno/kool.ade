@@ -59,6 +59,8 @@ mod task_batch;
 #[path = "root/task_detail_tests.rs"]
 mod task_detail_tests;
 mod task_target;
+#[cfg(test)]
+pub(crate) mod test_runtime_qa;
 mod tick;
 mod ui_actions;
 mod workspace;

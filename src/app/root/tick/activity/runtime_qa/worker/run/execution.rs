@@ -206,7 +206,7 @@ pub(super) fn service_readiness_for(
     Ok((port, path))
 }
 
-fn desktop_target(
+pub(super) fn desktop_target(
     prepared: &PreparedRequest,
     request: &QaRunRequestV1,
 ) -> Result<QaValidatedTargetV1, String> {
