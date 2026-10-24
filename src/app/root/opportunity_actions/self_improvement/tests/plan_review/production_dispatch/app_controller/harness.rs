@@ -24,7 +24,7 @@ pub(super) struct InitialDispatch {
 #[derive(Clone, Copy, Debug)]
 pub(super) enum CommandFailure {
     Session(crate::execution::errors::ExecutionErrorKind),
-    Command(crate::execution::errors::ExecutionErrorKind),
+    Command(crate::execution::errors::ExecutionErrorKind, &'static str),
     Exit(Option<i32>),
 }
 
@@ -32,9 +32,35 @@ impl CommandFailure {
     pub(super) fn description(&self) -> String {
         match self {
             Self::Session(kind) => format!("session:{kind:?}"),
-            Self::Command(kind) => format!("command:{kind:?}"),
+            Self::Command(kind, category) => format!("command:{kind:?}/{category}"),
             Self::Exit(code) => format!("exit:{code:?}"),
         }
+    }
+
+    pub(super) fn command(error: &crate::execution::errors::ExecutionError) -> Self {
+        Self::Command(error.kind, safe_command_failure_category(error))
+    }
+}
+
+fn safe_command_failure_category(error: &crate::execution::errors::ExecutionError) -> &'static str {
+    let message = error.message.to_ascii_lowercase();
+    if message.contains("another execution already owns this task clone") {
+        "task-lock"
+    } else if message.contains("self-improvement")
+        || message.contains("authorization")
+        || message.contains("task claim")
+    {
+        "authorization-fence"
+    } else if message.contains("workspace") || message.contains("task clone") {
+        "workspace-fence"
+    } else if message.contains("request") || message.contains("policy") {
+        "request-policy"
+    } else if message.contains("sandbox") || message.contains("image") {
+        "sandbox-policy"
+    } else if error.kind == crate::execution::errors::ExecutionErrorKind::PolicyDenied {
+        "other-policy-denial"
+    } else {
+        "runtime-failure"
     }
 }
 
@@ -109,7 +135,7 @@ impl AiHarness for ControllerDockerHarness {
         ) {
             Ok(output) if output.result.exit_code == Some(0) => (true, None),
             Ok(output) => (false, Some(CommandFailure::Exit(output.result.exit_code))),
-            Err(error) => (false, Some(CommandFailure::Command(error.kind))),
+            Err(error) => (false, Some(CommandFailure::command(&error))),
         };
         if self
             .initial
