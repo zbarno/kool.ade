@@ -272,6 +272,13 @@ fn application_icon() -> egui::IconData {
 impl Default for KooladeApp {
     fn default() -> Self {
         let toasts = ToastQueue::default();
+        // Bootstrap must also run on the Welcome screen, before a workspace or
+        // Docker daemon exists. Tests opt in explicitly to avoid probing the
+        // developer machine while constructing UI fixtures.
+        #[cfg(not(test))]
+        let setup_probe = Some(std::thread::spawn(super::setup_attention::detect));
+        #[cfg(test)]
+        let setup_probe = None;
 
         Self {
             task_harness: None,
@@ -298,7 +305,7 @@ impl Default for KooladeApp {
             attention: Default::default(),
             setup_attention: None,
             setup_attention_notified: None,
-            setup_probe: None,
+            setup_probe,
             setup_retry_requested: false,
             #[cfg(test)]
             attention_fixture: Default::default(),
