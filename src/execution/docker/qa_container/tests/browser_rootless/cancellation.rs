@@ -1,10 +1,9 @@
 use super::*;
-use futures_util::StreamExt;
-use std::io::Read;
+use marker::wait_for_cancel_marker;
+use std::time::Duration;
 
-const CANCEL_MARKER: &str = "/tmp/qa-browser-cancel-started";
-// Rootless CI may need more than 30 seconds to cold-start Chromium before navigation.
-const CANCEL_MARKER_WAIT: Duration = Duration::from_secs(60);
+#[path = "cancellation/marker.rs"]
+mod marker;
 
 /// Production boundary: a real browser driver is blocked in a task-service
 /// navigation when cancellation arrives; the controller must stop waiting,
@@ -109,18 +108,26 @@ pub(super) async fn assert_cancelled_browser_navigation_is_cleaned(
         )
         .await
     });
-    let marker = wait_for_cancel_marker(
-        docker,
-        &preview.service_lease.task_container_id,
-        CANCEL_MARKER_WAIT,
-    )
-    .await;
+    let mut completed_before_marker = None;
+    let marker = tokio::select! {
+        marker = wait_for_cancel_marker(docker, &preview.service_lease.task_container_id) => marker,
+        execution = &mut runner => {
+            completed_before_marker = Some(execution);
+            Err("browser driver finished before the delayed task page was observed".into())
+        }
+    };
     let _ = cancel_sender.send(true);
-    let execution = tokio::time::timeout(Duration::from_secs(10), &mut runner).await;
-    if execution.is_err() {
-        runner.abort();
-        let _ = tokio::time::timeout(Duration::from_secs(2), &mut runner).await;
-    }
+    let execution = match completed_before_marker {
+        Some(execution) => Ok(execution),
+        None => {
+            let execution = tokio::time::timeout(Duration::from_secs(10), &mut runner).await;
+            if execution.is_err() {
+                runner.abort();
+                let _ = tokio::time::timeout(Duration::from_secs(2), &mut runner).await;
+            }
+            execution
+        }
+    };
     let cleanup = cleanup_and_verify_driver(docker, &driver_id).await;
     let preview_resources = assert_preview_resources_remain(docker, preview).await;
     let mut failures = Vec::new();
@@ -146,8 +153,11 @@ pub(super) async fn assert_cancelled_browser_navigation_is_cleaned(
             "browser run failed for another reason: {}",
             error.message
         )),
-        Ok(Ok(Ok(_))) => {
-            failures.push("browser run finished instead of observing cancellation".into())
+        Ok(Ok(Ok(output))) => {
+            failures.push(format!(
+                "browser run finished instead of observing cancellation: {}",
+                describe_driver_completion(&output)
+            ));
         }
     }
     if failures.is_empty() {
@@ -230,60 +240,32 @@ async fn assert_container_removed(docker: &bollard::Docker, id: &str) -> Result<
     }
 }
 
-async fn wait_for_cancel_marker(
-    docker: &bollard::Docker,
-    task_container_id: &str,
-    timeout: Duration,
-) -> Result<(), String> {
-    let deadline = tokio::time::Instant::now() + timeout;
-    while tokio::time::Instant::now() < deadline {
-        let marker_read = tokio::time::timeout(Duration::from_secs(4), async {
-            let options = bollard::query_parameters::DownloadFromContainerOptionsBuilder::default()
-                .path(CANCEL_MARKER)
-                .build();
-            let mut archive_stream =
-                docker.download_from_container(task_container_id, Some(options));
-            let mut bytes = Vec::new();
-            let mut complete = true;
-            while let Some(chunk) = archive_stream.next().await {
-                match chunk {
-                    Ok(chunk) => bytes.extend_from_slice(&chunk),
-                    Err(_) => {
-                        complete = false;
-                        break;
-                    }
-                }
-            }
-            complete && archive_contains_cancel_marker(&bytes)
-        })
-        .await;
-        match marker_read {
-            Ok(true) => return Ok(()),
-            Ok(false) => {}
-            Err(_) => return Err("timed out reading browser cancellation marker".into()),
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    Err("browser never reached the delayed task page before cancellation".into())
-}
-
-fn archive_contains_cancel_marker(bytes: &[u8]) -> bool {
-    let mut archive = tar::Archive::new(bytes);
-    let Ok(entries) = archive.entries() else {
-        return false;
-    };
-    entries.flatten().any(|mut entry| {
-        let is_marker = entry
-            .path()
-            .map(|path| {
-                path.file_name().and_then(std::ffi::OsStr::to_str)
-                    == Some("qa-browser-cancel-started")
-            })
-            .unwrap_or(false);
-        if !is_marker {
-            return false;
-        }
-        let mut content = String::new();
-        entry.read_to_string(&mut content).is_ok() && content == "started"
-    })
+fn describe_driver_completion(
+    output: &crate::execution::docker::qa_container::DriverContainerOutput,
+) -> String {
+    let report = serde_json::from_slice::<serde_json::Value>(&output.stdout).ok();
+    let outcome = report
+        .as_ref()
+        .and_then(|report| report.get("outcome"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unparseable");
+    let final_url = report
+        .as_ref()
+        .and_then(|report| report.get("actions"))
+        .and_then(serde_json::Value::as_array)
+        .and_then(|actions| actions.last())
+        .and_then(|action| action.get("post_state"))
+        .and_then(|state| state.get("url"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    let failure = report
+        .as_ref()
+        .and_then(|report| report.get("error"))
+        .and_then(serde_json::Value::as_str)
+        .map(|error| error.chars().take(256).collect::<String>())
+        .unwrap_or_else(|| "none".into());
+    format!(
+        "exit_code={}, outcome={outcome}, final_url={final_url}, failure={failure}",
+        output.exit_code
+    )
 }

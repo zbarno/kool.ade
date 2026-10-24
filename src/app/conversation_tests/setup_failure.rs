@@ -3,7 +3,9 @@ use crate::app::root::board_tests::text_contains;
 
 fn finish_setup_probe(app: &mut KooladeApp) {
     let ctx = egui::Context::default();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    // Bootstrap detection probes six CLIs in two serial batches. In test builds,
+    // Codex checks can take about 55 seconds before the other batch is started.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
     while std::time::Instant::now() < deadline {
         if app
             .setup_probe
@@ -15,7 +17,7 @@ fn finish_setup_probe(app: &mut KooladeApp) {
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    panic!("provider setup probe did not finish within 30 seconds");
+    panic!("provider setup probe did not finish within 120 seconds");
 }
 
 #[test]

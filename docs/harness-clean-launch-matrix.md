@@ -96,5 +96,9 @@ never added to the Docker worker environment.
   project customization sources; help output alone cannot establish semantics.
 - Add provider-specific auth-strategy and role/task identifiers to telemetry
   only when those values can be obtained without recording secrets.
-- Test concurrent same-provider task cancellation and private-state cleanup
-  against installed provider processes.
+- A mock-process integration test proves concurrent same-provider tasks receive
+  separate private OpenCode homes/configs and that cancellation kills only the
+  selected process tree. It does not establish vendor session cancellation or
+  cleanup semantics.
+- Test same-provider task cancellation and private-state cleanup against
+  installed provider processes before claiming real-provider equivalence.
