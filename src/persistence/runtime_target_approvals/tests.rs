@@ -55,3 +55,47 @@ fn approval_state_rejects_a_symlink_into_a_git_checkout() {
         .to_string();
     assert!(error.contains("inside a Git repository") || error.contains("real directory"));
 }
+
+#[test]
+fn one_user_receipt_can_bind_a_target_and_each_recipe_without_overwriting() {
+    let home = tempfile::tempdir().unwrap();
+    let _home = crate::test_support::KooladeHomeGuard::set(home.path());
+    let target = binding();
+    let mut build = target.clone();
+    build.proposal_sha256 = "c".repeat(64);
+    let mut start = target.clone();
+    start.proposal_sha256 = "d".repeat(64);
+
+    // Read an existing single-binding record from the pre-migration layout.
+    let legacy_path = legacy_record_path(&operator_approval_root().unwrap(), &target).unwrap();
+    let bytes = serde_json::to_vec(&Record {
+        schema_version: 1,
+        binding: target.clone(),
+    })
+    .unwrap();
+    crate::artifacts::atomic_create_bytes(&legacy_path, &bytes).unwrap();
+    set_private_file(&legacy_path).unwrap();
+
+    save(&build).unwrap();
+    save(&start).unwrap();
+
+    assert!(contains(&target).unwrap());
+    assert!(contains(&build).unwrap());
+    assert!(contains(&start).unwrap());
+    revoke(&build).unwrap();
+    assert!(contains(&target).unwrap());
+    assert!(!contains(&build).unwrap());
+    assert!(contains(&start).unwrap());
+}
+
+fn binding() -> Binding {
+    Binding {
+        workspace_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        task_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        repository_id: "synthetic-runtime-qa".into(),
+        source_sha: "a".repeat(40),
+        target_id: "fixture-target".into(),
+        proposal_sha256: "b".repeat(64),
+        receipt_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+    }
+}
