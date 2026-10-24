@@ -106,6 +106,21 @@ class ClassificationTests(unittest.TestCase):
         after["image_set_version"] = "2"
         self.assertTrue(all(policy.image_family_changes(before, after).values()))
 
+    def test_changed_paths_select_only_affected_image_families(self):
+        cases = (
+            (["src/execution/qa.rs"], {"executor": False, "qa": True}),
+            (["containers/runtime-qa/desktop/Dockerfile"], {"executor": False, "qa": True}),
+            (["containers/executor/Dockerfile"], {"executor": True, "qa": False}),
+            (["Cargo.lock"], {"executor": False, "qa": True}),
+            (["src/lib.rs", "containers/executor/Dockerfile"], {"executor": True, "qa": True}),
+            (["containers/base-images.lock.json"], {"executor": True, "qa": True}),
+            (["containers/images.lock.json"], {"executor": True, "qa": True}),
+            (["docs/architecture.md"], {"executor": False, "qa": False}),
+        )
+        for paths, expected in cases:
+            with self.subTest(paths=paths):
+                self.assertEqual(policy.affected_builds(paths), expected)
+
     def test_malformed_manifest_fails_closed(self):
         before = lock()
         for bad in ({"schema_version": 1, "profiles": {}}, {"schema_version": 2, "profiles": {}}):
@@ -170,6 +185,30 @@ class IdentityTests(unittest.TestCase):
         c["reference"] = "docker.io/malicious@" + c["digest"]
         with self.assertRaisesRegex(ValueError, "trusted"):
             policy.verify_candidate(self.manifest, self.bases, c, "browser_qa", "linux/amd64", REV)
+
+
+class PublicationOrderingTests(unittest.TestCase):
+    """Keep credential and push boundaries visible in source-level CI contracts."""
+
+    def test_qa_publisher_preflights_before_first_push(self):
+        source = (SCRIPTS / "publish-qa-image-candidate.sh").read_text()
+        self.assertLess(source.index("python3 scripts/image_lock_policy.py verify"),
+                        source.index("push=true"))
+        self.assertLess(source.index('push=false,rewrite-timestamp=true'),
+                        source.index('push=true,rewrite-timestamp=true'))
+        self.assertLess(source.index('preflight_digest" != "$expected_digest"'),
+                        source.index('push=true,rewrite-timestamp=true'))
+
+    def test_workflow_preflights_both_families_before_authentication(self):
+        workflow = (SCRIPTS.parent / ".github/workflows/executor-images.yml").read_text()
+        qa = workflow.split("  publish-reviewed-qa-main:", 1)[1].split("  smoke-reviewed-qa-main:", 1)[0]
+        executor = workflow.split("  publish-reviewed-main:", 1)[1]
+        self.assertLess(qa.index("Verify reviewed candidate before registry authentication"),
+                        qa.index("Authenticate for the fixed image publication step"))
+        self.assertLess(executor.index("Verify exported executor candidate before registry authentication"),
+                        executor.index("Authenticate to GitHub Container Registry"))
+        self.assertLess(executor.index("push=false,rewrite-timestamp=true"),
+                        executor.index("push=true,rewrite-timestamp=true"))
 
 
 class EvidenceTests(unittest.TestCase):
