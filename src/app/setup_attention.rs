@@ -4,6 +4,7 @@
 //! on connection and retry instead of being written into shared project files.
 
 mod bootstrap;
+pub(crate) mod catalog;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetupIssue {
@@ -94,28 +95,24 @@ impl SetupIssue {
     }
 }
 
-pub fn detect_sandbox() -> Option<SetupIssue> {
-    let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
-    if !capabilities.repository_planning_available() {
-        return Some(SetupIssue::docker(
-            capabilities.planning_unavailable_message(),
-        ));
-    }
-    None
-}
-
-pub fn detect_provider() -> Option<SetupIssue> {
-    let (settings, _) = crate::persistence::harness_settings::load();
-    bootstrap::assess(
-        &crate::app::dialogs::probe_bootstrap_clis(),
-        settings.default_harness.as_deref(),
-    )
-}
-
 /// CLI discovery must precede Docker: a broken sandbox cannot prevent bootstrap
 /// agent detection or force a fallback to host repository execution.
 pub fn detect() -> Option<SetupIssue> {
-    detect_provider().or_else(detect_sandbox)
+    let (settings, _) = crate::persistence::harness_settings::load();
+    let probes = crate::app::dialogs::probe_bootstrap_clis();
+    let selected = settings.default_harness.as_deref();
+    let cli_issue = bootstrap::assess(&probes, selected);
+    let docker = crate::execution::docker::environment::DockerEnvironmentStatus::detect();
+    // The typed report is currently consumed by the machine-local task store
+    // in #340. Keep read-only detection active before that integration merges.
+    let _snapshot = catalog::assess(
+        &probes,
+        selected,
+        &docker,
+        catalog::HostKind::current(),
+        crate::persistence::harness_settings::current_unix_ms(),
+    );
+    cli_issue.or_else(|| (!docker.ready()).then(|| SetupIssue::docker(docker.message)))
 }
 
 #[cfg(test)]
