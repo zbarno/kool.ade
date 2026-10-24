@@ -1,5 +1,6 @@
 //! Desktop session wiring (eframe). Entry point: [`root::KooladeApp`].
 
+pub mod bootstrap_approval;
 pub mod bootstrap_repair_policy;
 pub mod dialogs;
 pub mod root;
