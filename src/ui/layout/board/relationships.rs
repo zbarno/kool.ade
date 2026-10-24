@@ -37,8 +37,16 @@ pub(super) fn build(board: &ViewModel) -> Map {
         }
     }
 
-    if let Some(issue) = &board.setup_attention {
+    if board.setup_tasks.is_empty()
+        && let Some(issue) = &board.setup_attention
+    {
         card_keys.push(issue.id.to_owned());
+    }
+    for task in &board.setup_tasks {
+        card_keys.push(task.id.clone());
+        for dependency in &task.prerequisites {
+            add(&mut tags, &task.id, "setup_prerequisite", dependency);
+        }
     }
 
     for doc in &board.task_documents {

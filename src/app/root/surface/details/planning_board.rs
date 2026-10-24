@@ -160,6 +160,7 @@ impl KooladeApp {
                     opportunity_error,
                     opportunity_discovery_settings,
                     setup_attention: self.setup_attention.clone(),
+                    setup_tasks: self.machine_setup_tasks.clone(),
                     setup_checking: self.setup_probe.is_some(),
                     eligible_item_ids,
                     archived: p.archived_tasks.clone(),

@@ -60,6 +60,58 @@ fn desktop_driver_accepts_only_desktop_image_and_exact_platform() {
 }
 
 #[test]
+fn only_desktop_driver_workspace_allows_executing_staged_artifacts() {
+    let mut request = request();
+    request.relevant_platforms = vec![crate::runtime_qa::QaPlatform::LinuxDesktop];
+    let mut lock = ImageLock::bundled().unwrap();
+    for profile in ["browser_qa", "desktop_qa"] {
+        for variant in lock.profiles.get_mut(profile).unwrap() {
+            variant.runtime_enabled = true;
+        }
+    }
+    let desktop_image = lock.select(RuntimeProfile::DesktopQa, "amd64").unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let artifact = QaArtifactMount::inspect(root.path(), "/workspace").unwrap();
+    let resources = resources();
+    let desktop = QaDriverContainerSpec {
+        owner_id: &request.execution_session_id,
+        request: &request,
+        task_uid: &request.parent_task_uid,
+        driver: "desktop",
+        image: &desktop_image,
+        artifacts: std::slice::from_ref(&artifact),
+        dependency_caches: &[],
+        network: QaDriverNetwork::Disabled,
+        service_lease: None,
+        relay_binding: None,
+        resources: &resources,
+    };
+    let workspace_options = desktop
+        .create_body_with_lock(&lock)
+        .unwrap()
+        .host_config
+        .unwrap()
+        .tmpfs
+        .unwrap()
+        .remove("/workspace")
+        .unwrap();
+    assert!(workspace_options.split(',').any(|option| option == "exec"));
+    assert!(
+        !workspace_options
+            .split(',')
+            .any(|option| option == "noexec")
+    );
+    assert_eq!(
+        super::super::workspace_execution_option("browser"),
+        "noexec"
+    );
+    assert_eq!(
+        super::super::workspace_execution_option("service"),
+        "noexec"
+    );
+}
+
+#[test]
 fn service_driver_requires_headless_platform_and_exact_preview_lease() {
     let mut request = request();
     request.relevant_platforms = vec![crate::runtime_qa::QaPlatform::HeadlessService];

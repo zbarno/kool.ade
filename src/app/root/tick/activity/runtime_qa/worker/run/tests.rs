@@ -212,7 +212,7 @@ fn worker_rejects_revoked_prepared_start_after_selection_changes_to_new_target()
         qa_run_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         parent_task_uid: task_id.clone(),
         target_id: Some("qa-target".into()),
-        planning_item_uid: None,
+        planning_item_uid: Some(task_id.clone()),
         feature_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
         code_head_sha: current.source_sha.clone(),
         build_artifact_sha256: "b".repeat(64),

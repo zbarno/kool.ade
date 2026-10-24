@@ -13,6 +13,11 @@ path = "src/main.rs"
 name = "koolade-qa-desktop"
 path = "src/bin/koolade_qa_desktop.rs"
 
+[[bin]]
+name = "koolade-qa-desktop-fixture"
+path = "src/bin/koolade_qa_desktop_fixture.rs"
+required-features = ["qa-desktop-driver-image"]
+
 [lib]
 name = "koolade"
 path = "src/lib.rs"

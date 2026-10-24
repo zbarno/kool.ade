@@ -59,6 +59,8 @@ mod task_batch;
 #[path = "root/task_detail_tests.rs"]
 mod task_detail_tests;
 mod task_target;
+#[cfg(test)]
+pub(crate) mod test_runtime_qa;
 mod tick;
 mod ui_actions;
 mod workspace;
@@ -108,6 +110,8 @@ pub struct KooladeApp {
     cached_user: CurrentUser,
     attention: std::collections::BTreeMap<std::path::PathBuf, attention::Status>,
     setup_attention: Option<super::setup_attention::SetupIssue>,
+    /// Read-only projection of the machine-local setup task store.
+    machine_setup_tasks: Vec<crate::persistence::setup_tasks::LocalTask>,
     setup_attention_notified: Option<String>,
     setup_probe: Option<std::thread::JoinHandle<Option<super::setup_attention::SetupIssue>>>,
     setup_retry_requested: bool,
@@ -304,6 +308,7 @@ impl Default for KooladeApp {
             cached_user: CurrentUser::new("", Vec::new()),
             attention: Default::default(),
             setup_attention: None,
+            machine_setup_tasks: Vec::new(),
             setup_attention_notified: None,
             setup_probe,
             setup_retry_requested: false,

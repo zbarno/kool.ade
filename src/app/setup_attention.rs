@@ -103,15 +103,18 @@ pub fn detect() -> Option<SetupIssue> {
     let selected = settings.default_harness.as_deref();
     let cli_issue = bootstrap::assess(&probes, selected);
     let docker = crate::execution::docker::environment::DockerEnvironmentStatus::detect();
-    // The typed report is currently consumed by the machine-local task store
-    // in #340. Keep read-only detection active before that integration merges.
-    let _snapshot = catalog::assess(
+    let snapshot = catalog::assess(
         &probes,
         selected,
         &docker,
         catalog::HostKind::current(),
         crate::persistence::harness_settings::current_unix_ms(),
     );
+    if let Err(error) = crate::persistence::setup_tasks::reconcile_live(&snapshot) {
+        return Some(SetupIssue::provider(format!(
+            "Could not safely save machine setup diagnostics: {error}"
+        )));
+    }
     cli_issue.or_else(|| (!docker.ready()).then(|| SetupIssue::docker(docker.message)))
 }
 
