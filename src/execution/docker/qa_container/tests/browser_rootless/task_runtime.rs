@@ -19,7 +19,8 @@ mod setup;
 #[test]
 #[ignore = "requires rootless Docker and the loaded Python/browser QA images"]
 fn rootless_approved_task_build_test_start_receipts_feed_browser_qa_artifact() {
-    let docker = bollard::Docker::connect_with_local_defaults().unwrap();
+    let endpoint = rootless_action_endpoint();
+    let docker = endpoint.connect().unwrap();
     let info = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -59,10 +60,6 @@ fn rootless_approved_task_build_test_start_receipts_feed_browser_qa_artifact() {
         )
         .unwrap(),
     );
-    let endpoint = crate::execution::docker::engine::DockerEndpoint::from_process_environment(
-        crate::execution::docker::engine::HostPlatform::Linux,
-    )
-    .unwrap();
     let backend = crate::execution::docker::backend::DockerExecutionBackend::connect(
         endpoint,
         resolver,
@@ -188,6 +185,62 @@ fn rootless_approved_task_build_test_start_receipts_feed_browser_qa_artifact() {
         &fixture.task_clone,
         fixture.root.path(),
     );
+}
+
+// The hosted action's isolated socket is below ~/setup-docker-action/run-*/,
+// while production environment discovery accepts only native local socket
+// locations. Keep this exception in the ignored integration test and connect
+// through DockerEndpoint so direct-socket type and owner checks still apply.
+fn rootless_action_endpoint() -> crate::execution::docker::engine::DockerEndpoint {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+        let host = std::env::var("DOCKER_HOST").expect("rootless Docker action sets DOCKER_HOST");
+        let socket = std::path::PathBuf::from(
+            host.strip_prefix("unix://")
+                .expect("rootless Docker action must expose a Unix socket"),
+        );
+        assert!(socket.is_absolute());
+        let home = std::path::PathBuf::from(
+            std::env::var_os("HOME").expect("hosted runner provides HOME before fixture setup"),
+        );
+        assert_eq!(std::fs::canonicalize(&home).unwrap(), home);
+        let run_dir = socket
+            .parent()
+            .expect("Docker socket has a parent directory");
+        let action_dir = home.join("setup-docker-action");
+        assert_eq!(run_dir.parent(), Some(action_dir.as_path()));
+        assert!(
+            run_dir
+                .file_name()
+                .and_then(std::ffi::OsStr::to_str)
+                .is_some_and(|name| name.starts_with("run-"))
+        );
+        let uid = unsafe { libc::geteuid() };
+        for directory in [action_dir.as_path(), run_dir] {
+            let metadata = std::fs::symlink_metadata(directory)
+                .expect("rootless Docker action directory exists");
+            assert!(metadata.file_type().is_dir());
+            assert_eq!(metadata.uid(), uid);
+        }
+        assert_eq!(
+            socket.file_name(),
+            Some(std::ffi::OsStr::new("docker.sock"))
+        );
+        let metadata = std::fs::symlink_metadata(&socket).expect("rootless Docker socket exists");
+        assert!(metadata.file_type().is_socket());
+        assert_eq!(metadata.uid(), uid);
+
+        crate::execution::docker::engine::DockerEndpoint::Unix {
+            path: socket,
+            desktop: false,
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        panic!("rootless Docker action endpoint fixture requires Linux")
+    }
 }
 
 fn candidate_lock() -> ImageLock {
