@@ -49,14 +49,21 @@ pub struct ReviewedAction {
 /// occurs here. An executable remediation engine must enforce this again
 /// against fresh host evidence and a separate, real user approval.
 pub fn validate(proposal: &Proposal, detected_host: Host) -> anyhow::Result<ReviewedAction> {
-    anyhow::ensure!(proposal.schema_version == 1, "unsupported repair proposal version");
-    anyhow::ensure!(proposal.host == detected_host, "repair proposal host changed");
+    anyhow::ensure!(
+        proposal.schema_version == 1,
+        "unsupported repair proposal version"
+    );
+    anyhow::ensure!(
+        proposal.host == detected_host,
+        "repair proposal host changed"
+    );
     anyhow::ensure!(
         proposal.prerequisite_id.starts_with("setup:")
             && proposal.prerequisite_id.len() <= 180
-            && proposal.prerequisite_id.bytes().all(|byte| {
-                byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'-' | b'_')
-            }),
+            && proposal
+                .prerequisite_id
+                .bytes()
+                .all(|byte| { byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'-' | b'_') }),
         "invalid repair prerequisite identity"
     );
     let (requires_consent, requires_engine_verification) = match proposal.operation {
@@ -110,14 +117,22 @@ mod tests {
 
     #[test]
     fn permits_non_mutating_verification_without_host_shell() {
-        let item = action(Operation::RecheckPrerequisites, "setup:docker:rootless", None);
+        let item = action(
+            Operation::RecheckPrerequisites,
+            "setup:docker:rootless",
+            None,
+        );
         let reviewed = validate(&item, Host::Linux).unwrap();
         assert!(!reviewed.requires_consent);
     }
 
     #[test]
     fn image_operation_requires_specific_approval_and_engine_verification() {
-        let item = action(Operation::PrepareLockedImage, "setup:images:general:amd64", Some("general"));
+        let item = action(
+            Operation::PrepareLockedImage,
+            "setup:images:general:amd64",
+            Some("general"),
+        );
         let reviewed = validate(&item, Host::Linux).unwrap();
         assert!(reviewed.requires_consent);
         assert!(reviewed.requires_engine_verification);
@@ -125,7 +140,17 @@ mod tests {
 
     #[test]
     fn rejects_unapproved_registry_references_and_mutating_host_commands() {
-        assert!(validate(&action(Operation::PrepareLockedImage, "setup:images:general:amd64", Some("example.com/evil:latest")), Host::Linux).is_err());
+        assert!(
+            validate(
+                &action(
+                    Operation::PrepareLockedImage,
+                    "setup:images:general:amd64",
+                    Some("example.com/evil:latest")
+                ),
+                Host::Linux
+            )
+            .is_err()
+        );
         assert!(serde_json::from_str::<Proposal>(
             r#"{"schemaVersion":1,"operation":"run_host_command","host":"linux","prerequisiteId":"setup:docker:rootless","imageProfile":null}"#
         ).is_err());
@@ -138,7 +163,19 @@ mod tests {
     fn rejects_host_identity_or_domain_changes() {
         let p = action(Operation::OpenCodingTools, "setup:cli:codex:auth", None);
         assert!(validate(&p, Host::Windows).is_err());
-        assert!(validate(&action(Operation::OpenCodingTools, "setup:docker:start", None), Host::Linux).is_err());
-        assert!(validate(&action(Operation::RecheckPrerequisites, "setup:../../escape", None), Host::Linux).is_err());
+        assert!(
+            validate(
+                &action(Operation::OpenCodingTools, "setup:docker:start", None),
+                Host::Linux
+            )
+            .is_err()
+        );
+        assert!(
+            validate(
+                &action(Operation::RecheckPrerequisites, "setup:../../escape", None),
+                Host::Linux
+            )
+            .is_err()
+        );
     }
 }
