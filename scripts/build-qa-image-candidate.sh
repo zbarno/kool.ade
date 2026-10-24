@@ -102,10 +102,14 @@ SMOKE
   desktop_qa)
     repository=ghcr.io/zbarno/koolade-runtime-qa-desktop
     export SOURCE_DATE_EPOCH=0 CARGO_INCREMENTAL=0
-    cargo +1.98.1 build --locked --release --features qa-desktop-driver-image --bin koolade-qa-desktop
+    cargo +1.98.1 build --locked --release --features qa-desktop-driver-image \
+      --bin koolade-qa-desktop --bin koolade-qa-desktop-fixture
     binary="$RUNNER_TEMP/koolade-qa-desktop"
+    fixture_binary="$RUNNER_TEMP/koolade-qa-desktop-fixture"
     cp target/release/koolade-qa-desktop "$binary"
+    cp target/release/koolade-qa-desktop-fixture "$fixture_binary"
     strip --strip-all --remove-section=.note.gnu.build-id "$binary"
+    strip --strip-all --remove-section=.note.gnu.build-id "$fixture_binary"
     cp "$binary" "$output_directory/koolade-qa-desktop"
     # Boundary: inspect the linked driver artifact, because unit tests cannot
     # prove the image digest was removed from the shipped executable. External

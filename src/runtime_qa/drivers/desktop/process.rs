@@ -53,7 +53,8 @@ impl TargetProcess {
             .env("XDG_RUNTIME_DIR", "/tmp")
             .env("LANG", "C.UTF-8")
             .env("GDK_BACKEND", "x11")
-            .env("QT_QPA_PLATFORM", "xcb");
+            .env("QT_QPA_PLATFORM", "xcb")
+            .env("LIBGL_ALWAYS_SOFTWARE", "1");
         let ecosystems = request
             .dependency_cache_refs
             .iter()
