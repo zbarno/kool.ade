@@ -37,6 +37,8 @@ impl crate::harness::AiHarness for ResumeHarness {
 #[test]
 fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
     let temp = tempfile::tempdir_in("/tmp").unwrap();
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    environment.set("KOOLADE_HOME", temp.path().join("koolade-home"));
     let root = temp.path().join("repo");
     std::fs::create_dir_all(&root).unwrap();
     let git = |args: &[&str]| {
@@ -60,6 +62,35 @@ fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
     std::fs::write(&ticket_path, ticket_text).unwrap();
     git(&["add", "."]);
     git(&["commit", "-q", "-m", "fixture task"]);
+    let base_commit = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert!(base_commit.status.success());
+    let base_commit = String::from_utf8(base_commit.stdout)
+        .unwrap()
+        .trim()
+        .to_owned();
+    let allocation = crate::core::implementation::key_for_ticket(ticket);
+    let branch = format!("koolade/{allocation}");
+    let worktree = root
+        .parent()
+        .unwrap()
+        .join(".koolade-worktrees")
+        .join(crate::persistence::project_slug(
+            &root.canonicalize().unwrap(),
+        ))
+        .join(&allocation);
+    std::fs::create_dir_all(worktree.parent().unwrap()).unwrap();
+    git(&[
+        "worktree",
+        "add",
+        "-b",
+        &branch,
+        worktree.to_str().unwrap(),
+        "HEAD",
+    ]);
 
     let mut app = fixture();
     if let Screen::Connected(project) = &mut app.screen {
@@ -73,6 +104,12 @@ fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
             .clone();
         record.ticket = ticket.into();
         record.ticket_text = ticket_text.into();
+        record.branch = branch;
+        record.task_repository_allocation_key = Some(allocation);
+        record.task_repository = worktree.clone();
+        record.task_repositories = vec![worktree];
+        record.base_commit = base_commit;
+        record.verified_head = None;
         record.status = ImplementationStatus::Blocked;
         record.pr_url = None;
         record.detail = "preserved failure before pause".into();

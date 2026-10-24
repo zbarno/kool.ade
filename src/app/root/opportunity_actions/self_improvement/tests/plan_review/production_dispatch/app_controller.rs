@@ -33,6 +33,7 @@ fn app_controller_dispatches_approved_task_to_isolated_docker_and_revokes_it_on_
     let gh = fake_gh(temp.path());
 
     let mut ready = super::setup::ready_task(&gh);
+    configure_local_claim_remote(temp.path(), &ready.repo_root);
     if std::env::var("KOOLADE_DOCKER_BACKEND_INTEGRATION").as_deref() != Ok("1") {
         assert_eq!(
             ready.run.phase,
@@ -61,8 +62,10 @@ fn app_controller_dispatches_approved_task_to_isolated_docker_and_revokes_it_on_
         "the Docker client must target the test's rootless engine"
     );
 
-    // Keep the canonical repository identity while resolving Git transport to
-    // this deterministic fixture instead of reaching the public network.
+    // Keep the canonical repository identity while resolving ordinary Git
+    // transport to this deterministic fixture instead of reaching the public
+    // network. Validated claim commands ignore this ambient rewrite and use
+    // the fixture's explicit local push URL above.
     let git_config = temp.path().join("gitconfig");
     std::fs::write(
         &git_config,
@@ -236,4 +239,31 @@ fn fake_gh(root: &Path) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o700)).unwrap();
     gh
+}
+
+fn configure_local_claim_remote(root: &Path, repository: &Path) {
+    let remote = root.join("claim-remote.git");
+    let initialized = std::process::Command::new("git")
+        .args(["init", "--bare", "--initial-branch=main"])
+        .arg(&remote)
+        .output()
+        .expect("Git can initialize the fixture claim remote");
+    assert!(initialized.status.success());
+
+    let push_url = url::Url::from_file_path(&remote)
+        .expect("fixture claim remote has a file URL")
+        .to_string();
+    let configured = std::process::Command::new("git")
+        .args(["config", "--local", "remote.origin.pushurl", &push_url])
+        .current_dir(repository)
+        .output()
+        .expect("Git can configure the fixture claim push URL");
+    assert!(configured.status.success());
+
+    let seeded = std::process::Command::new("git")
+        .args(["push", "--no-verify", "origin", "main"])
+        .current_dir(repository)
+        .output()
+        .expect("Git can seed the fixture claim remote");
+    assert!(seeded.status.success());
 }
