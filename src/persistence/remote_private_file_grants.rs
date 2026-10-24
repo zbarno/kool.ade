@@ -207,6 +207,26 @@ pub(crate) fn require_authorized(
     Ok(grant.clone())
 }
 
+/// Load the immutable metadata receipt even when it has expired or been
+/// revoked, so recovery can identify and stop its associated execution.
+pub(crate) fn receipt_by_id(
+    root: &Path,
+    project_id: &str,
+    grant_id: &str,
+) -> anyhow::Result<RemotePrivateFileGrantV1> {
+    crate::execution::contract::validate_identifier(project_id)?;
+    let parsed = uuid::Uuid::parse_str(grant_id)?;
+    anyhow::ensure!(parsed.hyphenated().to_string() == grant_id);
+    let path = store::path(root, project_id)?;
+    let _lock = store::lock(&path)?;
+    let state = store::load(project_id, &path)?;
+    state
+        .grants
+        .into_iter()
+        .find(|grant| grant.grant_id == grant_id)
+        .ok_or_else(|| anyhow::anyhow!("private file grant receipt is unavailable"))
+}
+
 /// Record revocation idempotently. The remote worker must separately stop the
 /// execution and verify private-file cleanup before acknowledging this state.
 pub(crate) fn revoke(

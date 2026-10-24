@@ -21,6 +21,7 @@ pub mod harness_settings;
 pub mod persona;
 pub mod project_harness_routes;
 pub mod remote_execution_telemetry;
+pub(crate) mod remote_private_file_executions;
 pub(crate) mod remote_private_file_grants;
 pub mod remote_requests;
 pub mod remote_workers;

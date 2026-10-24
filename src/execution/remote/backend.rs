@@ -38,15 +38,8 @@ pub struct RemoteExecutionBackend {
     result_root: PathBuf,
     snapshots: Mutex<HashMap<WorkspaceRef, WorkspaceManifestV1>>,
     execution_snapshots: Mutex<HashMap<String, WorkspaceManifestV1>>,
-    execution_private_file_grants: Mutex<
-        HashMap<
-            String,
-            (
-                Vec<crate::execution::remote::private_files::RemotePrivateFileGrantV1>,
-                u64,
-            ),
-        >,
-    >,
+    execution_private_file_grants:
+        Mutex<HashMap<String, private_files::ActivePrivateFileExecution>>,
     revoked_private_file_executions: Mutex<HashSet<String>>,
     baselines: Mutex<HashMap<WorkspaceRef, (ValidatedWorkspace, WorkspaceSnapshot)>>,
     verified_results: Mutex<HashMap<String, VerifiedWorkspaceResult>>,
@@ -101,15 +94,27 @@ impl RemoteExecutionBackend {
             .map_err(|_| disconnected())?;
         let result_root = crate::persistence::state_root().join("remote-results");
         fs::create_dir_all(&result_root).map_err(|_| disconnected())?;
+        let worker_id = match &target.location {
+            TargetLocation::Remote { worker_id } => worker_id,
+            TargetLocation::Local => return Err(incompatible()),
+        };
+        let client = RemoteWorkerClient::connect(config)?;
+        let execution_private_file_grants = private_files::recover_execution_grants_at(
+            &crate::persistence::state_root(),
+            worker_id,
+            &controller_id,
+            client.verified_host_key_fingerprint(),
+        )
+        .map_err(|_| disconnected())?;
         Ok(Self {
             target,
-            client: Mutex::new(RemoteWorkerClient::connect(config)?),
+            client: Mutex::new(client),
             source_root,
             controller_id,
             result_root,
             snapshots: Mutex::new(HashMap::new()),
             execution_snapshots: Mutex::new(HashMap::new()),
-            execution_private_file_grants: Mutex::new(HashMap::new()),
+            execution_private_file_grants: Mutex::new(execution_private_file_grants),
             revoked_private_file_executions: Mutex::new(HashSet::new()),
             baselines: Mutex::new(HashMap::new()),
             verified_results: Mutex::new(HashMap::new()),

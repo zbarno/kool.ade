@@ -144,6 +144,43 @@ pub fn take_completion(
     take_completion_at(&crate::persistence::state_root(), worker_id, request_id)
 }
 
+/// Retire a grant-bound Start request after revocation cleanup has proved the
+/// worker stage is not mounted. A later generic reconnect must not dispatch it.
+pub fn deny_pending_start(worker_id: &str, execution_id: &str) -> anyhow::Result<()> {
+    deny_pending_start_at(&crate::persistence::state_root(), worker_id, execution_id)
+}
+
+pub(super) fn deny_pending_start_at(
+    root: &Path,
+    worker_id: &str,
+    execution_id: &str,
+) -> anyhow::Result<()> {
+    let Some(request) = pending_at(root, worker_id)?.into_iter().find(|request| {
+        request.envelope.request_id == execution_id
+            && request.envelope.execution_id == execution_id
+            && request.envelope.kind == crate::execution::remote::protocol::EnvelopeKindV1::Start
+    }) else {
+        return Ok(());
+    };
+    if let Some(completion) = take_completion_at(root, worker_id, execution_id)? {
+        return record_completion_at(root, worker_id, execution_id, &completion.response);
+    }
+    let error = crate::execution::errors::ExecutionError::new(
+        crate::execution::errors::ExecutionErrorKind::PolicyDenied,
+        "Remote private-file approval was revoked before the worker accepted Start",
+        false,
+    );
+    let response = crate::execution::remote::protocol::EnvelopeV1 {
+        version: request.envelope.version,
+        request_id: execution_id.to_owned(),
+        execution_id: execution_id.to_owned(),
+        sequence: request.envelope.sequence,
+        kind: crate::execution::remote::protocol::EnvelopeKindV1::Error,
+        payload: serde_json::to_value(error)?,
+    };
+    record_completion_at(root, worker_id, execution_id, &response)
+}
+
 pub(super) fn take_completion_at(
     root: &Path,
     worker_id: &str,
