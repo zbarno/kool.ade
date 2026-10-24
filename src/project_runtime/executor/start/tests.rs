@@ -244,7 +244,26 @@ fn http_readiness_uses_only_a_declared_application_owned_probe_tool() {
         &local_health,
     )
     .unwrap_err();
-    assert!(error.to_string().contains("node or python3"));
+    assert!(error.to_string().contains("node, python, or python3"));
+}
+
+#[test]
+fn http_readiness_uses_the_locked_python_tool_alias() {
+    let mut manifest = manifest();
+    manifest.recipes[0].executable_id = "python".into();
+    manifest.recipes[0].prerequisite_tool_ids = vec!["python".into()];
+    let probe = crate::project_runtime::ReadinessProbeV1::HttpOnApprovedPort {
+        port: 4173,
+        path: "/".into(),
+        expected_status: 200,
+    };
+
+    let command = readiness_command(&manifest, &manifest.candidate_targets[0], &probe).unwrap();
+
+    assert!(command.contains("'python' '-c'"));
+    assert!(command.contains("HTTPConnection"));
+    assert!(command.contains("4173"));
+    assert!(command.contains("status == 200"));
 }
 
 #[test]
