@@ -95,24 +95,6 @@ impl SetupIssue {
     }
 }
 
-pub fn detect_sandbox() -> Option<SetupIssue> {
-    let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
-    if !capabilities.repository_planning_available() {
-        return Some(SetupIssue::docker(
-            capabilities.planning_unavailable_message(),
-        ));
-    }
-    None
-}
-
-pub fn detect_provider() -> Option<SetupIssue> {
-    let (settings, _) = crate::persistence::harness_settings::load();
-    bootstrap::assess(
-        &crate::app::dialogs::probe_bootstrap_clis(),
-        settings.default_harness.as_deref(),
-    )
-}
-
 /// CLI discovery must precede Docker: a broken sandbox cannot prevent bootstrap
 /// agent detection or force a fallback to host repository execution.
 pub fn detect() -> Option<SetupIssue> {
