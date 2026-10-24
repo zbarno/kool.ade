@@ -1,5 +1,15 @@
 use super::*;
 
+struct ExchangeRequest<'a> {
+    kind: Kind,
+    execution_id: &'a str,
+    request_id: &'a str,
+    sequence: u64,
+    payload: serde_json::Value,
+    start_grant_use:
+        Option<crate::persistence::remote_private_file_grants::AuthorizedPrivateFileGrantUse>,
+}
+
 impl RemoteWorkerClient {
     pub(super) fn exchange(
         &mut self,
@@ -19,16 +29,58 @@ impl RemoteWorkerClient {
         payload: serde_json::Value,
         mut reconnect: impl FnMut(&mut Self) -> Result<(), ExecutionError>,
     ) -> Result<EnvelopeV1, ExecutionError> {
+        let sequence = self.next_sequence_for(execution_id);
+        let request_id = uuid::Uuid::new_v4().to_string();
+        self.exchange_with_reconnect_identity(
+            ExchangeRequest {
+                kind,
+                execution_id,
+                request_id: &request_id,
+                sequence,
+                payload,
+                start_grant_use: None,
+            },
+            &mut reconnect,
+        )
+    }
+
+    pub(super) fn exchange_start_with_identity(
+        &mut self,
+        execution_id: &str,
+        sequence: u64,
+        payload: serde_json::Value,
+        grant_use: crate::persistence::remote_private_file_grants::AuthorizedPrivateFileGrantUse,
+    ) -> Result<EnvelopeV1, ExecutionError> {
+        self.exchange_with_reconnect_identity(
+            ExchangeRequest {
+                kind: Kind::Start,
+                execution_id,
+                request_id: execution_id,
+                sequence,
+                payload,
+                start_grant_use: Some(grant_use),
+            },
+            &mut |client| client.reconnect_and_negotiate(),
+        )
+    }
+
+    fn exchange_with_reconnect_identity(
+        &mut self,
+        request: ExchangeRequest<'_>,
+        reconnect: &mut impl FnMut(&mut Self) -> Result<(), ExecutionError>,
+    ) -> Result<EnvelopeV1, ExecutionError> {
+        let ExchangeRequest {
+            kind,
+            execution_id,
+            request_id,
+            sequence,
+            payload,
+            mut start_grant_use,
+        } = request;
         let is_health = kind == Kind::Health;
-        let sequence = self
-            .sequences
-            .get(execution_id)
-            .copied()
-            .unwrap_or(0)
-            .saturating_add(1);
         let mut envelope = EnvelopeV1 {
             version: PROTOCOL_VERSION_V2,
-            request_id: uuid::Uuid::new_v4().to_string(),
+            request_id: request_id.to_owned(),
             execution_id: execution_id.to_owned(),
             sequence,
             kind,
@@ -41,9 +93,16 @@ impl RemoteWorkerClient {
             remote_requests::save_pending(&self.worker_id, &envelope).map_err(|_| unavailable())?;
         }
         self.sequences.insert(execution_id.to_owned(), sequence);
-        let response = match self.send_envelope(&envelope) {
+        let response = match self.send_envelope_with_start_guard(&envelope, &mut start_grant_use) {
             Ok(response) => response,
             Err(_) => {
+                if start_grant_use.is_some() {
+                    let _ = self.transport.terminate();
+                    self.persist_health(
+                        crate::persistence::remote_workers::RemoteWorkerHealth::Disconnected,
+                    );
+                    return Err(self.disconnected_with_diagnostics());
+                }
                 if let Err(error) = reconnect(self) {
                     if is_health {
                         envelope.clear_sensitive_payload();
@@ -107,6 +166,22 @@ impl RemoteWorkerClient {
             ));
         }
         self.transport.send(envelope)?;
+        self.receive_envelope(envelope)
+    }
+
+    fn send_envelope_with_start_guard(
+        &mut self,
+        envelope: &EnvelopeV1,
+        grant_use: &mut Option<
+            crate::persistence::remote_private_file_grants::AuthorizedPrivateFileGrantUse,
+        >,
+    ) -> Result<EnvelopeV1, std::io::Error> {
+        self.transport.send(envelope)?;
+        drop(grant_use.take());
+        self.receive_envelope(envelope)
+    }
+
+    fn receive_envelope(&mut self, envelope: &EnvelopeV1) -> Result<EnvelopeV1, std::io::Error> {
         let response = self.transport.receive()?.ok_or_else(|| {
             std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,

@@ -1,98 +1,14 @@
-use crate::execution::{
-    contract::ExecutionRequestV1,
-    docker::backend::{OwnedTaskWorkspaceResolver, TaskWorkspaceResolver},
-    errors::ExecutionError,
-};
+use crate::execution::errors::ExecutionError;
 
-use super::super::{WorkspaceManifestV1, client::RemoteWorkerClient};
 use super::{RemoteExecutionBackend, disconnected};
 
-pub(super) fn stage_for_execution(
-    backend: &RemoteExecutionBackend,
-    client: &mut RemoteWorkerClient,
-    request: &ExecutionRequestV1,
-    snapshot: &WorkspaceManifestV1,
-) -> Result<Vec<crate::execution::remote::private_files::RemotePrivateFileGrantV1>, ExecutionError>
-{
-    use crate::execution::remote::protocol::EnvelopeKindV1 as Kind;
-
-    let worker_id = match &backend.target.location {
-        crate::execution::contract::TargetLocation::Remote { worker_id } => worker_id,
-        crate::execution::contract::TargetLocation::Local => return Err(incompatible()),
-    };
-    let root = crate::persistence::state_root();
-    let grants = crate::persistence::remote_private_file_grants::active_for_task(
-        &root,
-        &request.workspace.project_id,
-        &request.workspace.task_id,
-        crate::persistence::harness_settings::current_unix_ms(),
-    )
-    .map_err(|_| incompatible())?;
-    let Some(source_root) = backend.source_root.as_deref() else {
-        if grants
-            .iter()
-            .any(|grant| grant.workspace == request.workspace)
-        {
-            return Err(incompatible());
-        }
-        return Ok(Vec::new());
-    };
-    let resolver =
-        OwnedTaskWorkspaceResolver::for_current_user(request.workspace.clone(), source_root)?;
-    let clone_path = resolver.resolve_owned_clone(&request.workspace)?;
-    let mut selected_grants = Vec::new();
-    let transfer = (|| {
-        for grant in grants
-            .into_iter()
-            .filter(|grant| grant.workspace == request.workspace)
-        {
-            if grant.controller_id != backend.controller_id || grant.worker_id != *worker_id {
-                // Receipts for another controller or destination do not grant
-                // authority here and must not block a separate valid target.
-                continue;
-            }
-            if grant.worker_host_key_fingerprint != client.verified_host_key_fingerprint() {
-                return Err(incompatible());
-            }
-            selected_grants.push(grant.clone());
-            client.request(
-                Kind::AuthorizePrivateFileGrant,
-                &request.execution_id,
-                serde_json::json!({"execution_id": request.execution_id,
-                    "workspace": request.workspace, "grant": grant}),
-            )?;
-            for spec in &grant.files {
-                let source = crate::execution::remote::private_files::read_authorized_private_file(
-                    &root,
-                    &clone_path,
-                    &grant,
-                    &spec.path,
-                    snapshot,
-                    crate::persistence::harness_settings::current_unix_ms(),
-                )
-                .map_err(|_| incompatible())?;
-                client.send_authorized_private_file(
-                    &request.execution_id,
-                    &grant,
-                    &spec.path,
-                    &source,
-                )?;
-            }
-        }
-        Ok(())
-    })();
-    if transfer.is_err() {
-        // This execution has not received Start from the controller yet. The
-        // worker refuses this cleanup if its stage is already mounted, which
-        // protects an earlier ambiguous Start using the same execution ID.
-        let _ = client.request(
-            Kind::AbortPrivateFileStage,
-            &request.execution_id,
-            serde_json::json!({"execution_id": request.execution_id}),
-        );
-    }
-    transfer.map(|()| selected_grants)
-}
+mod recovery;
+mod stage;
+pub(super) use recovery::{
+    ActivePrivateFileExecution, active_execution, bind_start_request, mark_stage_complete,
+    recover_execution_grants_at, save_execution_grants,
+};
+pub(super) use stage::{select_for_execution, stage_for_execution};
 
 pub(super) fn grants_are_active(
     grants: &[crate::execution::remote::private_files::RemotePrivateFileGrantV1],
@@ -114,16 +30,15 @@ fn grants_are_active_at(
 
 pub(super) fn revoked_execution_generation(
     backend: &RemoteExecutionBackend,
-    execution_id: &str,
+    handle: &crate::execution::backend::ExecutionHandleV1,
 ) -> Result<Option<u64>, ExecutionError> {
-    let runs = backend
-        .execution_private_file_grants
-        .lock()
-        .map_err(|_| disconnected())?;
-    let Some((grants, cancellation_generation)) = runs.get(execution_id) else {
+    let Some(active) = active_execution(backend, &handle.execution_id)? else {
         return Ok(None);
     };
-    Ok((!grants_are_active(grants)).then_some(*cancellation_generation))
+    if active.task_id != handle.task_id || active.request_sequence != handle.request_sequence {
+        return Err(incompatible());
+    }
+    Ok((!grants_are_active(&active.grants)).then_some(active.cancellation_generation))
 }
 
 pub(super) fn revoked_error() -> ExecutionError {
@@ -151,7 +66,7 @@ impl RemoteExecutionBackend {
             .lock()
             .map_err(|_| disconnected())?
             .get(execution_id)
-            .map(|(grants, _)| grants.clone())
+            .map(|active| active.grants.clone())
             .unwrap_or_default();
         crate::persistence::remote_private_file_grants::lock_authorized_grants(
             &crate::persistence::state_root(),
@@ -173,38 +88,78 @@ impl RemoteExecutionBackend {
         {
             return Err(revoked_error());
         }
-        let Some(cancellation_generation) =
-            revoked_execution_generation(self, &handle.execution_id)?
-        else {
+        let Some(cancellation_generation) = revoked_execution_generation(self, handle)? else {
             return Ok(());
         };
         discard_verified_result(self, &handle.execution_id)?;
         let local_handle = self.local_handle(handle)?;
-        let _: serde_json::Value = self.request(
+        let worker_id = match &self.target.location {
+            crate::execution::contract::TargetLocation::Remote { worker_id } => worker_id,
+            crate::execution::contract::TargetLocation::Local => return Err(incompatible()),
+        };
+        let cancellation: Result<serde_json::Value, ExecutionError> = self.request(
             crate::execution::remote::protocol::EnvelopeKindV1::Cancel,
             &handle.execution_id,
             serde_json::json!({"handle": local_handle.clone(),
                 "cancellation_generation": cancellation_generation}),
-        )?;
+        );
+        if let Err(cancel_error) = cancellation {
+            let abort: Result<serde_json::Value, ExecutionError> = self.request(
+                crate::execution::remote::protocol::EnvelopeKindV1::AbortPrivateFileStage,
+                &handle.execution_id,
+                serde_json::json!({"execution_id": handle.execution_id}),
+            );
+            if abort.is_err() {
+                return Err(cancel_error);
+            }
+            self.client
+                .lock()
+                .map_err(|_| disconnected())?
+                .deny_pending_start(&handle.execution_id)?;
+            forget_revoked_private_file_execution(self, handle, worker_id)?;
+            return Err(revoked_error());
+        }
         let _: serde_json::Value = self.request(
             crate::execution::remote::protocol::EnvelopeKindV1::Release,
             &handle.execution_id,
             serde_json::json!({"handle": local_handle}),
         )?;
-        self.revoked_private_file_executions
+        self.client
             .lock()
             .map_err(|_| disconnected())?
-            .insert(handle.execution_id.clone());
-        self.execution_private_file_grants
-            .lock()
-            .map_err(|_| disconnected())?
-            .remove(&handle.execution_id);
-        self.execution_snapshots
-            .lock()
-            .map_err(|_| disconnected())?
-            .remove(&handle.execution_id);
+            .deny_pending_start(&handle.execution_id)?;
+        forget_revoked_private_file_execution(self, handle, worker_id)?;
         Err(revoked_error())
     }
+}
+
+fn forget_revoked_private_file_execution(
+    backend: &RemoteExecutionBackend,
+    handle: &crate::execution::backend::ExecutionHandleV1,
+    worker_id: &str,
+) -> Result<(), ExecutionError> {
+    backend
+        .revoked_private_file_executions
+        .lock()
+        .map_err(|_| disconnected())?
+        .insert(handle.execution_id.clone());
+    backend
+        .execution_private_file_grants
+        .lock()
+        .map_err(|_| disconnected())?
+        .remove(&handle.execution_id);
+    crate::persistence::remote_private_file_executions::remove(
+        &crate::persistence::state_root(),
+        worker_id,
+        &handle.execution_id,
+    )
+    .map_err(|_| disconnected())?;
+    backend
+        .execution_snapshots
+        .lock()
+        .map_err(|_| disconnected())?
+        .remove(&handle.execution_id);
+    Ok(())
 }
 
 fn discard_verified_result(
