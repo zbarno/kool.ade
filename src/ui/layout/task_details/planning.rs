@@ -86,7 +86,7 @@ pub(super) fn paint_machine_setup(
     ui.label(crate::ui::theme::section_heading("What to do next"));
     ui.label(&task.next_step);
     ui.label(crate::ui::theme::helper_text(
-        "Setup state stays on this machine, never in the shared project repository.",
+        "Kool.ad/e stores setup state on this machine, not in the project Git repository. Automatic repairs and dedicated task conversations are being implemented separately.",
     ));
     if task.id.starts_with("setup:images:general:") {
         approved_image::paint(ui, surface);

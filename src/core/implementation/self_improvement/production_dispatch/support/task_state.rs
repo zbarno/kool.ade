@@ -7,7 +7,7 @@ use std::path::Path;
 pub(crate) fn implementation_state(
     ticket: &str,
     planning_item_uid: &str,
-    repository_uid: &str,
+    repository_id: &str,
     project_slug: &str,
     source_sha: &str,
     task_repository: &std::path::Path,
@@ -25,7 +25,7 @@ pub(crate) fn implementation_state(
         destination_branch: Some("main".into()),
         source_ref: Some("koolade/self-improvement-fixture".into()),
         source_commit: Some(source_sha.into()),
-        repository_id: Some(repository_uid.into()),
+        repository_id: Some(repository_id.into()),
         project_id: Some(project_slug.into()),
         workspace_uid: None,
         repository_identity: None,
