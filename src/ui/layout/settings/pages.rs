@@ -1,5 +1,5 @@
 mod automation;
-mod execution_environments;
+pub(in crate::ui::layout::settings) mod execution_environments;
 mod planning_repository;
 use super::*;
 use crate::app::dialogs::HarnessSettingsSection;
