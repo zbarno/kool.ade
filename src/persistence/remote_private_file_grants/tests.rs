@@ -168,6 +168,31 @@ fn active_grant_listing_is_task_scoped_and_hides_expired_or_revoked_receipts() {
 }
 
 #[test]
+fn receipt_lookup_keeps_revoked_metadata_available_for_execution_recovery() {
+    let root = tempfile::tempdir().unwrap();
+    let now = crate::persistence::harness_settings::current_unix_ms();
+    let grant = record_user_confirmation(
+        root.path(),
+        confirmed_grant(now),
+        &[".env.production".into()],
+    )
+    .unwrap();
+    revoke(
+        root.path(),
+        &grant.workspace.project_id,
+        &grant.grant_id,
+        now + 1,
+        PrivateFileGrantRevocationReasonV1::OperatorRevoked,
+    )
+    .unwrap();
+
+    assert_eq!(
+        receipt_by_id(root.path(), &grant.workspace.project_id, &grant.grant_id,).unwrap(),
+        grant
+    );
+}
+
+#[test]
 fn active_grant_listing_hides_future_dated_receipts() {
     let root = tempfile::tempdir().unwrap();
     let now = crate::persistence::harness_settings::current_unix_ms();

@@ -3,6 +3,9 @@
 //! These are machine configuration facts, so the stable board item is derived
 //! on connection and retry instead of being written into shared project files.
 
+mod bootstrap;
+pub(crate) mod catalog;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetupIssue {
     pub id: &'static str,
@@ -27,6 +30,58 @@ impl SetupIssue {
         }
     }
 
+    pub fn cli_install() -> Self {
+        Self {
+            id: "setup:cli:install",
+            title: "Install a coding agent",
+            issue: "No supported coding-agent CLI was detected on this computer.".into(),
+            why: "A coding agent can guide you through the remaining setup tasks, but Kool.ad/e can also provide non-AI setup instructions.",
+            recommendation: "Open Coding Tools to choose and install Pi, Codex, Claude Code, OpenCode, Copilot, or Antigravity.",
+            impact: "Agent-guided setup and model-backed work are unavailable until a coding CLI is installed and configured.",
+            next_action: "Choose a coding agent, install it, then retry the setup check.",
+        }
+    }
+
+    pub fn cli_authenticate() -> Self {
+        Self {
+            id: "setup:cli:authenticate",
+            title: "Connect your coding agent",
+            issue:
+                "A coding-agent CLI is installed, but its account or model access needs attention."
+                    .into(),
+            why: "Finding a command on your machine does not prove that it can answer prompts.",
+            recommendation: "Open Coding Tools, inspect each agent's authentication result, and sign in using the provider's supported flow.",
+            impact: "Agent-guided setup cannot start until a usable agent is independently verified.",
+            next_action: "Authenticate an installed agent, then retry the setup check.",
+        }
+    }
+
+    pub fn cli_verify() -> Self {
+        Self {
+            id: "setup:cli:verify",
+            title: "Verify coding agent readiness",
+            issue: "A coding agent was detected, but its authentication or model access could not be verified.".into(),
+            why: "Kool.ad/e must not mistake an installed CLI or unknown authentication status for a working agent.",
+            recommendation: "Open Coding Tools and review the CLI, account and available-model diagnostics.",
+            impact: "Bootstrap assistance stays unavailable until at least one agent is verified.",
+            next_action: "Confirm your model and account configuration, then retry the setup check.",
+        }
+    }
+
+    pub fn cli_select() -> Self {
+        Self {
+            id: "setup:cli:select",
+            title: "Choose your bootstrap agent",
+            issue:
+                "At least one coding agent is ready, but none has been selected as your default."
+                    .into(),
+            why: "Kool.ad/e won't silently choose a different provider or charge an unexpected account.",
+            recommendation: "Open Coding Tools and select your preferred verified agent as the default.",
+            impact: "Your agent-assisted setup route has not been chosen yet; deterministic setup remains available.",
+            next_action: "Choose your default coding agent, then retry the setup check.",
+        }
+    }
+
     pub fn provider(detail: impl Into<String>) -> Self {
         Self {
             id: "setup:provider",
@@ -40,23 +95,24 @@ impl SetupIssue {
     }
 }
 
-pub fn detect_sandbox() -> Option<SetupIssue> {
-    let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities::detect();
-    if !capabilities.repository_planning_available() {
-        return Some(SetupIssue::docker(
-            capabilities.planning_unavailable_message(),
-        ));
-    }
-    None
-}
-
-pub fn detect_provider() -> Option<SetupIssue> {
-    None
-}
-
-#[cfg(test)]
+/// CLI discovery must precede Docker: a broken sandbox cannot prevent bootstrap
+/// agent detection or force a fallback to host repository execution.
 pub fn detect() -> Option<SetupIssue> {
-    detect_sandbox().or_else(detect_provider)
+    let (settings, _) = crate::persistence::harness_settings::load();
+    let probes = crate::app::dialogs::probe_bootstrap_clis();
+    let selected = settings.default_harness.as_deref();
+    let cli_issue = bootstrap::assess(&probes, selected);
+    let docker = crate::execution::docker::environment::DockerEnvironmentStatus::detect();
+    // The typed report is currently consumed by the machine-local task store
+    // in #340. Keep read-only detection active before that integration merges.
+    let _snapshot = catalog::assess(
+        &probes,
+        selected,
+        &docker,
+        catalog::HostKind::current(),
+        crate::persistence::harness_settings::current_unix_ms(),
+    );
+    cli_issue.or_else(|| (!docker.ready()).then(|| SetupIssue::docker(docker.message)))
 }
 
 #[cfg(test)]

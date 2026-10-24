@@ -41,11 +41,23 @@ pub(super) fn release_execution<'a>(
                 &phase_timings,
             );
         }
-        backend
-            .execution_private_file_grants
-            .lock()
-            .map_err(|_| disconnected())?
-            .remove(&handle.execution_id);
+        if super::super::private_files::active_execution(backend, &handle.execution_id)?.is_some() {
+            let worker_id = match &backend.target.location {
+                TargetLocation::Remote { worker_id } => worker_id,
+                TargetLocation::Local => return Err(incompatible()),
+            };
+            crate::persistence::remote_private_file_executions::remove(
+                &crate::persistence::state_root(),
+                worker_id,
+                &handle.execution_id,
+            )
+            .map_err(|_| disconnected())?;
+            backend
+                .execution_private_file_grants
+                .lock()
+                .map_err(|_| disconnected())?
+                .remove(&handle.execution_id);
+        }
         Ok(())
     })
 }

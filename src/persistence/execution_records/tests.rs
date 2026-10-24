@@ -46,6 +46,9 @@ fn record() -> ExecutionRecordV1 {
 #[path = "tests/journal.rs"]
 mod journal;
 
+#[path = "tests/owner_scan.rs"]
+mod owner_scan;
+
 #[path = "tests/record_store.rs"]
 mod record_store;
 

@@ -1,5 +1,15 @@
 use super::*;
 
+struct ExchangeRequest<'a> {
+    kind: Kind,
+    execution_id: &'a str,
+    request_id: &'a str,
+    sequence: u64,
+    payload: serde_json::Value,
+    start_grant_use:
+        Option<crate::persistence::remote_private_file_grants::AuthorizedPrivateFileGrantUse>,
+}
+
 impl RemoteWorkerClient {
     pub(super) fn exchange(
         &mut self,
@@ -19,16 +29,75 @@ impl RemoteWorkerClient {
         payload: serde_json::Value,
         mut reconnect: impl FnMut(&mut Self) -> Result<(), ExecutionError>,
     ) -> Result<EnvelopeV1, ExecutionError> {
+        let sequence = self.next_sequence_for(execution_id);
+        let request_id = uuid::Uuid::new_v4().to_string();
+        self.exchange_with_reconnect_identity(
+            ExchangeRequest {
+                kind,
+                execution_id,
+                request_id: &request_id,
+                sequence,
+                payload,
+                start_grant_use: None,
+            },
+            &mut reconnect,
+        )
+    }
+
+    pub(super) fn exchange_start_with_identity(
+        &mut self,
+        execution_id: &str,
+        sequence: u64,
+        payload: serde_json::Value,
+        grant_use: crate::persistence::remote_private_file_grants::AuthorizedPrivateFileGrantUse,
+    ) -> Result<EnvelopeV1, ExecutionError> {
+        self.exchange_with_reconnect_identity(
+            ExchangeRequest {
+                kind: Kind::Start,
+                execution_id,
+                request_id: execution_id,
+                sequence,
+                payload,
+                start_grant_use: Some(grant_use),
+            },
+            &mut |client| client.reconnect_and_negotiate(),
+        )
+    }
+
+    fn exchange_with_reconnect_identity(
+        &mut self,
+        request: ExchangeRequest<'_>,
+        reconnect: &mut impl FnMut(&mut Self) -> Result<(), ExecutionError>,
+    ) -> Result<EnvelopeV1, ExecutionError> {
+        self.exchange_with_reconnect_identity_using(
+            request,
+            reconnect,
+            |worker_id, envelope| {
+                remote_requests::save_pending(worker_id, envelope).map_err(|_| unavailable())
+            },
+            |client, health| client.persist_health(health),
+        )
+    }
+
+    fn exchange_with_reconnect_identity_using(
+        &mut self,
+        request: ExchangeRequest<'_>,
+        reconnect: &mut impl FnMut(&mut Self) -> Result<(), ExecutionError>,
+        mut save_pending: impl FnMut(&str, &EnvelopeV1) -> Result<(), ExecutionError>,
+        mut persist_health: impl FnMut(&Self, crate::persistence::remote_workers::RemoteWorkerHealth),
+    ) -> Result<EnvelopeV1, ExecutionError> {
+        let ExchangeRequest {
+            kind,
+            execution_id,
+            request_id,
+            sequence,
+            payload,
+            mut start_grant_use,
+        } = request;
         let is_health = kind == Kind::Health;
-        let sequence = self
-            .sequences
-            .get(execution_id)
-            .copied()
-            .unwrap_or(0)
-            .saturating_add(1);
         let mut envelope = EnvelopeV1 {
             version: PROTOCOL_VERSION_V2,
-            request_id: uuid::Uuid::new_v4().to_string(),
+            request_id: request_id.to_owned(),
             execution_id: execution_id.to_owned(),
             sequence,
             kind,
@@ -38,12 +107,25 @@ impl RemoteWorkerClient {
         // of the durable retry journal; health negotiation is safely retried
         // over the current verified SSH connection instead.
         if !is_health {
-            remote_requests::save_pending(&self.worker_id, &envelope).map_err(|_| unavailable())?;
+            save_pending(&self.worker_id, &envelope)?;
         }
         self.sequences.insert(execution_id.to_owned(), sequence);
-        let response = match self.send_envelope(&envelope) {
+        let mut start_frame_written = false;
+        let response = match self.send_envelope_with_start_guard(
+            &envelope,
+            &mut start_grant_use,
+            &mut start_frame_written,
+        ) {
             Ok(response) => response,
             Err(_) => {
+                if start_frame_written || start_grant_use.is_some() {
+                    let _ = self.transport.terminate();
+                    persist_health(
+                        self,
+                        crate::persistence::remote_workers::RemoteWorkerHealth::Disconnected,
+                    );
+                    return Err(self.disconnected_with_diagnostics());
+                }
                 if let Err(error) = reconnect(self) {
                     if is_health {
                         envelope.clear_sensitive_payload();
@@ -53,7 +135,8 @@ impl RemoteWorkerClient {
                     {
                         return Err(self.health_error_with_diagnostics(error));
                     }
-                    self.persist_health(
+                    persist_health(
+                        self,
                         crate::persistence::remote_workers::RemoteWorkerHealth::Disconnected,
                     );
                     return Err(self.disconnected_with_diagnostics());
@@ -82,7 +165,8 @@ impl RemoteWorkerClient {
                         if is_health {
                             envelope.clear_sensitive_payload();
                         }
-                        self.persist_health(
+                        persist_health(
+                            self,
                             crate::persistence::remote_workers::RemoteWorkerHealth::Disconnected,
                         );
                         return Err(self.disconnected_with_diagnostics());
@@ -107,6 +191,24 @@ impl RemoteWorkerClient {
             ));
         }
         self.transport.send(envelope)?;
+        self.receive_envelope(envelope)
+    }
+
+    fn send_envelope_with_start_guard(
+        &mut self,
+        envelope: &EnvelopeV1,
+        grant_use: &mut Option<
+            crate::persistence::remote_private_file_grants::AuthorizedPrivateFileGrantUse,
+        >,
+        start_frame_written: &mut bool,
+    ) -> Result<EnvelopeV1, std::io::Error> {
+        self.transport.send(envelope)?;
+        *start_frame_written = grant_use.is_some();
+        drop(grant_use.take());
+        self.receive_envelope(envelope)
+    }
+
+    fn receive_envelope(&mut self, envelope: &EnvelopeV1) -> Result<EnvelopeV1, std::io::Error> {
         let response = self.transport.receive()?.ok_or_else(|| {
             std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
@@ -166,3 +268,7 @@ impl RemoteWorkerClient {
         Ok(response)
     }
 }
+
+#[cfg(test)]
+#[path = "exchange/tests.rs"]
+mod tests;
