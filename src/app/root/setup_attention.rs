@@ -27,15 +27,8 @@ impl KooladeApp {
         if self.setup_probe.is_some() {
             return;
         }
-        if let Some(issue) = super::super::setup_attention::detect_sandbox() {
-            self.setup_attention = Some(issue);
-            self.setup_retry_requested = false;
-            return;
-        }
         self.setup_retry_requested = retry;
-        self.setup_probe = Some(std::thread::spawn(
-            super::super::setup_attention::detect_provider,
-        ));
+        self.setup_probe = Some(std::thread::spawn(super::super::setup_attention::detect));
     }
 
     pub(super) fn poll_setup_attention(&mut self, ctx: &egui::Context) {
