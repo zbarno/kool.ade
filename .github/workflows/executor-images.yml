@@ -47,8 +47,8 @@ jobs:
             git cat-file -e "${BASE_SHA}^{commit}"
             git diff --name-only -z "$BASE_SHA" HEAD > "$RUNNER_TEMP/changed-paths"
             python3 scripts/image_lock_policy.py select "$RUNNER_TEMP/changed-paths" > "$RUNNER_TEMP/affected-image-families.json"
-            executor="$(jq -er '.executor' "$RUNNER_TEMP/affected-image-families.json")"
-            qa="$(jq -er '.qa' "$RUNNER_TEMP/affected-image-families.json")"
+            executor="$(jq -r '.executor' "$RUNNER_TEMP/affected-image-families.json")"
+            qa="$(jq -r '.qa' "$RUNNER_TEMP/affected-image-families.json")"
             if git diff --name-only "$BASE_SHA" HEAD -- containers/images.lock.json | grep -q .; then
               image_lock=true
             fi
@@ -66,8 +66,8 @@ jobs:
                 previous_lock="$RUNNER_TEMP/previous-images.lock.json"
                 git show "${compare_sha}:containers/images.lock.json" > "$previous_lock"
                 python3 scripts/image_lock_policy.py classify "$previous_lock" containers/images.lock.json > "$RUNNER_TEMP/image-lock-changes.json"
-                executor_lock_changed="$(jq -er '.executor_lock_changed' "$RUNNER_TEMP/image-lock-changes.json")"
-                qa_lock_changed="$(jq -er '.qa_lock_changed' "$RUNNER_TEMP/image-lock-changes.json")"
+                executor_lock_changed="$(jq -r '.executor_lock_changed' "$RUNNER_TEMP/image-lock-changes.json")"
+                qa_lock_changed="$(jq -r '.qa_lock_changed' "$RUNNER_TEMP/image-lock-changes.json")"
               else
                 # A newly introduced manifest must pass both promotion gates.
                 executor_lock_changed=true
