@@ -5,6 +5,7 @@ import json
 import os
 import socketserver
 import threading
+import time
 
 UDP_SEEN = threading.Event()
 
@@ -49,6 +50,34 @@ document.querySelector('#close-dialog').addEventListener('click',()=>document.qu
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/__cancel_started":
+            try:
+                with open("/tmp/qa-browser-cancel-started", "rb") as marker:
+                    started = marker.read() == b"started"
+            except OSError:
+                started = False
+            body = b'<p data-testid="status">started</p>' if started else b'<p data-testid="status">waiting</p>'
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path == "/?defect=slow-cancel":
+            with open("/tmp/qa-browser-cancel-started", "wb") as marker:
+                marker.write(b"started")
+            time.sleep(30)
+        if self.path == "/?defect=parallel":
+            marker = "/tmp/qa-browser-parallel-active"
+            with open(marker, "wb") as active:
+                active.write(b"active")
+            try:
+                time.sleep(10)
+            finally:
+                try:
+                    os.unlink(marker)
+                except FileNotFoundError:
+                    pass
         if self.path == "/__cache_ready":
             cache_root = os.environ.get("NPM_CONFIG_CACHE", "")
             try:

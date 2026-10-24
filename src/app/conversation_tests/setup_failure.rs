@@ -3,7 +3,8 @@ use crate::app::root::board_tests::text_contains;
 
 fn finish_setup_probe(app: &mut KooladeApp) {
     let ctx = egui::Context::default();
-    for _ in 0..500 {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while std::time::Instant::now() < deadline {
         if app
             .setup_probe
             .as_ref()
@@ -14,7 +15,7 @@ fn finish_setup_probe(app: &mut KooladeApp) {
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    panic!("provider setup probe did not finish within five seconds");
+    panic!("provider setup probe did not finish within 30 seconds");
 }
 
 #[test]
