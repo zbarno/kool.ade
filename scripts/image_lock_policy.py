@@ -51,6 +51,30 @@ def image_family_changes(old: dict, new: dict) -> dict[str, bool]:
     }
 
 
+def affected_builds(paths: list[str]) -> dict[str, bool]:
+    """Conservative recipe/dependency selection; ordinary Rust never rebuilds executors."""
+    both = {
+        "containers/base-images.lock.json",
+        "containers/images.lock.json",
+        ".github/workflows/executor-images.yml",
+    }
+    qa_files = {"Cargo.toml", "Cargo.lock", "build.rs", ".config/nextest.toml"}
+    executor = any(
+        path in both
+        or path.startswith(("containers/executor/", "containers/keys/", "scripts/"))
+        for path in paths
+    )
+    qa = any(
+        path in both or path in qa_files
+        or path.startswith((
+            "containers/runtime-qa/", "containers/keys/", "scripts/",
+            "src/", "tests/", "assets/",
+        ))
+        for path in paths
+    )
+    return {"executor": executor, "qa": qa}
+
+
 def _fingerprint(value: object) -> str:
     if value is None:
         return "<missing>"
@@ -98,9 +122,6 @@ def verify_candidate(
     for field in ("digest", "build_recipe_sha256", "sbom_sha256", "provenance_sha256"):
         if not isinstance(candidate.get(field), str) or not SHA256.fullmatch(candidate[field]):
             raise ValueError(f"{profile}/{platform}: invalid candidate {field}")
-    if approved.get("digest") != candidate.get("digest"):
-        # The detailed comparison below will include this field.
-        pass
     expected_ref = REPOSITORIES[profile] + "@" + candidate["digest"]
     if candidate.get("reference") != expected_ref:
         raise ValueError(f"{profile}/{platform}: candidate repository/reference does not match trusted digest")
@@ -118,6 +139,8 @@ def verify_candidate(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+    select = sub.add_parser("select", help="select build families from git diff --name-only -z")
+    select.add_argument("paths", type=Path)
     changed = sub.add_parser("classify", help="print changed family flags as JSON")
     changed.add_argument("old", type=Path)
     changed.add_argument("new", type=Path)
@@ -130,7 +153,13 @@ def main() -> int:
     verify.add_argument("--source-revision", required=True)
     args = parser.parse_args()
     try:
-        if args.command == "classify":
+        if args.command == "select":
+            raw = args.paths.read_bytes()
+            if raw and not raw.endswith(b"\0"):
+                raise ValueError("changed-path list must be NUL delimited")
+            paths = [value.decode("utf-8") for value in raw.split(b"\0") if value]
+            print(json.dumps(affected_builds(paths), sort_keys=True))
+        elif args.command == "classify":
             print(json.dumps(image_family_changes(read_json(args.old), read_json(args.new)), sort_keys=True))
         else:
             verify_candidate(
