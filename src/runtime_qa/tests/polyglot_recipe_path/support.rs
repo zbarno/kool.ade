@@ -199,7 +199,7 @@ pub(super) fn reviewer_prompt(
         output_schema_version: "ReviewVerdictV1".into(),
         payload: RolePayloadV1::Review {
             subject_revision: "synthetic-build".into(),
-            subject_hash: request.code_head_sha.clone(),
+            subject_hash: request.review_subject_sha256.clone(),
             author_run_id: request.author_run_id.clone(),
             reviewer_run_id: run.into(),
             author_session_id: Some(request.author_session_id.clone()),
