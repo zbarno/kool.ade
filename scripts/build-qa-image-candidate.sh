@@ -253,6 +253,19 @@ fi
 probe_id=""
 trap - EXIT
 
+# Candidate evidence must use the same registry-format image exporter as
+# trusted publication. Docker's local-load manifest digest is not necessarily
+# the registry manifest digest. Keep the locally loaded tag for smoke tests.
+if [[ "$build_mode" == candidate ]]; then
+  registry_metadata="$RUNNER_TEMP/qa-image-registry-candidate.json"
+  registry_tag="$repository:candidate-$GITHUB_SHA"
+  docker buildx build --platform "$platform" --network=none --provenance=false --sbom=false \
+    --build-arg SOURCE_DATE_EPOCH=0 --build-arg "BASE_IMAGE=$base_image" \
+    --metadata-file "$registry_metadata" \
+    --output "type=image,name=$registry_tag,push=false,rewrite-timestamp=true" "$build_context"
+  metadata_file="$registry_metadata"
+fi
+
 if [[ "$build_mode" == publish ]]; then
   publish_metadata="$RUNNER_TEMP/qa-image-publish.json"
   docker buildx build --platform "$platform" --network=none --provenance=false --sbom=false \
