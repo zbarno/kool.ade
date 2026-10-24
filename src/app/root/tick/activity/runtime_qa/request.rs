@@ -17,6 +17,7 @@ pub(super) use targets::{
 };
 mod task_spec;
 mod validated;
+pub(super) use artifact::artifact_bundle_sha256;
 use artifact::recipe_sha256;
 use validated::from_reviewed_task;
 
@@ -47,6 +48,14 @@ pub(super) struct PreparedRequest {
     pub readiness_probe: Option<crate::project_runtime::ReadinessProbeV1>,
     pub task_routes:
         std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
+}
+
+pub(super) struct PreparedCandidate<'a> {
+    pub(super) workspace: &'a crate::execution::contract::WorkspaceRef,
+    pub(super) target: &'a AppTargetV1,
+    pub(super) startup_recipe: &'a crate::project_runtime::ExecutionRecipeV1,
+    pub(super) readiness_probe: Option<&'a crate::project_runtime::ReadinessProbeV1>,
+    pub(super) artifact_paths: &'a [String],
 }
 
 pub(super) fn scenario_synthesis_evidence(

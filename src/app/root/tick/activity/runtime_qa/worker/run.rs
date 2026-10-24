@@ -10,33 +10,29 @@ use sha2::Digest as _;
 
 use super::super::request::PreparedRequest;
 use super::reviewer;
+#[cfg(test)]
+use crate::runtime_qa::QaValidatedTargetV1;
 use crate::{
     execution::{
         contract::{ExecutionModeV1, ResourceBudgetV1},
         docker::{
             images::{ImageLock, RuntimeProfile},
-            qa_container::{QaArtifactMount, snapshot_selected_files},
+            qa_container::{QaArtifactMount, QaContainerUpload, snapshot_selected_files},
         },
         session::ExecutionSession,
     },
     runtime_qa::{
-        QaPlatform, QaScenarioV1, QaTargetAuthorization, RuntimeQaOrchestrator, RuntimeQaStore,
+        QaPlatform, QaRunRequestV1, QaScenarioV1, QaTargetAuthorization, RuntimeQaOrchestrator,
+        RuntimeQaStore,
     },
 };
 
 mod execution;
 
-pub(super) fn run(
-    prepared: PreparedRequest,
-    scenarios: Vec<QaScenarioV1>,
-    harness: Box<dyn crate::harness::AiHarness>,
-    store_root: PathBuf,
-    cancelled: Arc<AtomicBool>,
-    mut docker_cancel: tokio::sync::watch::Receiver<bool>,
-    _progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
-) -> Result<(), String> {
+fn prepare_dispatch_artifacts(
+    prepared: &PreparedRequest,
+) -> Result<(QaRunRequestV1, QaContainerUpload), String> {
     let request = prepared.request.clone();
-    let store = RuntimeQaStore::new(store_root);
     let recipe_bytes = serde_json::to_vec(&prepared.startup_recipe)
         .map_err(|error| format!("approved QA startup recipe could not be encoded: {error}"))?;
     let recipe_sha = format!("{:x}", sha2::Sha256::digest(recipe_bytes));
@@ -55,13 +51,25 @@ pub(super) fn run(
     super::super::request::verify_prepared_candidate(
         &runtime,
         &manifest,
-        &prepared.workspace,
-        &prepared.target,
-        &prepared.startup_recipe,
-        prepared.readiness_probe.as_ref(),
-        &prepared.artifact_paths,
+        &request,
+        super::super::request::PreparedCandidate {
+            workspace: &prepared.workspace,
+            target: &prepared.target,
+            startup_recipe: &prepared.startup_recipe,
+            readiness_probe: prepared.readiness_probe.as_ref(),
+            artifact_paths: &prepared.artifact_paths,
+        },
     )?;
-    let (artifact_upload, artifact_sha) = snapshot_selected_files(
+    let artifact_bundle_sha = super::super::request::artifact_bundle_sha256(
+        &prepared.artifact_paths,
+        &prepared.build_receipt.artifact_hashes,
+    )?;
+    if artifact_bundle_sha != request.build_artifact_sha256 {
+        return Err(
+            "prepared Runtime QA request no longer matches its approved build receipt".into(),
+        );
+    }
+    let (artifact_upload, _snapshot_sha) = snapshot_selected_files(
         &prepared.task_clone,
         &prepared.artifact_paths,
         &prepared.build_receipt.artifact_hashes,
@@ -71,11 +79,46 @@ pub(super) fn run(
             .min(512 * 1024 * 1024) as usize,
     )
     .map_err(|error| error.message)?;
-    if artifact_sha != request.build_artifact_sha256 {
-        return Err(
-            "immutable task artifact snapshot no longer matches the approved build receipt".into(),
-        );
-    }
+    Ok((request, artifact_upload))
+}
+
+#[cfg(test)]
+pub(crate) struct RootlessDesktopDispatch {
+    pub request: QaRunRequestV1,
+    pub target: QaValidatedTargetV1,
+    pub artifact_upload: QaContainerUpload,
+    pub artifact_mount: QaArtifactMount,
+}
+
+#[cfg(test)]
+pub(crate) fn prepare_rootless_desktop_dispatch(
+    project: &crate::app::session::Project,
+    task: &crate::core::lifecycle::TaskRecord,
+) -> Result<RootlessDesktopDispatch, String> {
+    let prepared = super::super::request::prepare(project, task)?;
+    let (request, artifact_upload) = prepare_dispatch_artifacts(&prepared)?;
+    let target = execution::desktop_target(&prepared, &request)?;
+    let artifact_mount = QaArtifactMount::inspect(&prepared.task_clone, "/workspace")
+        .map_err(|error| error.message)?;
+    Ok(RootlessDesktopDispatch {
+        request,
+        target,
+        artifact_upload,
+        artifact_mount,
+    })
+}
+
+pub(super) fn run(
+    prepared: PreparedRequest,
+    scenarios: Vec<QaScenarioV1>,
+    harness: Box<dyn crate::harness::AiHarness>,
+    store_root: PathBuf,
+    cancelled: Arc<AtomicBool>,
+    mut docker_cancel: tokio::sync::watch::Receiver<bool>,
+    _progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
+) -> Result<(), String> {
+    let (request, artifact_upload) = prepare_dispatch_artifacts(&prepared)?;
+    let store = RuntimeQaStore::new(store_root);
     let profile = profile_for_platforms(&request.relevant_platforms)?;
     let resources = ResourceBudgetV1 {
         cpu_millis: 2_000,

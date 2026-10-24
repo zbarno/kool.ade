@@ -1,6 +1,6 @@
 use sha2::Digest as _;
 
-pub(super) fn artifact_bundle_sha256(
+pub(in crate::app::root::tick::activity::runtime_qa) fn artifact_bundle_sha256(
     paths: &[String],
     hashes: &std::collections::BTreeMap<String, String>,
 ) -> Result<String, String> {

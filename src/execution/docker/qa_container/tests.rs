@@ -241,6 +241,7 @@ fn desktop_driver_requires_the_exact_integrity_checked_dependency_cache_set() {
     );
 
     let mut tmpfs = HashMap::new();
+    tmpfs.insert("/workspace".into(), "rw,nosuid,nodev,noexec".into());
     let mut env = Vec::new();
     super::driver_cache::configure_desktop_cache_mounts(
         "desktop",
@@ -252,6 +253,16 @@ fn desktop_driver_requires_the_exact_integrity_checked_dependency_cache_set() {
     )
     .unwrap();
     assert!(tmpfs.contains_key("/home/executor/.npm"));
+    assert!(
+        tmpfs["/workspace"]
+            .split(',')
+            .any(|option| option == "exec")
+    );
+    assert!(
+        !tmpfs["/workspace"]
+            .split(',')
+            .any(|option| option == "noexec")
+    );
     assert!(env.contains(&"NPM_CONFIG_OFFLINE=true".into()));
 }
 

@@ -152,9 +152,10 @@ impl QaDriverContainerSpec<'_> {
             .iter()
             .any(|artifact| artifact.target() == "/workspace")
         {
+            let execution_option = workspace_execution_option(self.driver);
             tmpfs.insert(
                 "/workspace".into(),
-                format!("rw,nosuid,nodev,size={temporary_bytes},uid=10001,gid=10001,mode=0755"),
+                format!("rw,nosuid,nodev,{execution_option},size={temporary_bytes},uid=10001,gid=10001,mode=0755"),
             );
         }
         let mut env = vec!["HOME=/tmp".into(), "CI=true".into(), "LANG=C.UTF-8".into()];
@@ -226,6 +227,14 @@ impl QaDriverContainerSpec<'_> {
 
     fn validate(&self) -> Result<(), ExecutionError> {
         driver_spec::validate(self)
+    }
+}
+
+fn workspace_execution_option(driver: &str) -> &'static str {
+    if driver == "desktop" {
+        "exec"
+    } else {
+        "noexec"
     }
 }
 

@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(target_os = "linux")]
+#[path = "desktop_rootless/task_artifact.rs"]
+mod task_artifact;
+
 // Boundary: the app-owned Docker lifecycle must stage a bounded artifact and
 // request-bound package cache into rootless tmpfs, verify the cache is readable
 // with offline-only settings, run the pinned desktop interaction fixture, and
@@ -171,4 +175,6 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
         }) => {}
         other => panic!("owned QA container cleanup was not confirmed: {other:?}"),
     }
+    #[cfg(target_os = "linux")]
+    task_artifact::exercise(&docker, &selected, &lock, &resource_budget).await;
 }
