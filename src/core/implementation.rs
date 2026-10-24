@@ -94,6 +94,25 @@ pub(crate) fn validate_app_owned_task_clone(state: &Implementation) -> anyhow::R
     task_repository::validate_clone_path(state)
 }
 
+#[cfg(test)]
+pub(crate) fn authorize_resolved_task_source_for_test(
+    planning: &crate::artifacts::planning_store::PlanningStore,
+    state_root: &Path,
+    state_path: PathBuf,
+    metadata: &crate::artifacts::task_docs::TaskMetadata,
+    implementation: &Implementation,
+) -> anyhow::Result<Option<Arc<dyn crate::execution::session::AuthorizationGenerationVerifier>>> {
+    self_improvement::authorize_resolved_task_source(
+        planning,
+        state_root,
+        state_path,
+        None,
+        Some(metadata),
+        implementation,
+        None,
+    )
+}
+
 use crate::harness::{AiHarness, LiveProgress, PlanningRequest};
 use serde::{Deserialize, Serialize};
 use std::{
