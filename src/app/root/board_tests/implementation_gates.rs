@@ -212,7 +212,7 @@ fn typed_start_action_without_tasks_explains_the_live_blocker() {
 }
 
 #[test]
-fn parallel_cards_and_targeted_cancel_preserve_other_workers() {
+fn parallel_cards_and_targeted_pause_preserves_other_workers_and_completion() {
     let _shield = crate::core::gitops::test_support::shield("parallel-cancel-one-task");
     let mut app = fixture();
     let root = std::env::temp_dir().join(format!(
@@ -230,7 +230,9 @@ fn parallel_cards_and_targeted_cancel_preserve_other_workers() {
     );
     let first = ".koolade-packet/planning/tasks/fixture/001-task.md";
     let second = ".koolade-packet/planning/tasks/fixture/002-task.md";
+    let mut completed_record = None;
     if let Screen::Connected(p) = &mut app.screen {
+        completed_record = p.implementation_states.values().next().cloned();
         p.state.repo_root = root.clone();
         p.implementation_states.remove(second);
         p.queue.max_parallel = 2;
@@ -248,19 +250,34 @@ fn parallel_cards_and_targeted_cancel_preserve_other_workers() {
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "In progress · 2").is_some());
-    app.cancel_task_for(first);
+    app.pause_task_for(first);
     if let Screen::Connected(p) = &app.screen {
         assert!(
             p.queue.running,
-            "cancelling one task must leave the queue running"
+            "pausing one task must leave the queue running"
         );
         assert!(p.active_implementations[first].cancellation_requested());
         assert!(!p.active_implementations[second].cancellation_requested());
-        assert!(
-            p.cancelled_work
-                .contains(&crate::persistence::cancelled_work::task_id(
-                    &p.task_documents[0]
-                ))
+        assert!(!p.task_cancelled(first), "pausing remains resumable");
+        assert!(p.queue.task_paused(first));
+    }
+    if let Screen::Connected(p) = &mut app.screen {
+        let mut completed = completed_record.expect("fixture includes a saved implementation");
+        completed.ticket = first.into();
+        completed.ticket_text = "# First task\n".into();
+        completed.status = ImplementationStatus::Completed;
+        p.active_implementations.insert(
+            first.into(),
+            crate::core::implementation::Controller::completed_fixture(completed),
+        );
+    }
+    crate::app::root::tick::poll_implementations_for_test(&mut app);
+    if let Screen::Connected(p) = &app.screen {
+        assert!(!p.queue.task_paused(first));
+        assert!(!p.queue.blocked.contains_key(first));
+        assert_eq!(
+            p.implementation_states[first].status,
+            ImplementationStatus::Completed
         );
     }
     drop(app);

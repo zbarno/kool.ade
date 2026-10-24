@@ -31,6 +31,30 @@ impl Controller {
         }
     }
     #[cfg(test)]
+    pub(crate) fn completed_fixture(result: Implementation) -> Self {
+        let (tx, rx) = mpsc::channel();
+        tx.send(Event::Done(Box::new(Ok(result))))
+            .expect("fixture controller receiver is connected");
+        Self {
+            _keep_alive: Some(tx),
+            rx,
+            cancel: Arc::new(AtomicBool::new(false)),
+            auto_publish_gate: Arc::new(AtomicBool::new(false)),
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn failed_fixture(error: Failure) -> Self {
+        let (tx, rx) = mpsc::channel();
+        tx.send(Event::Done(Box::new(Err(error))))
+            .expect("fixture controller receiver is connected");
+        Self {
+            _keep_alive: Some(tx),
+            rx,
+            cancel: Arc::new(AtomicBool::new(false)),
+            auto_publish_gate: Arc::new(AtomicBool::new(false)),
+        }
+    }
+    #[cfg(test)]
     pub(crate) fn cancellation_requested(&self) -> bool {
         self.cancel.load(Ordering::SeqCst)
     }

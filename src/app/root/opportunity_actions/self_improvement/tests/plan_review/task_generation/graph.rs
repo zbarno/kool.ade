@@ -35,17 +35,22 @@ pub(super) fn decomposer_graph(app: &crate::app::root::KooladeApp) -> String {
         .find(|repository| repository.id == "root")
         .expect("fixture has one root repository");
     assert_eq!(repository.id, "root");
-    let output = std::process::Command::new("git")
-        .args([
-            "rev-parse",
-            "--verify",
-            &format!("refs/heads/{}^{{commit}}", branches.source),
-        ])
-        .current_dir(&state.repo_root)
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    let source_sha = String::from_utf8(output.stdout).unwrap().trim().to_owned();
+    let run = crate::core::self_improvement::SelfImprovementStore::new(&state.planning_store)
+        .run_for_feature(&identity.uid)
+        .unwrap()
+        .expect("pursued feature retains its approved self-improvement run");
+    assert!(
+        run.source_ref
+            .as_deref()
+            .is_none_or(|source_ref| source_ref == branches.source),
+        "selected source branch remains consistent with any persisted Evolve target"
+    );
+    let workspace_uid = state.planning_store.project_id.hyphenated().to_string();
+    assert_eq!(
+        crate::core::project_repos::stable_uid(&workspace_uid, "repository", &repository.id),
+        run.target_repository_uid
+    );
+    let source_sha = run.source_sha;
 
     let tasks = snapshot
         .requirements

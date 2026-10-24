@@ -50,6 +50,7 @@ use support::decomposer_graph;
 pub(crate) use support::setup;
 pub(crate) use support::{
     assert_current_test_plan_confirmation, record_test_plan_author, record_test_plan_review,
+    remove_fixture_root,
 };
 
 fn finish(app: &mut KooladeApp) -> bool {
