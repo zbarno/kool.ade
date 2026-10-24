@@ -211,5 +211,59 @@ fn expired_pending_index_state_keeps_request_id_fenced() {
     );
 }
 
+/// The global request fence must retain the completion-based replay window
+/// even when reservation is older than that window. A filesystem-backed retry
+/// proves compaction preserves the saved response as well as rejecting reuse;
+/// no external services are needed and setup is low cost.
+#[test]
+fn completion_retention_survives_index_compaction_and_replays_response() {
+    let root = tempfile::tempdir().unwrap();
+    let journal = RequestJournal::new(root.path().to_owned());
+    let original = request("00000000-0000-4000-8000-000000000001");
+    let response = response(&original);
+    let hash = fingerprint(&original).unwrap();
+
+    let (lock, mut log, _) = journal.open_locked(&original.execution_id).unwrap();
+    append_entry(
+        &mut log,
+        JournalEntry {
+            request_id: original.request_id.clone(),
+            request_sha256: hash.clone(),
+            created_unix_ms: 1,
+            state: EntryState::Pending,
+        },
+    )
+    .unwrap();
+    FileExt::unlock(&lock).unwrap();
+    let (lock, mut index, _) = journal.open_index_locked().unwrap();
+    append_index(
+        &mut index,
+        RequestIndexEntry {
+            request_id: original.request_id.clone(),
+            execution_id: original.execution_id.clone(),
+            request_sha256: hash,
+            created_unix_ms: 1,
+            state: RequestIndexState::Pending,
+        },
+    )
+    .unwrap();
+    FileExt::unlock(&lock).unwrap();
+    journal.complete(&original, &response).unwrap();
+
+    let next = request("00000000-0000-4000-8000-000000000003");
+    assert_eq!(journal.reserve(&next).unwrap(), Lookup::New);
+    assert_eq!(
+        journal.reserve(&original).unwrap(),
+        Lookup::Replay(response)
+    );
+
+    let mut reused = original;
+    reused.execution_id = "00000000-0000-4000-8000-000000000004".into();
+    assert_eq!(
+        journal.reserve(&reused).unwrap_err().kind(),
+        io::ErrorKind::InvalidData
+    );
+}
+
 #[path = "index/migration.rs"]
 mod migration;
