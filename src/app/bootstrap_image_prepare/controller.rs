@@ -151,7 +151,7 @@ impl Controller {
         });
     }
 
-    fn poll(&mut self, ctx: &egui::Context) -> bool {
+    pub(crate) fn poll(&mut self, ctx: &egui::Context) -> bool {
         let Some(receiver) = &self.receiver else {
             return false;
         };
@@ -194,5 +194,18 @@ impl Controller {
                 false
             }
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn queue_success_for_test(&mut self) {
+        let (sender, receiver) = mpsc::channel();
+        self.receiver = Some(receiver);
+        self.work_kind = Some(WorkKind::Prepare);
+        sender
+            .send(Completion::Prepared {
+                gate: ApprovalGate::new(),
+                result: Ok(()),
+            })
+            .unwrap();
     }
 }

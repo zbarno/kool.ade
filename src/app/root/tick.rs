@@ -5,6 +5,8 @@ mod clone_job;
 mod display;
 mod implementations;
 mod pull_requests;
+#[cfg(test)]
+mod tests;
 mod turns;
 
 #[cfg(test)]
@@ -17,6 +19,9 @@ impl KooladeApp {
         self.surface_time_ledger_errors();
         self.poll_attention(ctx);
         self.poll_setup_attention(ctx);
+        if self.setup_image_preparation.poll(ctx) {
+            self.refresh_setup_attention(true);
+        }
         self.queue_manager_setup_update();
         self.poll_clone_job();
         self.poll_planning_sync(ctx);
