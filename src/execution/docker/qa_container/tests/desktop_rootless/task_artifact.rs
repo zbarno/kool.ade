@@ -1,91 +1,70 @@
 use std::{os::unix::fs::PermissionsExt, path::Path, time::Duration};
 
-use sha2::Digest;
-
 use crate::{
     execution::{
         contract::ResourceBudgetV1,
         docker::{
             images::{ImageLock, SelectedImage},
-            qa_container::{QaArtifactMount, QaContainerUpload, QaDriverContainerSpec},
+            qa_container::{QaContainerUpload, QaDriverContainerSpec},
         },
     },
-    project_runtime::{ExecutionRecipeV1, NetworkRequirement, RecipeSource},
-    runtime_qa::{QaDriverActionV1, QaScenarioStepV1, QaScenarioV1, QaValidatedTargetV1},
+    runtime_qa::{QaDriverActionV1, QaScenarioStepV1, QaScenarioV1},
 };
 
-// Production boundary: a separately built, approved executable is snapshotted
-// into the task workspace, launched by the app-owned rootless desktop QA
-// driver, and exercised through X11 with evidence returned to the app. Unit
-// tests cannot prove the artifact upload, target process ownership, Xvfb
-// interaction, response capture, and container cleanup work together.
-// External dependency: rootless Docker with the candidate image. Setup cost:
-// one fixture binary build and one short desktop run after the image build.
+// Production boundary: request preparation consumes persisted reviewed task,
+// target approval, Build/Start receipts, and artifact hashes before the
+// app-owned rootless desktop driver uploads and exercises the selected bytes.
+// Unit tests cannot prove Docker upload, target process ownership, Xvfb input,
+// evidence capture, and container cleanup work together. External dependency:
+// rootless Docker with the candidate image. Setup cost: one fixture binary
+// build and one short desktop run after the image build.
 pub(super) async fn exercise(
     docker: &bollard::Docker,
     image: &SelectedImage,
     lock: &ImageLock,
     resources: &ResourceBudgetV1,
 ) {
-    let fixture_path = std::env::var("KOOLADE_QA_DESKTOP_FIXTURE_EXECUTABLE")
-        .expect("CI provides the separately built desktop fixture executable");
+    let fixture_path = match std::env::var_os("KOOLADE_QA_DESKTOP_FIXTURE_EXECUTABLE") {
+        Some(path) => path,
+        None if std::env::var_os("KOOLADE_QA_REQUIRE_TASK_ARTIFACT").is_some() => {
+            panic!("the rootless candidate job requires its separately built desktop fixture")
+        }
+        None => return,
+    };
     let fixture_path = Path::new(&fixture_path);
     let metadata = std::fs::symlink_metadata(fixture_path).unwrap();
     assert!(metadata.is_file() && !metadata.file_type().is_symlink());
     assert!(metadata.permissions().mode() & 0o111 != 0);
 
-    let task = tempfile::tempdir().unwrap();
-    let executable = task.path().join("approved-desktop-app");
-    std::fs::copy(fixture_path, &executable).unwrap();
-    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o555)).unwrap();
-    let mount = QaArtifactMount::inspect(task.path(), "/workspace").unwrap();
-    let (artifact_upload, artifact_sha256) = mount
-        .snapshot_upload(64 * 1024 * 1024, None)
-        .expect("fixture app artifact snapshot");
-
-    let startup_recipe = ExecutionRecipeV1 {
-        schema_version: 1,
-        recipe_id: "approved-desktop-fixture-start".into(),
-        source: RecipeSource::UserApproved,
-        working_directory_relative: ".".into(),
-        executable_id: "approved-desktop-app".into(),
-        argv: Vec::new(),
-        allowed_env_keys: Vec::new(),
-        allowed_output_paths: Vec::new(),
-        timeout_seconds: 45,
-        expected_exit_codes: vec![0],
-        expected_artifacts: Vec::new(),
-        cache_scope: None,
-        prerequisite_tool_ids: Vec::new(),
-        network_requirement: NetworkRequirement::Denied,
-        evidence_refs: vec!["user-approval:rootless-desktop-fixture".into()],
-    };
-    startup_recipe.validate().unwrap();
-    let mut request = super::super::request();
-    request.relevant_platforms = vec![crate::runtime_qa::QaPlatform::LinuxDesktop];
-    request.build_artifact_sha256 = artifact_sha256;
-    request.startup_recipe_ref = startup_recipe.recipe_id.clone();
-    request.startup_recipe_sha256 = format!(
-        "{:x}",
-        sha2::Sha256::digest(serde_json::to_vec(&startup_recipe).unwrap())
+    let fixture =
+        crate::app::root::test_runtime_qa::DesktopArtifactFixture::from_executable(fixture_path);
+    let dispatch: crate::app::root::test_runtime_qa::RootlessDesktopDispatch =
+        crate::app::root::test_runtime_qa::prepare_rootless_desktop_dispatch(
+            &fixture.project,
+            &fixture.task,
+        )
+        .expect("production reviewed task request and approved artifact dispatch");
+    assert_eq!(
+        dispatch.request.relevant_platforms,
+        [crate::runtime_qa::QaPlatform::LinuxDesktop]
     );
-    request.driver_profile_version = "linux-x11-driver/v1".into();
-    request.bounded_limits.timeout_seconds = 45;
-    request.bounded_limits.max_screenshots = 2;
-    request.bounded_limits.max_actions_per_scenario = 8;
-    request.bounded_limits.max_total_actions = 8;
-    request.validate().unwrap();
-
-    let target = QaValidatedTargetV1 {
-        task_uid: request.parent_task_uid.clone(),
-        build_artifact_sha256: request.build_artifact_sha256.clone(),
-        startup_recipe_ref: request.startup_recipe_ref.clone(),
-        startup_recipe_sha256: request.startup_recipe_sha256.clone(),
-        executable: "/workspace/approved-desktop-app".into(),
-        working_directory: "/workspace".into(),
-        arguments: Vec::new(),
-    };
-    target.validate_for(&request).unwrap();
+    assert_eq!(
+        dispatch.request.target_id.as_deref(),
+        Some("qa-desktop-fixture-target")
+    );
+    assert_eq!(
+        dispatch.request.code_head_sha,
+        fixture.task.reviewed_code_head_sha.as_deref().unwrap()
+    );
+    assert_eq!(
+        dispatch.target.executable,
+        "/workspace/dist/approved-desktop-app"
+    );
+    assert_eq!(dispatch.target.arguments, ["--qa-fixture".to_owned()]);
+    let request = dispatch.request;
+    let target = dispatch.target;
+    let artifact_upload = dispatch.artifact_upload;
+    let mount = dispatch.artifact_mount;
 
     let scenario = QaScenarioV1 {
         schema_version: 1,
