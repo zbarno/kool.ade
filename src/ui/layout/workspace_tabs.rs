@@ -57,7 +57,18 @@ pub(super) fn paint(
                                         .iter()
                                         .filter(|w| !board.is_archived(&w.key))
                                         .count()
-                                    + usize::from(board.setup_attention.is_some())
+                                    + board
+                                        .setup_tasks
+                                        .iter()
+                                        .filter(|task| {
+                                            task.state
+                                                != crate::persistence::setup_tasks::State::Verified
+                                        })
+                                        .count()
+                                    + usize::from(
+                                        board.setup_tasks.is_empty()
+                                            && board.setup_attention.is_some()
+                                    )
                             ),
                             tasks_tab,
                         ))
