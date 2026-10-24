@@ -7,7 +7,7 @@ use std::time::Duration;
 
 const CANCEL_MARKER_WAIT: Duration = Duration::from_secs(60);
 const MARKER_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
-const MARKER_PROBE: &str = "fetch('http://qa-task:4173/__cancel_started',{signal:AbortSignal.timeout(1000)}).then(async response=>process.stdout.write((await response.text()).trim())).catch(()=>process.exit(2))";
+const MARKER_PROBE: &str = "fetch('http://qa-task:4173/__cancel_started',{signal:AbortSignal.timeout(1000)}).then(async response=>{if(!response.ok){process.exitCode=3;return}const body=await response.text();process.stdout.write(body.includes('>started<')?'started':'waiting')}).catch(()=>{process.exitCode=2})";
 
 pub(super) async fn wait_for_cancel_marker(
     docker: &bollard::Docker,

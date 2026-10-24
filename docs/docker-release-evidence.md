@@ -4,11 +4,40 @@ This is a dated evidence snapshot for the Docker release gate in issue #144.
 It records what the repository and hosted checks prove, and keeps unsupported
 or unverified claims visible. It does not approve a release.
 
-Reviewed 2026-10-24 at 09:13 UTC against main at
-56b495d222877a4be599507bb854a8ece0a54d0b.
+Reviewed 2026-10-24 at 19:05 UTC against main at
+7b9e518ff52bf827b9d0e32bd744269b06ecaf08.
 Refresh this file against the exact release candidate before making a release
 decision. A pull request check is evidence for that pull request's head only;
 it is not evidence that the same change is on `main`.
+
+## Current-main snapshot (2026-10-24)
+
+Main `7b9e518` includes the image-lock correction from merged PR #326, the
+recovery fix from PR #329, and cancellation coverage from PR #360. Exact-main
+[quality run #40118483189](https://github.com/zbarno/kool.ade/actions/runs/40118483189)
+passed format, Nextest, documentation tests, Clippy, rootless Docker/SSH,
+daemon recovery, queue concurrency, Windows process-tree, and Docker-only source
+checks. [CodeQL run #40118482961](https://github.com/zbarno/kool.ade/actions/runs/40118482961)
+and [trusted-image run #40118483190](https://github.com/zbarno/kool.ade/actions/runs/40118483190)
+also passed on that commit.
+
+The trusted-image run passed candidate builds and app-owned candidate smoke for
+browser and desktop QA. As a push, it did not run reviewed-digest equality or
+PR-only published-image smoke. Lock detection reported
+`EXECUTOR_LOCK_CHANGED=false` and `QA_LOCK_CHANGED=false`, so QA publication
+and attestations were skipped. It does not establish current candidate-to-lock
+equality or post-merge provenance.
+
+PR #360 merged as `7b9e518`. Its pre-merge trusted-image run
+[#40115844693](https://github.com/zbarno/kool.ade/actions/runs/40115844693)
+passed QA candidate builds, app-owned candidate smoke, and published-image
+smoke against the default-branch lock. The two lock-change flags were false,
+so exact candidate-to-lock equality was deferred. PRs #330 and #331 are also
+merged. The release gate remains blocked on
+separate-host acceptance in #141, real provider role parity in #146, real
+provider behavior in #156 (mock-only checks are currently authorized), legacy
+migration and resume evidence, accurate platform support, and independent
+security sign-off.
 
 PR #318's isolated registry HOME fix is merged at `1b3edc5d`. PR #317's
 telemetry assertions and deterministic queue fixture are merged at
@@ -55,7 +84,7 @@ Those hashes match each image and provenance record. The immutable image
 digests are unchanged from the previous attested run. Both QA runtime profiles
 remain disabled.
 
-On current main 56b495d2, exact-main quality run [#40079228139](https://github.com/zbarno/kool.ade/actions/runs/40079228139), [CodeQL run #40079228226](https://github.com/zbarno/kool.ade/actions/runs/40079228226), and [trusted-image run #40079228143](https://github.com/zbarno/kool.ade/actions/runs/40079228143) passed. The quality run passed format, Nextest, documentation tests, Clippy, rootless Docker/SSH, daemon recovery, queue E2E, and Docker-only source checks.
+At the earlier main snapshot `56b495d2`, quality run [#40079228139](https://github.com/zbarno/kool.ade/actions/runs/40079228139), [CodeQL run #40079228226](https://github.com/zbarno/kool.ade/actions/runs/40079228226), and trusted-image run [#40079228143](https://github.com/zbarno/kool.ade/actions/runs/40079228143) passed. The quality run passed format, Nextest, documentation tests, Clippy, rootless Docker/SSH, daemon recovery, queue E2E, and Docker-only source checks.
 
 The trusted-image run built and published both QA profiles, passed app-owned browser and desktop smoke, attested provenance and SBOMs, and retained evidence. Browser digest/recipe are sha256:a247709202b9af7244392e0fa24268bfb9279afed820d69a18a7261a0ea8c46e / sha256:5aba6bef516af941bfa53366080f28e27a02b11fbeb3508b32e7935afef681d9; desktop digest/recipe are sha256:541efb7b83f0c55f81533058fe02a7b68e1136eeb2324d21e968e9e93eb30fb6 / sha256:86e4d592426dc0877a1ce850ab152c46a0a7045da3cb84653f41d4805f4a5406. Both pairs match the checked-in image lock. The retained browser SBOM is 15,451,613 bytes with SHA-256 d61061cb9d1b948330898da5ffcfb58a4d127fb2ec63ccfdc12b8a8a896ebb19; the desktop SBOM is 15,443,084 bytes with SHA-256 608d3c5f7b9bba658d8362fe733d45ea73b2d86c80b04389beaf275f3ca259c7. The image and provenance records bind those hashes to the exact digests. The push workflow skips its PR-only reviewed-digest verifier; these candidate-to-lock and SBOM comparisons were checked against the retained artifacts. Both QA runtime profiles remain disabled.
 [PR #317 quality run #39998474373](https://github.com/zbarno/kool.ade/actions/runs/39998474373)
@@ -84,7 +113,7 @@ Status meanings:
 - **Not verified**: no qualifying runtime or review evidence is recorded.
 - **Pending**: the cited check is still running or review is outstanding.
 
-## Issue status reconciliation (2026-10-24)
+## Earlier issue status reconciliation (2026-10-24)
 
 #143 remains closed for the implemented legacy sandbox removal/source cutover,
 but the original legacy history/dirty-clone/interrupted-attempt migration
@@ -105,15 +134,19 @@ latency. The Docker-only source assertion passed in the exact-main quality
 run. These updates do not retroactively change older statuses or tested
 commits in the dated table.
 
-On 2026-10-24, #141, #144, and #156 remain open; #143 is closed for the implemented Docker-only cutover. PR #330 has passing hosted checks and its candidate run #40075640505 passed the exact-lock verifier on PR head c85c7709, but GitHub now reports a merge conflict against current main 56b495d2 and requires independent approval. Its candidate evidence is specific to that older PR head. The current-main image evidence above matches the current lock; release acceptance remains blocked.
+At the prior main snapshot `193b8cdc`, #141, #144, and #156 remained open;
+#143 was closed for the implemented Docker-only cutover. PR #326's image-lock
+correction and PRs #330 and #331 were merged by that snapshot. PR #360 later
+merged as current main `7b9e518`; see the current-main evidence above. The
+release acceptance items remain open.
 
 ## Evidence matrix
 
 | Gate | Status | Evidence | Remaining proof |
 | --- | --- | --- | --- |
-| Pinned Rust gates and required quality aggregation | Partial | Exact-main [quality run #40079228139](https://github.com/zbarno/kool.ade/actions/runs/40079228139) at 56b495d2 passed format, Nextest, docs, Clippy, rootless Docker/SSH coverage, daemon recovery, queue E2E, and Docker-only assertions. Earlier main run #40009090009 failed only the queue E2E before PR #317 corrected the fixture; the corrected test passes in this current run. | Keep #312 open until measured latency is recorded; retain exact-current-main evidence for the release candidate. |
-| Native Linux rootless Docker integration | Partial | Exact-main [quality run #40079228139](https://github.com/zbarno/kool.ade/actions/runs/40079228139) on 56b495d2 passed rootless Docker/SSH coverage and daemon recovery; PR #304 and #306 also cover rootless container mode. See [ci.yml](../.github/workflows/ci.yml). | These fixtures run on one host. Complete the independent two-Linux-host acceptance under #141. |
-| Authenticated SSH worker round trip | Partial | Exact-main [quality run #40079228139](https://github.com/zbarno/kool.ade/actions/runs/40079228139) passed rootless Docker/SSH coverage, including loopback SSH staging and result exchange. | This fixture runs on one host. It does not prove behavior across two independent Linux hosts. |
+| Pinned Rust gates and required quality aggregation | Partial | Exact-main [quality run #40118483189](https://github.com/zbarno/kool.ade/actions/runs/40118483189) at `7b9e518` passed format, Nextest, docs, Clippy, rootless Docker/SSH coverage, daemon recovery, queue E2E, and Docker-only assertions. | Keep #312 open until measured latency is recorded; retain exact-current-main evidence for the release candidate. |
+| Native Linux rootless Docker integration | Partial | Exact-main [quality run #40118483189](https://github.com/zbarno/kool.ade/actions/runs/40118483189) on `7b9e518` passed rootless Docker/SSH coverage and daemon recovery; PRs #304 and #306 also cover rootless container mode. See [ci.yml](../.github/workflows/ci.yml). | These fixtures run on one host. Complete the independent two-Linux-host acceptance under #141. |
+| Authenticated SSH worker round trip | Partial | Exact-main [quality run #40118483189](https://github.com/zbarno/kool.ade/actions/runs/40118483189) passed rootless Docker/SSH coverage, including loopback SSH staging and result exchange. | This fixture runs on one host. It does not prove behavior across two independent Linux hosts. |
 | Two controllers sharing a worker and rejecting revoked results | Partial | [`concurrent_ssh_controllers_share_worker_and_reject_revoked_result`](../src/harness/resource_bridge/tests/end_to_end/remote/two_controllers.rs) passed in PR #306's hosted run. | Full same-task/different-task, takeover, cancellation, resource contention, and independent acceptance review remain tracked by #141. |
 | Two trusted workers running separate tasks concurrently | Partial | [PR #307](https://github.com/zbarno/kool.ade/pull/307) adds the rootless Docker and SSH test at head `c2763fa589176f1b511e8597b2a813ad77c71c40`. [Attempt 1](https://github.com/zbarno/kool.ade/actions/runs/39907835028/attempts/1) timed out in the existing board queue test after 181 seconds amid repeated harness-recovery and provider-rejection errors. [Attempt 2](https://github.com/zbarno/kool.ade/actions/runs/39907835028/attempts/2) passed the two-worker test and Docker daemon restart recovery E2E. | This verifies the controlled same-host fixture on the PR head. Add the final-head and release-candidate run, plus the required real two-Linux-host evidence. |
 | Confirmed worker-loss retry and ownership fencing | Partial | [PR #278](https://github.com/zbarno/kool.ade/pull/278) is merged. | The broader multi-controller recovery and authorization acceptance in #141 is still open. |
@@ -121,9 +154,9 @@ On 2026-10-24, #141, #144, and #156 remain open; #143 is closed for the implemen
 | Six-provider fake launch and role/mode authority matrix | Partial | [PR #192](https://github.com/zbarno/kool.ade/pull/192) and [`harness-clean-launch-matrix.md`](harness-clean-launch-matrix.md) cover fake CLIs, every execution mode, and role authority through the application-owned bridge. | This proves application behavior against fakes only; it does not prove vendor runtime semantics. |
 | Docker-backed provider role parity and host code-mode behavior ([#146](https://github.com/zbarno/kool.ade/issues/146)) | Not verified | [PR #302](https://github.com/zbarno/kool.ade/pull/302) verifies mock registrations and explicitly says it does not satisfy #146. #146 was reopened on 2026-10-23 because its original real-provider Docker MCP matrix remains unverified. | Verify eligible roles across all six actual provider CLIs, including host code-mode denial and app-owned Docker MCP. Keep this release prerequisite visible until the matrix has passing evidence. |
 | Real clean-launch semantics ([#156](https://github.com/zbarno/kool.ade/issues/156)) | Not verified | [`harness-clean-launch-matrix.md`](harness-clean-launch-matrix.md) documents the fake-provider gate and provider-specific unknowns. No live provider prompt was run for this snapshot. | Verify supported real CLI authentication, ambient instruction/plugin suppression, model selection, session lifecycle, and provider-side bridge behavior before closing #156. |
-| Legacy runtime source assertion | Verified | PR #297 is merged; #143 is closed. The Docker-only source assertion passed on current main 56b495d2 in [quality run #40079228139](https://github.com/zbarno/kool.ade/actions/runs/40079228139). | Preserve this check on future reviewed main commits. It does not satisfy the wider release matrix in #144. |
+| Legacy runtime source assertion | Verified | PR #297 is merged; #143 is closed. The Docker-only source assertion passed on current main `7b9e518` in [quality run #40118483189](https://github.com/zbarno/kool.ade/actions/runs/40118483189). | Preserve this check on future reviewed main commits. It does not satisfy the wider release matrix in #144. |
 | Filesystem and staging traversal negatives | Partial | The repository has focused rejection tests for symlinked `.git`, escaping source links, and unsafe returned archive entries, for example [`staging tests`](../src/execution/docker/sandbox/staging/tests.rs) and [`remote workspace scan tests`](../src/execution/remote/workspace/scan/tests.rs). | Map each required attack from #144 to an actual Docker-backed denial test and cite its passing hosted result. |
-| Docker image build, candidate digest, and attestation | Verified | Trusted-main [run #40079228143](https://github.com/zbarno/kool.ade/actions/runs/40079228143) on 56b495d2 passed both QA image builds, publication, app-owned smoke, provenance/SBOM attestations, and evidence retention. Browser digest/recipe a2477092… / 5aba6bef… and desktop digest/recipe 541efb7b… / 86e4d592… match the lock. Retained browser and desktop SBOMs are 15,451,613 and 15,443,084 bytes; their SHA-256 hashes match the image and provenance records. Both runtime_enabled values remain false. | Keep both QA runtimes disabled until the wider release gate passes. |
+| Docker image build, candidate digest, and attestation | Partial | On current main `7b9e518`, [trusted-image run #40118483190](https://github.com/zbarno/kool.ade/actions/runs/40118483190) passed QA candidate builds and app-owned candidate smoke. The push skipped reviewed-digest equality and published-image smoke; `EXECUTOR_LOCK_CHANGED=false` and `QA_LOCK_CHANGED=false` skipped publication and attestations. PR #360's [trusted-image run #40115844693](https://github.com/zbarno/kool.ade/actions/runs/40115844693) passed published-image smoke against the default-branch lock, but deferred exact candidate-to-lock equality. Earlier retained image/SBOM evidence at `56b495d2` remains specific to that older candidate. | Run reviewed-digest equality, published-image smoke, publication, app-owned smoke, and provenance/SBOM attestations on the exact post-merge release candidate. Keep both QA runtimes disabled until the wider release gate passes. |
 | macOS and Windows Docker Desktop support | Not verified | [`docker-security-matrix.md`](docker-security-matrix.md) labels both platforms not production-verified. | Keep them marked experimental or unsupported until their native app, path/staging, SSH, and isolation smoke steps have sign-off. |
 | Legacy state migration and resume preservation | Not verified | The cutover items remain unchecked in [`docker-cutover-checklist.md`](docker-cutover-checklist.md). | Run migration and recovery against representative legacy histories, dirty clones, interrupted executions, and retained snapshots. |
 | Independent security and release review | Not verified | No release sign-off is recorded. | Complete independent review and resolve blocking findings against the exact candidate. |
