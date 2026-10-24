@@ -3,6 +3,20 @@ use crate::app::dialogs;
 
 mod pages;
 
+/// Start the same bounded, app-owned image preparation + isolated smoke job
+/// used by Execution Environments. Never expose an arbitrary image reference
+/// or a native shell command to the setup assistant.
+pub(super) fn start_setup_image_smoke(ctx: &egui::Context) -> Result<(), String> {
+    pages::execution_environments::start_setup_image_smoke(ctx)
+}
+
+pub(super) fn poll_setup_image_smoke(
+    ctx: &egui::Context,
+) -> (bool, Option<String>, bool) {
+    pages::execution_environments::poll_setup_image_smoke(ctx)
+}
+
+
 pub(super) fn paint(
     ui: &mut egui::Ui,
     s: &mut dyn Surface,
