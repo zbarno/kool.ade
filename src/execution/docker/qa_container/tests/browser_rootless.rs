@@ -18,8 +18,12 @@ use crate::{
 use sha2::Digest as _;
 use std::{collections::BTreeMap, time::Duration};
 
+#[path = "browser_rootless/cancellation.rs"]
+mod cancellation;
 #[path = "browser_rootless/cleanup.rs"]
 mod cleanup;
+#[path = "browser_rootless/concurrency.rs"]
+mod concurrency;
 #[path = "browser_rootless/defects.rs"]
 mod defects;
 #[path = "browser_rootless/lifecycle.rs"]
