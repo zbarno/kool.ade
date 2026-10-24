@@ -2,6 +2,8 @@
 mod harness;
 #[path = "app_controller/revocation_retry.rs"]
 mod revocation_retry;
+#[path = "app_controller/source_drift.rs"]
+mod source_drift;
 use crate::{
     app::root::Screen, core::self_improvement::SelfImprovementStore,
     execution::contract::is_valid_sha,
@@ -33,6 +35,17 @@ fn app_controller_dispatches_approved_task_to_isolated_docker_and_revokes_it_on_
     let gh = fake_gh(temp.path());
 
     let mut ready = super::setup::ready_task(&gh);
+    let approved_source_sha = ready.run.source_sha.clone();
+    let source_ref = ready
+        .run
+        .source_ref
+        .as_deref()
+        .expect("approved Evolve run records its source branch");
+    let advanced_head = source_drift::advance_branch(&ready.repo_root, source_ref);
+    assert_ne!(
+        advanced_head, approved_source_sha,
+        "fixture advances the source branch after the Evolve approval"
+    );
     configure_local_claim_remote(temp.path(), &ready.repo_root);
     if std::env::var("KOOLADE_DOCKER_BACKEND_INTEGRATION").as_deref() != Ok("1") {
         assert_eq!(
@@ -128,7 +141,7 @@ fn app_controller_dispatches_approved_task_to_isolated_docker_and_revokes_it_on_
                     Screen::Welcome => "project disconnected".into(),
                 };
                 panic!(
-                    "normal controller stopped before reaching the configured execution harness; failure_class={failure_class} (detail withheld from public CI logs)"
+                    "normal controller stopped before reaching the configured execution harness; failure_class={failure_class}; detail withheld from public CI logs"
                 );
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -159,6 +172,16 @@ fn app_controller_dispatches_approved_task_to_isolated_docker_and_revokes_it_on_
             .workspace
             .as_ref()
             .is_some_and(|workspace| { is_valid_sha(&workspace.source_sha) })
+    );
+    assert_eq!(
+        initial.workspace.as_ref().unwrap().source_sha,
+        approved_source_sha,
+        "controller workspace remains pinned to the approved Evolve source"
+    );
+    assert_eq!(
+        source_drift::head(&initial.repository),
+        approved_source_sha,
+        "isolated task clone starts from the approved Evolve source"
     );
     assert!(
         initial.has_authorization,

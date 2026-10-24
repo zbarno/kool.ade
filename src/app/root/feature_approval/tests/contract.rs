@@ -76,7 +76,7 @@ fn changed_contract_stops_authorized_continuation_and_manager_uses_current_state
         "Confirm plan for CHG-004"
     );
     drop(app);
-    std::fs::remove_dir_all(root).unwrap();
+    remove_fixture_root(&root);
 }
 
 #[test]
@@ -137,7 +137,7 @@ fn stale_display_cannot_approve_changed_contract_or_overwrite_other_approval() {
         "Other contract"
     );
     drop(app);
-    std::fs::remove_dir_all(root).unwrap();
+    remove_fixture_root(&root);
 }
 
 #[test]
