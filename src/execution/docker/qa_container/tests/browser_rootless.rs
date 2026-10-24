@@ -28,6 +28,8 @@ mod concurrency;
 mod defects;
 #[path = "browser_rootless/lifecycle.rs"]
 mod lifecycle;
+#[path = "browser_rootless/probe.rs"]
+mod probe;
 #[path = "browser_rootless/redirect.rs"]
 mod redirect;
 #[path = "browser_rootless/support.rs"]

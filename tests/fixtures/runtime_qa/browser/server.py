@@ -56,9 +56,23 @@ class Handler(BaseHTTPRequestHandler):
                     started = marker.read() == b"started"
             except OSError:
                 started = False
-            body = b'<p data-testid="status">started</p>' if started else b'<p data-testid="status">waiting</p>'
+            body = b"started" if started else b"waiting"
             self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path == "/__parallel_active":
+            marker = "/tmp/qa-browser-parallel-active"
+            try:
+                with open(marker, "rb") as active:
+                    is_active = active.read() == b"active"
+            except OSError:
+                is_active = False
+            body = b"active" if is_active else b"idle"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)

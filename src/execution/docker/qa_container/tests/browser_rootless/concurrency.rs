@@ -126,8 +126,9 @@ pub(super) async fn assert_parallel_browser_runs_are_isolated(
     let all_runs = async { tokio::join!(first_run, second_run) };
     let active_requests = assertions::wait_for_simultaneous_parallel_requests(
         context.docker,
-        &context.preview.service_lease.task_container_id,
-        &second_preview.service_lease.task_container_id,
+        &context.preview.relay_binding.relay_container_id,
+        &second_preview.relay_binding.relay_container_id,
+        &context.browser_image.runtime_user,
         Duration::from_secs(20),
     );
     let ((first_result, second_result), active_request_result) =
@@ -141,7 +142,11 @@ pub(super) async fn assert_parallel_browser_runs_are_isolated(
 
     let mut failures = Vec::new();
     if let Err(error) = active_request_result {
-        failures.push(error);
+        failures.push(format!(
+            "{error}; first browser driver: {}; second browser driver: {}",
+            short_driver_failure(&first_result),
+            short_driver_failure(&second_result)
+        ));
     }
     if let Err(error) = first_driver_cleanup {
         failures.push(format!("first browser driver: {error}"));
@@ -205,6 +210,16 @@ pub(super) async fn assert_parallel_browser_runs_are_isolated(
         }
     }
     Ok(())
+}
+
+fn short_driver_failure(result: &Result<driver::BrowserDriverOutcome, String>) -> String {
+    let failure = match result {
+        Err(error) => Some(error.as_str()),
+        Ok(outcome) => outcome.output.as_ref().err().map(String::as_str),
+    };
+    failure
+        .map(|message| message.chars().take(256).collect())
+        .unwrap_or_else(|| "none".into())
 }
 
 async fn cleanup_and_verify_preview(
