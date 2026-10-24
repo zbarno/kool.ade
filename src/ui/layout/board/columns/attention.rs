@@ -23,6 +23,7 @@ fn user_action_colors(dark_mode: bool) -> (egui::Color32, egui::Color32) {
 enum Entry<'a> {
     Work(&'a crate::core::planning_work::Work),
     Setup(&'a crate::app::setup_attention::SetupIssue),
+    MachineSetup(&'a crate::persistence::setup_tasks::LocalTask),
     Item(&'a crate::domain::item::OpenItem),
     Task(&'a crate::artifacts::task_docs::TaskDocument),
     Clarification(&'a crate::core::planning::QuestionV1),
@@ -31,6 +32,7 @@ enum Entry<'a> {
 pub(super) struct Lane<'a> {
     pub planning: &'a [&'a crate::core::planning_work::Work],
     pub issue: Option<&'a crate::app::setup_attention::SetupIssue>,
+    pub setup_tasks: &'a [crate::persistence::setup_tasks::LocalTask],
     pub items: &'a [&'a crate::domain::item::OpenItem],
     pub tasks: &'a [&'a crate::artifacts::task_docs::TaskDocument],
     pub clarifications: &'a [crate::core::planning::QuestionV1],
@@ -135,6 +137,12 @@ pub(super) fn paint(
         entries.push((Entry::Setup(issue), None, fallback_order));
         fallback_order += 1;
     }
+    for task in lane.setup_tasks {
+        if task.state != crate::persistence::setup_tasks::State::Verified {
+            entries.push((Entry::MachineSetup(task), None, fallback_order));
+            fallback_order += 1;
+        }
+    }
     for item in lane.items {
         let recency = [
             last_message_ms(s, item.conversation_key()),
@@ -167,6 +175,7 @@ pub(super) fn paint(
                 super::cards::work(ui, s, work, lane.planning, 3, planning_selection)
             }
             Entry::Setup(issue) => super::cards::setup(ui, s, board, issue, planning_selection),
+            Entry::MachineSetup(task) => super::cards::machine_setup(ui, task, planning_selection),
             Entry::Item(item) => super::cards::item(ui, s, board, item, 3, planning_selection),
             Entry::Task(task) => super::cards::task(ui, s, board, task, 3, selected_path),
             Entry::Clarification(question) => {
