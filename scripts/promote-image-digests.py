@@ -10,6 +10,8 @@ import re
 import sys
 from pathlib import Path
 
+from image_lock_policy import identity_mismatches
+
 ROOT = Path(__file__).resolve().parents[1]
 LOCK_PATH = ROOT / "containers/images.lock.json"
 BASE_LOCK_PATH = ROOT / "containers/base-images.lock.json"
@@ -253,16 +255,11 @@ def main() -> int:
                 variant = find_locked_variant(lock, profile, item["platform"])
                 if variant is None:
                     fail(f"runtime lock has no {profile} {item['platform']} image entry")
-                if any(
-                    variant.get(field) != item[source]
-                    for field, source in (
-                        ("reference", "reference"),
-                        ("digest", "digest"),
-                        ("tool_versions", "tool_versions"),
-                        ("build_recipe_sha256", "build_recipe_sha256"),
-                    )
-                ):
-                    fail(f"{profile} {variant.get('platform')} candidate differs from the reviewed image lock")
+                mismatches = identity_mismatches(variant, item)
+                if mismatches:
+                    fail(f"{profile} {variant.get('platform')} reviewed image identity mismatch: " + "; ".join(mismatches))
+                if profile in {"browser_qa", "desktop_qa"} and variant.get("runtime_enabled") is not False:
+                    fail(f"{profile} {variant.get('platform')} must remain disabled until #171 release approval")
         if args.promote:
             indexed = {(item["profile"], item["platform"]): item for item in images}
             for profile, platform in indexed:
