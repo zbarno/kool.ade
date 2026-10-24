@@ -70,11 +70,27 @@ struct Pending {
     operation: Operation,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+/// A non-cloneable capability consumed by a trusted operation executor.
+/// Private fields prevent callers from forging approval by constructing one.
+#[derive(Debug)]
 pub struct ApprovedAction {
-    pub operation: Operation,
-    pub prerequisite_id: String,
-    pub image_profile: Option<String>,
+    operation: Operation,
+    prerequisite_id: String,
+    image_profile: Option<String>,
+}
+
+impl ApprovedAction {
+    pub fn operation(&self) -> Operation {
+        self.operation
+    }
+
+    pub fn prerequisite_id(&self) -> &str {
+        &self.prerequisite_id
+    }
+
+    pub fn image_profile(&self) -> Option<&str> {
+        self.image_profile.as_deref()
+    }
 }
 
 /// An in-memory, controller-owned one-use approval gate.
