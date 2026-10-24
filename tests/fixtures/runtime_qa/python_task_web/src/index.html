@@ -15,7 +15,8 @@
         event.preventDefault();
         const message = document.querySelector("#message").value;
         const response = await fetch("/save", { method: "POST", body: message });
-        document.querySelector("[data-testid=status]").textContent = response.ok ? "Saved" : "Save failed";
+        const savedMessage = await response.text();
+        document.querySelector("[data-testid=status]").textContent = response.ok && savedMessage === "Saved" ? "Saved" : "Save failed";
       });
     </script>
   </body>
