@@ -75,12 +75,6 @@ impl Finding {
             ..Self::action(id, title, why, next)
         }
     }
-
-    fn blocked(mut self, prerequisite: &str) -> Self {
-        self.status = FindingStatus::BlockedByPrerequisite;
-        self.prerequisites.push(prerequisite.into());
-        self
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -176,9 +170,8 @@ pub fn assess(
             }
         }
         if !verified.is_empty()
-            && !selected_agent.is_some_and(|id| {
-                verified.iter().any(|probe| probe.provider_id == id)
-            })
+            && !selected_agent
+                .is_some_and(|id| verified.iter().any(|probe| probe.provider_id == id))
         {
             findings.push(Finding::action(
                 "setup:cli:select",
@@ -358,10 +351,30 @@ mod tests {
             HostKind::Windows,
             3,
         );
-        assert!(snapshot.findings.iter().any(|f| f.id == "setup:cli:codex:verify"));
-        assert!(snapshot.findings.iter().any(|f| f.id == "setup:docker:install"));
-        assert!(snapshot.findings.iter().any(|f| f.id == "setup:docker:desktop-transport"));
-        assert!(!snapshot.findings.iter().any(|f| f.id.starts_with("setup:images")));
+        assert!(
+            snapshot
+                .findings
+                .iter()
+                .any(|f| f.id == "setup:cli:codex:verify")
+        );
+        assert!(
+            snapshot
+                .findings
+                .iter()
+                .any(|f| f.id == "setup:docker:install")
+        );
+        assert!(
+            snapshot
+                .findings
+                .iter()
+                .any(|f| f.id == "setup:docker:desktop-transport")
+        );
+        assert!(
+            !snapshot
+                .findings
+                .iter()
+                .any(|f| f.id.starts_with("setup:images"))
+        );
     }
 
     #[test]
