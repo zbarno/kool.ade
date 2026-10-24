@@ -381,6 +381,9 @@ jobs:
           cargo +1.98.1 test --locked --lib \
             "$test_name" \
             -- --ignored --exact
+          task_runtime_test=execution::docker::qa_container::tests::browser_rootless::task_runtime::rootless_approved_task_build_test_start_receipts_feed_browser_qa_artifact
+          cargo +1.98.1 test --locked --lib "$task_runtime_test" -- --ignored --exact --list | grep -Fx "$task_runtime_test: test"
+          cargo +1.98.1 test --locked --lib "$task_runtime_test" -- --ignored --exact
       - name: Verify candidate record and report its immutable digest
         env:
           PROFILE: ${{ matrix.profile }}

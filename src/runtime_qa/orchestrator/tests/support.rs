@@ -237,7 +237,7 @@ pub(super) fn reviewer_prompt_for_role(
         output_schema_version: role.output_schema_version().into(),
         payload: RolePayloadV1::Review {
             subject_revision: "immutable-build".into(),
-            subject_hash: request.code_head_sha.clone(),
+            subject_hash: request.review_subject_sha256.clone(),
             author_run_id: request.author_run_id.clone(),
             reviewer_run_id: reviewer_run.into(),
             author_session_id: Some(request.author_session_id.clone()),
