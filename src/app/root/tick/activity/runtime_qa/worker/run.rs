@@ -185,18 +185,21 @@ fn run_reviewed(
 ) -> Result<(), String> {
     let reviewer_run = uuid::Uuid::new_v4().hyphenated().to_string();
     let reviewer_session = uuid::Uuid::new_v4().hyphenated().to_string();
-    let prompt = reviewer::manifest(request, &reviewer_run, &reviewer_session)?;
+    let prompt = reviewer::manifest(request, scenarios, &reviewer_run, &reviewer_session)?;
     let mut reviewer_call =
         |evidence: &crate::runtime_qa::QaEvidenceManifestV1,
-         candidate: &crate::runtime_qa::QaResultV1| {
+         candidate: &crate::runtime_qa::QaResultV1,
+         screenshots: &[crate::runtime_qa::QaScreenshotArtifactV1]| {
             if cancelled.load(Ordering::Acquire) {
                 return Err("runtime QA was cancelled before independent review".into());
             }
             reviewer::execute(reviewer::ReviewInputs {
                 harness: harness.as_ref(),
                 request,
+                scenarios,
                 evidence,
                 candidate,
+                screenshots,
                 workspace,
                 task_clone,
                 reviewer_run: &reviewer_run,

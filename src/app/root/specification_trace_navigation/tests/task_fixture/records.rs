@@ -84,6 +84,7 @@ pub(super) fn qa_request(
         schema_version: 1,
         qa_run_id: uid(),
         parent_task_uid: task_uid.into(),
+        target_id: Some("fixture-target".into()),
         planning_item_uid: None,
         feature_uid: feature_uid.into(),
         code_head_sha: head.into(),

@@ -74,6 +74,7 @@ pub(super) fn arbitrate_persisted_finding(
     let author = ReviewExecutionIdentity {
         execution_id: prior.author_run_id.clone(),
         session_id: prior.author_session_id.clone(),
+        runtime_qa_screenshot_review: None,
     };
     let _review_result =
         review_verified_for_arbitration(&dir, &state, Some(&task), harness, runner, context);
@@ -116,6 +117,7 @@ pub(super) fn review_verified_for_arbitration(
     let author = ReviewExecutionIdentity {
         execution_id: prior.author_run_id,
         session_id: prior.author_session_id,
+        runtime_qa_screenshot_review: None,
     };
     review_verified_inner(
         dir,

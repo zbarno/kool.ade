@@ -10,7 +10,11 @@ impl RuntimeQaStore {
     ) -> Result<(), String> {
         lease.validate_for(request)?;
         let run = safe_uuid(&request.qa_run_id)?;
-        create_or_match_json(&self.root.join(run).join("service-lease.json"), lease)
+        create_or_match_json(
+            &self.root,
+            &self.root.join(run).join("service-lease.json"),
+            lease,
+        )
     }
 
     pub fn load_service_lease(
@@ -19,7 +23,7 @@ impl RuntimeQaStore {
     ) -> Result<QaTaskServiceLeaseV1, String> {
         let run = safe_uuid(&request.qa_run_id)?;
         let lease: QaTaskServiceLeaseV1 =
-            read_json(&self.root.join(run).join("service-lease.json"))?;
+            read_json(&self.root, &self.root.join(run).join("service-lease.json"))?;
         lease.validate_for(request)?;
         Ok(lease)
     }
@@ -46,6 +50,7 @@ impl RuntimeQaStore {
         safe_uuid(scenario_uid)?;
         let run = safe_uuid(&request.qa_run_id)?;
         create_or_match_json(
+            &self.root,
             &self
                 .root
                 .join(run)
@@ -61,6 +66,7 @@ impl RuntimeQaStore {
     ) -> Result<QaPreviewRelayBindingV1, String> {
         let run = safe_uuid(&request.qa_run_id)?;
         let binding: QaPreviewRelayBindingV1 = read_json(
+            &self.root,
             &self
                 .root
                 .join(run)

@@ -73,10 +73,22 @@ export default function (pi: ExtensionAPI) {
 				try {
 					await initialize();
 					const result = await request("tools/call", { name, arguments: input });
-					const text = Array.isArray(result?.content)
-						? result.content.map((item: any) => item?.text ?? "").filter(Boolean).join("\n")
-						: "Application MCP returned no tool result";
-					return { content: [{ type: "text", text }], details: result, isError: result?.isError === true };
+					const content = Array.isArray(result?.content)
+						? result.content.flatMap((item: any) => {
+							if (item?.type === "image" && typeof item.data === "string" && typeof item.mimeType === "string") {
+								return [{ type: "image", data: item.data, mimeType: item.mimeType }];
+							}
+							return typeof item?.text === "string" && item.text.length > 0
+								? [{ type: "text", text: item.text }]
+								: [];
+						})
+						: [{ type: "text", text: "Application MCP returned no tool result" }];
+					const containsImage = content.some((item: any) => item.type === "image");
+					return {
+						content,
+						details: containsImage ? { isError: result?.isError === true } : result,
+						isError: result?.isError === true,
+					};
 				} catch (error) {
 					return { content: [{ type: "text", text: `Kool.ad/e execution session failed: ${String(error)}` }], isError: true };
 				}
@@ -94,6 +106,9 @@ export default function (pi: ExtensionAPI) {
 	if (allowedTools.has("koolade_dependency")) register("koolade_dependency", "Submit a package need for application-owned authorization and preparation.", Type.Object({
 		ecosystem: Type.String(), package: Type.Optional(Type.String()), version: Type.Optional(Type.String()),
 		source: Type.Optional(Type.String()), command: Type.String(), reason: Type.String(), kind: Type.String(),
+	}));
+	if (allowedTools.has("koolade_runtime_qa_screenshot")) register("koolade_runtime_qa_screenshot", "Retrieve and visually inspect one hash-validated PNG screenshot from this immutable runtime QA run.", Type.Object({
+		screenshot_id: Type.String({ description: "Exact screenshot ID from the supplied evidence manifest." }),
 	}));
 
 	pi.on("session_shutdown", () => {

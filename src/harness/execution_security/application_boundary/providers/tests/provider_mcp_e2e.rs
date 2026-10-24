@@ -71,6 +71,7 @@ fn every_provider_role_calls_only_its_application_owned_mcp_authority() {
                     let (path, bridge) = server_session(&case_dir, access, &command, &host_marker);
                     (Some(path), Some(bridge), Some(command))
                 }
+                ToolAccess::RuntimeQaScreenshots => (None, None, None),
             };
 
             let mut boundary = test_boundary(access);

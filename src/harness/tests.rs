@@ -32,7 +32,7 @@ fn runtime_qa_review_request() -> PlanningRequest {
     let mut request = planning_request(ExecutionMode::ReadOnlyAnalysis);
     request.telemetry_phase = Some("runtime_qa_review".into());
     request.prompt_manifest = Some(crate::harness::prompt_catalog::PromptManifest {
-        role_version: "runtime_qa/v2".into(),
+        role_version: "runtime_qa/v3".into(),
         system_template_sha256: "0".repeat(64),
         policy_template_sha256: "0".repeat(64),
         user_template_sha256: "0".repeat(64),
@@ -42,6 +42,7 @@ fn runtime_qa_review_request() -> PlanningRequest {
     request.review_identity = Some(crate::harness::ReviewExecutionIdentity {
         execution_id: "00000000-0000-4000-8000-000000000001".into(),
         session_id: "00000000-0000-4000-8000-000000000002".into(),
+        runtime_qa_screenshot_review: None,
     });
     request.prompt_body = "reviewer execution 00000000-0000-4000-8000-000000000001 session 00000000-0000-4000-8000-000000000002".into();
     request
@@ -62,6 +63,7 @@ fn reviewer_dispatch_requires_distinct_controller_identity_and_read_only_prompt(
     request.review_identity = Some(crate::harness::ReviewExecutionIdentity {
         execution_id: "00000000-0000-4000-8000-000000000001".into(),
         session_id: "00000000-0000-4000-8000-000000000002".into(),
+        runtime_qa_screenshot_review: None,
     });
     request.prompt_body = "reviewer execution 00000000-0000-4000-8000-000000000001 session 00000000-0000-4000-8000-000000000002".into();
     assert!(super::validate_review_invocation(&request).is_ok());

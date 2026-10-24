@@ -43,8 +43,10 @@ pub(super) fn unavailable_reason(
             ));
         }
     };
+    let target_id = request.target_id.as_deref();
     let target = manifest.candidate_targets.iter().find(|target| {
-        target.start_recipe_ref.as_deref() == Some(request.startup_recipe_ref.as_str())
+        Some(target.target_id.as_str()) == target_id
+            && target.start_recipe_ref.as_deref() == Some(request.startup_recipe_ref.as_str())
             && task.planning_item_uid.as_deref() == Some(target.owning_task_id.as_str())
     });
     let Some(target) = target else {

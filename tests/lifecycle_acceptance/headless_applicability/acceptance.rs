@@ -1,5 +1,9 @@
 use super::*;
 
+#[path = "acceptance/proposal.rs"]
+mod proposal;
+use proposal::applicability_proposal;
+
 #[test]
 fn headless_visual_qa_decision_is_manager_signed_and_durable() {
     let temp = tempfile::tempdir().unwrap();
@@ -89,23 +93,12 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
         manager_session_id: id(),
         recorded_at_unix_ms: 1,
     };
-    let mut assessment_hash = format!(
-        "{:x}",
-        sha2::Sha256::digest(serde_json::to_vec(&assessment).unwrap())
-    );
-    let mut reviewer_receipt = role_receipt(
-        koolade::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV2,
+    let reviewer_receipt = role_receipt(
+        koolade::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV3,
         GateDecision::Approved,
         &task_uid,
-        &assessment_hash,
+        &"a".repeat(64),
     );
-    reviewer_receipt.reviewer_run_id = Some(assessment.reviewer_execution_id.clone());
-    reviewer_receipt.reviewer_session_id = Some(assessment.reviewer_session_id.clone());
-    reviewer_receipt.author_run_id = Some(assessment.approved_by.clone());
-    reviewer_receipt.author_session_id = Some(assessment.manager_session_id.clone());
-    reviewer_receipt.evidence_refs = vec![format!(
-        "runtime-qa-applicability-assessment:{assessment_hash}"
-    )];
     let mut receipt = GateReceipt {
         receipt_uid: id(),
         subject_uid: task_uid.clone(),
@@ -113,10 +106,7 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
         actor: GateActor::ApplicationPolicy,
         decision: GateDecision::NotApplicable,
         recorded_at_unix_ms: 1,
-        evidence_refs: vec![
-            format!("runtime-qa-applicability:{assessment_hash}"),
-            format!("gate-receipt:{}", reviewer_receipt.receipt_uid),
-        ],
+        evidence_refs: Vec::new(),
         prompt_sha256: None,
         prompt_manifest: None,
         reviewer_run_id: Some(assessment.approved_by.clone()),
@@ -124,14 +114,26 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
         reviewer_session_id: Some(assessment.manager_session_id.clone()),
         author_session_id: None,
     };
+    proposal::assert_legacy_proposal_rejected(
+        &lifecycle,
+        &task_uid,
+        task.revision,
+        assessment.clone(),
+        &mut receipt,
+    );
+    let proposal = applicability_proposal(
+        task.revision,
+        assessment.clone(),
+        &mut reviewer_receipt.clone(),
+        &mut receipt,
+    );
     assert!(
         lifecycle
             .record_runtime_qa_applicability(
                 &task_uid,
                 task.revision,
                 &id(),
-                assessment.clone(),
-                reviewer_receipt.clone(),
+                proposal,
                 receipt.clone(),
             )
             .is_err()
@@ -162,8 +164,12 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
                 &task_uid,
                 task.revision,
                 &id(),
-                assessment.clone(),
-                reviewer_receipt.clone(),
+                applicability_proposal(
+                    task.revision,
+                    assessment.clone(),
+                    &mut reviewer_receipt.clone(),
+                    &mut receipt,
+                ),
                 receipt.clone(),
             )
             .is_err()
@@ -182,19 +188,6 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
         format!("runtime-receipt:{}", build_receipt.receipt_id),
         format!("runtime-receipt:{}", passed_test.receipt_id),
     ]);
-    assessment_hash = format!(
-        "{:x}",
-        sha2::Sha256::digest(serde_json::to_vec(&assessment).unwrap())
-    );
-    reviewer_receipt.subject_sha256 = assessment_hash.clone();
-    reviewer_receipt.evidence_refs = vec![format!(
-        "runtime-qa-applicability-assessment:{assessment_hash}"
-    )];
-    for reference in &mut receipt.evidence_refs {
-        if reference.starts_with("runtime-qa-applicability:") {
-            *reference = format!("runtime-qa-applicability:{assessment_hash}");
-        }
-    }
     let mut forged_target = assessment.clone();
     forged_target.target_id = "api-service-forged".into();
     assert!(
@@ -203,8 +196,12 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
                 &task_uid,
                 task.revision,
                 &id(),
-                forged_target,
-                reviewer_receipt.clone(),
+                applicability_proposal(
+                    task.revision,
+                    forged_target,
+                    &mut reviewer_receipt.clone(),
+                    &mut receipt,
+                ),
                 receipt.clone(),
             )
             .is_err()
@@ -225,8 +222,12 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
                 &task_uid,
                 task.revision,
                 &id(),
-                assessment.clone(),
-                reviewer_receipt.clone(),
+                applicability_proposal(
+                    task.revision,
+                    assessment.clone(),
+                    &mut reviewer_receipt.clone(),
+                    &mut receipt,
+                ),
                 receipt.clone(),
             )
             .is_err()
@@ -246,27 +247,17 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
     assessment
         .evidence_refs
         .push(format!("runtime-manifest:{current_manifest_hash}"));
-    assessment_hash = format!(
-        "{:x}",
-        sha2::Sha256::digest(serde_json::to_vec(&assessment).unwrap())
-    );
-    reviewer_receipt.subject_sha256 = assessment_hash.clone();
-    reviewer_receipt.evidence_refs = vec![format!(
-        "runtime-qa-applicability-assessment:{assessment_hash}"
-    )];
-    for reference in &mut receipt.evidence_refs {
-        if reference.starts_with("runtime-qa-applicability:") {
-            *reference = format!("runtime-qa-applicability:{assessment_hash}");
-        }
-    }
-
     let updated = lifecycle
         .record_runtime_qa_applicability(
             &task_uid,
             task.revision,
             &id(),
-            assessment.clone(),
-            reviewer_receipt,
+            applicability_proposal(
+                task.revision,
+                assessment.clone(),
+                &mut reviewer_receipt.clone(),
+                &mut receipt,
+            ),
             receipt,
         )
         .unwrap();

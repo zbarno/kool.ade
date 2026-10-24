@@ -1,6 +1,10 @@
 use super::*;
+use crate::execution::contract::ResourceBudgetV1;
 use crate::harness::{ExecutionMode, ToolAccess};
 use std::sync::{Arc, atomic::AtomicBool, mpsc};
+
+#[path = "tests/runtime_qa_empty_review.rs"]
+mod runtime_qa_empty_review;
 
 #[test]
 fn resource_budget_overrides_are_task_scoped_and_restored() {
@@ -163,6 +167,7 @@ fn reviewer_request_without_bound_prompt_and_session_fails_before_boundary_creat
         review_identity: Some(crate::harness::ReviewExecutionIdentity {
             execution_id: "00000000-0000-4000-8000-000000000001".into(),
             session_id: "00000000-0000-4000-8000-000000000002".into(),
+            runtime_qa_screenshot_review: None,
         }),
     };
 

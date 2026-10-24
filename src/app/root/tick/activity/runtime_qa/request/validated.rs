@@ -115,10 +115,11 @@ pub(super) fn from_reviewed_task(inputs: ReviewedTaskInputs<'_>) -> Result<QaRun
         )
     );
     let execution_key = format!(
-        "runtime-qa-v1:{}:{}:{}:{}",
+        "runtime-qa-v2:{}:{}:{}:{}:{}",
         request_task_revision,
         build.source_sha,
         task.implementation_sha256.as_deref().unwrap_or_default(),
+        target.target_id,
         cache_identity,
     );
     let namespace =
@@ -129,6 +130,7 @@ pub(super) fn from_reviewed_task(inputs: ReviewedTaskInputs<'_>) -> Result<QaRun
             .hyphenated()
             .to_string(),
         parent_task_uid: task.task_uid.clone(),
+        target_id: Some(target.target_id.clone()),
         planning_item_uid: task.planning_item_uid.clone(),
         feature_uid: task.feature_uid.clone(),
         code_head_sha: task

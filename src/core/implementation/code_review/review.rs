@@ -171,6 +171,7 @@ pub(super) fn review_verified_inner(
     let reviewer = ReviewExecutionIdentity {
         execution_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        runtime_qa_screenshot_review: None,
     };
     ensure_identity(&reviewer, "reviewer")?;
     anyhow::ensure!(

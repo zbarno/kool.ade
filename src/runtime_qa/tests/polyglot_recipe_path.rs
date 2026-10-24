@@ -210,24 +210,32 @@ fn approved_python_recipe_receipts_select_web_qa_and_persist_hash_bound_evidence
     let prompt = reviewer_prompt(&request, &reviewer_execution_id, &reviewer_session_id);
     let directory = tempfile::tempdir().unwrap();
     let store = RuntimeQaStore::new(directory.path());
-    let mut reviewer = |evidence: &QaEvidenceManifestV1, _candidate: &QaResultV1| {
-        use crate::harness::prompt_catalog::{CoverageStatus, CoverageV1, ReviewVerdictV1};
-        Ok(ReviewVerdictV1 {
-            subject_hash: evidence.sha256()?,
-            examined_files: Vec::new(),
-            tested_evidence_ids: Vec::new(),
-            unexamined_areas: Vec::new(),
-            pass: true,
-            outcome: None,
-            coverage: vec![CoverageV1 {
-                requirement: request.requirement_ids[0].clone(),
-                status: CoverageStatus::Pass,
-                evidence: vec![evidence.actions[0].index.to_string()],
-            }],
-            findings: vec![],
-            untested: vec![],
-        })
-    };
+    let mut reviewer =
+        |evidence: &QaEvidenceManifestV1,
+         candidate: &QaResultV1,
+         screenshots: &[crate::runtime_qa::QaScreenshotArtifactV1]| {
+            use crate::harness::prompt_catalog::{CoverageStatus, CoverageV1, ReviewVerdictV1};
+            Ok(ReviewVerdictV1 {
+                subject_hash: crate::runtime_qa::qa_review_subject_sha256(
+                    &request, candidate, evidence,
+                )?,
+                examined_files: Vec::new(),
+                tested_evidence_ids: vec![screenshots[0].id.clone()],
+                unexamined_areas: Vec::new(),
+                pass: true,
+                outcome: None,
+                coverage: vec![CoverageV1 {
+                    requirement: request.requirement_ids[0].clone(),
+                    status: CoverageStatus::Pass,
+                    evidence: vec![
+                        evidence.actions[0].index.to_string(),
+                        screenshots[0].id.clone(),
+                    ],
+                }],
+                findings: vec![],
+                untested: vec![],
+            })
+        };
     let (result, _) = RuntimeQaOrchestrator::new(&store)
         .execute_reviewed(
             QaExecutionContext {

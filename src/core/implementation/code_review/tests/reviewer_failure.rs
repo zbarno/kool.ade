@@ -85,6 +85,7 @@ fn reviewer_crash_cannot_create_a_passing_receipt() {
         identity: ReviewExecutionIdentity {
             execution_id: "00000000-0000-4000-8000-000000000010".into(),
             session_id: "00000000-0000-4000-8000-000000000011".into(),
+            runtime_qa_screenshot_review: None,
         },
     };
 

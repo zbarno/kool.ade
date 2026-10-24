@@ -1,4 +1,5 @@
 use super::super::super::Fixture;
+use super::runtime_qa::record_completed_qa;
 use crate::core::lifecycle::{GateActor, GateDecision, LifecycleStore, TaskEvent, TaskRecord};
 use crate::runtime_qa::QaRunRequestV1;
 
@@ -95,15 +96,7 @@ pub(in crate::core::lifecycle::tests::store::completion) fn finish_task_through_
             .and_then(|state| state.request.as_ref())
             .is_some_and(|queued_request| queued_request.qa_run_id == request.qa_run_id)
     }));
-    let qa_event = super::super::super::super::completed_qa_event(&task, &request);
-    task = lifecycle
-        .apply_task_event(
-            task_uid,
-            task.revision,
-            &uuid::Uuid::new_v4().to_string(),
-            qa_event,
-        )
-        .unwrap();
+    task = record_completed_qa(lifecycle, &task, &request);
     crate::artifacts::migration::bootstrap_product(&fixture.0, "Lifecycle Completion Fixture")
         .unwrap();
     let origin_events = lifecycle

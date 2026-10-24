@@ -197,6 +197,7 @@ fn incomplete_coverage_and_failed_assertions_never_pass() {
 
     fixture.result.outcome = QaOutcome::Fail;
     fixture.result.cases[0].status = QaCaseStatus::Failed;
+    fixture.result.review_coverage[0].status = QaReviewCoverageStatusV1::Fail;
     assert!(
         validate_report(
             &fixture.request,

@@ -27,6 +27,7 @@ pub(super) fn save_infrastructure_report(
         schema_version: 1,
         qa_run_id: request.qa_run_id.clone(),
         task_uid: task_uid.into(),
+        target_id: request.target_id.clone(),
         code_sha: request.code_head_sha.clone(),
         approved_spec_hash: request.approved_spec_hash.clone(),
         build_hash: request.build_artifact_sha256.clone(),
@@ -59,13 +60,16 @@ pub(super) fn save_infrastructure_report(
         retention_policy: "user-local/30-days".into(),
     };
     let result = QaResultV1 {
-        schema_version: 1,
+        schema_version: CURRENT_QA_RESULT_SCHEMA_VERSION,
         subject_sha: request.code_head_sha.clone(),
         run_id: request.qa_run_id.clone(),
         reviewer_execution_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         reviewer_session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         outcome: QaOutcome::InfrastructureBlocked,
         evidence_manifest_sha256: evidence.sha256().unwrap(),
+        scenario_set_sha256: scenario_set_sha256(std::slice::from_ref(&scenario)).unwrap(),
+        reviewed_screenshot_ids: Vec::new(),
+        review_coverage: Vec::new(),
         cases: vec![QaCaseResultV1 {
             scenario_id: scenario.id.clone(),
             status: QaCaseStatus::Blocked,
@@ -122,6 +126,7 @@ fn save_failed_report_without_receipt(
         schema_version: 1,
         qa_run_id: request.qa_run_id.clone(),
         task_uid: task_uid.into(),
+        target_id: request.target_id.clone(),
         code_sha: request.code_head_sha.clone(),
         approved_spec_hash: request.approved_spec_hash.clone(),
         build_hash: request.build_artifact_sha256.clone(),
@@ -163,13 +168,16 @@ fn save_failed_report_without_receipt(
         retention_policy: "user-local/30-days".into(),
     };
     let result = QaResultV1 {
-        schema_version: 1,
+        schema_version: CURRENT_QA_RESULT_SCHEMA_VERSION,
         subject_sha: request.code_head_sha.clone(),
         run_id: request.qa_run_id.clone(),
         reviewer_execution_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         reviewer_session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         outcome: QaOutcome::Fail,
         evidence_manifest_sha256: evidence.sha256().unwrap(),
+        scenario_set_sha256: scenario_set_sha256(std::slice::from_ref(&scenario)).unwrap(),
+        reviewed_screenshot_ids: Vec::new(),
+        review_coverage: Vec::new(),
         cases: vec![QaCaseResultV1 {
             scenario_id: scenario.id.clone(),
             status: QaCaseStatus::Skipped,

@@ -10,12 +10,15 @@ mod proposal;
 mod report_write;
 mod scenarios;
 mod screenshots;
+mod storage_json;
+mod storage_permissions;
 mod storage_root;
 
 use super::{
     QaEvidenceManifestV1, QaFindingDispositionV1, QaResultV1, QaRunRequestV1, QaScenarioProposalV1,
-    QaScenarioV1, QaScreenshotArtifactV1, validate_report,
+    QaScenarioV1, QaScreenshotArtifactV1, validate_current_report,
 };
+use storage_json::{create_json, create_or_match_json, read_json, safe_uuid};
 
 /// Append-only filesystem store for runtime QA run records.
 #[derive(Clone, Debug)]
@@ -56,7 +59,7 @@ impl RuntimeQaStore {
         evidence: &QaEvidenceManifestV1,
         result: &QaResultV1,
     ) -> Result<(), String> {
-        validate_report(request, scenarios, evidence, result)?;
+        validate_current_report(request, scenarios, evidence, result)?;
         if !evidence.screenshots.is_empty() {
             return Err("runtime QA screenshots must be persisted with their image bytes".into());
         }
@@ -71,7 +74,7 @@ impl RuntimeQaStore {
         result: &QaResultV1,
         screenshots: &[QaScreenshotArtifactV1],
     ) -> Result<(), String> {
-        validate_report(request, scenarios, evidence, result)?;
+        validate_current_report(request, scenarios, evidence, result)?;
         screenshots::validate_screenshot_set(request, evidence, screenshots)?;
         self.start_report_write(request)?;
         for metadata in &evidence.screenshots {
@@ -94,12 +97,10 @@ impl RuntimeQaStore {
         self.start_report_write(request)?;
         let run = safe_uuid(&request.qa_run_id)?;
         let dir = self.root.join(run);
-        fs::create_dir_all(&dir)
-            .map_err(|error| format!("cannot create runtime QA record directory: {error}"))?;
-        create_or_match_json(&dir.join("request.json"), request)?;
-        create_json(&dir.join("scenarios.json"), scenarios)?;
-        create_json(&dir.join("evidence.json"), evidence)?;
-        create_json(&dir.join("result.json"), result)
+        create_or_match_json(&self.root, &dir.join("request.json"), request)?;
+        create_json(&self.root, &dir.join("scenarios.json"), scenarios)?;
+        create_json(&self.root, &dir.join("evidence.json"), evidence)?;
+        create_json(&self.root, &dir.join("result.json"), result)
     }
 
     /// Load and revalidate a complete persisted run. A directory left behind
@@ -120,6 +121,25 @@ impl RuntimeQaStore {
         Ok((run.request, run.scenarios, run.evidence, run.result))
     }
 
+    /// Load a report that is eligible to authorize new lifecycle work.
+    /// Historical schemas remain available through `load_run` for inspection.
+    pub fn load_current_run(
+        &self,
+        qa_run_id: &str,
+    ) -> Result<
+        (
+            QaRunRequestV1,
+            Vec<QaScenarioV1>,
+            QaEvidenceManifestV1,
+            QaResultV1,
+        ),
+        String,
+    > {
+        let (request, scenarios, evidence, result) = self.load_run(qa_run_id)?;
+        validate_current_report(&request, &scenarios, &evidence, &result)?;
+        Ok((request, scenarios, evidence, result))
+    }
+
     /// Persist an explicit applicability decision alongside the exact run
     /// subject. This is evidence for Manager review, not a QA pass receipt.
     pub fn save_applicability(
@@ -137,10 +157,8 @@ impl RuntimeQaStore {
         }
         let run = safe_uuid(&request.qa_run_id)?;
         let dir = self.root.join(run);
-        fs::create_dir_all(&dir)
-            .map_err(|error| format!("cannot create runtime QA record directory: {error}"))?;
-        create_or_match_json(&dir.join("request.json"), request)?;
-        create_json(&dir.join("applicability.json"), assessment)
+        create_or_match_json(&self.root, &dir.join("request.json"), request)?;
+        create_json(&self.root, &dir.join("applicability.json"), assessment)
     }
 
     pub fn save_disposition(&self, disposition: &QaFindingDispositionV1) -> Result<(), String> {
@@ -163,7 +181,7 @@ impl RuntimeQaStore {
             .join(run)
             .join("dispositions")
             .join(format!("{finding}.json"));
-        create_or_match_json(&path, disposition)
+        create_or_match_json(&self.root, &path, disposition)
     }
 
     /// Load the immutable Manager routing decisions for one validated run.
@@ -185,7 +203,7 @@ impl RuntimeQaStore {
         paths
             .into_iter()
             .map(|path| {
-                let disposition: QaFindingDispositionV1 = read_json(&path)?;
+                let disposition: QaFindingDispositionV1 = read_json(&self.root, &path)?;
                 disposition.validate()?;
                 let finding = result
                     .findings
@@ -212,46 +230,4 @@ impl RuntimeQaStore {
     pub fn root(&self) -> &Path {
         &self.root
     }
-}
-
-fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
-    let bytes = fs::read(path).map_err(|error| {
-        format!(
-            "cannot read persisted runtime QA record {}: {error}",
-            path.display()
-        )
-    })?;
-    serde_json::from_slice(&bytes).map_err(|error| {
-        format!(
-            "persisted runtime QA record {} is malformed: {error}",
-            path.display()
-        )
-    })
-}
-
-fn create_or_match_json<T: serde::Serialize + serde::de::DeserializeOwned + PartialEq>(
-    path: &Path,
-    value: &T,
-) -> Result<(), String> {
-    match read_json::<T>(path) {
-        Ok(existing) if &existing == value => Ok(()),
-        Ok(_) => Err("runtime QA request identity is already bound to different content".into()),
-        Err(_error) if !path.exists() => create_json(path, value),
-        Err(error) => Err(error),
-    }
-}
-
-fn safe_uuid(value: &str) -> Result<&str, String> {
-    if uuid::Uuid::parse_str(value).is_ok_and(|id| id.hyphenated().to_string() == value) {
-        Ok(value)
-    } else {
-        Err("runtime QA record identifier is invalid".into())
-    }
-}
-
-fn create_json(path: &Path, value: &(impl serde::Serialize + ?Sized)) -> Result<(), String> {
-    let bytes =
-        serde_json::to_vec_pretty(value).map_err(|_| "runtime QA record cannot be encoded")?;
-    crate::artifacts::atomic_create_bytes(path, &bytes)
-        .map_err(|error| format!("cannot create immutable runtime QA record: {error}"))
 }

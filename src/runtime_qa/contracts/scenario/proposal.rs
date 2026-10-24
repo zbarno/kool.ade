@@ -36,7 +36,7 @@ impl QaScenarioProposalV1 {
             qa_run_id: request.qa_run_id.clone(),
             task_revision,
             request_sha256: canonical_hash(request)?,
-            scenario_sha256: canonical_hash(&scenarios)?,
+            scenario_sha256: super::scenario_set_sha256(&scenarios)?,
             source_evidence_sha256: None,
             source_evidence: None,
             prompt_manifest: None,
@@ -81,7 +81,7 @@ impl QaScenarioProposalV1 {
         if self.schema_version != 1
             || self.qa_run_id != request.qa_run_id
             || self.request_sha256 != canonical_hash(request)?
-            || self.scenario_sha256 != canonical_hash(&self.scenarios)?
+            || self.scenario_sha256 != super::scenario_set_sha256(&self.scenarios)?
         {
             return Err("runtime QA scenario proposal is stale or has been modified".into());
         }

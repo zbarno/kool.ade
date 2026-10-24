@@ -7,6 +7,8 @@ use crate::{
 };
 
 mod capture_execute;
+mod outcome;
+use outcome::{invocation_outcome, split_harness};
 
 /// Captures one task's implementation-related harness invocations while
 /// preserving the ordinary harness and progress contracts.
@@ -245,6 +247,7 @@ impl AiHarness for CaptureHarness<'_> {
             .then(|| crate::harness::ReviewExecutionIdentity {
                 execution_id: self.run.clone(),
                 session_id: self.session.clone(),
+                runtime_qa_screenshot_review: None,
             })
     }
     fn plan_retrieval(
@@ -270,39 +273,3 @@ impl AiHarness for CaptureHarness<'_> {
 #[cfg(test)]
 #[path = "telemetry/identity_tests.rs"]
 mod identity_tests;
-
-fn invocation_outcome(result: &Result<HarnessOutcome, crate::error::AppError>) -> &'static str {
-    match result {
-        Ok(_) => "completed",
-        Err(crate::error::AppError::HarnessTimedOut { .. }) => "timed-out",
-        Err(crate::error::AppError::HarnessExecutionFailed { failure })
-            if failure.category == crate::harness::HarnessFailureCategory::TimedOut =>
-        {
-            "timed-out"
-        }
-        Err(crate::error::AppError::HarnessExecutionFailed { failure })
-            if failure.category == crate::harness::HarnessFailureCategory::Cancelled =>
-        {
-            "cancelled"
-        }
-        Err(crate::error::AppError::HarnessFailed { reason, .. })
-            if reason.to_ascii_lowercase().contains("cancel") =>
-        {
-            "cancelled"
-        }
-        Err(crate::error::AppError::Other(reason))
-            if reason.to_ascii_lowercase().contains("needs attention") =>
-        {
-            "user-action-required"
-        }
-        Err(_) => "failed",
-    }
-}
-
-fn split_harness(label: &str) -> (&str, Option<String>) {
-    label
-        .split_once(' ')
-        .map_or((label, None), |(name, version)| {
-            (name, Some(version.into()))
-        })
-}

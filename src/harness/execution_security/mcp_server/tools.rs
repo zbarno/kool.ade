@@ -1,13 +1,54 @@
 use super::{BoundaryAccess, ServerConfig, resource};
 use serde_json::{Value, json};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+mod inspection;
+use inspection::{record_inspection, screenshot};
+
+pub(super) struct CallResponse {
+    pub response: Value,
+    pub after_delivery: Option<InspectionAudit>,
+}
+
+pub(super) struct InspectionAudit {
+    audit_root: PathBuf,
+    screenshot_id: String,
+}
+
+impl InspectionAudit {
+    pub(super) fn commit_after_delivery(self) {
+        let _ = record_inspection(&self.audit_root, &self.screenshot_id);
+    }
+}
 
 pub(super) fn list(config: &ServerConfig) -> Vec<Value> {
+    if config.access == BoundaryAccess::RuntimeQaScreenshotReview {
+        if config
+            .screenshot_access
+            .as_ref()
+            .is_some_and(|access| access.sha256_by_id.is_empty())
+        {
+            return Vec::new();
+        }
+        return vec![json!({
+            "name": "koolade_runtime_qa_screenshot",
+            "description": "Retrieve and visually inspect one hash-validated PNG screenshot from this immutable runtime QA run. Only explicitly listed screenshot IDs are available.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "screenshot_id": { "type": "string", "description": "Exact screenshot ID from the supplied evidence manifest." }
+                },
+                "required": ["screenshot_id"],
+                "additionalProperties": false,
+            }
+        })];
+    }
     let mut tools = vec![json!({
         "name": "koolade_bash",
         "description": match config.access {
             BoundaryAccess::ReadOnly => "Run a read-only shell command in the application-selected workspace inside Kool.ad/e's Docker planning session.",
             BoundaryAccess::Implementation => "Run a shell command in the assigned task clone inside Kool.ad/e's Docker implementation session. Network and host credentials are unavailable.",
+            BoundaryAccess::RuntimeQaScreenshotReview => "Screenshot inspection is the only tool available in this runtime QA reviewer session.",
         },
         "inputSchema": {
             "type": "object",
@@ -57,14 +98,31 @@ pub(super) fn list(config: &ServerConfig) -> Vec<Value> {
     tools
 }
 
+#[cfg(test)]
 pub(super) fn call(
     config_path: &Path,
     config: &ServerConfig,
     name: &str,
     arguments: &Value,
 ) -> Value {
+    call_with_audit(config_path, config, name, arguments).response
+}
+
+pub(super) fn call_with_audit(
+    config_path: &Path,
+    config: &ServerConfig,
+    name: &str,
+    arguments: &Value,
+) -> CallResponse {
+    if name == "koolade_runtime_qa_screenshot"
+        && config.access == BoundaryAccess::RuntimeQaScreenshotReview
+    {
+        return screenshot(config, arguments);
+    }
     let result = match name {
-        "koolade_bash" => bash(config_path, config, arguments),
+        "koolade_bash" if config.access != BoundaryAccess::RuntimeQaScreenshotReview => {
+            bash(config_path, config, arguments)
+        }
         "koolade_resource" if config.access == BoundaryAccess::Implementation => {
             resource::fetch(config, arguments)
         }
@@ -76,7 +134,10 @@ pub(super) fn call(
         )),
     };
     let (text, is_error) = result.unwrap_or_else(|error| (error, true));
-    json!({ "content": [{ "type": "text", "text": text }], "isError": is_error })
+    CallResponse {
+        response: json!({ "content": [{ "type": "text", "text": text }], "isError": is_error }),
+        after_delivery: None,
+    }
 }
 
 fn bash(
@@ -104,6 +165,7 @@ fn bash(
         access: match config.access {
             BoundaryAccess::ReadOnly => "read_only".into(),
             BoundaryAccess::Implementation => "implementation".into(),
+            BoundaryAccess::RuntimeQaScreenshotReview => "runtime_qa_screenshot_review".into(),
         },
     };
     let output = super::super::session_bridge::call(config_path, &binding, command, timeout)
@@ -172,6 +234,7 @@ mod tests {
             target_arch: Some("amd64".into()),
             resource_socket: None,
             resource_cache: None,
+            screenshot_access: None,
         }
     }
 }

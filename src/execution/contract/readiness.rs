@@ -148,9 +148,11 @@ impl HarnessCapabilitySnapshotV1 {
             .iter()
             .find(|readiness| readiness.mode == mode)
             .is_some_and(|readiness| readiness.available == ReadinessState::Ready);
-        let execution_ready = mode.tool_access() == crate::harness::ToolAccess::None
-            || (self.docker_mcp_bridge == ReadinessState::Ready
-                && self.execution_target == ReadinessState::Ready);
+        let execution_ready = matches!(
+            mode.tool_access(),
+            crate::harness::ToolAccess::None | crate::harness::ToolAccess::RuntimeQaScreenshots
+        ) || (self.docker_mcp_bridge == ReadinessState::Ready
+            && self.execution_target == ReadinessState::Ready);
         provider_ready && mode_ready && execution_ready
     }
 

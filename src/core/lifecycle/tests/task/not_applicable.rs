@@ -100,6 +100,27 @@ fn headless_not_applicable_requires_exact_reviewer_assessment_and_manager_signof
         format!("gate-receipt:{}", reviewer_receipt.receipt_uid),
     ];
 
+    let root = tempfile::tempdir().unwrap();
+    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+        uuid::Uuid::new_v4(),
+        root.path(),
+    );
+    let lifecycle = LifecycleStore::new(&planning);
+    assert!(matches!(
+        lifecycle.apply_task_event(
+            &task_uid,
+            0,
+            &id(),
+            TaskEvent::RuntimeQaNotApplicable {
+                assessment: Box::new(assessment.clone()),
+                reviewer_receipt: Box::new(reviewer_receipt.clone()),
+                receipt: Box::new(signoff.clone()),
+            },
+        ),
+        Err(crate::artifacts::planning_store::StoreError::MalformedState(reason))
+            if reason.contains("validated evidence paths")
+    ));
+
     let mut previously_unavailable = task.clone();
     previously_unavailable
         .apply(

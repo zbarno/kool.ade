@@ -5,6 +5,7 @@ fn qa_request() -> QaRunRequestV1 {
         schema_version: 1,
         qa_run_id: "00000000-0000-4000-8000-000000000001".into(),
         parent_task_uid: "00000000-0000-4000-8000-000000000002".into(),
+        target_id: Some("fixture-target".into()),
         planning_item_uid: None,
         feature_uid: "00000000-0000-4000-8000-000000000003".into(),
         code_head_sha: "a".repeat(40),
@@ -55,7 +56,7 @@ fn reviewer_evidence_uses_same_workspace_identity_as_role_input() {
         }],
     );
     let rendered = render(&input).expect("QA review context should satisfy the catalog contract");
-    assert_eq!(rendered.manifest.role_version, "runtime_qa/v2");
+    assert_eq!(rendered.manifest.role_version, "runtime_qa/v3");
     assert!(
         rendered
             .system

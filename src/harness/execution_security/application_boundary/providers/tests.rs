@@ -23,6 +23,7 @@ fn test_boundary(access: ToolAccess) -> ApplicationBoundary {
         _session_bridge: None,
         _resource_bridge: None,
         execution_session: None,
+        screenshot_review_audit: None,
     }
 }
 

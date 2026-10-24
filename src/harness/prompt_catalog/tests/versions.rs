@@ -217,6 +217,17 @@ fn runtime_qa_v1_identity_remains_readable_beside_the_v2_evidence_role() {
         validate_prompt_manifest(&v2).unwrap(),
         PromptRole::RuntimeQaReviewerV2
     );
+
+    let v3 = render(&input(PromptRole::RuntimeQaReviewerV3))
+        .unwrap()
+        .manifest;
+    assert_eq!(v3.role_version, "runtime_qa/v3");
+    assert_ne!(v3.system_template_sha256, v2.system_template_sha256);
+    assert_ne!(v3.user_template_sha256, v2.user_template_sha256);
+    assert_eq!(
+        validate_prompt_manifest(&v3).unwrap(),
+        PromptRole::RuntimeQaReviewerV3
+    );
 }
 
 #[test]

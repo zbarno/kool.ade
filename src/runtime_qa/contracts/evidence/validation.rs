@@ -14,6 +14,7 @@ impl QaEvidenceManifestV1 {
         if self.schema_version != 1
             || self.qa_run_id != request.qa_run_id
             || self.task_uid != request.parent_task_uid
+            || self.target_id != request.target_id
             || self.code_sha != request.code_head_sha
             || self.approved_spec_hash != request.approved_spec_hash
             || self.build_hash != request.build_artifact_sha256

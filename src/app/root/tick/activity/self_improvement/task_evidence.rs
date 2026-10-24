@@ -1,6 +1,47 @@
 use super::*;
-use crate::core::lifecycle::{GateActor, GateDecision};
+mod parent_progress;
+use parent_progress::synchronize_parent_progress;
+
+use crate::core::lifecycle::{GateActor, GateDecision, GateReceipt};
 use crate::core::self_improvement::SelfImprovementParentTaskProgressV1;
+
+pub(super) fn current_runtime_qa_pass(receipt: &GateReceipt, subject_sha256: Option<&str>) -> bool {
+    receipt.actor == GateActor::IndependentReviewer
+        && receipt.decision == GateDecision::Approved
+        && receipt.prompt_role()
+            == Some(crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV3)
+        && subject_sha256.is_some_and(|subject| receipt.subject_sha256 == subject)
+        && has_current_scenario_evidence(receipt)
+}
+
+fn has_current_scenario_evidence(receipt: &GateReceipt) -> bool {
+    let scenario_ref = receipt.evidence_refs.iter().find_map(|reference| {
+        let (run_id, hash) = reference
+            .strip_prefix("runtime-qa:")?
+            .split_once("/scenarios:")?;
+        (uuid::Uuid::parse_str(run_id).is_ok() && is_sha256(hash)).then_some(run_id)
+    });
+    let Some(run_id) = scenario_ref else {
+        return false;
+    };
+    receipt
+        .evidence_refs
+        .iter()
+        .any(|reference| reference == &format!("runtime-qa:{run_id}/result"))
+        && receipt.evidence_refs.iter().any(|reference| {
+            let Some((evidence_run_id, hash)) = reference
+                .strip_prefix("runtime-qa:")
+                .and_then(|value| value.split_once("/evidence:"))
+            else {
+                return false;
+            };
+            evidence_run_id == run_id && is_sha256(hash)
+        })
+}
+
+fn is_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
 
 pub(super) fn synchronize(
     project: &mut Project,
@@ -76,11 +117,7 @@ pub(super) fn synchronize(
             .iter()
             .all(|progress| progress.runtime_qa_uid.is_some())
         && let Some(receipt) = task.runtime_qa.as_ref()
-        && matches!(
-            receipt.decision,
-            GateDecision::Approved | GateDecision::NotApplicable
-        )
-        && Some(receipt.subject_sha256.as_str()) == run.implementation_subject_sha256.as_deref()
+        && current_runtime_qa_pass(receipt, run.implementation_subject_sha256.as_deref())
     {
         apply(
             runs,
@@ -178,117 +215,6 @@ pub(super) fn synchronize(
         )?
     {
         apply(runs, run, &format!("merged:{sha}"), Event::Merged { sha })?;
-    }
-    Ok(())
-}
-
-fn synchronize_parent_progress(
-    project: &Project,
-    lifecycle: &LifecycleStore<'_>,
-    runs: &SelfImprovementStore<'_>,
-    run: &mut crate::core::self_improvement::SelfImprovementRunV1,
-) -> Result<(), String> {
-    let parent_uids = run
-        .parent_task_progress
-        .iter()
-        .map(|progress| progress.task_uid.clone())
-        .collect::<Vec<_>>();
-    for task_uid in parent_uids {
-        let task = lifecycle
-            .load_task(&task_uid)
-            .map_err(|error| error.to_string())?;
-        let implementation = implementation_for(project, &task);
-        let pr = task
-            .pr_work_item_uid
-            .as_deref()
-            .map(|uid| {
-                lifecycle
-                    .load_pr_preparation(uid)
-                    .map_err(|error| error.to_string())
-            })
-            .transpose()?;
-        let implementation_sha256 = implementation
-            .filter(|state| state.verified_head.is_some())
-            .and_then(|_| task.implementation_sha256.clone());
-        let code_review_uid = task.code_review.as_ref().and_then(|receipt| {
-            (receipt.actor == GateActor::IndependentReviewer
-                && receipt.decision == GateDecision::Approved
-                && receipt.prompt_role()
-                    == Some(crate::harness::prompt_catalog::PromptRole::CodeReviewer)
-                && Some(receipt.subject_sha256.as_str()) == implementation_sha256.as_deref())
-            .then(|| receipt.receipt_uid.clone())
-        });
-        let runtime_qa_uid = task.runtime_qa.as_ref().and_then(|receipt| {
-            let approved = receipt.actor == GateActor::IndependentReviewer
-                && receipt.decision == GateDecision::Approved
-                && matches!(
-                    receipt.prompt_role(),
-                    Some(
-                        crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewer
-                            | crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV2
-                    )
-                );
-            let not_applicable = receipt.actor == GateActor::ApplicationPolicy
-                && receipt.decision == GateDecision::NotApplicable;
-            (Some(receipt.subject_sha256.as_str()) == implementation_sha256.as_deref()
-                && (approved || not_applicable))
-                .then(|| receipt.receipt_uid.clone())
-        });
-        let spec_receipt_uid = task.spec_reconciliation.as_ref().and_then(|receipt| {
-            (receipt.actor == GateActor::ApplicationPolicy
-                && receipt.decision == GateDecision::Approved
-                && Some(receipt.subject_sha256.as_str()) == implementation_sha256.as_deref())
-            .then(|| receipt.receipt_uid.clone())
-        });
-        let progress = SelfImprovementParentTaskProgressV1 {
-            task_uid: task.task_uid.clone(),
-            phase: task.phase,
-            implementation_sha256,
-            code_review_uid,
-            runtime_qa_uid,
-            spec_receipt_uid,
-            pr_work_item_uid: pr.as_ref().map(|record| record.work_item_uid.clone()),
-            pr_status: pr.as_ref().map(|record| record.status),
-            pr_url: pr
-                .as_ref()
-                .and_then(|record| record.provider_pr_url.clone())
-                .or_else(|| implementation.and_then(|state| state.pr_url.clone())),
-            pr_head_sha: pr
-                .as_ref()
-                .and_then(|record| record.head_sha.clone())
-                .or_else(|| implementation.and_then(|state| state.verified_head.clone())),
-            pr_base_branch: implementation.and_then(|state| {
-                state
-                    .pr_details
-                    .as_ref()
-                    .map(|details| details.base_branch.clone())
-            }),
-            pr_merged_commit_sha: pr
-                .as_ref()
-                .and_then(|record| record.merged_commit_sha.clone()),
-            pr_merged_at: implementation
-                .and_then(|state| state.pr_details.as_ref()?.merged_at.clone()),
-        };
-        if run
-            .parent_task_progress
-            .iter()
-            .find(|current| current.task_uid == task_uid)
-            != Some(&progress)
-        {
-            let revision = pr.as_ref().map_or(0, |record| record.revision);
-            let event_uid = super::transition_uid(
-                &run.run_uid,
-                &format!("parent-progress:{task_uid}:{}:{revision}", task.revision),
-            )?;
-            *run = runs
-                .apply_event(
-                    &run.run_uid,
-                    run.revision,
-                    &event_uid,
-                    Event::ParentTaskProgress(progress),
-                )
-                .map_err(|error| error.to_string())?;
-        }
     }
     Ok(())
 }

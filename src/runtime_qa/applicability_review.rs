@@ -89,9 +89,10 @@ fn review(
     let reviewer_identity = crate::harness::ReviewExecutionIdentity {
         execution_id: assessment.reviewer_execution_id.clone(),
         session_id: assessment.reviewer_session_id.clone(),
+        runtime_qa_screenshot_review: None,
     };
     let input = RoleInputV1 {
-        role: PromptRole::RuntimeQaReviewerV2,
+        role: PromptRole::RuntimeQaReviewerV3,
         workspace_uid: workspace_uid.clone(),
         feature_uid,
         task_uid: Some(assessment.task_uid.clone()),
@@ -112,7 +113,7 @@ fn review(
             ),
         }],
         execution_policy_ref: "runtime-qa-applicability/read-only-v1".into(),
-        output_schema_version: PromptRole::RuntimeQaReviewerV2.output_schema_version().into(),
+        output_schema_version: PromptRole::RuntimeQaReviewerV3.output_schema_version().into(),
         payload: RolePayloadV1::Review {
             subject_revision: assessment.code_sha.clone(),
             subject_hash: assessment_hash.clone(),
@@ -165,7 +166,7 @@ fn review(
         ..Default::default()
     };
     let RoleOutputV1::Review(verdict) = validate_output_with_context(
-        PromptRole::RuntimeQaReviewerV2,
+        PromptRole::RuntimeQaReviewerV3,
         &output.final_text,
         &context,
     )?

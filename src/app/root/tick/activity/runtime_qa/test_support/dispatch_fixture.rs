@@ -216,6 +216,7 @@ pub(crate) fn queued_task(lifecycle: &LifecycleStore<'_>) -> (String, QaRunReque
         schema_version: 1,
         qa_run_id: id(),
         parent_task_uid: task_uid.clone(),
+        target_id: Some("target:fixture".into()),
         planning_item_uid: None,
         feature_uid: task.feature_uid.clone(),
         code_head_sha: "1".repeat(40),

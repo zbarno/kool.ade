@@ -162,6 +162,7 @@ fn live_reviewer_detects_seeded_overengineering_and_unrelated_changes() {
     let identity = ReviewExecutionIdentity {
         execution_id: "00000000-0000-4000-8000-000000000002".into(),
         session_id: "00000000-0000-4000-8000-000000000004".into(),
+        runtime_qa_screenshot_review: None,
     };
     let request = PlanningRequest {
         mode: ExecutionMode::ReadOnlyAnalysis,

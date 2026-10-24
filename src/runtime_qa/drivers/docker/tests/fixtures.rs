@@ -33,6 +33,7 @@ pub(super) fn request() -> QaRunRequestV1 {
         schema_version: 1,
         qa_run_id: uuid(),
         parent_task_uid: uuid(),
+        target_id: Some("fixture-target".into()),
         planning_item_uid: None,
         feature_uid: uuid(),
         code_head_sha: "b".repeat(40),

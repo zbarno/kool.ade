@@ -123,6 +123,7 @@ impl GateReceipt {
                                         | crate::harness::prompt_catalog::PromptRole::CodeReviewerV1
                                         | crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewer
                                         | crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV2
+                                        | crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV3
                                 ) && self.prompt_sha256.as_deref()
                                     == Some(manifest.identity_sha256().as_str())
                             })

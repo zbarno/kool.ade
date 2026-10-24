@@ -190,7 +190,8 @@ fn decode(
         | PromptRole::CodeReviewer
         | PromptRole::CodeReviewerV1
         | PromptRole::RuntimeQaReviewer
-        | PromptRole::RuntimeQaReviewerV2 => parse!(ReviewVerdictV1, Review),
+        | PromptRole::RuntimeQaReviewerV2
+        | PromptRole::RuntimeQaReviewerV3 => parse!(ReviewVerdictV1, Review),
         PromptRole::RuntimeQaScenarioSynthesizer => {
             parse!(QaScenarioDraftV1, QaScenarioDraft)
         }

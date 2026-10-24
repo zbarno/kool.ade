@@ -149,6 +149,7 @@ fn tool_names(access: ToolAccess) -> Vec<String> {
             "koolade_resource".into(),
             "koolade_dependency".into(),
         ],
+        ToolAccess::RuntimeQaScreenshots => vec!["koolade_runtime_qa_screenshot".into()],
     }
 }
 
