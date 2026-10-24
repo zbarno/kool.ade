@@ -30,6 +30,7 @@ pub use code_repository::DlgCodeRepository;
 pub use harness_setup::{
     DlgHarnessSetup, HarnessSettingsSection, paint_harness_setup_card, paint_harness_setup_page,
 };
+pub(crate) use harness_setup::probe_bootstrap_clis;
 pub use import::DlgImport;
 pub use mcp::{DlgMcp, MCP_EXAMPLE_HINT, paint_mcp_card};
 pub use persona_card::{
