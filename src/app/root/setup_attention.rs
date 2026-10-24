@@ -42,6 +42,17 @@ impl KooladeApp {
                     "The provider setup check stopped unexpectedly. Retry the check.",
                 )),
             };
+            // Scan writes machine-local tasks outside all shared planning
+            // repositories. Only reload after the scan worker completed.
+            match crate::persistence::setup_tasks::load() {
+                Ok(store) => {
+                    self.machine_setup_tasks = store.tasks.into_values().collect();
+                }
+                Err(error) => {
+                    self.toasts
+                        .warning(format!("Could not load local setup tasks: {error}"));
+                }
+            }
             if self.setup_retry_requested && self.setup_attention.is_none() {
                 self.toasts
                     .success("Kool.ad/e setup is ready. Retry planning or implementation.");

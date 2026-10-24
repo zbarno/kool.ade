@@ -272,7 +272,36 @@ pub fn assess(
         host,
         checked_at_unix_ms,
         findings,
-        checked_domains: vec!["cli".into(), "docker".into()],
+        checked_domains: {
+            // Readiness, not merely completed probing, can resolve old tasks.
+            // A stopped/rootful/untrusted Engine cannot prove that an earlier
+            // Docker prerequisite was fixed. Likewise, an unknown CLI account
+            // cannot verify a previously failing provider.
+            let mut domains = Vec::new();
+            if probes.iter().any(|probe| probe.binary_path.is_some()) {
+                domains.push("cli:install".into());
+            }
+            if probes
+                .iter()
+                .all(|probe| probe.status != ProbeStatus::Failed)
+            {
+                domains.push("cli:scan".into());
+            }
+            for probe in &verified {
+                domains.push(format!("cli:{}", probe.provider_id));
+            }
+            if selected_agent.is_some_and(|id| verified.iter().any(|probe| probe.provider_id == id))
+            {
+                domains.push("cli:select".into());
+            }
+            if docker.engine_ready {
+                domains.push("docker".into());
+                if !docker.available_images.is_empty() {
+                    domains.push("images".into());
+                }
+            }
+            domains
+        },
     }
 }
 

@@ -110,9 +110,17 @@ pub(super) fn paint(
                                             .count()
                                         + usize::from(column == 2) * plan_reviews.len()
                                         + usize::from(column == 3) * feature_approvals.len()
-                                        + usize::from(
-                                            column == 3 && board.setup_attention.is_some(),
-                                        );
+                                        + if column == 3 {
+                                            board.setup_tasks.iter().filter(|task| {
+                                                task.state != crate::persistence::setup_tasks::State::Verified
+                                            }).count()
+                                                + usize::from(
+                                                    board.setup_tasks.is_empty()
+                                                        && board.setup_attention.is_some(),
+                                                )
+                                        } else {
+                                            0
+                                        };
                                     let lane_color = theme::TEXT_DIM;
                                     let (dot, _) = ui.allocate_exact_size(
                                         egui::vec2(7.0, 7.0),
@@ -179,7 +187,17 @@ pub(super) fn paint(
                                         .count()
                                     + usize::from(column == 2) * plan_reviews.len()
                                     + usize::from(column == 3) * feature_approvals.len()
-                                    + usize::from(column == 3 && board.setup_attention.is_some());
+                                    + if column == 3 {
+                                        board.setup_tasks.iter().filter(|task| {
+                                            task.state != crate::persistence::setup_tasks::State::Verified
+                                        }).count()
+                                            + usize::from(
+                                                board.setup_tasks.is_empty()
+                                                    && board.setup_attention.is_some(),
+                                            )
+                                    } else {
+                                        0
+                                    };
                                 if visible_count == 0 {
                                     let (headline, detail) = match column {
                                         0 => (
@@ -219,7 +237,12 @@ pub(super) fn paint(
                                                 board,
                                                 attention::Lane {
                                                     planning: &planning,
-                                                    issue: board.setup_attention.as_ref(),
+                                                    issue: if board.setup_tasks.is_empty() {
+                                                        board.setup_attention.as_ref()
+                                                    } else {
+                                                        None
+                                                    },
+                                                    setup_tasks: &board.setup_tasks,
                                                     items: &questions,
                                                     tasks: &cards,
                                                     clarifications,

@@ -59,6 +59,54 @@ pub(super) fn paint_opportunity(
     opportunity::paint(ui, surface, board, proposal, record_revision, height);
 }
 
+pub(super) fn paint_machine_setup(
+    ui: &mut egui::Ui,
+    surface: &mut dyn Surface,
+    board: &crate::ui::planning_board::ViewModel,
+    task: &crate::persistence::setup_tasks::LocalTask,
+) {
+    ui.heading(&task.title);
+    ui.label(crate::ui::theme::metadata_text(format!(
+        "Machine setup · {:?}",
+        task.state
+    )));
+    ui.add_space(crate::ui::theme::spacing::M);
+    ui.label(crate::ui::theme::section_heading(
+        "Why this needs attention",
+    ));
+    ui.label(&task.explanation);
+    if !task.prerequisites.is_empty() {
+        ui.label(crate::ui::theme::section_heading("Waiting for"));
+        for item in &task.prerequisites {
+            ui.label(item);
+        }
+    }
+    ui.add_space(crate::ui::theme::spacing::M);
+    ui.label(crate::ui::theme::section_heading("What to do next"));
+    ui.label(&task.next_step);
+    ui.label(crate::ui::theme::helper_text(
+        "Kool.ad/e stores setup state on this machine, not in the project Git repository.         Automatic repairs and dedicated task conversations are being implemented separately.",
+    ));
+    if ui.button("Open coding tools").clicked() {
+        ui.ctx().data_mut(|data| {
+            data.insert_temp(egui::Id::new("koolade_open_coding_settings"), true);
+        });
+    }
+    if ui
+        .add_enabled(
+            !board.setup_checking,
+            egui::Button::new(if board.setup_checking {
+                "Checking setup…"
+            } else {
+                "Check machine again"
+            }),
+        )
+        .clicked()
+    {
+        surface.dispatch(crate::ui::ApplicationCommand::RetrySetupCheck);
+    }
+}
+
 pub(super) fn paint_setup_issue(
     ui: &mut egui::Ui,
     surface: &mut dyn Surface,

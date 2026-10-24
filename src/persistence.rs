@@ -26,6 +26,7 @@ pub(crate) mod remote_private_file_grants;
 pub mod remote_requests;
 pub mod remote_workers;
 pub(crate) mod runtime_target_approvals;
+pub mod setup_tasks;
 pub mod task_chats;
 pub mod telemetry;
 
