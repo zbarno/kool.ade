@@ -6,9 +6,7 @@
 
 use super::*;
 
-fn permitted(
-    status: &crate::execution::docker::environment::DockerEnvironmentStatus,
-) -> bool {
+fn permitted(status: &crate::execution::docker::environment::DockerEnvironmentStatus) -> bool {
     cfg!(target_os = "linux")
         && status.engine_ready
         && !status.desktop_vm
@@ -20,7 +18,9 @@ pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn Surface) {
     use crate::execution::docker::environment::DockerEnvironmentStatus;
 
     ui.add_space(crate::ui::theme::spacing::M);
-    ui.label(crate::ui::theme::section_heading("Prepare the approved image"));
+    ui.label(crate::ui::theme::section_heading(
+        "Prepare the approved image",
+    ));
     ui.label(
         "This downloads the architecture-matched, digest-locked general \
         runtime image and runs a no-network, non-root isolation smoke test. \
@@ -28,8 +28,7 @@ pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn Surface) {
         request administrator privileges. Docker registry traffic and local \
         image storage will be used.",
     );
-    let (running, result, finished) =
-        crate::ui::layout::settings::poll_setup_image_smoke(ui.ctx());
+    let (running, result, finished) = crate::ui::layout::settings::poll_setup_image_smoke(ui.ctx());
     if finished {
         DockerEnvironmentStatus::invalidate();
         crate::harness::runtime_capabilities::RuntimeCapabilities::invalidate();
@@ -50,8 +49,7 @@ pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn Surface) {
             egui::Button::new("I approve image download and isolation test"),
         )
         .clicked()
-        && let Err(error) =
-            crate::ui::layout::settings::start_setup_image_smoke(ui.ctx())
+        && let Err(error) = crate::ui::layout::settings::start_setup_image_smoke(ui.ctx())
     {
         ui.colored_label(crate::ui::theme::DANGER, error);
     }
@@ -60,7 +58,8 @@ pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn Surface) {
             ui.spinner();
             ui.label("Preparing the approved Docker image and testing isolation…");
         });
-        ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(100));
     }
     if let Some(result) = result {
         ui.colored_label(

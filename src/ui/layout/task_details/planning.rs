@@ -1,10 +1,10 @@
 use super::*;
 
+mod approved_image;
 mod clarification;
 mod conversation;
 mod details;
 mod opportunity;
-mod approved_image;
 
 pub(super) fn paint_clarification(
     ui: &mut egui::Ui,
