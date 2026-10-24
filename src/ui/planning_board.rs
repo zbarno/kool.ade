@@ -18,6 +18,7 @@ pub struct ViewModel {
     pub opportunity_error: Option<String>,
     pub opportunity_discovery_settings: crate::core::opportunity::OpportunityDiscoverySettingsV1,
     pub setup_attention: Option<crate::app::setup_attention::SetupIssue>,
+    pub setup_tasks: Vec<crate::persistence::setup_tasks::LocalTask>,
     pub setup_checking: bool,
     pub eligible_item_ids: BTreeSet<String>,
     pub archived: BTreeSet<String>,

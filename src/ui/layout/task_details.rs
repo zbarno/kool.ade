@@ -24,6 +24,15 @@ pub(super) fn seed_custom_target_repository_root_draft(
     );
 }
 
+pub(super) fn paint_machine_setup(
+    ui: &mut egui::Ui,
+    surface: &mut dyn Surface,
+    board: &crate::ui::planning_board::ViewModel,
+    task: &crate::persistence::setup_tasks::LocalTask,
+) {
+    planning::paint_machine_setup(ui, surface, board, task);
+}
+
 pub(super) fn paint_clarification(
     ui: &mut egui::Ui,
     surface: &mut dyn Surface,

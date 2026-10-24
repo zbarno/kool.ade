@@ -31,6 +31,7 @@ impl KooladeApp {
                 let join_workspace_slot = std::cell::RefCell::new(false);
                 let open_local_workspace_slot = std::cell::RefCell::new(false);
                 let harness_setup_slot = std::cell::RefCell::new(false);
+                let machine_setup_retry_slot = std::cell::RefCell::new(false);
                 let local_workspaces =
                     crate::core::managed_workspace::WorkspaceManager::from_state_root()
                         .list_local();
@@ -143,6 +144,23 @@ impl KooladeApp {
                             if ui.link("Configure coding tools…").clicked() {
                                 *harness_setup_slot.borrow_mut() = true;
                             }
+                            if !self.machine_setup_tasks.is_empty() {
+                                ui.collapsing("Machine setup tasks", |ui| {
+                                    for task in &self.machine_setup_tasks {
+                                        if task.state
+                                            != crate::persistence::setup_tasks::State::Verified
+                                        {
+                                            ui.label(egui::RichText::new(&task.title).strong());
+                                            ui.label(crate::ui::theme::helper_text(
+                                                &task.next_step,
+                                            ));
+                                        }
+                                    }
+                                    if ui.button("Check machine again").clicked() {
+                                        *machine_setup_retry_slot.borrow_mut() = true;
+                                    }
+                                });
+                            }
                             // The first-run readiness task is machine-local:
                             // show it even if no planning repository exists.
                             if let Some(issue) = &self.setup_attention {
@@ -191,6 +209,9 @@ impl KooladeApp {
                 }
                 if *harness_setup_slot.borrow() {
                     self.dialog = Some(Dialog::HarnessSetup(app_dialogs::DlgHarnessSetup::new()));
+                }
+                if *machine_setup_retry_slot.borrow() {
+                    self.refresh_setup_attention(true);
                 }
             }
             Screen::Connected(_) => {

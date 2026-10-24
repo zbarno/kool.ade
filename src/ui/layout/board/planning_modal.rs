@@ -134,6 +134,15 @@ pub(super) fn paint(
             }
         });
         clear_if_closed(selection, closed);
+    } else if let Some(task) = board
+        .setup_tasks
+        .iter()
+        .find(|task| selection.as_deref() == Some(task.id.as_str()))
+    {
+        let closed = crate::ui::overlays::show_task_modal(ui, &task.id, bounds, |ui| {
+            super::super::task_details::paint_machine_setup(ui, surface, board, task)
+        });
+        clear_if_closed(selection, closed);
     } else if let Some(issue) = board
         .setup_attention
         .as_ref()
