@@ -182,7 +182,24 @@ jobs:
             --load \
             --metadata-file "$metadata_file" \
             containers/executor
-          image_digest="$(jq -er '."containerimage.digest"' "$metadata_file")"
+          # The local Docker exporter is used for security smoke tests. The
+          # trusted digest is taken from the same registry-format exporter used
+          # by main publication, without uploading the candidate.
+          arch="${PLATFORM#linux/}"
+          registry_tag="ghcr.io/zbarno/koolade-executor:$PROFILE-$GITHUB_SHA-$arch"
+          registry_metadata="$RUNNER_TEMP/executor-registry-candidate.json"
+          docker buildx build \
+            --platform "$PLATFORM" \
+            --network=none \
+            --provenance=false \
+            --sbom=false \
+            --build-arg SOURCE_DATE_EPOCH=0 \
+            --build-arg "BASE_IMAGE=$BASE_IMAGE" \
+            --build-arg "EXECUTOR_PROFILE=$PROFILE" \
+            --output "type=image,name=$registry_tag,push=false,rewrite-timestamp=true" \
+            --metadata-file "$registry_metadata" \
+            containers/executor
+          image_digest="$(jq -er '."containerimage.digest"' "$registry_metadata")"
           [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           printf 'image_digest=%s\n' "$image_digest" >> "$GITHUB_OUTPUT"
       - name: Check architecture, identity, tools, and forbidden services
