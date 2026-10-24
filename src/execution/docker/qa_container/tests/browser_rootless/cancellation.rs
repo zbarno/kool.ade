@@ -3,6 +3,8 @@ use futures_util::StreamExt;
 use std::io::Read;
 
 const CANCEL_MARKER: &str = "/tmp/qa-browser-cancel-started";
+// Rootless CI can take several seconds to cold-start Chromium before navigation.
+const CANCEL_MARKER_WAIT: Duration = Duration::from_secs(30);
 
 /// Production boundary: a real browser driver is blocked in a task-service
 /// navigation when cancellation arrives; the controller must stop waiting,
@@ -110,7 +112,7 @@ pub(super) async fn assert_cancelled_browser_navigation_is_cleaned(
     let marker = wait_for_cancel_marker(
         docker,
         &preview.service_lease.task_container_id,
-        Duration::from_secs(12),
+        CANCEL_MARKER_WAIT,
     )
     .await;
     let _ = cancel_sender.send(true);
