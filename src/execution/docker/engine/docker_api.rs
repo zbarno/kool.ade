@@ -6,6 +6,7 @@ pub(crate) trait DockerApi: Send + Sync {
     fn ensure_image<'a>(
         &'a self,
         image: &'a SelectedImage,
+        expected_engine_fingerprint: Option<&'a str>,
     ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>>;
 
     /// Inspect an already-built local image without attempting a registry pull.
@@ -64,6 +65,7 @@ pub(crate) trait DockerApi: Send + Sync {
         &'a self,
         _image: &'a SelectedImage,
         _container_name: &'a str,
+        _expected_engine_fingerprint: Option<&'a str>,
     ) -> EngineFuture<'a, Result<(), PrerequisiteFailure>> {
         Box::pin(async {
             Err(failure(

@@ -19,6 +19,7 @@ impl BollardApi {
         &self,
         image: &SelectedImage,
         container_name: &str,
+        expected_engine_fingerprint: Option<&str>,
     ) -> Result<(), PrerequisiteFailure> {
         let body = smoke_test_body(image, container_name)?;
         let options = CreateContainerOptionsBuilder::default()
@@ -26,6 +27,9 @@ impl BollardApi {
             .build();
         let mut container_id = None;
         let result = tokio::time::timeout(Duration::from_secs(20), async {
+            if let Some(expected) = expected_engine_fingerprint {
+                self.require_approved_engine(image, expected).await?;
+            }
             let created = self
                 .docker
                 .create_container(Some(options), body)
@@ -39,6 +43,9 @@ impl BollardApi {
                 ));
             }
             container_id = Some(created.id.clone());
+            if let Some(expected) = expected_engine_fingerprint {
+                self.require_approved_engine(image, expected).await?;
+            }
             self.docker
                 .start_container(&created.id, None)
                 .await

@@ -71,6 +71,7 @@ impl DockerApi for HangingApi {
     fn ensure_image<'a>(
         &'a self,
         _image: &'a SelectedImage,
+        _expected_engine_fingerprint: Option<&'a str>,
     ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
         Box::pin(std::future::pending())
     }
@@ -91,6 +92,7 @@ impl DockerApi for FakeApi {
     fn ensure_image<'a>(
         &'a self,
         _image: &'a SelectedImage,
+        _expected_engine_fingerprint: Option<&'a str>,
     ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
         self.image_prepare_count.fetch_add(1, Ordering::SeqCst);
         Box::pin(async {

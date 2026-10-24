@@ -30,6 +30,30 @@ impl BollardApi {
             minimum_disk_bytes,
         }
     }
+
+    pub(super) async fn require_approved_engine(
+        &self,
+        image: &SelectedImage,
+        expected_fingerprint: &str,
+    ) -> Result<(), PrerequisiteFailure> {
+        let snapshot = DockerApi::inspect(self).await?;
+        let actual =
+            super::approval_fingerprint(&self.endpoint, &snapshot, image).map_err(|_| {
+                failure(
+                    PrerequisiteCode::UntrustedEndpoint,
+                    "Could not verify the approved Docker daemon identity",
+                    false,
+                )
+            })?;
+        if actual != expected_fingerprint {
+            return Err(failure(
+                PrerequisiteCode::UntrustedEndpoint,
+                "Docker daemon identity changed before the approved operation",
+                true,
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl DockerApi for BollardApi {
@@ -107,8 +131,12 @@ impl DockerApi for BollardApi {
     fn ensure_image<'a>(
         &'a self,
         image: &'a SelectedImage,
+        expected_engine_fingerprint: Option<&'a str>,
     ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
         Box::pin(async move {
+            if let Some(expected) = expected_engine_fingerprint {
+                self.require_approved_engine(image, expected).await?;
+            }
             let result = self.docker.inspect_image(&image.reference).await;
             if matches!(
                 &result,
@@ -117,6 +145,9 @@ impl DockerApi for BollardApi {
                     ..
                 })
             ) {
+                if let Some(expected) = expected_engine_fingerprint {
+                    self.require_approved_engine(image, expected).await?;
+                }
                 let options = bollard::query_parameters::CreateImageOptionsBuilder::default()
                     .from_image(&image.reference)
                     .platform(&image.platform)
@@ -238,8 +269,9 @@ impl DockerApi for BollardApi {
         &'a self,
         image: &'a SelectedImage,
         container_name: &'a str,
+        expected_engine_fingerprint: Option<&'a str>,
     ) -> EngineFuture<'a, Result<(), PrerequisiteFailure>> {
-        Box::pin(self.smoke_test_impl(image, container_name))
+        Box::pin(self.smoke_test_impl(image, container_name, expected_engine_fingerprint))
     }
 }
 

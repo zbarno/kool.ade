@@ -8,6 +8,9 @@ use super::failure;
 
 const API_TIMEOUT_SECONDS: u64 = 5;
 
+#[cfg(unix)]
+mod pinned;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HostPlatform {
     Linux,
@@ -202,6 +205,13 @@ impl DockerEndpoint {
         }
     }
 
+    pub(crate) fn identity(&self) -> String {
+        match self {
+            Self::Unix { path, desktop } => format!("unix:{}:{desktop}", path.display()),
+            Self::NamedPipe { path, desktop } => format!("named-pipe:{path}:{desktop}"),
+        }
+    }
+
     pub(crate) fn connect(&self) -> Result<Docker, PrerequisiteFailure> {
         let result = match self {
             #[cfg(unix)]
@@ -235,6 +245,21 @@ impl DockerEndpoint {
             }
         };
         result.map_err(|error| super::map_connect_error(&error))
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn connect_pinned(&self) -> Result<Docker, PrerequisiteFailure> {
+        match self {
+            Self::Unix { path, desktop } => {
+                socket::validate_unix_socket(path, *desktop)?;
+                pinned::connect(path).map_err(|error| super::map_connect_error(&error))
+            }
+            Self::NamedPipe { .. } => Err(failure(
+                PrerequisiteCode::UntrustedEndpoint,
+                "A persistent pinned Docker API connection is unavailable for this endpoint",
+                false,
+            )),
+        }
     }
 }
 

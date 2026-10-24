@@ -80,15 +80,19 @@ pub fn validate(proposal: &Proposal, detected_host: Host) -> anyhow::Result<Revi
             (false, false)
         }
         Operation::PrepareLockedImage => {
+            let profile = proposal
+                .image_profile
+                .as_deref()
+                .filter(|profile| matches!(*profile, "general" | "rust" | "node" | "python" | "go"))
+                .ok_or_else(|| {
+                    anyhow::anyhow!("only bundled, approved runtime profiles may be prepared")
+                })?;
+            let architecture = proposal
+                .prerequisite_id
+                .strip_prefix(&format!("setup:images:{profile}:"));
             anyhow::ensure!(
-                proposal.prerequisite_id.starts_with("setup:images:"),
-                "image preparation requires an image prerequisite"
-            );
-            anyhow::ensure!(
-                proposal.image_profile.as_deref().is_some_and(|profile| {
-                    matches!(profile, "general" | "rust" | "node" | "python" | "go")
-                }),
-                "only bundled, approved runtime profiles may be prepared"
+                architecture.is_some_and(|arch| matches!(arch, "amd64" | "arm64")),
+                "image preparation requires a canonical approved profile and architecture"
             );
             (true, true)
         }
@@ -177,5 +181,18 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn image_intent_must_name_its_exact_profile_and_supported_architecture() {
+        let mut proposal = action(
+            Operation::PrepareLockedImage,
+            "setup:images:rust:amd64",
+            Some("general"),
+        );
+        assert!(validate(&proposal, Host::Linux).is_err());
+
+        proposal.prerequisite_id = "setup:images:general:x86_64".into();
+        assert!(validate(&proposal, Host::Linux).is_err());
     }
 }
