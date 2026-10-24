@@ -2,6 +2,7 @@
 
 pub mod bootstrap_repair_policy;
 pub mod bootstrap_approval;
+pub mod bootstrap_image_prepare;
 pub mod dialogs;
 pub mod root;
 pub mod session;
