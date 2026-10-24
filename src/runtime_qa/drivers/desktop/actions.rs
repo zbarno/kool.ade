@@ -190,6 +190,13 @@ fn click(
     let window = window::require(display, window_id, owner_pids)?;
     let rect = display.window(window, owner_pids)?;
     let point = absolute_point(&rect, x, y)?;
+    // The private Xvfb has no window manager to focus a clicked application.
+    display
+        .connection
+        .set_input_focus(InputFocus::PARENT, window, x11rb::CURRENT_TIME)
+        .map_err(x_error)?
+        .check()
+        .map_err(x_error)?;
     let count = if double { 2 } else { 1 };
     input(display, 6, 0, point)?;
     for _ in 0..count {
