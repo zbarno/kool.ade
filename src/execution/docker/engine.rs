@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod approval;
 mod derived_image;
 mod docker_api;
 mod errors;
@@ -29,6 +30,7 @@ use crate::execution::docker::{
 mod bollard_api;
 pub mod endpoint;
 mod smoke;
+pub(crate) use approval::fingerprint as approval_fingerprint;
 use bollard_api::BollardApi;
 pub use endpoint::{DockerEndpoint, HostPlatform};
 
@@ -105,6 +107,17 @@ impl EngineDiscovery {
             }
         }
         let docker = endpoint.connect()?;
+        let api = Arc::new(BollardApi::new(
+            docker,
+            endpoint.clone(),
+            DEFAULT_MINIMUM_FREE_BYTES,
+        ));
+        Ok(Self::with_api(endpoint, api))
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn connect_pinned(endpoint: DockerEndpoint) -> Result<Self, PrerequisiteFailure> {
+        let docker = endpoint.connect_pinned()?;
         let api = Arc::new(BollardApi::new(
             docker,
             endpoint.clone(),
@@ -218,8 +231,26 @@ impl EngineDiscovery {
         })
     }
 
+    /// Return one bounded, validated daemon identity snapshot for consent
+    /// binding. Callers must re-probe before using the resulting identity.
+    pub async fn inspect_snapshot(&self) -> Result<EngineSnapshot, PrerequisiteFailure> {
+        let snapshot = tokio::time::timeout(self.timeouts.operation, self.api.inspect())
+            .await
+            .map_err(|_| operation_timeout("Docker Engine identity inspection"))??;
+        validate_snapshot(&snapshot)?;
+        Ok(snapshot)
+    }
+
     /// Pulls only an image selected from the bundled digest lock. Health probes never pull images.
     pub async fn prepare_image(&self, image: &SelectedImage) -> Result<(), PrerequisiteFailure> {
+        self.prepare_image_with_fingerprint(image, None).await
+    }
+
+    async fn prepare_image_with_fingerprint(
+        &self,
+        image: &SelectedImage,
+        expected_engine_fingerprint: Option<&str>,
+    ) -> Result<(), PrerequisiteFailure> {
         let lock = ImageLock::bundled()?;
         let architecture = image.platform.strip_prefix("linux/").unwrap_or_default();
         let expected = lock.select(image.profile, architecture)?;
@@ -232,7 +263,7 @@ impl EngineDiscovery {
         }
         let observed = tokio::time::timeout(
             self.timeouts.image_preparation,
-            self.api.ensure_image(image),
+            self.api.ensure_image(image, expected_engine_fingerprint),
         )
         .await
         .map_err(|_| operation_timeout("trusted executor image preparation"))??;

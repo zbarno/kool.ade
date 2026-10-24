@@ -29,6 +29,7 @@ impl DockerApi for DesktopApi {
     fn ensure_image<'a>(
         &'a self,
         _image: &'a SelectedImage,
+        _expected_engine_fingerprint: Option<&'a str>,
     ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
         Box::pin(async {
             Err(PrerequisiteFailure {

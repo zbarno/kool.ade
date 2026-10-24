@@ -141,6 +141,9 @@ impl KooladeApp {
                                 }
                             }
                             ui.add_space(6.0);
+                            if self.setup_probe.is_some() {
+                                ui.label(crate::ui::theme::helper_text("Checking machine setup…"));
+                            }
                             if ui.link("Configure coding tools…").clicked() {
                                 *harness_setup_slot.borrow_mut() = true;
                             }
