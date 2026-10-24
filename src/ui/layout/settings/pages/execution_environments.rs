@@ -9,6 +9,18 @@ mod target;
 mod worker_management;
 mod workers;
 
+pub(in crate::ui::layout::settings) fn start_setup_image_smoke(
+    ctx: &egui::Context,
+) -> Result<(), String> {
+    smoke::start(ctx)
+}
+
+pub(in crate::ui::layout::settings) fn poll_setup_image_smoke(
+    ctx: &egui::Context,
+) -> (bool, Option<String>, bool) {
+    smoke::poll(ctx)
+}
+
 pub(super) fn paint(ui: &mut egui::Ui) -> Option<String> {
     ui.label(theme::page_title("Execution Environments"));
     ui.label(theme::helper_text(
