@@ -310,12 +310,6 @@ impl Default for KooladeApp {
 }
 
 // ------------------------------------------------------------------- Surface
-impl KooladeApp {
-    fn cancel_task_for(&mut self, ticket: &str) {
-        self.cancel_board_work(ticket);
-    }
-}
-
 #[cfg(test)]
 #[path = "root/board_tests.rs"]
 pub(crate) mod board_tests;

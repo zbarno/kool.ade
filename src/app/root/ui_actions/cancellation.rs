@@ -1,4 +1,5 @@
 use super::{KooladeApp, Screen};
+use crate::app::session::Project;
 
 impl KooladeApp {
     pub(in crate::app::root) fn cancel_board_work(&mut self, key: &str) {
@@ -31,9 +32,14 @@ impl KooladeApp {
                             | crate::domain::ChangeStatus::Abandoned
                     )
                 });
-            if (work.status == crate::core::planning_work::WorkStatus::Done
-                && (work.feature_id.is_none() || feature_complete))
-                || ids.contains(&crate::persistence::cancelled_work::planning_id(&work.uid))
+            if ids.contains(&crate::persistence::cancelled_work::planning_id(&work.uid)) {
+                if let Some(feature_id) = work.feature_id.as_deref() {
+                    retry_evolve_revocation_for_feature(project, feature_id);
+                }
+                return;
+            }
+            if work.status == crate::core::planning_work::WorkStatus::Done
+                && (work.feature_id.is_none() || feature_complete)
             {
                 return;
             }
@@ -71,7 +77,11 @@ impl KooladeApp {
                 state.status == crate::core::implementation::ImplementationStatus::Completed
                     || state.pr_state == Some(crate::core::implementation::PullRequestState::Merged)
             });
-            if completed || ids.contains(&crate::persistence::cancelled_work::task_id(doc)) {
+            if ids.contains(&crate::persistence::cancelled_work::task_id(doc)) {
+                retry_evolve_revocation(project, &[key.to_owned()]);
+                return;
+            }
+            if completed {
                 return;
             }
             ids.insert(crate::persistence::cancelled_work::task_id(doc));
@@ -94,6 +104,7 @@ impl KooladeApp {
         };
         project.state.baseline_planning_revision = revision;
         project.cancelled_work = ids;
+        retry_evolve_revocation(project, &tickets);
         for ticket in &tickets {
             project.queue.in_flight.remove(ticket);
             project.queue.waiting_for_capacity.remove(ticket);
@@ -121,4 +132,140 @@ impl KooladeApp {
                 .success("Work cancelled. Its history and project files are preserved.");
         }
     }
+
+    pub(in crate::app::root) fn pause_task_for(&mut self, ticket: &str) {
+        let mut persistence_error = None;
+        if let Screen::Connected(project) = &mut self.screen {
+            let Some(controller) = project.active_implementations.get(ticket) else {
+                return;
+            };
+            project.queue.pause_task_for_resume(ticket);
+            if project.queue_lock.is_none() {
+                match crate::core::implementation_queue::Queue::acquire(&project.state.repo_root) {
+                    Ok(lock) => project.queue_lock = Some(lock),
+                    Err(error) => persistence_error = Some(error.to_string()),
+                }
+            }
+            controller.request_cancel();
+            if project.queue_lock.is_some()
+                && let Err(error) = project.queue.save(&project.state.repo_root)
+            {
+                persistence_error = Some(error.to_string());
+            }
+            if let Some(error) = &persistence_error {
+                project.queue.last_error = format!("Task pause could not be saved: {error}");
+            }
+        }
+        if let Some(error) = persistence_error {
+            self.toasts.warning(format!(
+                "The task was asked to pause, but its resume checkpoint could not be saved: {error}"
+            ));
+        }
+    }
+}
+
+fn retry_evolve_revocation_for_feature(project: &mut Project, feature_id: &str) {
+    let tickets = project
+        .task_documents
+        .iter()
+        .filter(|document| {
+            document
+                .text
+                .lines()
+                .any(|line| line.strip_prefix("Feature ID: ") == Some(feature_id))
+        })
+        .map(|document| document.path.clone())
+        .collect::<Vec<_>>();
+    retry_evolve_revocation(project, &tickets);
+}
+
+fn retry_evolve_revocation(project: &mut Project, tickets: &[String]) {
+    for ticket in tickets {
+        let prefix = format!(
+            "Work is cancelled, but self-improvement authorization for {ticket} could not be revoked:"
+        );
+        match cancel_self_improvement_run(project, ticket) {
+            Ok(()) => project
+                .activity
+                .pending
+                .retain(|existing| !existing.starts_with(&prefix)),
+            Err(error) => {
+                let warning = format!("{prefix} {error}");
+                if !project
+                    .activity
+                    .pending
+                    .iter()
+                    .any(|existing| existing == &warning)
+                {
+                    project.activity.pending.push(warning);
+                }
+            }
+        }
+    }
+}
+
+fn cancel_self_improvement_run(project: &mut Project, ticket: &str) -> Result<(), String> {
+    use crate::core::self_improvement::{
+        SelfImprovementEventV1 as Event, SelfImprovementPhaseV1 as Phase, SelfImprovementStore,
+    };
+
+    let Some(document) = project
+        .task_documents
+        .iter()
+        .find(|document| document.path == ticket)
+    else {
+        return Ok(());
+    };
+    let Some(planning_item_uid) = document
+        .metadata
+        .as_ref()
+        .map(|metadata| metadata.uid.as_str())
+        .or_else(|| {
+            document
+                .identity
+                .as_ref()
+                .map(|identity| identity.uid.as_str())
+        })
+    else {
+        return Ok(());
+    };
+    let planning = &project.state.planning_store;
+    let lifecycle = crate::core::lifecycle::LifecycleStore::new(planning);
+    let task = lifecycle
+        .task_for_planning_item(planning_item_uid)
+        .map_err(|error| error.to_string())?;
+    let Some(task) = task else { return Ok(()) };
+    let runs = SelfImprovementStore::new(planning);
+    let Some(run) = runs
+        .run_for_feature(&task.feature_uid)
+        .map_err(|error| error.to_string())?
+    else {
+        return Ok(());
+    };
+    if matches!(
+        run.phase,
+        Phase::PrOpened
+            | Phase::PrClosedUnmerged
+            | Phase::MergedNotActivated
+            | Phase::InstalledNotActivated
+            | Phase::Activated
+            | Phase::Cancelled
+    ) {
+        return Ok(());
+    }
+    let namespace = uuid::Uuid::parse_str(&run.run_uid).map_err(|error| error.to_string())?;
+    let event_uid = uuid::Uuid::new_v5(
+        &namespace,
+        format!("user-cancelled-task:{}", task.task_uid).as_bytes(),
+    )
+    .hyphenated()
+    .to_string();
+    runs.apply_event(&run.run_uid, run.revision, &event_uid, Event::Cancel)
+        .map_err(|error| error.to_string())?;
+    project.state.baseline_planning_revision = project
+        .state
+        .planning_store
+        .revision()
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }

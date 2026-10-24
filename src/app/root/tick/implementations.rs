@@ -76,6 +76,7 @@ impl KooladeApp {
             }
             for (ticket, result) in finished {
                 let cancellation_requested = project.task_cancelled(&ticket);
+                let pause_requested = project.queue.task_paused(&ticket);
                 if let Some(task_id) = project
                     .task_documents
                     .iter()
@@ -113,6 +114,10 @@ impl KooladeApp {
                         project
                             .implementation_states
                             .insert(ticket.clone(), record.clone());
+                        if pause_requested {
+                            project.queue.blocked.remove(&ticket);
+                            project.queue.recovery_attempts.remove(&ticket);
+                        }
                         crate::app::manager::finish_code_review_repair(project, &ticket);
                         let task_event = match record.status {
                             ImplementationStatus::AwaitingApproval => Some(
@@ -183,6 +188,9 @@ impl KooladeApp {
                             project.queue.blocked.remove(&ticket);
                             project.queue.recovery_attempts.remove(&ticket);
                             "Cancellation requested. Preserved implementation files and history; this task will not restart automatically.".into()
+                        } else if pause_requested {
+                            project.queue.recovery_attempts.remove(&ticket);
+                            "Task paused. Preserved implementation files and history; resume this task when you are ready.".into()
                         } else if let Some(claim_error) = claim_errors.remove(&ticket) {
                             crate::app::manager::mark_code_review_repair_failed(
                                 project,
