@@ -27,6 +27,28 @@ pub(super) fn apply_task_event(
     event_uid: &str,
     proposal: TaskEvent,
 ) -> Result<TaskRecord, StoreError> {
+    if matches!(
+        &proposal,
+        TaskEvent::RuntimeQaNotApplicable {
+            reviewer_receipt,
+            ..
+        } if reviewer_receipt.prompt_role()
+            != Some(crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV3)
+    ) {
+        return Err(StoreError::MalformedState(
+            "new runtime QA applicability decisions require the current reviewer prompt".into(),
+        ));
+    }
+    if matches!(
+        &proposal,
+        TaskEvent::RuntimeQaCompleted { receipt, .. }
+            if receipt.prompt_role()
+                != Some(crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV3)
+    ) {
+        return Err(StoreError::MalformedState(
+            "new runtime QA completions require the current visual reviewer prompt".into(),
+        ));
+    }
     let path = task_path(task_uid);
     let (mut snapshot, actual) = store.read_record::<Snapshot<TaskRecord>>(&path)?;
     if actual != expected_revision || snapshot.record.revision != expected_revision {

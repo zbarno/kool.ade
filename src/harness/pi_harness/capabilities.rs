@@ -91,6 +91,9 @@ fn missing_capabilities(help: &str, mode: ExecutionMode) -> Vec<String> {
         ToolAccess::BoundedImplementation => {
             required.extend(["--no-builtin-tools", "--tools", "--extension"]);
         }
+        ToolAccess::RuntimeQaScreenshots => {
+            required.extend(["--no-builtin-tools", "--tools", "--extension"]);
+        }
     }
     let mut missing = required
         .into_iter()

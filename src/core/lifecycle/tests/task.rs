@@ -90,6 +90,22 @@ fn stale_or_same_context_review_cannot_advance_task_to_done() {
     task.validate().unwrap();
     let request = qa_request(&task);
     assert_ne!(request.code_head_sha, request.complete_diff_hash);
+    let mut unbound_request = request.clone();
+    unbound_request.target_id = None;
+    // Replay must keep accepting targetless request events written before the
+    // target-binding requirement; new persisted events are checked by the store.
+    task.apply(
+        task.revision,
+        TaskEvent::RuntimeQaRequested(unbound_request),
+    )
+    .unwrap();
+    assert_eq!(
+        task.qa_execution
+            .as_ref()
+            .and_then(|state| state.request.as_ref())
+            .and_then(|request| request.target_id.as_deref()),
+        None
+    );
     task.apply(
         task.revision,
         TaskEvent::RuntimeQaRequested(request.clone()),

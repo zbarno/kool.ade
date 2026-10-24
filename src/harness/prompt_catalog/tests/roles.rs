@@ -16,6 +16,7 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         PromptRole::CodeReviewerV1,
         PromptRole::RuntimeQaReviewer,
         PromptRole::RuntimeQaReviewerV2,
+        PromptRole::RuntimeQaReviewerV3,
         PromptRole::RuntimeQaScenarioSynthesizer,
         PromptRole::SpecReconciler,
         PromptRole::RepairWorker,
@@ -114,6 +115,11 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
             "52f777526ee75185f5b868e5fed4362d1dcd2a045f0fb1becacb0e13542e3e9f",
         ),
         (
+            PromptRole::RuntimeQaReviewerV3,
+            "92ab9a496948007cbcc4014145cc24263ca6720637f5ba33fe8d54ef61c739aa",
+            "d119e7f19d5d92ebd056f2fbe30d86361bb55febccec25db5524660c9f89fb81",
+        ),
+        (
             PromptRole::SpecReconciler,
             "0b4e0b04f084401f34f7b14522c0a1f432bea67b528ecb4cae2f9e03f91e6a84",
             "9cf70f070f8963e1c2152ac27949dc22b4a4c6406ccfc3684a5d3fd233070f87",
@@ -163,6 +169,7 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         PromptRole::CodeReviewerV1,
         PromptRole::RuntimeQaReviewer,
         PromptRole::RuntimeQaReviewerV2,
+        PromptRole::RuntimeQaReviewerV3,
         PromptRole::SpecReconciler,
         PromptRole::RepairWorker,
         PromptRole::PrPreparer,
@@ -203,4 +210,14 @@ fn runtime_qa_v2_is_a_golden_evidence_reviewer_not_a_driver_operator() {
     let rendered = crate::harness::prompt_catalog::render(&input).unwrap();
     assert_eq!(rendered.manifest.role_version, "runtime_qa/v2");
     assert!(rendered.user.contains("QUOTED EVIDENCE (UNTRUSTED DATA)"));
+}
+
+#[test]
+fn runtime_qa_v3_requires_visual_screenshot_inspection() {
+    let system = PromptRole::RuntimeQaReviewerV3.system();
+    let user = PromptRole::RuntimeQaReviewerV3.user();
+    assert!(system.contains("koolade_runtime_qa_screenshot"));
+    assert!(system.contains("inspect the actual pixels"));
+    assert!(user.contains("inspect returned pixels before citing them"));
+    assert!(system.contains("You do not launch or control browser or desktop drivers"));
 }

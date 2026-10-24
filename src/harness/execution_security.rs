@@ -153,7 +153,7 @@ impl HarnessCapabilities {
     }
 }
 
-static SUPPORTED_MODES: [ExecutionMode; 7] = ExecutionMode::ALL;
+static SUPPORTED_MODES: [ExecutionMode; 8] = ExecutionMode::ALL;
 const APPLICATION_CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
     policy: ExecutionSecurityPolicy {
         filesystem: FilesystemScope::PrivateCliDirectoryAndAssignedCloneAllowlist,

@@ -1,4 +1,5 @@
 use super::*;
+
 use crate::harness::prompt_catalog::{CoverageStatus, CoverageV1, ReviewVerdictV1};
 
 fn run_passing_reviewer(
@@ -10,12 +11,12 @@ fn run_passing_reviewer(
     tempfile::TempDir,
     String,
 ) {
-    run_passing_reviewer_with_visual_expectations(assertion_status, false)
+    run_reviewer(assertion_status, true)
 }
 
-fn run_passing_reviewer_with_visual_expectations(
+fn run_reviewer(
     assertion_status: QaAssertionStatus,
-    visual_expectations: bool,
+    inspect_screenshot: bool,
 ) -> (
     QaResultV1,
     Option<crate::core::lifecycle::GateReceipt>,
@@ -23,11 +24,7 @@ fn run_passing_reviewer_with_visual_expectations(
     tempfile::TempDir,
     String,
 ) {
-    let (request, mut scenarios, lease) = fixture();
-    if visual_expectations {
-        scenarios[0].visual_expectations =
-            vec!["No controls overlap at the approved viewport".into()];
-    }
+    let (request, scenarios, lease) = fixture();
     let reviewer_run = uuid::Uuid::new_v4().hyphenated().to_string();
     let reviewer_session = uuid::Uuid::new_v4().hyphenated().to_string();
     let prompt = reviewer_prompt(&request, &reviewer_run, &reviewer_session);
@@ -39,23 +36,35 @@ fn run_passing_reviewer_with_visual_expectations(
         failure_before_actions: false,
         failure_on_call: None,
     };
-    let mut reviewer = |evidence: &QaEvidenceManifestV1, _candidate: &QaResultV1| {
-        Ok(ReviewVerdictV1 {
-            subject_hash: evidence.sha256()?,
-            examined_files: Vec::new(),
-            tested_evidence_ids: Vec::new(),
-            unexamined_areas: Vec::new(),
-            pass: true,
-            outcome: Some(crate::harness::prompt_catalog::ReviewOutcomeV1::Pass),
-            coverage: vec![CoverageV1 {
-                requirement: request.requirement_ids[0].clone(),
-                status: CoverageStatus::Pass,
-                evidence: vec![evidence.actions[0].index.to_string()],
-            }],
-            findings: vec![],
-            untested: vec![],
-        })
-    };
+    let mut reviewer =
+        |evidence: &QaEvidenceManifestV1,
+         candidate: &QaResultV1,
+         screenshots: &[crate::runtime_qa::QaScreenshotArtifactV1]| {
+            Ok(ReviewVerdictV1 {
+                subject_hash: crate::runtime_qa::qa_review_subject_sha256(
+                    &request, candidate, evidence,
+                )?,
+                examined_files: Vec::new(),
+                tested_evidence_ids: if inspect_screenshot {
+                    vec![screenshots[0].id.clone()]
+                } else {
+                    Vec::new()
+                },
+                unexamined_areas: Vec::new(),
+                pass: true,
+                outcome: Some(crate::harness::prompt_catalog::ReviewOutcomeV1::Pass),
+                coverage: vec![CoverageV1 {
+                    requirement: request.requirement_ids[0].clone(),
+                    status: CoverageStatus::Pass,
+                    evidence: vec![
+                        evidence.actions[0].index.to_string(),
+                        screenshots[0].id.clone(),
+                    ],
+                }],
+                findings: vec![],
+                untested: vec![],
+            })
+        };
     let (result, receipt) = RuntimeQaOrchestrator::new(&store)
         .execute_reviewed(
             QaExecutionContext {
@@ -74,26 +83,20 @@ fn run_passing_reviewer_with_visual_expectations(
 }
 
 #[test]
-fn screenshot_metadata_alone_cannot_pass_visual_expectations() {
-    let (result, receipt, store, _temp, run_id) =
-        run_passing_reviewer_with_visual_expectations(QaAssertionStatus::Passed, true);
-
-    assert_eq!(result.outcome, QaOutcome::Incomplete);
-    assert!(receipt.is_none());
+fn passing_model_verdict_without_an_image_tool_call_is_not_a_qa_pass() {
+    let (result, receipt, store, _temp, run_id) = run_reviewer(QaAssertionStatus::Passed, false);
+    assert_eq!(result.outcome, QaOutcome::Fail);
+    assert!(result.reviewed_screenshot_ids.is_empty());
     assert_eq!(
-        result.coverage.requirements[0].status,
-        super::super::QaCoverageStatus::Untested
+        result.review_coverage[0].status,
+        crate::runtime_qa::QaReviewCoverageStatusV1::Untested
     );
-    let evidence = store.load_run(&run_id).unwrap().2;
-    assert!(evidence.assertions.iter().any(|assertion| {
-        assertion.status == QaAssertionStatus::Untested && assertion.evidence_refs.is_empty()
-    }));
-    assert!(
-        evidence
-            .logs
-            .iter()
-            .any(|log| log.contains("cannot inspect screenshot pixels"))
+    assert!(result.findings.iter().any(|finding| finding.blocking));
+    assert_eq!(
+        receipt.unwrap().decision,
+        crate::core::lifecycle::GateDecision::ChangesRequested
     );
+    assert_eq!(store.load_run(&run_id).unwrap().3, result);
 }
 
 #[test]
@@ -110,23 +113,44 @@ fn independent_reviewer_rejection_prevents_driver_candidate_pass() {
         failure_before_actions: false,
         failure_on_call: None,
     };
-    let mut reviewer = |evidence: &QaEvidenceManifestV1, _candidate: &QaResultV1| {
-        Ok(ReviewVerdictV1 {
-            subject_hash: evidence.sha256()?,
-            examined_files: Vec::new(),
-            tested_evidence_ids: Vec::new(),
-            unexamined_areas: Vec::new(),
-            pass: false,
-            outcome: None,
-            coverage: vec![CoverageV1 {
-                requirement: request.requirement_ids[0].clone(),
-                status: CoverageStatus::Fail,
-                evidence: vec![evidence.actions[0].index.to_string()],
-            }],
-            findings: vec![],
-            untested: vec![],
-        })
-    };
+    let mut reviewer =
+        |evidence: &QaEvidenceManifestV1,
+         candidate: &QaResultV1,
+         _screenshots: &[crate::runtime_qa::QaScreenshotArtifactV1]| {
+            Ok(ReviewVerdictV1 {
+                subject_hash: crate::runtime_qa::qa_review_subject_sha256(
+                    &request, candidate, evidence,
+                )?,
+                examined_files: Vec::new(),
+                tested_evidence_ids: Vec::new(),
+                unexamined_areas: Vec::new(),
+                pass: false,
+                outcome: None,
+                coverage: vec![CoverageV1 {
+                    requirement: request.requirement_ids[0].clone(),
+                    status: CoverageStatus::Fail,
+                    evidence: vec![evidence.actions[0].index.to_string()],
+                }],
+                findings: vec![crate::harness::prompt_catalog::ReviewFindingV1 {
+                    id: "review-finding-1".into(),
+                    requirement: request.requirement_ids[0].clone(),
+                    severity: crate::harness::prompt_catalog::Severity::High,
+                    kind: crate::harness::prompt_catalog::FindingKind::Correctness,
+                    scope: Some(crate::harness::prompt_catalog::FindingScopeV1::Blocking),
+                    location: "observed acceptance result".into(),
+                    location_detail: None,
+                    evidence: vec![evidence.actions[0].index.to_string()],
+                    repro: Some("The acceptance criterion does not hold.".into()),
+                    proposed_correction: "Correct the observed keyboard dismissal behavior.".into(),
+                    rationale: "The observed result contradicts the requirement.".into(),
+                    affected_requirement_ids: vec![request.requirement_ids[0].clone()],
+                    suggested_action: Some(
+                        crate::harness::prompt_catalog::ReviewFindingActionV1::Repair,
+                    ),
+                }],
+                untested: vec![],
+            })
+        };
 
     let (result, receipt) = RuntimeQaOrchestrator::new(&store)
         .execute_reviewed(
@@ -146,6 +170,10 @@ fn independent_reviewer_rejection_prevents_driver_candidate_pass() {
     assert_eq!(result.outcome, QaOutcome::Fail);
     assert_eq!(result.findings.len(), 1);
     assert!(result.findings[0].blocking);
+    assert_eq!(
+        result.findings[0].smallest_fix,
+        "Correct the observed keyboard dismissal behavior."
+    );
     assert_eq!(
         receipt.unwrap().decision,
         crate::core::lifecycle::GateDecision::ChangesRequested
@@ -189,6 +217,9 @@ fn author_session_cannot_execute_qa_or_invoke_the_driver() {
     assert_eq!(driver.calls, 0);
 }
 
+#[path = "reviewer/duplicate_finding.rs"]
+mod duplicate_finding;
+
 #[test]
 fn passing_reviewer_cannot_upgrade_incomplete_or_failed_driver_evidence() {
     for (driver_status, expected_outcome, expects_gate) in [
@@ -222,9 +253,12 @@ fn failed_reviewer_persists_observed_driver_evidence_as_blocked() {
         failure_before_actions: false,
         failure_on_call: None,
     };
-    let mut reviewer = |_evidence: &QaEvidenceManifestV1, _candidate: &QaResultV1| {
-        Err("synthetic reviewer transport failure".into())
-    };
+    let mut reviewer =
+        |_evidence: &QaEvidenceManifestV1,
+         _candidate: &QaResultV1,
+         _screenshots: &[crate::runtime_qa::QaScreenshotArtifactV1]| {
+            Err("synthetic reviewer transport failure".into())
+        };
 
     let (result, receipt) = RuntimeQaOrchestrator::new(&store)
         .execute_reviewed(

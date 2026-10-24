@@ -82,18 +82,29 @@ pub(crate) fn validate_review_invocation(
         match manifest.role_version.as_str() {
             "code_review/v1" | "code_review/v2" => Some("independent_code_review"),
             "plan_reviewer/v1" => Some("independent_plan_review"),
-            "runtime_qa/v2" => Some("runtime_qa_review"),
+            "runtime_qa/v2" | "runtime_qa/v3" => Some("runtime_qa_review"),
             _ => None,
         }
     });
-    let valid = request.mode == api::ExecutionMode::ReadOnlyAnalysis
+    let screenshot_review = identity.runtime_qa_screenshot_review.is_some();
+    let expected_mode = if screenshot_review {
+        api::ExecutionMode::RuntimeQaVisualReview
+    } else {
+        api::ExecutionMode::ReadOnlyAnalysis
+    };
+    let valid = request.mode == expected_mode
         && request.execution_workspace.is_none()
         && request.telemetry_phase.as_deref() == role_phase
         && request.prompt_manifest.as_ref().is_some_and(|manifest| {
             matches!(
                 manifest.role_version.as_str(),
-                "code_review/v1" | "code_review/v2" | "plan_reviewer/v1" | "runtime_qa/v2"
+                "code_review/v1"
+                    | "code_review/v2"
+                    | "plan_reviewer/v1"
+                    | "runtime_qa/v2"
+                    | "runtime_qa/v3"
             ) && manifest.privilege_profile == "read_only; isolated_fresh_review_context"
+                && (!screenshot_review || manifest.role_version == "runtime_qa/v3")
         })
         && valid_uuid(&identity.execution_id)
         && valid_uuid(&identity.session_id)
@@ -223,8 +234,9 @@ pub use api::{
     DependencyRequestStatus, DependencyRetryResult, DocumentUpdate, ExecutionMode,
     HarnessExecutionFailure, HarnessFailureCategory, HarnessOutcome, HarnessRouteProvenance,
     LivePost, LiveProgress, ModelCallUsage, PackageEcosystem, PlanningRequest, PlanningTaskDraft,
-    PlanningTaskOffer, RequestedAction, RetrievalPlan, ReviewExecutionIdentity, ToolAccess,
-    TurnEnvelope, TurnItem, TurnItemUpdate,
+    PlanningTaskOffer, RequestedAction, RetrievalPlan, ReviewExecutionIdentity,
+    RuntimeQaReviewScreenshot, RuntimeQaScreenshotReview, ToolAccess, TurnEnvelope, TurnItem,
+    TurnItemUpdate,
 };
 pub use claude_harness::ClaudeHarness;
 pub use codex_harness::CodexHarness;

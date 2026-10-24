@@ -121,7 +121,7 @@ pub(super) fn prepare(
         .map_err(|error| format!("local runtime QA evidence storage is unavailable: {error}"))?,
     );
     let (persisted_request, scenarios, evidence, result) = qa_store
-        .load_run(&qa.qa_run_id)
+        .load_current_run(&qa.qa_run_id)
         .map_err(|error| error.to_string())?;
     if &persisted_request != qa {
         return Err("persisted runtime QA report does not match the lifecycle request".into());

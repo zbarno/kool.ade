@@ -86,6 +86,7 @@ fn qa_request(task: &TaskRecord) -> crate::runtime_qa::QaRunRequestV1 {
         schema_version: 1,
         qa_run_id: id(),
         parent_task_uid: task.task_uid.clone(),
+        target_id: Some("fixture-target".into()),
         planning_item_uid: None,
         feature_uid: task.feature_uid.clone(),
         code_head_sha: task.reviewed_code_head_sha.clone().unwrap(),

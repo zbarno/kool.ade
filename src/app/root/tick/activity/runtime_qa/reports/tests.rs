@@ -44,6 +44,7 @@ fn request(task: &TaskRecord) -> QaRunRequestV1 {
         schema_version: 1,
         qa_run_id: uid(),
         parent_task_uid: task.task_uid.clone(),
+        target_id: Some("fixture-target".into()),
         planning_item_uid: None,
         feature_uid: task.feature_uid.clone(),
         code_head_sha: "c".repeat(40),
@@ -141,13 +142,16 @@ fn nonblocking_finding_creates_one_durable_clarification_on_replay() {
     let finding = finding(false);
     let disposition = disposition_for_finding(&task, &request, &finding);
     let result = QaResultV1 {
-        schema_version: 1,
+        schema_version: crate::runtime_qa::CURRENT_QA_RESULT_SCHEMA_VERSION,
         subject_sha: request.code_head_sha.clone(),
         run_id: request.qa_run_id.clone(),
         reviewer_execution_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         reviewer_session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         outcome: QaOutcome::Fail,
         evidence_manifest_sha256: "f".repeat(64),
+        scenario_set_sha256: String::new(),
+        reviewed_screenshot_ids: Vec::new(),
+        review_coverage: Vec::new(),
         cases: Vec::new(),
         coverage: QaCoverageV1 {
             requirements: Vec::new(),

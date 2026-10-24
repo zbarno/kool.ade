@@ -7,6 +7,7 @@ mod finding;
 mod linux_desktop;
 mod request;
 mod result;
+mod review_subject;
 mod scenario;
 
 pub use browser::*;
@@ -15,6 +16,7 @@ pub use finding::*;
 pub use linux_desktop::*;
 pub use request::*;
 pub use result::*;
+pub use review_subject::qa_review_subject_sha256;
 pub use scenario::*;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -112,7 +114,7 @@ impl QaApplicabilityProposalV1 {
                 != Some(self.assessment.manager_session_id.as_str())
             || !matches!(
                 receipt.prompt_role(),
-                Some(crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV2)
+                Some(crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV3)
             )
             || !receipt.evidence_refs.iter().any(|reference| {
                 reference == &format!("runtime-qa-applicability-assessment:{assessment_hash}")

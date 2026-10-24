@@ -1,5 +1,5 @@
 //! Adapter boundary E2E: fake CLIs exercise each production `AiHarness` process
-//! path and normalized result for all six providers and seven modes. Parser-only
+//! path and normalized result for all six providers and eight modes. Parser-only
 //! unit tests cannot prove argv construction, stdin delivery, child supervision,
 //! and stream-to-outcome integration together. No Docker/network dependency;
 //! setup is six temporary scripts and one short process per matrix cell.
@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 
-const MODES: [ExecutionMode; 7] = ExecutionMode::ALL;
+const MODES: [ExecutionMode; 8] = ExecutionMode::ALL;
 const MATRIX_RESULT: &str = "matrix-result";
 
 #[cfg(unix)]
@@ -101,6 +101,11 @@ fn all_six_providers_normalize_results_for_every_execution_mode() {
             "{provider} launched despite an unsupported effort"
         );
     }
+    let codex_args = fs::read_to_string(root.join("codex.argv")).unwrap();
+    assert!(
+        codex_args.contains("--cd\n") && !codex_args.contains(&root.to_string_lossy().to_string()),
+        "Codex screenshot reviewer received the task clone as its workspace: {codex_args}"
+    );
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -139,7 +144,7 @@ fn assert_reasoning_argument(provider: &str, path: &Path) {
 }
 
 fn request(root: PathBuf, mode: ExecutionMode) -> PlanningRequest {
-    PlanningRequest {
+    let mut request = PlanningRequest {
         prompt_manifest: None,
         mode,
         task_id: None,
@@ -156,7 +161,48 @@ fn request(root: PathBuf, mode: ExecutionMode) -> PlanningRequest {
         destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
+    };
+    if mode == ExecutionMode::RuntimeQaVisualReview {
+        use crate::harness::{
+            ReviewExecutionIdentity, RuntimeQaReviewScreenshot, RuntimeQaScreenshotReview,
+            prompt_catalog::PromptManifest,
+        };
+        use sha2::Digest;
+        let execution_id = uuid::Uuid::new_v4().hyphenated().to_string();
+        let session_id = uuid::Uuid::new_v4().hyphenated().to_string();
+        let screenshot_id = uuid::Uuid::new_v4().hyphenated().to_string();
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image::RgbaImage::new(1, 1))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let bytes = png.into_inner();
+        request.task_id = Some(uuid::Uuid::new_v4().hyphenated().to_string());
+        request.telemetry_phase = Some("runtime_qa_review".into());
+        request.prompt_manifest = Some(PromptManifest {
+            role_version: "runtime_qa/v3".into(),
+            system_template_sha256: "a".repeat(64),
+            policy_template_sha256: "b".repeat(64),
+            user_template_sha256: "c".repeat(64),
+            output_schema_version: "ReviewVerdictV1".into(),
+            privilege_profile: "read_only; isolated_fresh_review_context".into(),
+        });
+        request.prompt_body = format!("review execution {execution_id}, session {session_id}");
+        request.review_identity = Some(ReviewExecutionIdentity {
+            execution_id,
+            session_id,
+            runtime_qa_screenshot_review: Some(Arc::new(RuntimeQaScreenshotReview {
+                workspace_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+                source_sha: "d".repeat(40),
+                screenshots: vec![RuntimeQaReviewScreenshot {
+                    id: screenshot_id,
+                    sha256: format!("{:x}", sha2::Sha256::digest(&bytes)),
+                    bytes,
+                }],
+                inspected_screenshot_ids: Arc::default(),
+            })),
+        });
     }
+    request
 }
 
 fn pi_config(path: &Path) {

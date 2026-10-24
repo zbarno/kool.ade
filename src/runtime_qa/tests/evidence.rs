@@ -27,6 +27,7 @@ fn report_fixture() -> ReportFixture {
         schema_version: 1,
         qa_run_id: request.qa_run_id.clone(),
         task_uid: request.parent_task_uid.clone(),
+        target_id: request.target_id.clone(),
         code_sha: request.code_head_sha.clone(),
         approved_spec_hash: request.approved_spec_hash.clone(),
         build_hash: request.build_artifact_sha256.clone(),
@@ -93,13 +94,20 @@ fn report_fixture() -> ReportFixture {
         retention_policy: "user-local/30-days".into(),
     };
     let result = QaResultV1 {
-        schema_version: 1,
+        schema_version: CURRENT_QA_RESULT_SCHEMA_VERSION,
         subject_sha: request.code_head_sha.clone(),
         run_id: request.qa_run_id.clone(),
         reviewer_execution_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         reviewer_session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         outcome: QaOutcome::Pass,
         evidence_manifest_sha256: evidence.sha256().unwrap(),
+        scenario_set_sha256: scenario_set_sha256(std::slice::from_ref(&scenario)).unwrap(),
+        reviewed_screenshot_ids: vec![screenshot_id.clone()],
+        review_coverage: vec![crate::runtime_qa::QaReviewRequirementCoverageV1 {
+            requirement_id: request.requirement_ids[0].clone(),
+            status: crate::runtime_qa::QaReviewCoverageStatusV1::Pass,
+            evidence_refs: vec![screenshot_id.clone(), "0".into()],
+        }],
         cases: vec![QaCaseResultV1 {
             scenario_id: scenario_id.clone(),
             status: QaCaseStatus::Passed,
@@ -143,6 +151,28 @@ fn report_is_bound_to_exact_code_build_spec_and_driver() {
             &fixture.result
         )
         .is_ok()
+    );
+
+    let original_review_subject =
+        qa_review_subject_sha256(&fixture.request, &fixture.result, &fixture.evidence).unwrap();
+    let mut changed_scenarios = fixture.scenarios.clone();
+    changed_scenarios[0]
+        .visual_expectations
+        .push("Text remains readable after a resize".into());
+    let mut changed_candidate = fixture.result.clone();
+    changed_candidate.scenario_set_sha256 = scenario_set_sha256(&changed_scenarios).unwrap();
+    assert_ne!(
+        original_review_subject,
+        qa_review_subject_sha256(&fixture.request, &changed_candidate, &fixture.evidence,).unwrap()
+    );
+    assert!(
+        validate_report(
+            &fixture.request,
+            &changed_scenarios,
+            &fixture.evidence,
+            &fixture.result
+        )
+        .is_err()
     );
 
     let mut stale = fixture.request.clone();
@@ -189,5 +219,46 @@ mod dispositions;
 mod git_object_ids;
 #[path = "evidence/isolation.rs"]
 mod isolation;
+#[path = "evidence/persistence.rs"]
+mod persistence;
 #[path = "evidence/storage.rs"]
 mod storage;
+
+#[test]
+fn incomplete_coverage_and_failed_assertions_never_pass() {
+    let mut fixture = report_fixture();
+    fixture.evidence.assertions.clear();
+    assert!(
+        fixture
+            .evidence
+            .validate(&fixture.request, &fixture.scenarios)
+            .is_err()
+    );
+
+    fixture = report_fixture();
+    fixture.evidence.assertions[0].status = QaAssertionStatus::Failed;
+    fixture.evidence.assertions[0].observed = "The expected view did not appear".into();
+    fixture.result.evidence_manifest_sha256 = fixture.evidence.sha256().unwrap();
+    assert!(
+        validate_report(
+            &fixture.request,
+            &fixture.scenarios,
+            &fixture.evidence,
+            &fixture.result
+        )
+        .is_err()
+    );
+
+    fixture.result.outcome = QaOutcome::Fail;
+    fixture.result.cases[0].status = QaCaseStatus::Failed;
+    fixture.result.review_coverage[0].status = crate::runtime_qa::QaReviewCoverageStatusV1::Fail;
+    assert!(
+        validate_report(
+            &fixture.request,
+            &fixture.scenarios,
+            &fixture.evidence,
+            &fixture.result
+        )
+        .is_ok()
+    );
+}

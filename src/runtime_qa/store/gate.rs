@@ -1,5 +1,7 @@
 use super::super::QaOutcome;
-use super::{QaEvidenceManifestV1, QaResultV1, QaRunRequestV1, RuntimeQaStore};
+use super::{
+    QaEvidenceManifestV1, QaResultV1, QaRunRequestV1, RuntimeQaStore, validate_current_report,
+};
 use super::{create_or_match_json, read_json, safe_uuid};
 
 impl RuntimeQaStore {
@@ -22,9 +24,11 @@ impl RuntimeQaStore {
                     .map(|(run, _)| run)
             })
             .ok_or_else(|| "runtime QA receipt does not reference a run result".to_owned())?;
-        let (request, _, evidence, result) = self.load_run(run)?;
+        let (request, scenarios, evidence, result) = self.load_run(run)?;
+        validate_current_report(&request, &scenarios, &evidence, &result)?;
         validate_gate_receipt(receipt, &request, &evidence, &result)?;
         create_or_match_json(
+            &self.root,
             &self.root.join(safe_uuid(run)?).join("gate-receipt.json"),
             receipt,
         )
@@ -38,6 +42,7 @@ impl RuntimeQaStore {
     ) -> Result<crate::core::lifecycle::GateReceipt, String> {
         let (request, _, evidence, result) = self.load_run(qa_run_id)?;
         let receipt = read_json(
+            &self.root,
             &self
                 .root
                 .join(safe_uuid(qa_run_id)?)
@@ -65,6 +70,18 @@ fn validate_gate_receipt(
         }
     };
     let evidence_hash = evidence.sha256()?;
+    let prompt_matches_result_version = if result.schema_version >= 3 {
+        receipt.prompt_role()
+            == Some(crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV3)
+    } else {
+        matches!(
+            receipt.prompt_role(),
+            Some(
+                crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewer
+                    | crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV2
+            )
+        )
+    };
     if receipt.actor != GateActor::IndependentReviewer
         || receipt.decision != expected_decision
         || receipt.subject_uid != request.parent_task_uid
@@ -73,13 +90,7 @@ fn validate_gate_receipt(
         || receipt.author_session_id.as_deref() != Some(request.author_session_id.as_str())
         || receipt.reviewer_run_id.as_deref() != Some(result.reviewer_execution_id.as_str())
         || receipt.reviewer_session_id.as_deref() != Some(result.reviewer_session_id.as_str())
-        || !matches!(
-            receipt.prompt_role(),
-            Some(
-                crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewer
-                    | crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV2
-            )
-        )
+        || !prompt_matches_result_version
         || !receipt
             .evidence_refs
             .iter()
@@ -87,6 +98,14 @@ fn validate_gate_receipt(
         || !receipt.evidence_refs.iter().any(|reference| {
             reference == &format!("runtime-qa:{}/evidence:{evidence_hash}", request.qa_run_id)
         })
+        || (result.schema_version == super::super::CURRENT_QA_RESULT_SCHEMA_VERSION
+            && !receipt.evidence_refs.iter().any(|reference| {
+                reference
+                    == &format!(
+                        "runtime-qa:{}/scenarios:{}",
+                        request.qa_run_id, result.scenario_set_sha256
+                    )
+            }))
     {
         return Err("runtime QA reviewer receipt does not match its persisted run".into());
     }

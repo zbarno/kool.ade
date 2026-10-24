@@ -140,21 +140,28 @@ fn worker_rejects_revoked_prepared_start_after_selection_changes_to_new_target()
     let target_b = AppTargetV1 {
         target_id: "qa-target-b".into(),
         build_recipe_ref: Some("qa-build-b".into()),
-        start_recipe_ref: Some("qa-start-b".into()),
+        // This target deliberately shares its startup recipe with A. A request
+        // for A must not silently bind to B just because the recipe is shared.
+        start_recipe_ref: Some(start_a.recipe_id.clone()),
         readiness_probe_ref: Some("qa-ready-b".into()),
         artifact_spec_ref: Some("qa-artifacts-b".into()),
         port_needs: vec![3001],
         ..target_a.clone()
     };
     let build_b = approved_recipe("qa-build-b", &["build-b"]);
-    let start_b = approved_recipe("qa-start-b", &["start-b"]);
-    manifest.candidate_targets = vec![target_a.clone(), target_b.clone()];
+    let start_b = approved_recipe("qa-start-a", &["start-a"]);
+    // Put the selected target first: a recipe-only lookup must not find the
+    // stale request's target by ordering when both targets share that recipe.
+    manifest.candidate_targets = vec![target_b.clone(), target_a.clone()];
     manifest.target_capabilities = vec![
         TargetCapabilityState::ReadyButUntested,
         TargetCapabilityState::ReadyButUntested,
     ];
     manifest.selected_target_id = Some(target_b.target_id.clone());
     manifest.user_overrides.push(build_b.clone());
+    manifest
+        .user_overrides
+        .retain(|recipe| recipe.recipe_id != start_a.recipe_id);
     manifest.user_overrides.push(start_b.clone());
     manifest.readiness_probes.insert(
         "qa-ready-b".into(),
@@ -181,7 +188,7 @@ fn worker_rejects_revoked_prepared_start_after_selection_changes_to_new_target()
     }
     runtime
         .verify_execution_provenance(&current, &target_b, RuntimeOperation::Start)
-        .expect("the replacement Start is approved and current");
+        .expect("the shared startup recipe is approved for the selected target");
     let stale_binding = ProjectRuntimeStore::user_recipe_approval_binding(
         &current,
         &target_a,
@@ -204,6 +211,7 @@ fn worker_rejects_revoked_prepared_start_after_selection_changes_to_new_target()
         schema_version: 1,
         qa_run_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         parent_task_uid: task_id.clone(),
+        target_id: Some("qa-target".into()),
         planning_item_uid: None,
         feature_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
         code_head_sha: current.source_sha.clone(),

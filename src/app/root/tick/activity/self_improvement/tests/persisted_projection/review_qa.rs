@@ -20,6 +20,64 @@ pub(super) fn verify_reviewer_and_qa_projection(
         },
     );
     let head_sha = "d".repeat(40);
+    let mut current_qa = reviewer_receipt(
+        PromptRole::RuntimeQaReviewerV3,
+        &task,
+        &implementation_sha256,
+        &head_sha,
+        uuid::Uuid::new_v4().hyphenated().to_string(),
+        uuid::Uuid::new_v4().hyphenated().to_string(),
+    );
+    let current_qa_run = uuid::Uuid::new_v4().hyphenated().to_string();
+    current_qa.evidence_refs = vec![
+        format!("runtime-qa:{current_qa_run}/result"),
+        format!("runtime-qa:{current_qa_run}/evidence:{}", "a".repeat(64)),
+        format!("runtime-qa:{current_qa_run}/scenarios:{}", "b".repeat(64)),
+    ];
+    let mut legacy_v3_qa = current_qa.clone();
+    legacy_v3_qa
+        .evidence_refs
+        .retain(|reference| !reference.contains("/scenarios:"));
+    let legacy_qa = reviewer_receipt(
+        PromptRole::RuntimeQaReviewerV2,
+        &task,
+        &implementation_sha256,
+        &head_sha,
+        uuid::Uuid::new_v4().hyphenated().to_string(),
+        uuid::Uuid::new_v4().hyphenated().to_string(),
+    );
+    // Replay remains compatible with these old receipts, but they cannot
+    // authorize a new self-improvement QA-to-spec transition.
+    let current_qa_pass = super::super::super::task_evidence::current_runtime_qa_pass;
+    assert!(current_qa.validate().is_ok());
+    assert!(current_qa_pass(&current_qa, Some(&implementation_sha256)));
+    assert!(legacy_v3_qa.validate().is_ok());
+    assert!(!current_qa_pass(
+        &legacy_v3_qa,
+        Some(&implementation_sha256)
+    ));
+    assert!(!current_qa_pass(&legacy_qa, Some(&implementation_sha256)));
+    assert!(!current_qa_pass(&current_qa, Some(&"f".repeat(64))));
+    let not_applicable = GateReceipt {
+        receipt_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
+        subject_uid: task.task_uid.clone(),
+        subject_sha256: implementation_sha256.clone(),
+        actor: GateActor::ApplicationPolicy,
+        decision: GateDecision::NotApplicable,
+        recorded_at_unix_ms: 1,
+        evidence_refs: vec!["fixture:legacy-applicability".into()],
+        prompt_sha256: None,
+        prompt_manifest: None,
+        reviewer_run_id: None,
+        author_run_id: None,
+        reviewer_session_id: None,
+        author_session_id: None,
+    };
+    assert!(not_applicable.validate().is_ok());
+    assert!(!current_qa_pass(
+        &not_applicable,
+        Some(&implementation_sha256)
+    ));
     let crate::app::root::Screen::Connected(project) = &mut app.screen else {
         panic!("fixture should remain connected")
     };
@@ -69,6 +127,7 @@ pub(super) fn verify_reviewer_and_qa_projection(
         schema_version: 1,
         qa_run_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         parent_task_uid: task.task_uid.clone(),
+        target_id: Some("fixture-target".into()),
         planning_item_uid: Some(task.task_uid.clone()),
         feature_uid: task.feature_uid.clone(),
         code_head_sha: head_sha.clone(),
@@ -101,36 +160,8 @@ pub(super) fn verify_reviewer_and_qa_projection(
         &task,
         TaskEvent::RuntimeQaRequested(request.clone()),
     );
-    let evidence_sha256 = "a".repeat(64);
-    let mut runtime_qa = reviewer_receipt(
-        PromptRole::RuntimeQaReviewer,
-        &task,
-        &implementation_sha256,
-        &head_sha,
-        code_author_run,
-        code_author_session,
-    );
-    runtime_qa.evidence_refs = vec![
-        format!("runtime-qa:{}/result", request.qa_run_id),
-        format!(
-            "runtime-qa:{}/evidence:{evidence_sha256}",
-            request.qa_run_id
-        ),
-    ];
-    let qa_reviewer_run = runtime_qa.reviewer_run_id.clone().unwrap();
-    let qa_reviewer_session = runtime_qa.reviewer_session_id.clone().unwrap();
-    task = apply_task(
-        lifecycle,
-        &task,
-        TaskEvent::RuntimeQaCompleted {
-            request_id: request.qa_run_id.clone(),
-            result_sha256: "b".repeat(64),
-            evidence_manifest_sha256: evidence_sha256,
-            reviewer_execution_id: qa_reviewer_run,
-            reviewer_session_id: qa_reviewer_session,
-            receipt: runtime_qa,
-        },
-    );
+    let qa_root = tempfile::tempdir().unwrap();
+    task = qa_completion::run_and_record(lifecycle, &task, &request, qa_root.path());
     assert_eq!(task.phase, TaskPhase::AwaitingSpecReconciliation);
     super::synchronize_app_run(app, lifecycle, runs, run_uid).unwrap();
     let run = runs.load(run_uid).unwrap();
@@ -192,6 +223,8 @@ pub(super) fn verify_reviewer_and_qa_projection(
 
 #[path = "review_qa/pr_lifecycle.rs"]
 mod pr_lifecycle;
+#[path = "review_qa/qa_completion.rs"]
+mod qa_completion;
 
 fn apply_task(
     lifecycle: &crate::core::lifecycle::LifecycleStore<'_>,

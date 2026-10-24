@@ -10,9 +10,18 @@ mod tools;
 pub(crate) enum BoundaryAccess {
     ReadOnly,
     Implementation,
+    RuntimeQaScreenshotReview,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ScreenshotAccessV1 {
+    pub root: PathBuf,
+    pub audit_root: PathBuf,
+    pub sha256_by_id: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ServerConfigV2 {
     pub protocol_version: u16,
@@ -27,6 +36,8 @@ pub(crate) struct ServerConfigV2 {
     pub target_arch: Option<String>,
     pub resource_socket: Option<PathBuf>,
     pub resource_cache: Option<PathBuf>,
+    #[serde(default)]
+    pub screenshot_access: Option<ScreenshotAccessV1>,
 }
 
 pub(crate) type ServerConfig = ServerConfigV2;
@@ -47,6 +58,7 @@ impl ServerConfigV2 {
             target_arch: binding.target_arch.clone(),
             resource_socket: Some(bridge.socket_path().to_path_buf()),
             resource_cache: Some(bridge.cache_path().to_path_buf()),
+            screenshot_access: None,
         }
     }
 
@@ -62,6 +74,35 @@ impl ServerConfigV2 {
             target_arch: binding.target_arch.clone(),
             resource_socket: None,
             resource_cache: None,
+            screenshot_access: None,
+        }
+    }
+
+    pub(crate) fn runtime_qa_screenshot_review(
+        session_id: String,
+        task_id: String,
+        workspace_id: String,
+        capability_id: String,
+        root: PathBuf,
+        audit_root: PathBuf,
+        sha256_by_id: std::collections::BTreeMap<String, String>,
+    ) -> Self {
+        Self {
+            protocol_version: 2,
+            access: BoundaryAccess::RuntimeQaScreenshotReview,
+            session_id,
+            task_id,
+            workspace_id,
+            capability_id,
+            target_id: None,
+            target_arch: None,
+            resource_socket: None,
+            resource_cache: None,
+            screenshot_access: Some(ScreenshotAccessV1 {
+                root,
+                audit_root,
+                sha256_by_id,
+            }),
         }
     }
 
@@ -81,17 +122,24 @@ impl ServerConfigV2 {
             workspace_parts.next().is_none()
                 && crate::execution::contract::validate_identifier(project_id).is_ok()
                 && crate::execution::contract::validate_identifier(task_id).is_ok()
+                && task_id == self.task_id
                 && crate::execution::contract::is_valid_sha(source_sha),
             "MCP workspace identity is invalid"
         );
         match self.access {
             BoundaryAccess::ReadOnly => {
                 anyhow::ensure!(
-                    self.resource_socket.is_none() && self.resource_cache.is_none(),
+                    self.resource_socket.is_none()
+                        && self.resource_cache.is_none()
+                        && self.screenshot_access.is_none(),
                     "Read-only MCP tools cannot access resource brokers"
                 );
             }
             BoundaryAccess::Implementation => {
+                anyhow::ensure!(
+                    self.screenshot_access.is_none(),
+                    "implementation MCP tools cannot access runtime QA screenshots"
+                );
                 anyhow::ensure!(
                     self.resource_socket.is_some() && self.resource_cache.is_some(),
                     "Implementation MCP tools require the application resource broker"
@@ -99,6 +147,28 @@ impl ServerConfigV2 {
                 anyhow::ensure!(
                     self.target_id.is_some() && self.target_arch.is_some(),
                     "Implementation MCP cache target is unavailable"
+                );
+            }
+            BoundaryAccess::RuntimeQaScreenshotReview => {
+                anyhow::ensure!(
+                    self.resource_socket.is_none()
+                        && self.resource_cache.is_none()
+                        && self.target_id.is_none()
+                        && self.target_arch.is_none(),
+                    "runtime QA screenshot review cannot access repository or resource tools"
+                );
+                let access = self.screenshot_access.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("runtime QA screenshot review has no approved image set")
+                })?;
+                anyhow::ensure!(
+                    access.sha256_by_id.len() <= 2_048
+                        && access.sha256_by_id.iter().all(|(id, hash)| {
+                            uuid::Uuid::parse_str(id)
+                                .is_ok_and(|parsed| parsed.hyphenated().to_string() == *id)
+                                && hash.len() == 64
+                                && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+                        }),
+                    "runtime QA screenshot review image allowlist is invalid"
                 );
             }
         }
@@ -122,6 +192,16 @@ pub(crate) fn serve(config_path: &Path) -> anyhow::Result<()> {
     }
     let config: ServerConfig = serde_json::from_slice(&std::fs::read(config_path)?)?;
     config.validate()?;
+    if let Some(access) = &config.screenshot_access {
+        let parent = config_path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("MCP config path has no private parent"))?;
+        anyhow::ensure!(
+            access.root == parent.join("qa-screenshots")
+                && access.audit_root == parent.join("qa-screenshot-views"),
+            "runtime QA screenshot paths must stay under the private MCP session"
+        );
+    }
     protocol::serve(config_path, &config)
 }
 

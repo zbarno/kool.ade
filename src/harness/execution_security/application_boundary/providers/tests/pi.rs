@@ -60,6 +60,36 @@ fn pi_implementation_registers_only_application_owned_brokered_tools() {
 }
 
 #[test]
+fn pi_runtime_qa_reviewer_registers_the_screenshot_inspection_tool() {
+    let boundary = test_boundary(ToolAccess::RuntimeQaScreenshots);
+    let mut argv = Vec::new();
+    let mut env = Vec::new();
+    configure(&boundary, CliProvider::Pi, &mut argv, &mut env).unwrap();
+
+    assert!(argv.contains(&"--no-builtin-tools".into()));
+    assert!(
+        argv.windows(2)
+            .any(|args| { args == ["--tools", "koolade_runtime_qa_screenshot"] })
+    );
+    let tools = env
+        .iter()
+        .find(|(key, _)| key == "KOOLADE_MCP_TOOLS")
+        .map(|(_, value)| serde_json::from_str::<Vec<String>>(value).unwrap())
+        .unwrap();
+    assert_eq!(tools, ["koolade_runtime_qa_screenshot"]);
+
+    let extension =
+        std::fs::read_to_string(boundary.working_directory().join("pi-koolade-mcp.ts")).unwrap();
+    assert!(extension.contains("allowedTools.has(\"koolade_runtime_qa_screenshot\")"));
+    assert!(extension.contains("screenshot_id: Type.String"));
+    assert!(
+        extension
+            .lines()
+            .all(|line| !line.trim_start().starts_with("register(\"koolade_bash\""))
+    );
+}
+
+#[test]
 fn pi_without_an_application_session_has_no_tools_or_extension() {
     let boundary = test_boundary(ToolAccess::None);
     let mut argv = Vec::new();

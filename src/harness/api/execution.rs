@@ -1,4 +1,8 @@
 use std::time::Duration;
+use std::{
+    collections::BTreeSet,
+    sync::{Arc, Mutex},
+};
 
 use crate::harness::api::LiveProgress;
 use serde::{Deserialize, Serialize};
@@ -14,10 +18,11 @@ pub enum ExecutionMode {
     Implementation,
     Reconciliation,
     DecisionExplanation,
+    RuntimeQaVisualReview,
 }
 
 impl ExecutionMode {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Planning,
         Self::ReadOnlyAnalysis,
         Self::TaskGeneration,
@@ -25,12 +30,14 @@ impl ExecutionMode {
         Self::Implementation,
         Self::Reconciliation,
         Self::DecisionExplanation,
+        Self::RuntimeQaVisualReview,
     ];
 
     pub fn tool_access(self) -> ToolAccess {
         match self {
             Self::Planning | Self::TaskGeneration | Self::Investigation => ToolAccess::ReadOnly,
             Self::Implementation => ToolAccess::BoundedImplementation,
+            Self::RuntimeQaVisualReview => ToolAccess::RuntimeQaScreenshots,
             Self::ReadOnlyAnalysis | Self::Reconciliation | Self::DecisionExplanation => {
                 ToolAccess::None
             }
@@ -45,6 +52,43 @@ pub enum ToolAccess {
     None,
     ReadOnly,
     BoundedImplementation,
+    /// Inspect only validated screenshots supplied by the app for one QA run.
+    RuntimeQaScreenshots,
+}
+
+/// A screenshot that may be shown to an independent runtime QA reviewer.
+#[derive(Clone)]
+pub struct RuntimeQaReviewScreenshot {
+    pub id: String,
+    pub sha256: String,
+    pub bytes: Vec<u8>,
+}
+
+/// App-owned images and audit sink for one read-only visual QA review.
+#[derive(Clone)]
+pub struct RuntimeQaScreenshotReview {
+    pub workspace_id: String,
+    pub source_sha: String,
+    pub screenshots: Vec<RuntimeQaReviewScreenshot>,
+    pub inspected_screenshot_ids: Arc<Mutex<BTreeSet<String>>>,
+}
+
+impl std::fmt::Debug for RuntimeQaScreenshotReview {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RuntimeQaScreenshotReview")
+            .field("source_sha", &self.source_sha)
+            .field("screenshot_count", &self.screenshots.len())
+            .field(
+                "image_bytes",
+                &self
+                    .screenshots
+                    .iter()
+                    .map(|item| item.bytes.len())
+                    .sum::<usize>(),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 /** One planning turn submitted to the external harness.

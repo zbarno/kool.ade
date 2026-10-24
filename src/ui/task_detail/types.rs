@@ -78,8 +78,18 @@ pub struct LifecycleView {
 pub struct RuntimeQaEvidenceView {
     pub run_id: String,
     pub outcome: crate::runtime_qa::QaOutcome,
+    pub target_id: Option<String>,
+    pub code_sha: String,
+    pub approved_spec_hash: String,
+    pub build_hash: String,
+    pub platform: crate::runtime_qa::QaPlatform,
+    pub driver_version: String,
+    pub display: crate::runtime_qa::QaDisplayV1,
     pub coverage: Vec<crate::runtime_qa::QaRequirementCoverageV1>,
+    pub review_coverage: Vec<crate::runtime_qa::QaReviewRequirementCoverageV1>,
+    pub reviewed_screenshot_ids: Vec<String>,
     pub findings: Vec<crate::runtime_qa::QaFindingV1>,
+    pub assertions: Vec<crate::runtime_qa::QaAssertionV1>,
     pub actions: Vec<crate::runtime_qa::QaActionEvidenceV1>,
     pub screenshots: Vec<RuntimeQaScreenshotView>,
 }

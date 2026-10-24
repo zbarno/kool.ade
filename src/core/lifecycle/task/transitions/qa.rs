@@ -28,6 +28,7 @@ impl TaskRecord {
                 Some(
                     crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewer
                         | crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV2
+                        | crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV3
                 )
             )
             && receipt.validate().is_ok()

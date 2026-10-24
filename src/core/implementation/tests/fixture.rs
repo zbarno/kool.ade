@@ -231,6 +231,7 @@ impl AiHarness for Fixture {
         Some(crate::harness::ReviewExecutionIdentity {
             execution_id: uuid::Uuid::new_v4().to_string(),
             session_id: uuid::Uuid::new_v4().to_string(),
+            runtime_qa_screenshot_review: None,
         })
     }
 }

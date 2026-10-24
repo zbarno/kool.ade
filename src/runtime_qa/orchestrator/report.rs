@@ -224,6 +224,7 @@ pub(super) fn assemble_report(
         schema_version: 1,
         qa_run_id: request.qa_run_id.clone(),
         task_uid: request.parent_task_uid.clone(),
+        target_id: request.target_id.clone(),
         code_sha: request.code_head_sha.clone(),
         approved_spec_hash: request.approved_spec_hash.clone(),
         build_hash: request.build_artifact_sha256.clone(),

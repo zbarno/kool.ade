@@ -1,18 +1,15 @@
-use super::mcp_server::ServerConfig;
 use super::session_bridge::SessionBridge;
-use crate::execution::{
-    contract::{ExecutionModeV1, ResourceBudgetV1},
-    docker::images::RuntimeProfile,
-    session::ExecutionSession,
-};
+use crate::execution::session::ExecutionSession;
 use crate::harness::{PlanningRequest, ToolAccess};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
 
+mod construction;
 mod private_directory;
 mod providers;
+mod runtime_qa_screenshots;
 mod target;
 #[cfg(test)]
 mod test_overrides;
@@ -21,6 +18,8 @@ mod test_routing;
 #[cfg(test)]
 #[path = "application_boundary/tests.rs"]
 mod tests;
+#[cfg(test)]
+use construction::default_resource_budget;
 pub(crate) use private_directory::PrivateDirectory;
 pub(crate) use providers::{CliProvider, ProfileProbeEvidence, ValidatedProviderLaunch};
 #[cfg(test)]
@@ -72,126 +71,12 @@ pub(crate) struct ApplicationBoundary {
     _session_bridge: Option<SessionBridge>,
     _resource_bridge: Option<Arc<crate::harness::resource_bridge::ResourceBridge>>,
     execution_session: Option<Arc<ExecutionSession>>,
+    screenshot_review_audit: Option<runtime_qa_screenshots::PreparedReviewImages>,
 }
 
 impl ApplicationBoundary {
     pub(crate) fn new(request: &PlanningRequest) -> anyhow::Result<Self> {
-        crate::harness::validate_review_invocation(request)
-            .map_err(|error| anyhow::anyhow!(error.detail()))?;
-        #[cfg(test)]
-        if crate::harness::uncontained_provider_test_execution_enabled() {
-            return Self::new_for_uncontained_test(request);
-        }
-        let scratch = PrivateDirectory::create("koolade-cli-session")?;
-        let requested_access = request.mode.tool_access();
-        let app_binary = if requested_access == ToolAccess::None {
-            None
-        } else {
-            // Unit tests run inside a test-harness executable, which does not
-            // implement the application's private MCP entry point. Hosted
-            // integration tests build the real sibling application binary
-            // and provide it explicitly; production always uses itself.
-            #[cfg(test)]
-            let executable = test_app_binary_override()
-                .map(Ok)
-                .unwrap_or_else(std::env::current_exe)?;
-            #[cfg(not(test))]
-            let executable = std::env::current_exe()?;
-            Some(executable.canonicalize()?)
-        };
-        let mut resource_bridge = None;
-        let mut session_bridge = None;
-        let mut execution_session = None;
-        let mut access = ToolAccess::None;
-        let server_config = if requested_access == ToolAccess::BoundedImplementation {
-            anyhow::ensure!(
-                cfg!(target_os = "linux"),
-                "Docker repository tools are supported only on Linux"
-            );
-            let workspace = request.execution_workspace.clone().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Docker implementation requires an application-selected task workspace"
-                )
-            })?;
-            let bridge = Arc::new(
-                crate::harness::resource_bridge::ResourceBridge::start_for_task_repository(
-                    &request.repo_root,
-                    request.runtime_config_source.as_deref(),
-                    request.task_id.as_deref(),
-                    request.progress_tx.clone(),
-                    request.cancel.clone(),
-                )?,
-            );
-            let session = Arc::new(target::connect(
-                request,
-                workspace.clone(),
-                runtime_profile(&request.repo_root),
-                default_resource_budget(request.task_id.as_deref()),
-            )?);
-            execution_session = Some(session.clone());
-            bridge.bind_execution_session(session.clone())?;
-            let ipc = SessionBridge::start(
-                &scratch.path,
-                session,
-                workspace.task_id.clone(),
-                "implementation".into(),
-                request.cancel.clone(),
-                Some(bridge.clone()),
-            )?;
-            let config = ServerConfig::implementation(&ipc.binding, &bridge);
-            session_bridge = Some(ipc);
-            resource_bridge = Some(bridge);
-            access = ToolAccess::BoundedImplementation;
-            Some(config)
-        } else if requested_access == ToolAccess::ReadOnly {
-            if let Some(workspace) = request.execution_workspace.clone() {
-                anyhow::ensure!(
-                    cfg!(target_os = "linux"),
-                    "Docker planning tools are supported only on Linux"
-                );
-                let session = ExecutionSession::connect_read_only_local(
-                    workspace.clone(),
-                    &request.repo_root,
-                    ExecutionModeV1::PlanningReadOnly,
-                    runtime_profile(&request.repo_root),
-                    default_resource_budget(request.task_id.as_deref()),
-                )
-                .map_err(|error| {
-                    anyhow::anyhow!(
-                        "Could not establish the requested read-only Docker planning session for the selected task workspace; verify the local Docker Engine and workspace source revision: {error}"
-                    )
-                })?;
-                let ipc = SessionBridge::start(
-                    &scratch.path,
-                    Arc::new(session),
-                    workspace.task_id.clone(),
-                    "read_only".into(),
-                    request.cancel.clone(),
-                    None,
-                )?;
-                let config = ServerConfig::read_only(&ipc.binding);
-                session_bridge = Some(ipc);
-                access = ToolAccess::ReadOnly;
-                Some(config)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        let server_config = server_config
-            .map(|config| scratch.write_json("server.json", &config))
-            .transpose()?;
-        Ok(Self {
-            scratch,
-            server_name: format!("koolade_{}", uuid::Uuid::new_v4().simple()),
-            app_binary,
-            server_config,
-            access,
-            _session_bridge: session_bridge,
-            _resource_bridge: resource_bridge,
-            execution_session,
-        })
+        construction::new(request)
     }
 
     #[cfg(test)]
@@ -205,6 +90,7 @@ impl ApplicationBoundary {
             _session_bridge: None,
             _resource_bridge: None,
             execution_session: None,
+            screenshot_review_audit: None,
         })
     }
 
@@ -232,6 +118,9 @@ impl ApplicationBoundary {
             }
             ToolAccess::BoundedImplementation => {
                 "Repository access is available only through Kool.ad/e MCP tools. Use koolade_bash for commands, koolade_dependency before package changes or restores, and koolade_resource only for public non-package HTTPS resources. The CLI has no direct repository tools. Commands run in an application-owned Docker session with the assigned clone as the only writable workspace, no ambient network, hidden host credentials, and app-mediated dependency and resource access. Kool.ad/e alone commits, pushes, integrates, and publishes."
+            }
+            ToolAccess::RuntimeQaScreenshots => {
+                "The only available tool is koolade_runtime_qa_screenshot. It returns the actual hash-validated image pixels for a screenshot in this immutable Runtime QA run. Inspect each image you cite. No repository, shell, browser, desktop-control, edit, or publication tools are available."
             }
         }
     }
@@ -279,6 +168,9 @@ impl ApplicationBoundary {
             return Vec::new();
         }
         let mut names = vec!["koolade_bash".to_owned()];
+        if self.access == ToolAccess::RuntimeQaScreenshots {
+            return vec!["koolade_runtime_qa_screenshot".to_owned()];
+        }
         if self.access == ToolAccess::BoundedImplementation {
             names.extend([
                 "koolade_resource".to_owned(),
@@ -289,25 +181,14 @@ impl ApplicationBoundary {
     }
 }
 
-fn runtime_profile(root: &Path) -> RuntimeProfile {
-    if root.join("Cargo.toml").is_file() {
-        RuntimeProfile::Rust
-    } else if root.join("package.json").is_file() {
-        RuntimeProfile::Node
-    } else if root.join("pyproject.toml").is_file() || root.join("requirements.txt").is_file() {
-        RuntimeProfile::Python
-    } else if root.join("go.mod").is_file() {
-        RuntimeProfile::Go
-    } else {
-        RuntimeProfile::General
+impl Drop for ApplicationBoundary {
+    fn drop(&mut self) {
+        if let Some(audit) = &self.screenshot_review_audit {
+            runtime_qa_screenshots::merge_inspected(
+                &audit.audit_root,
+                &audit.allowed_ids,
+                &audit.inspected,
+            );
+        }
     }
-}
-
-fn default_resource_budget(_task_id: Option<&str>) -> ResourceBudgetV1 {
-    #[cfg(test)]
-    if let Some(budget) = _task_id.and_then(resource_budget_override) {
-        return budget;
-    }
-
-    ResourceBudgetV1::default()
 }

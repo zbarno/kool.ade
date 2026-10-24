@@ -13,6 +13,7 @@ fn request() -> crate::runtime_qa::QaRunRequestV1 {
         schema_version: 1,
         qa_run_id: uid(),
         parent_task_uid: uid(),
+        target_id: Some("fixture-target".into()),
         planning_item_uid: None,
         feature_uid: uid(),
         code_head_sha: "a".repeat(64),

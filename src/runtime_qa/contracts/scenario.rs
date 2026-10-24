@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 
 mod action;
 mod action_platform;
@@ -92,6 +93,13 @@ impl QaScenarioV1 {
         }
         Ok(())
     }
+}
+
+/// Hash the exact approved scenario set that governs one runtime QA run.
+pub fn scenario_set_sha256(scenarios: &[QaScenarioV1]) -> Result<String, String> {
+    let bytes = serde_json::to_vec(scenarios)
+        .map_err(|error| format!("runtime QA scenarios cannot be encoded: {error}"))?;
+    Ok(format!("{:x}", sha2::Sha256::digest(bytes)))
 }
 
 fn valid_step(step: &QaScenarioStepV1) -> bool {

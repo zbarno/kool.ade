@@ -1,18 +1,23 @@
 use super::super::support::id;
 use koolade::{
-    core::lifecycle::{GateReceipt, LifecycleStore, TaskRecord},
+    core::lifecycle::{GateReceipt, LifecycleStore, TaskEvent, TaskRecord},
     harness::prompt_catalog::{
-        CoverageStatus, CoverageV1, PromptRole, ReviewVerdictV1, RoleInputV1, RolePayloadV1, render,
+        CoverageStatus, CoverageV1, PromptManifest, PromptRole, ReviewVerdictV1, RoleInputV1,
+        RolePayloadV1, render,
     },
     runtime_qa::{
-        QaActionEvidenceV1, QaAssertionStatus, QaAssertionV1, QaBoundedLimitsV1, QaDisplayV1,
-        QaDriverActionV1, QaDriverOutputV1, QaDriverScreenshotV1, QaEvidenceManifestV1, QaOutcome,
-        QaPlatform, QaResultV1, QaRunRequestV1, QaScenarioDriver, QaScenarioStepV1, QaScenarioV1,
+        QaAssertionStatus, QaAssertionV1, QaBoundedLimitsV1, QaDisplayV1, QaDriverActionV1,
+        QaDriverOutputV1, QaDriverScreenshotV1, QaEvidenceManifestV1, QaOutcome, QaPlatform,
+        QaResultV1, QaRunRequestV1, QaScenarioDriver, QaScenarioStepV1, QaScenarioV1,
         QaTargetAuthorization, QaTaskServiceLeaseV1, RuntimeQaOrchestrator, RuntimeQaStore,
     },
 };
 use sha2::Digest as _;
-use std::{collections::BTreeMap, io::Cursor, path::Path};
+use std::{io::Cursor, path::Path};
+
+#[path = "qa_report/helpers.rs"]
+mod helpers;
+use helpers::{action, now_ms};
 
 pub(super) fn execute_reviewed_run(
     root: &Path,
@@ -25,6 +30,7 @@ pub(super) fn execute_reviewed_run(
         schema_version: 1,
         qa_run_id: id(),
         parent_task_uid: task.task_uid.clone(),
+        target_id: Some("fixture-target".into()),
         planning_item_uid: None,
         feature_uid: task.feature_uid.clone(),
         code_head_sha: task.reviewed_code_head_sha.clone().unwrap(),
@@ -55,6 +61,22 @@ pub(super) fn execute_reviewed_run(
         author_run_id: code_review.author_run_id.clone().unwrap(),
         author_session_id: code_review.author_session_id.clone().unwrap(),
     };
+    // Production boundary: the public lifecycle store rejects a new targetless
+    // QA event while reducer replay remains compatible with historical events.
+    // This uses temporary state and deterministic drivers/reviewers only; no
+    // Docker, SSH, network, or credentials, with moderate in-process setup cost.
+    let mut unbound_request = request.clone();
+    unbound_request.target_id = None;
+    assert!(
+        lifecycle
+            .apply_task_event(
+                &task.task_uid,
+                task.revision,
+                &id(),
+                TaskEvent::RuntimeQaRequested(unbound_request),
+            )
+            .is_err()
+    );
     let queued = lifecycle
         .queue_runtime_qa(&task.task_uid, task.revision, &id(), request.clone())
         .unwrap();
@@ -73,8 +95,8 @@ pub(super) fn execute_reviewed_run(
         }],
         expected_results: vec!["Keyboard dismissal works".into()],
         negative_paths: vec![],
-        // This lifecycle fixture checks functional coverage; pixel review has a
-        // separate safety test because this reviewer callback gets metadata only.
+        // This lifecycle fixture checks functional coverage; pixel review has
+        // separate orchestration and MCP boundary tests.
         // This synthetic lifecycle fixture proves typed interaction and report
         // flow; visual claims require a separate image-review receipt.
         visual_expectations: Vec::new(),
@@ -98,58 +120,48 @@ pub(super) fn execute_reviewed_run(
     };
     let reviewer_execution_id = id();
     let reviewer_session_id = id();
-    let prompt = render(&RoleInputV1 {
-        role: PromptRole::RuntimeQaReviewerV2,
-        workspace_uid: request.feature_uid.clone(),
-        feature_uid: request.feature_uid.clone(),
-        task_uid: Some(request.parent_task_uid.clone()),
-        original_goal: request.acceptance_criteria.join("\n"),
-        approved_spec_ref: None,
-        approved_spec_hash: Some(request.approved_spec_hash.clone()),
-        decision_refs: vec![],
-        evidence_manifest: vec![],
-        execution_policy_ref: "runtime-qa-review/read-only-v1".into(),
-        output_schema_version: PromptRole::RuntimeQaReviewerV2
-            .output_schema_version()
-            .into(),
-        payload: RolePayloadV1::Review {
-            subject_revision: request.qa_run_id.clone(),
-            subject_hash: request.code_head_sha.clone(),
-            author_run_id: request.author_run_id.clone(),
-            reviewer_run_id: reviewer_execution_id.clone(),
-            author_session_id: Some(request.author_session_id.clone()),
-            reviewer_session_id: Some(reviewer_session_id.clone()),
-            requirements_matrix: request
-                .requirement_ids
-                .iter()
-                .zip(&request.acceptance_criteria)
-                .map(|(requirement, criterion)| format!("{requirement}: {criterion}"))
-                .collect(),
-            explicit_exclusions: vec![],
-        },
-    })
-    .unwrap()
-    .manifest;
+    let prompt = reviewer_prompt(
+        &request,
+        &reviewer_execution_id,
+        &reviewer_session_id,
+        PromptRole::RuntimeQaReviewerV3,
+    );
 
     let store = RuntimeQaStore::new(root.join("qa-records"));
     let mut driver = LifecycleFixtureDriver { assertion_status };
-    let mut reviewer = |evidence: &QaEvidenceManifestV1, _candidate: &QaResultV1| {
-        Ok(ReviewVerdictV1 {
-            subject_hash: evidence.sha256()?,
-            examined_files: Vec::new(),
-            tested_evidence_ids: Vec::new(),
-            unexamined_areas: Vec::new(),
-            pass: true,
-            outcome: Some(koolade::harness::prompt_catalog::ReviewOutcomeV1::Pass),
-            coverage: vec![CoverageV1 {
-                requirement: request.requirement_ids[0].clone(),
-                status: CoverageStatus::Pass,
-                evidence: vec![evidence.actions[0].index.to_string()],
-            }],
-            findings: vec![],
-            untested: vec![],
-        })
-    };
+    let mut reviewer =
+        |evidence: &QaEvidenceManifestV1,
+         candidate: &QaResultV1,
+         screenshots: &[koolade::runtime_qa::QaScreenshotArtifactV1]| {
+            Ok(ReviewVerdictV1 {
+                subject_hash: koolade::runtime_qa::qa_review_subject_sha256(
+                    &request, candidate, evidence,
+                )?,
+                examined_files: Vec::new(),
+                tested_evidence_ids: screenshots
+                    .iter()
+                    .map(|screenshot| screenshot.id.clone())
+                    .collect(),
+                unexamined_areas: Vec::new(),
+                pass: candidate.outcome == QaOutcome::Pass,
+                outcome: Some(if candidate.outcome == QaOutcome::Pass {
+                    koolade::harness::prompt_catalog::ReviewOutcomeV1::Pass
+                } else {
+                    koolade::harness::prompt_catalog::ReviewOutcomeV1::BlockingFindings
+                }),
+                coverage: vec![CoverageV1 {
+                    requirement: request.requirement_ids[0].clone(),
+                    status: CoverageStatus::Pass,
+                    evidence: screenshots
+                        .iter()
+                        .map(|screenshot| screenshot.id.clone())
+                        .chain([evidence.actions[0].index.to_string()])
+                        .collect(),
+                }],
+                findings: vec![],
+                untested: vec![],
+            })
+        };
     let (result, receipt) = RuntimeQaOrchestrator::new(&store)
         .execute_reviewed(
             koolade::runtime_qa::QaExecutionContext {
@@ -165,6 +177,44 @@ pub(super) fn execute_reviewed_run(
         )
         .unwrap();
     (request, result.outcome, receipt)
+}
+
+pub(super) fn reviewer_prompt(
+    request: &QaRunRequestV1,
+    reviewer_execution_id: &str,
+    reviewer_session_id: &str,
+    role: PromptRole,
+) -> PromptManifest {
+    render(&RoleInputV1 {
+        role,
+        workspace_uid: request.feature_uid.clone(),
+        feature_uid: request.feature_uid.clone(),
+        task_uid: Some(request.parent_task_uid.clone()),
+        original_goal: request.acceptance_criteria.join("\n"),
+        approved_spec_ref: None,
+        approved_spec_hash: Some(request.approved_spec_hash.clone()),
+        decision_refs: vec![],
+        evidence_manifest: vec![],
+        execution_policy_ref: "runtime-qa-review/read-only-v1".into(),
+        output_schema_version: role.output_schema_version().into(),
+        payload: RolePayloadV1::Review {
+            subject_revision: request.qa_run_id.clone(),
+            subject_hash: request.code_head_sha.clone(),
+            author_run_id: request.author_run_id.clone(),
+            reviewer_run_id: reviewer_execution_id.into(),
+            author_session_id: Some(request.author_session_id.clone()),
+            reviewer_session_id: Some(reviewer_session_id.into()),
+            requirements_matrix: request
+                .requirement_ids
+                .iter()
+                .zip(&request.acceptance_criteria)
+                .map(|(requirement, criterion)| format!("{requirement}: {criterion}"))
+                .collect(),
+            explicit_exclusions: vec![],
+        },
+    })
+    .unwrap()
+    .manifest
 }
 
 struct LifecycleFixtureDriver {
@@ -229,30 +279,4 @@ impl QaScenarioDriver for LifecycleFixtureDriver {
             failed_requests: vec![],
         })
     }
-}
-
-fn action(
-    index: u32,
-    scenario_id: &str,
-    command: &str,
-    evidence: Option<String>,
-) -> QaActionEvidenceV1 {
-    QaActionEvidenceV1 {
-        index,
-        scenario_id: scenario_id.into(),
-        command: command.into(),
-        args_redacted: BTreeMap::new(),
-        pre_state: Some("fixture page loaded".into()),
-        post_state: Some("fixture interaction recorded".into()),
-        evidence_ids: evidence.into_iter().collect(),
-        occurred_at_unix_ms: u64::from(index) + 1,
-    }
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .min(u128::from(u64::MAX)) as u64
 }

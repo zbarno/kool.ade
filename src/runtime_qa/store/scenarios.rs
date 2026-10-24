@@ -33,7 +33,7 @@ impl RuntimeQaStore {
         request.validate()?;
         validate_scenario_set(request, scenarios)?;
         let request_sha256 = hash(request)?;
-        let scenario_sha256 = hash(scenarios)?;
+        let scenario_sha256 = crate::runtime_qa::scenario_set_sha256(scenarios)?;
         validate_approval(request, &scenario_sha256, approval)?;
         let record = ApprovedQaScenarioSetV1 {
             schema_version: 1,
@@ -45,7 +45,7 @@ impl RuntimeQaStore {
         };
         let run = safe_uuid(&request.qa_run_id)?;
         let path = self.root.join(run).join("approved-scenarios-v2.json");
-        create_or_match_json(&path, &record)?;
+        create_or_match_json(&self.root, &path, &record)?;
         Ok(record)
     }
 
@@ -56,10 +56,12 @@ impl RuntimeQaStore {
     ) -> Result<ApprovedQaScenarioSetV1, String> {
         request.validate()?;
         let run = safe_uuid(&request.qa_run_id)?;
-        let record: ApprovedQaScenarioSetV1 =
-            read_json(&self.root.join(run).join("approved-scenarios-v2.json"))?;
+        let record: ApprovedQaScenarioSetV1 = read_json(
+            &self.root,
+            &self.root.join(run).join("approved-scenarios-v2.json"),
+        )?;
         let request_sha256 = hash(request)?;
-        let scenario_sha256 = hash(&record.scenarios)?;
+        let scenario_sha256 = crate::runtime_qa::scenario_set_sha256(&record.scenarios)?;
         if record.schema_version != 1
             || record.qa_run_id != request.qa_run_id
             || record.request_sha256 != request_sha256
