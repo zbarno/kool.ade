@@ -11,8 +11,8 @@ mod marker;
 /// caller's normal cleanup. A unit test cannot prove Docker exec cancellation
 /// and forced container removal stop a live browser. External dependency:
 /// rootless Docker with the pinned browser image and Python preview. Setup cost:
-/// one short driver launch plus a marker readback from the isolated task
-/// container.
+/// one short driver launch plus a read-only marker probe through the isolated
+/// preview relay.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn assert_cancelled_browser_navigation_is_cleaned(
     docker: &bollard::Docker,
@@ -110,7 +110,11 @@ pub(super) async fn assert_cancelled_browser_navigation_is_cleaned(
     });
     let mut completed_before_marker = None;
     let marker = tokio::select! {
-        marker = wait_for_cancel_marker(docker, &preview.service_lease.task_container_id) => marker,
+        marker = wait_for_cancel_marker(
+            docker,
+            &preview.relay_binding.relay_container_id,
+            &browser_image.runtime_user,
+        ) => marker,
         execution = &mut runner => {
             completed_before_marker = Some(execution);
             Err("browser driver finished before the delayed task page was observed".into())
