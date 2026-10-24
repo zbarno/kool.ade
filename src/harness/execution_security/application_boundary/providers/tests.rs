@@ -1,3 +1,5 @@
+#[cfg(unix)]
+mod cancellation;
 mod core;
 mod invocation_matrix;
 mod launch_profile;
