@@ -1,5 +1,8 @@
 use crate::app::root::Screen;
 
+#[path = "revocation_retry/feature_cancel.rs"]
+mod feature_cancel;
+
 /// User cancellation must persist its failed revocation warning and retry it
 /// before a stale worker authorization can be reused.
 #[test]

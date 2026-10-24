@@ -1,5 +1,10 @@
 use super::{KooladeApp, Screen};
-use crate::app::session::Project;
+
+mod self_improvement;
+use self_improvement::{
+    retry_evolve_revocation, retry_evolve_revocation_for_feature,
+    retry_evolve_revocation_for_feature_uid,
+};
 
 impl KooladeApp {
     pub(in crate::app::root) fn cancel_board_work(&mut self, key: &str) {
@@ -9,6 +14,7 @@ impl KooladeApp {
         let mut ids = project.cancelled_work.clone();
         let mut tickets = Vec::new();
         let mut planning_key = None;
+        let mut feature_uid_for_revocation = None;
         if let Some(work) =
             crate::core::planning_work::cards(&project.state, &project.planning_work)
                 .into_iter()
@@ -33,8 +39,14 @@ impl KooladeApp {
                     )
                 });
             if ids.contains(&crate::persistence::cancelled_work::planning_id(&work.uid)) {
+                if let Some(feature_uid) = work.feature_uid.as_deref() {
+                    retry_evolve_revocation_for_feature_uid(project, feature_uid);
+                }
                 if let Some(feature_id) = work.feature_id.as_deref() {
                     retry_evolve_revocation_for_feature(project, feature_id);
+                }
+                if let Some(feature_uid) = work.feature_uid.as_deref() {
+                    retry_evolve_revocation_for_feature_uid(project, feature_uid);
                 }
                 return;
             }
@@ -48,6 +60,7 @@ impl KooladeApp {
             if let Some(feature_id) = work.feature_id.as_deref() {
                 if let Some(feature_uid) = work.feature_uid.as_deref() {
                     ids.insert(crate::persistence::cancelled_work::planning_id(feature_uid));
+                    feature_uid_for_revocation = Some(feature_uid.to_owned());
                 }
                 for doc in project.task_documents.iter().filter(|doc| {
                     doc.text
@@ -104,7 +117,13 @@ impl KooladeApp {
         };
         project.state.baseline_planning_revision = revision;
         project.cancelled_work = ids;
+        if let Some(feature_uid) = feature_uid_for_revocation.as_deref() {
+            retry_evolve_revocation_for_feature_uid(project, feature_uid);
+        }
         retry_evolve_revocation(project, &tickets);
+        if let Some(feature_uid) = feature_uid_for_revocation.as_deref() {
+            retry_evolve_revocation_for_feature_uid(project, feature_uid);
+        }
         for ticket in &tickets {
             project.queue.in_flight.remove(ticket);
             project.queue.waiting_for_capacity.remove(ticket);
@@ -162,110 +181,4 @@ impl KooladeApp {
             ));
         }
     }
-}
-
-fn retry_evolve_revocation_for_feature(project: &mut Project, feature_id: &str) {
-    let tickets = project
-        .task_documents
-        .iter()
-        .filter(|document| {
-            document
-                .text
-                .lines()
-                .any(|line| line.strip_prefix("Feature ID: ") == Some(feature_id))
-        })
-        .map(|document| document.path.clone())
-        .collect::<Vec<_>>();
-    retry_evolve_revocation(project, &tickets);
-}
-
-fn retry_evolve_revocation(project: &mut Project, tickets: &[String]) {
-    for ticket in tickets {
-        let prefix = format!(
-            "Work is cancelled, but self-improvement authorization for {ticket} could not be revoked:"
-        );
-        match cancel_self_improvement_run(project, ticket) {
-            Ok(()) => project
-                .activity
-                .pending
-                .retain(|existing| !existing.starts_with(&prefix)),
-            Err(error) => {
-                let warning = format!("{prefix} {error}");
-                if !project
-                    .activity
-                    .pending
-                    .iter()
-                    .any(|existing| existing == &warning)
-                {
-                    project.activity.pending.push(warning);
-                }
-            }
-        }
-    }
-}
-
-fn cancel_self_improvement_run(project: &mut Project, ticket: &str) -> Result<(), String> {
-    use crate::core::self_improvement::{
-        SelfImprovementEventV1 as Event, SelfImprovementPhaseV1 as Phase, SelfImprovementStore,
-    };
-
-    let Some(document) = project
-        .task_documents
-        .iter()
-        .find(|document| document.path == ticket)
-    else {
-        return Ok(());
-    };
-    let Some(planning_item_uid) = document
-        .metadata
-        .as_ref()
-        .map(|metadata| metadata.uid.as_str())
-        .or_else(|| {
-            document
-                .identity
-                .as_ref()
-                .map(|identity| identity.uid.as_str())
-        })
-    else {
-        return Ok(());
-    };
-    let planning = &project.state.planning_store;
-    let lifecycle = crate::core::lifecycle::LifecycleStore::new(planning);
-    let task = lifecycle
-        .task_for_planning_item(planning_item_uid)
-        .map_err(|error| error.to_string())?;
-    let Some(task) = task else { return Ok(()) };
-    let runs = SelfImprovementStore::new(planning);
-    let Some(run) = runs
-        .run_for_feature(&task.feature_uid)
-        .map_err(|error| error.to_string())?
-    else {
-        return Ok(());
-    };
-    if matches!(
-        run.phase,
-        Phase::PrOpened
-            | Phase::PrClosedUnmerged
-            | Phase::MergedNotActivated
-            | Phase::InstalledNotActivated
-            | Phase::Activated
-            | Phase::Cancelled
-    ) {
-        return Ok(());
-    }
-    let namespace = uuid::Uuid::parse_str(&run.run_uid).map_err(|error| error.to_string())?;
-    let event_uid = uuid::Uuid::new_v5(
-        &namespace,
-        format!("user-cancelled-task:{}", task.task_uid).as_bytes(),
-    )
-    .hyphenated()
-    .to_string();
-    runs.apply_event(&run.run_uid, run.revision, &event_uid, Event::Cancel)
-        .map_err(|error| error.to_string())?;
-    project.state.baseline_planning_revision = project
-        .state
-        .planning_store
-        .revision()
-        .map_err(|error| error.to_string())?;
-    Ok(())
 }

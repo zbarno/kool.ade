@@ -8,7 +8,7 @@ use crate::{
     app::root::Screen, core::self_improvement::SelfImprovementStore,
     execution::contract::is_valid_sha,
 };
-use harness::ControllerDockerHarness;
+use harness::{CommandFailure, ControllerDockerHarness};
 use std::{
     path::{Path, PathBuf},
     sync::{Mutex, mpsc},
@@ -191,9 +191,14 @@ fn app_controller_dispatches_approved_task_to_isolated_docker_and_revokes_it_on_
         initial.repository.canonicalize().unwrap() != source_repo,
         "self-improvement must execute from its isolated task clone"
     );
+    let command_failure = initial
+        .command_failure
+        .as_ref()
+        .map(CommandFailure::description)
+        .unwrap_or_else(|| "none".into());
     assert!(
         initial.command_succeeded,
-        "app-authorized rootless Docker command failed (details withheld from public CI logs)"
+        "app-authorized rootless Docker command failed: {command_failure}"
     );
     assert!(
         initial

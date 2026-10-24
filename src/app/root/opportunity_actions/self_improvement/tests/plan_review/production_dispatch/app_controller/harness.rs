@@ -18,6 +18,24 @@ pub(super) struct InitialDispatch {
     pub(super) workspace: Option<WorkspaceRef>,
     pub(super) has_authorization: bool,
     pub(super) command_succeeded: bool,
+    pub(super) command_failure: Option<CommandFailure>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(super) enum CommandFailure {
+    Session(crate::execution::errors::ExecutionErrorKind),
+    Command(crate::execution::errors::ExecutionErrorKind),
+    Exit(Option<i32>),
+}
+
+impl CommandFailure {
+    pub(super) fn description(&self) -> String {
+        match self {
+            Self::Session(kind) => format!("session:{kind:?}"),
+            Self::Command(kind) => format!("command:{kind:?}"),
+            Self::Exit(code) => format!("exit:{code:?}"),
+        }
+    }
 }
 
 pub(super) struct RevokedDispatch {
@@ -49,6 +67,7 @@ impl AiHarness for ControllerDockerHarness {
                 workspace,
                 has_authorization,
                 command_succeeded: false,
+                command_failure: None,
             });
             return Err(fixture_error("controller omitted the execution workspace"));
         };
@@ -58,6 +77,7 @@ impl AiHarness for ControllerDockerHarness {
                 workspace: Some(workspace),
                 has_authorization,
                 command_succeeded: false,
+                command_failure: None,
             });
             return Err(fixture_error(
                 "controller omitted the app-owned task authorization",
@@ -72,22 +92,25 @@ impl AiHarness for ControllerDockerHarness {
             Some(authorization),
         ) {
             Ok(session) => session,
-            Err(_) => {
+            Err(error) => {
                 let _ = self.initial.send(InitialDispatch {
                     repository,
                     workspace: Some(workspace),
                     has_authorization,
                     command_succeeded: false,
+                    command_failure: Some(CommandFailure::Session(error.kind)),
                 });
                 return Err(fixture_error("cannot open authorized Docker session"));
             }
         };
-        let command_succeeded = session
-            .run_tool_command(
-                "touch .self-improvement-controller-authorized",
-                Duration::from_secs(30),
-            )
-            .is_ok_and(|output| output.result.exit_code == Some(0));
+        let (command_succeeded, command_failure) = match session.run_tool_command(
+            "touch .self-improvement-controller-authorized",
+            Duration::from_secs(30),
+        ) {
+            Ok(output) if output.result.exit_code == Some(0) => (true, None),
+            Ok(output) => (false, Some(CommandFailure::Exit(output.result.exit_code))),
+            Err(error) => (false, Some(CommandFailure::Command(error.kind))),
+        };
         if self
             .initial
             .send(InitialDispatch {
@@ -95,6 +118,7 @@ impl AiHarness for ControllerDockerHarness {
                 workspace: Some(workspace),
                 has_authorization,
                 command_succeeded,
+                command_failure,
             })
             .is_err()
         {
