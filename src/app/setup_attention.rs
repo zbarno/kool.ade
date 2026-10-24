@@ -4,6 +4,7 @@
 //! on connection and retry instead of being written into shared project files.
 
 mod bootstrap;
+pub(crate) mod catalog;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetupIssue {
