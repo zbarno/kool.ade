@@ -26,10 +26,21 @@ pub(super) fn execute(ready: &ReadyTask, root: &Path) {
     let state_root = root.join("state-root");
     std::fs::create_dir_all(&state_root).unwrap();
     let project_id = crate::persistence::project_slug(&state_root.canonicalize().unwrap());
+    let workspace_uid = ready.planning.project_id.hyphenated().to_string();
+    let manifest = crate::core::project_repos::ProjectManifest::load(&ready.planning).unwrap();
+    let repository_id = manifest
+        .repositories
+        .iter()
+        .find(|repository| {
+            crate::core::project_repos::stable_uid(&workspace_uid, "repository", &repository.id)
+                == run.target_repository_uid
+        })
+        .map(|repository| repository.id.as_str())
+        .expect("the approved stable repository UID maps to the manifest");
     let allocation = crate::core::implementation::key_for_ticket(&ready.ticket);
     let task_repository = crate::persistence::project_dir(&project_id)
         .join("task-repositories")
-        .join(&run.target_repository_uid)
+        .join(repository_id)
         .join(&allocation);
     std::fs::create_dir_all(task_repository.parent().unwrap()).unwrap();
     let clone = Command::new("git")
@@ -63,7 +74,7 @@ pub(super) fn execute(ready: &ReadyTask, root: &Path) {
         "destination_branch": destination_ref,
         "source_ref": source_ref,
         "source_commit": source_sha,
-        "repository_id": run.target_repository_uid,
+        "repository_id": repository_id,
         "project_id": project_id,
         "task_repository_allocation_key": allocation,
         "base": destination_ref,

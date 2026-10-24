@@ -7,6 +7,11 @@ mod implementations;
 mod pull_requests;
 mod turns;
 
+#[cfg(test)]
+pub(crate) fn poll_implementations_for_test(app: &mut KooladeApp) {
+    app.poll_implementations();
+}
+
 impl KooladeApp {
     pub(super) fn tick(&mut self, _dt: f32, ctx: &egui::Context) {
         self.surface_time_ledger_errors();

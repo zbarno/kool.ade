@@ -4,7 +4,11 @@ use crate::core::implementation::initial_reconciliation::CloneRepositoryPlan;
 use crate::core::implementation::repository_cache::RepositoryCache;
 use anyhow::Context as _;
 
+mod branch;
+mod pinned;
 mod refs;
+use branch::import_local_source;
+use pinned::resolve_pinned_source;
 pub(super) use refs::missing_saved_ref;
 
 pub(super) struct TaskSource {
@@ -85,28 +89,35 @@ pub(super) fn resolve(request: Request<'_>) -> anyhow::Result<TaskSource> {
         source_ref: source_ref.clone(),
         destination_branch: destination_branch.clone(),
     };
-    let (source_commit, base_commit) = resolve_source_head(SourceHeadRequest {
-        cache: &cache,
-        repo,
-        dir,
-        ticket,
-        source_ref: &source_ref,
-        local_commit: local_commit.as_deref(),
-        publication_mode,
-        explicitly_selected: explicitly_selected.is_some(),
-        clone_repository,
-        runner,
-    })
-    .map_err(|error| {
-        let selection = if explicitly_selected.is_some() {
-            "Selected source"
-        } else {
-            "Source"
-        };
-        anyhow::anyhow!(
-            "{selection} branch '{source_ref}' in code repository '{repository_id}': {error:#}"
-        )
-    })?;
+    let pinned_source = metadata.and_then(|metadata| metadata.source_sha.as_deref());
+    let (source_commit, base_commit) = if let Some(source_sha) = pinned_source {
+        resolve_pinned_source(&cache, repo, source_sha, runner).with_context(|| {
+            format!("Recorded source commit {source_sha} in code repository '{repository_id}'")
+        })?
+    } else {
+        resolve_source_head(SourceHeadRequest {
+            cache: &cache,
+            repo,
+            dir,
+            ticket,
+            source_ref: &source_ref,
+            local_commit: local_commit.as_deref(),
+            publication_mode,
+            explicitly_selected: explicitly_selected.is_some(),
+            clone_repository,
+            runner,
+        })
+        .map_err(|error| {
+            let selection = if explicitly_selected.is_some() {
+                "Selected source"
+            } else {
+                "Source"
+            };
+            anyhow::anyhow!(
+                "{selection} branch '{source_ref}' in code repository '{repository_id}': {error:#}"
+            )
+        })?
+    };
     cache.pin_source(&source_commit, runner)?;
     Ok(TaskSource {
         cache,
@@ -117,6 +128,10 @@ pub(super) fn resolve(request: Request<'_>) -> anyhow::Result<TaskSource> {
         destination_branch,
     })
 }
+
+#[cfg(test)]
+#[path = "source/tests.rs"]
+mod tests;
 
 pub(super) fn resume_from_plan(
     planning_store: &PlanningStore,
@@ -278,19 +293,4 @@ fn refresh_source(
                 error
             }
         })
-}
-
-fn import_local_source(
-    cache: &RepositoryCache,
-    repo: &Path,
-    source_ref: &str,
-    local: &str,
-    runner: &Runner,
-) -> anyhow::Result<String> {
-    let imported = cache.import_local_branch(repo, source_ref, local, runner)?;
-    anyhow::ensure!(
-        imported == local,
-        "Source branch moved while its starting commit was being saved; retry to select the new commit"
-    );
-    Ok(local.to_owned())
 }

@@ -1,5 +1,11 @@
 use super::{KooladeApp, Screen};
 
+mod self_improvement;
+use self_improvement::{
+    retry_evolve_revocation, retry_evolve_revocation_for_feature,
+    retry_evolve_revocation_for_feature_uid,
+};
+
 impl KooladeApp {
     pub(in crate::app::root) fn cancel_board_work(&mut self, key: &str) {
         let Screen::Connected(project) = &mut self.screen else {
@@ -8,6 +14,7 @@ impl KooladeApp {
         let mut ids = project.cancelled_work.clone();
         let mut tickets = Vec::new();
         let mut planning_key = None;
+        let mut feature_uid_for_revocation = None;
         if let Some(work) =
             crate::core::planning_work::cards(&project.state, &project.planning_work)
                 .into_iter()
@@ -31,9 +38,20 @@ impl KooladeApp {
                             | crate::domain::ChangeStatus::Abandoned
                     )
                 });
-            if (work.status == crate::core::planning_work::WorkStatus::Done
-                && (work.feature_id.is_none() || feature_complete))
-                || ids.contains(&crate::persistence::cancelled_work::planning_id(&work.uid))
+            if ids.contains(&crate::persistence::cancelled_work::planning_id(&work.uid)) {
+                if let Some(feature_uid) = work.feature_uid.as_deref() {
+                    retry_evolve_revocation_for_feature_uid(project, feature_uid);
+                }
+                if let Some(feature_id) = work.feature_id.as_deref() {
+                    retry_evolve_revocation_for_feature(project, feature_id);
+                }
+                if let Some(feature_uid) = work.feature_uid.as_deref() {
+                    retry_evolve_revocation_for_feature_uid(project, feature_uid);
+                }
+                return;
+            }
+            if work.status == crate::core::planning_work::WorkStatus::Done
+                && (work.feature_id.is_none() || feature_complete)
             {
                 return;
             }
@@ -42,6 +60,7 @@ impl KooladeApp {
             if let Some(feature_id) = work.feature_id.as_deref() {
                 if let Some(feature_uid) = work.feature_uid.as_deref() {
                     ids.insert(crate::persistence::cancelled_work::planning_id(feature_uid));
+                    feature_uid_for_revocation = Some(feature_uid.to_owned());
                 }
                 for doc in project.task_documents.iter().filter(|doc| {
                     doc.text
@@ -71,7 +90,11 @@ impl KooladeApp {
                 state.status == crate::core::implementation::ImplementationStatus::Completed
                     || state.pr_state == Some(crate::core::implementation::PullRequestState::Merged)
             });
-            if completed || ids.contains(&crate::persistence::cancelled_work::task_id(doc)) {
+            if ids.contains(&crate::persistence::cancelled_work::task_id(doc)) {
+                retry_evolve_revocation(project, &[key.to_owned()]);
+                return;
+            }
+            if completed {
                 return;
             }
             ids.insert(crate::persistence::cancelled_work::task_id(doc));
@@ -94,6 +117,13 @@ impl KooladeApp {
         };
         project.state.baseline_planning_revision = revision;
         project.cancelled_work = ids;
+        if let Some(feature_uid) = feature_uid_for_revocation.as_deref() {
+            retry_evolve_revocation_for_feature_uid(project, feature_uid);
+        }
+        retry_evolve_revocation(project, &tickets);
+        if let Some(feature_uid) = feature_uid_for_revocation.as_deref() {
+            retry_evolve_revocation_for_feature_uid(project, feature_uid);
+        }
         for ticket in &tickets {
             project.queue.in_flight.remove(ticket);
             project.queue.waiting_for_capacity.remove(ticket);
@@ -119,6 +149,36 @@ impl KooladeApp {
         } else {
             self.toasts
                 .success("Work cancelled. Its history and project files are preserved.");
+        }
+    }
+
+    pub(in crate::app::root) fn pause_task_for(&mut self, ticket: &str) {
+        let mut persistence_error = None;
+        if let Screen::Connected(project) = &mut self.screen {
+            let Some(controller) = project.active_implementations.get(ticket) else {
+                return;
+            };
+            project.queue.pause_task_for_resume(ticket);
+            if project.queue_lock.is_none() {
+                match crate::core::implementation_queue::Queue::acquire(&project.state.repo_root) {
+                    Ok(lock) => project.queue_lock = Some(lock),
+                    Err(error) => persistence_error = Some(error.to_string()),
+                }
+            }
+            controller.request_cancel();
+            if project.queue_lock.is_some()
+                && let Err(error) = project.queue.save(&project.state.repo_root)
+            {
+                persistence_error = Some(error.to_string());
+            }
+            if let Some(error) = &persistence_error {
+                project.queue.last_error = format!("Task pause could not be saved: {error}");
+            }
+        }
+        if let Some(error) = persistence_error {
+            self.toasts.warning(format!(
+                "The task was asked to pause, but its resume checkpoint could not be saved: {error}"
+            ));
         }
     }
 }

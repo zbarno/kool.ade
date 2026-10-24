@@ -72,6 +72,27 @@ impl Default for Queue {
 }
 
 impl Queue {
+    const USER_PAUSED_MESSAGE: &'static str = "Paused by the user. Resume this task to continue.";
+
+    pub fn pause_task_for_resume(&mut self, ticket: &str) {
+        self.blocked.insert(
+            ticket.to_owned(),
+            Failure::new(
+                FailureKind::Other,
+                RecoveryDisposition::UserAction,
+                Self::USER_PAUSED_MESSAGE,
+            ),
+        );
+    }
+
+    pub fn task_paused(&self, ticket: &str) -> bool {
+        self.blocked.get(ticket).is_some_and(|failure| {
+            failure.kind == FailureKind::Other
+                && failure.recovery == RecoveryDisposition::UserAction
+                && failure.message == Self::USER_PAUSED_MESSAGE
+        })
+    }
+
     fn put_runtime_state(&mut self, path: &str, state: &TaskQueueState) {
         if state.current {
             self.current_ticket = Some(path.to_owned());
