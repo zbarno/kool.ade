@@ -21,6 +21,8 @@ jobs:
       executor: ${{ steps.select.outputs.executor }}
       qa: ${{ steps.select.outputs.qa }}
       image_lock: ${{ steps.select.outputs.image_lock }}
+      executor_lock_changed: ${{ steps.select.outputs.executor_lock_changed }}
+      qa_lock_changed: ${{ steps.select.outputs.qa_lock_changed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -29,11 +31,14 @@ jobs:
         id: select
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
         run: |
           set -euo pipefail
           executor=true
           qa=true
           image_lock=false
+          executor_lock_changed=false
+          qa_lock_changed=false
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
             executor=false
             qa=false
@@ -51,9 +56,40 @@ jobs:
               esac
             done < "$RUNNER_TEMP/changed-paths"
           fi
-          printf 'executor=%s\nqa=%s\nimage_lock=%s\n' "$executor" "$qa" "$image_lock" >> "$GITHUB_OUTPUT"
+          # A source change can produce a new candidate image without authorizing
+          # a new runtime digest. Compare the reviewed lock by image family so
+          # independent executor/QA promotions never gate one another.
+          compare_sha="${BASE_SHA:-}"
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then compare_sha="${BEFORE_SHA:-}"; fi
+          if [[ -n "$compare_sha" && ! "$compare_sha" =~ ^0+$ ]] &&
+              git cat-file -e "${compare_sha}^{commit}" 2>/dev/null; then
+            if ! git diff --quiet "$compare_sha" HEAD -- containers/images.lock.json; then
+              image_lock=true
+              if git cat-file -e "${compare_sha}:containers/images.lock.json" 2>/dev/null; then
+                previous_lock="$RUNNER_TEMP/previous-images.lock.json"
+                git show "${compare_sha}:containers/images.lock.json" > "$previous_lock"
+                executor_selector='{schema_version,image_set_version,profiles:{general:.profiles.general,rust:.profiles.rust,node:.profiles.node,python:.profiles.python,go:.profiles.go}}'
+                qa_selector='{schema_version,image_set_version,profiles:{browser_qa:.profiles.browser_qa,desktop_qa:.profiles.desktop_qa}}'
+                if [[ "$(jq -cS "$executor_selector" "$previous_lock")" != "$(jq -cS "$executor_selector" containers/images.lock.json)" ]]; then
+                  executor_lock_changed=true
+                fi
+                if [[ "$(jq -cS "$qa_selector" "$previous_lock")" != "$(jq -cS "$qa_selector" containers/images.lock.json)" ]]; then
+                  qa_lock_changed=true
+                fi
+              else
+                # A newly introduced manifest must pass both promotion gates.
+                executor_lock_changed=true
+                qa_lock_changed=true
+              fi
+            fi
+          elif [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            # Initial/unresolvable push: do not publish without a reviewed delta.
+            printf 'No previous main commit available; automatic image publication is disabled.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          printf 'executor=%s\nqa=%s\nimage_lock=%s\nexecutor_lock_changed=%s\nqa_lock_changed=%s\n' \
+            "$executor" "$qa" "$image_lock" "$executor_lock_changed" "$qa_lock_changed" >> "$GITHUB_OUTPUT"
           printf 'Executor image candidate validation: %s; QA image candidate validation: %s\n' "$executor" "$qa" >> "$GITHUB_STEP_SUMMARY"
-          printf 'Reviewed image lock changed: %s\n' "$image_lock" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Reviewed lock changes: executor=%s, QA=%s\n' "$executor_lock_changed" "$qa_lock_changed" >> "$GITHUB_STEP_SUMMARY"
   build-and-verify:
     needs: changes
     if: needs.changes.outputs.executor == 'true'
@@ -449,6 +485,8 @@ jobs:
         env:
           VERIFY_EXECUTOR: ${{ needs.changes.outputs.executor }}
           VERIFY_QA: ${{ needs.changes.outputs.qa }}
+          EXECUTOR_LOCK_CHANGED: ${{ needs.changes.outputs.executor_lock_changed }}
+          QA_LOCK_CHANGED: ${{ needs.changes.outputs.qa_lock_changed }}
         run: |
           set -euo pipefail
           mapfile -t evidence < <(find "$RUNNER_TEMP/executor-image-candidates" -name executor-image.json -type f | sort)
@@ -470,7 +508,9 @@ jobs:
           python3 scripts/promote-image-digests.py \
             "$RUNNER_TEMP/executor-image-candidates.json" \
             --evidence-root "$RUNNER_TEMP/executor-image-candidates" "${common_args[@]}"
-          if [[ "$VERIFY_EXECUTOR" == true ]] && jq -e '
+          # Exact candidate-to-lock equality is a promotion check, not a
+          # requirement for source-only feature PRs.
+          if [[ "$VERIFY_EXECUTOR" == true && "$EXECUTOR_LOCK_CHANGED" == true ]] && jq -e '
             all([.profiles.general[], .profiles.rust[], .profiles.node[], .profiles.python[], .profiles.go[]][];
               (.reference | startswith("ghcr.io/zbarno/koolade-executor@sha256:")))
           ' containers/images.lock.json >/dev/null; then
@@ -483,19 +523,22 @@ jobs:
           else
             printf 'Derived image candidates are validated and retained for review. Promote their digests in a lock-update pull request.\n' >> "$GITHUB_STEP_SUMMARY"
           fi
-          if [[ "$VERIFY_QA" == true ]] && jq -e '
-            all([.profiles.browser_qa[], .profiles.desktop_qa[]][];
+          if [[ "$VERIFY_QA" == true && "$QA_LOCK_CHANGED" == true ]]; then
+            jq -e '
+              all([.profiles.browser_qa[], .profiles.desktop_qa[]][];
               . as $image |
               ($image.reference | startswith("ghcr.io/zbarno/koolade-runtime-qa-")) and
               ($image.digest | test("^sha256:[0-9a-f]{64}$")) and
               ($image.reference | endswith($image.digest)))
-          ' containers/images.lock.json >/dev/null; then
+            ' containers/images.lock.json >/dev/null
             jq '{schema_version:1,images:[.images[] | select(.profile == "browser_qa" or .profile == "desktop_qa")]}' \
               "$RUNNER_TEMP/executor-image-candidates.json" > "$RUNNER_TEMP/qa-only-candidates.json"
             python3 scripts/promote-image-digests.py \
               "$RUNNER_TEMP/qa-only-candidates.json" \
               --evidence-root "$RUNNER_TEMP/executor-image-candidates" \
               --source-revision "$GITHUB_SHA" --require-profiles browser_qa desktop_qa --check-lock
+          elif [[ "$VERIFY_QA" == true ]]; then
+            printf 'QA candidates validated; exact digest-lock equality is deferred to a reviewed QA image promotion PR.\n' >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Retain combined candidate manifest
         if: needs.changes.outputs.executor == 'true' || needs.changes.outputs.qa == 'true'
@@ -509,7 +552,7 @@ jobs:
   check-reviewed-lock:
     name: Check whether trusted publication is unlocked
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [build-and-verify, build-and-verify-qa-images]
+    needs: [changes, build-and-verify, build-and-verify-qa-images]
     runs-on: ubuntu-24.04
     outputs:
       executor_ready: ${{ steps.lock.outputs.executor_ready }}
@@ -518,18 +561,21 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: lock
         name: Gate publication on reviewed derived-image digests
+        env:
+          EXECUTOR_LOCK_CHANGED: ${{ needs.changes.outputs.executor_lock_changed }}
+          QA_LOCK_CHANGED: ${{ needs.changes.outputs.qa_lock_changed }}
         run: |
           set -euo pipefail
           executor_ready=false
           qa_ready=false
-          if jq -e '
+          if [[ "$EXECUTOR_LOCK_CHANGED" == true ]] && jq -e '
             all([.profiles.general[], .profiles.rust[], .profiles.node[], .profiles.python[], .profiles.go[]][];
               . as $image |
               ($image.reference | startswith("ghcr.io/zbarno/koolade-executor@sha256:")) and
               ($image.digest | test("^sha256:[0-9a-f]{64}$")) and
               ($image.reference | endswith($image.digest)))
           ' containers/images.lock.json >/dev/null; then executor_ready=true; fi
-          if jq -e '
+          if [[ "$QA_LOCK_CHANGED" == true ]] && jq -e '
             all([.profiles.browser_qa[], .profiles.desktop_qa[]][];
               . as $image |
               ($image.reference | startswith("ghcr.io/zbarno/koolade-runtime-qa-")) and
@@ -542,11 +588,15 @@ jobs:
           ' containers/images.lock.json >/dev/null; then qa_ready=true; fi
           printf 'executor_ready=%s\n' "$executor_ready" >> "$GITHUB_OUTPUT"
           printf 'qa_ready=%s\n' "$qa_ready" >> "$GITHUB_OUTPUT"
-          if [[ "$executor_ready" != true ]]; then
-            printf 'Trusted publication skipped: candidate digests must first be promoted in a reviewed lock-file pull request.\n' >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$EXECUTOR_LOCK_CHANGED" != true ]]; then
+            printf 'Executor publication skipped: no reviewed executor lock change in this push.\n' >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$executor_ready" != true ]]; then
+            printf 'Trusted executor publication skipped: reviewed derived-image digests are required.\n' >> "$GITHUB_STEP_SUMMARY"
           fi
-          if [[ "$qa_ready" != true ]]; then
-            printf 'QA image publication skipped: both amd64 QA image digests must first be produced by rootless candidate CI and promoted in a reviewed lock-file pull request.\n' >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$QA_LOCK_CHANGED" != true ]]; then
+            printf 'QA publication skipped: no reviewed QA lock change in this push; candidate validation does not promote runtime images.\n' >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$qa_ready" != true ]]; then
+            printf 'QA publication skipped: both amd64 QA image digests must first pass reviewed promotion.\n' >> "$GITHUB_STEP_SUMMARY"
           fi
 
   publish-reviewed-qa-main:
