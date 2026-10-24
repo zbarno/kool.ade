@@ -69,7 +69,6 @@ pub(crate) fn probe_bootstrap_clis() -> Vec<ProbeResult> {
     results
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProbeView {
     Pending,

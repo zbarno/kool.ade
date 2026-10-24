@@ -45,8 +45,11 @@ impl SetupIssue {
         Self {
             id: "setup:cli:authenticate",
             title: "Connect your coding agent",
-            issue: "A coding-agent CLI is installed, but its account or model access needs attention.".into(),
-            why: "Finding a command on your machine does not prove that it can answer prompts.".into(),
+            issue:
+                "A coding-agent CLI is installed, but its account or model access needs attention."
+                    .into(),
+            why: "Finding a command on your machine does not prove that it can answer prompts."
+                .into(),
             recommendation: "Open Coding Tools, inspect each agent's authentication result, and sign in using the provider's supported flow.",
             impact: "Agent-guided setup cannot start until a usable agent is independently verified.",
             next_action: "Authenticate an installed agent, then retry the setup check.",

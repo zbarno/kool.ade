@@ -33,7 +33,12 @@ pub(super) fn assess(reports: &[ProbeResult], selected: Option<&str>) -> Option<
         return Some(SetupIssue::cli_select());
     }
     if !reports.iter().any(|report| report.binary_path.is_some()) {
-        return Some(SetupIssue::cli_install());
+        // A crashed or timed-out probe is not evidence that a CLI is absent.
+        return Some(if reports.iter().any(|report| report.status == ProbeStatus::Failed) {
+            SetupIssue::cli_verify()
+        } else {
+            SetupIssue::cli_install()
+        });
     }
     if reports.iter().any(|report| {
         report.binary_path.is_some() && report.authentication == ReadinessState::Unavailable
@@ -91,6 +96,13 @@ mod tests {
     }
 
     #[test]
+    fn failed_probe_is_not_misreported_as_missing_software() {
+        let mut broken = probe("codex", false, ReadinessState::Unknown);
+        broken.status = ProbeStatus::Failed;
+        assert_eq!(assess(&[broken], None).unwrap().id, "setup:cli:verify");
+    }
+
+    #[test]
     fn authentication_missing_is_distinct_from_installation() {
         let reports = vec![probe("pi", true, ReadinessState::Unavailable)];
         assert_eq!(assess(&reports, None).unwrap().id, "setup:cli:authenticate");
@@ -99,14 +111,20 @@ mod tests {
     #[test]
     fn unknown_authentication_must_not_be_treated_as_ready() {
         let reports = vec![probe("copilot", true, ReadinessState::Unknown)];
-        assert_eq!(assess(&reports, Some("copilot")).unwrap().id, "setup:cli:verify");
+        assert_eq!(
+            assess(&reports, Some("copilot")).unwrap().id,
+            "setup:cli:verify"
+        );
     }
 
     #[test]
     fn unverified_model_catalog_must_not_activate_bootstrap_agent() {
         let mut report = probe("claude", true, ReadinessState::Ready);
         report.model_catalog_status = ModelCatalogStatus::NotChecked;
-        assert_eq!(assess(&[report], Some("claude")).unwrap().id, "setup:cli:verify");
+        assert_eq!(
+            assess(&[report], Some("claude")).unwrap().id,
+            "setup:cli:verify"
+        );
     }
 
     #[test]
@@ -116,6 +134,9 @@ mod tests {
             probe("codex", true, ReadinessState::Ready),
         ];
         assert!(assess(&reports, Some("codex")).is_none());
-        assert_eq!(assess(&reports, Some("missing")).unwrap().id, "setup:cli:select");
+        assert_eq!(
+            assess(&reports, Some("missing")).unwrap().id,
+            "setup:cli:select"
+        );
     }
 }
