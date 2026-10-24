@@ -153,3 +153,27 @@ fn expired_pending_request_is_completed_as_incompatible_and_never_replayed() {
         crate::execution::errors::ExecutionErrorKind::WorkerIncompatible
     );
 }
+
+#[test]
+fn revoked_start_is_retired_from_the_generic_reconnect_queue() {
+    let root = tempfile::tempdir().unwrap();
+    let mut request = envelope();
+    request.request_id = request.execution_id.clone();
+    request.kind = EnvelopeKindV1::Start;
+    request.payload = serde_json::json!({"synthetic": true});
+    save_pending_at(root.path(), "worker-east", &request).unwrap();
+
+    super::api::deny_pending_start_at(root.path(), "worker-east", &request.execution_id).unwrap();
+
+    assert!(pending_at(root.path(), "worker-east").unwrap().is_empty());
+    let completion = take_completion_at(root.path(), "worker-east", &request.execution_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(completion.response.kind, EnvelopeKindV1::Error);
+    let error: crate::execution::errors::ExecutionError =
+        serde_json::from_value(completion.response.payload).unwrap();
+    assert_eq!(
+        error.kind,
+        crate::execution::errors::ExecutionErrorKind::PolicyDenied
+    );
+}

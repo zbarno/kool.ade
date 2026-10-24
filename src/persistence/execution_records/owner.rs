@@ -113,6 +113,25 @@ pub(crate) fn unfinished_for_owner_at(
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
         return Err("execution record directory is not a real directory".into());
     }
+    let lock_path = state_root.join("execution-retention.lock");
+    super::retention::with_retention_lock_path(&lock_path, || {
+        scan_unfinished_for_owner_at(state_root, owner_instance_id)
+    })
+}
+
+fn scan_unfinished_for_owner_at(
+    state_root: &std::path::Path,
+    owner_instance_id: &str,
+) -> Result<Vec<ExecutionRecordV1>, String> {
+    let root = state_root.join("executions");
+    let metadata = match fs::symlink_metadata(&root) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error.to_string()),
+    };
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err("execution record directory is not a real directory".into());
+    }
     let mut records = Vec::new();
     for task_entry in fs::read_dir(root).map_err(|error| error.to_string())? {
         let task_entry = task_entry.map_err(|error| error.to_string())?;

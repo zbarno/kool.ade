@@ -126,10 +126,15 @@ impl ExecutionBackend for FakeBackend {
     fn start<'a>(
         &'a self,
         _: &'a WorkspaceLeaseV1,
-        _: &'a ExecutionRequestV1,
+        request: &'a ExecutionRequestV1,
     ) -> BackendFuture<'a, ExecutionHandleV1> {
         self.0.fetch_add(1, Ordering::Relaxed);
-        unavailable()
+        ready(Ok(ExecutionHandleV1 {
+            execution_id: request.execution_id.clone(),
+            task_id: request.task_id.clone(),
+            target: ExecutionTarget::local(),
+            request_sequence: request.request_sequence,
+        }))
     }
 
     fn release_workspace<'a>(&'a self, _: &'a WorkspaceLeaseV1) -> BackendFuture<'a, ()> {

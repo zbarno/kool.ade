@@ -4,12 +4,13 @@ mod cache;
 mod dependency;
 mod release;
 mod results;
+mod start;
 mod system_image;
 use crate::execution::{
     backend::{
         BackendFuture, BackendProbeV1, ExecutionBackend, ExecutionHandleV1, WorkspaceLeaseV1,
     },
-    contract::{EventPageRequestV1, ExecutionEventV1, ExecutionResultV1, TargetLocation},
+    contract::{EventPageRequestV1, ExecutionEventV1, ExecutionResultV1},
 };
 
 impl ExecutionBackend for RemoteExecutionBackend {
@@ -104,95 +105,7 @@ impl ExecutionBackend for RemoteExecutionBackend {
         lease: &'a WorkspaceLeaseV1,
         request: &'a ExecutionRequestV1,
     ) -> BackendFuture<'a, ExecutionHandleV1> {
-        Box::pin(async move {
-            self.require_target(&request.target)?;
-            if lease.workspace != request.workspace {
-                return Err(incompatible());
-            }
-            let mut worker_request = request.clone();
-            worker_request.controller_target_id = Some(self.target.target_id.clone());
-            worker_request.target = ExecutionTarget::local();
-            let snapshot = self
-                .snapshots
-                .lock()
-                .map_err(|_| disconnected())?
-                .get(&request.workspace)
-                .cloned()
-                .ok_or_else(incompatible)?;
-            let mut client = self.client.lock().map_err(|_| disconnected())?;
-            let private_grants =
-                private_files::stage_for_execution(self, &mut client, request, &snapshot)?;
-            let grant_use = crate::persistence::remote_private_file_grants::lock_authorized_grants(
-                &crate::persistence::state_root(),
-                &private_grants,
-                crate::persistence::harness_settings::current_unix_ms(),
-            );
-            let Ok(grant_use) = grant_use else {
-                let _ = client.request(
-                    EnvelopeKindV1::AbortPrivateFileStage,
-                    &request.execution_id,
-                    serde_json::json!({"execution_id": request.execution_id}),
-                );
-                return Err(private_files::revoked_error());
-            };
-            let execution_started_at = std::time::Instant::now();
-            let response = client.request(
-                EnvelopeKindV1::Start,
-                &request.execution_id,
-                serde_json::json!({"lease": lease, "request": worker_request}),
-            )?;
-            if let TargetLocation::Remote { worker_id } = &self.target.location {
-                let _ = crate::persistence::remote_execution_telemetry::record_execution_started(
-                    &request.execution_id,
-                    &request.task_id,
-                    worker_id,
-                    &request.image_digest,
-                    execution_started_at
-                        .elapsed()
-                        .as_millis()
-                        .min(u64::MAX as u128) as u64,
-                );
-            }
-            drop(grant_use);
-            let upload = self
-                .pending_workspace_transfers
-                .lock()
-                .ok()
-                .and_then(|mut pending| pending.remove(&lease.lease_id));
-            if let (Some((bytes, ms)), TargetLocation::Remote { worker_id }) =
-                (upload, &self.target.location)
-            {
-                let _ = crate::persistence::remote_execution_telemetry::record_workspace_upload(
-                    &request.execution_id,
-                    &request.task_id,
-                    worker_id,
-                    bytes,
-                    ms,
-                );
-            }
-            let mut handle: ExecutionHandleV1 =
-                serde_json::from_value(response.payload).map_err(|_| incompatible())?;
-            handle.target = self.target.clone();
-            drop(client);
-            self.execution_snapshots
-                .lock()
-                .map_err(|_| disconnected())?
-                .insert(handle.execution_id.clone(), snapshot);
-            self.execution_started_at
-                .lock()
-                .map_err(|_| disconnected())?
-                .insert(handle.execution_id.clone(), execution_started_at);
-            if !private_grants.is_empty() {
-                self.execution_private_file_grants
-                    .lock()
-                    .map_err(|_| disconnected())?
-                    .insert(
-                        handle.execution_id.clone(),
-                        (private_grants, request.cancellation_generation),
-                    );
-            }
-            Ok(handle)
-        })
+        start::start(self, lease, request)
     }
 
     fn release_workspace<'a>(&'a self, lease: &'a WorkspaceLeaseV1) -> BackendFuture<'a, ()> {

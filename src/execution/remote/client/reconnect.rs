@@ -141,6 +141,13 @@ impl RemoteWorkerClient {
                 .entry(pending.envelope.execution_id.clone())
                 .and_modify(|value| *value = (*value).max(pending.envelope.sequence))
                 .or_insert(pending.envelope.sequence);
+            if pending.envelope.kind == Kind::Start
+                && pending.envelope.request_id == pending.envelope.execution_id
+            {
+                // Grant-bound Start is replayed only by the backend after it
+                // has recovered and revalidated the durable grant association.
+                continue;
+            }
             // A fresh transport permits the durable request's original sequence to be
             // replayed exactly even when the previous session died mid-response.
             self.reconnect_and_negotiate()?;

@@ -152,6 +152,45 @@ impl RemoteWorkerClient {
         self.refresh_health_if_due()?;
         self.exchange(kind, execution_id, payload)
     }
+
+    pub(crate) fn next_sequence_for(&self, execution_id: &str) -> u64 {
+        self.sequences
+            .get(execution_id)
+            .copied()
+            .unwrap_or(0)
+            .saturating_add(1)
+    }
+
+    /// Prepare the stream before the caller holds the grant-use lock. The lock
+    /// only needs to cover sending the authorized Start frame, not worker startup.
+    pub(crate) fn prepare_start_request(
+        &mut self,
+        execution_id: &str,
+        sequence: u64,
+    ) -> Result<(), ExecutionError> {
+        self.refresh_health_if_due()?;
+        if sequence != self.next_sequence_for(execution_id) {
+            self.reconnect_and_negotiate()?;
+        }
+        Ok(())
+    }
+
+    /// Start requests use the execution ID as a stable journal key so a
+    /// controller restart can replay the exact same worker reservation.
+    pub(crate) fn start_request_with_identity(
+        &mut self,
+        execution_id: &str,
+        sequence: u64,
+        payload: serde_json::Value,
+        grant_use: crate::persistence::remote_private_file_grants::AuthorizedPrivateFileGrantUse,
+    ) -> Result<super::protocol::EnvelopeV1, ExecutionError> {
+        self.exchange_start_with_identity(execution_id, sequence, payload, grant_use)
+    }
+
+    pub(crate) fn deny_pending_start(&self, execution_id: &str) -> Result<(), ExecutionError> {
+        remote_requests::deny_pending_start(&self.worker_id, execution_id)
+            .map_err(|_| unavailable())
+    }
 }
 
 #[cfg(test)]

@@ -9,7 +9,7 @@ use std::{
 use zeroize::Zeroizing;
 
 mod api;
-pub use api::{pending, record_completion, save_pending, take_completion};
+pub use api::{deny_pending_start, pending, record_completion, save_pending, take_completion};
 #[cfg(test)]
 use api::{pending_at, record_completion_at, save_pending_at, take_completion_at};
 
