@@ -71,7 +71,9 @@ impl SetupIssue {
         Self {
             id: "setup:cli:select",
             title: "Choose your bootstrap agent",
-            issue: "At least one coding agent is ready, but none has been selected as your default.".into(),
+            issue:
+                "At least one coding agent is ready, but none has been selected as your default."
+                    .into(),
             why: "Kool.ad/e won't silently choose a different provider or charge an unexpected account.",
             recommendation: "Open Coding Tools and select your preferred verified agent as the default.",
             impact: "Your agent-assisted setup route has not been chosen yet; deterministic setup remains available.",

@@ -34,11 +34,16 @@ pub(super) fn assess(reports: &[ProbeResult], selected: Option<&str>) -> Option<
     }
     if !reports.iter().any(|report| report.binary_path.is_some()) {
         // A crashed or timed-out probe is not evidence that a CLI is absent.
-        return Some(if reports.iter().any(|report| report.status == ProbeStatus::Failed) {
-            SetupIssue::cli_verify()
-        } else {
-            SetupIssue::cli_install()
-        });
+        return Some(
+            if reports
+                .iter()
+                .any(|report| report.status == ProbeStatus::Failed)
+            {
+                SetupIssue::cli_verify()
+            } else {
+                SetupIssue::cli_install()
+            },
+        );
     }
     if reports.iter().any(|report| {
         report.binary_path.is_some() && report.authentication == ReadinessState::Unavailable
