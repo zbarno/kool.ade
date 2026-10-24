@@ -32,6 +32,51 @@ publish or repin a new runtime image. Publishing continues to require an
 exact digest match against the approved lock, and release enablement remains
 a separate gate.
 
+## Operator checklist for deliberate promotion
+
+1. Merge the ordinary source/recipe change first. Its PR validates rootless candidate
+   behavior and retains evidence, but **never updates the reviewed runtime digest**
+   merely to satisfy a feature-branch CI check.
+2. Run **Trusted executor images** against the intended source revision and download
+   the combined evidence manifest plus the per-profile/architecture artifacts from
+   the **same** successful rootless run. Check that each candidate's source revision,
+   pinned base, build-recipe digest, tool versions, SPDX SBOM and provenance match.
+3. Create a separate image-promotion PR from that source revision. Promote only
+   the intended executor or QA family using the retained evidence, then run
+   `--check-lock` with the matching profiles and that exact source revision. For
+   QA both `browser_qa` and `desktop_qa` are promoted together. Any subsequent
+   source/recipe changes require rebuilding evidence and repromoting the new
+   identity rather than copying a digest from a different revision.
+4. Review the digests and full provenance/SBOM evidence before merging the
+   promotion PR. The lock-change CI requires an exact reference, digest, recipe
+   and tool-version match for every promoted profile and architecture; mismatches
+   name the affected field and give public SHA-256 fingerprints without exposing
+   arbitrary manifest values. Missing or tampered evidence fails even when no
+   lock is being changed.
+5. On the resulting trusted-`main` push, the publisher first reconstructs and
+   checks the image identity **before authenticating** to GHCR. It performs an
+   additional check after push to guard against unexpected exporter drift. Check
+   the exact run artifacts, registry digest, post-publish app-owned smoke test and
+   attestations against the reviewed lock. A failed check is a stop signal, not
+   permission to repin images in unrelated feature PRs.
+
+Candidate digests are recorded using the registry-format image exporter
+(`type=image,push=false,rewrite-timestamp=true`) for both image families.
+Local-load images are still built to run rootless smoke tests, but their
+Docker-specific digest is not used as the reviewed registry identity. The
+promotion and publisher use the same exporter parameters to avoid false
+mismatches between local and published manifests.
+
+CI runs deterministic policy regression tests for changed/unchanged manifests,
+QA-only, executor-only and mixed source/lock changes, malformed candidates,
+duplicate and wrong-source provenance, SBOM tampering, runtime gate protection,
+and pre-push publication ordering. Those checks are additional to the real
+rootless image build/smoke jobs, not replacements for them.
+
+QA image runtime enablement remains disallowed until the separate #171 release
+review is complete and the activation policy is explicitly revised. A successful
+candidate build or reviewed digest never sets `runtime_enabled` by itself.
+
 The pull request build creates and rootlessly executes each candidate locally,
 then uploads the image record, SPDX SBOM, and provenance record as a retained
 workflow artifact. It does not publish candidate images from an untrusted pull
