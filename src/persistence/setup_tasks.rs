@@ -79,6 +79,11 @@ impl Store {
             snapshot.findings.len() <= MAX_TASKS,
             "too many setup findings"
         );
+        // A late worker result must not roll back a fresher readiness result.
+        anyhow::ensure!(
+            self.tasks.values().all(|task| task.observed_at_unix_ms <= snapshot.checked_at_unix_ms),
+            "stale machine setup observation"
+        );
 
         let mut changed = false;
         let mut seen = BTreeSet::new();
@@ -132,9 +137,8 @@ impl Store {
         // An item disappearing is positive evidence only when its domain
         // was independently rechecked without a failed/unknown probe.
         for task in self.tasks.values_mut() {
-            let domain = task.id.split(':').nth(1).unwrap_or("");
             if !seen.contains(&task.id)
-                && snapshot.checked_domains.iter().any(|name| name == domain)
+                && task_has_positive_evidence(&task.id, snapshot)
                 && task.state != State::Verified
             {
                 task.state = State::Verified;
@@ -150,6 +154,21 @@ impl Store {
         );
         Ok(changed)
     }
+}
+
+/// Check the exact prerequisite with authoritative *positive* evidence.
+/// A different error replacing the old one is not a successful repair.
+fn task_has_positive_evidence(id: &str, snapshot: &MachineSnapshot) -> bool {
+    let evidence = match id.split(':').collect::<Vec<_>>().as_slice() {
+        ["setup", "cli", "install"] => "cli:install".to_owned(),
+        ["setup", "cli", "scan"] => "cli:scan".to_owned(),
+        ["setup", "cli", "select"] => "cli:select".to_owned(),
+        ["setup", "cli", provider, _] => format!("cli:{provider}"),
+        ["setup", "docker", _] => "docker".to_owned(),
+        ["setup", "images", ..] => "images".to_owned(),
+        _ => return false,
+    };
+    snapshot.checked_domains.iter().any(|domain| domain == &evidence)
 }
 
 fn record(task: &mut LocalTask, at: u64) {
@@ -326,6 +345,65 @@ mod tests {
             store.tasks["setup:docker:rootless"].state,
             State::NeedsAttention
         );
+    }
+
+    #[test]
+    fn a_changed_docker_failure_is_not_a_verified_repair() {
+        let mut store = Store::default();
+        store
+            .reconcile(&snapshot(
+                &[("setup:docker:rootless", FindingStatus::NeedsAttention)],
+                &[],
+                1,
+            ))
+            .unwrap();
+        // A newly stopped engine is a different problem, not proof rootless
+        // setup succeeded. Only a healthy rootless engine resolves it.
+        store
+            .reconcile(&snapshot(
+                &[("setup:docker:start", FindingStatus::NeedsAttention)],
+                &[],
+                2,
+            ))
+            .unwrap();
+        assert_eq!(
+            store.tasks["setup:docker:rootless"].state,
+            State::NeedsAttention
+        );
+    }
+
+    #[test]
+    fn a_missing_cli_after_auth_failure_is_not_verified_auth() {
+        let mut store = Store::default();
+        store
+            .reconcile(&snapshot(
+                &[("setup:cli:codex:auth", FindingStatus::NeedsAttention)],
+                &[],
+                1,
+            ))
+            .unwrap();
+        store
+            .reconcile(&snapshot(
+                &[("setup:cli:install", FindingStatus::NeedsAttention)],
+                &["cli:scan"],
+                2,
+            ))
+            .unwrap();
+        assert_eq!(store.tasks["setup:cli:codex:auth"].state, State::NeedsAttention);
+    }
+
+    #[test]
+    fn stale_snapshot_cannot_reopen_or_verify_newer_readiness() {
+        let mut store = Store::default();
+        store
+            .reconcile(&snapshot(
+                &[("setup:docker:rootless", FindingStatus::NeedsAttention)],
+                &[],
+                5,
+            ))
+            .unwrap();
+        assert!(store.reconcile(&snapshot(&[], &["docker"], 4)).is_err());
+        assert_eq!(store.tasks["setup:docker:rootless"].state, State::NeedsAttention);
     }
 
     #[test]
