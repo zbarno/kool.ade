@@ -9,6 +9,29 @@ the exact trusted repository digest, locked base image, source revision, recipe
 digest, tool versions, SBOM digest, and provenance digest. Reviewers inspect the
 candidate evidence before updating `containers/images.lock.json`.
 
+## Candidate validation versus promotion
+
+Ordinary feature pull requests build and rootlessly test candidate images, validate
+their base pins, recipe hashes, SBOMs, and provenance, and retain the evidence.
+**They do not need to update `containers/images.lock.json` when their changes
+produce a different candidate digest.** A newly built QA driver is not yet an
+approved runtime image.
+
+An explicit image-promotion pull request updates the affected entries in
+`containers/images.lock.json` using the verified evidence. Only a PR changing
+those entries must pass exact candidate-to-lock comparison for that image
+family. A change to executor image pins does not require a simultaneous QA
+image promotion, or vice versa. Do not mix routine source implementation and
+digest promotion in the same PR. Runtime permissions, including
+`runtime_enabled`, remain subject to the separate release approval.
+
+After merge, the trusted-main workflow publishes a reviewed image **only when
+the corresponding lock family changed in that push**. Unrelated changes to
+Rust source or QA drivers still run candidate builds, but cannot silently
+publish or repin a new runtime image. Publishing continues to require an
+exact digest match against the approved lock, and release enablement remains
+a separate gate.
+
 The pull request build creates and rootlessly executes each candidate locally,
 then uploads the image record, SPDX SBOM, and provenance record as a retained
 workflow artifact. It does not publish candidate images from an untrusted pull
