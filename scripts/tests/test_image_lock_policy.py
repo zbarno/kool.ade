@@ -199,6 +199,15 @@ class PublicationOrderingTests(unittest.TestCase):
         self.assertLess(source.index('preflight_digest" != "$expected_digest"'),
                         source.index('push=true,rewrite-timestamp=true'))
 
+    def test_rootless_candidate_records_registry_exporter_digests(self):
+        qa = (SCRIPTS / "build-qa-image-candidate.sh").read_text()
+        workflow = (SCRIPTS.parent / ".github/workflows/executor-images.yml").read_text()
+        self.assertIn('type=image,name=$registry_tag,push=false,rewrite-timestamp=true', qa)
+        self.assertLess(qa.index('type=image,name=$registry_tag,push=false,rewrite-timestamp=true'),
+                        qa.index('image_digest="$(jq -er'))
+        self.assertIn('type=image,name=$registry_tag,push=false,rewrite-timestamp=true', workflow)
+        self.assertIn('type=image,name=$image_tag,push=true,rewrite-timestamp=true', workflow)
+
     def test_workflow_preflights_both_families_before_authentication(self):
         workflow = (SCRIPTS.parent / ".github/workflows/executor-images.yml").read_text()
         qa = workflow.split("  publish-reviewed-qa-main:", 1)[1].split("  smoke-reviewed-qa-main:", 1)[0]
