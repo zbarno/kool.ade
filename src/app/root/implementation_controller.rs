@@ -110,3 +110,18 @@ impl KooladeApp {
 }
 
 mod start;
+
+#[cfg(test)]
+pub(crate) fn authorize_self_improvement_task_start_for_test(
+    planning: &crate::artifacts::planning_store::PlanningStore,
+    documents: &[crate::artifacts::task_docs::TaskDocument],
+    ticket: &str,
+    code_repository_id: &str,
+) -> Result<bool, String> {
+    start::authorize_self_improvement_task_start_for_test(
+        planning,
+        documents,
+        ticket,
+        code_repository_id,
+    )
+}

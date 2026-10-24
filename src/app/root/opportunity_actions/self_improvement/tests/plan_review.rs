@@ -15,6 +15,8 @@ use std::time::{Duration, Instant};
 mod app_flow;
 #[path = "plan_review/fixture.rs"]
 mod fixture;
+#[path = "plan_review/production_dispatch.rs"]
+mod production_dispatch;
 #[path = "plan_review/reviewer.rs"]
 mod reviewer;
 #[path = "plan_review/task_generation.rs"]

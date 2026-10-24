@@ -121,7 +121,7 @@
           "base": "mcr.microsoft.com/playwright@sha256:8fb7af3bb488c51364d6554876a8eddf377736608327dbdf4177b4901faf7bc9"
         },
         "runtime_enabled": false,
-        "build_recipe_sha256": "sha256:9df36a26c6b06fcc35989c376bfe87c06da47b037e39b7f83cd8fa0ece3138a6"
+        "build_recipe_sha256": "sha256:5aba6bef516af941bfa53366080f28e27a02b11fbeb3508b32e7935afef681d9"
       }
     ],
     "desktop_qa": [
