@@ -281,15 +281,17 @@ pub fn assess(
             if probes.iter().any(|probe| probe.binary_path.is_some()) {
                 domains.push("cli:install".into());
             }
-            if probes.iter().all(|probe| probe.status != ProbeStatus::Failed) {
+            if probes
+                .iter()
+                .all(|probe| probe.status != ProbeStatus::Failed)
+            {
                 domains.push("cli:scan".into());
             }
             for probe in &verified {
                 domains.push(format!("cli:{}", probe.provider_id));
             }
-            if selected_agent.is_some_and(|id| {
-                verified.iter().any(|probe| probe.provider_id == id)
-            }) {
+            if selected_agent.is_some_and(|id| verified.iter().any(|probe| probe.provider_id == id))
+            {
                 domains.push("cli:select".into());
             }
             if docker.engine_ready {

@@ -81,7 +81,9 @@ impl Store {
         );
         // A late worker result must not roll back a fresher readiness result.
         anyhow::ensure!(
-            self.tasks.values().all(|task| task.observed_at_unix_ms <= snapshot.checked_at_unix_ms),
+            self.tasks
+                .values()
+                .all(|task| task.observed_at_unix_ms <= snapshot.checked_at_unix_ms),
             "stale machine setup observation"
         );
 
@@ -168,7 +170,10 @@ fn task_has_positive_evidence(id: &str, snapshot: &MachineSnapshot) -> bool {
         ["setup", "images", ..] => "images".to_owned(),
         _ => return false,
     };
-    snapshot.checked_domains.iter().any(|domain| domain == &evidence)
+    snapshot
+        .checked_domains
+        .iter()
+        .any(|domain| domain == &evidence)
 }
 
 fn record(task: &mut LocalTask, at: u64) {
@@ -389,7 +394,10 @@ mod tests {
                 2,
             ))
             .unwrap();
-        assert_eq!(store.tasks["setup:cli:codex:auth"].state, State::NeedsAttention);
+        assert_eq!(
+            store.tasks["setup:cli:codex:auth"].state,
+            State::NeedsAttention
+        );
     }
 
     #[test]
@@ -403,7 +411,10 @@ mod tests {
             ))
             .unwrap();
         assert!(store.reconcile(&snapshot(&[], &["docker"], 4)).is_err());
-        assert_eq!(store.tasks["setup:docker:rootless"].state, State::NeedsAttention);
+        assert_eq!(
+            store.tasks["setup:docker:rootless"].state,
+            State::NeedsAttention
+        );
     }
 
     #[test]
