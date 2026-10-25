@@ -136,7 +136,7 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
     body.cmd = Some(vec!["--fixture-cache-smoke".into()]);
     let name = format!("koolade-qa-{}", request.qa_run_id);
     let (_cancel, mut cancel) = tokio::sync::watch::channel(false);
-    let output = run_ephemeral_driver(
+    let container_id = create_driver_container(
         &docker,
         &name,
         body,
@@ -147,6 +147,27 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
     )
     .await
     .unwrap();
+    let output = run_created_driver_with_status(
+        &docker,
+        &container_id,
+        Duration::from_secs(90),
+        1024 * 1024,
+        &mut cancel,
+    )
+    .await;
+    let cleanup = cleanup_driver_container(&docker, &container_id).await;
+    let output = match output {
+        Ok(output) => output,
+        Err(error) => panic!("QA driver execution failed: {error:?}; cleanup={cleanup:?}"),
+    };
+    cleanup.unwrap();
+    assert_eq!(
+        output.exit_code,
+        0,
+        "stdout={:?}, stderr={:?}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     let response: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         response["status"],

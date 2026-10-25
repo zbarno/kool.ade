@@ -129,19 +129,16 @@ fn startup_preserves_live_owner_then_interrupts_persisted_attempts_after_exit() 
 
     let generation = transaction::begin_scan_at(&path).unwrap();
     let checked_at = crate::persistence::harness_settings::current_unix_ms();
-    let recovered = transaction::reconcile_live_at(
-        &path,
-        &snapshot(
-            &[
-                (TASK_ID, FindingStatus::NeedsAttention, &[]),
-                (OTHER_TASK_ID, FindingStatus::NeedsAttention, &[]),
-            ],
-            &[],
-            checked_at,
-        ),
-        generation,
-    )
-    .unwrap();
+    let mut current = snapshot(
+        &[
+            (TASK_ID, FindingStatus::NeedsAttention, &[]),
+            (OTHER_TASK_ID, FindingStatus::NeedsAttention, &[]),
+        ],
+        &[],
+        checked_at,
+    );
+    current.scan_generation = generation;
+    let recovered = transaction::reconcile_live_at(&path, &current, generation).unwrap();
     for task_id in [TASK_ID, OTHER_TASK_ID] {
         let task = &recovered.tasks[task_id];
         assert_eq!(task.state, SetupTaskStateV1::ReadyToFix);

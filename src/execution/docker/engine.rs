@@ -71,6 +71,10 @@ pub struct EngineSnapshot {
     pub memory_limit: bool,
     pub cpu_quota: bool,
     pub pids_limit: bool,
+    #[serde(default)]
+    pub cgroup_version: Option<String>,
+    #[serde(default)]
+    pub cgroup_driver: Option<String>,
     pub seccomp_enabled: bool,
     pub docker_storage_accessible: bool,
     pub disk_available_bytes: Option<u64>,
@@ -214,6 +218,10 @@ impl EngineDiscovery {
         };
         Ok(EngineReadiness {
             ready: result.is_none(),
+            daemon_identity_fingerprint: (!snapshot.daemon_id.is_empty()).then(|| {
+                use sha2::Digest as _;
+                format!("{:x}", sha2::Sha256::digest(snapshot.daemon_id.as_bytes()))
+            }),
             docker_desktop: self.endpoint.is_desktop() || snapshot.docker_desktop,
             daemon_version: Some(snapshot.daemon_version),
             api_version: Some(snapshot.api_version),
@@ -224,6 +232,14 @@ impl EngineDiscovery {
             memory_limit: Some(snapshot.memory_limit),
             cpu_quota: Some(snapshot.cpu_quota),
             pids_limit: Some(snapshot.pids_limit),
+            cgroups_supported: match (
+                snapshot.cgroup_version.as_deref(),
+                snapshot.cgroup_driver.as_deref(),
+            ) {
+                (Some("1" | "2"), Some("systemd" | "cgroupfs")) => Some(true),
+                (Some(_), Some(_)) => Some(false),
+                _ => None,
+            },
             workspace_staging_available: workspace_capacity.accessible,
             disk_available_bytes,
             available_images: images,

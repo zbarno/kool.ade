@@ -28,14 +28,13 @@ fn two_workspace_scans_share_one_machine_store_without_project_writes() {
         transaction::update_at(&path, |store| {
             store.latest_scan_generation += 1;
             let generation = store.latest_scan_generation;
-            store.reconcile(
-                &snapshot(
-                    &[(TASK_ID, FindingStatus::NeedsAttention, &[])],
-                    &["docker:rootless"],
-                    generation + 100,
-                ),
-                generation,
-            )?;
+            let mut current = snapshot(
+                &[(TASK_ID, FindingStatus::NeedsAttention, &[])],
+                &["docker:rootless"],
+                generation + 100,
+            );
+            current.scan_generation = generation;
+            store.reconcile(&current, generation)?;
             Ok(((), true))
         })
         .unwrap();

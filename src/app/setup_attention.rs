@@ -3,9 +3,16 @@
 //! These are machine configuration facts, so the stable board item is derived
 //! on connection and retry instead of being written into shared project files.
 
-#[cfg(test)]
 mod bootstrap;
 pub(crate) mod catalog;
+mod runner;
+mod scan;
+pub(crate) use runner::run_scan;
+#[cfg(not(test))]
+pub(crate) use scan::verify_before_commit;
+#[cfg(test)]
+pub(crate) use scan::verify_before_commit_with_state_path;
+pub use scan::{SetupScanResult, SetupScanVerification, scan};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetupIssue {
@@ -103,32 +110,19 @@ impl SetupIssue {
             related_task_prefix: None,
         }
     }
-}
 
-/// CLI discovery must precede Docker: a broken sandbox cannot prevent bootstrap
-/// agent detection or force a fallback to host repository execution.
-pub fn detect() -> anyhow::Result<crate::persistence::setup_tasks::Store> {
-    let generation = crate::persistence::setup_tasks::begin_scan()?;
-    let (settings, _) = crate::persistence::harness_settings::load();
-    let probes = crate::app::dialogs::probe_bootstrap_clis();
-    let selected = settings.default_harness.as_deref();
-    let docker = crate::execution::docker::environment::DockerEnvironmentStatus::detect();
-    let snapshot = catalog::assess(
-        &probes,
-        selected,
-        &docker,
-        catalog::HostKind::current(),
-        crate::persistence::harness_settings::current_unix_ms(),
-    );
-    crate::persistence::setup_tasks::reconcile_live(&snapshot, generation)
-}
-
-/// Startup recovery runs exactly once before the initial read-only readiness
-/// scan. Retry scans must never interpret live work as abandoned.
-#[cfg(not(test))]
-pub fn initialize_and_detect() -> anyhow::Result<crate::persistence::setup_tasks::Store> {
-    crate::persistence::setup_tasks::recover_after_restart()?;
-    detect()
+    pub fn bootstrap(detail: impl Into<String>) -> Self {
+        Self {
+            id: "setup:bootstrap",
+            title: "Machine setup needs attention",
+            issue: detail.into(),
+            why: "Kool.ad/e checks the execution environment and its approved runtime images before coding tasks can start.",
+            recommendation: "Review the specific machine setup task and complete its verified next step.",
+            impact: "Coding tasks remain blocked while a required machine prerequisite is unresolved.",
+            next_action: "Complete the listed prerequisite, then retry this setup check.",
+            related_task_prefix: None,
+        }
+    }
 }
 
 #[cfg(test)]

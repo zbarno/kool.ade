@@ -11,14 +11,6 @@ pub(super) fn requires(
     finding
 }
 
-pub(super) fn cli_stage(provider: &str, stage: &str) -> String {
-    format!("setup:cli:{provider}:{stage}")
-}
-
-pub(super) fn cli_install() -> String {
-    "setup:cli:install".into()
-}
-
 pub(super) fn docker_rootless() -> String {
     "setup:docker:rootless".into()
 }

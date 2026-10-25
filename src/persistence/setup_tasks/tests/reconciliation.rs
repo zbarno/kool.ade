@@ -3,6 +3,12 @@ use crate::app::setup_attention::catalog::FindingStatus;
 use super::super::{DependencyResolution, SetupTaskStateV1, SetupTaskStoreV1, ordered_task_ids};
 use super::support::{scan, snapshot};
 
+#[path = "reconciliation/attempt_verification.rs"]
+mod attempt_verification;
+#[path = "reconciliation/git.rs"]
+mod git;
+#[path = "reconciliation/images.rs"]
+mod images;
 #[path = "reconciliation/legacy.rs"]
 mod legacy;
 
@@ -74,7 +80,7 @@ fn only_current_exact_positive_evidence_verifies_and_regression_reopens() {
     assert_eq!(task.state, SetupTaskStateV1::Verified);
     assert_eq!(
         task.verified_result.as_ref().unwrap().evidence_domain,
-        "docker:rootless"
+        "docker"
     );
 
     scan(&mut store, &snapshot(&[], &["cli:codex:auth"], 4)).unwrap();

@@ -18,6 +18,9 @@ pub use model::{
     SetupTaskTransitionV1, SetupTaskV1, State, Store, VerifiedResultV1, authorization_scope_digest,
 };
 pub use transaction::{apply_transition, begin_scan, load, reconcile_live, recover_after_restart};
+pub(crate) use transaction::{
+    begin_scan_at, reconcile_at_if, reconcile_live_if, recover_interrupted_at,
+};
 
 #[cfg(test)]
 pub(crate) fn apply_transition_at_for_test(

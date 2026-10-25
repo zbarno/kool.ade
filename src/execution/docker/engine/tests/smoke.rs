@@ -37,6 +37,8 @@ impl DockerApi for SmokeApi {
                 memory_limit: true,
                 cpu_quota: true,
                 pids_limit: true,
+                cgroup_version: Some("2".into()),
+                cgroup_driver: Some("systemd".into()),
                 seccomp_enabled: true,
                 docker_storage_accessible: true,
                 disk_available_bytes: Some(8 * 1024 * 1024 * 1024),

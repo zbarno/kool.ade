@@ -16,6 +16,28 @@ struct LegacyStoreV1 {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct FlatStoreV3 {
+    schema_version: u8,
+    #[serde(default)]
+    last_observed_at_unix_ms: u64,
+    #[serde(default)]
+    last_scan_started_at_unix_ms: u64,
+    tasks: BTreeMap<String, LegacyTaskV1>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct FlatStoreV2 {
+    schema_version: u8,
+    #[serde(default)]
+    last_observed_at_unix_ms: u64,
+    #[serde(default)]
+    last_scan_started_at_unix_ms: u64,
+    tasks: BTreeMap<String, LegacyTaskV1>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct LegacyTaskV1 {
     id: String,
     title: String,
@@ -54,6 +76,15 @@ pub(super) fn decode(bytes: &[u8]) -> anyhow::Result<(SetupTaskStoreV1, bool)> {
         .ok_or_else(|| anyhow::anyhow!("setup task store has no schema version"))?;
     match version {
         1 => migrate_v1(serde_json::from_value(value)?),
+        2 if value.get("latestScanGeneration").is_none() => {
+            migrate_v2(serde_json::from_value(value)?)
+        }
+        2 => {
+            let store: SetupTaskStoreV1 = serde_json::from_value(value)?;
+            store.validate()?;
+            Ok((store, false))
+        }
+        3 => migrate_v3(serde_json::from_value(value)?),
         version if version == u64::from(super::model::FILE_SCHEMA_VERSION) => {
             let store: SetupTaskStoreV1 = serde_json::from_value(value)?;
             store.validate()?;
@@ -61,6 +92,36 @@ pub(super) fn decode(bytes: &[u8]) -> anyhow::Result<(SetupTaskStoreV1, bool)> {
         }
         _ => anyhow::bail!("unsupported setup task store schema version {version}"),
     }
+}
+
+fn migrate_v2(legacy: FlatStoreV2) -> anyhow::Result<(SetupTaskStoreV1, bool)> {
+    anyhow::ensure!(
+        legacy.schema_version == 2,
+        "invalid flat setup store schema"
+    );
+    let _observed_times = (
+        legacy.last_observed_at_unix_ms,
+        legacy.last_scan_started_at_unix_ms,
+    );
+    migrate_v1(LegacyStoreV1 {
+        schema_version: 1,
+        tasks: legacy.tasks,
+    })
+}
+
+fn migrate_v3(legacy: FlatStoreV3) -> anyhow::Result<(SetupTaskStoreV1, bool)> {
+    anyhow::ensure!(
+        legacy.schema_version == 3,
+        "invalid flat setup store schema"
+    );
+    let _observed_times = (
+        legacy.last_observed_at_unix_ms,
+        legacy.last_scan_started_at_unix_ms,
+    );
+    migrate_v1(LegacyStoreV1 {
+        schema_version: 1,
+        tasks: legacy.tasks,
+    })
 }
 
 fn migrate_v1(legacy: LegacyStoreV1) -> anyhow::Result<(SetupTaskStoreV1, bool)> {

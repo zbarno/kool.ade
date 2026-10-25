@@ -2,7 +2,9 @@ mod attempts;
 
 use super::*;
 use crate::persistence::setup_tasks::{MAX_EVENTS, MAX_TASKS, graph, valid_id};
-pub(super) use attempts::expected_evidence_domain;
+pub(super) use attempts::{
+    desktop_docker_evidence, expected_evidence_domain, has_expected_evidence_domain,
+};
 use attempts::{validate_attempts, validate_result};
 
 impl SetupTaskStoreV1 {

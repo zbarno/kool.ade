@@ -1,5 +1,6 @@
 use super::support::*;
-use crate::app::root::{KooladeApp, Screen};
+use crate::app::root::{KooladeApp, Screen, setup_attention::ProbeOutput};
+use crate::app::setup_attention::SetupScanResult;
 use crate::persistence::setup_tasks::{SetupTaskEventV1, SetupTaskStateV1 as State, SetupTaskV1};
 use std::path::Path;
 
@@ -162,7 +163,16 @@ fn a_slow_setup_probe_keeps_the_welcome_board_renderable() {
     let (release, waiting) = std::sync::mpsc::channel::<()>();
     app.setup_probe = Some(std::thread::spawn(move || {
         waiting.recv().unwrap();
-        Ok(crate::persistence::setup_tasks::SetupTaskStoreV1::default())
+        ProbeOutput::Scanned(SetupScanResult {
+            generation: 0,
+            issue: None,
+            snapshot: None,
+            endpoint_fingerprint: None,
+            daemon_identity_fingerprint: None,
+            docker_readiness_fingerprint: None,
+            selected_provider: None,
+            cancelled: true,
+        })
     }));
     let ctx = egui::Context::default();
 
@@ -190,7 +200,7 @@ fn a_slow_setup_probe_keeps_the_welcome_board_renderable() {
     }
 
     release.send(()).unwrap();
-    app.setup_probe.take().unwrap().join().unwrap().unwrap();
+    app.setup_probe.take().unwrap().join().unwrap();
     assert!(contains(&output, "Checking this machine"));
     assert!(contains(&output, "Start the safe coding environment"));
 }

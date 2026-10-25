@@ -87,6 +87,13 @@ impl DockerExecutionBackend {
         owner_instance_id: String,
         authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
     ) -> Result<Self, ExecutionError> {
+        if !endpoint.supports_application_execution() {
+            return Err(ExecutionError::new(
+                ExecutionErrorKind::PolicyDenied,
+                "Local Docker execution is enabled only for verified native Linux rootless Engine",
+                false,
+            ));
+        }
         let docker = endpoint.connect().map_err(prerequisite_error)?;
         let engine = EngineDiscovery::connect(endpoint.clone()).map_err(prerequisite_error)?;
         Ok(Self {

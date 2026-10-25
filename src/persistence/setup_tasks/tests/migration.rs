@@ -94,3 +94,75 @@ fn migration_collision_is_rejected_without_overwriting_the_source_file() {
     assert!(transaction::load_from(&path).is_err());
     assert_eq!(fs::read(&path).unwrap(), bytes);
 }
+
+#[test]
+fn flat_schema_three_is_migrated_without_trusting_its_unproven_verified_state() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("tasks.json");
+    fs::write(
+        &path,
+        serde_json::json!({
+            "schemaVersion": 3,
+            "lastObservedAtUnixMs": 20,
+            "lastScanStartedAtUnixMs": 10,
+            "tasks": {
+                "setup:docker:rootless": {
+                    "id": "setup:docker:rootless",
+                    "title": "Configure rootless Docker",
+                    "explanation": "Synthetic prior finding",
+                    "nextStep": "Recheck Docker",
+                    "prerequisites": [],
+                    "state": "verified",
+                    "observedAtUnixMs": 20,
+                    "verifiedAtUnixMs": 20,
+                    "events": [{"observedAtUnixMs": 20, "state": "verified"}]
+                }
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let (store, migrated) = transaction::load_from(&path).unwrap();
+    assert!(migrated);
+    let task = &store.tasks["setup:docker:rootless"];
+    assert_eq!(task.state, SetupTaskStateV1::NeedsVerification);
+    assert!(task.verified_result.is_none());
+    assert_eq!(task.verified_at_unix_ms, Some(20));
+}
+
+#[test]
+fn flat_schema_two_store_is_migrated_without_trusting_its_unproven_verified_state() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("tasks.json");
+    fs::write(
+        &path,
+        serde_json::json!({
+            "schemaVersion": 2,
+            "lastObservedAtUnixMs": 20,
+            "lastScanStartedAtUnixMs": 10,
+            "tasks": {
+                "setup:git:install": {
+                    "id": "setup:git:install",
+                    "title": "Install Git",
+                    "explanation": "Synthetic prior finding",
+                    "nextStep": "Recheck Git",
+                    "prerequisites": [],
+                    "state": "verified",
+                    "observedAtUnixMs": 20,
+                    "verifiedAtUnixMs": 20,
+                    "events": [{"observedAtUnixMs": 20, "state": "verified"}]
+                }
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+
+    let (store, migrated) = transaction::load_from(&path).unwrap();
+    assert!(migrated);
+    let task = &store.tasks["setup:git:install"];
+    assert_eq!(task.state, SetupTaskStateV1::NeedsVerification);
+    assert!(task.verified_result.is_none());
+    assert_eq!(task.verified_at_unix_ms, Some(20));
+}

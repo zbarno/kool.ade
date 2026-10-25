@@ -11,6 +11,8 @@ use fs2::FileExt;
 use super::{MAX_STATE_BYTES, SetupTaskStoreV1, migration};
 
 mod owner;
+#[cfg(test)]
+mod tests;
 mod transitions;
 
 pub use transitions::apply_transition;
@@ -37,7 +39,7 @@ pub fn begin_scan() -> anyhow::Result<u64> {
     begin_scan_at(&path())
 }
 
-pub(super) fn begin_scan_at(path: &Path) -> anyhow::Result<u64> {
+pub(crate) fn begin_scan_at(path: &Path) -> anyhow::Result<u64> {
     update_at(path, |store| {
         store.latest_scan_generation = store
             .latest_scan_generation
@@ -59,6 +61,27 @@ pub(super) fn reconcile_live_at(
     snapshot: &crate::app::setup_attention::catalog::MachineSnapshot,
     generation: u64,
 ) -> anyhow::Result<SetupTaskStoreV1> {
+    reconcile_at_if(path, snapshot, generation, || true)?
+        .ok_or_else(|| anyhow::anyhow!("setup reconciliation was canceled or stale"))
+}
+
+pub(crate) fn reconcile_live_if(
+    snapshot: &crate::app::setup_attention::catalog::MachineSnapshot,
+    generation: u64,
+    still_current: impl Fn() -> bool,
+) -> anyhow::Result<Option<SetupTaskStoreV1>> {
+    reconcile_at_if(&path(), snapshot, generation, still_current)
+}
+
+pub(crate) fn reconcile_at_if(
+    path: &Path,
+    snapshot: &crate::app::setup_attention::catalog::MachineSnapshot,
+    generation: u64,
+    still_current: impl Fn() -> bool,
+) -> anyhow::Result<Option<SetupTaskStoreV1>> {
+    if !still_current() {
+        return Ok(None);
+    }
     let current_owner = owner::ensure_current(path)?;
     update_at(path, |store| {
         let recovered = store.recover_interrupted(
@@ -66,15 +89,20 @@ pub(super) fn reconcile_live_at(
             &current_owner,
             |id| owner::is_active(path, id),
         );
-        if generation < store.latest_scan_generation {
-            return Ok((store.clone(), recovered));
+        if !still_current() || generation < store.latest_scan_generation {
+            return Ok((None, recovered));
         }
         anyhow::ensure!(
             generation == store.latest_scan_generation,
             "unreserved setup scan generation"
         );
-        let changed = store.reconcile(snapshot, generation)?;
-        Ok((store.clone(), recovered || changed))
+        let mut candidate = store.clone();
+        let changed = candidate.reconcile(snapshot, generation)?;
+        if !still_current() {
+            return Ok((None, recovered));
+        }
+        *store = candidate.clone();
+        Ok((Some(candidate), recovered || changed))
     })
 }
 
@@ -87,7 +115,7 @@ pub fn recover_after_restart() -> anyhow::Result<SetupTaskStoreV1> {
     )
 }
 
-pub(super) fn recover_interrupted_at(
+pub(crate) fn recover_interrupted_at(
     path: &Path,
     at_unix_ms: u64,
 ) -> anyhow::Result<SetupTaskStoreV1> {
@@ -112,6 +140,8 @@ pub(super) fn update_at<T>(
         .lock()
         .unwrap_or_else(|error| error.into_inner());
     let lock = open_lock_file(parent)?;
+    #[cfg(test)]
+    signal_lock_attempt()?;
     lock_exclusive(&lock)?;
 
     let result = (|| {
@@ -188,6 +218,14 @@ fn lock_exclusive(lock: &File) -> anyhow::Result<()> {
             Err(error) => return Err(error.into()),
         }
     }
+}
+
+#[cfg(test)]
+fn signal_lock_attempt() -> std::io::Result<()> {
+    if let Some(path) = std::env::var_os("KOOLADE_SETUP_LOCK_ATTEMPT_MARKER") {
+        fs::write(path, b"waiting")?;
+    }
+    Ok(())
 }
 
 pub(super) fn load_from(path: &Path) -> anyhow::Result<(SetupTaskStoreV1, bool)> {

@@ -1,7 +1,12 @@
 use super::*;
-use crate::execution::contract::ReadinessState;
 use crate::execution::docker::images::{ImageLock, RuntimeProfile};
-use crate::harness::discovery::{ExecutionCapability, ModelCatalogStatus, ProbeStatus};
+use crate::execution::{
+    contract::ReadinessState,
+    docker::environment::{DockerEnvironmentState, DockerEnvironmentStatus},
+};
+use crate::harness::discovery::{
+    ExecutionCapability, ModelCatalogStatus, ProbeResult, ProbeStatus,
+};
 
 fn docker(state: DockerEnvironmentState, engine_ready: bool) -> DockerEnvironmentStatus {
     DockerEnvironmentStatus {
@@ -15,8 +20,11 @@ fn docker(state: DockerEnvironmentState, engine_ready: bool) -> DockerEnvironmen
         cpu_limits: Some(true),
         memory_limits: Some(true),
         pids_limit: Some(true),
+        cgroups_supported: engine_ready.then_some(true),
         available_images: Vec::new(),
         disk_available_bytes: None,
+        endpoint_fingerprint: None,
+        daemon_identity_fingerprint: None,
     }
 }
 
@@ -49,16 +57,6 @@ fn rootful_docker_does_not_hide_authenticated_cli_or_invent_image_error() {
     );
     assert_eq!(snapshot.findings.len(), 1);
     assert_eq!(snapshot.findings[0].id, "setup:docker:rootless");
-    assert_eq!(
-        snapshot.findings[0].prerequisites,
-        vec!["setup:docker:engine"]
-    );
-    assert!(
-        snapshot
-            .checked_domains
-            .iter()
-            .any(|domain| domain == "docker:engine")
-    );
 }
 
 #[test]
@@ -72,91 +70,6 @@ fn missing_image_is_only_a_finding_after_healthy_engine_probe() {
     );
     assert_eq!(snapshot.findings.len(), 1);
     assert_eq!(snapshot.findings[0].id, "setup:images:general:amd64");
-    assert_eq!(
-        snapshot.findings[0].prerequisites,
-        vec![
-            "setup:docker:capabilities",
-            "setup:docker:engine",
-            "setup:docker:rootless",
-        ]
-    );
-    assert!(
-        snapshot
-            .checked_domains
-            .iter()
-            .any(|domain| domain == "docker:rootless")
-    );
-    assert!(
-        snapshot
-            .checked_domains
-            .iter()
-            .any(|domain| domain == "docker:capabilities")
-    );
-}
-
-#[test]
-fn cli_findings_link_install_auth_models_and_selection_to_verified_probes() {
-    let install_snapshot = assess(
-        &[agent(ReadinessState::Unavailable)],
-        Some("codex"),
-        &docker(DockerEnvironmentState::Ready, true),
-        HostKind::Linux,
-        20,
-    );
-    let auth = install_snapshot
-        .findings
-        .iter()
-        .find(|finding| finding.id == "setup:cli:codex:auth")
-        .unwrap();
-    assert_eq!(auth.prerequisites, vec!["setup:cli:install"]);
-    assert!(
-        install_snapshot
-            .checked_domains
-            .iter()
-            .any(|domain| domain == "cli:install")
-    );
-
-    let mut codex = agent(ReadinessState::Ready);
-    codex.model_catalog_status = ModelCatalogStatus::Stale;
-    let model_snapshot = assess(
-        &[codex],
-        Some("codex"),
-        &docker(DockerEnvironmentState::Ready, true),
-        HostKind::Linux,
-        21,
-    );
-    let model = model_snapshot
-        .findings
-        .iter()
-        .find(|finding| finding.id == "setup:cli:codex:models")
-        .unwrap();
-    assert_eq!(model.prerequisites, vec!["setup:cli:codex:auth"]);
-    assert!(
-        model_snapshot
-            .checked_domains
-            .iter()
-            .any(|domain| domain == "cli:codex:auth")
-    );
-
-    let selection_snapshot = assess(
-        &[agent(ReadinessState::Ready)],
-        None,
-        &docker(DockerEnvironmentState::Ready, true),
-        HostKind::Linux,
-        22,
-    );
-    let selection = selection_snapshot
-        .findings
-        .iter()
-        .find(|finding| finding.id == "setup:cli:select")
-        .unwrap();
-    assert_eq!(selection.prerequisites, vec!["setup:cli:codex:capability"]);
-    assert!(
-        selection_snapshot
-            .checked_domains
-            .iter()
-            .any(|domain| domain == "cli:codex:capability")
-    );
 }
 
 #[test]
@@ -269,3 +182,5 @@ fn selected_agent_and_mac_desktop_both_have_independent_readiness() {
     assert_eq!(snap.findings.len(), 1);
     assert_eq!(snap.findings[0].status, FindingStatus::Unsupported);
 }
+
+mod validation;

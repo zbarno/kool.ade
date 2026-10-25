@@ -1,10 +1,61 @@
 use super::{KooladeApp, Screen};
 use std::time::Duration;
 
+pub(super) enum ProbeOutput {
+    Scanned(super::super::setup_attention::SetupScanResult),
+    Verified(super::super::setup_attention::SetupScanVerification),
+}
+
 impl KooladeApp {
     fn clear_setup_attention_notices(&mut self) {
         self.setup_attention.clear();
         self.setup_attention_notified = None;
+    }
+
+    fn start_setup_probe(&mut self, recover_after_restart: bool) {
+        let cancellation = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_cancellation = cancellation.clone();
+        self.setup_probe_cancel = Some(cancellation);
+        #[cfg(test)]
+        let state_path = Some(self.setup_task_state_path.clone());
+        #[cfg(not(test))]
+        let state_path = None;
+        self.setup_probe = Some(std::thread::spawn(move || {
+            ProbeOutput::Scanned(super::super::setup_attention::run_scan(
+                recover_after_restart,
+                worker_cancellation,
+                state_path,
+            ))
+        }));
+    }
+
+    fn start_setup_identity_verification(
+        &mut self,
+        result: super::super::setup_attention::SetupScanResult,
+    ) {
+        let cancellation = self
+            .setup_probe_cancel
+            .get_or_insert_with(|| std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)))
+            .clone();
+        let commit_lock = self.setup_commit_lock.clone();
+        #[cfg(test)]
+        let state_path = self.setup_task_state_path.clone();
+        self.setup_probe = Some(std::thread::spawn(move || {
+            #[cfg(test)]
+            let verification = super::super::setup_attention::verify_before_commit_with_state_path(
+                result,
+                cancellation,
+                commit_lock,
+                state_path,
+            );
+            #[cfg(not(test))]
+            let verification = super::super::setup_attention::verify_before_commit(
+                result,
+                cancellation,
+                commit_lock,
+            );
+            ProbeOutput::Verified(verification)
+        }));
     }
 
     pub(super) fn queue_manager_setup_update(&mut self) {
@@ -16,13 +67,12 @@ impl KooladeApp {
         let notices = self
             .setup_attention
             .iter()
-            .filter(|notice| !crate::app::setup_attention::has_specific_task(&active, notice))
+            .filter(|notice| !super::super::setup_attention::has_specific_task(&active, notice))
             .collect::<Vec<_>>();
         if active.is_empty() && notices.is_empty() {
             self.setup_attention_notified = None;
             return;
         }
-
         let fingerprint = {
             use sha2::Digest;
             let mut entries = active
@@ -63,188 +113,137 @@ impl KooladeApp {
     }
 
     pub(super) fn refresh_setup_attention(&mut self, retry: bool) {
+        let setup_commit_lock = self.setup_commit_lock.clone();
+        // A final identity check and local commit must not be interrupted midway.
+        let commit_guard = match setup_commit_lock.try_lock() {
+            Ok(guard) => Some(guard),
+            Err(std::sync::TryLockError::Poisoned(error)) => Some(error.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        };
         self.clear_setup_attention_notices();
+        if commit_guard.is_some()
+            && let Some(cancellation) = &self.setup_probe_cancel
+        {
+            cancellation.store(true, std::sync::atomic::Ordering::Release);
+        }
+        drop(commit_guard);
         if self.setup_probe.is_some() {
             self.setup_refresh_pending = Some(self.setup_refresh_pending.unwrap_or(false) || retry);
             return;
         }
         self.setup_refresh_pending = None;
         self.setup_retry_requested = retry;
-        self.setup_probe = Some(std::thread::spawn(super::super::setup_attention::detect));
+        self.start_setup_probe(false);
     }
 
     fn finish_setup_probe_result(
         &mut self,
-        result: anyhow::Result<crate::persistence::setup_tasks::Store>,
+        verification: super::super::setup_attention::SetupScanVerification,
     ) -> Option<bool> {
-        let Some(retry) = self.setup_refresh_pending.take() else {
-            match result {
-                Ok(store) => match crate::persistence::setup_tasks::ordered_task_ids(&store) {
-                    Ok(ids) => {
-                        self.machine_setup_tasks = ids
-                            .iter()
-                            .filter_map(|id| store.tasks.get(id).cloned())
-                            .collect();
-                        self.setup_attention.clear();
-                    }
-                    Err(error) => {
-                        self.setup_attention =
-                            vec![crate::app::setup_attention::SetupIssue::provider(format!(
-                                "Could not safely order machine setup tasks: {error}"
-                            ))];
-                    }
-                },
-                Err(error) => {
-                    self.setup_attention = vec![crate::app::setup_attention::SetupIssue::provider(
-                        format!("Could not safely refresh machine setup tasks: {error}"),
-                    )];
-                }
+        let result = verification.result;
+        self.setup_probe_cancel = None;
+        let retry = self.setup_refresh_pending.take();
+        if result.cancelled || retry.is_some() {
+            self.clear_setup_attention_notices();
+            if let Some(retry) = retry {
+                self.setup_retry_requested = retry;
+                return Some(retry);
             }
+            self.setup_retry_requested = false;
             return None;
-        };
-        self.setup_retry_requested = retry;
-        Some(retry)
+        }
+        if result.snapshot.is_none() {
+            self.setup_attention = vec![result.issue.unwrap_or_else(|| {
+                super::super::setup_attention::SetupIssue::provider(
+                    "The machine setup check did not finish. Retry the check.",
+                )
+            })];
+            return None;
+        }
+
+        self.setup_attention = result.issue.into_iter().collect();
+        if verification.persistence_failed {
+            self.setup_attention = vec![super::super::setup_attention::SetupIssue::provider(
+                "Could not safely save local machine setup diagnostics. Retry the check.",
+            )];
+        } else if let Some(tasks) = verification.machine_setup_tasks {
+            self.machine_setup_tasks = tasks;
+        } else {
+            self.setup_attention = vec![super::super::setup_attention::SetupIssue::provider(
+                "The machine setup result was not persisted. Retry the check.",
+            )];
+        }
+        None
     }
 
     pub(super) fn poll_setup_attention(&mut self, ctx: &egui::Context) {
         let Some(handle) = self.setup_probe.take() else {
             return;
         };
-        if handle.is_finished() {
-            let result = handle.join().unwrap_or_else(|_| {
-                Err(anyhow::anyhow!(
-                    "The machine setup check stopped unexpectedly."
-                ))
-            });
-            let succeeded = result.is_ok();
-            if self.finish_setup_probe_result(result).is_some() {
-                self.setup_probe = Some(std::thread::spawn(super::super::setup_attention::detect));
-                ctx.request_repaint_after(Duration::from_millis(100));
-            } else {
-                let active = self
-                    .machine_setup_tasks
-                    .iter()
-                    .find(|task| task.is_active());
-                if self.setup_retry_requested && succeeded && active.is_none() {
-                    self.toasts
-                        .success("Kool.ad/e setup is ready. Retry planning or implementation.");
-                } else if self.setup_retry_requested
-                    && let Some(notice) = self.setup_attention.first()
-                {
-                    self.toasts.warning(notice.next_action);
-                } else if self.setup_retry_requested
-                    && let Some(task) = active
-                {
-                    self.toasts.warning(task.next_step.clone());
-                }
-                self.setup_retry_requested = false;
-            }
-        } else {
+        if !handle.is_finished() {
             self.setup_probe = Some(handle);
             ctx.request_repaint_after(Duration::from_millis(100));
+            return;
+        }
+        let result = match handle.join() {
+            Ok(ProbeOutput::Scanned(result))
+                if !result.cancelled
+                    && self.setup_refresh_pending.is_none()
+                    && result.snapshot.is_some() =>
+            {
+                self.start_setup_identity_verification(result);
+                ctx.request_repaint_after(Duration::from_millis(100));
+                return;
+            }
+            Ok(ProbeOutput::Verified(result)) => result,
+            Ok(ProbeOutput::Scanned(result)) => {
+                super::super::setup_attention::SetupScanVerification {
+                    result,
+                    machine_setup_tasks: None,
+                    persistence_failed: false,
+                }
+            }
+            Err(_) => super::super::setup_attention::SetupScanVerification {
+                result: super::super::setup_attention::SetupScanResult {
+                    generation: 0,
+                    issue: Some(super::super::setup_attention::SetupIssue::provider(
+                        "The machine setup check stopped unexpectedly. Retry the check.",
+                    )),
+                    snapshot: None,
+                    endpoint_fingerprint: None,
+                    daemon_identity_fingerprint: None,
+                    docker_readiness_fingerprint: None,
+                    selected_provider: None,
+                    cancelled: false,
+                },
+                machine_setup_tasks: None,
+                persistence_failed: false,
+            },
+        };
+        if self.finish_setup_probe_result(result).is_some() {
+            self.start_setup_probe(false);
+            ctx.request_repaint_after(Duration::from_millis(100));
+        } else {
+            if self.setup_retry_requested && self.setup_attention.is_empty() {
+                self.toasts
+                    .success("Kool.ad/e setup is ready. Retry planning or implementation.");
+            } else if self.setup_retry_requested
+                && let Some(notice) = self.setup_attention.first()
+            {
+                self.toasts.warning(notice.next_action);
+            } else if self.setup_retry_requested
+                && let Some(task) = self
+                    .machine_setup_tasks
+                    .iter()
+                    .find(|task| task.is_active())
+            {
+                self.toasts.warning(task.next_step.clone());
+            }
+            self.setup_retry_requested = false;
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::super::KooladeApp;
-    use crate::persistence::setup_tasks::{
-        SetupTaskEventV1, SetupTaskStateV1, SetupTaskStoreV1, SetupTaskV1,
-    };
-
-    fn task() -> SetupTaskV1 {
-        SetupTaskV1 {
-            schema_version: 1,
-            id: "setup:images:general:amd64".into(),
-            title: "Prepare image".into(),
-            explanation: "No approved image is verified.".into(),
-            next_step: "Review image readiness.".into(),
-            dependencies: Vec::new(),
-            blocked_by: Vec::new(),
-            state: SetupTaskStateV1::ReadyToFix,
-            created_at_unix_ms: 1,
-            observed_at_unix_ms: 1,
-            scan_generation: 1,
-            verified_at_unix_ms: None,
-            verified_result: None,
-            attempts: Vec::new(),
-            events: vec![SetupTaskEventV1 {
-                observed_at_unix_ms: 1,
-                scan_generation: 1,
-                state: SetupTaskStateV1::ReadyToFix,
-            }],
-            legacy_source_id: None,
-            superseded_by: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn repeated_refresh_coalesces_retry_without_dropping_persisted_tasks() {
-        let mut app = KooladeApp::default();
-        app.machine_setup_tasks.push(task());
-        app.setup_attention
-            .push(crate::app::setup_attention::SetupIssue::provider(
-                "Old transient setup notice",
-            ));
-        app.setup_probe = Some(std::thread::spawn(|| Ok(SetupTaskStoreV1::default())));
-
-        app.refresh_setup_attention(false);
-        assert_eq!(app.setup_refresh_pending, Some(false));
-        assert!(app.setup_attention.is_empty());
-        assert_eq!(app.machine_setup_tasks.len(), 1);
-        app.refresh_setup_attention(true);
-        app.refresh_setup_attention(false);
-        assert_eq!(app.setup_refresh_pending, Some(true));
-
-        let rerun = app.finish_setup_probe_result(Ok(SetupTaskStoreV1::default()));
-        assert_eq!(rerun, Some(true));
-        assert!(app.setup_attention.is_empty());
-        assert_eq!(app.machine_setup_tasks.len(), 1);
-        assert!(app.setup_refresh_pending.is_none());
-        assert!(app.setup_retry_requested);
-        app.setup_probe.take().unwrap().join().unwrap().unwrap();
-    }
-
-    #[test]
-    fn completed_scan_replaces_the_projection_from_the_persisted_collection() {
-        let mut app = KooladeApp::default();
-        let mut store = SetupTaskStoreV1::default();
-        store.tasks.insert(task().id.clone(), task());
-        assert_eq!(app.finish_setup_probe_result(Ok(store)), None);
-        assert_eq!(app.machine_setup_tasks.len(), 1);
-        assert!(app.setup_attention.is_empty());
-    }
-
-    #[test]
-    fn completed_scan_projects_machine_tasks_in_topological_order() {
-        use crate::persistence::setup_tasks::{
-            DependencyResolution, SetupDependencyV1, SetupTaskStateV1,
-        };
-
-        let mut app = KooladeApp::default();
-        let parent_id = "setup:cli:install";
-        let mut child = task();
-        child.id = "setup:cli:codex:auth".into();
-        child.state = SetupTaskStateV1::BlockedByPrerequisite;
-        child.dependencies = vec![SetupDependencyV1 {
-            prerequisite_id: parent_id.into(),
-            resolution: DependencyResolution::Pending,
-        }];
-        child.blocked_by = vec![parent_id.into()];
-        let mut parent = task();
-        parent.id = parent_id.into();
-
-        let mut store = SetupTaskStoreV1::default();
-        store.tasks.insert(child.id.clone(), child);
-        store.tasks.insert(parent.id.clone(), parent);
-        assert_eq!(app.finish_setup_probe_result(Ok(store)), None);
-        assert_eq!(
-            app.machine_setup_tasks
-                .iter()
-                .map(|task| task.id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["setup:cli:install", "setup:cli:codex:auth"]
-        );
-    }
-}
+#[path = "setup_attention/tests.rs"]
+mod tests;

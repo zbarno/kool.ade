@@ -139,7 +139,9 @@ pub(super) fn validate_result(
     latest: u64,
 ) -> anyhow::Result<()> {
     anyhow::ensure!(
-        expected_evidence_domain(task_id).as_deref() == Some(result.evidence_domain.as_str()),
+        expected_evidence_domain(task_id).as_deref() == Some(result.evidence_domain.as_str())
+            || desktop_docker_evidence(task_id, &result.evidence_domain)
+            || dynamic_general_image_evidence(task_id, &result.evidence_domain),
         "verified setup task has mismatched probe evidence"
     );
     anyhow::ensure!(
@@ -149,27 +151,77 @@ pub(super) fn validate_result(
     Ok(())
 }
 
+pub(crate) fn desktop_docker_evidence(task_id: &str, evidence_domain: &str) -> bool {
+    evidence_domain == "docker:desktop"
+        && matches!(
+            task_id,
+            "setup:docker:install"
+                | "setup:docker:start"
+                | "setup:docker:permission"
+                | "setup:docker:windows-containers"
+                | "setup:docker:api"
+                | "setup:docker:os"
+                | "setup:docker:architecture"
+                | "setup:docker:desktop"
+                | "setup:docker:endpoint"
+                | "setup:docker:engine"
+        )
+}
+
 pub(crate) fn expected_evidence_domain(id: &str) -> Option<String> {
     match id.split(':').collect::<Vec<_>>().as_slice() {
         ["setup", "legacy", "docker"] => Some("docker".to_owned()),
         ["setup", "cli", "install"] => Some("cli:install".to_owned()),
         ["setup", "cli", "scan"] => Some("cli:scan".to_owned()),
         ["setup", "cli", "select"] => Some("cli:select".to_owned()),
-        ["setup", "cli", provider, "auth" | "verify"] => Some(format!("cli:{provider}:auth")),
-        ["setup", "cli", provider, "models"] => Some(format!("cli:{provider}:models")),
-        ["setup", "cli", provider, "capability"] => Some(format!("cli:{provider}:capability")),
-        ["setup", "docker", "rootless"] => Some("docker:rootless".to_owned()),
-        ["setup", "docker", "engine"] => Some("docker:engine".to_owned()),
-        ["setup", "docker", "capabilities"] => Some("docker:capabilities".to_owned()),
-        ["setup", "docker", "desktop-transport"] => Some("docker:desktop-transport".to_owned()),
+        ["setup", "git", "install"] => Some("git:executable".to_owned()),
+        ["setup", "git", "identity"] => Some("git:identity".to_owned()),
+        ["setup", "git", "verify"] => Some("git".to_owned()),
+        ["setup", "docker", "desktop"] => Some("docker:desktop".to_owned()),
+        [
+            "setup",
+            "cli",
+            provider,
+            "auth" | "verify" | "models" | "capability",
+        ] if crate::app::setup_attention::catalog::ProviderIdV1::from_probe_id(provider)
+            .is_some() =>
+        {
+            Some(format!("cli:{provider}"))
+        }
         [
             "setup",
             "docker",
-            "install" | "start" | "permission" | "desktop" | "endpoint",
-        ] => Some("docker:engine".to_owned()),
+            "install" | "start" | "permission" | "rootless" | "windows-containers" | "disk"
+            | "limits" | "cgroups" | "seccomp" | "api" | "os" | "architecture" | "workspace"
+            | "profile" | "endpoint" | "engine" | "capabilities",
+        ] => Some("docker".to_owned()),
         ["setup", "images", profile, architecture] => {
             Some(format!("images:{profile}:{architecture}"))
         }
         _ => None,
     }
+}
+
+pub(crate) fn has_expected_evidence_domain(id: &str) -> bool {
+    expected_evidence_domain(id).is_some()
+        || matches!(
+            id,
+            "setup:docker:image-unverified"
+                | "setup:docker:image-digest"
+                | "setup:docker:image-architecture"
+                | "setup:images:general:unverified"
+        )
+}
+
+fn dynamic_general_image_evidence(task_id: &str, evidence_domain: &str) -> bool {
+    matches!(
+        task_id,
+        "setup:docker:image-unverified"
+            | "setup:docker:image-digest"
+            | "setup:docker:image-architecture"
+            | "setup:images:general:unverified"
+    ) && matches!(
+        evidence_domain,
+        "images:general:amd64" | "images:general:arm64"
+    )
 }

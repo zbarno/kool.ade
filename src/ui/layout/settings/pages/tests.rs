@@ -27,8 +27,11 @@ fn execution_environment_view_shows_readiness_and_safe_setup_guidance() {
         cpu_limits: Some(true),
         memory_limits: Some(true),
         pids_limit: Some(true),
+        cgroups_supported: None,
         available_images: vec![],
         disk_available_bytes: None,
+        endpoint_fingerprint: None,
+        daemon_identity_fingerprint: None,
     };
     let mut settings =
         crate::persistence::execution_environment_settings::ExecutionEnvironmentSettings::default();

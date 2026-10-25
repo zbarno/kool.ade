@@ -1,7 +1,6 @@
 //! Cached, read-only local Docker readiness for Settings and execution routing.
 
 use std::{
-    path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
     time::{Duration, Instant},
 };
@@ -10,12 +9,17 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     discovery::{EngineReadiness, PrerequisiteCode, PrerequisiteFailure},
-    engine::{DockerEndpoint, EngineDiscovery, HostPlatform},
+    engine::DockerEndpoint,
 };
+use probe::{endpoint_fingerprint, host_platform, probe};
 
 const CACHE_TTL: Duration = Duration::from_secs(15);
-const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 static CACHE: OnceLock<Mutex<Option<(Instant, DockerEnvironmentStatus)>>> = OnceLock::new();
+
+mod probe;
+mod staging;
+pub use probe::run_smoke_test;
+pub(crate) use staging::app_staging_root;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -24,8 +28,21 @@ pub enum DockerEnvironmentState {
     NotRunning,
     PermissionDenied,
     RootfulLinuxRejected,
+    WindowsContainersRequired,
+    CgroupsUnavailable,
+    InsufficientDisk,
+    LimitsUnavailable,
+    SeccompUnavailable,
+    UnsupportedApi,
+    UnsupportedOs,
+    UnsupportedArchitecture,
+    WorkspaceUnavailable,
+    ProfileUnsupported,
     DesktopVmRequired,
     MissingApprovedImage,
+    ApprovedImageUncheckable,
+    ApprovedImageDigestMismatch,
+    ApprovedImageArchitectureMismatch,
     CapabilitiesIncompatible,
     UntrustedEndpoint,
     Ready,
@@ -46,8 +63,15 @@ pub struct DockerEnvironmentStatus {
     pub cpu_limits: Option<bool>,
     pub memory_limits: Option<bool>,
     pub pids_limit: Option<bool>,
+    #[serde(default)]
+    pub cgroups_supported: Option<bool>,
     pub available_images: Vec<String>,
     pub disk_available_bytes: Option<u64>,
+    /// Ephemeral fingerprints fence observations without storing endpoint paths or daemon IDs.
+    #[serde(skip)]
+    pub(crate) endpoint_fingerprint: Option<String>,
+    #[serde(skip)]
+    pub(crate) daemon_identity_fingerprint: Option<String>,
 }
 
 impl DockerEnvironmentStatus {
@@ -80,6 +104,8 @@ impl DockerEnvironmentStatus {
     }
 
     pub fn from_failure(failure: PrerequisiteFailure, desktop_host: bool) -> Self {
+        let cgroups_supported =
+            (failure.code == PrerequisiteCode::CgroupsUnavailable).then_some(false);
         let state = match failure.code {
             PrerequisiteCode::DockerMissing if desktop_host => {
                 DockerEnvironmentState::DesktopVmRequired
@@ -89,10 +115,26 @@ impl DockerEnvironmentStatus {
             PrerequisiteCode::PermissionDenied => DockerEnvironmentState::PermissionDenied,
             PrerequisiteCode::RootfulLinux => DockerEnvironmentState::RootfulLinuxRejected,
             PrerequisiteCode::UntrustedEndpoint => DockerEnvironmentState::UntrustedEndpoint,
-            PrerequisiteCode::ImageUnavailable
-            | PrerequisiteCode::ImageDigestMismatch
-            | PrerequisiteCode::ImageArchitectureMismatch => {
-                DockerEnvironmentState::MissingApprovedImage
+            PrerequisiteCode::WindowsContainers => {
+                DockerEnvironmentState::WindowsContainersRequired
+            }
+            PrerequisiteCode::CgroupsUnavailable => DockerEnvironmentState::CgroupsUnavailable,
+            PrerequisiteCode::InsufficientDisk => DockerEnvironmentState::InsufficientDisk,
+            PrerequisiteCode::LimitsUnavailable => DockerEnvironmentState::LimitsUnavailable,
+            PrerequisiteCode::SeccompUnavailable => DockerEnvironmentState::SeccompUnavailable,
+            PrerequisiteCode::UnsupportedApi => DockerEnvironmentState::UnsupportedApi,
+            PrerequisiteCode::UnsupportedOs => DockerEnvironmentState::UnsupportedOs,
+            PrerequisiteCode::UnsupportedArchitecture => {
+                DockerEnvironmentState::UnsupportedArchitecture
+            }
+            PrerequisiteCode::WorkspaceUnavailable => DockerEnvironmentState::WorkspaceUnavailable,
+            PrerequisiteCode::ProfileUnsupported => DockerEnvironmentState::ProfileUnsupported,
+            PrerequisiteCode::ImageUnavailable => DockerEnvironmentState::ApprovedImageUncheckable,
+            PrerequisiteCode::ImageDigestMismatch => {
+                DockerEnvironmentState::ApprovedImageDigestMismatch
+            }
+            PrerequisiteCode::ImageArchitectureMismatch => {
+                DockerEnvironmentState::ApprovedImageArchitectureMismatch
             }
             _ => DockerEnvironmentState::CapabilitiesIncompatible,
         };
@@ -107,8 +149,11 @@ impl DockerEnvironmentStatus {
             cpu_limits: None,
             memory_limits: None,
             pids_limit: None,
+            cgroups_supported,
             available_images: Vec::new(),
             disk_available_bytes: None,
+            endpoint_fingerprint: None,
+            daemon_identity_fingerprint: None,
         }
     }
 
@@ -146,122 +191,61 @@ impl DockerEnvironmentStatus {
             cpu_limits: readiness.cpu_quota,
             memory_limits: readiness.memory_limit,
             pids_limit: readiness.pids_limit,
+            cgroups_supported: readiness.cgroups_supported,
             available_images: readiness.available_images,
             disk_available_bytes: readiness.disk_available_bytes,
+            endpoint_fingerprint: None,
+            daemon_identity_fingerprint: readiness.daemon_identity_fingerprint,
         }
     }
 
     pub fn ready(&self) -> bool {
         self.engine_ready
     }
-}
 
-fn probe() -> DockerEnvironmentStatus {
-    let platform = host_platform();
-    let desktop_host = platform != HostPlatform::Linux;
-    let endpoint = match DockerEndpoint::from_process_environment(platform) {
-        Ok(endpoint) => endpoint,
-        Err(failure) => return DockerEnvironmentStatus::from_failure(failure, desktop_host),
-    };
-    let desktop = endpoint.is_desktop();
-    let engine = match EngineDiscovery::connect(endpoint) {
-        Ok(engine) => engine,
-        Err(failure) => return DockerEnvironmentStatus::from_failure(failure, desktop),
-    };
-    let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    else {
-        return DockerEnvironmentStatus::from_failure(
-            PrerequisiteFailure {
-                code: PrerequisiteCode::CapabilitiesIncompatible,
-                message: "Could not create the Docker readiness probe runtime".into(),
-                retryable: false,
-            },
-            desktop,
+    pub fn local_execution_ready(&self) -> bool {
+        cfg!(target_os = "linux")
+            && self.engine_ready
+            && !self.desktop_vm
+            && self.rootless == Some(true)
+    }
+
+    pub(crate) fn readiness_fingerprint(&self) -> String {
+        use sha2::Digest as _;
+
+        let mut available_images = self
+            .available_images
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        available_images.sort_unstable();
+        available_images.dedup();
+        let binding = (
+            self.state,
+            self.engine_ready,
+            self.desktop_vm,
+            &self.daemon_version,
+            &self.architecture,
+            self.rootless,
+            self.cpu_limits,
+            self.memory_limits,
+            self.pids_limit,
+            self.cgroups_supported,
+            available_images,
+            self.disk_available_bytes,
+            &self.daemon_identity_fingerprint,
         );
-    };
-    let staging = match app_staging_root() {
-        Ok(staging) => staging,
-        Err(failure) => return DockerEnvironmentStatus::from_failure(failure, desktop),
-    };
-    let result = runtime.block_on(async {
-        tokio::time::timeout(PROBE_TIMEOUT, engine.probe(Path::new(&staging))).await
-    });
-    match result {
-        Ok(Ok(readiness)) => DockerEnvironmentStatus::from_readiness(readiness),
-        Ok(Err(failure)) => DockerEnvironmentStatus::from_failure(failure, desktop),
-        Err(_) => DockerEnvironmentStatus::from_failure(
-            PrerequisiteFailure {
-                code: PrerequisiteCode::DaemonStopped,
-                message: "Docker Engine readiness probe timed out; start the daemon and retry"
-                    .into(),
-                retryable: true,
-            },
-            desktop,
-        ),
+        let encoded = serde_json::to_vec(&binding).expect("Docker readiness facts serialize");
+        format!("{:x}", sha2::Sha256::digest(encoded))
     }
-}
 
-pub fn run_smoke_test() -> Result<(), PrerequisiteFailure> {
-    let platform = host_platform();
-    let endpoint = DockerEndpoint::from_process_environment(platform)?;
-    let engine = EngineDiscovery::connect(endpoint)?;
-    let staging = app_staging_root()?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|_| PrerequisiteFailure {
-            code: PrerequisiteCode::CapabilitiesIncompatible,
-            message: "Could not create the Docker smoke-test runtime".into(),
-            retryable: false,
-        })?;
-    runtime.block_on(engine.test_environment(&staging))
-}
-
-pub(crate) fn app_staging_root() -> Result<PathBuf, PrerequisiteFailure> {
-    let state_root = crate::persistence::state_root();
-    let staging = state_root.join("execution-staging");
-    if std::fs::symlink_metadata(&staging).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
-        return Err(PrerequisiteFailure {
-            code: PrerequisiteCode::WorkspaceUnavailable,
-            message: "App-owned execution staging cannot be a symbolic link".into(),
-            retryable: false,
-        });
-    }
-    std::fs::create_dir_all(&staging).map_err(|error| PrerequisiteFailure {
-        code: PrerequisiteCode::WorkspaceUnavailable,
-        message: format!("Could not prepare app-owned execution staging: {error}"),
-        retryable: false,
-    })?;
-    let state_root = state_root.canonicalize().map_err(|_| PrerequisiteFailure {
-        code: PrerequisiteCode::WorkspaceUnavailable,
-        message: "Could not resolve the app-owned execution state directory".into(),
-        retryable: false,
-    })?;
-    let staging = staging.canonicalize().map_err(|_| PrerequisiteFailure {
-        code: PrerequisiteCode::WorkspaceUnavailable,
-        message: "Could not resolve app-owned execution staging".into(),
-        retryable: false,
-    })?;
-    if staging.parent() != Some(state_root.as_path()) {
-        return Err(PrerequisiteFailure {
-            code: PrerequisiteCode::WorkspaceUnavailable,
-            message: "App-owned execution staging resolved outside the application state directory"
-                .into(),
-            retryable: false,
-        });
-    }
-    Ok(staging)
-}
-
-fn host_platform() -> HostPlatform {
-    if cfg!(target_os = "macos") {
-        HostPlatform::MacOs
-    } else if cfg!(target_os = "windows") {
-        HostPlatform::Windows
-    } else {
-        HostPlatform::Linux
+    pub(crate) fn current_endpoint_fingerprint() -> Option<String> {
+        let endpoint = DockerEndpoint::from_process_environment(host_platform()).ok()?;
+        Some(endpoint_fingerprint(
+            &endpoint,
+            std::env::var("DOCKER_CONTEXT").ok().as_deref(),
+            std::env::var("DOCKER_HOST").ok().as_deref(),
+        ))
     }
 }
 

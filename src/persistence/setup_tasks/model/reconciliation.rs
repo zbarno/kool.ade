@@ -31,6 +31,10 @@ impl SetupTaskStoreV1 {
             "stale machine setup scan generation"
         );
         anyhow::ensure!(
+            snapshot.scan_generation == generation,
+            "machine readiness snapshot generation does not match its reservation"
+        );
+        anyhow::ensure!(
             snapshot.findings.len() <= MAX_TASKS,
             "too many setup findings"
         );
@@ -49,21 +53,16 @@ impl SetupTaskStoreV1 {
 
             let mut next =
                 SetupTaskV1::from_finding(finding, generation, snapshot.checked_at_unix_ms);
+            let finding_state = next.state;
             if let Some(existing) = self.tasks.get(&finding.id).cloned() {
                 next.created_at_unix_ms = existing.created_at_unix_ms;
                 next.verified_at_unix_ms = existing.verified_at_unix_ms;
                 next.attempts.clone_from(&existing.attempts);
                 next.events.clone_from(&existing.events);
                 preserve_dependency_resolutions(&existing, &mut next);
-                let verification_failed = existing.state == SetupTaskStateV1::AwaitingVerification
-                    && finding.status == FindingStatus::NeedsAttention
-                    && fail_awaiting_verification(&mut next, snapshot.checked_at_unix_ms);
-                if verification_failed {
-                    next.state = SetupTaskStateV1::Failed;
-                    next.verified_result = None;
-                    next.verified_at_unix_ms = existing.verified_at_unix_ms;
-                } else {
-                    preserve_inflight_state(&existing, &mut next);
+                preserve_inflight_state(&existing, &mut next);
+                if existing.state == SetupTaskStateV1::AwaitingVerification {
+                    fail_awaiting_attempt(&mut next, finding_state, snapshot.checked_at_unix_ms);
                 }
 
                 let observation_changed = task_observation_changed(&existing, &next);
@@ -109,11 +108,10 @@ impl SetupTaskStoreV1 {
             }
 
             if let Some(domain) = positive_domain_for(&task.id, snapshot) {
-                if task.state == SetupTaskStateV1::Unsupported
-                    || task
-                        .attempts
-                        .iter()
-                        .any(|attempt| attempt.state == AttemptState::InProgress)
+                if task
+                    .attempts
+                    .iter()
+                    .any(|attempt| attempt.state == AttemptState::InProgress)
                 {
                     continue;
                 }
@@ -147,7 +145,7 @@ impl SetupTaskStoreV1 {
             // the relevant domain. Keep its timestamp as history, not as a
             // current readiness receipt.
             if task.state == SetupTaskStateV1::Verified
-                && super::validation::expected_evidence_domain(&task.id).is_some()
+                && super::validation::has_expected_evidence_domain(&task.id)
             {
                 task.state = SetupTaskStateV1::NeedsVerification;
                 task.verified_result = None;
@@ -230,22 +228,27 @@ fn verify_awaiting_attempt(task: &mut SetupTaskV1, result: &VerifiedResultV1, at
     }
 }
 
-fn fail_awaiting_verification(task: &mut SetupTaskV1, at: u64) -> bool {
+fn fail_awaiting_attempt(task: &mut SetupTaskV1, finding_state: SetupTaskStateV1, at: u64) {
     let Some(attempt) = task
         .attempts
         .iter_mut()
         .rev()
         .find(|attempt| attempt.state == AttemptState::AwaitingVerification)
     else {
-        return false;
+        return;
     };
     attempt.state = AttemptState::Failed;
+    attempt.updated_at_unix_ms = at;
     attempt.failure = Some(FailureCode::VerificationFailed);
     attempt.authorization_binding = None;
     attempt.owner_instance_id = None;
     attempt.verified_result = None;
-    attempt.updated_at_unix_ms = at;
-    true
+    task.state = if finding_state == SetupTaskStateV1::Detected {
+        SetupTaskStateV1::Failed
+    } else {
+        finding_state
+    };
+    task.verified_result = None;
 }
 
 fn task_observation_changed(existing: &SetupTaskV1, next: &SetupTaskV1) -> bool {
