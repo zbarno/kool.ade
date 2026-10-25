@@ -155,8 +155,9 @@ jobs:
           KOOLADE_REPO_ROOT: ${{ github.workspace }}
         run: |
           $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+          $env:KOOLADE_VERSION = $version
           python scripts/png_to_ico.py assets/brand/app-icon.png assets/brand/app-icon.ico
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DKOOLADE_VERSION=$version" scripts/windows-installer.iss
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" scripts/windows-installer.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $artifact = Get-ChildItem dist/native/*.exe | Select-Object -First 1
           python scripts/write-native-build-metadata.py --artifact $artifact.FullName --target "${{ matrix.target }}" --version $version --output dist/native/build-metadata.json
