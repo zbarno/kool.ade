@@ -32,6 +32,11 @@ pub(super) fn validate_for_driver(
     let mut requested = request
         .dependency_cache_refs
         .iter()
+        .filter(|dependency| {
+            crate::execution::docker::discovery::parse_architecture(
+                &dependency.cache_ref.target_arch,
+            ) == image.platform.strip_prefix("linux/")
+        })
         .map(|dependency| dependency.cache_ref.clone())
         .collect::<Vec<_>>();
     let mut transferred = snapshots
@@ -49,7 +54,8 @@ pub(super) fn validate_for_driver(
         || snapshots.len() > 8
         || total_bytes > resources.temporary_disk_bytes / 2
         || snapshots.iter().any(|snapshot| {
-            snapshot.cache_ref.target_arch != architecture
+            crate::execution::docker::discovery::parse_architecture(&snapshot.cache_ref.target_arch)
+                != Some(architecture)
                 || snapshot
                     .manifest
                     .validate_ref(&snapshot.cache_ref, &snapshot.archive)
@@ -151,6 +157,30 @@ pub(super) fn configure_desktop_cache_mounts(
                 env.extend([
                     "CARGO_HOME=/home/executor/.cargo".into(),
                     "CARGO_NET_OFFLINE=true".into(),
+                ]);
+            }
+            DependencyCacheEcosystemV1::Pip => {
+                tmpfs.insert("/home/executor/.cache/koolade/pip".into(), mount.clone());
+                env.extend([
+                    "PIP_CONFIG_FILE=/dev/null".into(),
+                    "PIP_NO_INDEX=1".into(),
+                    "PIP_FIND_LINKS=/home/executor/.cache/koolade/pip/wheels".into(),
+                ]);
+            }
+            DependencyCacheEcosystemV1::Go => {
+                tmpfs.insert("/home/executor/go".into(), mount.clone());
+                env.extend([
+                    "GOPATH=/home/executor/go".into(),
+                    "GOMODCACHE=/home/executor/go/pkg/mod".into(),
+                    "GOPROXY=off".into(),
+                    "GOSUMDB=off".into(),
+                    "GOTOOLCHAIN=local".into(),
+                    "GOENV=off".into(),
+                    "GOWORK=off".into(),
+                    "GOPRIVATE=".into(),
+                    "GONOPROXY=".into(),
+                    "GONOSUMDB=".into(),
+                    "GOINSECURE=".into(),
                 ]);
             }
         }

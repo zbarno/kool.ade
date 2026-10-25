@@ -133,6 +133,10 @@ impl QaScenarioDriver for DockerQaScenarioDriver<'_> {
                 crate::execution::contract::DependencyCacheEcosystemV1::Cargo => {
                     "/home/executor/.cargo"
                 }
+                crate::execution::contract::DependencyCacheEcosystemV1::Pip => {
+                    "/home/executor/.cache/koolade/pip"
+                }
+                crate::execution::contract::DependencyCacheEcosystemV1::Go => "/home/executor/go",
             };
             uploads.push(QaContainerUpload {
                 target: target.into(),

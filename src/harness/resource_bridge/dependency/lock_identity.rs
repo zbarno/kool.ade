@@ -2,10 +2,9 @@ use crate::harness::{DependencyKind, DependencyNeed, PackageEcosystem};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, path::Path, process::Command};
 
+mod manifest_inputs;
 mod paths;
-use paths::{
-    is_npm_package_manifest, is_target_lockfile, strip_dependency_root, under_dependency_root,
-};
+use paths::is_target_lockfile;
 
 const MAX_TREE_LIST_BYTES: usize = 32 * 1024 * 1024;
 const MAX_BASE_LOCK_BYTES: usize = 32 * 1024 * 1024;
@@ -45,18 +44,20 @@ pub(super) fn enrich_scoped(
                 | DependencyKind::DevelopmentDependency
         ),
         PackageEcosystem::Cargo => need.kind == DependencyKind::ExistingRestore,
+        PackageEcosystem::Pip => need.kind == DependencyKind::ExistingRestore,
+        PackageEcosystem::Go => need.kind == DependencyKind::ExistingRestore,
         _ => false,
     };
     if !supported {
         return Ok(());
     }
     let current = current_packages(dependency_root, need.ecosystem)?;
-    let current_manifests = if need.ecosystem == PackageEcosystem::Npm {
-        Some(super::super::npm::dependency_manifest_inputs(
+    let current_manifests = match need.ecosystem {
+        PackageEcosystem::Npm => Some(super::super::npm::dependency_manifest_inputs(
             dependency_root,
-        )?)
-    } else {
-        None
+        )?),
+        PackageEcosystem::Go => Some(super::super::go::manifest_inputs(dependency_root)?),
+        _ => None,
     };
     let baseline = match baseline_commit {
         Some(commit) => {
@@ -71,12 +72,18 @@ pub(super) fn enrich_scoped(
         .cloned()
         .collect::<Vec<_>>();
     let baseline_manifests = match (need.ecosystem, baseline_commit) {
-        (PackageEcosystem::Npm, Some(commit)) => Some(baseline_manifest_inputs(
+        (PackageEcosystem::Npm, Some(commit)) => Some(manifest_inputs::baseline_npm(
             worktree,
             commit,
             dependency_relative_root,
         )?),
         (PackageEcosystem::Npm, None) => Some(Vec::new()),
+        (PackageEcosystem::Go, Some(commit)) => Some(manifest_inputs::baseline_go(
+            worktree,
+            commit,
+            dependency_relative_root,
+        )?),
+        (PackageEcosystem::Go, None) => Some(Vec::new()),
         _ => None,
     };
     let manifests_changed = current_manifests != baseline_manifests;
@@ -91,7 +98,7 @@ pub(super) fn enrich_scoped(
     }
     if need.kind == DependencyKind::ExistingRestore && manifests_changed && introduced.is_empty() {
         anyhow::bail!(
-            "Npm dependency manifests changed without matching lockfile package identities. Submit a specific npm add command for the new dependency; no packages were fetched."
+            "Dependency manifests changed without matching lockfile package identities. Submit a specific dependency request for the new dependency; no packages were fetched."
         );
     }
     need.lockfile_identity = Some(identity(&current, current_manifests.as_deref())?);
@@ -116,12 +123,12 @@ pub(super) fn validate_current_identity_at(
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("The authorized lockfile identity is missing"))?;
     let packages = current_packages(dependency_root, need.ecosystem)?;
-    let manifests = if need.ecosystem == PackageEcosystem::Npm {
-        Some(super::super::npm::dependency_manifest_inputs(
+    let manifests = match need.ecosystem {
+        PackageEcosystem::Npm => Some(super::super::npm::dependency_manifest_inputs(
             dependency_root,
-        )?)
-    } else {
-        None
+        )?),
+        PackageEcosystem::Go => Some(super::super::go::manifest_inputs(dependency_root)?),
+        _ => None,
     };
     anyhow::ensure!(
         identity(&packages, manifests.as_deref())? == expected,
@@ -139,6 +146,8 @@ fn current_packages(
         PackageEcosystem::Cargo => super::super::cargo::package_identities_from_contents(
             &std::fs::read_to_string(worktree.join("Cargo.lock"))?,
         ),
+        PackageEcosystem::Pip => super::super::pip::package_identities(worktree),
+        PackageEcosystem::Go => super::super::go::package_identities(worktree),
         _ => anyhow::bail!("This package ecosystem has no lockfile identity reader"),
     }
 }
@@ -195,68 +204,17 @@ fn baseline_packages(
             PackageEcosystem::Cargo => {
                 super::super::cargo::package_identities_from_contents(std::str::from_utf8(&bytes)?)?
             }
+            PackageEcosystem::Pip => {
+                super::super::pip::package_identities_from_contents(std::str::from_utf8(&bytes)?)?
+            }
+            PackageEcosystem::Go => {
+                super::super::go::package_identities_from_contents(std::str::from_utf8(&bytes)?)?
+            }
             _ => anyhow::bail!("This package ecosystem has no lockfile identity reader"),
         };
         packages.extend(entries);
     }
     Ok(packages.into_iter().collect())
-}
-
-fn baseline_manifest_inputs(
-    worktree: &Path,
-    commit: &str,
-    dependency_relative_root: &str,
-) -> anyhow::Result<Vec<(String, serde_json::Value)>> {
-    let listing = git_output(
-        worktree,
-        &["ls-tree", "-r", "-z", "--name-only", "--full-tree", commit],
-    )?;
-    anyhow::ensure!(
-        listing.len() <= MAX_TREE_LIST_BYTES,
-        "Task baseline file list exceeds the npm manifest scan limit"
-    );
-    let mut inputs = Vec::new();
-    let mut files = 0;
-    let mut total_bytes = 0_usize;
-    for path in listing
-        .split(|byte| *byte == 0)
-        .filter(|path| !path.is_empty())
-    {
-        let path = std::str::from_utf8(path)?;
-        if !under_dependency_root(path, dependency_relative_root) || !is_npm_package_manifest(path)
-        {
-            continue;
-        }
-        files += 1;
-        anyhow::ensure!(
-            files <= MAX_LOCKFILES * 2,
-            "Task baseline contains too many npm manifests"
-        );
-        let object = format!("{commit}:{path}");
-        let size = git_output(worktree, &["cat-file", "-s", &object])?;
-        let size = std::str::from_utf8(&size)?.trim().parse::<usize>()?;
-        anyhow::ensure!(
-            size <= MAX_BASE_MANIFEST_BYTES,
-            "Task baseline npm manifest is too large"
-        );
-        total_bytes = total_bytes.saturating_add(size);
-        anyhow::ensure!(
-            total_bytes <= MAX_BASE_TOTAL_LOCK_BYTES,
-            "Task baseline npm manifests exceed the scan budget"
-        );
-        let bytes = git_output(worktree, &["show", &object])?;
-        anyhow::ensure!(
-            bytes.len() == size,
-            "Task baseline npm manifest changed while scanning"
-        );
-        let input = super::super::npm::dependency_manifest_inputs_from_bytes(&bytes)?;
-        if !input.as_object().is_some_and(serde_json::Map::is_empty) {
-            let relative_path = strip_dependency_root(path, dependency_relative_root)?;
-            inputs.push((relative_path.to_owned(), input));
-        }
-    }
-    inputs.sort_by(|left, right| left.0.cmp(&right.0));
-    Ok(inputs)
 }
 
 fn identity(

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TypeScript task runtime fixture</title>
+  </head>
+  <body>
+    <main>
+      <h1>TypeScript task runtime fixture</h1>
+      <form id="message-form">
+        <label for="message">Message</label>
+        <input id="message" name="message" autocomplete="off">
+        <button type="submit">Save</button>
+      </form>
+      <p data-testid="status">Waiting</p>
+    </main>
+    <script>
+      document.querySelector("#message-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const response = await fetch("/save", {
+          method: "POST",
+          body: document.querySelector("#message").value,
+        });
+        document.querySelector("[data-testid=status]").textContent =
+          response.ok && await response.text() === "Saved" ? "Saved" : "Save failed";
+      });
+    </script>
+  </body>
+</html>

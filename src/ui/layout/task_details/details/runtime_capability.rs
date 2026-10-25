@@ -110,6 +110,15 @@ pub(super) fn paint(
                 }
             };
             ui.label(egui::RichText::new(applicability).small());
+            if !target.diagnostics.is_empty() {
+                ui.label(egui::RichText::new("Capability gaps and suggested next steps").strong());
+                ui.label(egui::RichText::new(
+                    "These suggestions do not grant recipe approval or prove runtime readiness.",
+                ).small().weak());
+                for diagnostic in &target.diagnostics {
+                    ui.label(format!("• {diagnostic}"));
+                }
+            }
             ui.label(if target.recipes.is_empty() {
                 "No approved build, test, or start recipes.".into()
             } else {

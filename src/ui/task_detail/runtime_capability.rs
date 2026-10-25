@@ -26,6 +26,9 @@ pub struct RuntimeTargetChoice {
     pub state: String,
     pub recipes: String,
     pub required_dependencies: Vec<String>,
+    /// Read-only remediation suggestions from the approved runtime inventory.
+    /// These never grant recipe authority or prove that the target is ready.
+    pub diagnostics: Vec<String>,
     pub qa_applicability: crate::project_runtime_capability::QaApplicability,
 }
 
@@ -40,4 +43,5 @@ pub enum RuntimeRecipeOperation {
 pub struct RuntimeRecipeInput {
     pub executable_id: String,
     pub argv_lines: String,
+    pub allowed_env_keys_lines: String,
 }

@@ -3,6 +3,8 @@ use super::*;
 mod browser_driver;
 #[path = "tests/contracts.rs"]
 mod contract_tests;
+#[path = "tests/dependency_cache_arch.rs"]
+mod dependency_cache_arch;
 mod evidence;
 mod polyglot_recipe_path;
 mod scenario_approval;

@@ -41,6 +41,14 @@ pub(crate) struct DesktopArtifactFixture {
 
 impl DesktopArtifactFixture {
     pub(crate) fn from_executable(executable: &Path) -> Self {
+        Self::from_executable_with_build_tool(executable, "cargo")
+    }
+
+    pub(crate) fn from_packaged_executable(executable: &Path) -> Self {
+        Self::from_executable_with_build_tool(executable, "packaged-binary")
+    }
+
+    fn from_executable_with_build_tool(executable: &Path, build_tool: &str) -> Self {
         let project_root = tempfile::tempdir().unwrap();
         let task_clone = tempfile::tempdir().unwrap();
         let artifact_relative = PathBuf::from("dist/approved-desktop-app");
@@ -109,14 +117,14 @@ impl DesktopArtifactFixture {
         let executable_id = "approved-desktop-app";
         let build_recipe = approved_recipe(
             "qa-desktop-fixture-build",
-            "cargo",
+            build_tool,
             vec!["build".into()],
             vec![artifact_relative.to_string_lossy().into_owned()],
         );
         let start_recipe = approved_recipe(
             "qa-desktop-fixture-start",
             executable_id,
-            vec!["--qa-fixture".into()],
+            vec!["--fixture-window".into()],
             Vec::new(),
         );
         let target = AppTargetV1 {

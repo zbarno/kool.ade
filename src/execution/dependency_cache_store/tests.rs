@@ -41,6 +41,39 @@ fn stored_cache_snapshot_round_trips_only_for_its_dependency_request_and_ref() {
 }
 
 #[test]
+fn cached_snapshot_cannot_be_loaded_under_another_task_project_or_request_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let store = DependencyCacheSnapshotStore::new(root.path().join("snapshots"));
+    let snapshot = snapshot();
+    let request_id = "dependency-33333333-3333-4333-8333-333333333333";
+    store.put(request_id, &snapshot).unwrap();
+
+    assert!(
+        store
+            .get(
+                "dependency-44444444-4444-4444-8444-444444444444",
+                &snapshot.cache_ref,
+            )
+            .is_err(),
+        "a different dependency request cannot address the selected cache"
+    );
+
+    let mut other_task = snapshot.cache_ref.clone();
+    other_task.task_id = "55555555-5555-4555-8555-555555555555".into();
+    assert!(
+        store.get(request_id, &other_task).is_err(),
+        "a cache reference rewritten for another task cannot address the selected cache"
+    );
+
+    let mut other_project = snapshot.cache_ref.clone();
+    other_project.project_id = "66666666-6666-4666-8666-666666666666".into();
+    assert!(
+        store.get(request_id, &other_project).is_err(),
+        "a cache reference rewritten for another project cannot address the selected cache"
+    );
+}
+
+#[test]
 fn cache_store_accepts_legacy_uuid_and_rejects_malformed_dependency_request_ids() {
     let root = tempfile::tempdir().unwrap();
     let store = DependencyCacheSnapshotStore::new(root.path().join("snapshots"));

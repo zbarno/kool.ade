@@ -4,6 +4,7 @@ use super::{is_git_oid, is_sha256, is_uuid, valid_text};
 
 const MAX_REQUIREMENTS: usize = 256;
 const MAX_ACCEPTANCE: usize = 512;
+const MAX_DEPENDENCY_CACHE_REFS: usize = 16;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -116,7 +117,7 @@ impl QaRunRequestV1 {
                 .test_data_fixture_ref
                 .as_ref()
                 .is_some_and(|value| !valid_text(value, 512))
-            || self.dependency_cache_refs.len() > 8
+            || self.dependency_cache_refs.len() > MAX_DEPENDENCY_CACHE_REFS
             || !is_uuid(&self.author_run_id)
             || !is_uuid(&self.author_session_id)
             || self
@@ -131,8 +132,10 @@ impl QaRunRequestV1 {
         {
             return Err("runtime QA request is invalid or exceeds limits".into());
         }
-        let mut dependency_ids = std::collections::BTreeSet::new();
-        let mut dependency_bytes = 0_u64;
+        let mut dependency_arches = std::collections::BTreeSet::new();
+        let mut dependency_arch_bytes = std::collections::BTreeMap::<&str, u64>::new();
+        let mut dependency_arch_ids =
+            std::collections::BTreeMap::<&str, std::collections::BTreeSet<&str>>::new();
         for dependency in &self.dependency_cache_refs {
             crate::execution::contract::validate_identifier(&dependency.dependency_request_id)
                 .map_err(|_| "runtime QA dependency request identity is invalid")?;
@@ -143,14 +146,31 @@ impl QaRunRequestV1 {
             if self.planning_item_uid.as_deref() != Some(dependency.cache_ref.task_id.as_str()) {
                 return Err("runtime QA dependency cache scope is invalid".into());
             }
+            let architecture = crate::execution::docker::discovery::parse_architecture(
+                &dependency.cache_ref.target_arch,
+            )
+            .ok_or("runtime QA dependency cache architecture is unsupported")?;
             if dependency.cache_ref.target_id != "local"
-                || !dependency_ids.insert(dependency.dependency_request_id.as_str())
+                || !dependency_arches
+                    .insert((dependency.dependency_request_id.as_str(), architecture))
             {
                 return Err("runtime QA dependency cache scope is invalid".into());
             }
-            dependency_bytes = dependency_bytes.saturating_add(dependency.cache_ref.size_bytes);
+            let architecture_bytes = dependency_arch_bytes.entry(architecture).or_default();
+            *architecture_bytes =
+                architecture_bytes.saturating_add(dependency.cache_ref.size_bytes);
+            dependency_arch_ids
+                .entry(architecture)
+                .or_default()
+                .insert(dependency.dependency_request_id.as_str());
         }
-        if dependency_bytes > 128 * 1024 * 1024 {
+        if dependency_arch_bytes
+            .values()
+            .any(|bytes| *bytes > 128 * 1024 * 1024)
+            || dependency_arch_ids
+                .values()
+                .any(|dependencies| dependencies.len() > 8)
+        {
             return Err("runtime QA dependency caches exceed the transfer limit".into());
         }
         if !self.dependency_cache_refs.is_empty() && self.planning_item_uid.is_none() {

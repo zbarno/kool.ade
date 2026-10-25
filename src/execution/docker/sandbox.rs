@@ -7,7 +7,7 @@ use std::{
 
 use bollard::models::{ContainerCreateBody, HostConfig};
 
-use super::images::{ImageLock, RuntimeProfile, SelectedImage};
+use super::images::{ImageLock, SelectedImage};
 use crate::execution::{
     contract::ExecutionRequestV1,
     errors::{ExecutionError, ExecutionErrorKind},
@@ -15,6 +15,7 @@ use crate::execution::{
 
 pub(crate) mod staging;
 pub(crate) use staging::WorkspaceSnapshot;
+mod environment;
 mod private_files;
 mod workspace_identity;
 
@@ -213,22 +214,7 @@ pub(super) fn create_body_with_private_files(
             format!("rw,nosuid,nodev,noexec,size={temporary_bytes}"),
         );
     }
-    let mut environment = vec![
-        "HOME=/home/executor".into(),
-        "CI=true".into(),
-        "LANG=C".into(),
-        "TZ=UTC".into(),
-    ];
-    if image.profile == RuntimeProfile::Rust {
-        // The approved Rust image sets CARGO_HOME to /usr/local/cargo. Broker
-        // snapshots are staged under the executor's private home instead.
-        environment.push("CARGO_HOME=/home/executor/.cargo".into());
-    }
-    if image.profile == RuntimeProfile::Go {
-        // /tmp intentionally stays noexec. Go creates temporary test and run
-        // binaries here and removes them when the command finishes.
-        environment.push("GOTMPDIR=/workspace".into());
-    }
+    let environment = environment::variables(request, image);
     // `/workspace/.git` is protected by a nested read-only mount, never by command filtering.
     Ok(ContainerCreateBody {
         user: Some("10001:10001".into()),
@@ -244,8 +230,7 @@ pub(super) fn create_body_with_private_files(
         entrypoint: Some(vec![
             "/bin/sh".into(),
             "-c".into(),
-            "mkdir -p /home/executor/.npm /home/executor/.cargo && while :; do sleep 3600; done"
-                .into(),
+            "mkdir -p /home/executor/.npm /home/executor/.cargo /home/executor/.cache/koolade/pip/wheels /home/executor/go && while :; do sleep 3600; done".into(),
             format!("koolade-keeper-{}", request.execution_id),
         ]),
         labels: Some(labels),

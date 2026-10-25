@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "synchronization/custom_outputs.rs"]
+mod custom_outputs;
+
 #[test]
 // Production boundary: container stage-out must reject changed task-clone
 // files outside the recipe's declared outputs. A path matcher test cannot

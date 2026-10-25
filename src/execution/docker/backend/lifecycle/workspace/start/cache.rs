@@ -38,6 +38,8 @@ pub(super) async fn install_dependency_caches(
         let destination = match cache_ref.ecosystem {
             DependencyCacheEcosystemV1::Npm => "/home/executor/.npm",
             DependencyCacheEcosystemV1::Cargo => "/home/executor/.cargo",
+            DependencyCacheEcosystemV1::Pip => "/home/executor/.cache/koolade/pip",
+            DependencyCacheEcosystemV1::Go => "/home/executor/go",
         };
         if super::super::extract_archive(
             backend,

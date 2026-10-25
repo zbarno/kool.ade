@@ -16,7 +16,9 @@ mod debian_repository;
 pub(crate) use debian_repository::{InstalledPackage, RepositoryPackagePlan};
 pub(super) mod dependency;
 pub(crate) mod fetch;
+mod go;
 mod npm;
+mod pip;
 mod policy;
 mod proxy;
 #[cfg(test)]
@@ -27,6 +29,20 @@ const MAX_REQUESTS: usize = 100;
 const MAX_IN_FLIGHT_REQUESTS: usize = 16;
 const MAX_SESSION_BYTES: usize = 512 * 1024 * 1024;
 pub(crate) const SANDBOX_RESOURCE_DIR: &str = "/tmp/koolade-resource-files";
+
+#[cfg(test)]
+pub(crate) struct NpmFixtureArchive {
+    pub(crate) archive: std::path::PathBuf,
+    pub(crate) archive_url: String,
+    pub(crate) registry_url: String,
+}
+
+#[cfg(test)]
+pub(crate) fn test_go_preparation_operations(
+    fetch: impl Fn(&Path, &Path, usize) -> (usize, anyhow::Result<()>) + Send + Sync + 'static,
+) -> std::sync::Arc<go::SharedPreparationOperations> {
+    go::test_preparation_operations(fetch)
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -107,7 +123,7 @@ pub(crate) use broker::ResourceBridge;
 pub(crate) use cache_snapshot::CacheSnapshot;
 pub(crate) use cache_snapshot::CacheSnapshotManifest;
 pub(crate) use cache_snapshot::MAX_CACHE_SNAPSHOT_BYTES;
-pub(crate) use dependency::{has_locked_package, system_install_packages, valid_package_identity};
+pub(crate) use dependency::system_install_packages;
 
 impl ResourceResponse {
     fn needs_attention(summary: String) -> Self {

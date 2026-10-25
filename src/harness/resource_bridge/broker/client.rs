@@ -19,22 +19,48 @@ impl ResourceBridge {
         self.request_system_tools_inner(need)
     }
 
+    #[cfg(test)]
     pub(crate) fn request_locked_dependency(
         &self,
         need: DependencyNeed,
     ) -> Result<DependencyRequest, String> {
         if !matches!(
             need.ecosystem,
-            PackageEcosystem::Npm | PackageEcosystem::Cargo
+            PackageEcosystem::Npm
+                | PackageEcosystem::Cargo
+                | PackageEcosystem::Pip
+                | PackageEcosystem::Go
         ) || need.kind != DependencyKind::ExistingRestore
         {
             return Err(
-                "runtime package dependency request must be a locked npm or Cargo restore".into(),
+                "runtime package dependency request must be a locked npm, Cargo, pip, or Go restore"
+                    .into(),
             );
         }
         let dependency = self.request_dependency_inner(need)?;
         self.stage_locked_dependency_cache(&dependency)?;
         Ok(dependency)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn request_locked_dependency_for_fixture(
+        &self,
+        need: DependencyNeed,
+    ) -> Result<DependencyRequest, String> {
+        if !matches!(
+            need.ecosystem,
+            PackageEcosystem::Npm
+                | PackageEcosystem::Cargo
+                | PackageEcosystem::Pip
+                | PackageEcosystem::Go
+        ) || need.kind != DependencyKind::ExistingRestore
+        {
+            return Err(
+                "runtime package dependency request must be a locked npm, Cargo, pip, or Go restore"
+                    .into(),
+            );
+        }
+        self.request_dependency_inner(need)
     }
 
     pub(super) fn request_system_tools_inner(
@@ -130,9 +156,10 @@ impl ResourceBridge {
             && dependency.need.reason == need.reason
             && match need.ecosystem {
                 PackageEcosystem::System => !dependency.need.introduced_packages.is_empty(),
-                PackageEcosystem::Npm | PackageEcosystem::Cargo => {
-                    dependency.need.lockfile_identity.is_some()
-                }
+                PackageEcosystem::Npm
+                | PackageEcosystem::Cargo
+                | PackageEcosystem::Pip
+                | PackageEcosystem::Go => dependency.need.lockfile_identity.is_some(),
                 _ => false,
             }
             && dependency.status == DependencyRequestStatus::Prepared
@@ -143,6 +170,7 @@ impl ResourceBridge {
         Ok(dependency)
     }
 
+    #[cfg(test)]
     fn stage_locked_dependency_cache(&self, dependency: &DependencyRequest) -> Result<(), String> {
         let Some(task_id) = self.task_id.as_deref() else {
             return Err("resource broker is not bound to a task".into());
@@ -158,6 +186,8 @@ impl ResourceBridge {
             PackageEcosystem::Cargo => {
                 crate::execution::contract::DependencyCacheEcosystemV1::Cargo
             }
+            PackageEcosystem::Pip => crate::execution::contract::DependencyCacheEcosystemV1::Pip,
+            PackageEcosystem::Go => crate::execution::contract::DependencyCacheEcosystemV1::Go,
             _ => return Err("prepared dependency has no verified cache adapter".into()),
         };
         let resolved_integrity = dependency

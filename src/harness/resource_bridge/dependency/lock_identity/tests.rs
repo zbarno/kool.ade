@@ -152,6 +152,69 @@ fn npm_add_snapshot_is_validated_again_after_authorization() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn pip_requirements_identity_is_target_root_scoped_and_rechecked_after_authorization() {
+    let root = std::env::temp_dir().join(format!(
+        "koolade-pip-lock-identity-{}",
+        uuid::Uuid::new_v4()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("requirements.txt"),
+        format!("first==1.0 --hash=sha256:{}\n", "a".repeat(64)),
+    )
+    .unwrap();
+    git(&root, &["init", "--quiet"]);
+    git(&root, &["add", "requirements.txt"]);
+    git(
+        &root,
+        &[
+            "-c",
+            "user.name=Synthetic Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "--quiet",
+            "-m",
+            "baseline pip requirements",
+        ],
+    );
+    let baseline = baseline_commit(&root).unwrap();
+    fs::write(
+        root.join("requirements.txt"),
+        format!("second==2.0 --hash=sha256:{}\n", "b".repeat(64)),
+    )
+    .unwrap();
+    let mut need = DependencyNeed {
+        ecosystem: PackageEcosystem::Pip,
+        package: None,
+        version: None,
+        source: Some("https://pypi.org".into()),
+        command: "python3 -m pip install --no-index --require-hashes --no-deps -r requirements.txt"
+            .into(),
+        reason: "Restore target hash-pinned Python dependencies".into(),
+        kind: DependencyKind::ExistingRestore,
+        lockfile_identity: None,
+        introduced_packages: Vec::new(),
+    };
+
+    enrich(&root, Some(&baseline), &mut need).unwrap();
+
+    assert_eq!(need.introduced_packages.len(), 1);
+    assert_eq!(need.introduced_packages[0].package, "second");
+    assert!(crate::harness::dependency_decision_allowed(
+        &need,
+        crate::harness::DependencyDecision::AutoAuthorize
+    ));
+    fs::write(
+        root.join("requirements.txt"),
+        format!("second==2.0 --hash=sha256:{}\n", "c".repeat(64)),
+    )
+    .unwrap();
+    assert!(validate_current_identity(&root, &need).is_err());
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn baseline_project() -> std::path::PathBuf {
     let root =
         std::env::temp_dir().join(format!("koolade-npm-add-baseline-{}", uuid::Uuid::new_v4()));

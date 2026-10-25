@@ -7,6 +7,8 @@ use crate::project_runtime::{
 mod dependencies;
 #[path = "tests/helpers.rs"]
 mod helpers;
+#[path = "tests/recipes.rs"]
+mod recipes;
 #[path = "tests/root_guard.rs"]
 mod root_guard;
 use helpers::{frame, pointer_button, text_position};
@@ -153,6 +155,7 @@ fn assert_custom_target_persists(app_surface: AppSurface) {
         .expect("the click path persists a verifiable user approval receipt");
     assert_eq!(target.owning_task_id, task_uid);
     assert_eq!(target.project_relative_root, ".");
+    assert_eq!(target.fixture_ref.as_deref(), Some("fixture-web-smoke"));
     let artifact_spec = saved
         .artifact_specs
         .get(target.artifact_spec_ref.as_ref().unwrap())
@@ -190,6 +193,7 @@ fn assert_custom_target_persists(app_surface: AppSurface) {
         .find(|recipe| recipe.recipe_id == build_id)
         .expect("target build recipe reference resolves");
     assert_eq!(build.argv, ["build.js", "--release"]);
+    assert_eq!(build.allowed_env_keys, ["APP_BUILD_MODE"]);
     assert_eq!(build.allowed_output_paths, ["dist/index.html"]);
     let start_id = target.start_recipe_ref.as_deref().unwrap();
     let start = saved
@@ -198,6 +202,15 @@ fn assert_custom_target_persists(app_surface: AppSurface) {
         .find(|recipe| recipe.recipe_id == start_id)
         .expect("target start recipe reference resolves");
     assert_eq!(start.argv, ["server.js"]);
+    match app_surface {
+        AppSurface::Web | AppSurface::HeadlessService => {
+            assert_eq!(start.allowed_env_keys, ["HOST", "PORT", "APP_RUNTIME_MODE"])
+        }
+        AppSurface::LinuxDesktop => {
+            assert_eq!(start.allowed_env_keys, ["APP_RUNTIME_MODE"]);
+        }
+        AppSurface::UnsupportedTarget => panic!("unsupported targets cannot be approved"),
+    }
     let readiness_id = target.readiness_probe_ref.as_deref().unwrap();
     let expected_readiness = match app_surface {
         AppSurface::Web => crate::project_runtime::ReadinessProbeV1::HttpOnApprovedPort {

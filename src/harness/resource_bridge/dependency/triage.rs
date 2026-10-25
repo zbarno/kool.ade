@@ -5,7 +5,7 @@ use super::{
     },
     validation::{
         command_mentions_package, redact_and_bound, safe_cargo_restore_command,
-        safe_npm_restore_command, validate,
+        safe_go_restore_command, safe_npm_restore_command, safe_pip_restore_command, validate,
     },
 };
 use crate::harness::{
@@ -44,7 +44,10 @@ pub(crate) fn triage(task_id: Option<&str>, mut need: DependencyNeed) -> Depende
         )
     } else if !matches!(
         need.ecosystem,
-        PackageEcosystem::Npm | PackageEcosystem::Cargo
+        PackageEcosystem::Npm
+            | PackageEcosystem::Cargo
+            | PackageEcosystem::Pip
+            | PackageEcosystem::Go
     ) {
         (
             DependencyDecision::RequiresUserAuthorization,
@@ -70,6 +73,28 @@ pub(crate) fn triage(task_id: Option<&str>, mut need: DependencyNeed) -> Depende
             DependencyDecision::RequiresUserAuthorization,
             "Man.ager is checking the project's npm lockfiles before preparing a bounded offline restore.".into(),
             "Only public npm registry archives with matching SHA-512 lockfile integrity are retrieved; package scripts stay inside the sandbox.".into(),
+        )
+    } else if need.ecosystem == PackageEcosystem::Pip
+        && need.kind == DependencyKind::ExistingRestore
+        && need.package.is_none()
+        && need.version.is_none()
+        && safe_pip_restore_command(&need.command)
+    {
+        (
+            DependencyDecision::RequiresUserAuthorization,
+            "Man.ager is checking the project's hash-pinned requirements.txt before preparing an offline wheelhouse.".into(),
+            "Only exact PyPI package pins with SHA-256 hashes are retrieved as wheels; includes, custom indexes, and source distributions are rejected.".into(),
+        )
+    } else if need.ecosystem == PackageEcosystem::Go
+        && need.kind == DependencyKind::ExistingRestore
+        && need.package.is_none()
+        && need.version.is_none()
+        && safe_go_restore_command(&need.command)
+    {
+        (
+            DependencyDecision::RequiresUserAuthorization,
+            "Man.ager is checking the exact go.mod/go.sum module entries before preparing an offline restore.".into(),
+            "Only h1-locked public modules through proxy.golang.org are retrieved; replacements, workspaces, private Go environment settings, and direct VCS fallback are rejected.".into(),
         )
     } else if need.ecosystem == PackageEcosystem::Cargo {
         (
@@ -129,6 +154,16 @@ pub(crate) fn triage(task_id: Option<&str>, mut need: DependencyNeed) -> Depende
         || (need.ecosystem == PackageEcosystem::Cargo
             && need.kind == DependencyKind::ExistingRestore
             && safe_cargo_restore_command(&need.command))
+        || (need.ecosystem == PackageEcosystem::Pip
+            && need.kind == DependencyKind::ExistingRestore
+            && need.package.is_none()
+            && need.version.is_none()
+            && safe_pip_restore_command(&need.command))
+        || (need.ecosystem == PackageEcosystem::Go
+            && need.kind == DependencyKind::ExistingRestore
+            && need.package.is_none()
+            && need.version.is_none()
+            && safe_go_restore_command(&need.command))
     {
         DependencyFailureCategory::DependencyRestoreRequired
     } else if need.ecosystem != PackageEcosystem::Npm {
@@ -169,6 +204,7 @@ pub(crate) fn from_unsupported_manager(manager: Option<&str>, purpose: &str) -> 
         "cargo" => PackageEcosystem::Cargo,
         "nuget" | "dotnet" => PackageEcosystem::Nuget,
         "pip" => PackageEcosystem::Pip,
+        "go" => PackageEcosystem::Go,
         "uv" => PackageEcosystem::Uv,
         "poetry" => PackageEcosystem::Poetry,
         "system" => PackageEcosystem::System,

@@ -11,7 +11,10 @@ use crate::{app::session::Project, runtime_qa::QaScenarioV1};
 use run::run;
 
 #[cfg(test)]
-pub(crate) use run::{RootlessDesktopDispatch, prepare_rootless_desktop_dispatch};
+pub(crate) use run::{
+    RootlessDesktopDispatch, RootlessTaskQaDispatch, prepare_rootless_desktop_dispatch,
+    prepare_rootless_task_qa_dispatch,
+};
 
 mod reviewer;
 mod run;

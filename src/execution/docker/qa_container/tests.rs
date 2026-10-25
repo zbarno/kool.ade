@@ -4,6 +4,9 @@ use super::*;
 mod browser_rootless;
 #[path = "tests/desktop_rootless.rs"]
 mod desktop_rootless;
+
+#[path = "tests/cache_architecture.rs"]
+mod cache_architecture;
 #[path = "tests/driver_policy.rs"]
 mod driver_policy;
 

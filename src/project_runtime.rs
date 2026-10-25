@@ -17,7 +17,9 @@ pub use discovery::{
 pub use executor::ProjectRuntimeExecutor;
 pub use recipe::{ExecutionRecipeV1, NetworkRequirement, RecipeSource};
 pub(crate) use recipe::{
-    normalize_custom_target_root, validate_custom_artifact_paths, validate_custom_target_root,
+    is_logical_tool_id, is_protected_environment_key, is_target_relative_executable_path,
+    normalize_custom_target_root, validate_custom_artifact_paths,
+    validate_custom_target_artifact_paths, validate_custom_target_root,
 };
 pub(crate) use source::verify_source_checkout;
 pub use store::ProjectRuntimeStore;

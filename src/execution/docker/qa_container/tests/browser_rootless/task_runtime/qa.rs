@@ -1,27 +1,62 @@
 use super::super::*;
-use sha2::Sha256;
-use std::{path::Path, time::Duration};
+use std::path::Path;
 
-pub(super) fn approved_spec_hash() -> String {
-    sha256(b"REQ-TASK-WEB-1: submitting a non-empty message displays Saved")
-}
+#[path = "qa/headless.rs"]
+mod headless;
+#[path = "qa/web.rs"]
+mod web;
 
-pub(super) fn review_subject_hash(source_sha: &str, diff_hash: &str, spec_hash: &str) -> String {
-    let subject = serde_json::to_vec(&(source_sha, diff_hash, spec_hash)).unwrap();
-    sha256(&subject)
-}
-
-fn sha256(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ExpectedBrowserOutcome {
+    Pass,
+    Fail,
 }
 
 pub(super) fn scenario(request: &crate::runtime_qa::QaRunRequestV1) -> QaScenarioV1 {
+    if request.relevant_platforms.as_slice() == [crate::runtime_qa::QaPlatform::HeadlessService] {
+        let mut steps = vec![step(
+            QaDriverActionV1::ApiRequest {
+                method: QaHttpMethodV1::Post,
+                path: "/save".into(),
+                json_body: Some(r#"{"message":"synthetic task QA input"}"#.into()),
+                expected_status: 200,
+                expected_body_contains: Some("\"saved\":true".into()),
+            },
+            "The API reports a successful save",
+            false,
+        )];
+        if request.test_data_fixture_ref.as_deref() == Some("go-headless-api-v1") {
+            steps.push(step(
+                QaDriverActionV1::ApiRequest {
+                    method: QaHttpMethodV1::Get,
+                    path: "/runner-protection".into(),
+                    json_body: None,
+                    expected_status: 200,
+                    expected_body_contains: Some("\"protected\":true".into()),
+                },
+                "The same-UID fixture process cannot read or truncate its sealed readiness runner",
+                false,
+            ));
+        }
+        return QaScenarioV1 {
+            schema_version: 1,
+            id: uuid::Uuid::new_v4().hyphenated().to_string(),
+            requirement_ids: request.requirement_ids.clone(),
+            preconditions: vec!["The approved API service is running.".into()],
+            steps,
+            expected_results: vec![request.acceptance_criteria[0].clone()],
+            negative_paths: Vec::new(),
+            visual_expectations: Vec::new(),
+            redaction_regions: Vec::new(),
+            priority: 1,
+        };
+    }
     QaScenarioV1 {
         schema_version: 1,
         id: uuid::Uuid::new_v4().hyphenated().to_string(),
         requirement_ids: request.requirement_ids.clone(),
         preconditions: vec![
-            "The approved Python build, test, and start receipts pass for this task revision."
+            "The approved project build, test, and start receipts pass for this task revision."
                 .into(),
         ],
         steps: vec![
@@ -88,12 +123,26 @@ pub(super) fn run(
     artifact_upload: &QaContainerUpload,
     artifact_root: &Path,
     evidence_root: &Path,
+    readiness_path: &str,
+    expected_browser_outcome: ExpectedBrowserOutcome,
 ) {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    runtime.block_on(run_async(
+    if request.relevant_platforms.as_slice() == [crate::runtime_qa::QaPlatform::HeadlessService] {
+        assert_eq!(expected_browser_outcome, ExpectedBrowserOutcome::Pass);
+        headless::run(
+            docker,
+            lock,
+            browser_image,
+            service_image,
+            request,
+            scenario,
+            recipe,
+            artifact_upload,
+            artifact_root,
+            evidence_root,
+        );
+        return;
+    }
+    web::run(
         docker,
         lock,
         browser_image,
@@ -104,145 +153,19 @@ pub(super) fn run(
         artifact_upload,
         artifact_root,
         evidence_root,
-    ));
+        readiness_path,
+        expected_browser_outcome,
+    );
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn run_async(
-    docker: &bollard::Docker,
-    lock: &ImageLock,
-    browser_image: &crate::execution::docker::images::SelectedImage,
-    service_image: &crate::execution::docker::images::SelectedImage,
-    request: &crate::runtime_qa::QaRunRequestV1,
-    scenario: &QaScenarioV1,
-    recipe: &crate::project_runtime::ExecutionRecipeV1,
-    artifact_upload: &QaContainerUpload,
-    artifact_root: &Path,
-    evidence_root: &Path,
-) {
-    request.validate().unwrap();
-    scenario.validate(request).unwrap();
-    let browser_request = build_browser_request(request, scenario).unwrap();
-    let request_upload = QaContainerUpload::request_file(&browser_request, 256 * 1024).unwrap();
-    let mut resources = resources();
-    resources.process_count = 128;
-    let (_cancel_sender, mut cancel) = tokio::sync::watch::channel(false);
-    let preview = super::super::super::service::start_web_preview_with_lock(
-        docker,
-        QaWebPreviewSpec {
-            request,
-            browser_image,
-            service_image,
-            recipe,
-            artifact_upload,
-            dependency_caches: &[],
-            preview_port: 4173,
-            health_path: "/",
-            resources: &resources,
-        },
-        &mut cancel,
-        lock,
-    )
-    .await
-    .unwrap();
-
-    let mut driver_id = None;
-    let result: Result<_, String> = async {
-        if preview.service_lease.task_build_sha != request.build_artifact_sha256
-            || preview.service_lease.startup_recipe_ref != recipe.recipe_id
-            || preview.service_lease.startup_recipe_sha256 != request.startup_recipe_sha256
-        {
-            return Err("QA service lease does not match the approved task artifact".into());
-        }
-        validate_preview_relay_network(
-            docker,
-            request,
-            &preview.service_lease,
-            &preview.relay_binding,
-        )
-        .await
-        .map_err(|error| error.message)?;
-        let artifacts =
-            [QaArtifactMount::inspect(artifact_root, "/workspace")
-                .map_err(|error| error.message)?];
-        let uploads = [artifact_upload.clone(), request_upload];
-        let spec = QaDriverContainerSpec {
-            owner_id: &request.execution_session_id,
-            request,
-            task_uid: &request.parent_task_uid,
-            driver: "browser",
-            image: browser_image,
-            artifacts: &artifacts,
-            dependency_caches: &[],
-            network: QaDriverNetwork::InternalPreviewRelay {
-                network_id: preview.relay_binding.relay_browser_network_id.clone(),
-                relay_container_id: preview.relay_binding.relay_container_id.clone(),
-            },
-            service_lease: Some(&preview.service_lease),
-            relay_binding: Some(&preview.relay_binding),
-            resources: &resources,
-        };
-        let body = spec
-            .create_body_with_lock(lock)
-            .map_err(|error| error.message)?;
-        let container_id = create_driver_container(
-            docker,
-            &format!("koolade-qa-{}", request.qa_run_id),
-            body,
-            &uploads,
-            Duration::from_secs(120),
-            16 * 1024 * 1024,
-            &mut cancel,
-        )
-        .await
-        .map_err(|error| error.message)?;
-        driver_id = Some(container_id.clone());
-        let mut binding = preview.relay_binding.clone();
-        binding.browser_container_id = Some(container_id.clone());
-        validate_browser_driver_network(docker, request, &binding, &container_id)
-            .await
-            .map_err(|error| error.message)?;
-        let output = run_created_driver(
-            docker,
-            &container_id,
-            Duration::from_secs(120),
-            16 * 1024 * 1024,
-            &mut cancel,
-        )
-        .await
-        .map_err(|error| error.message)?;
-        parse_browser_output(&output.stdout, request, scenario)
+fn step(
+    action: QaDriverActionV1,
+    expected_state: &str,
+    screenshot_checkpoint: bool,
+) -> QaScenarioStepV1 {
+    QaScenarioStepV1 {
+        driver_action: action,
+        expected_state: Some(expected_state.into()),
+        screenshot_checkpoint,
     }
-    .await;
-    let driver_cleanup = if let Some(container_id) = driver_id {
-        cleanup_driver_container(docker, &container_id).await
-    } else {
-        Ok(())
-    };
-    let preview_cleanup =
-        cleanup_web_preview(docker, &preview.service_lease, &preview.relay_binding).await;
-    driver_cleanup.unwrap();
-    preview_cleanup.unwrap();
-    let output = result.unwrap();
-    assert!(output.completed);
-    assert_eq!(output.assertions.len(), 1);
-    assert_eq!(
-        output.assertions[0].status,
-        crate::runtime_qa::QaAssertionStatus::Passed
-    );
-    assert!(
-        output
-            .screenshots
-            .iter()
-            .any(|screenshot| screenshot.width >= 320)
-    );
-    // The persistence reviewer is a deterministic fixture; visual judgment is
-    // proven by the screenshot-inspection reviewer path covered separately.
-    super::super::lifecycle::review_and_persist(
-        request,
-        scenario.clone(),
-        &preview.service_lease,
-        output,
-        evidence_root.to_path_buf(),
-    );
 }

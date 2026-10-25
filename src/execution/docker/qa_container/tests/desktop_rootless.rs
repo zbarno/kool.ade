@@ -1,8 +1,30 @@
 use super::*;
 
 #[cfg(target_os = "linux")]
+#[path = "desktop_rootless/packaged_linux.rs"]
+mod packaged_linux;
+#[cfg(target_os = "linux")]
 #[path = "desktop_rootless/task_artifact.rs"]
 mod task_artifact;
+#[cfg(target_os = "linux")]
+pub(super) use task_artifact::exercise_prepared_dispatch;
+
+pub(super) fn candidate_desktop_lock() -> ImageLock {
+    let image_reference = std::env::var("KOOLADE_QA_DESKTOP_IMAGE")
+        .expect("desktop QA candidate reference comes from rootless CI");
+    let digest = std::env::var("KOOLADE_QA_DESKTOP_DIGEST")
+        .expect("desktop QA candidate digest comes from rootless CI");
+    let mut lock = ImageLock::bundled().unwrap();
+    let variant = lock
+        .profiles
+        .get_mut("desktop_qa")
+        .and_then(|variants| variants.iter_mut().find(|v| v.platform == "linux/amd64"))
+        .unwrap();
+    variant.reference = image_reference;
+    variant.digest = digest;
+    variant.runtime_enabled = true;
+    lock
+}
 
 // Boundary: the app-owned Docker lifecycle must stage a bounded artifact and
 // request-bound package cache into rootless tmpfs, verify the cache is readable
@@ -18,10 +40,6 @@ mod task_artifact;
 async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() {
     use std::time::Duration;
 
-    let image_reference = std::env::var("KOOLADE_QA_DESKTOP_IMAGE")
-        .expect("candidate image reference is provided by the rootless QA workflow");
-    let digest = std::env::var("KOOLADE_QA_DESKTOP_DIGEST")
-        .expect("candidate image digest is provided by the rootless QA workflow");
     let docker = bollard::Docker::connect_with_local_defaults().unwrap();
     let info = docker.info().await.unwrap();
     if std::env::var_os("KOOLADE_QA_REQUIRE_ROOTLESS").is_some() {
@@ -58,15 +76,7 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
         dependency_request_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         cache_ref: cache.cache_ref.clone(),
     }];
-    let mut lock = ImageLock::bundled().unwrap();
-    let variant = lock
-        .profiles
-        .get_mut("desktop_qa")
-        .and_then(|variants| variants.iter_mut().find(|v| v.platform == "linux/amd64"))
-        .unwrap();
-    variant.reference = image_reference;
-    variant.digest = digest;
-    variant.runtime_enabled = true;
+    let lock = candidate_desktop_lock();
     let selected = lock.select(RuntimeProfile::DesktopQa, "amd64").unwrap();
 
     let root = tempfile::tempdir().unwrap();

@@ -3,9 +3,9 @@ use std::{collections::BTreeMap, time::Duration};
 mod artifacts;
 use artifacts::{ReceiptData, build_artifacts, failed_start, receipt};
 mod readiness;
-#[cfg(test)]
-use readiness::readiness_command;
 use readiness::start_script;
+#[cfg(test)]
+use readiness::{readiness_command, readiness_setup_command};
 mod receipts;
 
 use crate::{
@@ -70,6 +70,7 @@ pub(super) fn execute(
     require_startable_state(&target.capability_state)?;
     let artifact_paths = build_artifacts.paths;
     let build_hashes = build_artifacts.hashes;
+    validate_start_executable_artifact(recipe, &artifact_paths)?;
     let script = start_script(manifest, target, recipe, probe)?;
     let source_input_paths = super::source_input_paths(
         manifest,
@@ -164,6 +165,45 @@ pub(super) fn execute(
         return Err(error.into());
     }
     Ok(vec![receipt])
+}
+
+fn validate_start_executable_artifact(
+    recipe: &crate::project_runtime::ExecutionRecipeV1,
+    artifact_paths: &[String],
+) -> anyhow::Result<()> {
+    if !crate::project_runtime::is_target_relative_executable_path(&recipe.executable_id) {
+        return Ok(());
+    }
+    anyhow::ensure!(
+        recipe.source == crate::project_runtime::RecipeSource::UserApproved,
+        "target-relative Start executables require an explicit user-approved recipe"
+    );
+    let executable_path =
+        target_relative_executable_path(&recipe.working_directory_relative, &recipe.executable_id)?;
+    anyhow::ensure!(
+        artifact_paths.iter().any(|path| path == &executable_path),
+        "Start executable path must be included in the exact Build receipt artifact set"
+    );
+    Ok(())
+}
+
+fn target_relative_executable_path(directory: &str, executable: &str) -> anyhow::Result<String> {
+    let path = if directory == "." {
+        std::path::PathBuf::from(executable)
+    } else {
+        std::path::Path::new(directory).join(executable)
+    };
+    let components = path
+        .components()
+        .map(|component| match component {
+            std::path::Component::Normal(part) => part
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("Start executable path is not UTF-8")),
+            _ => anyhow::bail!("Start executable path is not canonical and relative"),
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    anyhow::ensure!(!components.is_empty(), "Start executable path is empty");
+    Ok(components.join("/"))
 }
 
 fn require_startable_state(state: &TargetCapabilityState) -> anyhow::Result<()> {

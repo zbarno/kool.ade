@@ -7,6 +7,9 @@ use super::{
 };
 use crate::harness::{DependencyDecision, DependencyKind, DependencyNeed, PackageEcosystem};
 
+mod go;
+mod pip;
+
 const MAX_INTRODUCED_PACKAGES: usize = 64;
 
 pub(crate) fn decision_allowed(need: &DependencyNeed, decision: DependencyDecision) -> bool {
@@ -102,6 +105,12 @@ pub(crate) fn decision_allowed(need: &DependencyNeed, decision: DependencyDecisi
             && valid_introduced_packages(need, false)
             && source_ok
             && safe_cargo_restore_command(&need.command);
+    }
+    if (manager_grant || user_grant) && need.ecosystem == PackageEcosystem::Pip {
+        return pip::restore_decision_allowed(need, source_ok);
+    }
+    if (manager_grant || user_grant) && need.ecosystem == PackageEcosystem::Go {
+        return go::restore_decision_allowed(need, source_ok);
     }
     let lockfile_restore = need.ecosystem == PackageEcosystem::Npm
         && need.kind == DependencyKind::ExistingRestore
@@ -201,7 +210,7 @@ pub(crate) fn decision_allowed(need: &DependencyNeed, decision: DependencyDecisi
     }
 }
 
-fn valid_lockfile_identity(need: &DependencyNeed) -> bool {
+pub(super) fn valid_lockfile_identity(need: &DependencyNeed) -> bool {
     need.lockfile_identity
         .as_deref()
         .and_then(|identity| identity.strip_prefix("sha256:"))
@@ -210,7 +219,7 @@ fn valid_lockfile_identity(need: &DependencyNeed) -> bool {
         })
 }
 
-fn valid_introduced_packages(need: &DependencyNeed, allow_custom_npm: bool) -> bool {
+pub(super) fn valid_introduced_packages(need: &DependencyNeed, allow_custom_npm: bool) -> bool {
     if need.introduced_packages.len() > MAX_INTRODUCED_PACKAGES {
         return false;
     }
@@ -254,6 +263,8 @@ fn valid_introduced_packages(need: &DependencyNeed, allow_custom_npm: bool) -> b
                     .bytes()
                     .all(|byte| byte.is_ascii_hexdigit())
         }),
+        PackageEcosystem::Pip => pip::valid_introduced_packages(need),
+        PackageEcosystem::Go => go::valid_introduced_packages(need),
         _ => need.introduced_packages.is_empty(),
     }
 }

@@ -1,4 +1,4 @@
 pub(crate) use super::tick::activity::runtime_qa::{
-    RootlessDesktopDispatch, prepare_rootless_desktop_dispatch,
-    test_support::desktop_artifact::DesktopArtifactFixture,
+    RootlessDesktopDispatch, RootlessTaskQaDispatch, prepare_rootless_desktop_dispatch,
+    prepare_rootless_task_qa_dispatch, test_support::desktop_artifact::DesktopArtifactFixture,
 };

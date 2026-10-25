@@ -1,189 +1,124 @@
 use super::*;
-use std::sync::Arc;
 
+#[path = "task_runtime/polyglot.rs"]
+mod polyglot;
 #[path = "task_runtime/qa.rs"]
 mod qa;
+#[path = "task_runtime/runner.rs"]
+mod runner;
 #[path = "task_runtime/setup.rs"]
 mod setup;
 
-/// Boundary: a user-approved Python task target builds and tests inside the
-/// app-owned rootless ExecutionSession, records source-bound Build/Test/Start
-/// receipts, and supplies only receipt-verified build files to the isolated
-/// browser preview. The browser then exercises the exact approved startup
-/// recipe and persists screenshot-backed evidence against that task revision.
-/// Unit tests cannot prove the workspace stage-out, task container, preview
-/// relay, browser interaction, and owned-resource cleanup work together.
-/// External dependencies: rootless Docker and the pinned Python and browser QA
-/// images. Setup cost: three short runtime recipes, one build snapshot, and one
-/// bounded browser scenario; CI downloads only those two locked images.
 #[test]
 #[ignore = "requires rootless Docker and the loaded Python/browser QA images"]
 fn rootless_approved_task_build_test_start_receipts_feed_browser_qa_artifact() {
-    let endpoint = rootless_action_endpoint();
-    let docker = endpoint.connect().unwrap();
-    let info = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(docker.info())
-        .unwrap();
-    assert!(
-        info.security_options
-            .unwrap_or_default()
-            .iter()
-            .any(|option| option.contains("name=rootless")),
-        "task-runtime QA must run on rootless Docker"
-    );
-    let fixture = setup::Fixture::new();
-    let lock = candidate_lock();
-    let service_image = lock.select(RuntimeProfile::Python, "amd64").unwrap();
-    let mut request = request();
-    request.parent_task_uid = fixture.workspace.task_id.clone();
-    request.code_head_sha = fixture.workspace.source_sha.clone();
-    request.complete_diff_hash = fixture.complete_diff_hash.clone();
-    request.requirement_ids = vec!["REQ-TASK-WEB-1".into()];
-    request.acceptance_criteria = vec!["Submitting a non-empty message displays Saved.".into()];
-    request.approved_spec_hash = qa::approved_spec_hash();
-    request.review_subject_sha256 = qa::review_subject_hash(
-        &request.code_head_sha,
-        &request.complete_diff_hash,
-        &request.approved_spec_hash,
-    );
-    request.execution_session_id = uuid::Uuid::new_v4().hyphenated().to_string();
-    request.test_data_fixture_ref = Some("fixture:python-task-web-v1".into());
+    let dependency_request_id = uuid::Uuid::new_v4().hyphenated().to_string();
+    let fixture = setup::Fixture::with_required_dependencies(vec![dependency_request_id.clone()]);
+    runner::run(fixture, RuntimeProfile::Python, Some(dependency_request_id));
+}
 
-    let resolver = Arc::new(
-        crate::execution::docker::backend::OwnedTaskWorkspaceResolver::new(
-            &fixture.projects_root,
-            fixture.workspace.clone(),
-            &fixture.task_clone,
-        )
-        .unwrap(),
-    );
-    let backend = crate::execution::docker::backend::DockerExecutionBackend::connect(
-        endpoint,
-        resolver,
-        request.execution_session_id.clone(),
-    )
-    .unwrap();
-    let session = crate::execution::session::ExecutionSession::new(
-        Arc::new(backend),
-        fixture.workspace.clone(),
-        crate::execution::contract::ExecutionTarget::local(),
-        crate::execution::contract::ExecutionModeV1::Verification,
-        service_image.digest.clone(),
-        crate::execution::contract::ResourceBudgetV1::default(),
-    )
-    .unwrap();
-    let runtime_store = crate::project_runtime::ProjectRuntimeStore::new(&fixture.planning);
-    let executor = crate::project_runtime::ProjectRuntimeExecutor::new(&runtime_store);
-    let build_receipt = executor
-        .execute(
-            &session,
-            &fixture.target_id,
-            crate::project_runtime::RuntimeOperation::Build,
-        )
-        .unwrap()
-        .remove(0);
-    let test_receipt = executor
-        .execute(
-            &session,
-            &fixture.target_id,
-            crate::project_runtime::RuntimeOperation::Test,
-        )
-        .unwrap()
-        .remove(0);
-    let start_receipt = executor
-        .execute(
-            &session,
-            &fixture.target_id,
-            crate::project_runtime::RuntimeOperation::Start,
-        )
-        .unwrap()
-        .remove(0);
-    for (receipt, operation, recipe_id) in [
-        (
-            &build_receipt,
-            crate::project_runtime::RuntimeOperation::Build,
-            "task-web-build",
-        ),
-        (
-            &test_receipt,
-            crate::project_runtime::RuntimeOperation::Test,
-            "task-web-test",
-        ),
-        (
-            &start_receipt,
-            crate::project_runtime::RuntimeOperation::Start,
-            "task-web-start",
-        ),
-    ] {
-        assert_eq!(receipt.operation, operation);
-        assert_eq!(receipt.recipe_id.as_deref(), Some(recipe_id));
-        assert_eq!(
-            receipt.state,
-            crate::project_runtime::RuntimeReceiptState::Passed
-        );
-        assert_eq!(receipt.task_id, fixture.workspace.task_id);
-        assert_eq!(receipt.target_id, fixture.target_id);
-        assert_eq!(receipt.source_sha, fixture.workspace.source_sha);
-    }
-    assert_eq!(build_receipt.artifact_hashes.len(), 2);
-    assert!(build_receipt.artifact_hashes.contains_key("dist/app.py"));
-    assert!(
-        build_receipt
-            .artifact_hashes
-            .contains_key("dist/index.html")
-    );
-    session.stop_runtime_processes().unwrap();
+/// Production boundary: compile a user-approved Rust project binary in its
+/// locked rootless image, run exact-source Build/Test/Start, bind the Start
+/// executable to the passed Build artifact, and exercise it with the same
+/// browser driver used for the Python fixture. A unit test cannot prove image
+/// ABI compatibility, artifact transfer, the task preview, browser interaction,
+/// and cleanup together. Dependencies: rootless Docker plus the pinned Rust,
+/// Python, and browser QA images. Setup cost: one offline Rust build/test and
+/// one bounded browser scenario.
+#[test]
+#[ignore = "requires rootless Docker and the loaded Rust/Python/browser QA images"]
+fn rootless_approved_rust_web_binary_uses_the_same_browser_driver() {
+    runner::run(setup::Fixture::rust_web(), RuntimeProfile::Rust, None);
+}
 
-    let (artifact_upload, artifact_digest) = snapshot_selected_files(
-        &fixture.task_clone,
-        &["dist/app.py".into(), "dist/index.html".into()],
-        &build_receipt.artifact_hashes,
-        1024 * 1024,
-    )
-    .unwrap();
-    request.build_artifact_sha256 = artifact_digest;
-    let manifest = runtime_store.load_manifest().unwrap().unwrap();
-    let start_recipe = manifest
-        .user_overrides
-        .iter()
-        .find(|recipe| recipe.recipe_id == "task-web-start")
-        .unwrap();
-    request.startup_recipe_ref = start_recipe.recipe_id.clone();
-    request.startup_recipe_sha256 = format!(
-        "{:x}",
-        sha2::Sha256::digest(serde_json::to_vec(start_recipe).unwrap())
-    );
-    request.driver_profile_version = lock
-        .select(RuntimeProfile::BrowserQa, "amd64")
-        .unwrap()
-        .tool_versions["driver"]
+/// Production boundary: run an approved TypeScript web target through exact
+/// Build/Test/Start receipts, require the selected broker cache in its
+/// network-denied Build, and exercise it with the same locked browser driver
+/// as Python and Rust. Unit tests cannot prove Node type stripping, cache
+/// staging, image compatibility, browser interaction, and cleanup together.
+/// Dependencies: rootless Docker plus the pinned Node, Python, and browser QA
+/// images. Setup cost: one offline Node build/test and one bounded browser run.
+#[test]
+#[ignore = "requires rootless Docker and the loaded Node/Python/browser QA images"]
+fn rootless_approved_typescript_web_target_uses_the_same_browser_driver() {
+    let fixture = setup::Fixture::typescript_web();
+    let dependency_request_id = fixture
+        .dependency_cache
+        .as_ref()
+        .expect("TypeScript fixture has a broker-prepared cache")
+        .request_id
         .clone();
-    request.bounded_limits = QaBoundedLimitsV1 {
-        max_scenarios: 1,
-        max_actions_per_scenario: 8,
-        max_total_actions: 8,
-        timeout_seconds: 90,
-        max_evidence_bytes: 16 * 1024 * 1024,
-        max_screenshots: 4,
-    };
-    request.validate().unwrap();
+    runner::run(fixture, RuntimeProfile::Node, Some(dependency_request_id));
+}
 
-    let browser_image = candidate_browser_image(&lock);
-    let scenario = qa::scenario(&request);
-    qa::run(
-        &docker,
-        &lock,
-        &browser_image,
-        &service_image,
-        &request,
-        &scenario,
-        start_recipe,
-        &artifact_upload,
-        &fixture.task_clone,
-        fixture.root.path(),
+/// Production boundary: build, test, and start an actual Rust desktop app in
+/// the locked Rust executor, prepare its reviewed lifecycle request from the
+/// resulting receipts, then run those exact artifact bytes through production
+/// desktop dispatch and the locked rootless desktop driver. Unit tests cannot
+/// prove executor ABI compatibility, receipt-to-artifact binding, Xvfb window
+/// ownership/input, evidence capture, or Docker cleanup together. Dependencies:
+/// rootless Docker plus the pinned Rust and desktop QA images. Setup cost: one
+/// dependency-free Cargo build/test/start and one bounded desktop scenario.
+#[test]
+#[cfg(target_os = "linux")]
+#[ignore = "requires rootless Docker, the locked Rust image, and the desktop QA candidate"]
+fn rootless_approved_rust_desktop_app_uses_locked_desktop_driver() {
+    runner::run_rust_desktop(setup::Fixture::rust_desktop());
+}
+
+/// Production boundary: authorize the task's exact h1-locked Go module set,
+/// stage a known-good GOPATH snapshot through the broker, and build/test/start
+/// the API in the network-denied rootless runtime. The Go test runs `go mod
+/// verify` offline before the API readiness and service scenarios. Unit tests
+/// cannot prove broker-to-cache transfer, Go image compatibility, the internal
+/// relay, and cleanup together. Dependencies: rootless Docker and pinned
+/// Go/Python/browser QA images. Setup cost: one bounded offline Go build/test
+/// and one API scenario.
+#[test]
+#[ignore = "requires rootless Docker and the loaded Go/Python/browser QA images"]
+fn rootless_approved_go_headless_service_uses_headless_driver() {
+    let fixture = setup::Fixture::go_headless();
+    let dependency_request_id = fixture
+        .dependency_cache
+        .as_ref()
+        .expect("Go fixture has a broker-prepared module cache")
+        .request_id
+        .clone();
+    runner::run(fixture, RuntimeProfile::Go, Some(dependency_request_id));
+}
+
+/// Production boundary: run an approved Python HeadlessService through exact
+/// Build/Test/Start receipts, the production request and artifact preparation,
+/// and the existing rootless API QA driver. It asserts that the driver sees
+/// the task-built service and its successful `/save` response. Unit tests
+/// cannot prove the Python image, readiness probe, service relay, artifact
+/// handoff, and API request together. Dependencies: rootless Docker plus the
+/// pinned Python and browser QA images. Setup cost: one offline build/test/start
+/// and one bounded API QA scenario.
+#[test]
+#[ignore = "requires rootless Docker and the loaded Python/browser QA images"]
+fn rootless_approved_python_headless_service_uses_headless_driver() {
+    runner::run(
+        setup::Fixture::python_headless(),
+        RuntimeProfile::Python,
+        None,
+    );
+}
+
+/// Production boundary: an approved Python web service passes its `/health`
+/// readiness probe, then the rootless browser verifies the user-facing save
+/// interaction and must record its failed assertion without granting QA pass.
+/// A unit test cannot prove that readiness and browser behavior are checked
+/// independently across the real preview relay. Dependencies: rootless Docker
+/// plus pinned Python and browser QA images. Setup: one offline build/test,
+/// one service launch, one bounded browser scenario, and owned-resource cleanup.
+#[test]
+#[ignore = "requires rootless Docker and the loaded Python/browser QA images"]
+fn rootless_healthy_web_readiness_does_not_mask_failed_browser_assertion() {
+    runner::run(
+        setup::Fixture::falsely_healthy_python_web(),
+        RuntimeProfile::Python,
+        None,
     );
 }
 

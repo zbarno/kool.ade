@@ -57,6 +57,8 @@ pub(super) async fn launch_containers(
         let target = match cache.cache_ref.ecosystem {
             DependencyCacheEcosystemV1::Npm => "/home/executor/.npm",
             DependencyCacheEcosystemV1::Cargo => "/home/executor/.cargo",
+            DependencyCacheEcosystemV1::Pip => "/home/executor/.cache/koolade/pip",
+            DependencyCacheEcosystemV1::Go => "/home/executor/go",
         };
         uploads.push(QaContainerUpload {
             target: target.into(),

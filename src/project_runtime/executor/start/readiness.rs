@@ -2,26 +2,41 @@ const READINESS_ATTEMPTS: usize = 40;
 
 use crate::project_runtime::{AppTargetV1, ProjectCapabilityManifestV1};
 
+mod go_runner;
+
 pub(super) fn start_script(
     manifest: &ProjectCapabilityManifestV1,
     target: &AppTargetV1,
     start: &crate::project_runtime::ExecutionRecipeV1,
     probe: &crate::project_runtime::ReadinessProbeV1,
 ) -> anyhow::Result<String> {
+    if uses_go_readiness_probe(start)
+        && matches!(
+            probe,
+            crate::project_runtime::ReadinessProbeV1::HttpOnApprovedPort { .. }
+                | crate::project_runtime::ReadinessProbeV1::LocalServiceHealth { .. }
+        )
+    {
+        return go_runner::start_script(start, probe);
+    }
     let project_root = ".";
     let start_directory = &start.working_directory_relative;
     let start_command = shell_argv(&start.executable_id, &start.argv);
     let readiness = readiness_command(manifest, target, probe)?;
-    let launch = format!(
-        "(cd {} && exec {})",
-        shell_quote(start_directory),
-        start_command
-    );
     Ok(format!(
-        "set -u\ncd {} || exit 70\n{} >/dev/null 2>&1 &\npid=$!\ni=0\nwhile [ \"$i\" -lt {READINESS_ATTEMPTS} ]; do\n  if ! kill -0 \"$pid\" 2>/dev/null; then printf '%s\\n' 'start process exited before readiness' >&2; exit 71; fi\n  if {readiness}; then printf '%s\\n' 'readiness probe passed'; exit 0; fi\n  i=$((i + 1))\n  sleep 0.25\ndone\nprintf '%s\\n' 'readiness probe timed out' >&2\nexit 124\n",
+        "set -u\ncd {} || exit 70\n(cd {} && exec {}) >/dev/null 2>&1 &\npid=$!\ni=0\nwhile [ \"$i\" -lt {READINESS_ATTEMPTS} ]; do\n  if ! kill -0 \"$pid\" 2>/dev/null; then printf '%s\\n' 'start process exited before readiness' >&2; exit 71; fi\n  if {readiness}; then printf '%s\\n' 'readiness probe passed'; exit 0; fi\n  i=$((i + 1))\n  sleep 0.25\ndone\nprintf '%s\\n' 'readiness probe timed out' >&2\nexit 124",
         shell_quote(project_root),
-        launch,
+        shell_quote(start_directory),
+        start_command,
     ))
+}
+
+fn uses_go_readiness_probe(start: &crate::project_runtime::ExecutionRecipeV1) -> bool {
+    start.prerequisite_tool_ids.iter().any(|tool| tool == "go")
+        && !start
+            .prerequisite_tool_ids
+            .iter()
+            .any(|tool| matches!(tool.as_str(), "node" | "npm" | "python" | "python3"))
 }
 
 pub(super) fn readiness_command(
@@ -142,9 +157,41 @@ fn http_readiness_command(
         };
         return Ok(shell_argv(python_tool, &["-c".into(), script]));
     }
+    if uses_go_readiness_probe(start) {
+        anyhow::bail!("Go HTTP readiness must run through the sealed application-owned launcher")
+    }
     anyhow::bail!(
-        "HTTP readiness requires the approved start recipe to declare the node, python, or python3 probe prerequisite"
+        "HTTP readiness requires the approved start recipe to declare a node, python, python3, or go probe prerequisite"
     )
+}
+
+#[cfg(test)]
+pub(super) fn readiness_setup_command(
+    manifest: &ProjectCapabilityManifestV1,
+    target: &AppTargetV1,
+    probe: &crate::project_runtime::ReadinessProbeV1,
+) -> anyhow::Result<String> {
+    let start_id = target
+        .start_recipe_ref
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("HTTP readiness requires an approved start recipe"))?;
+    let start = manifest
+        .recipes
+        .iter()
+        .chain(manifest.user_overrides.iter())
+        .find(|recipe| recipe.recipe_id == start_id)
+        .ok_or_else(|| anyhow::anyhow!("HTTP readiness start recipe is missing"))?;
+    if uses_go_readiness_probe(start)
+        && matches!(
+            probe,
+            crate::project_runtime::ReadinessProbeV1::HttpOnApprovedPort { .. }
+                | crate::project_runtime::ReadinessProbeV1::LocalServiceHealth { .. }
+        )
+    {
+        go_runner::build_command(start, probe)
+    } else {
+        Ok(String::new())
+    }
 }
 
 fn shell_argv(executable_id: &str, argv: &[String]) -> String {

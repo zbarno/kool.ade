@@ -85,11 +85,19 @@ pub(super) fn authorized_dependency(
         npm_cache: context.npm_cache,
         npm_snapshot: context.npm_snapshot,
         cargo_cache: context.cargo_cache,
+        pip_cache: context.pip_cache,
+        pip_snapshot: context.pip_snapshot,
+        go_cache: context.go_cache,
+        go_snapshot: context.go_snapshot,
+        go_operations: context.go_operations,
         downloaded_bytes: context.downloaded_bytes,
         npm_operations: context.npm_operations,
         cargo_operations: context.cargo_operations,
+        pip_operations: context.pip_operations,
         npm_cache_gate: context.npm_cache_gate,
         cargo_cache_gate: context.cargo_cache_gate,
+        pip_cache_gate: context.pip_cache_gate,
+        go_cache_gate: context.go_cache_gate,
     };
     let bytes_before = context
         .downloaded_bytes
