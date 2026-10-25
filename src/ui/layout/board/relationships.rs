@@ -37,15 +37,18 @@ pub(super) fn build(board: &ViewModel) -> Map {
         }
     }
 
-    if board.setup_tasks.is_empty()
-        && let Some(issue) = &board.setup_attention
-    {
+    for issue in &board.setup_attention {
         card_keys.push(issue.id.to_owned());
     }
     for task in &board.setup_tasks {
         card_keys.push(task.id.clone());
-        for dependency in &task.prerequisites {
-            add(&mut tags, &task.id, "setup_prerequisite", dependency);
+        for dependency in &task.dependencies {
+            add(
+                &mut tags,
+                &task.id,
+                "setup_prerequisite",
+                &dependency.prerequisite_id,
+            );
         }
     }
 

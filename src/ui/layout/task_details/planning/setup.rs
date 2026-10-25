@@ -8,18 +8,18 @@ pub(super) fn paint_machine_setup(
 ) {
     ui.heading(&task.title);
     ui.label(crate::ui::theme::metadata_text(format!(
-        "Machine setup · {:?}",
-        task.state
+        "Machine setup · {}",
+        task.state_label()
     )));
     ui.add_space(crate::ui::theme::spacing::M);
     ui.label(crate::ui::theme::section_heading(
         "Why this needs attention",
     ));
     ui.label(&task.explanation);
-    if !task.prerequisites.is_empty() {
+    if !task.blocked_by.is_empty() {
         ui.label(crate::ui::theme::section_heading("Waiting for"));
-        for item in &task.prerequisites {
-            ui.label(item);
+        for prerequisite_id in &task.blocked_by {
+            ui.label(prerequisite_id);
         }
     }
     ui.add_space(crate::ui::theme::spacing::M);

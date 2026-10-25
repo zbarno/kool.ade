@@ -95,9 +95,9 @@ fn render_workspace_review_gallery() {
         gallery.scroll_to_bottom();
         gallery.save("feature-comparison-scrolled");
         gallery.escape();
-        gallery.app.setup_attention = Some(crate::app::setup_attention::SetupIssue::docker(
+        gallery.app.setup_attention = vec![crate::app::setup_attention::SetupIssue::docker(
             "Docker execution setup has not been completed.",
-        ));
+        )];
         gallery.ctx.data_mut(|data| {
             data.insert_temp(
                 egui::Id::new("koolade_selected_planning"),
@@ -106,7 +106,7 @@ fn render_workspace_review_gallery() {
         });
         gallery.save("setup-details");
         gallery.escape();
-        gallery.app.setup_attention = None;
+        gallery.app.setup_attention.clear();
         for (label, name) in [("Import references…", "import"), ("MCP servers…", "mcp")] {
             gallery.click("Workspace");
             gallery.click(label);

@@ -10,7 +10,7 @@ fn tick_refreshes_setup_after_image_preparation_without_open_details() {
     let (release_probe, wait_for_probe) = std::sync::mpsc::channel();
     app.setup_probe = Some(std::thread::spawn(move || {
         let _ = wait_for_probe.recv();
-        None
+        Ok(crate::persistence::setup_tasks::SetupTaskStoreV1::default())
     }));
     app.setup_image_preparation.queue_success_for_test();
 
@@ -18,5 +18,5 @@ fn tick_refreshes_setup_after_image_preparation_without_open_details() {
 
     assert_eq!(app.setup_refresh_pending, Some(true));
     release_probe.send(()).unwrap();
-    app.setup_probe.take().unwrap().join().unwrap();
+    app.setup_probe.take().unwrap().join().unwrap().unwrap();
 }

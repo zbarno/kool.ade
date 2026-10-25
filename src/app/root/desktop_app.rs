@@ -166,7 +166,7 @@ impl KooladeApp {
                             }
                             // The first-run readiness task is machine-local:
                             // show it even if no planning repository exists.
-                            if let Some(issue) = &self.setup_attention {
+                            for issue in &self.setup_attention {
                                 ui.add_space(8.0);
                                 ui.label(egui::RichText::new(issue.title).strong());
                                 ui.label(crate::ui::theme::helper_text(&issue.issue));
