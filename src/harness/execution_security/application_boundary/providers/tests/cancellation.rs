@@ -11,10 +11,11 @@ use std::{
 };
 
 /// Production boundary: concurrent provider processes use the application-owned
-/// clean environment and process-group cancellation. The invariant is that each
-/// task sees only its own private OpenCode home/config, and cancelling one task
-/// kills its descendants without cancelling the other. Config-only unit tests
-/// cannot prove the OS process-group boundary. Dependency: Unix shell/process
+/// clean environment and process-group cancellation. Each child must receive
+/// only its own private OpenCode home, file-backed config paths, and app-server
+/// identity; cancelling one task kills its descendants without cancelling the
+/// other. Config-only unit tests cannot prove these values reach the spawned
+/// process or prove the OS process-group boundary. Dependency: Unix shell/process
 /// groups only; no Docker, network, or vendor API. Setup: two fake CLI processes.
 #[test]
 fn concurrent_fake_provider_tasks_isolate_private_state_and_cancel_independently() {
@@ -22,7 +23,7 @@ fn concurrent_fake_provider_tasks_isolate_private_state_and_cancel_independently
     let cli = root.path().join("fake-opencode");
     fs::write(
         &cli,
-        "#!/bin/sh\nset -eu\ntask=\"$1\"\nroot=\"$2\"\nprintf 'HOME=%s\\nXDG_CONFIG_HOME=%s\\nOPENCODE_CONFIG_CONTENT=%s\\n' \"$HOME\" \"$XDG_CONFIG_HOME\" \"$OPENCODE_CONFIG_CONTENT\" > \"$root/$task.capture\"\n( : > \"$root/$task.descendant_started\"; while [ ! -f \"$root/$task.finish\" ]; do sleep 0.01; done; : > \"$root/$task.descendant_finished\" ) &\nwhile [ ! -f \"$root/$task.descendant_started\" ]; do sleep 0.01; done\n: > \"$root/$task.started\"\nwhile [ ! -f \"$root/$task.finish\" ]; do sleep 0.01; done\nwait\n",
+        "#!/bin/sh\nset -eu\ntask=\"$1\"\nroot=\"$2\"\nprintf 'HOME=%s\\nXDG_CONFIG_HOME=%s\\nXDG_DATA_HOME=%s\\nOPENCODE_CONFIG=%s\\nOPENCODE_CONFIG_DIR=%s\\nOPENCODE_CONFIG_CONTENT=%s\\n' \"$HOME\" \"$XDG_CONFIG_HOME\" \"$XDG_DATA_HOME\" \"$OPENCODE_CONFIG\" \"$OPENCODE_CONFIG_DIR\" \"$OPENCODE_CONFIG_CONTENT\" > \"$root/$task.capture\"\n( : > \"$root/$task.descendant_started\"; while [ ! -f \"$root/$task.finish\" ]; do sleep 0.01; done; : > \"$root/$task.descendant_finished\" ) &\nwhile [ ! -f \"$root/$task.descendant_started\" ]; do sleep 0.01; done\n: > \"$root/$task.started\"\nwhile [ ! -f \"$root/$task.finish\" ]; do sleep 0.01; done\nwait\n",
     )
     .unwrap();
     fs::set_permissions(&cli, fs::Permissions::from_mode(0o700)).unwrap();
@@ -43,9 +44,11 @@ fn concurrent_fake_provider_tasks_isolate_private_state_and_cancel_independently
 
     let first_home = captured_value(&first_capture, "HOME");
     let second_home = captured_value(&second_capture, "HOME");
+    let first_expected_home = first_private_directory.join("opencode-home");
+    let second_expected_home = second_private_directory.join("opencode-home");
+    assert_eq!(first_home, first_expected_home.to_str().unwrap());
+    assert_eq!(second_home, second_expected_home.to_str().unwrap());
     assert_ne!(first_home, second_home);
-    assert!(first_home.starts_with(first.scratch.path.to_str().unwrap()));
-    assert!(second_home.starts_with(second.scratch.path.to_str().unwrap()));
     assert_eq!(
         captured_value(&first_capture, "XDG_CONFIG_HOME"),
         format!("{first_home}/.config")
@@ -54,6 +57,33 @@ fn concurrent_fake_provider_tasks_isolate_private_state_and_cancel_independently
         captured_value(&second_capture, "XDG_CONFIG_HOME"),
         format!("{second_home}/.config")
     );
+    assert_eq!(
+        captured_value(&first_capture, "XDG_DATA_HOME"),
+        format!("{first_home}/.local/share")
+    );
+    assert_eq!(
+        captured_value(&second_capture, "XDG_DATA_HOME"),
+        format!("{second_home}/.local/share")
+    );
+
+    let first_config_path = first_private_directory.join("opencode.json");
+    let second_config_path = second_private_directory.join("opencode.json");
+    assert_eq!(
+        captured_value(&first_capture, "OPENCODE_CONFIG"),
+        first_config_path.to_str().unwrap()
+    );
+    assert_eq!(
+        captured_value(&second_capture, "OPENCODE_CONFIG"),
+        second_config_path.to_str().unwrap()
+    );
+    assert_eq!(
+        captured_value(&first_capture, "OPENCODE_CONFIG_DIR"),
+        first_expected_home.join("config").to_str().unwrap()
+    );
+    assert_eq!(
+        captured_value(&second_capture, "OPENCODE_CONFIG_DIR"),
+        second_expected_home.join("config").to_str().unwrap()
+    );
 
     let first_config = captured_value(&first_capture, "OPENCODE_CONFIG_CONTENT");
     let second_config = captured_value(&second_capture, "OPENCODE_CONFIG_CONTENT");
@@ -61,6 +91,36 @@ fn concurrent_fake_provider_tasks_isolate_private_state_and_cancel_independently
     assert!(!first_config.contains(&second.server_name));
     assert!(second_config.contains(&second.server_name));
     assert!(!second_config.contains(&first.server_name));
+    let first_file_config: serde_json::Value =
+        serde_json::from_slice(&fs::read(first_config_path).unwrap()).unwrap();
+    let second_file_config: serde_json::Value =
+        serde_json::from_slice(&fs::read(second_config_path).unwrap()).unwrap();
+    let first_runtime_config: serde_json::Value = serde_json::from_str(first_config).unwrap();
+    let second_runtime_config: serde_json::Value = serde_json::from_str(second_config).unwrap();
+    assert_eq!(first_file_config, first_runtime_config);
+    assert_eq!(second_file_config, second_runtime_config);
+    assert_eq!(first_file_config["mcp"].as_object().unwrap().len(), 1);
+    assert_eq!(second_file_config["mcp"].as_object().unwrap().len(), 1);
+    assert!(
+        first_file_config["mcp"]
+            .get(first.server_name.as_str())
+            .is_some()
+    );
+    assert!(
+        first_file_config["mcp"]
+            .get(second.server_name.as_str())
+            .is_none()
+    );
+    assert!(
+        second_file_config["mcp"]
+            .get(second.server_name.as_str())
+            .is_some()
+    );
+    assert!(
+        second_file_config["mcp"]
+            .get(first.server_name.as_str())
+            .is_none()
+    );
 
     first_task.kill();
     wait_for_exit(&first_task, false);

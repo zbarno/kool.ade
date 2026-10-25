@@ -98,7 +98,9 @@ never added to the Docker worker environment.
   only when those values can be obtained without recording secrets.
 - A mock-process integration test proves concurrent same-provider tasks receive
   separate private OpenCode homes/configs and that cancellation kills only the
-  selected process tree. It does not establish vendor session cancellation or
-  cleanup semantics.
+  selected process tree. It captures the child's `OPENCODE_CONFIG` and
+  `OPENCODE_CONFIG_DIR`, reads each generated config file, and verifies that
+  each generated config contains only that task's app server. It does not establish vendor
+  session cancellation or cleanup semantics.
 - Test same-provider task cancellation and private-state cleanup against
   installed provider processes before claiming real-provider equivalence.
