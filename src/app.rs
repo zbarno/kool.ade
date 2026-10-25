@@ -2,6 +2,8 @@
 
 pub(crate) mod bootstrap_approval;
 pub(crate) mod bootstrap_image_prepare;
+#[allow(dead_code)] // Platform repair adapters consume this broker in #346–#349.
+pub(crate) mod bootstrap_remediation;
 pub mod bootstrap_repair_policy;
 pub mod dialogs;
 pub mod root;

@@ -84,6 +84,7 @@ impl SetupTaskStoreV1 {
             started_at_unix_ms: at_unix_ms,
             updated_at_unix_ms: at_unix_ms,
             verified_result: None,
+            remediation_result: None,
             failure: None,
         });
         if task.attempts.len() > MAX_ATTEMPTS {

@@ -4,14 +4,21 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest;
 
 use crate::app::setup_attention::catalog::{
-    Finding, FindingStatus, MachineSnapshot, SCHEMA_VERSION as SNAPSHOT_VERSION,
+    Finding, FindingStatus, SCHEMA_VERSION as SNAPSHOT_VERSION,
 };
 
 mod attempts;
+mod evidence;
 mod reconciliation;
 mod transitions;
 mod validation;
 
+pub use attempts::{
+    RemediationAttemptResultV1, RemediationProcessStatusV1, RemediationVerificationStatusV1,
+    RemediationVerificationV1,
+};
+
+pub(super) use evidence::positive_domain_for;
 pub use transitions::SetupTaskTransitionV1;
 
 pub(super) const FILE_SCHEMA_VERSION: u8 = 2;
@@ -124,6 +131,9 @@ pub struct SetupAttemptV1 {
     pub started_at_unix_ms: u64,
     pub updated_at_unix_ms: u64,
     pub verified_result: Option<VerifiedResultV1>,
+    /// Sanitized repair result and the fresh probe receipt, if repair started.
+    #[serde(default)]
+    pub remediation_result: Option<RemediationAttemptResultV1>,
     /// Enumerated, redacted failure information; raw diagnostics are not stored.
     pub failure: Option<FailureCode>,
 }
@@ -265,52 +275,6 @@ pub fn authorization_scope_digest(
         canonical.join("\n")
     );
     format!("{:x}", sha2::Sha256::digest(binding.as_bytes()))
-}
-
-pub(super) fn positive_domain_for(id: &str, snapshot: &MachineSnapshot) -> Option<String> {
-    if id == "setup:legacy:provider" {
-        return snapshot
-            .checked_domains
-            .iter()
-            .find(|domain| domain.starts_with("cli:"))
-            .cloned();
-    }
-    if matches!(
-        id,
-        "setup:docker:image-unverified"
-            | "setup:docker:image-digest"
-            | "setup:docker:image-architecture"
-            | "setup:images:general:unverified"
-    ) {
-        let architecture = match snapshot.capability_matrix.observed_host_architecture {
-            crate::app::setup_attention::catalog::ImageArchitectureV1::Amd64 => "amd64",
-            crate::app::setup_attention::catalog::ImageArchitectureV1::Arm64 => "arm64",
-            crate::app::setup_attention::catalog::ImageArchitectureV1::Unknown
-            | crate::app::setup_attention::catalog::ImageArchitectureV1::Unsupported => {
-                return None;
-            }
-        };
-        let expected = format!("images:general:{architecture}");
-        return snapshot
-            .checked_domains
-            .iter()
-            .find(|domain| domain.as_str() == expected)
-            .cloned();
-    }
-    if validation::desktop_docker_evidence(id, "docker:desktop")
-        && snapshot
-            .checked_domains
-            .iter()
-            .any(|domain| domain == "docker:desktop")
-    {
-        return Some("docker:desktop".to_owned());
-    }
-    let domain = validation::expected_evidence_domain(id)?;
-    snapshot
-        .checked_domains
-        .iter()
-        .any(|checked| checked == &domain)
-        .then_some(domain)
 }
 
 pub(super) fn record(task: &mut SetupTaskV1, at: u64, generation: u64) {
