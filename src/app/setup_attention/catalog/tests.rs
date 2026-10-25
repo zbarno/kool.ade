@@ -1,6 +1,12 @@
 use super::*;
 use crate::execution::docker::images::{ImageLock, RuntimeProfile};
-use crate::harness::discovery::ExecutionCapability;
+use crate::execution::{
+    contract::ReadinessState,
+    docker::environment::{DockerEnvironmentState, DockerEnvironmentStatus},
+};
+use crate::harness::discovery::{
+    ExecutionCapability, ModelCatalogStatus, ProbeResult, ProbeStatus,
+};
 
 fn docker(state: DockerEnvironmentState, engine_ready: bool) -> DockerEnvironmentStatus {
     DockerEnvironmentStatus {
@@ -14,8 +20,11 @@ fn docker(state: DockerEnvironmentState, engine_ready: bool) -> DockerEnvironmen
         cpu_limits: Some(true),
         memory_limits: Some(true),
         pids_limit: Some(true),
+        cgroups_supported: engine_ready.then_some(true),
         available_images: Vec::new(),
         disk_available_bytes: None,
+        endpoint_fingerprint: None,
+        daemon_identity_fingerprint: None,
     }
 }
 
@@ -173,3 +182,5 @@ fn selected_agent_and_mac_desktop_both_have_independent_readiness() {
     assert_eq!(snap.findings.len(), 1);
     assert_eq!(snap.findings[0].status, FindingStatus::Unsupported);
 }
+
+mod validation;

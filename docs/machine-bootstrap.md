@@ -1,43 +1,71 @@
-# Machine bootstrap and agent-guided setup
+# Machine bootstrap readiness
 
 Tracking: [#337](https://github.com/zbarno/kool.ade/issues/337).
 
-## Implementation status: slice A (initial foundation)
+Kool.ad/e runs a bounded machine readiness scan from first launch, including
+before a workspace or Docker daemon exists. It probes the six supported coding
+agent CLIs and Git independently from Docker. Provider readiness requires a
+current executable/version, authenticated account, fresh model evidence, and
+safe context-only capability. A missing optional provider does not make a
+selected provider unusable, and Kool.ad/e never silently selects a different
+provider.
 
-Kool.ad/e now starts a bounded **coding CLI discovery before Docker readiness**
-even on the Welcome screen. The same six provider probes as Coding Tools are
-used with Docker execution marked unavailable. Only independently verified
-authentication, fresh model evidence and safe context-only planning can qualify
-an agent for bootstrap selection. Unknown auth/model access fails closed.
-Kool.ad/e does not silently select an alternate provider.
+## Readiness data
 
-At this stage, the existing board still projects **one active setup card**.
-CLI setup problems are surfaced before Docker problems, and the first-run
-screen links to Coding Tools. This slice does **not** yet enable a separate
-agent-run setup conversation, install packages, pull images automatically, or
-generate multiple persistent setup tasks. Do not describe it as complete
-hands-free onboarding. The full work plan is in #337.
+`MachineSnapshotV1` is a versioned, typed snapshot. It records per-platform
+capability facts, the state and source generation of each probe, and a
+dependency graph that distinguishes ready, missing, unknown, stale, failed,
+unsupported, blocked, and not-applicable results. Unknown or stale evidence is
+never promoted to ready. Docker images are reported missing only after a
+trusted, queryable engine reports its image inventory; a stopped, rootful,
+inaccessible, or untrusted engine blocks image inspection instead.
 
-## Contract for subsequent implementation slices
+The scan keeps provider output, credentials, model names, executable paths,
+Docker endpoint paths, and daemon identifiers out of the persisted snapshot.
+Endpoint and daemon identity fingerprints are held only in memory to reject a
+result when the selected runtime changes. The worker performs a final bounded
+identity check immediately before saving the result; refresh requests are
+serialized with that local commit. Cancelled or stale scan generations are
+discarded.
 
-- Typed and independent per-prerequisite results; never label an image missing
-  merely because Docker is rootful, stopped or inaccessible.
-- Stable host-local task identity, revision-fenced state and dependencies; no
-  machine setup cards committed to a shared planning Git repository.
-- A supported predetermined remediation operation requires the user's
-  permission, additional native privilege confirmation when necessary, and a
-  **new independent readiness probe** after execution.
-- The bootstrap agent can explain, translate and request typed actions. It
-  cannot invent or execute native shell commands, grant itself host privileges
-  or override Docker rootless policy.
-- If no CLI is installed or authenticated, setup still uses deterministic
-  explanations and actions. Runtime QA remains disabled until #171 passes.
+Machine setup observations live in the application state directory, not in a
+project repository or shared planning artifacts. Reconciliation uses a
+process mutex and OS file lock; older scans cannot replace newer observations.
+An absent task is marked verified only when that exact prerequisite was
+positively rechecked. A saved observation never authorizes a host mutation or
+replaces an execution boundary.
 
-## Acceptance sequence
+## Platform and operation limits
 
-On a disposable Linux machine, verify (1) CLI discovery while Docker is
-rootful or absent, (2) an installed but unauthenticated/unknown provider is
-not considered usable, (3) an explicitly selected verified agent remains
-eligible for context-only assistance, and (4) Docker readiness is reported
-independently. Later slices add rootless setup, image preparation, task
-persistence, guided remediation, and full end-to-end dogfood evidence.
+The capability matrix marks Ubuntu 24.04 x86_64 as the current experimental
+Linux controller combination. It records the Linux family and numeric major
+and minor version using a fixed enum; unrecognized distribution IDs collapse
+to `other`. The probe also checks subordinate UID/GID mapping files, the
+current systemd user socket, and known package-manager executable locations
+without storing account names or raw distro identifiers. Other Linux releases,
+distributions, and architectures remain unverified. Rootless readiness also
+requires a verified rootless Engine, supported cgroups, capacity, and security
+evidence; systemd-user availability alone does not establish execution support.
+
+Windows WSL2, virtualization, and Docker Desktop trust facts that have not been
+directly probed remain unknown. macOS and Windows native execution is planned
+and remains blocked pending native Docker Desktop staging, security, and runtime
+validation. Synthetic platform fixtures validate classification; they do not
+establish support on those hosts.
+
+This readiness layer does not install packages, configure services, pull images
+automatically, or execute model-provided shell commands. A supported
+remediation operation must use a typed action, obtain the required operator
+approval and native privilege confirmation, and be followed by an independent
+readiness probe. If a coding CLI is absent or not usable, deterministic setup
+instructions remain available without agent assistance. Runtime QA stays
+disabled until its separate acceptance criteria pass.
+
+## Acceptance evidence
+
+The automated suite covers typed evidence and dependency consistency,
+redaction, stale generations, exact image prerequisites, setup-task locking,
+and the UI result-acceptance boundary. Release acceptance still requires
+disposable native Linux checks for rootless Docker and Git/provider readiness,
+plus native macOS and Windows Docker Desktop transport and security checks.
+Those host checks must be recorded separately from synthetic fixture results.

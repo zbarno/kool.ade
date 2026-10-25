@@ -13,11 +13,34 @@ fn finish_setup_probe(app: &mut KooladeApp) {
             .is_none_or(std::thread::JoinHandle::is_finished)
         {
             app.poll_setup_attention(&ctx);
-            return;
+            if app.setup_probe.is_none() && app.setup_refresh_pending.is_none() {
+                return;
+            }
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     panic!("provider setup probe did not finish within 120 seconds");
+}
+
+struct SetupTaskStoreFixture {
+    root: std::path::PathBuf,
+    state_path: std::path::PathBuf,
+}
+
+impl SetupTaskStoreFixture {
+    fn attach(app: &mut KooladeApp) -> Self {
+        let root =
+            std::env::temp_dir().join(format!("koolade-setup-task-store-{}", uuid::Uuid::new_v4()));
+        let state_path = root.join("machine-setup").join("tasks.json");
+        app.set_setup_task_state_path(state_path.clone());
+        Self { root, state_path }
+    }
+}
+
+impl Drop for SetupTaskStoreFixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
 }
 
 #[test]
@@ -65,6 +88,7 @@ fn failed_project_planning_preserves_setup_cause_and_retry_on_its_board_card() {
 #[test]
 fn setup_issue_is_a_board_attention_card_with_a_working_recheck_action() {
     let mut app = fixture();
+    let setup_store = SetupTaskStoreFixture::attach(&mut app);
     let issue = crate::app::setup_attention::SetupIssue::provider(
         "Selected provider uses an unsupported API protocol.",
     );
@@ -86,12 +110,14 @@ fn setup_issue_is_a_board_attention_card_with_a_working_recheck_action() {
         );
     }
     click_text(&mut app, &ctx, "Retry setup check");
+    assert!(app.setup_probe.is_some(), "retry must start a fresh scan");
     finish_setup_probe(&mut app);
     assert_eq!(
         app.setup_attention,
         crate::app::setup_attention::detect(),
         "retry must refresh current prerequisite and provider state"
     );
+    assert!(setup_store.state_path.is_file());
 }
 
 #[test]
@@ -135,9 +161,15 @@ fn project_connection_computes_the_local_setup_attention_state() {
         assert!(status.success());
     }
     let mut app = fixture();
+    let setup_store = SetupTaskStoreFixture::attach(&mut app);
     app.conn_path = root.to_string_lossy().into_owned();
     app.submit_connect();
+    assert!(
+        app.setup_probe.is_some(),
+        "project connection must start a scan"
+    );
     finish_setup_probe(&mut app);
     assert_eq!(app.setup_attention, crate::app::setup_attention::detect());
+    assert!(setup_store.state_path.is_file());
     std::fs::remove_dir_all(root).unwrap();
 }

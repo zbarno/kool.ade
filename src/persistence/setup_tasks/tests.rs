@@ -1,11 +1,216 @@
 use super::*;
-use crate::app::setup_attention::catalog::{Finding, FindingStatus, HostKind};
+use crate::app::setup_attention::catalog::{
+    EvidenceCode, EvidenceOrigin, EvidenceState, Finding, FindingStatus, HostCapabilityMatrixV1,
+    HostKind, ImageArchitectureV1, ImageProfileV1, MachineSnapshotV1, PrerequisiteCapability,
+    PrerequisiteDomain, PrerequisiteId, PrerequisiteNodeV1, PrerequisiteSubject, ProbeEvidenceV1,
+    ProbeObservationV1, RemediationEligibility, SupportClaim,
+};
+
+mod reconciliation;
 
 fn snapshot(ids: &[(&str, FindingStatus)], domains: &[&str], at: u64) -> MachineSnapshot {
-    MachineSnapshot {
+    let mut probe_evidence = Vec::new();
+    let mut add = |domain, capability, subject, state, code, origin| {
+        let observation = match capability {
+            PrerequisiteCapability::HostArchitecture => {
+                Some(ProbeObservationV1::HostArchitecture {
+                    observed: ImageArchitectureV1::Amd64,
+                    supported_runtime_architectures: vec![
+                        ImageArchitectureV1::Amd64,
+                        ImageArchitectureV1::Arm64,
+                    ],
+                })
+            }
+            PrerequisiteCapability::LinuxDistribution => {
+                Some(ProbeObservationV1::LinuxDistribution {
+                    distribution: None,
+                    version: None,
+                })
+            }
+            _ => None,
+        };
+        probe_evidence.push(ProbeEvidenceV1 {
+            prerequisite: PrerequisiteId {
+                domain,
+                platform: HostKind::Linux,
+                capability,
+                subject,
+            },
+            state,
+            code,
+            origin,
+            scan_generation: at,
+            source_generation: None,
+            observed_at_unix_ms: at,
+            observation,
+        });
+    };
+    for (capability, state, code) in [
+        (
+            PrerequisiteCapability::HostFamily,
+            EvidenceState::Ready,
+            EvidenceCode::RuntimeTargetDetected,
+        ),
+        (
+            PrerequisiteCapability::HostEdition,
+            EvidenceState::NotApplicable,
+            EvidenceCode::HostEditionNotProbed,
+        ),
+        (
+            PrerequisiteCapability::HostArchitecture,
+            EvidenceState::Ready,
+            EvidenceCode::ArchitectureDetected,
+        ),
+        (
+            PrerequisiteCapability::LinuxDistribution,
+            EvidenceState::Unknown,
+            EvidenceCode::HostCapabilityNotProbed,
+        ),
+        (
+            PrerequisiteCapability::LinuxUidMappings,
+            EvidenceState::Unknown,
+            EvidenceCode::HostCapabilityNotProbed,
+        ),
+        (
+            PrerequisiteCapability::LinuxServiceManager,
+            EvidenceState::Unknown,
+            EvidenceCode::LinuxServiceManagerUnknown,
+        ),
+        (
+            PrerequisiteCapability::LinuxPackageManager,
+            EvidenceState::Unknown,
+            EvidenceCode::HostCapabilityNotProbed,
+        ),
+        (
+            PrerequisiteCapability::Wsl2,
+            EvidenceState::NotApplicable,
+            EvidenceCode::HostCapabilityNotProbed,
+        ),
+        (
+            PrerequisiteCapability::Virtualization,
+            EvidenceState::NotApplicable,
+            EvidenceCode::HostCapabilityNotProbed,
+        ),
+        (
+            PrerequisiteCapability::DockerDesktopTrust,
+            EvidenceState::NotApplicable,
+            EvidenceCode::DockerDesktopTrustUnverified,
+        ),
+    ] {
+        add(
+            PrerequisiteDomain::Host,
+            capability,
+            PrerequisiteSubject::None,
+            state,
+            code,
+            EvidenceOrigin::HostRuntime,
+        );
+    }
+    if domains.contains(&"docker") || domains.iter().any(|domain| domain.starts_with("images:")) {
+        for capability in [
+            PrerequisiteCapability::DockerEngine,
+            PrerequisiteCapability::DockerEndpoint,
+            PrerequisiteCapability::DockerCgroups,
+            PrerequisiteCapability::DockerRootless,
+            PrerequisiteCapability::DockerCapacity,
+            PrerequisiteCapability::DockerSecurity,
+        ] {
+            let code = if capability == PrerequisiteCapability::DockerCgroups {
+                EvidenceCode::DockerCgroupsSupported
+            } else {
+                EvidenceCode::DockerReady
+            };
+            add(
+                PrerequisiteDomain::Docker,
+                capability,
+                PrerequisiteSubject::None,
+                EvidenceState::Ready,
+                code,
+                EvidenceOrigin::DockerDiscovery,
+            );
+        }
+    }
+    if domains.contains(&"git") || domains.contains(&"git:executable") {
+        add(
+            PrerequisiteDomain::Git,
+            PrerequisiteCapability::GitExecutable,
+            PrerequisiteSubject::None,
+            EvidenceState::Ready,
+            EvidenceCode::GitAvailable,
+            EvidenceOrigin::GitCli,
+        );
+    }
+    if domains.contains(&"git") || domains.contains(&"git:identity") {
+        add(
+            PrerequisiteDomain::Git,
+            PrerequisiteCapability::GitIdentity,
+            PrerequisiteSubject::None,
+            EvidenceState::Ready,
+            EvidenceCode::GitIdentityConfigured,
+            EvidenceOrigin::GitCli,
+        );
+    }
+    for domain in domains
+        .iter()
+        .filter(|domain| domain.starts_with("images:"))
+    {
+        let parts = domain.split(':').collect::<Vec<_>>();
+        if let ["images", profile, architecture] = parts.as_slice()
+            && let (Some(profile), Some(architecture)) =
+                (image_profile(profile), image_architecture(architecture))
+        {
+            add(
+                PrerequisiteDomain::Image,
+                PrerequisiteCapability::ApprovedImage,
+                PrerequisiteSubject::Image {
+                    profile,
+                    architecture,
+                },
+                EvidenceState::Ready,
+                EvidenceCode::ImagePresent,
+                EvidenceOrigin::ImageInventory,
+            );
+        }
+    }
+    let prerequisite_graph = probe_evidence
+        .iter()
+        .map(|evidence| PrerequisiteNodeV1 {
+            id: evidence.prerequisite.clone(),
+            state: evidence.state,
+            depends_on: Vec::new(),
+            remediation: RemediationEligibility::NotRequired,
+        })
+        .collect();
+    MachineSnapshotV1 {
         schema_version: SNAPSHOT_VERSION,
+        scan_generation: at,
+        scan_started_at_unix_ms: at,
         host: HostKind::Linux,
+        selected_provider: None,
         checked_at_unix_ms: at,
+        capability_matrix: HostCapabilityMatrixV1 {
+            native_controller: SupportClaim::Unverified,
+            observed_host_architecture: ImageArchitectureV1::Amd64,
+            supported_runtime_architectures: vec![
+                ImageArchitectureV1::Amd64,
+                ImageArchitectureV1::Arm64,
+            ],
+            linux_distribution: EvidenceState::Unknown,
+            linux_distribution_id: None,
+            linux_distribution_version: None,
+            linux_distribution_support: Some(SupportClaim::Unverified),
+            linux_uid_mappings: EvidenceState::Unknown,
+            linux_service_manager: EvidenceState::Unknown,
+            linux_package_manager: EvidenceState::Unknown,
+            linux_rootless_mechanism: Some(
+                crate::app::setup_attention::catalog::LinuxRootlessMechanismV1::Unknown,
+            ),
+            windows_wsl2: EvidenceState::NotApplicable,
+            virtualization: EvidenceState::NotApplicable,
+            docker_desktop_vm_trust: EvidenceState::NotApplicable,
+        },
+        probe_evidence,
+        prerequisite_graph,
         findings: ids
             .iter()
             .map(|(id, status)| Finding {
@@ -21,171 +226,21 @@ fn snapshot(ids: &[(&str, FindingStatus)], domains: &[&str], at: u64) -> Machine
     }
 }
 
-#[test]
-fn two_faults_are_distinct_and_repeated_scan_deduplicates() {
-    let s = snapshot(
-        &[
-            ("setup:cli:codex:auth", FindingStatus::NeedsAttention),
-            ("setup:docker:rootless", FindingStatus::NeedsAttention),
-        ],
-        &["cli", "docker"],
-        10,
-    );
-    let mut store = Store::default();
-    assert!(store.reconcile(&s).unwrap());
-    assert_eq!(store.tasks.len(), 2);
-    assert!(!store.reconcile(&s).unwrap());
-    assert_eq!(store.tasks["setup:docker:rootless"].events.len(), 1);
+fn image_profile(value: &str) -> Option<ImageProfileV1> {
+    match value {
+        "general" => Some(ImageProfileV1::General),
+        "rust" => Some(ImageProfileV1::Rust),
+        "node" => Some(ImageProfileV1::Node),
+        "python" => Some(ImageProfileV1::Python),
+        "go" => Some(ImageProfileV1::Go),
+        _ => None,
+    }
 }
 
-#[test]
-fn unverified_docker_scan_does_not_mark_old_problem_fixed() {
-    let mut store = Store::default();
-    store
-        .reconcile(&snapshot(
-            &[("setup:docker:rootless", FindingStatus::NeedsAttention)],
-            &["docker"],
-            1,
-        ))
-        .unwrap();
-    store.reconcile(&snapshot(&[], &["cli"], 2)).unwrap();
-    assert_eq!(
-        store.tasks["setup:docker:rootless"].state,
-        State::NeedsAttention
-    );
-    store.reconcile(&snapshot(&[], &["docker"], 3)).unwrap();
-    assert_eq!(store.tasks["setup:docker:rootless"].state, State::Verified);
-    store
-        .reconcile(&snapshot(
-            &[("setup:docker:rootless", FindingStatus::NeedsAttention)],
-            &["docker"],
-            4,
-        ))
-        .unwrap();
-    assert_eq!(
-        store.tasks["setup:docker:rootless"].state,
-        State::NeedsAttention
-    );
-}
-
-#[test]
-fn a_changed_docker_failure_is_not_a_verified_repair() {
-    let mut store = Store::default();
-    store
-        .reconcile(&snapshot(
-            &[("setup:docker:rootless", FindingStatus::NeedsAttention)],
-            &[],
-            1,
-        ))
-        .unwrap();
-    // A newly stopped engine is a different problem, not proof rootless
-    // setup succeeded. Only a healthy rootless engine resolves it.
-    store
-        .reconcile(&snapshot(
-            &[("setup:docker:start", FindingStatus::NeedsAttention)],
-            &[],
-            2,
-        ))
-        .unwrap();
-    assert_eq!(
-        store.tasks["setup:docker:rootless"].state,
-        State::NeedsAttention
-    );
-}
-
-#[test]
-fn a_missing_cli_after_auth_failure_is_not_verified_auth() {
-    let mut store = Store::default();
-    store
-        .reconcile(&snapshot(
-            &[("setup:cli:codex:auth", FindingStatus::NeedsAttention)],
-            &[],
-            1,
-        ))
-        .unwrap();
-    store
-        .reconcile(&snapshot(
-            &[("setup:cli:install", FindingStatus::NeedsAttention)],
-            &["cli:scan"],
-            2,
-        ))
-        .unwrap();
-    assert_eq!(
-        store.tasks["setup:cli:codex:auth"].state,
-        State::NeedsAttention
-    );
-}
-
-#[test]
-fn stale_snapshot_cannot_reopen_or_verify_newer_readiness() {
-    let mut store = Store::default();
-    store
-        .reconcile(&snapshot(
-            &[("setup:docker:rootless", FindingStatus::NeedsAttention)],
-            &[],
-            5,
-        ))
-        .unwrap();
-    assert!(store.reconcile(&snapshot(&[], &["docker"], 4)).is_err());
-    assert_eq!(
-        store.tasks["setup:docker:rootless"].state,
-        State::NeedsAttention
-    );
-}
-
-#[test]
-fn persists_and_recovers_independently_of_any_project() {
-    let folder = tempfile::tempdir().unwrap();
-    let path = folder.path().join("state").join("tasks.json");
-    let mut store = Store::default();
-    store
-        .reconcile(&snapshot(
-            &[("setup:cli:install", FindingStatus::NeedsAttention)],
-            &["cli"],
-            4,
-        ))
-        .unwrap();
-    save_to(&path, &store).unwrap();
-    assert_eq!(load_from(&path).unwrap(), store);
-}
-
-#[test]
-fn refuses_invalid_ids_without_modifying_store() {
-    let mut store = Store::default();
-    assert!(
-        store
-            .reconcile(&snapshot(
-                &[("setup:../../secret", FindingStatus::NeedsAttention)],
-                &["cli"],
-                1
-            ))
-            .is_err()
-    );
-    assert!(store.tasks.is_empty());
-}
-
-#[test]
-fn image_evidence_verifies_only_the_exact_profile_and_architecture() {
-    let mut store = Store::default();
-    store
-        .reconcile(&snapshot(
-            &[
-                ("setup:images:general:amd64", FindingStatus::NeedsAttention),
-                ("setup:images:rust:amd64", FindingStatus::NeedsAttention),
-            ],
-            &[],
-            1,
-        ))
-        .unwrap();
-    store
-        .reconcile(&snapshot(&[], &["images:rust:amd64"], 2))
-        .unwrap();
-    assert_eq!(
-        store.tasks["setup:images:rust:amd64"].state,
-        State::Verified
-    );
-    assert_eq!(
-        store.tasks["setup:images:general:amd64"].state,
-        State::NeedsAttention
-    );
+fn image_architecture(value: &str) -> Option<ImageArchitectureV1> {
+    match value {
+        "amd64" => Some(ImageArchitectureV1::Amd64),
+        "arm64" => Some(ImageArchitectureV1::Arm64),
+        _ => None,
+    }
 }

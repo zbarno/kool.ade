@@ -10,7 +10,18 @@ fn tick_refreshes_setup_after_image_preparation_without_open_details() {
     let (release_probe, wait_for_probe) = std::sync::mpsc::channel();
     app.setup_probe = Some(std::thread::spawn(move || {
         let _ = wait_for_probe.recv();
-        None
+        crate::app::root::setup_attention::ProbeOutput::Scanned(
+            crate::app::setup_attention::SetupScanResult {
+                generation: 0,
+                issue: None,
+                snapshot: None,
+                endpoint_fingerprint: None,
+                daemon_identity_fingerprint: None,
+                docker_readiness_fingerprint: None,
+                selected_provider: None,
+                cancelled: true,
+            },
+        )
     }));
     app.setup_image_preparation.queue_success_for_test();
 

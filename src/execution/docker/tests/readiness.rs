@@ -50,6 +50,30 @@ fn api_range_and_resource_limit_checks_fail_closed() {
 }
 
 #[test]
+fn unsupported_or_unknown_cgroups_fail_closed_with_distinct_codes() {
+    let mut engine = snapshot();
+    engine.cgroup_version = Some("3".into());
+    assert_eq!(
+        validate_snapshot(&engine).unwrap_err().code,
+        PrerequisiteCode::CgroupsUnavailable
+    );
+
+    engine = snapshot();
+    engine.cgroup_driver = Some("none".into());
+    assert_eq!(
+        validate_snapshot(&engine).unwrap_err().code,
+        PrerequisiteCode::CgroupsUnavailable
+    );
+
+    engine = snapshot();
+    engine.cgroup_version = None;
+    assert_eq!(
+        validate_snapshot(&engine).unwrap_err().code,
+        PrerequisiteCode::CapabilitiesIncompatible
+    );
+}
+
+#[test]
 fn unconfined_daemon_security_profile_is_rejected() {
     let mut engine = snapshot();
     engine

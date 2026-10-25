@@ -8,6 +8,7 @@ use crate::app::{
 /// remain alive until the restarted app is dropped.
 pub(crate) fn restart_fixture(mut app: KooladeApp) -> KooladeApp {
     let test_temp_roots = std::mem::take(&mut app._test_temp_roots);
+    let setup_task_state_path = app.setup_task_state_path.clone();
     let (repo_root, chat_slug) = match &app.screen {
         Screen::Connected(project) => (project.state.repo_root.clone(), project.chat_slug.clone()),
         _ => panic!("fixture should be connected before restart"),
@@ -16,6 +17,7 @@ pub(crate) fn restart_fixture(mut app: KooladeApp) -> KooladeApp {
 
     KooladeApp {
         _test_temp_roots: test_temp_roots,
+        setup_task_state_path,
         screen: Screen::Connected(Box::new(Project {
             specification_trace_navigation: None,
             task_chats: Default::default(),

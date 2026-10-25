@@ -15,6 +15,7 @@ pub enum PrerequisiteCode {
     UntrustedEndpoint,
     RootfulLinux,
     WindowsContainers,
+    CgroupsUnavailable,
     InsufficientDisk,
     LimitsUnavailable,
     SeccompUnavailable,
@@ -48,6 +49,8 @@ impl std::error::Error for PrerequisiteFailure {}
 #[serde(deny_unknown_fields)]
 pub struct EngineReadiness {
     pub ready: bool,
+    /// Hash of the daemon ID; never contains the daemon's raw identity.
+    pub daemon_identity_fingerprint: Option<String>,
     pub docker_desktop: bool,
     pub daemon_version: Option<String>,
     pub api_version: Option<String>,
@@ -58,6 +61,7 @@ pub struct EngineReadiness {
     pub memory_limit: Option<bool>,
     pub cpu_quota: Option<bool>,
     pub pids_limit: Option<bool>,
+    pub cgroups_supported: Option<bool>,
     pub workspace_staging_available: bool,
     pub disk_available_bytes: Option<u64>,
     pub available_images: Vec<String>,
@@ -117,6 +121,26 @@ pub fn validate_snapshot(snapshot: &EngineSnapshot) -> Result<(), PrerequisiteFa
             "Native Linux requires rootless Docker Engine; membership in the docker group is not sufficient",
             false,
         );
+    }
+    match (
+        snapshot.cgroup_version.as_deref(),
+        snapshot.cgroup_driver.as_deref(),
+    ) {
+        (Some("1" | "2"), Some("systemd" | "cgroupfs")) => {}
+        (Some(_), Some(_)) => {
+            return fail(
+                PrerequisiteCode::CgroupsUnavailable,
+                "Docker reports an unsupported cgroup version or driver",
+                false,
+            );
+        }
+        _ => {
+            return fail(
+                PrerequisiteCode::CapabilitiesIncompatible,
+                "Docker cgroup version and driver could not be verified",
+                false,
+            );
+        }
     }
     if !snapshot.memory_limit || !snapshot.cpu_quota || !snapshot.pids_limit {
         return fail(
