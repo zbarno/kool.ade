@@ -2,42 +2,59 @@
 
 Tracking: [#337](https://github.com/zbarno/kool.ade/issues/337).
 
-## Implementation status: slice A (initial foundation)
+## Implementation status: slices A-C (incremental foundation)
 
-Kool.ad/e now starts a bounded **coding CLI discovery before Docker readiness**
-even on the Welcome screen. The same six provider probes as Coding Tools are
-used with Docker execution marked unavailable. Only independently verified
-authentication, fresh model evidence and safe context-only planning can qualify
-an agent for bootstrap selection. Unknown auth/model access fails closed.
-Kool.ad/e does not silently select an alternate provider.
+Kool.ad/e starts bounded coding CLI discovery before Docker readiness, even
+from the Welcome screen. Unknown authentication or model access fails closed;
+the app does not silently select another provider. The typed readiness catalog
+now produces independent findings for coding agents, Docker and approved
+images.
 
-At this stage, the existing board still projects **one active setup card**.
-CLI setup problems are surfaced before Docker problems, and the first-run
-screen links to Coding Tools. This slice does **not** yet enable a separate
-agent-run setup conversation, install packages, pull images automatically, or
-generate multiple persistent setup tasks. Do not describe it as complete
-hands-free onboarding. The full work plan is in #337.
+Readiness findings are reconciled into a machine-local task collection under
+operator state, outside project repositories. The versioned store migrates the
+previous schema, including generic Docker/provider cards that must be rechecked
+before they can be replaced by specific findings. It fences stale scans with a
+durable generation,
+uses atomic writes and an inter-process lock, and bounds task, attempt and event
+history. A validated dependency DAG gives stable task order, detects cycles and
+projects unresolved prerequisites as blockers. Fresh, domain-matched probe
+evidence is required to verify a task; a regression reopens it. Restart
+recovery interrupts in-flight work and removes active authorization bindings,
+so an operation or approval is never replayed automatically.
 
-## Contract for subsequent implementation slices
+The Welcome screen projects the task collection, and Kanban shows distinct
+cards with setup task details.
+Attempt and authorization records are typed audit metadata only: this store
+does not execute repairs, grant host access or make a recorded receipt an
+authority to mutate the machine. The separate remediation, assistant and
+platform-onboarding issues remain incremental work. Do not describe these
+slices as complete hands-free onboarding or certified cross-platform support.
 
-- Typed and independent per-prerequisite results; never label an image missing
-  merely because Docker is rootful, stopped or inaccessible.
-- Stable host-local task identity, revision-fenced state and dependencies; no
-  machine setup cards committed to a shared planning Git repository.
-- A supported predetermined remediation operation requires the user's
-  permission, additional native privilege confirmation when necessary, and a
-  **new independent readiness probe** after execution.
-- The bootstrap agent can explain, translate and request typed actions. It
-  cannot invent or execute native shell commands, grant itself host privileges
-  or override Docker rootless policy.
-- If no CLI is installed or authenticated, setup still uses deterministic
-  explanations and actions. Runtime QA remains disabled until #171 passes.
+## Safety contract
 
-## Acceptance sequence
+- A Docker or image finding is created only from its own typed probe evidence.
+  An unavailable, stopped, rootful or untrusted daemon does not prove an image
+  is missing.
+- Machine setup records live under operator-local app state and are not added
+  to `.koolade-packet`, project planning Git, task clones or shared team state.
+- Task identity is stable across workspaces on one machine; a new scan cannot
+  duplicate an existing prerequisite or overwrite a newer observation.
+- A verified state requires fresh authoritative evidence for that task's
+  readiness domain. A model response, unrelated failure or stale scan is not
+  evidence of success.
+- Persisted approval metadata does not execute an operation. Any future
+  remediation must use a typed allowlist, genuine user consent, any required
+  native privilege prompt, and a new independent readiness probe.
+- The bootstrap assistant can explain choices and request typed actions. It
+  cannot invent or execute host shell commands, elevate itself or override
+  Docker rootless policy. Deterministic setup guidance remains available when
+  no coding CLI is installed or authenticated.
+- Runtime QA remains disabled until #171 passes.
 
-On a disposable Linux machine, verify (1) CLI discovery while Docker is
-rootful or absent, (2) an installed but unauthenticated/unknown provider is
-not considered usable, (3) an explicitly selected verified agent remains
-eligible for context-only assistance, and (4) Docker readiness is reported
-independently. Later slices add rootless setup, image preparation, task
-persistence, guided remediation, and full end-to-end dogfood evidence.
+## Remaining validation and work
+
+Human validation is still required for the novice first-run flow and real-host
+setup behavior. Linux rootless remediation and smoke validation, macOS Docker
+Desktop (Intel and Apple Silicon), Windows WSL2 x64, signed native packaging,
+and the complete security/usability release gate remain tracked by #342–#351.
+Mocks or Linux CI do not certify those platforms.

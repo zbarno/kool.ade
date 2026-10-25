@@ -68,7 +68,7 @@ fn setup_issue_is_a_board_attention_card_with_a_working_recheck_action() {
     let issue = crate::app::setup_attention::SetupIssue::provider(
         "Selected provider uses an unsupported API protocol.",
     );
-    app.setup_attention = Some(issue.clone());
+    app.setup_attention.push(issue.clone());
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     let output = click_text(&mut app, &ctx, issue.title);
@@ -87,23 +87,29 @@ fn setup_issue_is_a_board_attention_card_with_a_working_recheck_action() {
     }
     click_text(&mut app, &ctx, "Retry setup check");
     finish_setup_probe(&mut app);
+    assert!(app.setup_attention.is_empty());
     assert_eq!(
-        app.setup_attention,
-        crate::app::setup_attention::detect(),
-        "retry must refresh current prerequisite and provider state"
+        app.machine_setup_tasks,
+        crate::persistence::setup_tasks::load()
+            .unwrap()
+            .tasks
+            .into_values()
+            .collect::<Vec<_>>(),
+        "retry must refresh current persisted prerequisite state"
     );
 }
 
 #[test]
 fn setup_attention_card_opens_workspace_settings() {
     let mut app = fixture();
-    app.setup_attention = Some(crate::app::setup_attention::SetupIssue::provider(
-        "Selected provider uses an unsupported API protocol.",
-    ));
+    app.setup_attention
+        .push(crate::app::setup_attention::SetupIssue::provider(
+            "Selected provider uses an unsupported API protocol.",
+        ));
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     frame(&mut app, &ctx, vec![]);
-    let title = app.setup_attention.as_ref().unwrap().title;
+    let title = app.setup_attention.first().unwrap().title;
     click_text(&mut app, &ctx, title);
     click_text(&mut app, &ctx, "Open workspace settings");
     let output = frame(&mut app, &ctx, vec![]);
@@ -138,6 +144,14 @@ fn project_connection_computes_the_local_setup_attention_state() {
     app.conn_path = root.to_string_lossy().into_owned();
     app.submit_connect();
     finish_setup_probe(&mut app);
-    assert_eq!(app.setup_attention, crate::app::setup_attention::detect());
+    assert!(app.setup_attention.is_empty());
+    assert_eq!(
+        app.machine_setup_tasks,
+        crate::persistence::setup_tasks::load()
+            .unwrap()
+            .tasks
+            .into_values()
+            .collect::<Vec<_>>()
+    );
     std::fs::remove_dir_all(root).unwrap();
 }

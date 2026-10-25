@@ -148,6 +148,19 @@ impl KooladeApp {
                         }
                     }
                 }
+                let active_setup_tasks = self
+                    .machine_setup_tasks
+                    .iter()
+                    .filter(|task| task.is_active())
+                    .collect::<Vec<_>>();
+                let setup_attention = self
+                    .setup_attention
+                    .iter()
+                    .filter(|issue| {
+                        !crate::app::setup_attention::has_specific_task(&active_setup_tasks, issue)
+                    })
+                    .cloned()
+                    .collect();
                 crate::ui::planning_board::ViewModel {
                     task_documents: p.task_documents.clone(),
                     planning_work,
@@ -159,7 +172,7 @@ impl KooladeApp {
                     self_improvement_runs,
                     opportunity_error,
                     opportunity_discovery_settings,
-                    setup_attention: self.setup_attention.clone(),
+                    setup_attention,
                     setup_tasks: self.machine_setup_tasks.clone(),
                     setup_checking: self.setup_probe.is_some(),
                     eligible_item_ids,

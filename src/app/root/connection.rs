@@ -263,7 +263,7 @@ impl KooladeApp {
         match result {
             Ok(mut project) => {
                 self.attention.clear();
-                self.setup_attention = None;
+                self.setup_attention.clear();
                 self.setup_attention_notified = None;
                 self.refresh_setup_attention(false);
                 self.refresh_derived(&project);

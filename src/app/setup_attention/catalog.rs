@@ -5,14 +5,13 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::execution::{
-    contract::ReadinessState,
-    docker::environment::{DockerEnvironmentState, DockerEnvironmentStatus},
-};
-use crate::harness::discovery::{ModelCatalogStatus, ProbeResult, ProbeStatus};
+use crate::execution::docker::environment::{DockerEnvironmentState, DockerEnvironmentStatus};
+use crate::harness::discovery::ProbeResult;
 
 pub const SCHEMA_VERSION: u8 = 1;
 
+mod agents;
+mod dependencies;
 mod images;
 #[cfg(test)]
 mod tests;
@@ -92,16 +91,6 @@ pub struct MachineSnapshot {
     pub checked_domains: Vec<String>,
 }
 
-fn authenticated_context_agent(probe: &ProbeResult) -> bool {
-    probe.status == ProbeStatus::Available
-        && probe.binary_path.is_some()
-        && probe.version.is_some()
-        && probe.authentication == ReadinessState::Ready
-        && probe.execution_capability.safe_for_planning == ReadinessState::Ready
-        && probe.model_catalog_status == ModelCatalogStatus::Fresh
-        && (!probe.models.is_empty() || probe.default_model.is_some())
-}
-
 /// Pure, deterministic interpretation. Missing image findings require
 /// engine_ready; a rootful or unqueryable engine is NOT an image failure.
 pub fn assess(
@@ -111,80 +100,7 @@ pub fn assess(
     host: HostKind,
     checked_at_unix_ms: u64,
 ) -> MachineSnapshot {
-    let mut findings = Vec::new();
-    let installed: Vec<_> = probes.iter().filter(|p| p.binary_path.is_some()).collect();
-    let verified: Vec<_> = installed
-        .iter()
-        .copied()
-        .filter(|p| authenticated_context_agent(p))
-        .collect();
-
-    if installed.is_empty() {
-        let crashed = probes.iter().any(|p| p.status == ProbeStatus::Failed);
-        findings.push(if crashed {
-            Finding::unverified(
-                "setup:cli:scan",
-                "Check coding agent detection",
-                "One of the coding agent checks did not finish reliably.",
-                "Retry Coding Tools discovery before choosing an installer.",
-            )
-        } else {
-            Finding::action(
-                "setup:cli:install",
-                "Choose a coding agent",
-                "No supported coding agent is installed. Kool.ad/e can guide setup without one.",
-                "Choose an agent in Coding Tools to get its official installation steps.",
-            )
-        });
-    } else {
-        // Only the chosen provider (or installed candidates before selection)
-        // should create configuration cards, not every absent optional CLI.
-        for probe in installed {
-            let prefix = format!("setup:cli:{}", probe.provider_id);
-            if probe.authentication == ReadinessState::Unavailable {
-                findings.push(Finding::action(
-                    format!("{prefix}:auth"),
-                    "Connect your coding agent account",
-                    "The installed coding agent needs an authenticated account.",
-                    "Sign in using the agent's official account flow and retry verification.",
-                ));
-            } else if probe.authentication == ReadinessState::Unknown {
-                findings.push(Finding::unverified(
-                    format!("{prefix}:verify"),
-                    "Verify coding agent access",
-                    "This coding agent is installed, but its sign-in status could not be verified.",
-                    "Review this agent in Coding Tools; unknown access is not treated as ready.",
-                ));
-            } else if probe.model_catalog_status != ModelCatalogStatus::Fresh
-                || (probe.models.is_empty() && probe.default_model.is_none())
-            {
-                findings.push(Finding::unverified(
-                    format!("{prefix}:models"),
-                    "Configure a usable AI model",
-                    "This agent's current model availability is not verified.",
-                    "Select a supported model and refresh this agent's model catalog.",
-                ));
-            } else if !authenticated_context_agent(probe) {
-                findings.push(Finding::unverified(
-                    format!("{prefix}:capability"),
-                    "Verify safe agent mode",
-                    "The coding agent cannot yet be verified for context-only setup assistance.",
-                    "Review its capability diagnostics; host tools remain disabled.",
-                ));
-            }
-        }
-        if !verified.is_empty()
-            && !selected_agent
-                .is_some_and(|id| verified.iter().any(|probe| probe.provider_id == id))
-        {
-            findings.push(Finding::action(
-                "setup:cli:select",
-                "Choose your setup assistant",
-                "An agent is ready, but none has been explicitly selected.",
-                "Select an authenticated agent in Coding Tools.",
-            ));
-        }
-    }
+    let mut findings = agents::findings(probes, selected_agent);
 
     let docker_blocker = match docker.state {
         DockerEnvironmentState::NotInstalled => Some(Finding::action(
@@ -205,11 +121,14 @@ pub fn assess(
             "Kool.ad/e cannot access the selected local Docker service.",
             "Check the service owner and supported user permissions.",
         )),
-        DockerEnvironmentState::RootfulLinuxRejected => Some(Finding::action(
-            "setup:docker:rootless",
-            "Configure secure Docker",
-            "Native Linux Docker is running with elevated daemon privileges.",
-            "Configure the current user's rootless Docker Engine and verify its socket.",
+        DockerEnvironmentState::RootfulLinuxRejected => Some(dependencies::requires(
+            Finding::action(
+                "setup:docker:rootless",
+                "Configure secure Docker",
+                "Native Linux Docker is running with elevated daemon privileges.",
+                "Configure the current user's rootless Docker Engine and verify its socket.",
+            ),
+            [dependencies::docker_engine()],
         )),
         DockerEnvironmentState::DesktopVmRequired => Some(Finding::action(
             "setup:docker:desktop",
@@ -223,11 +142,17 @@ pub fn assess(
             "The selected Docker endpoint cannot be trusted.",
             "Choose the locally verified Docker Engine or Docker Desktop connection.",
         )),
-        DockerEnvironmentState::CapabilitiesIncompatible => Some(Finding::unverified(
-            "setup:docker:capabilities",
-            "Resolve Docker compatibility",
-            "The Docker engine did not pass the required security or resource checks.",
-            "Review the specific Engine diagnostic before changing settings.",
+        DockerEnvironmentState::CapabilitiesIncompatible => Some(dependencies::requires(
+            Finding::unverified(
+                "setup:docker:capabilities",
+                "Resolve Docker compatibility",
+                "The Docker engine did not pass the required security or resource checks.",
+                "Review the specific Engine diagnostic before changing settings.",
+            ),
+            [
+                dependencies::docker_engine(),
+                dependencies::docker_rootless(),
+            ],
         )),
         DockerEnvironmentState::MissingApprovedImage | DockerEnvironmentState::Ready => None,
     };
@@ -269,29 +194,31 @@ pub fn assess(
         checked_at_unix_ms,
         findings,
         checked_domains: {
-            // Readiness, not merely completed probing, can resolve old tasks.
-            // A stopped/rootful/untrusted Engine cannot prove that an earlier
-            // Docker prerequisite was fixed. Likewise, an unknown CLI account
-            // cannot verify a previously failing provider.
-            let mut domains = Vec::new();
-            if probes.iter().any(|probe| probe.binary_path.is_some()) {
-                domains.push("cli:install".into());
-            }
-            if probes
-                .iter()
-                .all(|probe| probe.status != ProbeStatus::Failed)
-            {
-                domains.push("cli:scan".into());
-            }
-            for probe in &verified {
-                domains.push(format!("cli:{}", probe.provider_id));
-            }
-            if selected_agent.is_some_and(|id| verified.iter().any(|probe| probe.provider_id == id))
-            {
-                domains.push("cli:select".into());
-            }
+            let mut domains = agents::checked_domains(probes, selected_agent);
+            let engine_contacted = docker.engine_ready
+                || matches!(
+                    docker.state,
+                    DockerEnvironmentState::RootfulLinuxRejected
+                        | DockerEnvironmentState::CapabilitiesIncompatible
+                );
             if docker.engine_ready {
                 domains.push("docker".into());
+            }
+            if engine_contacted {
+                domains.push("docker:engine".into());
+            }
+            if host == HostKind::Linux
+                && engine_contacted
+                && !docker.desktop_vm
+                && docker.rootless == Some(true)
+            {
+                domains.push("docker:rootless".into());
+            }
+            if matches!(
+                docker.state,
+                DockerEnvironmentState::MissingApprovedImage | DockerEnvironmentState::Ready
+            ) {
+                domains.push("docker:capabilities".into());
             }
             domains.extend(images::checked_domains(docker, host));
             domains

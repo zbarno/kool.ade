@@ -6,6 +6,8 @@ use crate::{
     },
 };
 
+use super::dependencies;
+
 pub(super) fn findings(docker: &DockerEnvironmentStatus, host: HostKind) -> Vec<Finding> {
     if host != HostKind::Linux
         || !docker.engine_ready
@@ -22,18 +24,34 @@ pub(super) fn findings(docker: &DockerEnvironmentStatus, host: HostKind) -> Vec<
         return Vec::new();
     };
     match ImageLock::bundled().and_then(|lock| lock.select(RuntimeProfile::General, architecture)) {
-        Ok(image) if !docker.available_images.contains(&image.reference) => vec![Finding::action(
-            format!("setup:images:general:{architecture}"),
-            "Prepare the approved runtime image",
-            "Docker is accessible but the locked general runtime image has not been verified.",
-            "Review and approve the pinned image download and isolation smoke test.",
-        )],
+        Ok(image) if !docker.available_images.contains(&image.reference) => {
+            vec![dependencies::requires(
+                Finding::action(
+                    format!("setup:images:general:{architecture}"),
+                    "Prepare the approved runtime image",
+                    "Docker is accessible but the locked general runtime image has not been verified.",
+                    "Review and approve the pinned image download and isolation smoke test.",
+                ),
+                [
+                    dependencies::docker_engine(),
+                    dependencies::docker_rootless(),
+                    dependencies::docker_capabilities(),
+                ],
+            )]
+        }
         Ok(_) => Vec::new(),
-        Err(_) => vec![Finding::unverified(
-            "setup:images:general:unverified",
-            "Verify the approved runtime image",
-            "The bundled general image lock could not be verified for this Engine.",
-            "Refresh the application image metadata before preparing a runtime image.",
+        Err(_) => vec![dependencies::requires(
+            Finding::unverified(
+                "setup:images:general:unverified",
+                "Verify the approved runtime image",
+                "The bundled general image lock could not be verified for this Engine.",
+                "Refresh the application image metadata before preparing a runtime image.",
+            ),
+            [
+                dependencies::docker_engine(),
+                dependencies::docker_rootless(),
+                dependencies::docker_capabilities(),
+            ],
         )],
     }
 }

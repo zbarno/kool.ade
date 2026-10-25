@@ -109,11 +109,12 @@ pub struct KooladeApp {
     /// Cached routing identity (rebuilt after connect/adoption/settings).
     cached_user: CurrentUser,
     attention: std::collections::BTreeMap<std::path::PathBuf, attention::Status>,
-    setup_attention: Option<super::setup_attention::SetupIssue>,
+    setup_attention: Vec<super::setup_attention::SetupIssue>,
     /// Read-only projection of the machine-local setup task store.
     machine_setup_tasks: Vec<crate::persistence::setup_tasks::LocalTask>,
     setup_attention_notified: Option<String>,
-    setup_probe: Option<std::thread::JoinHandle<Option<super::setup_attention::SetupIssue>>>,
+    setup_probe:
+        Option<std::thread::JoinHandle<anyhow::Result<crate::persistence::setup_tasks::Store>>>,
     setup_retry_requested: bool,
     setup_refresh_pending: Option<bool>,
     setup_image_preparation: super::bootstrap_image_prepare::Controller,
@@ -282,7 +283,9 @@ impl Default for KooladeApp {
         // Docker daemon exists. Tests opt in explicitly to avoid probing the
         // developer machine while constructing UI fixtures.
         #[cfg(not(test))]
-        let setup_probe = Some(std::thread::spawn(super::setup_attention::detect));
+        let setup_probe = Some(std::thread::spawn(
+            super::setup_attention::initialize_and_detect,
+        ));
         #[cfg(test)]
         let setup_probe = None;
 
@@ -309,7 +312,7 @@ impl Default for KooladeApp {
             clone_computation_override: None,
             cached_user: CurrentUser::new("", Vec::new()),
             attention: Default::default(),
-            setup_attention: None,
+            setup_attention: Vec::new(),
             machine_setup_tasks: Vec::new(),
             setup_attention_notified: None,
             setup_probe,
