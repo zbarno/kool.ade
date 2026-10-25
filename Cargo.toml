@@ -12,6 +12,7 @@ path = "src/main.rs"
 [[bin]]
 name = "koolade-qa-desktop"
 path = "src/bin/koolade_qa_desktop.rs"
+required-features = ["qa-desktop-driver-image"]
 
 [[bin]]
 name = "koolade-qa-desktop-fixture"
