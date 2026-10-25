@@ -23,8 +23,11 @@ fn docker_ready(available_images: Vec<String>) -> DockerEnvironmentStatus {
         cpu_limits: Some(true),
         memory_limits: Some(true),
         pids_limit: Some(true),
+        cgroups_supported: Some(true),
         available_images,
         disk_available_bytes: None,
+        endpoint_fingerprint: None,
+        daemon_identity_fingerprint: None,
     }
 }
 
@@ -141,8 +144,11 @@ fn preview_relay_is_never_claimed_ready_without_docker() {
         cpu_limits: None,
         memory_limits: None,
         pids_limit: None,
+        cgroups_supported: None,
         available_images: Vec::new(),
         disk_available_bytes: None,
+        endpoint_fingerprint: None,
+        daemon_identity_fingerprint: None,
     };
     assert!(relay_status(&status).contains("unavailable"));
 }

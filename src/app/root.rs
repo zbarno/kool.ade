@@ -38,6 +38,7 @@ mod desktop_app;
 mod dialogs;
 mod implementation_controller;
 mod implementation_decision;
+mod initialization;
 mod opportunity_actions;
 pub(crate) mod plan_review;
 pub(crate) mod spec_reconciliation;
@@ -113,7 +114,12 @@ pub struct KooladeApp {
     /// Read-only projection of the machine-local setup task store.
     machine_setup_tasks: Vec<crate::persistence::setup_tasks::LocalTask>,
     setup_attention_notified: Option<String>,
-    setup_probe: Option<std::thread::JoinHandle<Option<super::setup_attention::SetupIssue>>>,
+    setup_probe: Option<std::thread::JoinHandle<setup_attention::ProbeOutput>>,
+    setup_probe_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    setup_commit_lock: std::sync::Arc<std::sync::Mutex<()>>,
+    #[cfg(test)]
+    setup_task_state_path: std::path::PathBuf,
+    setup_scan_generation: u64,
     setup_retry_requested: bool,
     setup_refresh_pending: Option<bool>,
     setup_image_preparation: super::bootstrap_image_prepare::Controller,
@@ -272,56 +278,6 @@ fn application_icon() -> egui::IconData {
         rgba: icon.into_raw(),
         width: ICON_SIZE,
         height: ICON_SIZE,
-    }
-}
-
-impl Default for KooladeApp {
-    fn default() -> Self {
-        let toasts = ToastQueue::default();
-        // Bootstrap must also run on the Welcome screen, before a workspace or
-        // Docker daemon exists. Tests opt in explicitly to avoid probing the
-        // developer machine while constructing UI fixtures.
-        #[cfg(not(test))]
-        let setup_probe = Some(std::thread::spawn(super::setup_attention::detect));
-        #[cfg(test)]
-        let setup_probe = None;
-
-        Self {
-            task_harness: None,
-            pending_feature_generation: None,
-            screen: Screen::Welcome,
-            spawn_target_override: None,
-            dialog: None,
-            toasts,
-            conn_path: std::env::current_dir()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default(),
-            conn_create_title: String::new(),
-            conn_github: String::new(),
-            conn_error: None,
-            session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
-            last_git_refresh: Instant::now(),
-            display_refresh: None,
-            clone_job: None,
-            planning_sync_job: None,
-            conn_join_remote: String::new(),
-            conn_workspace_id: None,
-            clone_computation_override: None,
-            cached_user: CurrentUser::new("", Vec::new()),
-            attention: Default::default(),
-            setup_attention: None,
-            machine_setup_tasks: Vec::new(),
-            setup_attention_notified: None,
-            setup_probe,
-            setup_retry_requested: false,
-            setup_refresh_pending: None,
-            setup_image_preparation: super::bootstrap_image_prepare::Controller::default(),
-            #[cfg(test)]
-            attention_fixture: Default::default(),
-            #[cfg(test)]
-            _test_temp_roots: Vec::new(),
-            synth: Vec::new(),
-        }
     }
 }
 

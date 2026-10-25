@@ -9,8 +9,9 @@ use crate::harness::discovery::{ModelCatalogStatus, ProbeResult, ProbeStatus};
 
 use super::SetupIssue;
 
-fn verified_for_bootstrap(report: &ProbeResult) -> bool {
+fn verified_for_bootstrap(report: &ProbeResult, generation: u64) -> bool {
     report.status == ProbeStatus::Available
+        && report.run_generation == generation
         && report.binary_path.is_some()
         && report.version.is_some()
         && report.authentication == ReadinessState::Ready
@@ -21,10 +22,14 @@ fn verified_for_bootstrap(report: &ProbeResult) -> bool {
 
 /// Returns the first actionable CLI prerequisite, if any. Docker readiness is
 /// intentionally not an input: the same result must hold for a rootful host.
-pub(super) fn assess(reports: &[ProbeResult], selected: Option<&str>) -> Option<SetupIssue> {
+pub(super) fn assess(
+    reports: &[ProbeResult],
+    selected: Option<&str>,
+    generation: u64,
+) -> Option<SetupIssue> {
     let verified = reports
         .iter()
-        .filter(|report| verified_for_bootstrap(report))
+        .filter(|report| verified_for_bootstrap(report, generation))
         .collect::<Vec<_>>();
     if selected.is_some_and(|id| verified.iter().any(|report| report.provider_id == id)) {
         return None;
@@ -88,36 +93,39 @@ mod tests {
     #[test]
     fn first_run_without_any_cli_requests_installation() {
         let reports = vec![probe("pi", false, ReadinessState::Unknown)];
-        assert_eq!(assess(&reports, None).unwrap().id, "setup:cli:install");
+        assert_eq!(assess(&reports, None, 0).unwrap().id, "setup:cli:install");
     }
 
     #[test]
     fn rootful_docker_cannot_hide_a_valid_existing_agent() {
         let reports = vec![probe("codex", true, ReadinessState::Ready)];
         let docker_issue = || SetupIssue::docker("Rootful Linux rejected");
-        let first = assess(&reports, Some("codex")).or_else(|| Some(docker_issue()));
+        let first = assess(&reports, Some("codex"), 0).or_else(|| Some(docker_issue()));
         assert_eq!(first.unwrap().id, "setup:docker");
-        assert_eq!(assess(&reports, None).unwrap().id, "setup:cli:select");
+        assert_eq!(assess(&reports, None, 0).unwrap().id, "setup:cli:select");
     }
 
     #[test]
     fn failed_probe_is_not_misreported_as_missing_software() {
         let mut broken = probe("codex", false, ReadinessState::Unknown);
         broken.status = ProbeStatus::Failed;
-        assert_eq!(assess(&[broken], None).unwrap().id, "setup:cli:verify");
+        assert_eq!(assess(&[broken], None, 0).unwrap().id, "setup:cli:verify");
     }
 
     #[test]
     fn authentication_missing_is_distinct_from_installation() {
         let reports = vec![probe("pi", true, ReadinessState::Unavailable)];
-        assert_eq!(assess(&reports, None).unwrap().id, "setup:cli:authenticate");
+        assert_eq!(
+            assess(&reports, None, 0).unwrap().id,
+            "setup:cli:authenticate"
+        );
     }
 
     #[test]
     fn unknown_authentication_must_not_be_treated_as_ready() {
         let reports = vec![probe("copilot", true, ReadinessState::Unknown)];
         assert_eq!(
-            assess(&reports, Some("copilot")).unwrap().id,
+            assess(&reports, Some("copilot"), 0).unwrap().id,
             "setup:cli:verify"
         );
     }
@@ -127,7 +135,7 @@ mod tests {
         let mut report = probe("claude", true, ReadinessState::Ready);
         report.model_catalog_status = ModelCatalogStatus::NotChecked;
         assert_eq!(
-            assess(&[report], Some("claude")).unwrap().id,
+            assess(&[report], Some("claude"), 0).unwrap().id,
             "setup:cli:verify"
         );
     }
@@ -138,10 +146,20 @@ mod tests {
             probe("pi", true, ReadinessState::Ready),
             probe("codex", true, ReadinessState::Ready),
         ];
-        assert!(assess(&reports, Some("codex")).is_none());
+        assert!(assess(&reports, Some("codex"), 0).is_none());
         assert_eq!(
-            assess(&reports, Some("missing")).unwrap().id,
+            assess(&reports, Some("missing"), 0).unwrap().id,
             "setup:cli:select"
+        );
+    }
+
+    #[test]
+    fn stale_provider_generation_cannot_qualify_for_bootstrap() {
+        let mut report = probe("codex", true, ReadinessState::Ready);
+        report.run_generation = 3;
+        assert_eq!(
+            assess(&[report], Some("codex"), 4).unwrap().id,
+            "setup:cli:verify"
         );
     }
 }

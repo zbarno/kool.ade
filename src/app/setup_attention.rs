@@ -5,6 +5,12 @@
 
 mod bootstrap;
 pub(crate) mod catalog;
+mod scan;
+#[cfg(not(test))]
+pub use scan::verify_before_commit;
+#[cfg(test)]
+pub(crate) use scan::verify_before_commit_with_state_path;
+pub use scan::{SetupScanResult, SetupScanVerification, scan};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SetupIssue {
@@ -93,29 +99,27 @@ impl SetupIssue {
             next_action: "Update the selected provider settings, then retry this setup check.",
         }
     }
+
+    pub fn bootstrap(detail: impl Into<String>) -> Self {
+        Self {
+            id: "setup:bootstrap",
+            title: "Machine setup needs attention",
+            issue: detail.into(),
+            why: "Kool.ad/e checks the execution environment and its approved runtime images before coding tasks can start.",
+            recommendation: "Review the specific machine setup task and complete its verified next step.",
+            impact: "Coding tasks remain blocked while a required machine prerequisite is unresolved.",
+            next_action: "Complete the listed prerequisite, then retry this setup check.",
+        }
+    }
 }
 
-/// CLI discovery must precede Docker: a broken sandbox cannot prevent bootstrap
-/// agent detection or force a fallback to host repository execution.
+#[cfg(test)]
 pub fn detect() -> Option<SetupIssue> {
-    let (settings, _) = crate::persistence::harness_settings::load();
-    let probes = crate::app::dialogs::probe_bootstrap_clis();
-    let selected = settings.default_harness.as_deref();
-    let cli_issue = bootstrap::assess(&probes, selected);
-    let docker = crate::execution::docker::environment::DockerEnvironmentStatus::detect();
-    let snapshot = catalog::assess(
-        &probes,
-        selected,
-        &docker,
-        catalog::HostKind::current(),
-        crate::persistence::harness_settings::current_unix_ms(),
-    );
-    if let Err(error) = crate::persistence::setup_tasks::reconcile_live(&snapshot) {
-        return Some(SetupIssue::provider(format!(
-            "Could not safely save machine setup diagnostics: {error}"
-        )));
-    }
-    cli_issue.or_else(|| (!docker.ready()).then(|| SetupIssue::docker(docker.message)))
+    scan(
+        0,
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )
+    .issue
 }
 
 #[cfg(test)]

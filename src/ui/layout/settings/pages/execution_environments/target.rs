@@ -39,12 +39,13 @@ pub(super) fn status(
             "Automatic selection uses only eligible trusted workers; local Docker is {}.",
             state_label(local.state)
         ),
-        TargetPreference::Local
-            if local.state == crate::execution::docker::environment::DockerEnvironmentState::Ready =>
+        TargetPreference::Local if local.local_execution_ready()
+            && local.state == crate::execution::docker::environment::DockerEnvironmentState::Ready =>
         {
             "Selected target: local Docker is ready.".into()
         }
-        TargetPreference::Local if local.ready() => "Docker is usable; an approved image will be pulled from the bundled digest lock when needed.".into(),
+        TargetPreference::Local if local.local_execution_ready() => "Docker is usable; an approved image will be pulled from the bundled digest lock when needed.".into(),
+        TargetPreference::Local if local.ready() => "The Docker engine is reachable, but local task execution is enabled only for verified native Linux rootless Engine.".into(),
         TargetPreference::Local => format!("Selected target is unavailable: {}.", local.message),
         TargetPreference::Worker(id) => workers
             .iter()

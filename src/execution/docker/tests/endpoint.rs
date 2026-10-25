@@ -54,6 +54,35 @@ fn endpoint_rejects_arbitrary_unix_sockets() {
 }
 
 #[test]
+fn endpoint_fingerprint_is_redacted_and_changes_with_local_endpoint_identity() {
+    let rootful = DockerEndpoint::from_environment(
+        Some("unix:///var/run/docker.sock"),
+        None,
+        None,
+        None,
+        None,
+        HostPlatform::Linux,
+    )
+    .unwrap();
+    let desktop = DockerEndpoint::from_environment(
+        None,
+        Some("desktop-linux"),
+        None,
+        Some(std::path::Path::new("/home/synthetic")),
+        None,
+        HostPlatform::Linux,
+    )
+    .unwrap();
+
+    let first = rootful.fingerprint();
+    let second = desktop.fingerprint();
+
+    assert_ne!(first, second);
+    assert!(!first.contains("/var/run"));
+    assert!(!second.contains("/home/synthetic"));
+}
+
+#[test]
 fn accepts_only_local_transport_addresses() {
     #[cfg(target_os = "linux")]
     {
@@ -134,6 +163,28 @@ fn windows_default_and_desktop_context_select_the_local_named_pipe() {
         )
         .unwrap(),
         expected
+    );
+}
+
+#[test]
+fn desktop_endpoints_never_authorize_application_owned_execution() {
+    let mac = DockerEndpoint::Unix {
+        path: "/synthetic/docker.sock".into(),
+        desktop: true,
+    };
+    let windows = DockerEndpoint::NamedPipe {
+        path: r"\\.\pipe\docker_engine".into(),
+        desktop: true,
+    };
+    assert!(!mac.supports_application_execution());
+    assert!(!windows.supports_application_execution());
+    #[cfg(target_os = "linux")]
+    assert!(
+        DockerEndpoint::Unix {
+            path: "/var/run/docker.sock".into(),
+            desktop: false,
+        }
+        .supports_application_execution()
     );
 }
 

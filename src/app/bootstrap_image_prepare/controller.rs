@@ -178,7 +178,6 @@ impl Controller {
                 self.receiver = None;
                 self.work_kind = None;
                 crate::execution::docker::environment::DockerEnvironmentStatus::invalidate();
-                crate::harness::runtime_capabilities::RuntimeCapabilities::invalidate();
                 ctx.request_repaint();
                 true
             }

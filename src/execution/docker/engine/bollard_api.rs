@@ -103,6 +103,8 @@ impl DockerApi for BollardApi {
                 cpu_quota: info.cpu_cfs_quota.unwrap_or(false)
                     && info.cpu_cfs_period.unwrap_or(false),
                 pids_limit: info.pids_limit.unwrap_or(false),
+                cgroup_version: info.cgroup_version.map(|version| version.to_string()),
+                cgroup_driver: info.cgroup_driver.map(|driver| driver.to_string()),
                 seccomp_enabled,
                 docker_storage_accessible,
                 disk_available_bytes,

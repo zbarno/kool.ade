@@ -12,8 +12,11 @@ fn local_status() -> DockerEnvironmentStatus {
         cpu_limits: None,
         memory_limits: None,
         pids_limit: None,
+        cgroups_supported: None,
         available_images: Vec::new(),
         disk_available_bytes: None,
+        endpoint_fingerprint: None,
+        daemon_identity_fingerprint: None,
     }
 }
 
@@ -94,6 +97,25 @@ fn disabled_and_unhealthy_workers_are_explained_and_unavailable() {
             && !choice.available
             && choice.reason.contains("Docker is not installed")
     }));
+}
+
+#[test]
+fn reachable_desktop_engine_remains_unavailable_for_local_tasks() {
+    let mut desktop = local_status();
+    desktop.engine_ready = true;
+    desktop.desktop_vm = true;
+    desktop.rootless = Some(true);
+    let choices = choices(&TargetPreference::Local, None, &desktop, &[], false, 1);
+    let local = choices
+        .iter()
+        .find(|choice| choice.preference == TargetPreference::Local)
+        .unwrap();
+    assert!(!local.available);
+    assert!(
+        local
+            .reason
+            .contains("verified native Linux rootless Engine")
+    );
 }
 
 #[test]
