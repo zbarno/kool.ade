@@ -198,8 +198,8 @@ func startApplication(workdir, executable string, arguments []string) (*os.Proce
 
 func awaitReadiness(process *os.Process, port int, path string, expectedStatus int) (bool, error) {
 	client := &http.Client{
-		Timeout: 1500 * time.Millisecond,
-		Transport: &http.Transport{Proxy: nil},
+		Timeout:       1500 * time.Millisecond,
+		Transport:     &http.Transport{Proxy: nil},
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, path)
