@@ -47,20 +47,9 @@ impl CopilotHarness {
                 detail: format!("{COPILOT_BINARY_ENV} does not name an executable file"),
             });
         }
-        if let Some(paths) = std::env::var_os("PATH") {
-            for directory in std::env::split_paths(&paths) {
-                let candidate = directory.join("copilot");
-                if executable(&candidate) {
-                    return Ok(candidate);
-                }
-            }
-        }
-        if let Some(home) = std::env::var_os("HOME") {
-            for site in [".npm-global/bin", ".local/bin"] {
-                let candidate = PathBuf::from(&home).join(site).join("copilot");
-                if executable(&candidate) {
-                    return Ok(candidate);
-                }
+        for candidate in crate::harness::discovery::host_executable_candidates("copilot") {
+            if executable(&candidate) {
+                return Ok(candidate);
             }
         }
         Err(AppError::HarnessNotFound {
@@ -123,9 +112,20 @@ fn copilot_version(output: &str) -> Option<String> {
 }
 
 fn executable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    path.is_file()
-        && std::fs::metadata(path).is_ok_and(|metadata| metadata.permissions().mode() & 0o111 != 0)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        path.is_file()
+            && std::fs::metadata(path)
+                .is_ok_and(|metadata| metadata.permissions().mode() & 0o111 != 0)
+    }
+    #[cfg(windows)]
+    {
+        path.is_file()
+            && path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+    }
 }
 
 fn run(binary: &Path, args: &[&str]) -> Result<(String, bool), String> {

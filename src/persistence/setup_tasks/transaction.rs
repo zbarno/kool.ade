@@ -18,25 +18,33 @@ mod transitions;
 pub use transitions::apply_transition;
 #[cfg(test)]
 pub(super) use transitions::apply_transition_at;
-const LOCK_FILE: &str = "tasks.lock";
+const LOCK_FILE: &str = super::TASK_STORE_LOCK;
 static PROCESS_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-pub(super) fn path() -> std::path::PathBuf {
-    path_for_state_root(&crate::persistence::state_root())
+pub(super) fn path() -> anyhow::Result<std::path::PathBuf> {
+    #[cfg(test)]
+    {
+        Ok(path_for_state_root(&crate::persistence::state_root()))
+    }
+    #[cfg(not(test))]
+    {
+        super::storage::path()
+    }
 }
 
+#[cfg(test)]
 pub(super) fn path_for_state_root(root: &Path) -> std::path::PathBuf {
     root.join("machine-setup").join("tasks.json")
 }
 
 pub fn load() -> anyhow::Result<SetupTaskStoreV1> {
-    update_at(&path(), |store| Ok((store.clone(), false)))
+    update_at(&path()?, |store| Ok((store.clone(), false)))
 }
 
 /// Persist a monotonic scan revision before probes start. A later scan fences
 /// out an older probe result when it reaches `reconcile_live`.
 pub fn begin_scan() -> anyhow::Result<u64> {
-    begin_scan_at(&path())
+    begin_scan_at(&path()?)
 }
 
 pub(crate) fn begin_scan_at(path: &Path) -> anyhow::Result<u64> {
@@ -53,7 +61,7 @@ pub fn reconcile_live(
     snapshot: &crate::app::setup_attention::catalog::MachineSnapshot,
     generation: u64,
 ) -> anyhow::Result<SetupTaskStoreV1> {
-    reconcile_live_at(&path(), snapshot, generation)
+    reconcile_live_at(&path()?, snapshot, generation)
 }
 
 pub(super) fn reconcile_live_at(
@@ -70,7 +78,7 @@ pub(crate) fn reconcile_live_if(
     generation: u64,
     still_current: impl Fn() -> bool,
 ) -> anyhow::Result<Option<SetupTaskStoreV1>> {
-    reconcile_at_if(&path(), snapshot, generation, still_current)
+    reconcile_at_if(&path()?, snapshot, generation, still_current)
 }
 
 pub(crate) fn reconcile_at_if(
@@ -110,7 +118,7 @@ pub(crate) fn reconcile_at_if(
 /// marks operations interrupted; no mutation is resumed or replayed.
 pub fn recover_after_restart() -> anyhow::Result<SetupTaskStoreV1> {
     recover_interrupted_at(
-        &path(),
+        &path()?,
         crate::persistence::harness_settings::current_unix_ms(),
     )
 }
@@ -162,24 +170,7 @@ pub(super) fn update_at<T>(
 }
 
 fn ensure_private_directory(parent: &Path) -> anyhow::Result<()> {
-    if let Ok(metadata) = fs::symlink_metadata(parent) {
-        anyhow::ensure!(
-            metadata.is_dir() && !metadata.file_type().is_symlink(),
-            "unsafe setup state directory"
-        );
-    }
-    fs::create_dir_all(parent)?;
-    let metadata = fs::symlink_metadata(parent)?;
-    anyhow::ensure!(
-        metadata.is_dir() && !metadata.file_type().is_symlink(),
-        "unsafe setup state directory"
-    );
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
-    }
-    Ok(())
+    super::storage::permissions::ensure_private_directory(parent)
 }
 
 fn open_lock_file(parent: &Path) -> anyhow::Result<File> {

@@ -118,6 +118,12 @@ pub(super) fn assemble(
             set_file_mode(&output, file.executable)?;
         }
 
+        #[cfg(not(unix))]
+        anyhow::ensure!(
+            symlinks.is_empty(),
+            "workspace symlink materialization is unsupported on this platform"
+        );
+        #[cfg(unix)]
         for (path, target) in symlinks {
             let output = safe_destination(&temporary, &path)?;
             ensure_parent_directories(&temporary, &output)?;
@@ -127,8 +133,6 @@ pub(super) fn assemble(
             );
             #[cfg(unix)]
             std::os::unix::fs::symlink(target, output)?;
-            #[cfg(not(unix))]
-            anyhow::bail!("symlink materialization is unsupported on this platform");
         }
 
         fs::rename(&temporary, &materialized)?;
@@ -254,11 +258,11 @@ fn digest_bytes(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-fn private_dir(path: &Path) -> anyhow::Result<()> {
+fn private_dir(_path: &Path) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+        fs::set_permissions(_path, fs::Permissions::from_mode(0o700))?;
     }
     Ok(())
 }
@@ -276,8 +280,8 @@ fn set_file_mode(path: &Path, executable: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn sync_directory(path: &Path) -> anyhow::Result<()> {
+fn sync_directory(_path: &Path) -> anyhow::Result<()> {
     #[cfg(unix)]
-    fs::File::open(path)?.sync_all()?;
+    fs::File::open(_path)?.sync_all()?;
     Ok(())
 }

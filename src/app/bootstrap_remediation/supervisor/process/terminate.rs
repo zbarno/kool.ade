@@ -1,4 +1,6 @@
-use std::{process::Child, time::Duration};
+use std::process::Child;
+#[cfg(unix)]
+use std::time::Duration;
 
 #[cfg(unix)]
 pub(super) fn cleanup_descendants(pid: u32) {

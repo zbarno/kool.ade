@@ -1,13 +1,19 @@
 //! Mediated, read-only resource retrieval for implementation workers.
+// Its Unix broker is disabled on Windows; shared types remain for cross-platform UI and contracts.
+#![cfg_attr(windows, allow(dead_code))]
 use serde::{Deserialize, Serialize};
+use std::path::Path;
+#[cfg(unix)]
 use std::{
-    fs,
     io::{self, Write},
     os::unix::net::UnixStream,
-    path::Path,
 };
 
 mod adapter;
+#[cfg(unix)]
+mod broker;
+#[cfg(windows)]
+#[path = "resource_bridge/broker_windows.rs"]
 mod broker;
 mod budget;
 mod cache_snapshot;
@@ -19,7 +25,7 @@ pub(crate) mod fetch;
 mod npm;
 mod policy;
 mod proxy;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests;
 
 const MAX_REQUEST_BYTES: usize = 16 * 1024;
@@ -217,6 +223,7 @@ impl ResourceResponse {
     }
 }
 
+#[cfg(unix)]
 fn write_json(stream: &mut UnixStream, response: &ResourceResponse) -> io::Result<()> {
     serde_json::to_writer(&mut *stream, response).map_err(io::Error::other)?;
     stream.write_all(b"\n")
@@ -225,13 +232,23 @@ fn write_json(stream: &mut UnixStream, response: &ResourceResponse) -> io::Resul
 #[cfg(unix)]
 fn set_private_dir(path: &Path) -> anyhow::Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?;
     Ok(())
 }
 
 #[cfg(unix)]
 fn set_private_file(path: &Path) -> anyhow::Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     Ok(())
+}
+
+#[cfg(windows)]
+fn set_private_dir(path: &Path) -> anyhow::Result<()> {
+    crate::persistence::setup_tasks::verify_private_acl(path)
+}
+
+#[cfg(windows)]
+fn set_private_file(path: &Path) -> anyhow::Result<()> {
+    crate::persistence::setup_tasks::verify_private_acl(path)
 }

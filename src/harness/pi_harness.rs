@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::error::AppError;
+pub const COMMON_HOME_SITES: [&str; 3] = [".npm-global/bin", ".local/bin", ".pi/bin"];
 
 mod read_budget;
 
@@ -51,8 +52,6 @@ fn stall_timeout_from_raw(raw: Option<&str>) -> Duration {
 /// SINGLE SOURCE for that tier: the F-16 in-app setup guide composes its
 /// discovery-order lines from this constant, so the rendered order can never
 /// drift from the executed order (D-15).
-pub const COMMON_HOME_SITES: [&str; 3] = [".npm-global/bin", ".local/bin", ".pi/bin"];
-
 /// The single MVP harness. Construct once; the app may hold it behind an Arc.
 #[derive(Default)]
 pub struct PiHarness;
@@ -98,22 +97,9 @@ impl PiHarness {
                 detail: format!("{PI_BINARY_ENV}={explicit} is not an executable file"),
             });
         }
-        if let Some(path_var) = std::env::var_os("PATH") {
-            for dir in std::env::split_paths(&path_var) {
-                let cand = dir.join("pi");
-                if cand.is_file() && is_executable(&cand) {
-                    return Ok(cand);
-                }
-            }
-        }
-        let home = std::env::var_os("HOME").map(|h| h.to_string_lossy().into_owned());
-        if let Some(home) = home {
-            for site in COMMON_HOME_SITES {
-                let cand = format!("{home}/{site}/pi");
-                let p = Path::new(&cand);
-                if p.is_file() && is_executable(p) {
-                    return Ok(p.to_path_buf());
-                }
+        for candidate in crate::harness::discovery::host_executable_candidates("pi") {
+            if candidate.is_file() && is_executable(&candidate) {
+                return Ok(candidate);
             }
         }
         Err(AppError::HarnessNotFound {

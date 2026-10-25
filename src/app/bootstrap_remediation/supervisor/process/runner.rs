@@ -68,7 +68,7 @@ impl NativeCommandRunner for SystemCommandRunner {
         #[cfg(windows)]
         {
             let system_directory = program_path.parent().ok_or_else(|| {
-                anyhow::anyhow!("trusted Windows program has no system directory")
+                ProcessRunError::not_started(ProcessRunFailure::FailedBeforeLaunch)
             })?;
             command.env("PATH", system_directory).env(
                 "SYSTEMROOT",

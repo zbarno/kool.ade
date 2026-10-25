@@ -53,9 +53,11 @@ pub(super) fn tracked_executables(root: &Path) -> Result<HashSet<String>, Execut
         .split(|byte| *byte == 0)
         .filter(|record| !record.is_empty())
     {
-        let Some((metadata, path)) = record.split_once(|byte| *byte == b'\t') else {
+        let Some(separator) = record.iter().position(|byte| *byte == b'\t') else {
             return Err(super::denied("Git executable mode data is malformed"));
         };
+        let (metadata, path) = record.split_at(separator);
+        let path = &path[1..];
         if metadata.starts_with(b"100755 ") {
             let path = std::str::from_utf8(path)
                 .map_err(|_| super::denied("Task clone contains a non-UTF8 path"))?;

@@ -1,9 +1,6 @@
-use std::{
-    fs,
-    io::Write,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
-    path::Path,
-};
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::{fs, io::Write, path::Path};
 
 use super::ensure_private_directory;
 
@@ -44,11 +41,13 @@ pub(in crate::harness::resource_bridge::npm) fn publish_index_snapshot(
             &mut total,
             MAX_INDEX_BYTES.min(MAX_SNAPSHOT_STORAGE_BYTES - used),
         )?;
-        let mut pointer = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&temporary_pointer)?;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        let mut pointer = options.open(&temporary_pointer)?;
+        #[cfg(windows)]
+        crate::harness::resource_bridge::set_private_file(&temporary_pointer)?;
         writeln!(pointer, "{generation}")?;
         pointer.sync_all()?;
         fs::rename(&temporary_pointer, snapshot_root.join("current"))?;
@@ -124,7 +123,10 @@ fn copy_index_tree(
                 "Prepared npm index exceeds its snapshot size limit"
             );
             fs::copy(entry.path(), &target)?;
+            #[cfg(unix)]
             fs::set_permissions(&target, fs::Permissions::from_mode(0o600))?;
+            #[cfg(windows)]
+            crate::harness::resource_bridge::set_private_file(&target)?;
         }
     }
     Ok(())

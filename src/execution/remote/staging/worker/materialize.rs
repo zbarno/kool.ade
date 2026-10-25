@@ -47,6 +47,15 @@ pub(super) fn copy_workspace_snapshot(
             }
         }
     }
+    #[cfg(not(unix))]
+    anyhow::ensure!(
+        !manifest
+            .entries
+            .iter()
+            .any(|entry| entry.kind == crate::execution::remote::WorkspaceEntryKindV1::Symlink),
+        "worker symlink materialization is unsupported"
+    );
+    #[cfg(unix)]
     for entry in &manifest.entries {
         if entry.kind == crate::execution::remote::WorkspaceEntryKindV1::Symlink {
             let target = destination.join(&entry.path);
@@ -56,8 +65,6 @@ pub(super) fn copy_workspace_snapshot(
                 .ok_or_else(|| anyhow::anyhow!("workspace symlink target is missing"))?;
             #[cfg(unix)]
             std::os::unix::fs::symlink(target_value, target)?;
-            #[cfg(not(unix))]
-            anyhow::bail!("worker symlink materialization is unsupported");
         }
     }
     Ok(())

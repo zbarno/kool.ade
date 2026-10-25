@@ -2,7 +2,6 @@ use sha2::{Digest, Sha256};
 use std::{fs, io::Read, path::Path};
 
 pub(super) fn fingerprint(worktree: &Path, relative: &str) -> anyhow::Result<Option<String>> {
-    use std::os::unix::fs::PermissionsExt;
     let relative_path = Path::new(relative);
     anyhow::ensure!(
         relative_path
@@ -41,7 +40,7 @@ pub(super) fn fingerprint(worktree: &Path, relative: &str) -> anyhow::Result<Opt
             .ok_or_else(|| anyhow::anyhow!("Non-UTF8 verification link"))?;
         return Ok(Some(format!(
             "link:{:o}:{:x}",
-            metadata.permissions().mode(),
+            portable_mode(&metadata),
             Sha256::digest(target.as_bytes())
         )));
     }
@@ -60,7 +59,22 @@ pub(super) fn fingerprint(worktree: &Path, relative: &str) -> anyhow::Result<Opt
     }
     Ok(Some(format!(
         "{:o}:{:x}",
-        metadata.permissions().mode(),
+        portable_mode(&metadata),
         digest.finalize()
     )))
+}
+
+#[cfg(unix)]
+fn portable_mode(metadata: &fs::Metadata) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    metadata.permissions().mode()
+}
+
+#[cfg(windows)]
+fn portable_mode(metadata: &fs::Metadata) -> u32 {
+    if metadata.permissions().readonly() {
+        0o444
+    } else {
+        0o666
+    }
 }

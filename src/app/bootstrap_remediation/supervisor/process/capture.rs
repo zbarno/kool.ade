@@ -1,12 +1,10 @@
 #[cfg(unix)]
+use std::sync::atomic::Ordering;
+#[cfg(unix)]
 use std::time::Duration;
 use std::{
     io::Read,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-        mpsc,
-    },
+    sync::{Arc, Mutex, atomic::AtomicBool, mpsc},
     thread::{self, JoinHandle},
 };
 

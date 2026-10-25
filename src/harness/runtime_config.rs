@@ -64,14 +64,22 @@ fn bindings(root: &Path, runtime_source: Option<&Path>) -> anyhow::Result<Vec<(S
         Ok(_) => {}
     }
     regular_inside(&source_common, Path::new(GRANT_FILE), true)?;
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    let owner = fs::metadata(&source_common)?.uid();
-    for private in [source_common.join("koolade"), path.clone()] {
-        let metadata = fs::metadata(private)?;
-        anyhow::ensure!(
-            metadata.uid() == owner && metadata.permissions().mode() & 0o077 == 0,
-            "Runtime configuration grants must be private to the repository owner"
-        );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let owner = fs::metadata(&source_common)?.uid();
+        for private in [source_common.join("koolade"), path.clone()] {
+            let metadata = fs::metadata(private)?;
+            anyhow::ensure!(
+                metadata.uid() == owner && metadata.permissions().mode() & 0o077 == 0,
+                "Runtime configuration grants must be private to the repository owner"
+            );
+        }
+    }
+    #[cfg(windows)]
+    {
+        crate::persistence::setup_tasks::verify_private_acl(&source_common.join("koolade"))?;
+        crate::persistence::setup_tasks::verify_private_acl(&path)?;
     }
     anyhow::ensure!(
         fs::metadata(&path)?.len() <= 65536,

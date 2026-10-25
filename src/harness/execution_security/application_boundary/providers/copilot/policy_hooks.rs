@@ -160,9 +160,8 @@ fn read_policy_value(key: HKEY) -> anyhow::Result<Option<String>> {
     anyhow::ensure!(
         status == ERROR_SUCCESS
             && kind == REG_SZ
-            && bytes >= 2
-            && bytes <= 65_536
-            && bytes % 2 == 0,
+            && (2..=65_536).contains(&bytes)
+            && bytes.is_multiple_of(2),
         "Copilot machine policy registry value is unreadable or invalid"
     );
     let mut data = vec![0_u8; bytes as usize];
@@ -182,8 +181,10 @@ fn read_policy_value(key: HKEY) -> anyhow::Result<Option<String>> {
         "Copilot machine policy registry value changed while reading"
     );
     let units = data[..bytes as usize]
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_le_bytes(*pair))
         .collect::<Vec<_>>();
     anyhow::ensure!(
         units.last() == Some(&0) && !units[..units.len() - 1].contains(&0),

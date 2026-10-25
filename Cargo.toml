@@ -12,6 +12,7 @@ path = "src/main.rs"
 [[bin]]
 name = "koolade-qa-desktop"
 path = "src/bin/koolade_qa_desktop.rs"
+required-features = ["qa-desktop-driver-image"]
 
 [[bin]]
 name = "koolade-qa-desktop-fixture"
@@ -40,7 +41,7 @@ serde_json = { version = "1.0.151", features = ["raw_value"] }
 sha2 = "0.10.9"
 pgp = { version = "0.21.0", default-features = false }
 toml_edit = { version = "0.25.13", default-features = false, features = ["parse"] }
-uuid = { version = "1.26.0", features = ["v4", "v5"] }
+uuid = { version = "1.26.0", features = ["serde", "v4", "v5"] }
 unicode-general-category = "1.1.0"
 url = "2.5.8"
 bollard = { version = "0.21.1", default-features = false, features = ["pipe", "buildkit_providerless", "chrono"] }
@@ -53,7 +54,7 @@ flate2 = "1.1.10"
 zeroize = "1.8.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_System_Threading"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading"] }
 
 [target.'cfg(unix)'.dependencies]
 hyper = { version = "1.12.0", features = ["client", "http1"] }

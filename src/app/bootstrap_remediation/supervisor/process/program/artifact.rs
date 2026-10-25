@@ -2,7 +2,7 @@ use sha2::{Digest, Sha256};
 use std::{
     ffi::OsString,
     fs::{File, OpenOptions},
-    io::{Read, Seek, SeekFrom, Write},
+    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
 };
 
@@ -81,7 +81,7 @@ impl VerifiedArtifact {
         #[cfg(target_os = "macos")]
         {
             use std::os::fd::AsRawFd;
-            return format!("/dev/fd/{}", self.file.as_raw_fd()).into();
+            format!("/dev/fd/{}", self.file.as_raw_fd()).into()
         }
         #[cfg(windows)]
         {
@@ -183,6 +183,7 @@ fn hash_open_file(file: &File) -> anyhow::Result<String> {
 
 #[cfg(target_os = "linux")]
 fn sealed_verified_copy(source: File, expected_digest: &str) -> anyhow::Result<File> {
+    use std::io::Write;
     use std::os::fd::{AsRawFd, FromRawFd};
 
     const MFD_CLOEXEC: u32 = 0x0001;

@@ -1,4 +1,6 @@
-use crate::app::bootstrap_repair_policy::{Host, Operation, Proposal};
+#[cfg(target_os = "linux")]
+use crate::app::bootstrap_repair_policy::Host;
+use crate::app::bootstrap_repair_policy::{Operation, Proposal};
 #[cfg(target_os = "linux")]
 use crate::execution::docker::{
     engine::{DockerEndpoint, EngineDiscovery, HostPlatform},
@@ -105,13 +107,13 @@ impl VerifiedEngine {
 
     pub(in crate::app::bootstrap_approval) async fn run_smoke_test(
         self,
-        authorization: &super::super::capability::ApprovedAction,
+        _authorization: &super::super::capability::ApprovedAction,
     ) -> anyhow::Result<()> {
         #[cfg(target_os = "linux")]
         {
             let staging = crate::execution::docker::environment::app_staging_root()?;
             self.engine
-                .test_approved_image(&staging, authorization)
+                .test_approved_image(&staging, _authorization)
                 .await?;
             Ok(())
         }

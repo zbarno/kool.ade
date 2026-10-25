@@ -1,7 +1,7 @@
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(in crate::app::bootstrap_remediation::identity) fn unix_machine_label() -> anyhow::Result<String>
 {
-    let mut name = [0_i8; 256];
+    let mut name = [libc::c_char::default(); 256];
     anyhow::ensure!(
         unsafe { libc::gethostname(name.as_mut_ptr(), name.len()) } == 0,
         "could not read the local machine name"
