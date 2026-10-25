@@ -19,6 +19,34 @@ pub use model::{
 };
 pub use transaction::{apply_transition, begin_scan, load, reconcile_live, recover_after_restart};
 
+#[cfg(test)]
+pub(crate) fn apply_transition_at_for_test(
+    path: &std::path::Path,
+    transition: SetupTaskTransitionV1,
+) -> anyhow::Result<SetupTaskStoreV1> {
+    transaction::apply_transition_at(path, transition)
+}
+
+#[cfg(test)]
+pub(crate) fn begin_scan_at_for_test(path: &std::path::Path) -> anyhow::Result<u64> {
+    transaction::begin_scan_at(path)
+}
+
+#[cfg(test)]
+pub(crate) fn load_from_for_test(
+    path: &std::path::Path,
+) -> anyhow::Result<(SetupTaskStoreV1, bool)> {
+    transaction::load_from(path)
+}
+
+#[cfg(test)]
+pub(crate) fn save_to_for_test(
+    path: &std::path::Path,
+    store: &SetupTaskStoreV1,
+) -> anyhow::Result<()> {
+    transaction::save_to(path, store)
+}
+
 const MAX_STATE_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_TASKS: usize = 128;
 const MAX_ATTEMPTS: usize = 24;

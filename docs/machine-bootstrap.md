@@ -22,8 +22,20 @@ evidence is required to verify a task; a regression reopens it. Restart
 recovery interrupts in-flight work and removes active authorization bindings,
 so an operation or approval is never replayed automatically.
 
-The Welcome screen projects the task collection, and Kanban shows distinct
-cards with setup task details.
+The Welcome screen now shows a machine-setup board before a workspace is
+connected. Each active finding has its own card with its current state,
+prerequisite, guidance, rescan control, and a repair action only where a typed
+repair is supported. Kanban uses the same task cards and opens the shared Task
+Details shell. Details provide plain-language guidance beside structured
+status, blockers, progress history, and verification evidence; narrow windows
+stack the panes. Platform-specific vendor guides are linked from the task.
+Unsupported platforms remain explicitly unavailable and never appear ready.
+
+The image-preparation action opens a review first. Approving it sends a typed
+application command back through the consent gate; it does not give the setup
+assistant host-shell access. The setup view shows only the store's bounded
+status and redacted audit metadata. Raw host command output and credentials are
+not retained.
 Attempt and authorization records are typed audit metadata only: this store
 does not execute repairs, grant host access or make a recorded receipt an
 authority to mutate the machine. The separate remediation, assistant and
@@ -53,8 +65,10 @@ slices as complete hands-free onboarding or certified cross-platform support.
 
 ## Remaining validation and work
 
-Human validation is still required for the novice first-run flow and real-host
-setup behavior. Linux rootless remediation and smoke validation, macOS Docker
-Desktop (Intel and Apple Silicon), Windows WSL2 x64, signed native packaging,
-and the complete security/usability release gate remain tracked by #342–#351.
+Human validation is still required for the novice first-run flow, visual review
+at 360/900/1280/1600 px, keyboard and screen-reader use, reduced motion, and
+real-host setup behavior. Linux rootless remediation and smoke validation,
+macOS Docker Desktop (Intel and Apple Silicon), Windows WSL2 x64, signed native
+packaging, and the complete security/usability release gate remain tracked by
+#342–#351.
 Mocks or Linux CI do not certify those platforms.

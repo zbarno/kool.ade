@@ -55,7 +55,16 @@ impl SetupTaskStoreV1 {
                 next.attempts.clone_from(&existing.attempts);
                 next.events.clone_from(&existing.events);
                 preserve_dependency_resolutions(&existing, &mut next);
-                preserve_inflight_state(&existing, &mut next);
+                let verification_failed = existing.state == SetupTaskStateV1::AwaitingVerification
+                    && finding.status == FindingStatus::NeedsAttention
+                    && fail_awaiting_verification(&mut next, snapshot.checked_at_unix_ms);
+                if verification_failed {
+                    next.state = SetupTaskStateV1::Failed;
+                    next.verified_result = None;
+                    next.verified_at_unix_ms = existing.verified_at_unix_ms;
+                } else {
+                    preserve_inflight_state(&existing, &mut next);
+                }
 
                 let observation_changed = task_observation_changed(&existing, &next);
                 let metadata_changed = existing.observed_at_unix_ms != snapshot.checked_at_unix_ms
@@ -221,6 +230,24 @@ fn verify_awaiting_attempt(task: &mut SetupTaskV1, result: &VerifiedResultV1, at
     }
 }
 
+fn fail_awaiting_verification(task: &mut SetupTaskV1, at: u64) -> bool {
+    let Some(attempt) = task
+        .attempts
+        .iter_mut()
+        .rev()
+        .find(|attempt| attempt.state == AttemptState::AwaitingVerification)
+    else {
+        return false;
+    };
+    attempt.state = AttemptState::Failed;
+    attempt.failure = Some(FailureCode::VerificationFailed);
+    attempt.authorization_binding = None;
+    attempt.owner_instance_id = None;
+    attempt.verified_result = None;
+    attempt.updated_at_unix_ms = at;
+    true
+}
+
 fn task_observation_changed(existing: &SetupTaskV1, next: &SetupTaskV1) -> bool {
     existing.title != next.title
         || existing.explanation != next.explanation
@@ -228,6 +255,7 @@ fn task_observation_changed(existing: &SetupTaskV1, next: &SetupTaskV1) -> bool 
         || existing.dependencies != next.dependencies
         || existing.state != next.state
         || existing.verified_result != next.verified_result
+        || existing.attempts != next.attempts
 }
 
 fn legacy_matches(legacy_id: &str, current_id: &str) -> bool {

@@ -6,6 +6,16 @@ mod details;
 mod opportunity;
 mod setup;
 
+pub(super) fn machine_setup_summary(
+    task: &crate::persistence::setup_tasks::LocalTask,
+) -> &'static str {
+    setup::machine_setup_summary(task)
+}
+
+pub(super) fn machine_setup_title(task: &crate::persistence::setup_tasks::LocalTask) -> String {
+    setup::machine_setup_title(task)
+}
+
 pub(super) fn paint_clarification(
     ui: &mut egui::Ui,
     surface: &mut dyn Surface,

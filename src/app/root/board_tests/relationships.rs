@@ -207,7 +207,7 @@ fn multiple_machine_setup_findings_render_as_distinct_cards() {
     }
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Connect your coding agent").is_some());
-    assert!(text_position(&output, "Configure rootless Docker").is_some());
+    assert!(text_position(&output, "Allow coding tasks to run safely").is_some());
     assert!(text_position(&output, "Kool.ad/e needs Docker").is_some());
 }
 
@@ -258,7 +258,7 @@ fn unsupported_or_unrelated_machine_tasks_do_not_hide_transient_notices() {
     let output = frame_at(&mut app, &ctx, vec![], size);
     assert!(text_position(&output, "Kool.ad/e needs Docker").is_some());
     assert!(text_position(&output, "Kool.ad/e cannot use this model provider safely").is_some());
-    assert!(text_position(&output, "Verify Docker Desktop compatibility").is_some());
+    assert!(text_position(&output, "Check support on this computer").is_some());
     assert!(text_position(&output, "Connect the other coding agent").is_some());
 }
 
