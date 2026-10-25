@@ -58,6 +58,11 @@ pub(super) fn ready_claim(
             Code::DockerReady,
         ) | (
             Domain::Docker,
+            Capability::DockerDesktopVm,
+            Origin::DockerDiscovery,
+            Code::DockerDesktopVmDetected,
+        ) | (
+            Domain::Docker,
             Capability::DockerRootless,
             Origin::DockerDiscovery,
             Code::DockerReady,

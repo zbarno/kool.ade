@@ -26,7 +26,15 @@ impl KooladeApp {
         if let TurnOutcome::HarnessFailed { error, .. } = &outcome
             && let Some(issue) = crate::app::setup_attention::from_harness_failure(&error.detail())
         {
-            self.setup_attention = Some(issue);
+            if let Some(existing) = self
+                .setup_attention
+                .iter_mut()
+                .find(|existing| existing.id == issue.id)
+            {
+                *existing = issue;
+            } else {
+                self.setup_attention.push(issue);
+            }
         }
         // A selected task chat can change while a planning turn is running.
         // Keep the turn bound to the planning task that started it.

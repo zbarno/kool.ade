@@ -1,263 +1,295 @@
-use super::*;
+use crate::app::setup_attention::catalog::FindingStatus;
 
+use super::super::{DependencyResolution, SetupTaskStateV1, SetupTaskStoreV1, ordered_task_ids};
+use super::support::{scan, snapshot};
+
+#[path = "reconciliation/attempt_verification.rs"]
+mod attempt_verification;
+#[path = "reconciliation/git.rs"]
+mod git;
+#[path = "reconciliation/images.rs"]
 mod images;
-mod migrations;
+#[path = "reconciliation/legacy.rs"]
+mod legacy;
 
 #[test]
-fn two_faults_are_distinct_and_repeated_scan_deduplicates() {
-    let s = snapshot(
+fn multiple_findings_have_stable_ids_and_bounded_transition_history() {
+    let mut store = SetupTaskStoreV1::default();
+    let first = snapshot(
         &[
-            ("setup:cli:codex:auth", FindingStatus::NeedsAttention),
-            ("setup:docker:rootless", FindingStatus::NeedsAttention),
+            ("setup:cli:codex:auth", FindingStatus::NeedsAttention, &[]),
+            ("setup:docker:rootless", FindingStatus::NeedsAttention, &[]),
         ],
-        &[],
+        &["cli:codex:auth", "docker:rootless"],
         10,
     );
-    let mut store = Store::default();
-    assert!(store.reconcile(&s).unwrap());
+    scan(&mut store, &first).unwrap();
     assert_eq!(store.tasks.len(), 2);
-    assert!(!store.reconcile(&s).unwrap());
-    assert_eq!(store.tasks["setup:docker:rootless"].events.len(), 1);
-}
-
-#[test]
-fn unverified_docker_scan_does_not_mark_old_problem_fixed() {
-    let mut store = Store::default();
-    store
-        .reconcile(&snapshot(
-            &[("setup:docker:rootless", FindingStatus::NeedsAttention)],
-            &[],
-            1,
-        ))
-        .unwrap();
-    store.reconcile(&snapshot(&[], &[], 2)).unwrap();
-    assert_eq!(
-        store.tasks["setup:docker:rootless"].state,
-        State::NeedsAttention
-    );
-    store.reconcile(&snapshot(&[], &["docker"], 3)).unwrap();
-    assert_eq!(store.tasks["setup:docker:rootless"].state, State::Verified);
-    store
-        .reconcile(&snapshot(
-            &[("setup:docker:rootless", FindingStatus::NeedsAttention)],
-            &[],
-            4,
-        ))
-        .unwrap();
-    assert_eq!(
-        store.tasks["setup:docker:rootless"].state,
-        State::NeedsAttention
-    );
-}
-
-#[test]
-fn a_changed_docker_failure_is_not_a_verified_repair() {
-    let mut store = Store::default();
-    store
-        .reconcile(&snapshot(
-            &[("setup:docker:rootless", FindingStatus::NeedsAttention)],
-            &[],
-            1,
-        ))
-        .unwrap();
-    // A newly stopped engine is a different problem, not proof rootless
-    // setup succeeded. Only a healthy rootless engine resolves it.
-    store
-        .reconcile(&snapshot(
-            &[("setup:docker:start", FindingStatus::NeedsAttention)],
-            &[],
-            2,
-        ))
-        .unwrap();
-    assert_eq!(
-        store.tasks["setup:docker:rootless"].state,
-        State::NeedsAttention
-    );
-}
-
-#[test]
-fn a_missing_cli_after_auth_failure_is_not_verified_auth() {
-    let mut store = Store::default();
-    store
-        .reconcile(&snapshot(
-            &[("setup:cli:codex:auth", FindingStatus::NeedsAttention)],
-            &[],
-            1,
-        ))
-        .unwrap();
-    store
-        .reconcile(&snapshot(
-            &[("setup:cli:install", FindingStatus::NeedsAttention)],
-            &[],
-            2,
-        ))
-        .unwrap();
-    assert_eq!(
-        store.tasks["setup:cli:codex:auth"].state,
-        State::NeedsAttention
-    );
-}
-
-#[test]
-fn git_task_requires_a_positive_git_probe_before_resolution() {
-    let mut store = Store::default();
-    store
-        .reconcile(&snapshot(
-            &[("setup:git:install", FindingStatus::NeedsAttention)],
-            &[],
-            1,
-        ))
-        .unwrap();
-    store.reconcile(&snapshot(&[], &[], 2)).unwrap();
-    assert_eq!(
-        store.tasks["setup:git:install"].state,
-        State::NeedsAttention
-    );
-    store
-        .reconcile(&snapshot(&[], &["git:executable"], 3))
-        .unwrap();
-    assert_eq!(store.tasks["setup:git:install"].state, State::Verified);
-}
-
-#[test]
-fn healthy_engine_resolves_legacy_os_architecture_and_workspace_findings() {
-    for id in [
-        "setup:docker:os",
-        "setup:docker:architecture",
-        "setup:docker:workspace",
-    ] {
-        let mut store = Store::default();
-        store
-            .reconcile(&snapshot(&[(id, FindingStatus::NeedsAttention)], &[], 1))
-            .unwrap();
-        store.reconcile(&snapshot(&[], &["docker"], 2)).unwrap();
-        assert_eq!(store.tasks[id].state, State::Verified, "{id}");
-    }
-}
-
-#[test]
-fn stale_snapshot_cannot_reopen_or_verify_newer_readiness() {
-    let mut store = Store::default();
-    store
-        .reconcile(&snapshot(
-            &[("setup:docker:rootless", FindingStatus::NeedsAttention)],
-            &[],
-            5,
-        ))
-        .unwrap();
-    assert!(store.reconcile(&snapshot(&[], &["docker"], 4)).is_err());
-    assert_eq!(
-        store.tasks["setup:docker:rootless"].state,
-        State::NeedsAttention
-    );
-}
-
-#[test]
-fn equal_timestamp_scan_cannot_replace_a_different_observation() {
-    let mut store = Store::default();
-    store
-        .reconcile(&snapshot(
-            &[("setup:docker:rootless", FindingStatus::NeedsAttention)],
-            &[],
-            20,
-        ))
-        .unwrap();
-
-    let conflicting = snapshot(
-        &[("setup:docker:start", FindingStatus::NeedsAttention)],
-        &[],
-        20,
-    );
-    assert!(store.reconcile(&conflicting).is_err());
-    assert!(store.tasks.contains_key("setup:docker:rootless"));
-    assert!(!store.tasks.contains_key("setup:docker:start"));
-}
-
-#[test]
-fn ordering_uses_scan_start_when_slow_scans_finish_out_of_order() {
-    let mut store = Store::default();
-    let mut slow = snapshot(
-        &[("setup:docker:rootless", FindingStatus::NeedsAttention)],
-        &[],
-        30,
-    );
-    slow.scan_started_at_unix_ms = 10;
-    store.reconcile(&slow).unwrap();
-
-    let mut fast = snapshot(
-        &[("setup:docker:rootless", FindingStatus::NeedsAttention)],
-        &[],
-        25,
-    );
-    fast.scan_started_at_unix_ms = 20;
-    fast.findings[0].title = "newer fast scan".into();
-    store.reconcile(&fast).unwrap();
-
-    assert_eq!(store.last_scan_started_at_unix_ms, 20);
-    assert_eq!(store.last_observed_at_unix_ms, 30);
-    assert_eq!(
-        store.tasks["setup:docker:rootless"].title,
-        "newer fast scan"
-    );
-}
-
-#[test]
-fn older_scan_start_is_rejected_even_when_it_finishes_later() {
-    let mut store = Store::default();
-    let mut newer = snapshot(
-        &[("setup:docker:rootless", FindingStatus::NeedsAttention)],
-        &[],
-        25,
-    );
-    newer.scan_started_at_unix_ms = 20;
-    newer.findings[0].title = "newer scan".into();
-    store.reconcile(&newer).unwrap();
-
-    let mut older = snapshot(
-        &[("setup:docker:rootless", FindingStatus::NeedsAttention)],
-        &[],
-        30,
-    );
-    older.scan_started_at_unix_ms = 10;
-    assert!(store.reconcile(&older).is_err());
-    assert_eq!(store.tasks["setup:docker:rootless"].title, "newer scan");
-}
-
-#[test]
-fn empty_scan_persists_a_global_freshness_watermark() {
-    let mut store = Store::default();
-    assert!(store.reconcile(&snapshot(&[], &[], 20)).unwrap());
-    assert_eq!(store.last_observed_at_unix_ms, 20);
-    assert!(store.reconcile(&snapshot(&[], &[], 19)).is_err());
-}
-
-#[test]
-fn persists_and_recovers_independently_of_any_project() {
-    let folder = tempfile::tempdir().unwrap();
-    let path = folder.path().join("state").join("tasks.json");
-    let mut store = Store::default();
-    store
-        .reconcile(&snapshot(
-            &[("setup:cli:install", FindingStatus::NeedsAttention)],
-            &[],
-            4,
-        ))
-        .unwrap();
-    save_to(&path, &store).unwrap();
-    assert_eq!(load_from(&path).unwrap(), store);
-}
-
-#[test]
-fn refuses_invalid_ids_without_modifying_store() {
-    let mut store = Store::default();
     assert!(
         store
-            .reconcile(&snapshot(
-                &[("setup:../../secret", FindingStatus::NeedsAttention)],
-                &[],
-                1
-            ))
-            .is_err()
+            .tasks
+            .values()
+            .all(|task| task.state == SetupTaskStateV1::ReadyToFix)
     );
+
+    let event_count = store.tasks["setup:docker:rootless"].events.len();
+    let repeated = snapshot(
+        &[
+            ("setup:cli:codex:auth", FindingStatus::NeedsAttention, &[]),
+            ("setup:docker:rootless", FindingStatus::NeedsAttention, &[]),
+        ],
+        &["cli:codex:auth", "docker:rootless"],
+        20,
+    );
+    scan(&mut store, &repeated).unwrap();
+    assert_eq!(store.tasks.len(), 2);
+    assert_eq!(
+        store.tasks["setup:docker:rootless"].events.len(),
+        event_count
+    );
+    assert_eq!(
+        ordered_task_ids(&store).unwrap(),
+        vec![
+            "setup:cli:codex:auth".to_owned(),
+            "setup:docker:rootless".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn only_current_exact_positive_evidence_verifies_and_regression_reopens() {
+    let mut store = SetupTaskStoreV1::default();
+    scan(
+        &mut store,
+        &snapshot(
+            &[("setup:docker:rootless", FindingStatus::NeedsAttention, &[])],
+            &["docker:rootless"],
+            1,
+        ),
+    )
+    .unwrap();
+
+    scan(&mut store, &snapshot(&[], &["cli:codex:auth"], 2)).unwrap();
+    assert_eq!(
+        store.tasks["setup:docker:rootless"].state,
+        SetupTaskStateV1::ReadyToFix
+    );
+
+    scan(&mut store, &snapshot(&[], &["docker:rootless"], 3)).unwrap();
+    let task = &store.tasks["setup:docker:rootless"];
+    assert_eq!(task.state, SetupTaskStateV1::Verified);
+    assert_eq!(
+        task.verified_result.as_ref().unwrap().evidence_domain,
+        "docker"
+    );
+
+    scan(&mut store, &snapshot(&[], &["cli:codex:auth"], 4)).unwrap();
+    let task = &store.tasks["setup:docker:rootless"];
+    assert_eq!(task.state, SetupTaskStateV1::NeedsVerification);
+    assert!(task.verified_result.is_none());
+    assert_eq!(task.verified_at_unix_ms, Some(3));
+
+    scan(
+        &mut store,
+        &snapshot(
+            &[("setup:docker:rootless", FindingStatus::NeedsAttention, &[])],
+            &["docker:rootless"],
+            5,
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        store.tasks["setup:docker:rootless"].state,
+        SetupTaskStateV1::ReadyToFix
+    );
+    assert!(
+        store.tasks["setup:docker:rootless"]
+            .verified_result
+            .is_none()
+    );
+}
+
+#[test]
+fn changed_docker_failure_does_not_verify_an_unrelated_task() {
+    let mut store = SetupTaskStoreV1::default();
+    scan(
+        &mut store,
+        &snapshot(
+            &[("setup:docker:rootless", FindingStatus::NeedsAttention, &[])],
+            &[],
+            1,
+        ),
+    )
+    .unwrap();
+    scan(
+        &mut store,
+        &snapshot(
+            &[("setup:docker:start", FindingStatus::NeedsAttention, &[])],
+            &[],
+            2,
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        store.tasks["setup:docker:rootless"].state,
+        SetupTaskStateV1::ReadyToFix
+    );
+}
+
+#[test]
+fn a_dependency_blocks_children_then_unblocks_from_current_parent_evidence() {
+    let mut store = SetupTaskStoreV1::default();
+    scan(
+        &mut store,
+        &snapshot(
+            &[
+                (
+                    "setup:images:general:amd64",
+                    FindingStatus::NeedsAttention,
+                    &["setup:docker:rootless"],
+                ),
+                ("setup:docker:rootless", FindingStatus::NeedsAttention, &[]),
+            ],
+            &["docker:rootless"],
+            1,
+        ),
+    )
+    .unwrap();
+    let child = &store.tasks["setup:images:general:amd64"];
+    assert_eq!(child.state, SetupTaskStateV1::BlockedByPrerequisite);
+    assert_eq!(child.blocked_by, vec!["setup:docker:rootless"]);
+    assert_eq!(
+        child.dependencies[0].resolution,
+        DependencyResolution::Pending
+    );
+
+    scan(
+        &mut store,
+        &snapshot(
+            &[(
+                "setup:images:general:amd64",
+                FindingStatus::NeedsAttention,
+                &["setup:docker:rootless"],
+            )],
+            &["docker:rootless"],
+            2,
+        ),
+    )
+    .unwrap();
+    let parent = &store.tasks["setup:docker:rootless"];
+    let child = &store.tasks["setup:images:general:amd64"];
+    assert_eq!(parent.state, SetupTaskStateV1::Verified);
+    assert_eq!(child.state, SetupTaskStateV1::ReadyToFix);
+    assert_eq!(
+        child.dependencies[0].resolution,
+        DependencyResolution::SatisfiedByTask { scan_generation: 2 }
+    );
+}
+
+#[test]
+fn cycle_and_duplicate_findings_reject_the_whole_snapshot() {
+    let mut store = SetupTaskStoreV1 {
+        latest_scan_generation: 1,
+        ..SetupTaskStoreV1::default()
+    };
+    let cycle = snapshot(
+        &[
+            (
+                "setup:test:a",
+                FindingStatus::NeedsAttention,
+                &["setup:test:b"],
+            ),
+            (
+                "setup:test:b",
+                FindingStatus::NeedsAttention,
+                &["setup:test:a"],
+            ),
+        ],
+        &[],
+        1,
+    );
+    assert!(store.reconcile(&cycle, 1).is_err());
+    assert!(
+        store.tasks.is_empty(),
+        "failed graph reconciliation must be atomic"
+    );
+
+    let duplicate = snapshot(
+        &[
+            ("setup:docker:rootless", FindingStatus::NeedsAttention, &[]),
+            ("setup:docker:rootless", FindingStatus::NeedsAttention, &[]),
+        ],
+        &[],
+        2,
+    );
+    assert!(store.reconcile(&duplicate, 1).is_err());
+    assert!(store.tasks.is_empty());
+}
+
+#[test]
+fn approved_images_order_before_synthetic_smoke_without_running_smoke() {
+    let mut store = SetupTaskStoreV1::default();
+    scan(
+        &mut store,
+        &snapshot(
+            &[
+                (
+                    "setup:images:general:amd64",
+                    FindingStatus::NeedsAttention,
+                    &["setup:docker:rootless"],
+                ),
+                (
+                    "setup:smoke:general:amd64",
+                    FindingStatus::NeedsAttention,
+                    &["setup:images:general:amd64"],
+                ),
+                ("setup:docker:rootless", FindingStatus::NeedsAttention, &[]),
+            ],
+            &[],
+            1,
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        store.tasks["setup:smoke:general:amd64"].state,
+        SetupTaskStateV1::BlockedByPrerequisite
+    );
+
+    scan(
+        &mut store,
+        &snapshot(
+            &[(
+                "setup:smoke:general:amd64",
+                FindingStatus::NeedsAttention,
+                &["setup:images:general:amd64"],
+            )],
+            &["docker:rootless", "images:general:amd64"],
+            2,
+        ),
+    )
+    .unwrap();
+    let order = ordered_task_ids(&store).unwrap();
+    assert!(
+        order
+            .iter()
+            .position(|id| id == "setup:images:general:amd64")
+            < order
+                .iter()
+                .position(|id| id == "setup:smoke:general:amd64")
+    );
+    assert_eq!(
+        store.tasks["setup:smoke:general:amd64"].state,
+        SetupTaskStateV1::ReadyToFix
+    );
+}
+
+#[test]
+fn stale_generation_cannot_reopen_or_verify_a_task() {
+    let mut store = SetupTaskStoreV1 {
+        latest_scan_generation: 3,
+        ..SetupTaskStoreV1::default()
+    };
+    let result = store.reconcile(&snapshot(&[], &["docker:rootless"], 4), 2);
+    assert!(result.is_err());
     assert!(store.tasks.is_empty());
 }

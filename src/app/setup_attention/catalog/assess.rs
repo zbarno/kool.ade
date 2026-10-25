@@ -272,6 +272,17 @@ pub fn assess_for_scan_with_git(
             {
                 domains.push("docker".into());
             }
+            if matches!(host, HostKind::MacOs | HostKind::Windows)
+                && docker.desktop_vm
+                && docker.engine_ready
+                && matches!(
+                    docker.state,
+                    crate::execution::docker::environment::DockerEnvironmentState::MissingApprovedImage
+                        | crate::execution::docker::environment::DockerEnvironmentState::Ready
+                )
+            {
+                domains.push("docker:desktop".into());
+            }
             if git_probe.executable_state == EvidenceState::Ready {
                 domains.push("git:executable".into());
             }

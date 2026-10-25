@@ -98,6 +98,19 @@ fn docker_ready(snapshot: &MachineSnapshotV1) -> bool {
         .all(|capability| current_ready(snapshot, Domain::Docker, capability, Subject::None, false))
 }
 
+fn desktop_docker_ready(snapshot: &MachineSnapshotV1) -> bool {
+    matches!(
+        snapshot.host,
+        super::super::identifiers::HostKind::MacOs | super::super::identifiers::HostKind::Windows
+    ) && [
+        Capability::DockerEngine,
+        Capability::DockerEndpoint,
+        Capability::DockerDesktopVm,
+    ]
+    .into_iter()
+    .all(|capability| current_ready(snapshot, Domain::Docker, capability, Subject::None, false))
+}
+
 fn image_domain_ready(snapshot: &MachineSnapshotV1, profile: &str, architecture: &str) -> bool {
     let profile = match profile {
         "general" => ImageProfileV1::General,
@@ -196,6 +209,10 @@ pub(super) fn validate(snapshot: &MachineSnapshotV1) -> anyhow::Result<()> {
             "docker" => anyhow::ensure!(
                 docker_ready(snapshot),
                 "Docker readiness domain lacks current trusted Linux evidence"
+            ),
+            "docker:desktop" => anyhow::ensure!(
+                desktop_docker_ready(snapshot),
+                "Docker Desktop readiness domain lacks current positive evidence"
             ),
             _ if domain.starts_with("cli:") => {
                 let provider_id = domain.strip_prefix("cli:").unwrap_or_default();

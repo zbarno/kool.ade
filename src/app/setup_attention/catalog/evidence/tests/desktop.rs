@@ -48,6 +48,18 @@ fn unknown_desktop_trust_blocks_security_and_image_readiness() {
         .push("locked-general-reference".into());
     let snapshot =
         super::super::super::assess_for_scan(&[], None, &status, HostKind::MacOs, 302, 17);
+    assert!(
+        snapshot
+            .checked_domains
+            .iter()
+            .any(|domain| domain == "docker:desktop")
+    );
+    assert!(
+        !snapshot
+            .checked_domains
+            .iter()
+            .any(|domain| domain == "docker")
+    );
     assert!(snapshot.probe_evidence.iter().any(|evidence| {
         evidence.prerequisite.capability == PrerequisiteCapability::DockerSecurity
             && evidence.state == EvidenceState::Unknown

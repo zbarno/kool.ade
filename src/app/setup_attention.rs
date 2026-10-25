@@ -5,9 +5,11 @@
 
 mod bootstrap;
 pub(crate) mod catalog;
+mod runner;
 mod scan;
+pub(crate) use runner::run_scan;
 #[cfg(not(test))]
-pub use scan::verify_before_commit;
+pub(crate) use scan::verify_before_commit;
 #[cfg(test)]
 pub(crate) use scan::verify_before_commit_with_state_path;
 pub use scan::{SetupScanResult, SetupScanVerification, scan};
@@ -21,6 +23,9 @@ pub struct SetupIssue {
     pub recommendation: &'static str,
     pub impact: &'static str,
     pub next_action: &'static str,
+    /// A task family that represents the same transient readiness failure.
+    /// `None` keeps this notice visible beside machine-local task cards.
+    pub related_task_prefix: Option<String>,
 }
 
 impl SetupIssue {
@@ -33,6 +38,7 @@ impl SetupIssue {
             recommendation: "Start Docker and make the approved Kool.ad/e runtime images available.",
             impact: "Repository planning and implementation cannot start safely until the execution environment is ready. Context-only planning remains available.",
             next_action: "Start Docker, check the runtime image readiness details, then retry this setup check.",
+            related_task_prefix: None,
         }
     }
 
@@ -45,6 +51,7 @@ impl SetupIssue {
             recommendation: "Open Coding Tools to choose and install Pi, Codex, Claude Code, OpenCode, Copilot, or Antigravity.",
             impact: "Agent-guided setup and model-backed work are unavailable until a coding CLI is installed and configured.",
             next_action: "Choose a coding agent, install it, then retry the setup check.",
+            related_task_prefix: None,
         }
     }
 
@@ -59,6 +66,7 @@ impl SetupIssue {
             recommendation: "Open Coding Tools, inspect each agent's authentication result, and sign in using the provider's supported flow.",
             impact: "Agent-guided setup cannot start until a usable agent is independently verified.",
             next_action: "Authenticate an installed agent, then retry the setup check.",
+            related_task_prefix: None,
         }
     }
 
@@ -71,6 +79,7 @@ impl SetupIssue {
             recommendation: "Open Coding Tools and review the CLI, account and available-model diagnostics.",
             impact: "Bootstrap assistance stays unavailable until at least one agent is verified.",
             next_action: "Confirm your model and account configuration, then retry the setup check.",
+            related_task_prefix: None,
         }
     }
 
@@ -85,6 +94,7 @@ impl SetupIssue {
             recommendation: "Open Coding Tools and select your preferred verified agent as the default.",
             impact: "Your agent-assisted setup route has not been chosen yet; deterministic setup remains available.",
             next_action: "Choose your default coding agent, then retry the setup check.",
+            related_task_prefix: None,
         }
     }
 
@@ -97,6 +107,7 @@ impl SetupIssue {
             recommendation: "Review the provider CLI setup and authentication diagnostics.",
             impact: "Provider-backed work cannot run until the selected CLI is configured and authenticated.",
             next_action: "Update the selected provider settings, then retry this setup check.",
+            related_task_prefix: None,
         }
     }
 
@@ -109,17 +120,9 @@ impl SetupIssue {
             recommendation: "Review the specific machine setup task and complete its verified next step.",
             impact: "Coding tasks remain blocked while a required machine prerequisite is unresolved.",
             next_action: "Complete the listed prerequisite, then retry this setup check.",
+            related_task_prefix: None,
         }
     }
-}
-
-#[cfg(test)]
-pub fn detect() -> Option<SetupIssue> {
-    scan(
-        0,
-        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-    )
-    .issue
 }
 
 #[cfg(test)]
@@ -141,17 +144,75 @@ pub fn from_harness_failure(detail: &str) -> Option<SetupIssue> {
         || lower.contains("rootful linux")
         || lower.contains("docker engine")
     {
-        Some(SetupIssue::docker(detail))
+        let mut issue = SetupIssue::docker(detail);
+        issue.related_task_prefix = docker_task_prefix(&lower);
+        Some(issue)
     } else if lower.contains("planning provider")
         || lower.contains("provider relay")
         || lower.contains("configured local planning provider")
         || lower.contains("pi has no default model provider")
         || lower.contains("pi has no saved api key")
     {
-        Some(SetupIssue::provider(detail))
+        let mut issue = SetupIssue::provider(detail);
+        let provider = if lower.contains("pi has no default model provider")
+            || lower.contains("pi has no saved api key")
+        {
+            Some("pi")
+        } else if lower.contains("codex") {
+            Some("codex")
+        } else if lower.contains("claude code") {
+            Some("claude")
+        } else if lower.contains("opencode") {
+            Some("opencode")
+        } else if lower.contains("copilot") {
+            Some("copilot")
+        } else if lower.contains("antigravity") {
+            Some("antigravity")
+        } else {
+            None
+        };
+        issue.related_task_prefix = provider.map(|provider| format!("setup:cli:{provider}:"));
+        Some(issue)
     } else {
         None
     }
+}
+
+fn docker_task_prefix(lower: &str) -> Option<String> {
+    let task_id = if lower.contains("rootful linux") || lower.contains("rootless docker") {
+        "setup:docker:rootless"
+    } else if lower.contains("docker not installed") || lower.contains("docker is not installed") {
+        "setup:docker:install"
+    } else if lower.contains("docker not running") || lower.contains("docker is not running") {
+        "setup:docker:start"
+    } else if lower.contains("permission denied") || lower.contains("docker permission") {
+        "setup:docker:permission"
+    } else if lower.contains("untrusted endpoint") {
+        "setup:docker:endpoint"
+    } else if lower.contains("docker desktop") || lower.contains("desktop backend") {
+        "setup:docker:desktop"
+    } else if lower.contains("capabilities incompatible") || lower.contains("resource limits") {
+        "setup:docker:capabilities"
+    } else if lower.contains("approved runtime image") {
+        "setup:images:"
+    } else {
+        return None;
+    };
+    Some(task_id.to_owned())
+}
+
+pub(crate) fn has_specific_task(
+    tasks: &[&crate::persistence::setup_tasks::LocalTask],
+    issue: &SetupIssue,
+) -> bool {
+    let Some(prefix) = issue.related_task_prefix.as_deref() else {
+        return false;
+    };
+    tasks.iter().any(|task| {
+        task.id.starts_with(prefix)
+            && task.state != crate::persistence::setup_tasks::State::Unsupported
+            && task.id != "setup:docker:desktop-transport"
+    })
 }
 
 #[cfg(test)]
@@ -182,6 +243,27 @@ mod tests {
             "setup:docker"
         );
         assert!(from_harness_failure("Pi returned an invalid planning response").is_none());
+    }
+
+    #[test]
+    fn provider_failure_matches_only_a_provider_named_in_its_diagnostic() {
+        let pi = from_harness_failure("Pi has no saved API key").unwrap();
+        assert_eq!(pi.related_task_prefix.as_deref(), Some("setup:cli:pi:"));
+
+        let generic = from_harness_failure("The planning provider relay is unavailable.").unwrap();
+        assert!(generic.related_task_prefix.is_none());
+    }
+
+    #[test]
+    fn generic_docker_failure_does_not_claim_a_specific_machine_task() {
+        let generic = from_harness_failure("Docker Engine is unavailable").unwrap();
+        assert!(generic.related_task_prefix.is_none());
+
+        let rootful = from_harness_failure("Rootful Linux Docker is not supported").unwrap();
+        assert_eq!(
+            rootful.related_task_prefix.as_deref(),
+            Some("setup:docker:rootless")
+        );
     }
 
     #[test]

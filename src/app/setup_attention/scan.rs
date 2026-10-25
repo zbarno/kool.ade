@@ -16,7 +16,7 @@ pub struct SetupScanResult {
 }
 
 impl SetupScanResult {
-    fn cancelled(generation: u64) -> Self {
+    pub(super) fn cancelled(generation: u64) -> Self {
         Self {
             generation,
             issue: None,
@@ -83,6 +83,20 @@ pub fn scan(
         git_probe,
     );
     snapshot.scan_started_at_unix_ms = started_at;
+    if snapshot.validate().is_err() {
+        return SetupScanResult {
+            generation,
+            issue: Some(SetupIssue::provider(
+                "The machine setup scan produced inconsistent evidence. Retry the check.",
+            )),
+            snapshot: None,
+            endpoint_fingerprint: None,
+            daemon_identity_fingerprint: None,
+            docker_readiness_fingerprint: None,
+            selected_provider: None,
+            cancelled: false,
+        };
+    }
     let issue = issue_for_readiness(cli_issue, docker.local_execution_ready(), &snapshot);
     let docker_readiness_fingerprint = docker.readiness_fingerprint();
     SetupScanResult {
@@ -198,22 +212,42 @@ fn verify_before_commit_at(
         };
     }
     let persisted = result.snapshot.as_ref().map(|snapshot| {
+        if snapshot.scan_generation != result.generation {
+            return Err(anyhow::anyhow!(
+                "machine setup snapshot generation mismatch"
+            ));
+        }
+        snapshot.validate()?;
         if let Some(state_path) = state_path.as_deref() {
-            crate::persistence::setup_tasks::reconcile_at_if(state_path, snapshot, || {
-                !cancellation.load(std::sync::atomic::Ordering::Acquire)
-            })
+            crate::persistence::setup_tasks::reconcile_at_if(
+                state_path,
+                snapshot,
+                result.generation,
+                || !cancellation.load(std::sync::atomic::Ordering::Acquire),
+            )
         } else {
-            crate::persistence::setup_tasks::reconcile_live_if(snapshot, || {
+            crate::persistence::setup_tasks::reconcile_live_if(snapshot, result.generation, || {
                 !cancellation.load(std::sync::atomic::Ordering::Acquire)
             })
         }
     });
     match persisted {
         Some(Ok(Some(store))) if !cancellation.load(std::sync::atomic::Ordering::Acquire) => {
-            SetupScanVerification {
-                result,
-                machine_setup_tasks: Some(store.tasks.into_values().collect()),
-                persistence_failed: false,
+            match crate::persistence::setup_tasks::ordered_task_ids(&store) {
+                Ok(ids) => SetupScanVerification {
+                    result,
+                    machine_setup_tasks: Some(
+                        ids.iter()
+                            .filter_map(|id| store.tasks.get(id).cloned())
+                            .collect(),
+                    ),
+                    persistence_failed: false,
+                },
+                Err(_) => SetupScanVerification {
+                    result,
+                    machine_setup_tasks: None,
+                    persistence_failed: true,
+                },
             }
         }
         Some(Ok(None)) | Some(Ok(Some(_))) => {

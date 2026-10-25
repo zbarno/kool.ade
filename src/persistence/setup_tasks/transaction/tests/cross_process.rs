@@ -4,36 +4,17 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Production boundary: concurrent setup scans must serialize their durable
-/// read-modify-write across processes. A thread-only test cannot exercise the
-/// OS lock because the process mutex serializes first. Uses a temporary state
-/// directory and subprocesses; no Docker or network; filesystem locks are the
-/// only external dependency and setup cost is low.
-/// Production boundary: a slower scan from another process must not replace
-/// a newer scan even when it finishes later. A unit test alone cannot verify
-/// the child reloads the locked durable store; uses a subprocess and local
-/// filesystem only (low cost).
+/// Production boundary: a scan that reserved an older generation cannot
+/// overwrite a newer durable result after finishing later. Uses a child process
+/// and local filesystem only; no Docker or network, low setup cost.
 #[test]
-fn older_start_scan_finishing_later_cannot_replace_store_from_another_process() {
+fn older_reserved_generation_cannot_replace_a_newer_child_result() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("tasks.json");
-    let mut newer = snapshot(25, "newer observation");
-    newer.scan_started_at_unix_ms = 20;
-    reconcile_at(&path, &newer).unwrap();
-
+    let slow_generation = begin_scan_at(&path).unwrap();
     let completion_marker = directory.path().join("child-reconciled");
-    let mut child = Command::new(std::env::current_exe().unwrap())
-        .arg("--exact")
-        .arg("persistence::setup_tasks::transaction::tests::cross_process::cross_process_lock_helper")
-        .arg("--nocapture")
-        .env("KOOLADE_SETUP_STATE_PATH", &path)
-        .env("KOOLADE_SETUP_CHILD_AT", "30")
-        .env("KOOLADE_SETUP_CHILD_START_AT", "10")
-        .env("KOOLADE_SETUP_CHILD_TITLE", "stale child observation")
-        .env("KOOLADE_SETUP_EXPECT_STALE", "1")
-        .env("KOOLADE_SETUP_LOCK_COMPLETION_MARKER", &completion_marker)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+    let mut child = helper(&path, &completion_marker)
+        .env("KOOLADE_SETUP_CHILD_TITLE", "newer child scan")
         .spawn()
         .unwrap();
     let completed = wait_for_marker(&mut child, &completion_marker, Duration::from_secs(5));
@@ -41,17 +22,21 @@ fn older_start_scan_finishing_later_cannot_replace_store_from_another_process() 
         let _ = child.kill();
     }
     let status = child.wait().unwrap();
-
-    assert!(completed, "child did not report its stale scan result");
+    assert!(completed, "child did not report its committed scan");
     assert!(status.success(), "child test process failed: {status}");
-    let store = load_from(&path).unwrap();
+
+    let slow = snapshot(slow_generation, "older reserved scan");
+    assert!(reconcile_live_at(&path, &slow, slow_generation).is_err());
+    let store = load_from(&path).unwrap().0;
     assert_eq!(
         store.tasks["setup:docker:rootless"].title,
-        "newer observation"
+        "newer child scan"
     );
-    assert!(!store.tasks.contains_key("setup:docker:start"));
 }
 
+/// Production boundary: separate app processes must serialize the task-store
+/// read-modify-write with the OS lock. A thread-only test cannot cover this
+/// boundary; local filesystem only, no external services, low setup cost.
 #[test]
 fn cross_process_reconciliation_waits_for_the_os_file_lock() {
     use fs2::FileExt;
@@ -70,21 +55,13 @@ fn cross_process_reconciliation_waits_for_the_os_file_lock() {
         .unwrap();
     FileExt::lock_exclusive(&lock).unwrap();
 
-    let mut child = Command::new(std::env::current_exe().unwrap())
-        .arg("--exact")
-        .arg("persistence::setup_tasks::transaction::tests::cross_process::cross_process_lock_helper")
-        .arg("--nocapture")
-        .env("KOOLADE_SETUP_STATE_PATH", &path)
+    let mut child = helper(&path, &completion_marker)
         .env("KOOLADE_SETUP_LOCK_ATTEMPT_MARKER", &attempt_marker)
-        .env("KOOLADE_SETUP_LOCK_COMPLETION_MARKER", &completion_marker)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
         .spawn()
         .unwrap();
-
     let reached_lock = wait_for_marker(&mut child, &attempt_marker, Duration::from_secs(5));
     std::thread::sleep(Duration::from_millis(100));
-    let blocked_while_parent_holds_lock = !completion_marker.exists();
+    let blocked = !completion_marker.exists();
     FileExt::unlock(&lock).unwrap();
     let completed = wait_for_marker(&mut child, &completion_marker, Duration::from_secs(5));
     if !completed {
@@ -93,24 +70,17 @@ fn cross_process_reconciliation_waits_for_the_os_file_lock() {
     let status = child.wait().unwrap();
 
     assert!(reached_lock, "child did not reach the OS lock boundary");
-    assert!(
-        blocked_while_parent_holds_lock,
-        "child reconciled while another process held the OS lock"
-    );
-    assert!(
-        completed,
-        "child did not reconcile after the lock was released"
-    );
+    assert!(blocked, "child reconciled while the parent held the lock");
+    assert!(completed, "child did not reconcile after lock release");
     assert!(status.success(), "child test process failed: {status}");
-    let store = load_from(&path).unwrap();
+    let store = load_from(&path).unwrap().0;
     assert_eq!(store.tasks["setup:docker:rootless"].title, "child process");
 }
 
-/// Production boundary: a canceled reconciliation waiting on the shared task
-/// file lock must not persist after release.
-/// A unit-only predicate test cannot prove lock ordering; this uses a child
-/// process and temporary local files, with no Docker/network dependency (low
-/// setup cost).
+/// Production boundary: cancellation while a reserved snapshot waits on the
+/// shared OS file lock must skip it after release. A thread-only test cannot
+/// prove this cross-process lock boundary. Local filesystem only; no Docker or
+/// network, low setup cost.
 #[test]
 fn cross_process_cancellation_skips_the_waiting_snapshot() {
     use fs2::FileExt;
@@ -121,6 +91,7 @@ fn cross_process_cancellation_skips_the_waiting_snapshot() {
     let attempt_marker = directory.path().join("child-attempted-lock");
     let cancellation_marker = directory.path().join("refresh-requested");
     let completion_marker = directory.path().join("child-reconciled");
+    let reserved_generation = begin_scan_at(&path).unwrap();
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
@@ -130,20 +101,15 @@ fn cross_process_cancellation_skips_the_waiting_snapshot() {
         .unwrap();
     FileExt::lock_exclusive(&lock).unwrap();
 
-    let mut child = Command::new(std::env::current_exe().unwrap())
-        .arg("--exact")
-        .arg("persistence::setup_tasks::transaction::tests::cross_process::cross_process_lock_helper")
-        .arg("--nocapture")
-        .env("KOOLADE_SETUP_STATE_PATH", &path)
+    let mut child = helper(&path, &completion_marker)
         .env("KOOLADE_SETUP_LOCK_ATTEMPT_MARKER", &attempt_marker)
         .env("KOOLADE_SETUP_CANCEL_MARKER", &cancellation_marker)
-        .env("KOOLADE_SETUP_EXPECT_CANCELLED", "1")
-        .env("KOOLADE_SETUP_LOCK_COMPLETION_MARKER", &completion_marker)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .env(
+            "KOOLADE_SETUP_RESERVED_GENERATION",
+            reserved_generation.to_string(),
+        )
         .spawn()
         .unwrap();
-
     let reached_lock = wait_for_marker(&mut child, &attempt_marker, Duration::from_secs(5));
     std::fs::write(&cancellation_marker, b"refresh").unwrap();
     FileExt::unlock(&lock).unwrap();
@@ -156,9 +122,9 @@ fn cross_process_cancellation_skips_the_waiting_snapshot() {
     assert!(reached_lock, "child did not reach the OS lock boundary");
     assert!(completed, "child did not report the canceled scan");
     assert!(status.success(), "child test process failed: {status}");
-    let store = load_from(&path).unwrap();
-    assert!(!store.tasks.contains_key("setup:docker:rootless"));
-    assert_eq!(store.last_scan_started_at_unix_ms, 0);
+    let store = load_from(&path).unwrap().0;
+    assert!(store.tasks.is_empty());
+    assert_eq!(store.latest_scan_generation, reserved_generation);
 }
 
 #[test]
@@ -167,28 +133,21 @@ fn cross_process_lock_helper() {
         return;
     };
     let path = Path::new(&path);
-    let at = std::env::var("KOOLADE_SETUP_CHILD_AT")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(30);
     let title =
         std::env::var("KOOLADE_SETUP_CHILD_TITLE").unwrap_or_else(|_| "child process".into());
-    let mut snapshot = snapshot(at, &title);
-    snapshot.scan_started_at_unix_ms = std::env::var("KOOLADE_SETUP_CHILD_START_AT")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(at);
-    let cancel_marker = std::env::var_os("KOOLADE_SETUP_CANCEL_MARKER");
-    let result = if let Some(marker) = cancel_marker {
-        let marker = Path::new(&marker).to_path_buf();
-        reconcile_at_if(path, &snapshot, || !marker.exists())
-    } else {
-        reconcile_at(path, &snapshot).map(Some)
+    let generation = match std::env::var("KOOLADE_SETUP_RESERVED_GENERATION") {
+        Ok(generation) => generation.parse().unwrap(),
+        Err(_) => begin_scan_at(path).unwrap(),
     };
-    if std::env::var_os("KOOLADE_SETUP_EXPECT_STALE").is_some() {
-        assert!(result.is_err(), "same-time child observation was accepted");
-    } else if std::env::var_os("KOOLADE_SETUP_EXPECT_CANCELLED").is_some() {
-        assert!(matches!(result, Ok(None)), "canceled child scan was saved");
+    let scan = snapshot(generation, &title);
+    let result = if let Some(marker) = std::env::var_os("KOOLADE_SETUP_CANCEL_MARKER") {
+        let marker = Path::new(&marker).to_path_buf();
+        reconcile_at_if(path, &scan, generation, || !marker.exists())
+    } else {
+        reconcile_live_at(path, &scan, generation).map(Some)
+    };
+    if std::env::var_os("KOOLADE_SETUP_CANCEL_MARKER").is_some() {
+        assert!(matches!(result, Ok(None)), "canceled scan was persisted");
     } else {
         result.unwrap().unwrap();
     }
@@ -197,6 +156,19 @@ fn cross_process_lock_helper() {
         b"complete",
     )
     .unwrap();
+}
+
+fn helper<'a>(path: &'a Path, completion: &'a Path) -> Command {
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
+        .arg("--exact")
+        .arg("persistence::setup_tasks::transaction::tests::cross_process::cross_process_lock_helper")
+        .arg("--nocapture")
+        .env("KOOLADE_SETUP_STATE_PATH", path)
+        .env("KOOLADE_SETUP_LOCK_COMPLETION_MARKER", completion)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    command
 }
 
 fn wait_for_marker(child: &mut Child, path: &Path, timeout: Duration) -> bool {

@@ -17,7 +17,8 @@ pub struct ViewModel {
         std::collections::BTreeMap<String, crate::core::self_improvement::SelfImprovementRunV1>,
     pub opportunity_error: Option<String>,
     pub opportunity_discovery_settings: crate::core::opportunity::OpportunityDiscoverySettingsV1,
-    pub setup_attention: Option<crate::app::setup_attention::SetupIssue>,
+    /// Transient probe errors; readiness tasks live in the persisted collection.
+    pub setup_attention: Vec<crate::app::setup_attention::SetupIssue>,
     pub setup_tasks: Vec<crate::persistence::setup_tasks::LocalTask>,
     pub setup_checking: bool,
     pub eligible_item_ids: BTreeSet<String>,

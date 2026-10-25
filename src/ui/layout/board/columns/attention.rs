@@ -31,7 +31,7 @@ enum Entry<'a> {
 
 pub(super) struct Lane<'a> {
     pub planning: &'a [&'a crate::core::planning_work::Work],
-    pub issue: Option<&'a crate::app::setup_attention::SetupIssue>,
+    pub issues: &'a [crate::app::setup_attention::SetupIssue],
     pub setup_tasks: &'a [crate::persistence::setup_tasks::LocalTask],
     pub items: &'a [&'a crate::domain::item::OpenItem],
     pub tasks: &'a [&'a crate::artifacts::task_docs::TaskDocument],
@@ -133,12 +133,12 @@ pub(super) fn paint(
         ));
         fallback_order += 1;
     }
-    if let Some(issue) = lane.issue {
+    for issue in lane.issues {
         entries.push((Entry::Setup(issue), None, fallback_order));
         fallback_order += 1;
     }
     for task in lane.setup_tasks {
-        if task.state != crate::persistence::setup_tasks::State::Verified {
+        if task.is_active() {
             entries.push((Entry::MachineSetup(task), None, fallback_order));
             fallback_order += 1;
         }

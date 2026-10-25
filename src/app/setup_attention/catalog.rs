@@ -6,6 +6,7 @@
 pub const SCHEMA_VERSION: u8 = MachineSnapshotV1::SCHEMA_VERSION;
 
 mod assess;
+mod dependencies;
 mod evidence;
 mod images;
 mod model;

@@ -38,11 +38,11 @@ mod desktop_app;
 mod dialogs;
 mod implementation_controller;
 mod implementation_decision;
-mod initialization;
 mod opportunity_actions;
 pub(crate) mod plan_review;
 pub(crate) mod spec_reconciliation;
 pub(crate) use spec_reconciliation::SpecReconciliation;
+mod initialization;
 pub(crate) mod planner_pass;
 mod planning_repository;
 mod planning_repository_surface;
@@ -110,7 +110,7 @@ pub struct KooladeApp {
     /// Cached routing identity (rebuilt after connect/adoption/settings).
     cached_user: CurrentUser,
     attention: std::collections::BTreeMap<std::path::PathBuf, attention::Status>,
-    setup_attention: Option<super::setup_attention::SetupIssue>,
+    setup_attention: Vec<super::setup_attention::SetupIssue>,
     /// Read-only projection of the machine-local setup task store.
     machine_setup_tasks: Vec<crate::persistence::setup_tasks::LocalTask>,
     setup_attention_notified: Option<String>,
@@ -119,7 +119,6 @@ pub struct KooladeApp {
     setup_commit_lock: std::sync::Arc<std::sync::Mutex<()>>,
     #[cfg(test)]
     setup_task_state_path: std::path::PathBuf,
-    setup_scan_generation: u64,
     setup_retry_requested: bool,
     setup_refresh_pending: Option<bool>,
     setup_image_preparation: super::bootstrap_image_prepare::Controller,

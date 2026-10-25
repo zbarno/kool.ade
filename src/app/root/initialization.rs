@@ -7,10 +7,6 @@ impl Default for KooladeApp {
         // Docker daemon exists. Tests opt in explicitly to avoid probing the
         // developer machine while constructing UI fixtures.
         #[cfg(not(test))]
-        let setup_scan_generation = 1;
-        #[cfg(test)]
-        let setup_scan_generation = 0;
-        #[cfg(not(test))]
         let setup_probe_cancel = Some(std::sync::Arc::new(std::sync::atomic::AtomicBool::new(
             false,
         )));
@@ -20,9 +16,10 @@ impl Default for KooladeApp {
         let setup_probe = {
             let cancellation = setup_probe_cancel.as_ref().unwrap().clone();
             Some(std::thread::spawn(move || {
-                setup_attention::ProbeOutput::Scanned(crate::app::setup_attention::scan(
-                    1,
+                setup_attention::ProbeOutput::Scanned(crate::app::setup_attention::run_scan(
+                    true,
                     cancellation,
+                    None,
                 ))
             }))
         };
@@ -57,7 +54,7 @@ impl Default for KooladeApp {
             clone_computation_override: None,
             cached_user: CurrentUser::new("", Vec::new()),
             attention: Default::default(),
-            setup_attention: None,
+            setup_attention: Vec::new(),
             machine_setup_tasks: Vec::new(),
             setup_attention_notified: None,
             setup_probe,
@@ -65,7 +62,6 @@ impl Default for KooladeApp {
             setup_commit_lock: Default::default(),
             #[cfg(test)]
             setup_task_state_path,
-            setup_scan_generation,
             setup_retry_requested: false,
             setup_refresh_pending: None,
             setup_image_preparation: crate::app::bootstrap_image_prepare::Controller::default(),

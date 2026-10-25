@@ -1,6 +1,7 @@
 use super::*;
-use crate::app::setup_attention::catalog::{Finding, FindingStatus, HostKind};
+use crate::app::setup_attention::catalog::{Finding, FindingStatus, HostKind, MachineSnapshot};
 
+mod cancellation;
 mod cross_process;
 mod ordering;
 

@@ -47,6 +47,8 @@ mod relationships;
 mod responsive_layout;
 #[path = "board_tests/review_approval.rs"]
 mod review_approval;
+#[path = "board_tests/setup_cards.rs"]
+mod setup_cards;
 #[path = "board_tests/task_completion.rs"]
 mod task_completion;
 #[path = "board_tests/task_details.rs"]

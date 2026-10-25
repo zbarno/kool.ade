@@ -170,9 +170,10 @@ fn todo_task_names_the_prerequisite_that_keeps_it_blocked() {
 #[test]
 fn setup_attention_is_sent_to_the_manager_once_per_issue() {
     let mut app = fixture();
-    app.setup_attention = Some(crate::app::setup_attention::SetupIssue::provider(
-        "The saved provider configuration is unsupported.",
-    ));
+    app.setup_attention
+        .push(crate::app::setup_attention::SetupIssue::provider(
+            "The saved provider configuration is unsupported.",
+        ));
     app.queue_manager_setup_update();
     app.queue_manager_setup_update();
 
@@ -187,4 +188,104 @@ fn setup_attention_is_sent_to_the_manager_once_per_issue() {
         .collect::<Vec<_>>();
     assert_eq!(setup_events.len(), 1);
     assert!(setup_events[0].contains("Next action"));
+}
+
+#[test]
+fn multiple_machine_setup_findings_render_as_distinct_cards() {
+    let mut app = fixture();
+    app.machine_setup_tasks = vec![
+        machine_setup_task("setup:cli:codex:auth", "Connect your coding agent"),
+        machine_setup_task("setup:docker:rootless", "Configure rootless Docker"),
+    ];
+    app.setup_attention.push(
+        crate::app::setup_attention::from_harness_failure("Docker Engine is unavailable")
+            .expect("generic Docker failure remains a transient notice"),
+    );
+    let ctx = super::mockup_layout::styled_context();
+    for _ in 0..4 {
+        frame(&mut app, &ctx, vec![]);
+    }
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "Connect your coding agent").is_some());
+    assert!(text_position(&output, "Configure rootless Docker").is_some());
+    assert!(text_position(&output, "Kool.ad/e needs Docker").is_some());
+}
+
+#[test]
+fn machine_setup_task_replaces_matching_legacy_notice_on_the_board() {
+    let mut app = fixture();
+    app.machine_setup_tasks = vec![machine_setup_task(
+        "setup:cli:codex:auth",
+        "Connect your coding agent",
+    )];
+    let mut notice =
+        crate::app::setup_attention::SetupIssue::provider("A coding-agent provider failure.");
+    notice.related_task_prefix = Some("setup:cli:codex:".into());
+    app.setup_attention.push(notice);
+    let ctx = super::mockup_layout::styled_context();
+    for _ in 0..4 {
+        frame(&mut app, &ctx, vec![]);
+    }
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "Connect your coding agent").is_some());
+    assert!(text_position(&output, "Kool.ad/e cannot use this model provider safely").is_none());
+}
+
+#[test]
+fn unsupported_or_unrelated_machine_tasks_do_not_hide_transient_notices() {
+    let mut app = fixture();
+    let mut desktop = machine_setup_task(
+        "setup:docker:desktop-transport",
+        "Verify Docker Desktop compatibility",
+    );
+    desktop.state = crate::persistence::setup_tasks::State::Unsupported;
+    app.machine_setup_tasks = vec![
+        desktop,
+        machine_setup_task("setup:cli:pi:auth", "Connect the other coding agent"),
+    ];
+    let mut docker = crate::app::setup_attention::SetupIssue::docker("Docker request failed.");
+    docker.related_task_prefix = Some("setup:docker:".into());
+    let mut provider =
+        crate::app::setup_attention::SetupIssue::provider("The selected provider request failed.");
+    provider.related_task_prefix = Some("setup:cli:codex:".into());
+    app.setup_attention.extend([docker, provider]);
+
+    let ctx = super::mockup_layout::styled_context();
+    let size = egui::vec2(1800.0, 1400.0);
+    for _ in 0..4 {
+        frame_at(&mut app, &ctx, vec![], size);
+    }
+    let output = frame_at(&mut app, &ctx, vec![], size);
+    assert!(text_position(&output, "Kool.ad/e needs Docker").is_some());
+    assert!(text_position(&output, "Kool.ad/e cannot use this model provider safely").is_some());
+    assert!(text_position(&output, "Verify Docker Desktop compatibility").is_some());
+    assert!(text_position(&output, "Connect the other coding agent").is_some());
+}
+
+fn machine_setup_task(id: &str, title: &str) -> crate::persistence::setup_tasks::SetupTaskV1 {
+    use crate::persistence::setup_tasks::{SetupTaskEventV1, SetupTaskStateV1};
+
+    crate::persistence::setup_tasks::SetupTaskV1 {
+        schema_version: 1,
+        id: id.into(),
+        title: title.into(),
+        explanation: "A typed readiness probe found a specific setup issue.".into(),
+        next_step: "Review this setup task.".into(),
+        dependencies: Vec::new(),
+        blocked_by: Vec::new(),
+        state: SetupTaskStateV1::ReadyToFix,
+        created_at_unix_ms: 1,
+        observed_at_unix_ms: 1,
+        scan_generation: 1,
+        verified_at_unix_ms: None,
+        verified_result: None,
+        attempts: Vec::new(),
+        events: vec![SetupTaskEventV1 {
+            observed_at_unix_ms: 1,
+            scan_generation: 1,
+            state: SetupTaskStateV1::ReadyToFix,
+        }],
+        legacy_source_id: None,
+        superseded_by: Vec::new(),
+    }
 }
