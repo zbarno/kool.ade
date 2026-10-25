@@ -1,4 +1,8 @@
 use super::*;
+#[path = "run/finalize.rs"]
+mod finalize;
+#[path = "run/primary.rs"]
+mod primary;
 
 /// Boundary: app-owned startup uploads a bounded Python web artifact and a
 /// integrity-verified npm cache snapshot into service tmpfs, proves the service process can
@@ -12,8 +16,8 @@ use super::*;
 /// CI sets `KOOLADE_QA_REQUIRE_SERVICE_DRIVER=1` so this exact path also proves
 /// API-only support on the freshly built image; compatibility smoke uses the
 /// reviewed base image and exercises only its supported browser mode. Setup
-/// cost: one candidate image build, one small synthetic cache, and short browser
-/// and service scenarios.
+/// cost: one candidate image build, two small synthetic caches, a second
+/// preview, two concurrent browser drivers, and cancellation/security probes.
 #[tokio::test]
 #[ignore = "requires rootless Docker and a locally loaded browser QA candidate"]
 async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up() {
@@ -129,8 +133,6 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
     scenario.visual_expectations.clear();
     request.validate().unwrap();
     scenario.validate(&request).unwrap();
-    let browser_request = build_browser_request(&request, &scenario).unwrap();
-    let request_upload = QaContainerUpload::request_file(&browser_request, 256 * 1024).unwrap();
     let (_cancel_sender, mut cancel) = tokio::sync::watch::channel(false);
     let mut resources = resources();
     resources.process_count = 128;
@@ -162,63 +164,28 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
     .await
     .unwrap();
 
-    let mut driver_container_id = None;
-    let driver_result: Result<_, String> = async {
-        let artifacts = [QaArtifactMount::inspect(artifact_root.path(), "/workspace")
-            .map_err(|error| error.message)?];
-        let uploads = [artifact_upload.clone(), request_upload];
-        let spec = QaDriverContainerSpec {
-            owner_id: &request.execution_session_id,
-            request: &request,
-            task_uid: &request.parent_task_uid,
-            driver: "browser",
-            image: &browser_image,
-            artifacts: &artifacts,
-            dependency_caches: &[],
-            network: QaDriverNetwork::InternalPreviewRelay {
-                network_id: preview.relay_binding.relay_browser_network_id.clone(),
-                relay_container_id: preview.relay_binding.relay_container_id.clone(),
-            },
-            service_lease: Some(&preview.service_lease),
-            relay_binding: Some(&preview.relay_binding),
-            resources: &resources,
-        };
-        let body = spec
-            .create_body_with_lock(&lock)
-            .map_err(|error| error.message)?;
-        let name = format!("koolade-qa-{}", request.qa_run_id);
-        let driver_id = create_driver_container(
-            &docker,
-            &name,
-            body,
-            &uploads,
-            Duration::from_secs(120),
-            16 * 1024 * 1024,
-            &mut cancel,
-        )
-        .await
-        .map_err(|error| error.message)?;
-        driver_container_id = Some(driver_id.clone());
-        let mut relay_binding = preview.relay_binding.clone();
-        relay_binding.browser_container_id = Some(driver_id.clone());
-        validate_browser_driver_network(&docker, &request, &relay_binding, &driver_id)
-            .await
-            .map_err(|error| error.message)?;
-        let output = run_created_driver(
-            &docker,
-            &driver_id,
-            Duration::from_secs(120),
-            16 * 1024 * 1024,
-            &mut cancel,
-        )
-        .await
-        .map_err(|error| error.message)?;
-        parse_browser_output(&output.stdout, &request, &scenario)
-    }
+    let primary_result = primary::run(primary::PrimaryDriverContext {
+        docker: &docker,
+        request: &request,
+        scenario: &scenario,
+        browser_image: &browser_image,
+        lock: &lock,
+        artifact_root: artifact_root.path(),
+        artifact_upload: &artifact_upload,
+        preview: &preview,
+        resources: &resources,
+        cancel: &mut cancel,
+    })
     .await;
-    if let Some(driver_id) = driver_container_id.take() {
-        cleanup_driver_container(&docker, &driver_id).await.unwrap();
-    }
+    let driver_result = match primary_result {
+        Ok(primary_result) => {
+            if let Some(driver_id) = primary_result.driver_container_id {
+                cleanup_driver_container(&docker, &driver_id).await.unwrap();
+            }
+            primary_result.output
+        }
+        Err(error) => Err(error),
+    };
     let headless_service_result = if service_driver::required_for_candidate() {
         Some(
             service_driver::run(
@@ -262,38 +229,44 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
         &mut cancel,
     )
     .await;
-    cleanup::cleanup_and_assert(&docker, &request, driver_container_id, &preview).await;
-    origin_escape_result.unwrap_or_else(|error| panic!("origin escape was not blocked: {error}"));
-    seeded_defect_result
-        .unwrap_or_else(|error| panic!("seeded browser defect was not reported: {error}"));
-    let output = driver_result.unwrap();
-    assert!(output.completed);
-    assert_eq!(output.assertions.len(), 2);
-    assert!(
-        output
-            .assertions
-            .iter()
-            .all(|assertion| { assertion.status == crate::runtime_qa::QaAssertionStatus::Passed })
-    );
-    assert!(output.screenshots.iter().any(|screen| screen.width >= 320));
-    if let Some(result) = headless_service_result {
-        let service_output =
-            result.unwrap_or_else(|error| panic!("headless service QA failed: {error}"));
-        assert!(service_output.completed);
-        assert_eq!(service_output.assertions.len(), 1);
-        assert_eq!(
-            service_output.assertions[0].status,
-            crate::runtime_qa::QaAssertionStatus::Passed
-        );
-        let service_evidence = serde_json::to_string(&service_output).unwrap();
-        assert!(!service_evidence.contains("headless fixture input"));
-        assert!(!service_evidence.contains(r#"{"saved":true}"#));
-    }
-    lifecycle::review_and_persist(
+    let cancellation_result = cancellation::assert_cancelled_browser_navigation_is_cleaned(
+        &docker,
         &request,
+        &browser_image,
+        &lock,
+        &artifact_root,
+        &artifact_upload,
+        &preview,
+        &resources,
+    )
+    .await;
+    let concurrent_runs_result =
+        concurrency::assert_parallel_browser_runs_are_isolated(concurrency::ParallelRunContext {
+            docker: &docker,
+            request: &request,
+            scenario: &scenario,
+            browser_image: &browser_image,
+            service_image: &service_image,
+            lock: &lock,
+            artifact_root: &artifact_root,
+            artifact_upload: &artifact_upload,
+            recipe: &recipe,
+            preview: &preview,
+            resources: &resources,
+        })
+        .await;
+    finalize::finish(finalize::FinalizationContext {
+        docker: &docker,
+        request: &request,
         scenario,
-        &preview.service_lease,
-        output,
-        artifact_root.path().join("qa-evidence"),
-    );
+        preview: &preview,
+        driver_result,
+        origin_escape_result,
+        seeded_defect_result,
+        cancellation_result,
+        concurrent_runs_result,
+        headless_service_result,
+        evidence_root: artifact_root.path(),
+    })
+    .await;
 }
