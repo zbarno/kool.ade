@@ -53,7 +53,8 @@ fn go_http_readiness_builds_an_app_owned_stdlib_probe_before_start() {
     assert!(setup.contains("case \"amd64\":"));
     assert!(setup.contains("case \"arm64\":"));
     assert!(setup.contains("F_SEAL_WRITE"));
-    assert!(setup.contains("prSetDumpable = 4"));
+    let normalized_setup = setup.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(normalized_setup.contains("prSetDumpable = 4"));
     assert!(setup.contains("syscall.Syscall6(syscall.SYS_PRCTL, prSetDumpable"));
     assert!(setup.contains("PR_GET_DUMPABLE"));
     assert!(script.contains("exec \"$probe_dir/runner\""));

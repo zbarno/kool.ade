@@ -15,19 +15,19 @@ import (
 )
 
 const (
-	attempts      = 40
+	attempts        = 40
 	memfdCreateFlag = 2
-	mfdExec       = 0x10
-	fAddSeals     = 1033
-	fSealSeal     = 0x01
-	fSealShrink   = 0x02
-	fSealGrow     = 0x04
-	fSealWrite    = 0x08
-	fSealAll      = fSealSeal | fSealShrink | fSealGrow | fSealWrite
-	fSetFd        = 2
-	fdCloseExec   = 1
-	prSetDumpable = 4
-	prGetDumpable = 3
+	mfdExec         = 0x10
+	fAddSeals       = 1033
+	fSealSeal       = 0x01
+	fSealShrink     = 0x02
+	fSealGrow       = 0x04
+	fSealWrite      = 0x08
+	fSealAll        = fSealSeal | fSealShrink | fSealGrow | fSealWrite
+	fSetFd          = 2
+	fdCloseExec     = 1
+	prSetDumpable   = 4
+	prGetDumpable   = 3
 )
 
 func main() {

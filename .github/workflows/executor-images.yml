@@ -316,7 +316,11 @@ jobs:
             --interactive --entrypoint /bin/sh koolade-executor:candidate -eu -s <<'SMOKE'
           set -eu
           test "$(id -u):$(id -g)" = "10001:10001"
-          test -z "$(gofmt -d /opt/koolade-go-readiness-runner.go)"
+          gofmt_diff="$(gofmt -d /opt/koolade-go-readiness-runner.go)"
+          if [ -n "$gofmt_diff" ]; then
+            printf '%s\n' "$gofmt_diff" >&2
+            exit 1
+          fi
           cat > /workspace/readiness-service.go <<'GO'
           package main
           import (
