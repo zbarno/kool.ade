@@ -213,6 +213,9 @@ func awaitReadiness(process *os.Process, port int, path string, expectedStatus i
 			continue
 		}
 		if pid == process.Pid {
+			if status.Signaled() {
+				return false, fmt.Errorf("process terminated by signal %s", status.Signal())
+			}
 			return false, fmt.Errorf("exit status %d", status.ExitStatus())
 		}
 		response, err := client.Get(url)
