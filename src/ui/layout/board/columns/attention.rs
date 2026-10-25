@@ -175,7 +175,9 @@ pub(super) fn paint(
                 super::cards::work(ui, s, work, lane.planning, 3, planning_selection)
             }
             Entry::Setup(issue) => super::cards::setup(ui, s, board, issue, planning_selection),
-            Entry::MachineSetup(task) => super::cards::machine_setup(ui, task, planning_selection),
+            Entry::MachineSetup(task) => {
+                super::cards::machine_setup(ui, s, board, task, planning_selection)
+            }
             Entry::Item(item) => super::cards::item(ui, s, board, item, 3, planning_selection),
             Entry::Task(task) => super::cards::task(ui, s, board, task, 3, selected_path),
             Entry::Clarification(question) => {

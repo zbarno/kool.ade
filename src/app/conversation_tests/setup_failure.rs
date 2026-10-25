@@ -99,6 +99,8 @@ fn failed_project_planning_preserves_setup_cause_and_retry_on_its_board_card() {
 
 #[test]
 fn setup_issue_is_a_board_attention_card_with_a_working_recheck_action() {
+    let state_home = tempfile::tempdir().unwrap();
+    let _state_home = crate::test_support::KooladeHomeGuard::set(state_home.path());
     let mut app = fixture();
     let setup_store = SetupTaskStoreFixture::attach(&mut app);
     let issue = crate::app::setup_attention::SetupIssue::provider(
@@ -114,14 +116,14 @@ fn setup_issue_is_a_board_attention_card_with_a_working_recheck_action() {
         issue.recommendation,
         issue.impact,
         issue.next_action,
-        "Retry setup check",
+        "Check again",
     ] {
         assert!(
             text_contains(&output, text),
             "missing setup guidance: {text}"
         );
     }
-    click_text(&mut app, &ctx, "Retry setup check");
+    click_text(&mut app, &ctx, "Check again");
     assert!(app.setup_probe.is_some(), "retry must start a fresh scan");
     finish_setup_probe(&mut app);
     assert!(
@@ -160,6 +162,8 @@ fn setup_attention_card_opens_workspace_settings() {
 
 #[test]
 fn project_connection_computes_the_local_setup_attention_state() {
+    let state_home = tempfile::tempdir().unwrap();
+    let _state_home = crate::test_support::KooladeHomeGuard::set(state_home.path());
     let root = std::env::temp_dir().join(format!(
         "koolade-setup-connect-{}-{}",
         std::process::id(),
@@ -188,12 +192,11 @@ fn project_connection_computes_the_local_setup_attention_state() {
         "project connection must start a scan"
     );
     finish_setup_probe(&mut app);
-    // A real host may return current setup guidance; only the persisted task
-    // projection is expected to be deterministic across machines.
     assert_eq!(
         app.machine_setup_tasks,
         persisted_machine_setup_tasks(&setup_store.state_path),
-        "retry must refresh current persisted prerequisite state"
+        "project connection must project its own persisted prerequisite state"
     );
+    assert!(setup_store.state_path.is_file());
     std::fs::remove_dir_all(root).unwrap();
 }

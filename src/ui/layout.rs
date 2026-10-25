@@ -10,11 +10,27 @@ mod chat_panel;
 mod header;
 mod new_task;
 mod settings;
+mod setup_welcome;
 mod task_cards;
 mod task_details;
 mod task_properties;
 mod workspace_repositories;
 mod workspace_tabs;
+
+pub(crate) use setup_welcome::{
+    WelcomeSetupAction, paint_board as paint_welcome_setup_board,
+    paint_details as paint_welcome_setup_details,
+};
+
+pub(crate) fn setup_task_summary(
+    task: &crate::persistence::setup_tasks::LocalTask,
+) -> &'static str {
+    task_details::machine_setup_summary(task)
+}
+
+pub(crate) fn setup_task_title(task: &crate::persistence::setup_tasks::LocalTask) -> String {
+    task_details::machine_setup_title(task)
+}
 
 pub enum HeaderAction {
     Refresh,

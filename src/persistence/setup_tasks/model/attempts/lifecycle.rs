@@ -45,7 +45,9 @@ impl SetupTaskStoreV1 {
         anyhow::ensure!(
             matches!(
                 attempt.state,
-                AttemptState::InProgress | AttemptState::AwaitingVerification
+                AttemptState::NeedsApproval
+                    | AttemptState::InProgress
+                    | AttemptState::AwaitingVerification
             ),
             "setup operation cannot fail from its current state"
         );

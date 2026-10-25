@@ -258,6 +258,7 @@ fn task_observation_changed(existing: &SetupTaskV1, next: &SetupTaskV1) -> bool 
         || existing.dependencies != next.dependencies
         || existing.state != next.state
         || existing.verified_result != next.verified_result
+        || existing.attempts != next.attempts
 }
 
 fn legacy_matches(legacy_id: &str, current_id: &str) -> bool {
