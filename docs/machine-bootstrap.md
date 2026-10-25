@@ -80,6 +80,22 @@ grant host access, or authorize machine mutation.
   no coding CLI is installed or authenticated.
 - Runtime QA remains disabled until #171 passes.
 
+The #342 remediation broker now defines strict typed requests and exact plans,
+derives the current host identity and OS version at consent and launch, and
+persists authorization, bounded redacted outcomes, and post-operation probe
+receipts in the setup journal. A launched operation is probed after success,
+failure, timeout, or cancellation. Restart recovery marks an in-flight repair
+interrupted and requires fresh setup evidence before any retry.
+
+This broker slice registers no production host installer or service operation
+and has no controller call site. Its native elevation executor remains
+fail-closed, and the supervised native command runner is disabled on macOS
+until its process-containment adapter is implemented. Existing consented Linux
+rootless image preparation remains the #362 path. The distro-specific Linux,
+macOS, and Windows host operations belong to #346, #348, and #349; they must add
+exact file/service targets and their own supported-host evidence before they
+can run. This PR makes no new native platform support claim.
+
 ## Platform and operation limits
 
 The capability matrix marks Ubuntu 24.04 x86_64 as the current experimental

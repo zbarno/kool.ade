@@ -14,8 +14,10 @@ mod tests;
 pub use graph::ordered_task_ids;
 pub use model::{
     AttemptState, AuthorizationBindingV1, DependencyResolution, FailureCode, LocalTask,
-    SetupAttemptV1, SetupDependencyV1, SetupTaskEventV1, SetupTaskStateV1, SetupTaskStoreV1,
-    SetupTaskTransitionV1, SetupTaskV1, State, Store, VerifiedResultV1, authorization_scope_digest,
+    RemediationAttemptResultV1, RemediationProcessStatusV1, RemediationVerificationStatusV1,
+    RemediationVerificationV1, SetupAttemptV1, SetupDependencyV1, SetupTaskEventV1,
+    SetupTaskStateV1, SetupTaskStoreV1, SetupTaskTransitionV1, SetupTaskV1, State, Store,
+    VerifiedResultV1, authorization_scope_digest,
 };
 pub use transaction::{apply_transition, begin_scan, load, reconcile_live, recover_after_restart};
 pub(crate) use transaction::{

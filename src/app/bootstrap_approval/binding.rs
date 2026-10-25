@@ -104,7 +104,7 @@ fn is_sha256_hex(text: &str) -> bool {
 
 #[cfg(target_os = "linux")]
 #[allow(dead_code)] // Consumed by the current host binding derivation in #345.
-fn linux_machine_id() -> anyhow::Result<String> {
+pub(crate) fn linux_machine_id() -> anyhow::Result<String> {
     use std::{
         fs::OpenOptions,
         io::Read,

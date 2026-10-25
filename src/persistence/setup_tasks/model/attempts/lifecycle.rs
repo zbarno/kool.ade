@@ -160,6 +160,7 @@ impl SetupTaskStoreV1 {
                         | AttemptState::InProgress
                         | AttemptState::AwaitingVerification
                 ) {
+                    let was_running = attempt.state == AttemptState::InProgress;
                     let live_owner = attempt
                         .owner_instance_id
                         .as_deref()
@@ -169,6 +170,18 @@ impl SetupTaskStoreV1 {
                     }
                     attempt.state = AttemptState::Interrupted;
                     attempt.failure = Some(FailureCode::InterruptedByRestart);
+                    if was_running
+                        && attempt.remediation_result.is_none()
+                        && attempt.authorization_history.is_some()
+                    {
+                        attempt.remediation_result = Some(RemediationAttemptResultV1 {
+                            process_status: RemediationProcessStatusV1::InterruptedByRestart,
+                            exit_code: None,
+                            sanitized_diagnostic: None,
+                            verification: None,
+                            rollback_guidance: "The application restarted during an approved repair. Do not retry until a fresh setup scan confirms current state and the documented recovery steps are followed.".into(),
+                        });
+                    }
                     attempt.authorization_binding = None;
                     attempt.owner_instance_id = None;
                     attempt.verified_result = None;

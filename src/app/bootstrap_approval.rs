@@ -229,6 +229,11 @@ impl Default for ApprovalGate {
     }
 }
 
+#[cfg(target_os = "linux")]
+pub(crate) fn linux_machine_id() -> anyhow::Result<String> {
+    binding::linux_machine_id()
+}
+
 fn fingerprint<T: Serialize>(value: &T) -> anyhow::Result<String> {
     let bytes = serde_json::to_vec(value)?;
     Ok(format!("{:x}", Sha256::digest(bytes)))

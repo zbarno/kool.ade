@@ -47,6 +47,12 @@ fn apply_to_store(
             binding,
             at_unix_ms,
         } => store.authorize_attempt(&task_id, &operation_id, binding, owner_id, at_unix_ms),
+        Transition::RecordRemediationResult {
+            task_id,
+            operation_id,
+            result,
+            at_unix_ms,
+        } => store.record_remediation_result(&task_id, &operation_id, result, owner_id, at_unix_ms),
         Transition::AwaitVerification {
             task_id,
             operation_id,

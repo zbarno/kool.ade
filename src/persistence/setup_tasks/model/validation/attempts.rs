@@ -1,6 +1,7 @@
 use super::super::{
-    AttemptState, SetupAttemptV1, SetupTaskStoreV1, SetupTaskV1, VerifiedResultV1,
-    attempts::valid_operation_id, attempts::validate_binding, authorization_scope_digest,
+    AttemptState, RemediationProcessStatusV1, SetupAttemptV1, SetupTaskStoreV1, SetupTaskV1,
+    VerifiedResultV1, attempts::valid_operation_id, attempts::validate_binding,
+    attempts::validate_remediation_result, authorization_scope_digest,
 };
 use crate::persistence::setup_tasks::valid_id;
 
@@ -63,6 +64,19 @@ pub(super) fn validate_attempts(
             );
         }
         validate_attempt_state(attempt)?;
+        if let Some(result) = &attempt.remediation_result {
+            validate_remediation_result(result)?;
+            if result.process_status == RemediationProcessStatusV1::InterruptedByRestart {
+                anyhow::ensure!(
+                    attempt.state == AttemptState::Interrupted
+                        && attempt.failure
+                            == Some(
+                                crate::persistence::setup_tasks::FailureCode::InterruptedByRestart
+                            ),
+                    "restart interruption result is not attached to an interrupted attempt"
+                );
+            }
+        }
         if let Some(result) = &attempt.verified_result {
             anyhow::ensure!(
                 attempt.state == AttemptState::Verified,

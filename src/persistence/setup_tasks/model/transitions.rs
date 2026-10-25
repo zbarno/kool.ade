@@ -1,4 +1,4 @@
-use super::{AuthorizationBindingV1, FailureCode};
+use super::{AuthorizationBindingV1, FailureCode, RemediationAttemptResultV1};
 
 /// Typed state-store mutation request. These commands only record intent and
 /// lifecycle; applying one never executes a host operation.
@@ -15,6 +15,12 @@ pub enum SetupTaskTransitionV1 {
         task_id: String,
         operation_id: String,
         binding: AuthorizationBindingV1,
+        at_unix_ms: u64,
+    },
+    RecordRemediationResult {
+        task_id: String,
+        operation_id: String,
+        result: RemediationAttemptResultV1,
         at_unix_ms: u64,
     },
     AwaitVerification {
