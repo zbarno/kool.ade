@@ -78,6 +78,12 @@ pub enum ApplicationCommand {
     },
     RetryTaskChatSave,
     RetrySetupCheck,
+    RequestSetupTaskFix {
+        task_id: String,
+    },
+    ApproveSetupTaskFix {
+        task_id: String,
+    },
     PlanningRepository(PlanningRepositoryCommand),
     CreatePlanningTask {
         kind: crate::core::planning_work::WorkKind,

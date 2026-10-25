@@ -22,15 +22,21 @@ pub(super) fn frame(
     ctx: &egui::Context,
     events: Vec<egui::Event>,
 ) -> egui::FullOutput {
+    frame_at(app, ctx, events, egui::vec2(1800.0, 900.0))
+}
+
+pub(super) fn frame_at(
+    app: &mut KooladeApp,
+    ctx: &egui::Context,
+    events: Vec<egui::Event>,
+    size: egui::Vec2,
+) -> egui::FullOutput {
     for theme in [egui::Theme::Dark, egui::Theme::Light] {
         ctx.style_mut_of(theme, |style| style.animation_time = 0.0);
     }
     let mut output = ctx.run_ui(
         egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(
-                egui::Pos2::ZERO,
-                egui::vec2(1800.0, 900.0),
-            )),
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
             events,
             ..Default::default()
         },

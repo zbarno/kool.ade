@@ -19,7 +19,9 @@ impl KooladeApp {
         self.surface_time_ledger_errors();
         self.poll_attention(ctx);
         self.poll_setup_attention(ctx);
-        if self.setup_image_preparation.poll(ctx) {
+        let completed = self.setup_image_preparation.poll(ctx);
+        self.publish_setup_task_store_update();
+        if completed {
             self.refresh_setup_attention(true);
         }
         self.queue_manager_setup_update();

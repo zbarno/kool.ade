@@ -64,6 +64,8 @@ fn failed_project_planning_preserves_setup_cause_and_retry_on_its_board_card() {
 
 #[test]
 fn setup_issue_is_a_board_attention_card_with_a_working_recheck_action() {
+    let state_home = tempfile::tempdir().unwrap();
+    let _state_home = crate::test_support::KooladeHomeGuard::set(state_home.path());
     let mut app = fixture();
     let issue = crate::app::setup_attention::SetupIssue::provider(
         "Selected provider uses an unsupported API protocol.",
@@ -78,14 +80,14 @@ fn setup_issue_is_a_board_attention_card_with_a_working_recheck_action() {
         issue.recommendation,
         issue.impact,
         issue.next_action,
-        "Retry setup check",
+        "Check again",
     ] {
         assert!(
             text_contains(&output, text),
             "missing setup guidance: {text}"
         );
     }
-    click_text(&mut app, &ctx, "Retry setup check");
+    click_text(&mut app, &ctx, "Check again");
     finish_setup_probe(&mut app);
     assert!(app.setup_attention.is_empty());
     assert_eq!(
@@ -121,6 +123,8 @@ fn setup_attention_card_opens_workspace_settings() {
 
 #[test]
 fn project_connection_computes_the_local_setup_attention_state() {
+    let state_home = tempfile::tempdir().unwrap();
+    let _state_home = crate::test_support::KooladeHomeGuard::set(state_home.path());
     let root = std::env::temp_dir().join(format!(
         "koolade-setup-connect-{}-{}",
         std::process::id(),

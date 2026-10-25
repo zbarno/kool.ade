@@ -6,8 +6,15 @@ mod runtime_qa;
 
 impl Surface for KooladeApp {
     fn setup_image_preparation(&mut self, ui: &mut egui::Ui, prerequisite_id: &str) {
-        if self.setup_image_preparation.paint(ui, prerequisite_id) {
+        let (completed, request) = self.setup_image_preparation.paint(ui, prerequisite_id);
+        self.publish_setup_task_store_update();
+        if completed {
             self.refresh_setup_attention(true);
+        }
+        if let Some(task_id) = request {
+            self.dispatch_ui_command(crate::ui::ApplicationCommand::ApproveSetupTaskFix {
+                task_id,
+            });
         }
     }
 
