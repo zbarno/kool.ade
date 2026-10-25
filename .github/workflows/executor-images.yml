@@ -314,7 +314,7 @@ jobs:
             --env HOME=/home/executor --env GOTMPDIR=/workspace \
             --mount "type=bind,src=$GITHUB_WORKSPACE/src/project_runtime/executor/start/readiness/go_runner.go,dst=/opt/koolade-go-readiness-runner.go,readonly" \
             --interactive --entrypoint /bin/sh koolade-executor:candidate -eu -s <<'SMOKE'
-          set -eu
+          set -eux
           test "$(id -u):$(id -g)" = "10001:10001"
           gofmt_diff="$(gofmt -d /opt/koolade-go-readiness-runner.go)"
           if [ -n "$gofmt_diff" ]; then
