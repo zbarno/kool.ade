@@ -75,24 +75,7 @@ pub(super) fn is_active(state_path: &Path, id: &str) -> bool {
 }
 
 fn ensure_directory(path: &Path) -> anyhow::Result<()> {
-    if let Ok(metadata) = fs::symlink_metadata(path) {
-        anyhow::ensure!(
-            metadata.is_dir() && !metadata.file_type().is_symlink(),
-            "unsafe setup owner directory"
-        );
-    }
-    fs::create_dir_all(path)?;
-    let metadata = fs::symlink_metadata(path)?;
-    anyhow::ensure!(
-        metadata.is_dir() && !metadata.file_type().is_symlink(),
-        "unsafe setup owner directory"
-    );
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    }
-    Ok(())
+    super::super::storage::permissions::ensure_private_directory(path)
 }
 
 fn open_lock_file(path: &Path, create: bool) -> std::io::Result<File> {

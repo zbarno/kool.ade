@@ -1,18 +1,23 @@
 use std::path::Path;
 
+#[cfg(unix)]
 use serde::{Deserialize, Serialize};
 
 use crate::app::bootstrap_repair_policy::Operation;
 
+#[cfg(unix)]
 const VERSION: u8 = 1;
+#[cfg(unix)]
 const MAX_AUDIT_BYTES: u64 = 512 * 1024;
+#[cfg(unix)]
 const MAX_EVENTS: usize = 256;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests;
 #[cfg(unix)]
 mod unix;
 
+#[cfg(unix)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct AuditEntry {
@@ -24,6 +29,7 @@ struct AuditEntry {
     outcome: String,
 }
 
+#[cfg(unix)]
 #[derive(Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct AuditStore {

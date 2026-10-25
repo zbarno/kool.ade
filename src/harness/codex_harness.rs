@@ -51,20 +51,9 @@ impl CodexHarness {
                 detail: format!("{CODEX_BINARY_ENV} does not name an executable file"),
             });
         }
-        if let Some(paths) = std::env::var_os("PATH") {
-            for directory in std::env::split_paths(&paths) {
-                let candidate = directory.join("codex");
-                if executable(&candidate) {
-                    return Ok(candidate);
-                }
-            }
-        }
-        if let Some(home) = std::env::var_os("HOME") {
-            for site in [".npm-global/bin", ".local/bin"] {
-                let candidate = PathBuf::from(&home).join(site).join("codex");
-                if executable(&candidate) {
-                    return Ok(candidate);
-                }
+        for candidate in crate::harness::discovery::host_executable_candidates("codex") {
+            if executable(&candidate) {
+                return Ok(candidate);
             }
         }
         Err(AppError::HarnessNotFound {

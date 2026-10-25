@@ -9,10 +9,12 @@ use std::{
 
 mod process;
 mod result;
+mod search_paths;
 mod version;
 use process::{is_cancelled, spawn_reader, terminate_group, wait_bounded};
 mod configured;
 pub(crate) use configured::run_with_environment;
+pub(crate) use search_paths::{host_executable_candidates, host_search_path};
 pub(crate) use version::normalize_cli_version;
 
 pub(crate) use result::{
@@ -46,6 +48,7 @@ pub(crate) fn sanitize_probe_environment(command: &mut Command) {
             command.env(name, value);
         }
     }
+    command.env("PATH", host_search_path());
 }
 
 thread_local! {

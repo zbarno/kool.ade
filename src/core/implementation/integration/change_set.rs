@@ -1,5 +1,7 @@
 use super::*;
-use std::{collections::BTreeSet, ffi::OsString};
+use std::collections::BTreeSet;
+#[cfg(unix)]
+use std::ffi::OsString;
 
 #[derive(Debug, Default)]
 struct ChangeSet {

@@ -7,7 +7,7 @@ use super::{owner, path, update_at};
 /// Persist a typed lifecycle transition under the readiness store's file lock.
 /// The caller never executes a host operation through this bookkeeping API.
 pub fn apply_transition(transition: Transition) -> anyhow::Result<SetupTaskStoreV1> {
-    apply_transition_at(&path(), transition)
+    apply_transition_at(&path()?, transition)
 }
 
 pub(crate) fn apply_transition_at(

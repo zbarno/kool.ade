@@ -81,7 +81,7 @@ fn windows_msiexec_path() -> anyhow::Result<PathBuf> {
     use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
 
     let mut buffer = [0_u16; 32768];
-    let length = unsafe { GetSystemDirectoryW(Some(&mut buffer)) } as usize;
+    let length = unsafe { GetSystemDirectoryW(buffer.as_mut_ptr(), buffer.len() as u32) } as usize;
     anyhow::ensure!(
         length > 0 && length < buffer.len(),
         "Windows system directory could not be resolved"

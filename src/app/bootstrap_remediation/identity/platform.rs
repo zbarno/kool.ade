@@ -104,7 +104,7 @@ pub(super) fn windows_machine_id() -> anyhow::Result<String> {
         )
     };
     anyhow::ensure!(
-        first == 0 && value_type == REG_SZ && byte_len >= 4 && byte_len <= 512,
+        first == 0 && value_type == REG_SZ && (4..=512).contains(&byte_len),
         "could not read a trusted Windows machine identity"
     );
     let mut buffer = vec![0_u16; byte_len as usize / 2];
@@ -154,7 +154,7 @@ pub(super) fn windows_os_version() -> anyhow::Result<String> {
         )
     };
     anyhow::ensure!(
-        first == 0 && byte_len >= 2 && byte_len <= 128,
+        first == 0 && (2..=128).contains(&byte_len),
         "could not read Windows version"
     );
     let mut buffer = vec![0_u16; byte_len as usize / 2];
@@ -214,7 +214,7 @@ pub(super) fn windows_principal_id() -> anyhow::Result<String> {
     let user = unsafe { &*buffer.as_ptr().cast::<TOKEN_USER>() };
     let sid_len = unsafe { GetLengthSid(user.User.Sid) } as usize;
     anyhow::ensure!(
-        sid_len >= 8 && sid_len <= 256,
+        (8..=256).contains(&sid_len),
         "Windows user SID has an invalid size"
     );
     let sid = unsafe { std::slice::from_raw_parts(user.User.Sid.cast::<u8>(), sid_len) };

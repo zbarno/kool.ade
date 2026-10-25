@@ -11,6 +11,7 @@ mod derived_image;
 mod docker_api;
 mod errors;
 mod image_derivation;
+mod snapshot;
 pub(crate) use docker_api::DockerApi;
 use errors::{
     daemon_storage_capacity, failure, map_api_error, map_connect_error, operation_timeout,
@@ -18,8 +19,6 @@ use errors::{
 
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
-
-use serde::{Deserialize, Serialize};
 
 use crate::execution::docker::{
     discovery::{EngineReadiness, PrerequisiteCode, PrerequisiteFailure, validate_snapshot},
@@ -33,6 +32,7 @@ mod smoke;
 pub(crate) use approval::fingerprint as approval_fingerprint;
 use bollard_api::BollardApi;
 pub use endpoint::{DockerEndpoint, HostPlatform};
+pub use snapshot::EngineSnapshot;
 
 pub const PROBE_CACHE_TTL: Duration = Duration::from_secs(15);
 const ENGINE_OPERATION_TIMEOUT: Duration = Duration::from_secs(10);
@@ -55,32 +55,6 @@ impl Default for EngineApiTimeouts {
 
 pub type EngineFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct EngineSnapshot {
-    pub daemon_id: String,
-    pub daemon_version: String,
-    pub api_version: String,
-    pub minimum_api_version: String,
-    pub os_type: String,
-    pub architecture: String,
-    pub security_options: Vec<String>,
-    pub rootless: bool,
-    pub native_linux: bool,
-    pub docker_desktop: bool,
-    pub memory_limit: bool,
-    pub cpu_quota: bool,
-    pub pids_limit: bool,
-    #[serde(default)]
-    pub cgroup_version: Option<String>,
-    #[serde(default)]
-    pub cgroup_driver: Option<String>,
-    pub seccomp_enabled: bool,
-    pub docker_storage_accessible: bool,
-    pub disk_available_bytes: Option<u64>,
-    pub minimum_disk_bytes: u64,
-}
-
 struct CacheEntry {
     expires_at: Instant,
     snapshot: EngineSnapshot,
@@ -97,12 +71,12 @@ pub struct EngineDiscovery {
 impl EngineDiscovery {
     pub fn connect(endpoint: DockerEndpoint) -> Result<Self, PrerequisiteFailure> {
         if let DockerEndpoint::Unix { path, .. } = &endpoint {
-            let metadata = std::fs::symlink_metadata(path).map_err(|error| {
+            let _metadata = std::fs::symlink_metadata(path).map_err(|error| {
                 let code = if error.kind() == std::io::ErrorKind::PermissionDenied { PrerequisiteCode::PermissionDenied } else { PrerequisiteCode::DockerMissing };
                 failure(code, if code == PrerequisiteCode::PermissionDenied { "Permission denied reading the Docker socket" } else { "Docker Engine socket was not found; install or start a supported local Docker Engine" }, code == PrerequisiteCode::DockerMissing)
             })?;
             #[cfg(unix)]
-            if !metadata.file_type().is_socket() {
+            if !_metadata.file_type().is_socket() {
                 return Err(failure(
                     PrerequisiteCode::UntrustedEndpoint,
                     "The configured Docker endpoint is not a Unix socket",

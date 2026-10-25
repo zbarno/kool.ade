@@ -6,6 +6,7 @@
 mod graph;
 mod migration;
 mod model;
+mod storage;
 mod transaction;
 
 #[cfg(test)]
@@ -23,6 +24,21 @@ pub use transaction::{apply_transition, begin_scan, load, reconcile_live, recove
 pub(crate) use transaction::{
     begin_scan_at, reconcile_at_if, reconcile_live_if, recover_interrupted_at,
 };
+
+pub(crate) fn verify_private_acl(path: &std::path::Path) -> anyhow::Result<()> {
+    storage::verify_private_acl(path)
+}
+
+pub(crate) fn machine_setup_state_dir() -> anyhow::Result<std::path::PathBuf> {
+    #[cfg(test)]
+    {
+        Ok(crate::persistence::state_root().join("machine-setup"))
+    }
+    #[cfg(not(test))]
+    {
+        storage::state_dir()
+    }
+}
 
 #[cfg(test)]
 pub(crate) fn apply_transition_at_for_test(
@@ -56,6 +72,7 @@ const MAX_STATE_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_TASKS: usize = 128;
 const MAX_ATTEMPTS: usize = 24;
 const MAX_EVENTS: usize = 24;
+const TASK_STORE_LOCK: &str = "tasks.lock";
 
 fn valid_id(id: &str) -> bool {
     id.len() <= 180

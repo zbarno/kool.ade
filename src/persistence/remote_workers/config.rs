@@ -183,11 +183,11 @@ pub fn list() -> anyhow::Result<Vec<RemoteWorkerRegistration>> {
     Ok(registrations)
 }
 
-fn set_private(path: std::path::PathBuf) -> anyhow::Result<()> {
+fn set_private(_path: std::path::PathBuf) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+        fs::set_permissions(_path, fs::Permissions::from_mode(0o600))?;
     }
     Ok(())
 }

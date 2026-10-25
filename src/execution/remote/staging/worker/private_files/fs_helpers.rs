@@ -34,20 +34,20 @@ pub(super) fn open_stage_file(path: &Path, create: bool) -> anyhow::Result<File>
     Ok(options.open(path)?)
 }
 
-pub(super) fn set_private_directory(path: &Path) -> anyhow::Result<()> {
+pub(super) fn set_private_directory(_path: &Path) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+        fs::set_permissions(_path, fs::Permissions::from_mode(0o700))?;
     }
     Ok(())
 }
 
-pub(super) fn set_readonly_private_file(path: &Path) -> anyhow::Result<()> {
+pub(super) fn set_readonly_private_file(_path: &Path) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o400))?;
+        fs::set_permissions(_path, fs::Permissions::from_mode(0o400))?;
     }
     Ok(())
 }

@@ -9,6 +9,7 @@ use crate::app::setup_attention::catalog::{
 use std::os::unix::fs::FileTypeExt;
 
 const MAX_SYSTEM_FILE_BYTES: u64 = 256 * 1024;
+#[cfg(target_os = "linux")]
 const MIN_SUBID_RANGE: u64 = 65_536;
 
 pub(super) fn linux_distribution() -> Option<(Distribution, Option<Version>)> {
@@ -119,6 +120,7 @@ fn parse_distribution_version(value: &str) -> Option<Version> {
     })
 }
 
+#[cfg(target_os = "linux")]
 fn has_subid_range(contents: &str, uid: u32, user: Option<&str>) -> bool {
     let numeric_uid = uid.to_string();
     contents.lines().any(|line| {
@@ -148,11 +150,6 @@ fn current_username(uid: u32) -> Option<String> {
         let entry_uid = fields.next()?.parse::<u32>().ok()?;
         (entry_uid == uid).then(|| name.to_owned())
     })
-}
-
-#[cfg(not(target_os = "linux"))]
-fn current_username(_uid: u32) -> Option<String> {
-    None
 }
 
 fn has_package_manager() -> bool {

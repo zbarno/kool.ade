@@ -398,14 +398,15 @@ Current capabilities include:
 | Antigravity CLI | ✅ |
 | OpenCode CLI | ✅ |
 | GitHub Copilot CLI | ✅ |
-| Linux x86_64 | ✅ Current host |
+| Linux x86_64 | ✅ Current experimental host |
+| Linux arm64 | 🧪 Unsigned native CI package only; not released or supported |
 | External managed planning repository | ✅ One planning repository per workspace; shared Git sync and per-record conflicts |
 | Consistent CLI role support + resilient discovery | 🛠️ In progress |
 | Docker-only local execution | 🛠️ In progress |
 | Remote Docker workers | 🛠️ In progress |
 | Interactive UI / runtime QA | 🛠️ In progress; experimental and not shipped |
-| macOS | 🥤 Planned through Docker Desktop |
-| Windows | 🥤 Planned through Docker Desktop |
+| macOS | 🧪 Unsigned native CI packages; Docker Desktop execution and host validation remain gated |
+| Windows | 🧪 Unsigned native CI package; Docker Desktop execution and host validation remain gated |
 | Additional agent CLIs | 🥤 Very much planned |
 | Telepathic requirements gathering | ❌ Pending model improvement |
 
@@ -413,7 +414,7 @@ Current capabilities include:
 
 Right now Kool.ad/e is deliberately opinionated:
 
-- **Linux x86_64 only**
+- **Linux x86_64 only**; native CI artifacts for other platforms are unsigned build evidence, not supported releases
 - shared planning is coordinated through an explicitly configured Git remote and manual sync; it does not provide live notifications or per-field access control
 - supported agent CLIs use the application-managed Docker MCP session for repository commands
 - repository tool availability requires an approved Docker target; context-only planning remains separate

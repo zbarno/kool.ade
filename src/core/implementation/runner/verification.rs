@@ -4,14 +4,17 @@ use crate::core::implementation::{Implementation, TaskRepositoryKind};
 use std::{path::Path, time::Duration};
 
 impl Runner {
-    pub(in crate::core::implementation) fn check_storage(&self, path: &Path) -> anyhow::Result<()> {
+    pub(in crate::core::implementation) fn check_storage(
+        &self,
+        _path: &Path,
+    ) -> anyhow::Result<()> {
         #[cfg(unix)]
         {
-            let existing = path
+            let existing = _path
                 .ancestors()
                 .find(|candidate| candidate.is_dir())
                 .ok_or_else(|| {
-                    anyhow::anyhow!("Cannot locate filesystem for {}", path.display())
+                    anyhow::anyhow!("Cannot locate filesystem for {}", _path.display())
                 })?;
             let output = self.command(existing, "df", &["-Pk", "."])?;
             let available = output
@@ -22,13 +25,13 @@ impl Runner {
                 .ok_or_else(|| {
                     anyhow::anyhow!(
                         "Cannot determine available disk space for {}",
-                        path.display()
+                        _path.display()
                     )
                 })?;
             anyhow::ensure!(
                 available >= 1024 * 1024,
                 "Insufficient disk space at {}: {} MiB available; at least 1 GiB is required to start implementation or verification. Free rebuildable build caches, then Resume implementation. Existing work is preserved.",
-                path.display(),
+                _path.display(),
                 available / 1024
             );
         }

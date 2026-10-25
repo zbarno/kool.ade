@@ -8,6 +8,17 @@ use std::{
     path::{Component, Path},
 };
 
+#[cfg(target_os = "linux")]
+fn same_device(stat_device: libc::dev_t, file_device: u64) -> bool {
+    stat_device == file_device
+}
+
+#[cfg(not(target_os = "linux"))]
+#[allow(clippy::useless_conversion)]
+fn same_device(stat_device: libc::dev_t, file_device: u64) -> bool {
+    u64::try_from(stat_device).ok() == Some(file_device)
+}
+
 pub(super) fn open_state_root(path: &Path, current_uid: u32) -> anyhow::Result<File> {
     anyhow::ensure!(
         path.is_absolute(),
@@ -105,7 +116,7 @@ pub(super) fn verify_directory_matches_file(
     anyhow::ensure!(
         current.st_mode & libc::S_IFMT == libc::S_IFDIR
             && current.st_uid == current_uid
-            && current.st_dev == opened.dev()
+            && same_device(current.st_dev, opened.dev())
             && current.st_ino == opened.ino(),
         "Repair audit directory identity changed"
     );
@@ -174,7 +185,7 @@ pub(super) fn verify_path_matches_file(
         current.st_mode & libc::S_IFMT == libc::S_IFREG
             && current.st_uid == current_uid
             && current.st_nlink == 1
-            && current.st_dev == opened.dev()
+            && same_device(current.st_dev, opened.dev())
             && current.st_ino == opened.ino(),
         "Repair audit lock identity changed"
     );

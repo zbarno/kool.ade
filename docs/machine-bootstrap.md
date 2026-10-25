@@ -133,3 +133,6 @@ acceptance also requires disposable native Linux checks for rootless Docker and
 Git/provider readiness; macOS Docker Desktop on Intel and Apple Silicon;
 Windows WSL2 x64; signed native packaging; and the full security/usability gate
 tracked by #342–#351. Mocks or Linux CI do not certify those platforms.
+
+Native package build artifacts are unsigned and CI-only. They do not change the
+support matrix; see [native desktop packaging status](native-desktop-distribution.md).
