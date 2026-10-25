@@ -165,14 +165,14 @@ func runSealed() error {
 	}
 	ready, waitErr := awaitReadiness(app, port, path, status)
 	if ready {
-		if err := app.Process.Release(); err != nil {
+		if err := app.Release(); err != nil {
 			return err
 		}
 		fmt.Println("readiness probe passed")
 		return nil
 	}
-	_ = app.Process.Kill()
-	_, _ = app.Process.Wait()
+	_ = app.Kill()
+	_, _ = app.Wait()
 	if waitErr != nil {
 		return fmt.Errorf("start process exited before readiness: %w", waitErr)
 	}
@@ -213,7 +213,7 @@ func awaitReadiness(process *os.Process, port int, path string, expectedStatus i
 			continue
 		}
 		if pid == process.Pid {
-			return false, fmt.Errorf("exit status %s", status.String())
+			return false, fmt.Errorf("exit status %d", status.ExitStatus())
 		}
 		response, err := client.Get(url)
 		if err == nil {
