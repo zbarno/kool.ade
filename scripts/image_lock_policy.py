@@ -23,6 +23,7 @@ REPOSITORIES = {
 SHA256 = re.compile(r"^sha256:[a-f0-9]{64}$")
 REVISION = re.compile(r"^[a-f0-9]{40}$")
 COMPARE_FIELDS = ("reference", "digest", "build_recipe_sha256", "tool_versions")
+ESTIMATE_FIELDS = frozenset(("estimated_pull_bytes", "estimated_storage_bytes"))
 
 
 def read_json(path: Path) -> dict:
@@ -43,7 +44,14 @@ def image_family_changes(old: dict, new: dict) -> dict[str, bool]:
             raise ValueError("missing image profile entries")
         return {
             "image_set_version": record.get("image_set_version"),
-            "profiles": {name: profiles[name] for name in names},
+            "profiles": {
+                name: [
+                    {key: value for key, value in entry.items() if key not in ESTIMATE_FIELDS}
+                    if isinstance(entry, dict) else entry
+                    for entry in profiles[name]
+                ]
+                for name in names
+            },
         }
     return {
         "executor_lock_changed": view(old, EXECUTOR_PROFILES) != view(new, EXECUTOR_PROFILES),

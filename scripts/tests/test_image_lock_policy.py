@@ -83,6 +83,25 @@ class ClassificationTests(unittest.TestCase):
             "executor_lock_changed": False, "qa_lock_changed": False
         })
 
+    def test_capacity_estimates_do_not_change_image_identity(self):
+        before = lock()
+        after = copy.deepcopy(before)
+        for profiles in after["profiles"].values():
+            for entry in profiles:
+                entry["estimated_pull_bytes"] = 123
+                entry["estimated_storage_bytes"] = 456
+        self.assertEqual(policy.image_family_changes(before, after), {
+            "executor_lock_changed": False, "qa_lock_changed": False
+        })
+
+    def test_non_estimate_profile_fields_remain_fail_closed(self):
+        before = lock()
+        after = copy.deepcopy(before)
+        after["profiles"]["browser_qa"][0]["runtime_enabled"] = True
+        self.assertEqual(policy.image_family_changes(before, after), {
+            "executor_lock_changed": False, "qa_lock_changed": True
+        })
+
     def test_qa_only_and_executor_only_promotion(self):
         before = lock()
         qa = copy.deepcopy(before)
