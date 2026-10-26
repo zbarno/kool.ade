@@ -43,6 +43,8 @@ fn snapshot() -> EngineSnapshot {
         memory_limit: true,
         cpu_quota: true,
         pids_limit: true,
+        cgroup_version: Some("2".into()),
+        cgroup_driver: Some("systemd".into()),
         seccomp_enabled: true,
         docker_storage_accessible: true,
         disk_available_bytes: Some(8 * 1024 * 1024 * 1024),
@@ -124,17 +126,19 @@ fn engine_health_calls_are_bounded_when_the_daemon_stops_responding() {
 }
 
 #[test]
-fn trusted_image_preparation_is_bounded_when_registry_access_hangs() {
-    let discovery = EngineDiscovery::with_api_timeouts(
+fn unapproved_image_preparation_never_requests_a_pull() {
+    let api = Arc::new(FakeApi {
+        inspect_count: AtomicUsize::new(0),
+        image_count: AtomicUsize::new(0),
+        image_prepare_count: AtomicUsize::new(0),
+        inspect_result: Mutex::new(Ok(snapshot())),
+    });
+    let discovery = EngineDiscovery::with_api(
         DockerEndpoint::Unix {
             path: "/tmp/test.sock".into(),
             desktop: false,
         },
-        Arc::new(HangingApi),
-        EngineApiTimeouts {
-            operation: Duration::from_secs(1),
-            image_preparation: Duration::from_millis(20),
-        },
+        api.clone(),
     );
     let image = crate::execution::docker::images::ImageLock::bundled()
         .unwrap()
@@ -144,8 +148,8 @@ fn trusted_image_preparation_is_bounded_when_registry_access_hangs() {
         )
         .unwrap();
     let error = block_on(discovery.prepare_image(&image)).unwrap_err();
-    assert_eq!(error.code, PrerequisiteCode::DaemonStopped);
-    assert!(error.message.contains("timed out"));
+    assert_eq!(error.code, PrerequisiteCode::CapabilitiesIncompatible);
+    assert_eq!(api.image_prepare_count.load(Ordering::SeqCst), 0);
 }
 
 #[test]

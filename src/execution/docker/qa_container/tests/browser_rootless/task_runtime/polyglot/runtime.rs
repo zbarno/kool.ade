@@ -14,7 +14,9 @@ use crate::{
 use super::fixture::Fixture;
 
 pub(super) fn run(fixture: Fixture, dependency_request_id: String) {
-    let docker = super::super::rootless_action_endpoint().connect().unwrap();
+    let endpoint = super::super::rootless_action_endpoint();
+    let _action_socket_environment = super::super::allow_rootless_action_socket(&endpoint);
+    let docker = endpoint.connect().unwrap();
     let info = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

@@ -501,6 +501,7 @@ jobs:
         env:
           IMAGE_RECORD: ${{ runner.temp }}/executor-image-candidate-browser_qa-amd64/executor-image.json
           KOOLADE_QA_REQUIRE_SERVICE_DRIVER: "1"
+          KOOLADE_TEST_APPROVE_LOCKED_IMAGES: "1"
         run: |
           set -euo pipefail
           test_name=execution::docker::qa_container::tests::browser_rootless::run::rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up

@@ -6,6 +6,8 @@
 //! * `pi_proc.rs`      — child-process supervision primitives
 //! * `pi_events.rs`    — NDJSON event-stream folding
 //! * `pi_extract.rs`   — JSON-block extraction from final prose
+// Windows keeps provider and broker contracts compiled while repository execution stays disabled.
+#![cfg_attr(windows, allow(dead_code))]
 
 pub mod antigravity_harness;
 pub mod claude_harness;

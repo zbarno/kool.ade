@@ -4,6 +4,7 @@ use std::sync::mpsc::Receiver;
 
 use crate::harness::discovery::ProbeResult;
 
+mod bootstrap_probe;
 mod discovery;
 mod paint;
 mod pi_guide;
@@ -18,56 +19,8 @@ mod review_fixture;
 mod tests;
 mod tools;
 
+pub(crate) use bootstrap_probe::probe_bootstrap_clis;
 use probe::{HarnessProbe, is_executable_file};
-
-/// Reuse Coding Tools' bounded provider probes during first-run setup, before
-/// Docker has been configured. Each provider runs independently; a failed or
-/// panicking probe must not hide another installed CLI. This is discovery only:
-/// it does not select a provider or authorize repository tools.
-pub(crate) fn probe_bootstrap_clis() -> Vec<ProbeResult> {
-    let mut results = Vec::with_capacity(probes::PROVIDERS.len());
-    // Keep resource consumption bounded while preserving independent results.
-    for batch in probes::PROVIDERS.chunks(3) {
-        std::thread::scope(|scope| {
-            let handles = batch
-                .iter()
-                .map(|&id| {
-                    scope.spawn(move || {
-                        let start = std::time::Instant::now();
-                        let checked = crate::persistence::harness_settings::current_unix_ms();
-                        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            probes::discover_provider(id, false)
-                        })) {
-                            Ok(report) => probe_result::from_harness_probe(
-                                &report,
-                                0,
-                                checked,
-                                start.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
-                            ),
-                            Err(_) => probe_result::internal_failure_result(
-                                id,
-                                0,
-                                checked,
-                                start.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
-                            ),
-                        }
-                    })
-                })
-                .collect::<Vec<_>>();
-            for (id, handle) in batch.iter().zip(handles) {
-                results.push(handle.join().unwrap_or_else(|_| {
-                    probe_result::internal_failure_result(
-                        id,
-                        0,
-                        crate::persistence::harness_settings::current_unix_ms(),
-                        0,
-                    )
-                }));
-            }
-        });
-    }
-    results
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProbeView {

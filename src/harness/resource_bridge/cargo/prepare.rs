@@ -1,8 +1,9 @@
 use super::super::{ResourceResponse, proxy::HttpsRegistryProxy};
 use super::{cache, lockfile};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::{
     env,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
     sync::atomic::AtomicUsize,
@@ -243,8 +244,20 @@ pub(super) fn locate_cargo_in_path(
             .iter()
             .any(|root| canonical.starts_with(root))
             || home.is_some_and(|home| canonical.starts_with(home.join(".cargo/bin")));
+        let executable = {
+            #[cfg(unix)]
+            {
+                metadata.permissions().mode() & 0o111 != 0
+            }
+            #[cfg(not(unix))]
+            {
+                canonical
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+            }
+        };
         if !metadata.is_file()
-            || metadata.permissions().mode() & 0o111 == 0
+            || !executable
             || canonical.starts_with(&worktree)
             || !trusted_directory
             || !trusted_target

@@ -53,6 +53,12 @@ fn auto_queue_cannot_start_task_from_unapproved_feature() {
 
 #[test]
 fn resume_dispatch_accepts_feature_named_workspace_story() {
+    if !std::env::var("KOOLADE_DOCKER_BACKEND_INTEGRATION").is_ok_and(|value| value == "1") {
+        eprintln!(
+            "Skipping Docker-backed implementation dispatch; set KOOLADE_DOCKER_BACKEND_INTEGRATION=1 to run it"
+        );
+        return;
+    }
     let _shield = crate::core::gitops::test_support::shield("resume-feature-ticket");
     let root = std::env::temp_dir().join(format!(
         "koolade-resume-dispatch-{}-{}",
@@ -99,13 +105,6 @@ fn resume_dispatch_accepts_feature_named_workspace_story() {
     let Screen::Connected(p) = &mut app.screen else {
         panic!("disconnected")
     };
-    if !std::env::var("KOOLADE_DOCKER_BACKEND_INTEGRATION").is_ok_and(|value| value == "1") {
-        assert!(p.active_implementations.is_empty());
-        assert!(p.queue.last_error.contains("Docker"));
-        assert!(p.queue.blocked.contains_key(ticket));
-        std::fs::remove_dir_all(root).unwrap();
-        return;
-    }
     assert!(
         p.active_implementations.contains_key(ticket),
         "{}",

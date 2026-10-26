@@ -13,11 +13,46 @@ fn finish_setup_probe(app: &mut KooladeApp) {
             .is_none_or(std::thread::JoinHandle::is_finished)
         {
             app.poll_setup_attention(&ctx);
-            return;
+            if app.setup_probe.is_none() && app.setup_refresh_pending.is_none() {
+                return;
+            }
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     panic!("provider setup probe did not finish within 120 seconds");
+}
+
+struct SetupTaskStoreFixture {
+    root: std::path::PathBuf,
+    state_path: std::path::PathBuf,
+}
+
+impl SetupTaskStoreFixture {
+    fn attach(app: &mut KooladeApp) -> Self {
+        let root =
+            std::env::temp_dir().join(format!("koolade-setup-task-store-{}", uuid::Uuid::new_v4()));
+        let state_path = root.join("machine-setup").join("tasks.json");
+        app.set_setup_task_state_path(state_path.clone());
+        Self { root, state_path }
+    }
+}
+
+impl Drop for SetupTaskStoreFixture {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+fn persisted_machine_setup_tasks(
+    path: &std::path::Path,
+) -> Vec<crate::persistence::setup_tasks::SetupTaskV1> {
+    let persisted: crate::persistence::setup_tasks::SetupTaskStoreV1 =
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    crate::persistence::setup_tasks::ordered_task_ids(&persisted)
+        .unwrap()
+        .iter()
+        .filter_map(|id| persisted.tasks.get(id).cloned())
+        .collect()
 }
 
 #[test]
@@ -64,11 +99,14 @@ fn failed_project_planning_preserves_setup_cause_and_retry_on_its_board_card() {
 
 #[test]
 fn setup_issue_is_a_board_attention_card_with_a_working_recheck_action() {
+    let state_home = tempfile::tempdir().unwrap();
+    let _state_home = crate::test_support::KooladeHomeGuard::set(state_home.path());
     let mut app = fixture();
+    let setup_store = SetupTaskStoreFixture::attach(&mut app);
     let issue = crate::app::setup_attention::SetupIssue::provider(
         "Selected provider uses an unsupported API protocol.",
     );
-    app.setup_attention = Some(issue.clone());
+    app.setup_attention.push(issue.clone());
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     let output = click_text(&mut app, &ctx, issue.title);
@@ -78,32 +116,41 @@ fn setup_issue_is_a_board_attention_card_with_a_working_recheck_action() {
         issue.recommendation,
         issue.impact,
         issue.next_action,
-        "Retry setup check",
+        "Check again",
     ] {
         assert!(
             text_contains(&output, text),
             "missing setup guidance: {text}"
         );
     }
-    click_text(&mut app, &ctx, "Retry setup check");
+    click_text(&mut app, &ctx, "Check again");
+    assert!(app.setup_probe.is_some(), "retry must start a fresh scan");
     finish_setup_probe(&mut app);
-    assert_eq!(
-        app.setup_attention,
-        crate::app::setup_attention::detect(),
-        "retry must refresh current prerequisite and provider state"
+    assert!(
+        app.setup_attention
+            .iter()
+            .all(|current| current.issue != issue.issue),
+        "the recheck must remove the synthetic issue that opened the card"
     );
+    assert_eq!(
+        app.machine_setup_tasks,
+        persisted_machine_setup_tasks(&setup_store.state_path),
+        "retry must refresh current persisted prerequisite state"
+    );
+    assert!(setup_store.state_path.is_file());
 }
 
 #[test]
 fn setup_attention_card_opens_workspace_settings() {
     let mut app = fixture();
-    app.setup_attention = Some(crate::app::setup_attention::SetupIssue::provider(
-        "Selected provider uses an unsupported API protocol.",
-    ));
+    app.setup_attention
+        .push(crate::app::setup_attention::SetupIssue::provider(
+            "Selected provider uses an unsupported API protocol.",
+        ));
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     frame(&mut app, &ctx, vec![]);
-    let title = app.setup_attention.as_ref().unwrap().title;
+    let title = app.setup_attention.first().unwrap().title;
     click_text(&mut app, &ctx, title);
     click_text(&mut app, &ctx, "Open workspace settings");
     let output = frame(&mut app, &ctx, vec![]);
@@ -115,6 +162,8 @@ fn setup_attention_card_opens_workspace_settings() {
 
 #[test]
 fn project_connection_computes_the_local_setup_attention_state() {
+    let state_home = tempfile::tempdir().unwrap();
+    let _state_home = crate::test_support::KooladeHomeGuard::set(state_home.path());
     let root = std::env::temp_dir().join(format!(
         "koolade-setup-connect-{}-{}",
         std::process::id(),
@@ -135,9 +184,19 @@ fn project_connection_computes_the_local_setup_attention_state() {
         assert!(status.success());
     }
     let mut app = fixture();
+    let setup_store = SetupTaskStoreFixture::attach(&mut app);
     app.conn_path = root.to_string_lossy().into_owned();
     app.submit_connect();
+    assert!(
+        app.setup_probe.is_some(),
+        "project connection must start a scan"
+    );
     finish_setup_probe(&mut app);
-    assert_eq!(app.setup_attention, crate::app::setup_attention::detect());
+    assert_eq!(
+        app.machine_setup_tasks,
+        persisted_machine_setup_tasks(&setup_store.state_path),
+        "project connection must project its own persisted prerequisite state"
+    );
+    assert!(setup_store.state_path.is_file());
     std::fs::remove_dir_all(root).unwrap();
 }

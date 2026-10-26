@@ -1,8 +1,9 @@
 use super::{ResourceResponse, SANDBOX_RESOURCE_DIR, policy};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 use std::{
     fs,
     net::IpAddr,
-    os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -12,10 +13,12 @@ mod debian;
 mod failure;
 mod network;
 mod npm;
+mod temp;
 pub(crate) use debian::retrieve_debian_artifact;
 pub(super) use failure::bytes_from_failure;
 pub(super) use network::public_address;
 pub(super) use npm::retrieve_npm_registry;
+use temp::TempResponse;
 
 pub(super) const MAX_RESOURCE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_INLINE_BYTES: usize = 64 * 1024;
@@ -227,13 +230,15 @@ fn store_resource(resource_dir: &Path, bytes: &[u8]) -> anyhow::Result<String> {
         "Resource cache path changed unexpectedly"
     );
     let path = directory.join(format!("{}.resource", uuid::Uuid::new_v4()));
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(&path)?;
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(&path)?;
     use std::io::Write;
     file.write_all(bytes)?;
+    #[cfg(windows)]
+    super::set_private_file(&path)?;
     Ok(format!(
         "{SANDBOX_RESOURCE_DIR}/{}",
         path.file_name().unwrap_or_default().to_string_lossy()
@@ -241,43 +246,22 @@ fn store_resource(resource_dir: &Path, bytes: &[u8]) -> anyhow::Result<String> {
 }
 
 fn is_executable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
     path.canonicalize().is_ok_and(|path| {
-        path.is_file()
-            && path
-                .metadata()
-                .is_ok_and(|metadata| metadata.permissions().mode() & 0o111 != 0)
+        path.is_file() && {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                path.metadata()
+                    .is_ok_and(|metadata| metadata.permissions().mode() & 0o111 != 0)
+            }
+            #[cfg(windows)]
+            {
+                path.extension().is_some_and(|extension| {
+                    extension.eq_ignore_ascii_case("exe") || extension.eq_ignore_ascii_case("com")
+                })
+            }
+        }
     })
-}
-
-struct TempResponse {
-    directory: PathBuf,
-    headers: PathBuf,
-    body: PathBuf,
-}
-
-impl TempResponse {
-    fn new() -> anyhow::Result<Self> {
-        let directory = std::env::temp_dir().join(format!(
-            "koolade-resource-response-{}-{}",
-            std::process::id(),
-            uuid::Uuid::new_v4()
-        ));
-        fs::create_dir(&directory)?;
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))?;
-        Ok(Self {
-            headers: directory.join("headers"),
-            body: directory.join("body"),
-            directory,
-        })
-    }
-}
-
-impl Drop for TempResponse {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.directory);
-    }
 }
 
 #[cfg(test)]

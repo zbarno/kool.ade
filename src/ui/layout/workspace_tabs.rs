@@ -60,15 +60,9 @@ pub(super) fn paint(
                                     + board
                                         .setup_tasks
                                         .iter()
-                                        .filter(|task| {
-                                            task.state
-                                                != crate::persistence::setup_tasks::State::Verified
-                                        })
+                                        .filter(|task| task.is_active())
                                         .count()
-                                    + usize::from(
-                                        board.setup_tasks.is_empty()
-                                            && board.setup_attention.is_some()
-                                    )
+                                    + board.setup_attention.len()
                             ),
                             tasks_tab,
                         ))

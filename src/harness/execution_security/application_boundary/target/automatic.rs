@@ -43,8 +43,10 @@ pub(super) fn auto_session_excluding(
     excluded_workers: Vec<String>,
 ) -> anyhow::Result<ExecutionSession> {
     retry_test_diagnostic(|| "automatic routing started".to_owned());
-    let local_eligible =
-        local_target_eligible(DockerEnvironmentStatus::detect().ready(), &allowed_targets);
+    let local_eligible = local_target_eligible(
+        DockerEnvironmentStatus::detect().local_execution_ready(),
+        &allowed_targets,
+    );
     if request.authorization_verifier.is_none() {
         return auto_local_fallback(
             request,

@@ -48,20 +48,9 @@ impl AntigravityHarness {
                     detail: format!("{ANTIGRAVITY_BINARY_ENV} does not name an executable file"),
                 });
         }
-        if let Some(paths) = std::env::var_os("PATH") {
-            for directory in std::env::split_paths(&paths) {
-                let path = directory.join("agy");
-                if executable(&path) {
-                    return Ok(path);
-                }
-            }
-        }
-        if let Some(home) = std::env::var_os("HOME") {
-            for site in [".local/bin", ".npm-global/bin"] {
-                let path = PathBuf::from(&home).join(site).join("agy");
-                if executable(&path) {
-                    return Ok(path);
-                }
+        for path in crate::harness::discovery::host_executable_candidates("agy") {
+            if executable(&path) {
+                return Ok(path);
             }
         }
         Err(AppError::HarnessNotFound {

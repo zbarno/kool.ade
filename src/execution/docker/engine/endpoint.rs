@@ -1,15 +1,16 @@
 use std::path::{Path, PathBuf};
 
-use bollard::{API_DEFAULT_VERSION, Docker};
-
 use crate::execution::docker::discovery::{PrerequisiteCode, PrerequisiteFailure};
 
 use super::failure;
 
 const API_TIMEOUT_SECONDS: u64 = 5;
 
+mod connection;
 #[cfg(unix)]
 mod pinned;
+#[cfg(test)]
+mod test_support;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HostPlatform {
@@ -167,12 +168,17 @@ impl DockerEndpoint {
                         == Some(std::ffi::OsStr::new(&uid.to_string()))
                 })
                 && path.file_name().is_some_and(|name| name == "docker.sock");
+            #[cfg(test)]
+            let test_socket = test_support::isolated_rootless_socket(&path);
+            #[cfg(not(test))]
+            let test_socket = false;
             let standard_socket = path == Path::new("/var/run/docker.sock")
                 || rootless_socket
                 || home_dir.is_some_and(|home| {
                     path == home.join(".docker/desktop/docker.sock")
                         || path == home.join(".docker/run/docker.sock")
-                });
+                })
+                || test_socket;
             if !standard_socket {
                 return Err(failure(
                     PrerequisiteCode::UntrustedEndpoint,
@@ -205,60 +211,14 @@ impl DockerEndpoint {
         }
     }
 
-    pub(crate) fn identity(&self) -> String {
-        match self {
-            Self::Unix { path, desktop } => format!("unix:{}:{desktop}", path.display()),
-            Self::NamedPipe { path, desktop } => format!("named-pipe:{path}:{desktop}"),
+    pub fn supports_application_execution(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            matches!(self, Self::Unix { desktop: false, .. })
         }
-    }
-
-    pub(crate) fn connect(&self) -> Result<Docker, PrerequisiteFailure> {
-        let result = match self {
-            #[cfg(unix)]
-            Self::Unix { path, desktop } => {
-                socket::validate_unix_socket(path, *desktop)?;
-                Docker::connect_with_unix(
-                    &path.to_string_lossy(),
-                    API_TIMEOUT_SECONDS,
-                    API_DEFAULT_VERSION,
-                )
-            }
-            #[cfg(not(unix))]
-            Self::Unix { .. } => {
-                return Err(failure(
-                    PrerequisiteCode::UntrustedEndpoint,
-                    "Docker Unix sockets are unavailable on this platform",
-                    false,
-                ));
-            }
-            #[cfg(windows)]
-            Self::NamedPipe { path, .. } => {
-                Docker::connect_with_named_pipe(path, API_TIMEOUT_SECONDS, API_DEFAULT_VERSION)
-            }
-            #[cfg(not(windows))]
-            Self::NamedPipe { .. } => {
-                return Err(failure(
-                    PrerequisiteCode::UntrustedEndpoint,
-                    "Docker Desktop named pipes are supported only on Windows",
-                    false,
-                ));
-            }
-        };
-        result.map_err(|error| super::map_connect_error(&error))
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn connect_pinned(&self) -> Result<Docker, PrerequisiteFailure> {
-        match self {
-            Self::Unix { path, desktop } => {
-                socket::validate_unix_socket(path, *desktop)?;
-                pinned::connect(path).map_err(|error| super::map_connect_error(&error))
-            }
-            Self::NamedPipe { .. } => Err(failure(
-                PrerequisiteCode::UntrustedEndpoint,
-                "A persistent pinned Docker API connection is unavailable for this endpoint",
-                false,
-            )),
+        #[cfg(not(target_os = "linux"))]
+        {
+            false
         }
     }
 }

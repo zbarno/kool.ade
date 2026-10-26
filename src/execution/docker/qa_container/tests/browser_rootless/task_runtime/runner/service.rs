@@ -8,6 +8,7 @@ pub(crate) fn run(
     dependency_request_id: Option<String>,
 ) {
     let endpoint = super::super::rootless_action_endpoint();
+    let _action_socket_environment = super::super::allow_rootless_action_socket(&endpoint);
     let docker = endpoint.connect().unwrap();
     let info = tokio::runtime::Builder::new_current_thread()
         .enable_all()

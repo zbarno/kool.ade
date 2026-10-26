@@ -1,286 +1,92 @@
-//! Durable, machine-local bootstrap task observations.
+//! Durable, machine-local bootstrap task state.
 //!
-//! These are NOT shared repository planning records. No stored status or
-//! model claim can authorize a host mutation or bypass an execution gate.
+//! Records are observations and audit metadata only. They never authorize a
+//! host mutation or provide executable input to an assistant.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::Path,
-};
-
-use serde::{Deserialize, Serialize};
-
-use crate::app::setup_attention::catalog::{
-    FindingStatus, MachineSnapshot, SCHEMA_VERSION as SNAPSHOT_VERSION,
-};
-
-const STORE_VERSION: u8 = 1;
-const MAX_STATE_BYTES: u64 = 2 * 1024 * 1024;
-const MAX_TASKS: usize = 128;
+mod graph;
+mod migration;
+mod model;
+mod storage;
+mod transaction;
 
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum State {
-    NeedsAttention,
-    BlockedByPrerequisite,
-    Unverified,
-    Unsupported,
-    Verified,
-    Interrupted,
+pub use graph::ordered_task_ids;
+pub use model::{
+    AttemptState, AuthorizationBindingV1, DependencyResolution, FailureCode,
+    ImagePreparationReceiptV1, LocalTask, RemediationAttemptResultV1, RemediationProcessStatusV1,
+    RemediationVerificationStatusV1, RemediationVerificationV1, SetupAttemptV1, SetupDependencyV1,
+    SetupTaskEventV1, SetupTaskStateV1, SetupTaskStoreV1, SetupTaskTransitionV1, SetupTaskV1,
+    State, Store, VerifiedResultV1, authorization_scope_digest,
+};
+pub use transaction::{apply_transition, begin_scan, load, reconcile_live, recover_after_restart};
+pub(crate) use transaction::{
+    begin_scan_at, reconcile_at_if, reconcile_live_if, recover_interrupted_at,
+};
+
+pub(crate) fn verify_private_acl(path: &std::path::Path) -> anyhow::Result<()> {
+    storage::verify_private_acl(path)
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct LocalTask {
-    pub id: String,
-    pub title: String,
-    pub explanation: String,
-    pub next_step: String,
-    pub prerequisites: Vec<String>,
-    pub state: State,
-    pub observed_at_unix_ms: u64,
-    pub verified_at_unix_ms: Option<u64>,
-    /// This is a bounded audit *observation* ledger, never a replay queue.
-    pub events: Vec<TaskEvent>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct TaskEvent {
-    pub observed_at_unix_ms: u64,
-    pub state: State,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct Store {
-    pub schema_version: u8,
-    pub tasks: BTreeMap<String, LocalTask>,
-}
-
-impl Default for Store {
-    fn default() -> Self {
-        Self {
-            schema_version: STORE_VERSION,
-            tasks: BTreeMap::new(),
-        }
+pub(crate) fn machine_setup_state_dir() -> anyhow::Result<std::path::PathBuf> {
+    #[cfg(test)]
+    {
+        Ok(crate::persistence::state_root().join("machine-setup"))
+    }
+    #[cfg(not(test))]
+    {
+        storage::state_dir()
     }
 }
 
-impl Store {
-    /// Reconcile an independently probed snapshot. Stale/unknown domains
-    /// never verify absent tasks. No setup model response is accepted here.
-    pub fn reconcile(&mut self, snapshot: &MachineSnapshot) -> anyhow::Result<bool> {
-        anyhow::ensure!(
-            snapshot.schema_version == SNAPSHOT_VERSION,
-            "unsupported machine readiness snapshot version"
-        );
-        anyhow::ensure!(
-            snapshot.findings.len() <= MAX_TASKS,
-            "too many setup findings"
-        );
-        // A late worker result must not roll back a fresher readiness result.
-        anyhow::ensure!(
-            self.tasks
-                .values()
-                .all(|task| task.observed_at_unix_ms <= snapshot.checked_at_unix_ms),
-            "stale machine setup observation"
-        );
-
-        let mut changed = false;
-        let mut seen = BTreeSet::new();
-        for finding in &snapshot.findings {
-            anyhow::ensure!(valid_id(&finding.id), "invalid setup prerequisite ID");
-            anyhow::ensure!(
-                seen.insert(finding.id.clone()),
-                "duplicate setup prerequisite ID"
-            );
-            let state = match finding.status {
-                FindingStatus::NeedsAttention => State::NeedsAttention,
-                FindingStatus::BlockedByPrerequisite => State::BlockedByPrerequisite,
-                FindingStatus::Unverified => State::Unverified,
-                FindingStatus::Unsupported => State::Unsupported,
-            };
-            if let Some(task) = self.tasks.get_mut(&finding.id) {
-                let meaningful = task.state != state
-                    || task.title != finding.title
-                    || task.explanation != finding.explanation
-                    || task.next_step != finding.next_step
-                    || task.prerequisites != finding.prerequisites;
-                task.state = state;
-                task.title.clone_from(&finding.title);
-                task.explanation.clone_from(&finding.explanation);
-                task.next_step.clone_from(&finding.next_step);
-                task.prerequisites.clone_from(&finding.prerequisites);
-                task.observed_at_unix_ms = snapshot.checked_at_unix_ms;
-                task.verified_at_unix_ms = None;
-                if meaningful {
-                    record(task, snapshot.checked_at_unix_ms);
-                    changed = true;
-                }
-            } else {
-                let mut task = LocalTask {
-                    id: finding.id.clone(),
-                    title: finding.title.clone(),
-                    explanation: finding.explanation.clone(),
-                    next_step: finding.next_step.clone(),
-                    prerequisites: finding.prerequisites.clone(),
-                    state,
-                    observed_at_unix_ms: snapshot.checked_at_unix_ms,
-                    verified_at_unix_ms: None,
-                    events: Vec::new(),
-                };
-                record(&mut task, snapshot.checked_at_unix_ms);
-                self.tasks.insert(finding.id.clone(), task);
-                changed = true;
-            }
-        }
-
-        // An item disappearing is positive evidence only when its domain
-        // was independently rechecked without a failed/unknown probe.
-        for task in self.tasks.values_mut() {
-            if !seen.contains(&task.id)
-                && task_has_positive_evidence(&task.id, snapshot)
-                && task.state != State::Verified
-            {
-                task.state = State::Verified;
-                task.verified_at_unix_ms = Some(snapshot.checked_at_unix_ms);
-                task.observed_at_unix_ms = snapshot.checked_at_unix_ms;
-                record(task, snapshot.checked_at_unix_ms);
-                changed = true;
-            }
-        }
-        anyhow::ensure!(
-            self.tasks.len() <= MAX_TASKS,
-            "setup task store reached its size limit"
-        );
-        Ok(changed)
-    }
+/// Persist a locked runtime profile selected for an actual workload. The next
+/// machine setup scan binds the requirement to the currently verified engine
+/// identity and architecture before publishing a preparation task.
+pub fn require_image_profile(
+    profile: crate::execution::docker::images::RuntimeProfile,
+) -> anyhow::Result<SetupTaskStoreV1> {
+    apply_transition(SetupTaskTransitionV1::RequireImageProfile { profile })
 }
 
-/// Check the exact prerequisite with authoritative *positive* evidence.
-/// A different error replacing the old one is not a successful repair.
-fn task_has_positive_evidence(id: &str, snapshot: &MachineSnapshot) -> bool {
-    let evidence = match id.split(':').collect::<Vec<_>>().as_slice() {
-        ["setup", "cli", "install"] => "cli:install".to_owned(),
-        ["setup", "cli", "scan"] => "cli:scan".to_owned(),
-        ["setup", "cli", "select"] => "cli:select".to_owned(),
-        ["setup", "cli", provider, _] => format!("cli:{provider}"),
-        ["setup", "docker", _] => "docker".to_owned(),
-        ["setup", "images", profile, architecture] => {
-            format!("images:{profile}:{architecture}")
-        }
-        _ => return false,
-    };
-    snapshot
-        .checked_domains
-        .iter()
-        .any(|domain| domain == &evidence)
+#[cfg(test)]
+pub(crate) fn apply_transition_at_for_test(
+    path: &std::path::Path,
+    transition: SetupTaskTransitionV1,
+) -> anyhow::Result<SetupTaskStoreV1> {
+    transaction::apply_transition_at(path, transition)
 }
 
-fn record(task: &mut LocalTask, at: u64) {
-    const MAX_EVENTS: usize = 24;
-    task.events.push(TaskEvent {
-        observed_at_unix_ms: at,
-        state: task.state,
-    });
-    if task.events.len() > MAX_EVENTS {
-        task.events.drain(..task.events.len() - MAX_EVENTS);
-    }
+#[cfg(test)]
+pub(crate) fn begin_scan_at_for_test(path: &std::path::Path) -> anyhow::Result<u64> {
+    transaction::begin_scan_at(path)
 }
+
+#[cfg(test)]
+pub(crate) fn load_from_for_test(
+    path: &std::path::Path,
+) -> anyhow::Result<(SetupTaskStoreV1, bool)> {
+    transaction::load_from(path)
+}
+
+#[cfg(test)]
+pub(crate) fn save_to_for_test(
+    path: &std::path::Path,
+    store: &SetupTaskStoreV1,
+) -> anyhow::Result<()> {
+    transaction::save_to(path, store)
+}
+
+const MAX_STATE_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_TASKS: usize = 128;
+const MAX_ATTEMPTS: usize = 24;
+const MAX_EVENTS: usize = 24;
+const TASK_STORE_LOCK: &str = "tasks.lock";
 
 fn valid_id(id: &str) -> bool {
     id.len() <= 180
         && id.starts_with("setup:")
         && id
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b':' | b'-' | b'_'))
-}
-
-pub fn path() -> std::path::PathBuf {
-    crate::persistence::state_root()
-        .join("machine-setup")
-        .join("tasks.json")
-}
-
-pub fn load() -> anyhow::Result<Store> {
-    load_from(&path())
-}
-
-fn load_from(path: &Path) -> anyhow::Result<Store> {
-    let bytes = match std::fs::metadata(path) {
-        Ok(metadata) => {
-            anyhow::ensure!(
-                metadata.len() <= MAX_STATE_BYTES,
-                "setup task state is oversized"
-            );
-            std::fs::read(path)?
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Store::default()),
-        Err(error) => return Err(error.into()),
-    };
-    let store: Store = serde_json::from_slice(&bytes)?;
-    anyhow::ensure!(
-        store.schema_version == STORE_VERSION,
-        "unsupported setup store schema"
-    );
-    anyhow::ensure!(store.tasks.len() <= MAX_TASKS, "oversized setup task store");
-    for (key, task) in &store.tasks {
-        anyhow::ensure!(
-            valid_id(key) && key == &task.id,
-            "invalid saved setup task ID"
-        );
-    }
-    Ok(store)
-}
-
-pub fn save(store: &Store) -> anyhow::Result<()> {
-    save_to(&path(), store)
-}
-
-fn save_to(path: &Path, store: &Store) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        store.schema_version == STORE_VERSION,
-        "unsupported setup store schema"
-    );
-    let parent = path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("missing setup state directory"))?;
-    if let Ok(metadata) = std::fs::symlink_metadata(parent) {
-        anyhow::ensure!(
-            metadata.is_dir() && !metadata.file_type().is_symlink(),
-            "unsafe setup state directory"
-        );
-    }
-    std::fs::create_dir_all(parent)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
-    }
-    let payload = serde_json::to_string_pretty(store)?;
-    anyhow::ensure!(
-        payload.len() <= MAX_STATE_BYTES as usize,
-        "setup task state is oversized"
-    );
-    crate::artifacts::atomic_write(path, &payload)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    }
-    Ok(())
-}
-
-/// Reading a corrupt/newer store must fail without overwriting it. No user
-/// approval, secret, or command is recorded here, only diagnostic task state.
-pub fn reconcile_live(snapshot: &MachineSnapshot) -> anyhow::Result<Store> {
-    let mut store = load()?;
-    if store.reconcile(snapshot)? {
-        save(&store)?;
-    }
-    Ok(store)
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'-' | b'_'))
 }

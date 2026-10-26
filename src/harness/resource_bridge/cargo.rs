@@ -1,9 +1,10 @@
 //! Lockfile-driven Cargo cache preparation through a registry-restricted proxy.
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 #[cfg(test)]
 use std::sync::atomic::AtomicUsize;
 use std::{
     fs,
-    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
 };
 
@@ -112,7 +113,7 @@ pub(super) fn ensure_private_dir(path: &Path) -> anyhow::Result<()> {
 #[cfg(not(unix))]
 pub(super) fn ensure_private_dir(path: &Path) -> anyhow::Result<()> {
     fs::create_dir_all(path)?;
-    Ok(())
+    crate::persistence::setup_tasks::verify_private_acl(path)
 }
 
 #[cfg(test)]

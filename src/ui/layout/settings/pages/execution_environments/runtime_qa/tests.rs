@@ -23,8 +23,11 @@ fn docker_ready(available_images: Vec<String>) -> DockerEnvironmentStatus {
         cpu_limits: Some(true),
         memory_limits: Some(true),
         pids_limit: Some(true),
+        cgroups_supported: Some(true),
         available_images,
         disk_available_bytes: None,
+        endpoint_fingerprint: None,
+        daemon_identity_fingerprint: None,
     }
 }
 
@@ -41,6 +44,8 @@ fn lock(enabled: bool) -> ImageLock {
                 tool_versions: BTreeMap::new(),
                 runtime_enabled: enabled,
                 build_recipe_sha256: Some("sha256:synthetic".into()),
+                estimated_pull_bytes: None,
+                estimated_storage_bytes: None,
             }],
         )]),
     }
@@ -141,8 +146,11 @@ fn preview_relay_is_never_claimed_ready_without_docker() {
         cpu_limits: None,
         memory_limits: None,
         pids_limit: None,
+        cgroups_supported: None,
         available_images: Vec::new(),
         disk_available_bytes: None,
+        endpoint_fingerprint: None,
+        daemon_identity_fingerprint: None,
     };
     assert!(relay_status(&status).contains("unavailable"));
 }

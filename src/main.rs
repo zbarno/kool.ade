@@ -1,9 +1,24 @@
 //! Kool.ad/e desktop entry point.
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 fn main() -> eframe::Result {
     let mut args = std::env::args_os();
     let _binary = args.next();
     let command = args.next();
+    if command.as_deref() == Some(std::ffi::OsStr::new("--version"))
+        || command.as_deref() == Some(std::ffi::OsStr::new("-V"))
+    {
+        println!("koolade {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    if command.as_deref() == Some(std::ffi::OsStr::new("--help"))
+        || command.as_deref() == Some(std::ffi::OsStr::new("-h"))
+    {
+        println!("Kool.ad/e {}", env!("CARGO_PKG_VERSION"));
+        println!("\nUsage: koolade [--version | --help | worker serve --stdio]");
+        println!("       koolade --internal-mcp-server <config-path>");
+        return Ok(());
+    }
     if command.as_deref() == Some(std::ffi::OsStr::new("worker")) {
         if args.next().as_deref() != Some(std::ffi::OsStr::new("serve"))
             || args.next().as_deref() != Some(std::ffi::OsStr::new("--stdio"))

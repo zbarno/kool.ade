@@ -1,9 +1,10 @@
 //! Isolated persistent npm cache and trusted host npm runner.
 use sha2::{Digest, Sha256};
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::{
     env, fs,
     io::Write,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     thread,
@@ -23,11 +24,13 @@ impl EmptyGlobalConfig {
     fn create() -> anyhow::Result<Self> {
         let path =
             env::temp_dir().join(format!("koolade-npm-global-{}.npmrc", uuid::Uuid::new_v4()));
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&path)?;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        let mut file = options.open(&path)?;
+        #[cfg(windows)]
+        crate::harness::resource_bridge::set_private_file(&path)?;
         file.write_all(b"")?;
         Ok(Self(path))
     }
@@ -85,7 +88,10 @@ fn ensure_private_directory(path: &Path) -> anyhow::Result<()> {
         },
         Err(error) => return Err(error.into()),
     }
+    #[cfg(unix)]
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    #[cfg(windows)]
+    crate::harness::resource_bridge::set_private_dir(path)?;
     Ok(())
 }
 
@@ -108,8 +114,20 @@ pub(super) fn locate_npm(worktree: &Path) -> anyhow::Result<PathBuf> {
             continue;
         };
         let metadata = canonical.metadata()?;
+        let executable = {
+            #[cfg(unix)]
+            {
+                metadata.permissions().mode() & 0o111 != 0
+            }
+            #[cfg(not(unix))]
+            {
+                canonical
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+            }
+        };
         anyhow::ensure!(
-            metadata.is_file() && metadata.permissions().mode() & 0o111 != 0,
+            metadata.is_file() && executable,
             "Host npm launcher is not executable"
         );
         if canonical.starts_with(&worktree)

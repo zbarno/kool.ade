@@ -9,6 +9,13 @@ mod runner;
 #[path = "task_runtime/setup.rs"]
 mod setup;
 
+/// Boundary: an approved Python task target builds and tests through the
+/// app-owned rootless ExecutionSession, records source-bound receipts, and
+/// supplies only receipt-verified build files to the isolated browser preview.
+/// Unit tests cannot prove the task container, preview relay, browser interaction,
+/// and cleanup work together. Dependencies: rootless Docker and the pinned
+/// Python/browser QA images. Setup: three short runtime recipes, one build
+/// snapshot, and one bounded browser scenario.
 #[test]
 #[ignore = "requires rootless Docker and the loaded Python/browser QA images"]
 fn rootless_approved_task_build_test_start_receipts_feed_browser_qa_artifact() {
@@ -176,6 +183,16 @@ fn rootless_action_endpoint() -> crate::execution::docker::engine::DockerEndpoin
     {
         panic!("rootless Docker action endpoint fixture requires Linux")
     }
+}
+
+fn allow_rootless_action_socket(
+    endpoint: &crate::execution::docker::engine::DockerEndpoint,
+) -> crate::test_support::ProcessEnvironmentGuard {
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    if let crate::execution::docker::engine::DockerEndpoint::Unix { path, .. } = endpoint {
+        environment.set("KOOLADE_TEST_ROOTLESS_ACTION_SOCKET", path.as_os_str());
+    }
+    environment
 }
 
 fn candidate_lock() -> ImageLock {

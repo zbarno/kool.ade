@@ -56,20 +56,9 @@ impl OpenCodeHarness {
                 detail: format!("{OPENCODE_BINARY_ENV} does not name an executable file"),
             });
         }
-        if let Some(paths) = std::env::var_os("PATH") {
-            for directory in std::env::split_paths(&paths) {
-                let candidate = directory.join("opencode");
-                if executable(&candidate) {
-                    return Ok(candidate);
-                }
-            }
-        }
-        if let Some(home) = std::env::var_os("HOME") {
-            for site in [".npm-global/bin", ".local/bin", ".opencode/bin"] {
-                let candidate = PathBuf::from(&home).join(site).join("opencode");
-                if executable(&candidate) {
-                    return Ok(candidate);
-                }
+        for candidate in crate::harness::discovery::host_executable_candidates("opencode") {
+            if executable(&candidate) {
+                return Ok(candidate);
             }
         }
         Err(AppError::HarnessNotFound {

@@ -1,12 +1,20 @@
-use std::{fs, io::Read, path::Path};
+use std::path::Path;
+#[cfg(unix)]
+use std::{fs, io::Read};
 
+#[cfg(unix)]
 use tar::{Builder, EntryType, Header};
 
+#[cfg(unix)]
 mod diagnostics;
+#[cfg(unix)]
 mod filesystem;
+#[cfg(unix)]
 use diagnostics::io_failure;
+#[cfg(unix)]
 use filesystem::{open_root_nofollow, read_child_names};
 
+#[cfg(unix)]
 use super::super::archive::{Fingerprint, Manifest, hash, validate_relative};
 
 pub(crate) fn capture(
@@ -26,7 +34,10 @@ pub(crate) fn capture_excluding(
     excluded_paths: &[String],
 ) -> anyhow::Result<super::super::WorkspaceSnapshot> {
     #[cfg(not(unix))]
-    anyhow::bail!("Safe workspace staging is unavailable on this platform");
+    {
+        let _ = (root, byte_limit, read_only, entry_limit, excluded_paths);
+        anyhow::bail!("Safe workspace staging is unavailable on this platform");
+    }
     #[cfg(unix)]
     {
         let mut builder = Builder::new(Vec::new());
@@ -239,6 +250,7 @@ fn append_directory(
     Ok(())
 }
 
+#[cfg(unix)]
 fn append_header(
     builder: &mut Builder<Vec<u8>>,
     path: &Path,
@@ -261,5 +273,7 @@ fn append_header(
     Ok(())
 }
 
+#[cfg(unix)]
 mod permissions;
+#[cfg(unix)]
 use permissions::{mode_for, source_mode};
