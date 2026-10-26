@@ -419,6 +419,7 @@ jobs:
           KOOLADE_TEST_APPROVE_LOCKED_IMAGES: "1"
         run: |
           set -euo pipefail
+          unset DOCKER_CONTEXT
           test_name=execution::docker::qa_container::tests::browser_rootless::run::rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up
           export KOOLADE_QA_BROWSER_IMAGE=koolade-runtime-qa:browser_qa-candidate
           export KOOLADE_QA_BROWSER_DIGEST="$(jq -er '.digest' "$IMAGE_RECORD")"

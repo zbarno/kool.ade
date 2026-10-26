@@ -32,6 +32,40 @@ fn rootless_action_socket_requires_explicit_owned_action_socket() {
     ));
 }
 
+#[cfg(all(target_os = "linux", unix))]
+#[test]
+fn rootless_action_endpoint_is_available_only_to_the_test_resolver() {
+    use std::os::unix::net::UnixListener;
+
+    let temporary = tempfile::tempdir().unwrap();
+    let home = std::fs::canonicalize(temporary.path()).unwrap();
+    let action_dir = home.join("setup-docker-action");
+    let run_dir = action_dir.join("run-test");
+    std::fs::create_dir_all(&run_dir).unwrap();
+    let socket = run_dir.join("docker.sock");
+    let _listener = UnixListener::bind(&socket).unwrap();
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    environment.set("HOME", &home);
+    environment.set("DOCKER_HOST", format!("unix://{}", socket.display()));
+    environment.set("KOOLADE_TEST_ROOTLESS_ACTION_SOCKET", &socket);
+    environment.remove("DOCKER_CONTEXT");
+    environment.remove("KOOLADE_DOCKER_DAEMON_RESTART_INTEGRATION");
+
+    assert!(DockerEndpoint::from_process_environment(HostPlatform::Linux).is_err());
+    assert_eq!(
+        DockerEndpoint::from_process_environment_with_test_support(HostPlatform::Linux),
+        Ok(DockerEndpoint::Unix {
+            path: socket.clone(),
+            desktop: false,
+        })
+    );
+
+    environment.set("DOCKER_CONTEXT", "default");
+    assert!(
+        DockerEndpoint::from_process_environment_with_test_support(HostPlatform::Linux).is_err()
+    );
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn daemon_restart_probe_endpoint_is_test_only_and_requires_opt_in_without_context() {

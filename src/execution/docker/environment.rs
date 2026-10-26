@@ -12,6 +12,7 @@ use super::{
     engine::{DockerEndpoint, HostPlatform},
 };
 use probe::{endpoint_fingerprint, host_platform, probe};
+use rootless_selection::persist_rootless_selection;
 
 const CACHE_TTL: Duration = Duration::from_secs(15);
 static CACHE: OnceLock<Mutex<Option<(Instant, DockerEnvironmentStatus)>>> = OnceLock::new();
@@ -28,6 +29,7 @@ fn process_endpoint(platform: HostPlatform) -> Result<DockerEndpoint, Prerequisi
 }
 
 mod probe;
+mod rootless_selection;
 mod staging;
 pub use probe::run_smoke_test;
 pub(crate) use staging::app_staging_root;
@@ -286,23 +288,6 @@ impl DockerEnvironmentStatus {
     pub(crate) fn current_endpoint_identity_fingerprint() -> Option<String> {
         let endpoint = process_endpoint(host_platform()).ok()?;
         Some(endpoint.fingerprint())
-    }
-}
-
-fn persist_rootless_selection(status: &mut DockerEnvironmentStatus) {
-    if !cfg!(target_os = "linux") {
-        return;
-    }
-    let selection_persisted = crate::persistence::linux_rootless_docker_selection::observe_current(
-        status.endpoint_fingerprint.as_deref(),
-        status.daemon_identity_fingerprint.as_deref(),
-        status.rootless,
-    )
-    .unwrap_or(false);
-    if status.local_execution_ready() && !selection_persisted {
-        status.state = DockerEnvironmentState::CapabilitiesIncompatible;
-        status.engine_ready = false;
-        status.message = "Kool.ad/e could not confirm the current-user rootless socket identity in private local settings. Check socket ownership and application storage permissions, then recheck.".into();
     }
 }
 

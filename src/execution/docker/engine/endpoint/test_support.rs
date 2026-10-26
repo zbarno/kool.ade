@@ -1,10 +1,29 @@
 use std::path::Path;
 
+pub(super) fn endpoint_from_environment() -> Option<super::DockerEndpoint> {
+    if std::env::var("DOCKER_CONTEXT")
+        .ok()
+        .is_some_and(|context| !context.trim().is_empty())
+    {
+        return None;
+    }
+    daemon_restart_endpoint_from_environment().or_else(rootless_action_endpoint_from_environment)
+}
+
 pub(super) fn isolated_rootless_socket(path: &Path) -> bool {
     if rootless_action_socket(path) {
         return true;
     }
     daemon_restart_socket(path)
+}
+
+fn rootless_action_endpoint_from_environment() -> Option<super::DockerEndpoint> {
+    let host = std::env::var("DOCKER_HOST").ok()?;
+    let path = Path::new(host.strip_prefix("unix://")?);
+    rootless_action_socket(path).then(|| super::DockerEndpoint::Unix {
+        path: path.to_path_buf(),
+        desktop: false,
+    })
 }
 
 pub(super) fn daemon_restart_endpoint_from_environment() -> Option<super::DockerEndpoint> {
@@ -91,6 +110,16 @@ fn rootless_action_socket_for(path: &Path, expected_socket: &Path, home: &Path) 
 #[cfg(not(unix))]
 fn rootless_action_socket(_path: &Path) -> bool {
     false
+}
+
+impl super::DockerEndpoint {
+    pub(crate) fn test_support_endpoint_from_process_environment(
+        platform: super::HostPlatform,
+    ) -> Option<Self> {
+        (platform == super::HostPlatform::Linux)
+            .then(endpoint_from_environment)
+            .flatten()
+    }
 }
 
 #[cfg(test)]

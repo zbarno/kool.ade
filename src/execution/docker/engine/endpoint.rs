@@ -50,9 +50,7 @@ impl DockerEndpoint {
     pub(crate) fn from_process_environment_with_test_support(
         platform: HostPlatform,
     ) -> Result<Self, PrerequisiteFailure> {
-        if platform == HostPlatform::Linux
-            && let Some(endpoint) = test_support::daemon_restart_endpoint_from_environment()
-        {
+        if let Some(endpoint) = Self::test_support_endpoint_from_process_environment(platform) {
             return Ok(endpoint);
         }
         Self::from_process_environment(platform)

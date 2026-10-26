@@ -33,10 +33,9 @@ impl VerifiedEngine {
         );
         #[cfg(target_os = "linux")]
         {
-            let endpoint =
-                DockerEndpoint::from_process_environment(HostPlatform::Linux).map_err(|error| {
-                    anyhow::anyhow!("Trusted Docker endpoint could not be verified: {error}")
-                })?;
+            let endpoint = process_endpoint().map_err(|error| {
+                anyhow::anyhow!("Trusted Docker endpoint could not be verified: {error}")
+            })?;
             anyhow::ensure!(
                 !endpoint.is_desktop(),
                 "Approved image preparation is not enabled for Docker Desktop yet"
@@ -199,6 +198,19 @@ impl VerifiedEngine {
         {
             anyhow::bail!("Approved image preparation is unavailable on this platform")
         }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn process_endpoint()
+-> Result<DockerEndpoint, crate::execution::docker::discovery::PrerequisiteFailure> {
+    #[cfg(test)]
+    {
+        DockerEndpoint::from_process_environment_with_test_support(HostPlatform::Linux)
+    }
+    #[cfg(not(test))]
+    {
+        DockerEndpoint::from_process_environment(HostPlatform::Linux)
     }
 }
 
