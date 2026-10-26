@@ -14,11 +14,16 @@ pub(super) struct MachineBinding {
     pub(super) machine_hash: String,
     pub(super) principal_hash: String,
     pub(super) probe_hash: String,
+    pub(super) engine_identity_fingerprint: String,
     pub(super) probed_at_unix_ms: u64,
     pub(super) daemon_id: String,
     pub(super) image_reference: String,
     pub(super) image_digest: String,
     pub(super) image_platform: String,
+    pub(super) estimated_pull_bytes: u64,
+    pub(super) estimated_storage_bytes: u64,
+    pub(super) disk_available_bytes: u64,
+    pub(super) minimum_disk_bytes: u64,
 }
 
 #[allow(dead_code)] // Current host evidence is first consumed by the #345 UI.
@@ -41,11 +46,16 @@ impl MachineBinding {
             machine_hash,
             principal_hash,
             probe_hash: probe_hash.to_owned(),
+            engine_identity_fingerprint: "e".repeat(64),
             probed_at_unix_ms,
             daemon_id: "synthetic-daemon".into(),
             image_reference: "ghcr.io/zbarno/koolade-runtime-general:test".into(),
             image_digest: format!("sha256:{}", "a".repeat(64)),
             image_platform: "linux/amd64".into(),
+            estimated_pull_bytes: 64 * 1024 * 1024,
+            estimated_storage_bytes: 128 * 1024 * 1024,
+            disk_available_bytes: 4 * 1024 * 1024 * 1024,
+            minimum_disk_bytes: 2 * 1024 * 1024 * 1024,
         })
     }
 
@@ -54,9 +64,16 @@ impl MachineBinding {
             is_sha256_hex(&self.machine_hash)
                 && is_sha256_hex(&self.principal_hash)
                 && is_sha256_hex(&self.probe_hash)
+                && is_sha256_hex(&self.engine_identity_fingerprint)
                 && self.image_digest.starts_with("sha256:")
                 && is_sha256_hex(&self.image_digest[7..])
-                && matches!(self.image_platform.as_str(), "linux/amd64" | "linux/arm64"),
+                && matches!(self.image_platform.as_str(), "linux/amd64" | "linux/arm64")
+                && self.estimated_pull_bytes > 0
+                && self.estimated_storage_bytes >= self.estimated_pull_bytes
+                && self.disk_available_bytes
+                    >= self
+                        .minimum_disk_bytes
+                        .saturating_add(self.estimated_storage_bytes),
             "Machine approval identity is invalid"
         );
         anyhow::ensure!(
@@ -73,6 +90,11 @@ impl MachineBinding {
             &self.machine_hash,
             &self.principal_hash,
             &self.probe_hash,
+            &self.engine_identity_fingerprint,
+            self.estimated_pull_bytes,
+            self.estimated_storage_bytes,
+            self.disk_available_bytes,
+            self.minimum_disk_bytes,
         ))
     }
 }

@@ -127,7 +127,8 @@ fn resolve_dependency(
             })
             .unwrap_or(DependencyResolution::Pending);
     }
-    if !snapshot.findings.iter().any(|finding| finding.id == id)
+    if !super::model::is_image_task_id(id)
+        && !snapshot.findings.iter().any(|finding| finding.id == id)
         && let Some(evidence_domain) = super::model::positive_domain_for(id, snapshot)
     {
         return DependencyResolution::SatisfiedByProbe {

@@ -17,7 +17,7 @@ fn ready_engine() -> crate::execution::docker::environment::DockerEnvironmentSta
         available_images: Vec::new(),
         disk_available_bytes: Some(1_000_000_000),
         endpoint_fingerprint: Some("synthetic-endpoint".into()),
-        daemon_identity_fingerprint: Some("synthetic-daemon".into()),
+        daemon_identity_fingerprint: Some("d".repeat(64)),
     }
 }
 
@@ -80,7 +80,7 @@ fn daemon_or_provider_switch_rejects_the_scan_identity() {
         issue: None,
         snapshot: None,
         endpoint_fingerprint: Some("synthetic-endpoint".into()),
-        daemon_identity_fingerprint: Some("synthetic-daemon".into()),
+        daemon_identity_fingerprint: docker.daemon_identity_fingerprint.clone(),
         docker_readiness_fingerprint: Some(docker.readiness_fingerprint()),
         selected_provider: None,
         cancelled: false,

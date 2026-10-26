@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{
     bootstrap_remediation::identity::HostIdentity,
-    bootstrap_repair_policy::{self, Host, Operation, Proposal},
+    bootstrap_repair_policy::{self, Host, Operation, Proposal, parse_locked_image_task_id},
 };
 
 /// A strict request shape. All executable details are absent by construction.
@@ -113,8 +113,12 @@ impl RemediationRequest {
                     matches!(architecture.as_str(), "amd64" | "arm64"),
                     "unsupported locked image architecture"
                 );
+                let (task_profile, task_architecture, _) =
+                    parse_locked_image_task_id(&self.prerequisite_id).ok_or_else(|| {
+                        anyhow::anyhow!("locked image prerequisite is not canonical")
+                    })?;
                 anyhow::ensure!(
-                    self.prerequisite_id == format!("setup:images:{profile}:{architecture}"),
+                    task_profile == profile.as_str() && task_architecture == architecture.as_str(),
                     "locked image parameters do not match the affected prerequisite"
                 );
             }
@@ -148,12 +152,15 @@ fn parameters_for(proposal: &Proposal) -> anyhow::Result<OperationParameters> {
                 .image_profile
                 .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("locked image profile is missing"))?;
-            let architecture = proposal
-                .prerequisite_id
-                .strip_prefix(&format!("setup:images:{profile}:"))
-                .ok_or_else(|| anyhow::anyhow!("locked image prerequisite is not canonical"))?;
+            let (task_profile, architecture, _) =
+                parse_locked_image_task_id(&proposal.prerequisite_id)
+                    .ok_or_else(|| anyhow::anyhow!("locked image prerequisite is not canonical"))?;
+            anyhow::ensure!(
+                task_profile == profile,
+                "locked image profile does not match the affected prerequisite"
+            );
             Ok(OperationParameters::LockedImage {
-                profile: profile.to_owned(),
+                profile: task_profile.to_owned(),
                 architecture: architecture.to_owned(),
             })
         }
@@ -172,7 +179,7 @@ mod tests {
                 schema_version: 1,
                 operation: Operation::PrepareLockedImage,
                 host: Host::Linux,
-                prerequisite_id: "setup:images:general:amd64".into(),
+                prerequisite_id: format!("setup:images:general:amd64:{}", "a".repeat(64)),
                 image_profile: Some("general".into()),
             },
             &identity,
@@ -188,6 +195,14 @@ mod tests {
             serde_json::from_str::<RemediationRequest>(&encoded).unwrap(),
             request
         );
+        assert_eq!(
+            request.parameters,
+            OperationParameters::LockedImage {
+                profile: "general".into(),
+                architecture: "amd64".into(),
+            }
+        );
+        assert_eq!(request.proposal().prerequisite_id, request.prerequisite_id);
         let injected = encoded.replace(
             "\"kind\":\"locked_image\"",
             "\"kind\":\"locked_image\",\"script\":\"sudo anything\"",
@@ -208,6 +223,9 @@ mod tests {
         assert!(request.validate_shape().is_err());
         let mut request = image_request();
         request.prerequisite_id = "setup:../../escape".into();
+        assert!(request.validate_shape().is_err());
+        let mut request = image_request();
+        request.prerequisite_id = "setup:images:general:amd64".into();
         assert!(request.validate_shape().is_err());
         let mut request = image_request();
         if let OperationParameters::LockedImage { architecture, .. } = &mut request.parameters {

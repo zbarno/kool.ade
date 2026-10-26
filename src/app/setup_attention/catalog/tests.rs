@@ -24,7 +24,7 @@ fn docker(state: DockerEnvironmentState, engine_ready: bool) -> DockerEnvironmen
         available_images: Vec::new(),
         disk_available_bytes: None,
         endpoint_fingerprint: None,
-        daemon_identity_fingerprint: None,
+        daemon_identity_fingerprint: engine_ready.then(|| "d".repeat(64)),
     }
 }
 
@@ -44,6 +44,29 @@ fn agent(auth: ReadinessState) -> ProbeResult {
         },
         ..ProbeResult::default()
     }
+}
+
+fn assess_with_images(
+    docker: &DockerEnvironmentStatus,
+    required_profiles: std::collections::BTreeSet<RuntimeProfile>,
+    smoke_verified_profiles: std::collections::BTreeSet<RuntimeProfile>,
+    checked_at_unix_ms: u64,
+) -> MachineSnapshotV1 {
+    assess_for_scan_with_inputs(
+        &[],
+        None,
+        docker,
+        HostKind::Linux,
+        checked_at_unix_ms,
+        1,
+        ScanInputs {
+            images: ImageScanState {
+                required_profiles,
+                smoke_verified_profiles,
+            },
+            ..ScanInputs::default()
+        },
+    )
 }
 
 #[test]
@@ -69,7 +92,15 @@ fn missing_image_is_only_a_finding_after_healthy_engine_probe() {
         2,
     );
     assert_eq!(snapshot.findings.len(), 1);
-    assert_eq!(snapshot.findings[0].id, "setup:images:general:amd64");
+    assert_eq!(
+        snapshot.findings[0].id,
+        format!(
+            "setup:images:general:amd64:{}",
+            docker(DockerEnvironmentState::MissingApprovedImage, true)
+                .engine_identity_fingerprint()
+                .unwrap()
+        )
+    );
 }
 
 #[test]
@@ -79,24 +110,54 @@ fn another_profile_does_not_hide_a_missing_general_image() {
     let mut engine = docker(DockerEnvironmentState::Ready, true);
     engine.available_images.push(rust.reference);
     let snapshot = assess(&[], None, &engine, HostKind::Linux, 3);
+    assert!(snapshot.findings.iter().any(|finding| {
+        finding.id
+            == format!(
+                "setup:images:general:amd64:{}",
+                engine.engine_identity_fingerprint().unwrap()
+            )
+    }));
+    assert!(
+        snapshot
+            .checked_domains
+            .iter()
+            .all(|domain| !domain.starts_with("images:rust:"))
+    );
+    assert!(
+        snapshot
+            .checked_domains
+            .iter()
+            .all(|domain| !domain.starts_with("images:general:"))
+    );
+}
+
+#[test]
+fn workload_requirement_creates_only_its_missing_runtime_profile_task() {
+    let engine = docker(DockerEnvironmentState::MissingApprovedImage, true);
+    let snapshot = assess_with_images(
+        &engine,
+        [RuntimeProfile::Rust].into_iter().collect(),
+        std::collections::BTreeSet::new(),
+        31,
+    );
+    let identity = engine.engine_identity_fingerprint().unwrap();
     assert!(
         snapshot
             .findings
             .iter()
-            .any(|finding| finding.id == "setup:images:general:amd64")
+            .any(|finding| { finding.id == format!("setup:images:rust:amd64:{identity}") })
     );
     assert!(
         snapshot
-            .checked_domains
+            .findings
             .iter()
-            .any(|domain| domain == "images:rust:amd64")
+            .any(|finding| { finding.id == format!("setup:images:general:amd64:{identity}") })
     );
-    assert!(
-        !snapshot
-            .checked_domains
-            .iter()
-            .any(|domain| domain == "images:general:amd64")
-    );
+    assert!(!snapshot.findings.iter().any(|finding| {
+        finding.id.starts_with("setup:images:node:")
+            || finding.id.starts_with("setup:images:python:")
+            || finding.id.starts_with("setup:images:go:")
+    }));
 }
 
 #[test]
@@ -105,7 +166,12 @@ fn exact_general_image_suppresses_only_its_matching_task() {
     let general = lock.select(RuntimeProfile::General, "amd64").unwrap();
     let mut engine = docker(DockerEnvironmentState::Ready, true);
     engine.available_images.push(general.reference);
-    let snapshot = assess(&[], None, &engine, HostKind::Linux, 4);
+    let snapshot = assess_with_images(
+        &engine,
+        std::collections::BTreeSet::new(),
+        [RuntimeProfile::General].into_iter().collect(),
+        4,
+    );
     assert!(
         !snapshot
             .findings
@@ -116,7 +182,7 @@ fn exact_general_image_suppresses_only_its_matching_task() {
         snapshot
             .checked_domains
             .iter()
-            .any(|domain| domain == "images:general:amd64")
+            .any(|domain| domain.starts_with("images:general:amd64:"))
     );
 }
 

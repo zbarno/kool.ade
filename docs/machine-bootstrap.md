@@ -2,7 +2,7 @@
 
 Tracking: [#337](https://github.com/zbarno/kool.ade/issues/337).
 
-## Implementation status: slices A-C (incremental foundation)
+## Implementation status: incremental foundation; locked image preparation in progress
 
 Kool.ad/e starts bounded discovery of the six supported coding-agent CLIs and
 Git from first launch, before a workspace or Docker daemon exists. Provider
@@ -58,6 +58,18 @@ host-shell access. The setup view shows only bounded status and redacted audit
 metadata. Raw host command output and credentials are not retained. Attempt and
 authorization records are typed audit metadata only; they do not execute repairs,
 grant host access, or authorize machine mutation.
+
+Locked image tasks are created only after a trusted native Linux rootless Engine
+is available. Their IDs bind the runtime profile, Engine architecture, and a
+stable hash of the endpoint and daemon identity. General is always checked;
+Rust, Node, Python, and Go are requested from actual workload requirements.
+Preparation selects only the bundled digest lock, shows its registry and
+approximate transfer and storage costs, then pulls only after the operator
+approves. A successful task records an Engine- and digest-bound receipt after
+the isolated smoke test. Workload execution rechecks that receipt and inspects
+the exact local image; ordinary execution never pulls an image implicitly.
+Browser and desktop QA images remain disabled. Docker Desktop image preparation
+remains gated on the trusted VM transport and capacity evidence tracked by #347.
 
 ## Safety contract
 
@@ -116,7 +128,7 @@ validation. Synthetic platform fixtures validate classification; they do not
 establish support on those hosts.
 
 This readiness layer does not install packages, configure services, pull images
-automatically, or execute model-provided shell commands. A supported
+without explicit approval, or execute model-provided shell commands. A supported
 remediation operation uses a typed action, required operator approval and
 native privilege confirmation, and an independent readiness probe. If a coding
 CLI is absent or unusable, deterministic setup instructions remain available

@@ -118,9 +118,7 @@ pub(in crate::ui::layout::board::columns) fn machine_setup(
 }
 
 fn supports_repair(task: &crate::persistence::setup_tasks::LocalTask) -> bool {
-    task.id
-        .strip_prefix("setup:images:general:")
-        .is_some_and(|architecture| matches!(architecture, "amd64" | "arm64"))
+    crate::app::bootstrap_repair_policy::parse_locked_image_task_id(&task.id).is_some()
         && task.blocked_by.is_empty()
         && matches!(
             task.state,

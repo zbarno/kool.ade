@@ -6,7 +6,10 @@ use super::{
     ProviderIdV1, SCHEMA_VERSION, evidence, images,
 };
 
+mod checked_domains;
 mod docker;
+mod inputs;
+pub(crate) use inputs::{ImageScanState, ScanInputs};
 
 fn authenticated_context_agent(probe: &ProbeResult, generation: u64) -> bool {
     probe.status == ProbeStatus::Available
@@ -52,6 +55,7 @@ pub fn assess_for_scan(
     )
 }
 
+#[cfg(test)]
 pub fn assess_for_scan_with_git(
     probes: &[ProbeResult],
     selected_agent: Option<&str>,
@@ -61,6 +65,30 @@ pub fn assess_for_scan_with_git(
     scan_generation: u64,
     git_probe: GitProbeV1,
 ) -> MachineSnapshotV1 {
+    assess_for_scan_with_inputs(
+        probes,
+        selected_agent,
+        docker,
+        host,
+        checked_at_unix_ms,
+        scan_generation,
+        ScanInputs {
+            git_probe,
+            ..ScanInputs::default()
+        },
+    )
+}
+
+pub(crate) fn assess_for_scan_with_inputs(
+    probes: &[ProbeResult],
+    selected_agent: Option<&str>,
+    docker: &DockerEnvironmentStatus,
+    host: HostKind,
+    checked_at_unix_ms: u64,
+    scan_generation: u64,
+    inputs: ScanInputs,
+) -> MachineSnapshotV1 {
+    let ScanInputs { git_probe, images } = inputs;
     let mut findings = Vec::new();
     let installed: Vec<_> = probes.iter().filter(|p| p.binary_path.is_some()).collect();
     let verified: Vec<_> = installed
@@ -147,7 +175,12 @@ pub fn assess_for_scan_with_git(
         findings.push(finding);
     }
 
-    findings.extend(images::findings(docker, host));
+    findings.extend(images::findings(
+        docker,
+        host,
+        &images.required_profiles,
+        &images.smoke_verified_profiles,
+    ));
 
     // Docker Desktop endpoints are parseable today, but safe end-to-end
     // execution on these hosts is not production validated (#347).
@@ -239,66 +272,16 @@ pub fn assess_for_scan_with_git(
         probe_evidence,
         prerequisite_graph,
         findings,
-        checked_domains: {
-            // Readiness, not merely completed probing, can resolve old tasks.
-            // A stopped/rootful/untrusted Engine cannot prove that an earlier
-            // Docker prerequisite was fixed. Likewise, an unknown CLI account
-            // cannot verify a previously failing provider.
-            let mut domains = Vec::new();
-            if probes
-                .iter()
-                .any(|probe| probe.run_generation == scan_generation && probe.binary_path.is_some())
-            {
-                domains.push("cli:install".into());
-            }
-            if probes.len() == 6
-                && probes.iter().all(|probe| {
-                    probe.run_generation == scan_generation && probe.status != ProbeStatus::Failed
-                })
-            {
-                domains.push("cli:scan".into());
-            }
-            for probe in &verified {
-                domains.push(format!("cli:{}", probe.provider_id));
-            }
-            if selected_agent.is_some_and(|id| verified.iter().any(|probe| probe.provider_id == id))
-            {
-                domains.push("cli:select".into());
-            }
-            if host == HostKind::Linux
-                && !docker.desktop_vm
-                && docker.engine_ready
-                && docker.rootless == Some(true)
-            {
-                domains.push("docker".into());
-            }
-            if matches!(host, HostKind::MacOs | HostKind::Windows)
-                && docker.desktop_vm
-                && docker.engine_ready
-                && matches!(
-                    docker.state,
-                    crate::execution::docker::environment::DockerEnvironmentState::MissingApprovedImage
-                        | crate::execution::docker::environment::DockerEnvironmentState::Ready
-                )
-            {
-                domains.push("docker:desktop".into());
-            }
-            if git_probe.executable_state == EvidenceState::Ready {
-                domains.push("git:executable".into());
-            }
-            if git_probe.executable_state == EvidenceState::Ready
-                && git_probe.identity_state == EvidenceState::Ready
-            {
-                domains.push("git:identity".into());
-            }
-            if git_probe.executable_state == EvidenceState::Ready
-                && git_probe.identity_state == EvidenceState::Ready
-            {
-                domains.push("git".into());
-            }
-            domains.extend(images::checked_domains(docker, host));
-            domains
-        },
+        checked_domains: checked_domains::collect(checked_domains::Inputs {
+            probes,
+            scan_generation,
+            verified: &verified,
+            selected_agent,
+            docker,
+            host,
+            git_probe: &git_probe,
+            image_state: &images,
+        }),
     };
     debug_assert!(
         snapshot.validate().is_ok(),

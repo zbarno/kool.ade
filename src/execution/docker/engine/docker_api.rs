@@ -3,11 +3,44 @@ use super::*;
 pub(crate) trait DockerApi: Send + Sync {
     fn inspect<'a>(&'a self) -> EngineFuture<'a, Result<EngineSnapshot, PrerequisiteFailure>>;
     fn image_digests<'a>(&'a self) -> EngineFuture<'a, Result<Vec<String>, PrerequisiteFailure>>;
+
+    /// Inspect a locally available image without attempting a registry pull.
+    fn inspect_image<'a>(
+        &'a self,
+        _image: &'a SelectedImage,
+    ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
+        Box::pin(async {
+            Err(failure(
+                PrerequisiteCode::CapabilitiesIncompatible,
+                "Docker adapter cannot inspect images without pulling",
+                false,
+            ))
+        })
+    }
+
+    #[cfg(test)]
     fn ensure_image<'a>(
         &'a self,
         image: &'a SelectedImage,
         expected_engine_fingerprint: Option<&'a str>,
     ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>>;
+
+    /// Pull an approved image with cancellation and bounded progress control.
+    /// Adapters that cannot uphold cancellation must fail closed.
+    fn ensure_image_with_control<'a>(
+        &'a self,
+        _image: &'a SelectedImage,
+        _expected_engine_fingerprint: &'a str,
+        _control: &'a super::ImagePullControl,
+    ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
+        Box::pin(async {
+            Err(failure(
+                PrerequisiteCode::CapabilitiesIncompatible,
+                "Docker adapter does not support cancellable approved image pulls",
+                false,
+            ))
+        })
+    }
 
     /// Inspect an already-built local image without attempting a registry pull.
     fn inspect_derived_image<'a>(

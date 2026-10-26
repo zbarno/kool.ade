@@ -17,7 +17,7 @@ fn proposal() -> Proposal {
         schema_version: 1,
         operation: Operation::PrepareLockedImage,
         host: Host::Linux,
-        prerequisite_id: "setup:images:general:amd64".into(),
+        prerequisite_id: format!("setup:images:general:amd64:{}", "e".repeat(64)),
         image_profile: Some("general".into()),
     }
 }
@@ -114,7 +114,7 @@ fn approved_action_rejects_changed_daemon_or_image_facts() {
     changed.image_digest = format!("sha256:{}", "e".repeat(64));
     assert!(action.validate_binding(&proposal, &changed, 1_201).is_err());
     let mut changed_proposal = proposal;
-    changed_proposal.prerequisite_id = "setup:images:rust:amd64".into();
+    changed_proposal.prerequisite_id = format!("setup:images:rust:amd64:{}", "e".repeat(64));
     assert!(
         action
             .validate_binding(&changed_proposal, &original, 1_201)

@@ -51,7 +51,7 @@ fn vendor_plan(digest: String) -> RemediationPlan {
         schema_version: 1,
         operation: Operation::PrepareLockedImage,
         host: Host::Linux,
-        prerequisite_id: "setup:images:general:amd64".into(),
+        prerequisite_id: format!("setup:images:general:amd64:{}", "a".repeat(64)),
         image_profile: Some("general".into()),
     };
     let identity = crate::app::bootstrap_remediation::identity::HostIdentity::from_facts(

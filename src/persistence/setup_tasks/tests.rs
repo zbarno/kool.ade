@@ -1,6 +1,8 @@
 mod attempts;
 mod cli_evidence;
 mod docker_evidence;
+mod image_receipts;
+mod image_requirements;
 mod migration;
 mod reconciliation;
 mod support;

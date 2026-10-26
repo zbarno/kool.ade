@@ -2,6 +2,7 @@ use super::*;
 #[cfg(test)]
 use crate::app::bootstrap_remediation::identity::HostIdentity;
 use crate::app::bootstrap_remediation::request::{OperationParameters, RemediationRequest};
+use crate::app::bootstrap_repair_policy::parse_locked_image_task_id;
 use crate::execution::docker::images::{ImageLock, RuntimeProfile};
 use sha2::{Digest, Sha256};
 
@@ -218,13 +219,8 @@ fn parameters_from_plan(plan: &RemediationPlan) -> anyhow::Result<OperationParam
             Ok(OperationParameters::None)
         }
         Operation::PrepareLockedImage => {
-            let image = plan
-                .prerequisite_id
-                .strip_prefix("setup:images:")
+            let (profile, architecture, _) = parse_locked_image_task_id(&plan.prerequisite_id)
                 .ok_or_else(|| anyhow::anyhow!("locked image task identity is not canonical"))?;
-            let (profile, architecture) = image
-                .split_once(':')
-                .ok_or_else(|| anyhow::anyhow!("locked image task identity lacks architecture"))?;
             Ok(OperationParameters::LockedImage {
                 profile: profile.to_owned(),
                 architecture: architecture.to_owned(),

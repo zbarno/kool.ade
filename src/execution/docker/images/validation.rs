@@ -158,6 +158,22 @@ fn validate_variant(
             false,
         ));
     }
+    if matches!(profile, "general" | "rust" | "node" | "python" | "go") {
+        let valid_estimate = matches!(
+            (variant.estimated_pull_bytes, variant.estimated_storage_bytes),
+            (Some(pull), Some(storage))
+                if (1..=8 * 1024 * 1024 * 1024).contains(&pull)
+                    && storage >= pull
+                    && storage <= 16 * 1024 * 1024 * 1024
+        );
+        if !valid_estimate {
+            return Err(failure(
+                PrerequisiteCode::ImageUnavailable,
+                "Approved runtime image lacks a bounded, digest-bound transfer and storage estimate",
+                false,
+            ));
+        }
+    }
     if profile == "desktop_qa"
         && variant.runtime_enabled
         && ["chromium", "dbus"]
