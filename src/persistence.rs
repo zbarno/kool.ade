@@ -10,6 +10,7 @@
 //! * `telemetry/` — F11 invocation records: versioned JSONL, append store
 
 pub mod archived_tasks;
+pub mod bootstrap_conversations;
 pub mod cancelled_work;
 pub mod chat_store;
 pub mod dependency_authorization;

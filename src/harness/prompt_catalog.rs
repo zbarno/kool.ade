@@ -9,5 +9,9 @@ pub use render::{PromptManifest, RenderedPrompt, render, validate_prompt_manifes
 pub use schemas::*;
 pub(crate) use types::validate_payload;
 pub use types::{
-    EvidenceConfidentiality, EvidenceItem, EvidenceOrigin, PromptRole, RoleInputV1, RolePayloadV1,
+    BootstrapAttributedTextV1, BootstrapConversationMessageV1, BootstrapConversationPayloadV1,
+    BootstrapConversationSourceV1, BootstrapConversationSpeakerV1, BootstrapFactDomainV1,
+    BootstrapFactSourceV1, BootstrapFactStatusV1, BootstrapPlatformV1, BootstrapTaskFactV1,
+    BootstrapTaskStatusV1, EvidenceConfidentiality, EvidenceItem, EvidenceOrigin, PromptRole,
+    RoleInputV1, RolePayloadV1,
 };

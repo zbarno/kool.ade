@@ -229,16 +229,17 @@ pub use antigravity_harness::AntigravityHarness;
 pub(crate) use api::normalize_provider_error;
 pub(crate) use api::validate_reasoning_level;
 pub use api::{
-    ActivityTelemetry, AiHarness, ApplicationAction, CleanLaunchTelemetry,
-    DependencyAuthorizationScope, DependencyAuthorizationSource, DependencyDecision,
-    DependencyFailureCategory, DependencyKind, DependencyNeed, DependencyPackageIdentity,
-    DependencyPreparationStatus, DependencyPreparationTelemetry, DependencyRequest,
-    DependencyRequestStatus, DependencyRetryResult, DocumentUpdate, ExecutionMode,
-    HarnessExecutionFailure, HarnessFailureCategory, HarnessOutcome, HarnessRouteProvenance,
-    LivePost, LiveProgress, ModelCallUsage, PackageEcosystem, PlanningRequest, PlanningTaskDraft,
-    PlanningTaskOffer, RequestedAction, RetrievalPlan, ReviewExecutionIdentity,
-    RuntimeQaReviewScreenshot, RuntimeQaScreenshotReview, ToolAccess, TurnEnvelope, TurnItem,
-    TurnItemUpdate,
+    ActivityTelemetry, AiHarness, ApplicationAction, BootstrapConversationReplyV1,
+    BootstrapConversationResponseV1, BootstrapImageProfileV1, BootstrapIntentOperationV1,
+    BootstrapIntentSuggestionV1, CleanLaunchTelemetry, DependencyAuthorizationScope,
+    DependencyAuthorizationSource, DependencyDecision, DependencyFailureCategory, DependencyKind,
+    DependencyNeed, DependencyPackageIdentity, DependencyPreparationStatus,
+    DependencyPreparationTelemetry, DependencyRequest, DependencyRequestStatus,
+    DependencyRetryResult, DocumentUpdate, ExecutionMode, HarnessExecutionFailure,
+    HarnessFailureCategory, HarnessOutcome, HarnessRouteProvenance, LivePost, LiveProgress,
+    ModelCallUsage, PackageEcosystem, PlanningRequest, PlanningTaskDraft, PlanningTaskOffer,
+    RequestedAction, RetrievalPlan, ReviewExecutionIdentity, RuntimeQaReviewScreenshot,
+    RuntimeQaScreenshotReview, ToolAccess, TurnEnvelope, TurnItem, TurnItemUpdate,
 };
 pub use claude_harness::ClaudeHarness;
 pub use codex_harness::CodexHarness;

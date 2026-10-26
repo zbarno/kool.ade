@@ -32,6 +32,9 @@ fn template_hash(value: &str) -> String {
 #[path = "tests/bounds.rs"]
 mod bounds;
 
+#[path = "tests/bootstrap_conversation.rs"]
+mod bootstrap_conversation;
+
 #[path = "tests/opportunity.rs"]
 mod opportunity;
 
