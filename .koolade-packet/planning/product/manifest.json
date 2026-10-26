@@ -2,42 +2,42 @@
   "schemaVersion": 1,
   "modules": [
     {
-      "uid": "ed26a149-1c41-436f-8aac-8ddeeda5f2dd",
+      "uid": "bd7132ae-7cf7-42dc-b2c6-e96ef28204ad",
       "id": "overview",
       "title": "Overview",
       "path": "overview.md",
       "coreConcept": "overview"
     },
     {
-      "uid": "9e4c73aa-8d6a-4eb5-8e11-2f18a974f9f7",
+      "uid": "5cce1eb8-84a9-4bb5-85e5-02fa6942b2a8",
       "id": "users-and-outcomes",
       "title": "Users and Outcomes",
       "path": "users-and-outcomes.md",
       "coreConcept": "users-and-outcomes"
     },
     {
-      "uid": "f5a57204-cde7-48a4-97ca-6f250d186dc3",
+      "uid": "e4dbf94f-c426-464a-b737-23f328e39329",
       "id": "current-capabilities",
       "title": "Current Capabilities",
       "path": "current-capabilities.md",
       "coreConcept": "current-capabilities"
     },
     {
-      "uid": "e5ebd71a-0b54-461f-89cb-fa6fcfeda52e",
+      "uid": "cdd8545b-52bc-4a8b-b690-dd0bd846fd66",
       "id": "architecture-and-constraints",
       "title": "Architecture and Constraints",
       "path": "architecture-and-constraints.md",
       "coreConcept": "architecture-and-constraints"
     },
     {
-      "uid": "e93c7cac-f489-41be-9c3a-7e08f8eb449d",
+      "uid": "ded9d0e3-4756-4f81-9dec-51acb849f8fd",
       "id": "decisions",
       "title": "Decisions",
       "path": "decisions.md",
       "coreConcept": "decisions"
     },
     {
-      "uid": "219c7471-0ecf-41e1-a5a9-fc0cc73328ea",
+      "uid": "a7b8ab1e-2878-4965-ab91-5adee3e8de66",
       "id": "quality-and-acceptance",
       "title": "Quality and Acceptance",
       "path": "quality-and-acceptance.md",
