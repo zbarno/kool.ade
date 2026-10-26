@@ -24,6 +24,13 @@ fn remote_docker_worker_restores_authorized_npm_cache_without_container_network(
     fs::create_dir_all(&workspace).unwrap();
     let (task_home_path, repository, archive, registry_url) = setup::prepare_workspace(&workspace);
     let _home = support::task_home(&task_home_path);
+    if crate::test_support::locked_images::enabled() {
+        crate::test_support::locked_images::prepare_profile_for_home(
+            &task_home_path,
+            crate::execution::docker::images::RuntimeProfile::Node,
+        )
+        .expect("remote worker must receive a real approved Node image receipt");
+    }
 
     let worker_id = crate::persistence::execution_records::owner_instance_id().unwrap();
     let sshd = match sshd::SshdFixture::start(&workspace, &worker_binary) {

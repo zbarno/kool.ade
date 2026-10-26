@@ -44,6 +44,8 @@ fn lock(enabled: bool) -> ImageLock {
                 tool_versions: BTreeMap::new(),
                 runtime_enabled: enabled,
                 build_recipe_sha256: Some("sha256:synthetic".into()),
+                estimated_pull_bytes: None,
+                estimated_storage_bytes: None,
             }],
         )]),
     }

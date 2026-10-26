@@ -15,7 +15,7 @@ pub(super) fn plan(host: Host, privilege: Option<PrivilegeLevel>) -> Remediation
         schema_version: 1,
         operation: Operation::PrepareLockedImage,
         host,
-        prerequisite_id: "setup:images:general:amd64".into(),
+        prerequisite_id: format!("setup:images:general:amd64:{}", "a".repeat(64)),
         image_profile: Some("general".into()),
     };
     let identity =
@@ -59,6 +59,7 @@ pub(super) fn ready_store(task_id: &str) -> SetupTaskStoreV1 {
                 superseded_by: Vec::new(),
             },
         )]),
+        required_image_profiles: Default::default(),
     }
 }
 

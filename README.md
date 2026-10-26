@@ -400,7 +400,7 @@ Current capabilities include:
 | Antigravity CLI | ✅ |
 | OpenCode CLI | ✅ |
 | GitHub Copilot CLI | ✅ |
-| Linux x86_64 | ✅ Current experimental host |
+| Linux x86_64 | ✅ Current experimental host; locked runtime image preparation requires explicit approval and rootless Docker |
 | Linux arm64 | 🧪 Unsigned native CI package only; not released or supported |
 | External managed planning repository | ✅ One planning repository per workspace; shared Git sync and per-record conflicts |
 | Consistent CLI role support + resilient discovery | 🛠️ In progress |
@@ -419,6 +419,7 @@ Right now Kool.ad/e is deliberately opinionated:
 - **Linux x86_64 only**; native CI artifacts for other platforms are unsigned build evidence, not supported releases
 - shared planning is coordinated through an explicitly configured Git remote and manual sync; it does not provide live notifications or per-field access control
 - supported agent CLIs use the application-managed Docker MCP session for repository commands
+- Native Linux runtime images come from the bundled digest lock and are pulled only after explicit operator approval; Docker Desktop provisioning remains gated on verified VM transport and capacity evidence
 - repository tool availability requires an approved Docker target; context-only planning remains separate
 - Pi keeps provider authentication and model transport on the controller process
 - a CLI adapter being integrated does not guarantee every role works with every version yet

@@ -43,6 +43,19 @@ pub struct ImageVariant {
     pub runtime_enabled: bool,
     #[serde(default)]
     pub build_recipe_sha256: Option<String>,
+    /// Sum of the digest-bound config and compressed layer blobs. Actual
+    /// transfer is usually lower when Docker already has shared layers.
+    #[serde(default)]
+    pub estimated_pull_bytes: Option<u64>,
+    /// Approximate storage reserve using twice the compressed manifest size.
+    #[serde(default)]
+    pub estimated_storage_bytes: Option<u64>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ImageSizeEstimate {
+    pub estimated_pull_bytes: u64,
+    pub estimated_storage_bytes: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -108,27 +121,7 @@ impl ImageLock {
                 false,
             )
         })?;
-        let profile_name = match profile {
-            RuntimeProfile::General => "general",
-            RuntimeProfile::Rust => "rust",
-            RuntimeProfile::Node => "node",
-            RuntimeProfile::Python => "python",
-            RuntimeProfile::Go => "go",
-            RuntimeProfile::BrowserQa => "browser_qa",
-            RuntimeProfile::DesktopQa => "desktop_qa",
-        };
-        let platform = format!("linux/{architecture}");
-        let variant = self
-            .profiles
-            .get(profile_name)
-            .and_then(|variants| variants.iter().find(|variant| variant.platform == platform))
-            .ok_or_else(|| {
-                failure(
-                    PrerequisiteCode::ImageUnavailable,
-                    "No approved executor image is locked for this profile and architecture",
-                    false,
-                )
-            })?;
+        let variant = self.variant(profile, architecture)?;
         if matches!(
             profile,
             RuntimeProfile::BrowserQa | RuntimeProfile::DesktopQa
@@ -140,6 +133,7 @@ impl ImageLock {
                 false,
             ));
         }
+        let platform = format!("linux/{architecture}");
         Ok(SelectedImage {
             profile,
             platform,
@@ -148,6 +142,66 @@ impl ImageLock {
             runtime_user: format!("{EXECUTOR_UID}:{EXECUTOR_GID}"),
             tool_versions: variant.tool_versions.clone(),
         })
+    }
+
+    pub fn size_estimate(
+        &self,
+        profile: RuntimeProfile,
+        daemon_arch: &str,
+    ) -> Result<ImageSizeEstimate, PrerequisiteFailure> {
+        let architecture = parse_architecture(daemon_arch).ok_or_else(|| {
+            failure(
+                PrerequisiteCode::UnsupportedArchitecture,
+                "No approved executor image exists for this Docker architecture",
+                false,
+            )
+        })?;
+        let variant = self.variant(profile, architecture)?;
+        let estimated_pull_bytes = variant.estimated_pull_bytes.ok_or_else(|| {
+            failure(
+                PrerequisiteCode::ImageUnavailable,
+                "The approved image has no digest-bound transfer estimate",
+                false,
+            )
+        })?;
+        let estimated_storage_bytes = variant.estimated_storage_bytes.ok_or_else(|| {
+            failure(
+                PrerequisiteCode::ImageUnavailable,
+                "The approved image has no digest-bound storage estimate",
+                false,
+            )
+        })?;
+        Ok(ImageSizeEstimate {
+            estimated_pull_bytes,
+            estimated_storage_bytes,
+        })
+    }
+
+    fn variant(
+        &self,
+        profile: RuntimeProfile,
+        architecture: &str,
+    ) -> Result<&ImageVariant, PrerequisiteFailure> {
+        let profile_name = match profile {
+            RuntimeProfile::General => "general",
+            RuntimeProfile::Rust => "rust",
+            RuntimeProfile::Node => "node",
+            RuntimeProfile::Python => "python",
+            RuntimeProfile::Go => "go",
+            RuntimeProfile::BrowserQa => "browser_qa",
+            RuntimeProfile::DesktopQa => "desktop_qa",
+        };
+        let platform = format!("linux/{architecture}");
+        self.profiles
+            .get(profile_name)
+            .and_then(|variants| variants.iter().find(|variant| variant.platform == platform))
+            .ok_or_else(|| {
+                failure(
+                    PrerequisiteCode::ImageUnavailable,
+                    "No approved executor image is locked for this profile and architecture",
+                    false,
+                )
+            })
     }
 
     /// Select a locked runtime that advertises every logical tool required by

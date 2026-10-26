@@ -115,6 +115,8 @@ fn oversized_version_output_is_a_provider_local_failure_for_all_six_adapters() {
     std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
 
     let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    environment.set("KOOLADE_HOME", root.join("app-home").as_os_str());
+    environment.set("PI_CODING_AGENT_DIR", root.join("pi-agent").as_os_str());
     for variable in [
         crate::harness::pi_harness::PI_BINARY_ENV,
         crate::harness::codex_harness::CODEX_BINARY_ENV,

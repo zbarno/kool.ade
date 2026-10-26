@@ -123,6 +123,10 @@ impl MachineSnapshotV1 {
                     PrerequisiteDomain::Host,
                     PrerequisiteCapability::LinuxDistribution,
                     Some(ProbeObservationV1::LinuxDistribution { .. }),
+                ) | (
+                    PrerequisiteDomain::Docker,
+                    PrerequisiteCapability::DockerEndpoint,
+                    Some(ProbeObservationV1::DockerEngineIdentity { .. }),
                 ) | (_, _, None)
             );
             anyhow::ensure!(

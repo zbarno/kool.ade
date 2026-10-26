@@ -196,9 +196,7 @@ fn should_paint_image_preparation(task: &crate::persistence::setup_tasks::LocalT
 }
 
 fn is_supported_general_image(task: &crate::persistence::setup_tasks::LocalTask) -> bool {
-    task.id
-        .strip_prefix("setup:images:general:")
-        .is_some_and(|architecture| matches!(architecture, "amd64" | "arm64"))
+    crate::app::bootstrap_repair_policy::parse_locked_image_task_id(&task.id).is_some()
 }
 
 fn state_badge(ui: &mut egui::Ui, task: &crate::persistence::setup_tasks::LocalTask) {

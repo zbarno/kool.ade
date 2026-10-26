@@ -1,15 +1,20 @@
 use std::sync::mpsc;
 
 use crate::app::bootstrap_approval::ApprovalRequest;
+use crate::execution::docker::engine::ImagePullControl;
 use crate::persistence::setup_tasks::{
-    AuthorizationBindingV1, FailureCode, SetupTaskTransitionV1, authorization_scope_digest,
+    AuthorizationBindingV1, FailureCode, ImagePreparationReceiptV1, SetupTaskTransitionV1,
+    authorization_scope_digest,
 };
 
 use super::super::AttemptContext;
 use super::super::Controller;
 use super::super::WorkKind;
-use super::super::lifecycle::Completion;
-use super::recovery::{AttemptResolution, recover_await_verification_write, settle_failed_attempt};
+use super::super::lifecycle::{Completion, RecoveryAction};
+use super::recovery::{
+    AttemptResolution, recover_await_verification_write, settle_attempt_transition,
+    settle_failed_attempt,
+};
 use super::steps::{PipelineFailureKind, authorize_publish_execute};
 
 mod settlement;
@@ -104,6 +109,12 @@ impl Controller {
         self.preview = None;
         self.result = None;
         self.recovery_action = None;
+        let (progress_sender, progress_receiver) = mpsc::sync_channel(8);
+        let pull_control = ImagePullControl::new(progress_sender);
+        self.progress_receiver = Some(progress_receiver);
+        self.pull_control = Some(pull_control.clone());
+        self.pull_progress = None;
+        self.pull_cancel_requested = false;
         let (sender, receiver) = mpsc::channel();
         self.receiver = Some(receiver);
         self.work_kind = Some(WorkKind::Prepare);
@@ -145,8 +156,30 @@ impl Controller {
                                 let action = runtime
                                     .block_on(gate.consume(approval_ticket, &proposal))
                                     .map_err(|_| ())?;
-                                super::super::super::executor::prepare_approved(action, &proposal)
-                                    .map_err(|_| ())
+                                let receipt = super::super::super::executor::prepare_approved(
+                                    action,
+                                    &proposal,
+                                    &pull_control,
+                                )
+                                .map_err(|_| ())?;
+                                let at_unix_ms = now_ms();
+                                crate::persistence::setup_tasks::apply_transition(
+                                    SetupTaskTransitionV1::RecordImagePreparationReceipt {
+                                        task_id: attempt.task_id.clone(),
+                                        operation_id: attempt.operation_id.clone(),
+                                        receipt: ImagePreparationReceiptV1 {
+                                            profile: receipt.profile,
+                                            architecture: receipt.architecture,
+                                            image_digest: receipt.image_digest,
+                                            engine_identity_fingerprint: receipt
+                                                .engine_identity_fingerprint,
+                                            successful_smoke_at_unix_ms: at_unix_ms,
+                                        },
+                                        at_unix_ms,
+                                    },
+                                )
+                                .map_err(|_| ())?;
+                                Ok(())
                             },
                         );
                         drop(runtime);
@@ -183,14 +216,24 @@ impl Controller {
                         | PipelineFailureKind::AuthorizationNotPublished
                         | PipelineFailureKind::AwaitVerificationPersistence => FailureCode::Unknown,
                     };
-                    let (succeeded, settled) =
-                        if failure.kind == PipelineFailureKind::AwaitVerificationPersistence {
+                    let (succeeded, settled) = match failure.kind {
+                        PipelineFailureKind::AwaitVerificationPersistence => {
                             recover_await_verification_write(
                                 &attempt,
                                 crate::persistence::setup_tasks::load,
                                 crate::persistence::setup_tasks::apply_transition,
                             )
-                        } else {
+                        }
+                        PipelineFailureKind::OperationFailed if pull_control.is_cancelled() => {
+                            let settled = settle_attempt_transition(
+                                &attempt,
+                                RecoveryAction::Cancel,
+                                crate::persistence::setup_tasks::apply_transition,
+                                crate::persistence::setup_tasks::load,
+                            );
+                            (false, settled)
+                        }
+                        _ => {
                             let settled = settle_failed_attempt(
                                 &attempt,
                                 failure_code,
@@ -198,7 +241,8 @@ impl Controller {
                                 crate::persistence::setup_tasks::load,
                             );
                             (false, settled)
-                        };
+                        }
+                    };
                     Completion::Prepared {
                         gate,
                         succeeded,

@@ -7,6 +7,8 @@ use super::support::{scan, snapshot};
 mod attempt_verification;
 #[path = "reconciliation/git.rs"]
 mod git;
+#[path = "reconciliation/image_superseding.rs"]
+mod image_superseding;
 #[path = "reconciliation/images.rs"]
 mod images;
 #[path = "reconciliation/legacy.rs"]
@@ -227,7 +229,7 @@ fn cycle_and_duplicate_findings_reject_the_whole_snapshot() {
 }
 
 #[test]
-fn approved_images_order_before_synthetic_smoke_without_running_smoke() {
+fn image_inventory_alone_keeps_synthetic_smoke_blocked() {
     let mut store = SetupTaskStoreV1::default();
     scan(
         &mut store,
@@ -279,7 +281,7 @@ fn approved_images_order_before_synthetic_smoke_without_running_smoke() {
     );
     assert_eq!(
         store.tasks["setup:smoke:general:amd64"].state,
-        SetupTaskStateV1::ReadyToFix
+        SetupTaskStateV1::BlockedByPrerequisite
     );
 }
 

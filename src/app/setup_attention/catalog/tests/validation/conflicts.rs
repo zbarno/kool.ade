@@ -27,14 +27,18 @@ fn snapshot_validation_rejects_a_docker_failure_with_a_positive_image_domain() {
         .unwrap();
     let mut engine = docker(DockerEnvironmentState::Ready, true);
     engine.available_images.push(image.reference);
-    let mut snapshot = assess(&[], None, &engine, HostKind::Linux, 13);
+    let mut snapshot = assess_with_images(
+        &engine,
+        std::collections::BTreeSet::new(),
+        [RuntimeProfile::General].into_iter().collect(),
+        13,
+    );
     assert!(
         snapshot
             .checked_domains
             .iter()
-            .any(|domain| domain == "images:general:amd64")
+            .any(|domain| domain.starts_with("images:general:amd64:"))
     );
-    snapshot.checked_domains.retain(|domain| domain != "docker");
     snapshot.findings.push(Finding::action(
         "setup:docker:rootless",
         "Configure secure Docker",
@@ -104,14 +108,23 @@ fn snapshot_validation_rejects_git_readiness_with_its_failure() {
 
 #[test]
 fn snapshot_validation_rejects_an_exact_image_domain_with_its_failure() {
-    for failure_id in ["setup:images:general:amd64", "setup:docker:image-digest"] {
+    let engine_identity = docker(DockerEnvironmentState::Ready, true)
+        .engine_identity_fingerprint()
+        .unwrap();
+    let image_failure_id = format!("setup:images:general:amd64:{engine_identity}");
+    for failure_id in [image_failure_id.as_str(), "setup:docker:image-digest"] {
         let image = ImageLock::bundled()
             .unwrap()
             .select(RuntimeProfile::General, "amd64")
             .unwrap();
         let mut engine = docker(DockerEnvironmentState::Ready, true);
         engine.available_images.push(image.reference);
-        let mut snapshot = assess(&[], None, &engine, HostKind::Linux, 16);
+        let mut snapshot = assess_with_images(
+            &engine,
+            std::collections::BTreeSet::new(),
+            [RuntimeProfile::General].into_iter().collect(),
+            16,
+        );
         snapshot.findings.push(Finding::action(
             failure_id,
             "Verify the approved runtime image",

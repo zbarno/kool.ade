@@ -8,6 +8,9 @@ use std::{
     sync::{Mutex, MutexGuard},
 };
 
+#[cfg(test)]
+pub(crate) mod locked_images;
+
 static PROCESS_ENVIRONMENT_LOCK: Mutex<()> = Mutex::new(());
 
 thread_local! {

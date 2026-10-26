@@ -67,5 +67,7 @@ impl Finding {
 pub use assess::assess;
 #[cfg(test)]
 pub use assess::assess_for_scan;
+#[cfg(test)]
 pub use assess::assess_for_scan_with_git;
 pub(crate) use assess::probe_git;
+pub(crate) use assess::{ImageScanState, ScanInputs, assess_for_scan_with_inputs};

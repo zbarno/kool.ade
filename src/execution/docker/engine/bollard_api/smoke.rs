@@ -81,30 +81,35 @@ impl BollardApi {
         })
         .await;
 
-        let cleanup_target = container_id.as_deref().unwrap_or(container_name);
-        let cleanup = tokio::time::timeout(
-            Duration::from_secs(5),
-            self.docker.remove_container(
-                cleanup_target,
-                Some(
-                    RemoveContainerOptionsBuilder::default()
-                        .force(true)
-                        .v(false)
-                        .build(),
-                ),
-            ),
-        )
-        .await;
-        let cleanup_error = match cleanup {
-            Ok(Ok(())) => None,
-            Ok(Err(bollard::errors::Error::DockerResponseServerError {
-                status_code: 404, ..
-            })) if result.as_ref().is_ok_and(|result| result.is_ok()) => None,
-            Ok(Err(_)) | Err(_) => Some(failure(
-                PrerequisiteCode::DaemonStopped,
-                "Could not confirm cleanup of the app-owned smoke container",
-                true,
-            )),
+        let cleanup_error = match smoke_cleanup_target(container_id.as_deref()) {
+            Some(cleanup_target) => {
+                let cleanup = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    self.docker.remove_container(
+                        cleanup_target,
+                        Some(
+                            RemoveContainerOptionsBuilder::default()
+                                .force(true)
+                                .v(false)
+                                .build(),
+                        ),
+                    ),
+                )
+                .await;
+                match cleanup {
+                    Ok(Ok(())) => None,
+                    Ok(Err(bollard::errors::Error::DockerResponseServerError {
+                        status_code: 404,
+                        ..
+                    })) if result.as_ref().is_ok_and(|result| result.is_ok()) => None,
+                    Ok(Err(_)) | Err(_) => Some(failure(
+                        PrerequisiteCode::DaemonStopped,
+                        "Could not confirm cleanup of the app-owned smoke container",
+                        true,
+                    )),
+                }
+            }
+            None => None,
         };
         match result {
             Ok(Ok(())) => cleanup_error.map_or(Ok(()), Err),
@@ -125,6 +130,10 @@ impl BollardApi {
     }
 }
 
+pub(super) fn smoke_cleanup_target(container_id: Option<&str>) -> Option<&str> {
+    container_id.filter(|id| !id.is_empty())
+}
+
 pub(super) fn smoke_test_body(
     image: &SelectedImage,
     container_name: &str,
@@ -140,15 +149,26 @@ pub(super) fn smoke_test_body(
         ));
     }
     let lock = crate::execution::docker::images::ImageLock::bundled()?;
+    if !matches!(
+        image.profile,
+        crate::execution::docker::images::RuntimeProfile::General
+            | crate::execution::docker::images::RuntimeProfile::Rust
+            | crate::execution::docker::images::RuntimeProfile::Node
+            | crate::execution::docker::images::RuntimeProfile::Python
+            | crate::execution::docker::images::RuntimeProfile::Go
+    ) {
+        return Err(failure(
+            PrerequisiteCode::ProfileUnsupported,
+            "Smoke tests are restricted to approved runtime images; QA profiles remain disabled",
+            false,
+        ));
+    }
     let architecture = image.platform.strip_prefix("linux/").unwrap_or_default();
-    let approved = lock.select(
-        crate::execution::docker::images::RuntimeProfile::General,
-        architecture,
-    )?;
+    let approved = lock.select(image.profile, architecture)?;
     if approved != *image {
         return Err(failure(
             PrerequisiteCode::ImageDigestMismatch,
-            "Smoke image is not the approved General image",
+            "Smoke image does not match its exact approved profile and architecture lock entry",
             false,
         ));
     }

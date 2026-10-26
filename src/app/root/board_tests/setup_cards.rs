@@ -128,7 +128,7 @@ fn kanban_setup_details_name_each_blocking_prerequisite() {
 
     let mut app = fixture();
     let mut image = machine_setup_task(
-        "setup:images:general:amd64",
+        "setup:images:general:amd64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "Prepare the approved runtime image",
         State::BlockedByPrerequisite,
     );
@@ -154,7 +154,7 @@ fn kanban_setup_details_name_each_blocking_prerequisite() {
         frame(&mut app, &ctx, Vec::new());
     }
 
-    let output = click_text(&mut app, &ctx, "Prepare the safe coding environment");
+    let output = click_text(&mut app, &ctx, "Prepare the general runtime image");
 
     assert!(text_contains(&output, "Waiting for"));
     assert!(text_contains(&output, "Allow coding tasks to run safely"));

@@ -1,7 +1,10 @@
 use super::{SetupIssue, bootstrap, catalog};
 
+mod identity;
+mod image_receipts;
 #[cfg(test)]
 mod tests;
+pub(crate) use identity::verification_identity_matches;
 
 #[derive(Clone, Debug)]
 pub struct SetupScanResult {
@@ -73,14 +76,36 @@ pub fn scan(
         return SetupScanResult::cancelled(generation);
     }
     let checked_at = crate::persistence::harness_settings::current_unix_ms();
-    let mut snapshot = catalog::assess_for_scan_with_git(
+    let setup_store = match crate::persistence::setup_tasks::load() {
+        Ok(store) => store,
+        Err(_) => {
+            return SetupScanResult {
+                generation,
+                issue: Some(SetupIssue::provider(
+                    "Could not read workload image requirements. Retry the machine setup check.",
+                )),
+                snapshot: None,
+                endpoint_fingerprint: None,
+                daemon_identity_fingerprint: None,
+                docker_readiness_fingerprint: None,
+                selected_provider: None,
+                cancelled: false,
+            };
+        }
+    };
+    let host = catalog::HostKind::current();
+    let image_state = image_receipts::scan_state(&setup_store, &docker, host);
+    let mut snapshot = catalog::assess_for_scan_with_inputs(
         &probes,
         selected,
         &docker,
-        catalog::HostKind::current(),
+        host,
         checked_at,
         generation,
-        git_probe,
+        catalog::ScanInputs {
+            git_probe,
+            images: image_state,
+        },
     );
     snapshot.scan_started_at_unix_ms = started_at;
     if snapshot.validate().is_err() {
@@ -118,7 +143,7 @@ fn issue_for_readiness(
 ) -> Option<SetupIssue> {
     let pending_required_task = snapshot.findings.iter().any(|finding| {
         finding.status == catalog::FindingStatus::Unsupported
-            || finding.id.starts_with("setup:images:general:")
+            || finding.id.starts_with("setup:images:")
             || finding.id.starts_with("setup:git:")
     });
     cli_issue.or_else(|| {
@@ -128,7 +153,7 @@ fn issue_for_readiness(
             ))
         } else if pending_required_task {
             Some(SetupIssue::bootstrap(
-                "A required platform, Git, or general runtime image prerequisite still needs attention.",
+                "A required platform, Git, or workload runtime image prerequisite still needs attention.",
             ))
         } else {
             None
@@ -264,23 +289,6 @@ fn verify_before_commit_at(
             persistence_failed: true,
         },
     }
-}
-
-fn verification_identity_matches(
-    result: &SetupScanResult,
-    selected: Option<catalog::ProviderIdV1>,
-    endpoint_before: Option<String>,
-    endpoint_after: Option<String>,
-    docker: &crate::execution::docker::environment::DockerEnvironmentStatus,
-) -> bool {
-    let current_readiness_fingerprint = docker.readiness_fingerprint();
-    selected == result.selected_provider
-        && endpoint_before == endpoint_after
-        && endpoint_after == result.endpoint_fingerprint
-        && docker.endpoint_fingerprint == endpoint_after
-        && docker.daemon_identity_fingerprint == result.daemon_identity_fingerprint
-        && result.docker_readiness_fingerprint.as_deref()
-            == Some(current_readiness_fingerprint.as_str())
 }
 
 #[derive(Clone, Debug)]
