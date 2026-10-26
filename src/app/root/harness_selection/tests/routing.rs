@@ -178,12 +178,12 @@ fn explicit_implementation_route_requires_provider_implementation_availability()
         default_harness: Some("pi".into()),
         discovered: std::collections::BTreeMap::from([
             ("pi".into(), detected("pi", true)),
-            ("codex".into(), detected("codex", false)),
+            ("opencode".into(), detected("opencode", false)),
         ]),
         work_routes: std::collections::BTreeMap::from([(
             IMPLEMENTATION.into(),
             WorkRoute {
-                harness: "codex".into(),
+                harness: "opencode".into(),
                 model: None,
             },
         )]),
@@ -191,7 +191,7 @@ fn explicit_implementation_route_requires_provider_implementation_availability()
     };
 
     let harness = routed_harness(&settings, Some(IMPLEMENTATION), None, None);
-    assert!(harness.label().to_ascii_lowercase().contains("codex"));
+    assert!(harness.label().to_ascii_lowercase().contains("opencode"));
     let error = harness
         .check_available()
         .err()
@@ -208,11 +208,11 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
     };
     let settings = HarnessSettings {
         discovered: std::collections::BTreeMap::from([(
-            "codex".into(),
+            "opencode".into(),
             DetectedHarness {
-                status: "codex ready".into(),
+                status: "opencode ready".into(),
                 version: Some("1.0.0".into()),
-                executable: Some("/synthetic/bin/codex".into()),
+                executable: Some("/synthetic/bin/opencode".into()),
                 diagnostic: None,
                 ready: true,
                 models: vec!["available".into()],
@@ -221,13 +221,13 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
                 configuration_required: false,
                 implementation_available: false,
                 checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
-                capability_snapshot: Some(authentication::ready_snapshot("codex")),
+                capability_snapshot: Some(authentication::ready_snapshot("opencode")),
             },
         )]),
         ..Default::default()
     };
     let route = |model: Option<&str>| WorkRoute {
-        harness: "codex".into(),
+        harness: "opencode".into(),
         model: model.map(str::to_owned),
     };
     assert!(
@@ -263,7 +263,7 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
     let mut available = settings.clone();
     available
         .discovered
-        .get_mut("codex")
+        .get_mut("opencode")
         .unwrap()
         .implementation_available = true;
     assert!(
@@ -282,7 +282,7 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
     let mut context_only = settings.clone();
     let capabilities = context_only
         .discovered
-        .get_mut("codex")
+        .get_mut("opencode")
         .unwrap()
         .capability_snapshot
         .as_mut()

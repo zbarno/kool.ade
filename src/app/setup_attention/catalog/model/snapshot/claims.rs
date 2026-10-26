@@ -61,7 +61,6 @@ fn provider_scan_current(snapshot: &MachineSnapshotV1, provider: ProviderIdV1) -
         && items.iter().all(|item| {
             item.scan_generation == snapshot.scan_generation
                 && item.source_generation == Some(snapshot.scan_generation)
-                && !matches!(item.state, EvidenceState::Failed | EvidenceState::Stale)
                 && evidence::provider_evidence(
                     item.prerequisite.capability,
                     item.state,
@@ -81,6 +80,31 @@ fn provider_scan_current(snapshot: &MachineSnapshotV1, provider: ProviderIdV1) -
             items
                 .iter()
                 .any(|item| item.prerequisite.capability == capability)
+        })
+}
+
+fn explicit_provider_choice_current(snapshot: &MachineSnapshotV1) -> bool {
+    snapshot
+        .setup_provider
+        .into_iter()
+        .chain(snapshot.selected_provider)
+        .any(|provider| provider_scan_current(snapshot, provider))
+}
+
+fn missing_setup_provider_has_verification_finding(
+    snapshot: &MachineSnapshotV1,
+    provider: ProviderIdV1,
+) -> bool {
+    let finding_id = format!("setup:cli:{}:verify", provider.probe_id());
+    let current_source_evidence_exists = snapshot.probe_evidence.iter().any(|item| {
+        item.prerequisite.domain == Domain::Provider
+            && item.prerequisite.subject == Subject::Provider(provider)
+            && item.source_generation == Some(snapshot.scan_generation)
+    });
+    !current_source_evidence_exists
+        && snapshot.findings.iter().any(|finding| {
+            finding.id == finding_id
+                && finding.status == crate::app::setup_attention::catalog::FindingStatus::Unverified
         })
 }
 
@@ -144,6 +168,13 @@ fn image_domain_ready(snapshot: &MachineSnapshotV1, profile: &str, architecture:
 
 pub(super) fn validate(snapshot: &MachineSnapshotV1) -> anyhow::Result<()> {
     support::validate_capability_matrix(snapshot)?;
+    if let Some(provider) = snapshot.setup_provider {
+        anyhow::ensure!(
+            provider_scan_current(snapshot, provider)
+                || missing_setup_provider_has_verification_finding(snapshot, provider),
+            "selected setup provider lacks current provider scan evidence or an explicit verification finding"
+        );
+    }
     let providers = [
         ProviderIdV1::Pi,
         ProviderIdV1::Codex,
@@ -157,16 +188,8 @@ pub(super) fn validate(snapshot: &MachineSnapshotV1) -> anyhow::Result<()> {
         anyhow::ensure!(unique.insert(domain), "duplicate checked domain");
         match domain.as_str() {
             "cli:install" => anyhow::ensure!(
-                providers.iter().any(|provider| {
-                    current_ready(
-                        snapshot,
-                        Domain::Provider,
-                        Capability::ProviderExecutable,
-                        Subject::Provider(*provider),
-                        true,
-                    )
-                }),
-                "CLI installation domain lacks current positive evidence"
+                explicit_provider_choice_current(snapshot),
+                "CLI provider selection domain lacks a current explicit provider choice"
             ),
             "cli:scan" => anyhow::ensure!(
                 providers

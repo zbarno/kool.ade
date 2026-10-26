@@ -5,8 +5,8 @@ use crate::execution::contract::ReadinessState;
 const AUTH_TIMEOUT: Duration = Duration::from_secs(8);
 const AUTH_OUTPUT_LIMIT: usize = 16 * 1024;
 
-/// Use OpenCode's documented non-generative credential listing. Only row counts and summaries
-/// are inspected; raw output, provider labels, and credential details are never stored.
+/// Inspect only whether OpenCode reports configured credentials. Stored credentials do not prove
+/// that the account or provider currently accepts requests, so any non-empty result stays unknown.
 pub(super) fn probe(binary: &Path) -> ReadinessState {
     let argv = [
         binary.to_string_lossy().into_owned(),
@@ -105,7 +105,7 @@ fn parse_auth_list(output: &[u8]) -> ReadinessState {
                 && environment == environment_rows
                 && (credentials > 0 || environment > 0) =>
         {
-            ReadinessState::Ready
+            ReadinessState::Unknown
         }
         (Some(Section::Environment), Some(0), Some(0))
             if credential_rows == 0 && environment_rows == 0 =>

@@ -172,6 +172,27 @@ impl HarnessCapabilitySnapshotV1 {
         self.supports_mode(role.harness_mode()) && role_ready && target_ready
     }
 
+    /// Whether Planning can run from app-supplied context when no repository
+    /// execution target is available. This does not enable repository reads.
+    pub fn supports_context_only_planning(&self) -> bool {
+        if self.validate().is_err() || self.execution_target == ReadinessState::Ready {
+            return false;
+        }
+        let provider_ready = self.cli_binary == ReadinessState::Ready
+            && self
+                .cli_version
+                .as_ref()
+                .is_some_and(|version| !version.trim().is_empty())
+            && self.authentication == ReadinessState::Ready
+            && self.model_catalog == ReadinessState::Ready
+            && self.scriptable_invocation == ReadinessState::Ready;
+        let planning_ready = self.modes.iter().any(|readiness| {
+            readiness.mode == crate::harness::ExecutionMode::Planning
+                && readiness.available == ReadinessState::Ready
+        });
+        provider_ready && planning_ready
+    }
+
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.schema_version == 1,

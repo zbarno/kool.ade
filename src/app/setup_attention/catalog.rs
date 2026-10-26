@@ -22,6 +22,13 @@ pub use model::{
 };
 pub type MachineSnapshot = MachineSnapshotV1;
 
+/// Separates work routing from the provider chosen only to guide machine setup.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ProviderChoices<'a> {
+    pub default_agent: Option<&'a str>,
+    pub guided_setup: Option<&'a str>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FindingStatus {
@@ -65,7 +72,7 @@ impl Finding {
 
 #[cfg(test)]
 pub use assess::assess;
-#[cfg(test)]
-pub use assess::assess_for_scan;
-pub use assess::assess_for_scan_with_git;
+pub use assess::assess_for_scan_with_git_and_bootstrap_provider;
 pub(crate) use assess::probe_git;
+#[cfg(test)]
+pub use assess::{assess_for_scan, assess_for_scan_with_git};

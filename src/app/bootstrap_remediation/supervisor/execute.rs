@@ -42,6 +42,7 @@ impl RemediationSupervisor {
         verifier: &dyn ReadinessVerifier,
         cancellation: &Cancellation,
     ) -> anyhow::Result<RemediationResult> {
+        plan.validate_current_target()?;
         let identity = HostIdentity::current()?;
         let mut journal = DurableJournal;
         Self::execute_with_journal(

@@ -18,9 +18,12 @@ fn synthetic_probe(id: &str, ready: bool) -> super::super::super::HarnessProbe {
         executable: ready.then(|| format!("/synthetic/{id}")),
         diagnostic: (!ready).then(|| "synthetic provider-local failure".into()),
         ready,
-        models: Vec::new(),
-        default_model: None,
-        model_catalog_fresh: false,
+        models: ready
+            .then(|| "synthetic-model".into())
+            .into_iter()
+            .collect(),
+        default_model: ready.then(|| "synthetic-model".into()),
+        model_catalog_fresh: ready,
         configuration_required: false,
         authentication: crate::execution::contract::ReadinessState::Ready,
         implementation_available: false,
@@ -153,8 +156,12 @@ fn provider_queue_reports_all_providers_after_local_failure_and_panic() {
             .iter()
             .filter(|result| result.status == crate::harness::discovery::ProbeStatus::Available)
             .count(),
-        4
+        3
     );
+    assert!(results.iter().any(|result| {
+        result.provider_id == "claude"
+            && result.status == crate::harness::discovery::ProbeStatus::Installed
+    }));
     assert!(results.iter().any(|result| {
         result.provider_id == "codex"
             && result.diagnostic_code

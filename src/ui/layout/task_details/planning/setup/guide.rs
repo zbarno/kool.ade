@@ -1,5 +1,7 @@
 use crate::{app::setup_attention::catalog::HostKind, persistence::setup_tasks::LocalTask};
 
+mod providers;
+
 pub(super) fn plain_title(task: &LocalTask) -> String {
     match task.id.as_str() {
         "setup:docker:install" => "Set up a safe coding environment".into(),
@@ -60,9 +62,20 @@ pub(super) fn paint(ui: &mut egui::Ui, task: &LocalTask, host: HostKind) {
     ui.add_space(crate::ui::theme::spacing::M);
     ui.label(crate::ui::theme::section_heading("Setup guide"));
     ui.label(summary(task));
+    if let Some((provider, stage)) = providers::provider_task(task) {
+        providers::paint_progress(ui, task, provider);
+        ui.label(provider.install_note(host));
+        ui.label(crate::ui::theme::helper_text(
+            provider.install_channel_note(host),
+        ));
+        ui.label(provider_task_guidance(provider, stage));
+        ui.label("Provider accounts, plans, and model usage terms vary. Review the vendor's account and pricing terms before signing in; Kool.ad/e does not enroll you or make purchases.");
+        ui.label("Complete sign-in and model choices on the provider's own surface. Do not paste passwords, tokens, API keys, or browser data into Kool.ad/e.");
+    }
     ui.add_space(crate::ui::theme::spacing::M);
     ui.label(crate::ui::theme::section_heading("What to do"));
-    for (index, step) in steps(task, host).iter().enumerate() {
+    let rendered_steps = rendered_steps(task, host);
+    for (index, step) in rendered_steps.iter().enumerate() {
         ui.horizontal_top(|ui| {
             crate::ui::theme::badge(
                 ui,
@@ -203,6 +216,9 @@ pub(super) fn steps(task: &LocalTask, host: HostKind) -> &'static [&'static str]
 }
 
 pub(super) fn help_links(task: &LocalTask, host: HostKind) -> Vec<(&'static str, &'static str)> {
+    if let Some((provider, stage)) = providers::provider_task(task) {
+        return providers::provider_links(provider, stage);
+    }
     match task.id.as_str() {
         "setup:docker:rootless" => vec![(
             "Docker rootless Engine guide",
@@ -258,4 +274,25 @@ pub(super) fn help_links(task: &LocalTask, host: HostKind) -> Vec<(&'static str,
         )],
         _ => Vec::new(),
     }
+}
+
+pub(super) fn provider_task_guidance(
+    provider: crate::app::setup_attention::catalog::ProviderIdV1,
+    stage: &str,
+) -> &'static str {
+    providers::provider_task_guidance(provider, stage)
+}
+
+#[cfg(test)]
+pub(super) fn provider_progress(
+    task: &LocalTask,
+) -> Option<(&'static str, &'static str, &'static str)> {
+    providers::provider_progress(task)
+        .map(|(provider, stage, state)| (provider.display_name(), stage, state))
+}
+
+pub(super) fn rendered_steps(task: &LocalTask, host: HostKind) -> Vec<&'static str> {
+    providers::provider_task(task)
+        .map(|(provider, stage)| providers::provider_steps(provider, stage))
+        .unwrap_or_else(|| steps(task, host).to_vec())
 }

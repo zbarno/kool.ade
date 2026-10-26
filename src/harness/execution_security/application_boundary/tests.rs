@@ -62,7 +62,41 @@ fn context_only_request_does_not_probe_or_require_a_repository_sandbox() {
 
     assert_eq!(boundary.access, ToolAccess::None);
     assert!(boundary.server_config.is_none());
-    assert!(boundary.app_binary.is_none());
+    assert!(boundary.execution_session.is_none());
+}
+
+// Production boundary: ApplicationBoundary receives an ordinary Planning
+// request without an application-selected workspace. This proves that context
+// only routing grants no repository tools; a readiness unit test cannot prove
+// the request boundary preserves that restriction. It needs no Docker or SSH,
+// only a synthetic request and a temporary private directory, so setup is low.
+#[test]
+fn planning_without_a_workspace_receives_no_repository_tools() {
+    let (progress_tx, _progress_rx) = mpsc::channel();
+    let request = PlanningRequest {
+        prompt_manifest: None,
+        mode: ExecutionMode::Planning,
+        task_id: None,
+        reasoning_level: "off".into(),
+        telemetry_phase: None,
+        repo_root: PathBuf::new(),
+        runtime_config_source: None,
+        prompt_body: "synthetic context".into(),
+        system_instructions: String::new(),
+        timeout: std::time::Duration::from_secs(1),
+        progress_tx,
+        cancel: Arc::new(AtomicBool::new(false)),
+        execution_workspace: None,
+        destination_sha: None,
+        authorization_verifier: None,
+        review_identity: None,
+    };
+
+    let boundary = ApplicationBoundary::new(&request).unwrap();
+
+    assert_eq!(boundary.access, ToolAccess::None);
+    assert!(boundary.server_config.is_none());
+    assert!(boundary.execution_session.is_none());
 }
 
 #[test]

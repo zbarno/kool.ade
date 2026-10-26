@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn authenticated_provider_summary_is_ready_without_retaining_details() {
+fn configured_credentials_do_not_prove_current_account_access() {
     let output = "┌  Credentials /synthetic/private/auth.json
 │
 ● Anthropic oauth
@@ -13,7 +13,7 @@ fn authenticated_provider_summary_is_ready_without_retaining_details() {
 │
 └  1 environment variable
 ";
-    assert_eq!(parse_auth_list(output.as_bytes()), ReadinessState::Ready);
+    assert_eq!(parse_auth_list(output.as_bytes()), ReadinessState::Unknown);
 }
 
 #[test]

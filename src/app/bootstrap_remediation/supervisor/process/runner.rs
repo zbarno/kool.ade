@@ -15,6 +15,15 @@ impl NativeCommandRunner for SystemCommandRunner {
         invocation: TrustedInvocation,
         cancellation: &Cancellation,
     ) -> Result<ProcessOutput, ProcessRunError> {
+        match invocation.program {
+            super::TrustedProgram::ClaudeCodeInstall => {
+                return super::claude_code_install::run(invocation, cancellation);
+            }
+            super::TrustedProgram::ClaudeCodeDownload => {
+                return super::claude_download::run(invocation, cancellation);
+            }
+            _ => {}
+        }
         use std::{
             process::{Command, Stdio},
             sync::{

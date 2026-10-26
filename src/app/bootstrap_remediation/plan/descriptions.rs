@@ -8,6 +8,16 @@ impl PlanEffect {
             Self::OpenCodingToolsSettings => "Open the existing coding tool settings",
             Self::DownloadLockedImage => "Download the exact image named by the bundled lock",
             Self::RunIsolatedImageSmokeTest => "Run a bounded, isolated image smoke test",
+            Self::DownloadSignedProviderManifest => "Download the pinned provider release manifest",
+            Self::VerifyProviderManifestSignature => {
+                "Verify the manifest with the pinned Anthropic signing key"
+            }
+            Self::DownloadManifestSelectedProviderBinary => {
+                "Download the exact binary selected by the verified manifest"
+            }
+            Self::InstallUserLocalProviderBinary => {
+                "Install the verified Claude Code binary for this user"
+            }
         }
     }
 }
@@ -16,6 +26,7 @@ impl ManagedFileChange {
     pub(crate) fn description(self) -> &'static str {
         match self {
             Self::DockerUserConfiguration => "Docker user configuration",
+            Self::ClaudeCodeUserLocalBinary => "Claude Code user-local binary",
         }
     }
 }
@@ -33,6 +44,7 @@ impl ManagedServiceChange {
 pub(crate) enum RollbackGuidance {
     NoMutation,
     KeepVerifiedArtifactForRetry,
+    KeepVerifiedProviderBinaryForRetry,
     ManualRecoveryRequired,
 }
 
@@ -54,6 +66,19 @@ impl ArtifactSource {
             Self::VendorInstaller { publisher, product } => {
                 format!("{publisher:?} installer for {product:?}")
             }
+            Self::ClaudeCodeRelease {
+                publisher,
+                product,
+                version,
+                manifest_url,
+                signature_url,
+                key_url,
+                key_fingerprint,
+                binary_url,
+                target_path,
+            } => format!(
+                "{publisher:?} {product:?} {version}; manifest {manifest_url}; signature {signature_url}; key {key_url} (fingerprint {key_fingerprint}); binary {binary_url}; install target {target_path}"
+            ),
             Self::SignedPackageRepository {
                 repository,
                 product,
@@ -81,6 +106,9 @@ impl RollbackGuidance {
             Self::NoMutation => "No host configuration change is planned.",
             Self::KeepVerifiedArtifactForRetry => {
                 "Keep the verified image for a later retry; this operation changes no host configuration."
+            }
+            Self::KeepVerifiedProviderBinaryForRetry => {
+                "Keep a complete verified binary for retry; the final user-local path is created atomically and is never overwritten."
             }
             Self::ManualRecoveryRequired => {
                 "Stop automatic retries and follow the supported manual recovery steps before another repair."

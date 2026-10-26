@@ -1,13 +1,49 @@
 use sha2::{Digest, Sha256};
-use std::{ffi::OsString, time::Duration};
+use std::{ffi::OsString, sync::mpsc::Sender, time::Duration};
 
 use super::{
     artifact::VerifiedArtifact,
     catalog::{NativePackage, TrustedFlag, TrustedProgram},
 };
+use crate::app::bootstrap_remediation::claude_code_install::ClaudeInstallProgress;
 use crate::app::bootstrap_repair_policy::Host;
 
-const MAX_RUNTIME: Duration = Duration::from_secs(120);
+const MAX_RUNTIME: Duration = Duration::from_secs(20 * 60);
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ClaudeReleaseAsset {
+    Manifest,
+    Signature,
+    PublicKey,
+    LinuxX64Binary,
+}
+
+#[cfg(target_os = "linux")]
+impl ClaudeReleaseAsset {
+    pub(crate) fn url(self) -> &'static str {
+        use crate::app::bootstrap_remediation::claude_code_install::recipe;
+        match self {
+            Self::Manifest => recipe::MANIFEST_URL,
+            Self::Signature => recipe::SIGNATURE_URL,
+            Self::PublicKey => recipe::KEY_URL,
+            Self::LinuxX64Binary => recipe::BINARY_URL,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum InternalInvocation {
+    ClaudeCodeInstall {
+        target: std::path::PathBuf,
+    },
+    #[cfg(target_os = "linux")]
+    ClaudeCodeDownload {
+        asset: ClaudeReleaseAsset,
+        destination: std::path::PathBuf,
+        max_bytes: u64,
+    },
+}
 
 pub(crate) enum TrustedArgument {
     Flag(TrustedFlag),
@@ -57,6 +93,10 @@ pub(crate) struct TrustedInvocation {
     pub(in crate::app::bootstrap_remediation::supervisor::process) program: TrustedProgram,
     pub(in crate::app::bootstrap_remediation::supervisor::process) arguments: Vec<TrustedArgument>,
     pub(in crate::app::bootstrap_remediation::supervisor::process) timeout: Duration,
+    pub(in crate::app::bootstrap_remediation::supervisor::process) internal:
+        Option<InternalInvocation>,
+    pub(in crate::app::bootstrap_remediation::supervisor::process) progress:
+        Option<Sender<ClaudeInstallProgress>>,
     #[cfg(test)]
     pub(in crate::app::bootstrap_remediation::supervisor::process) test_mode: Option<String>,
 }
@@ -99,11 +139,71 @@ impl TrustedInvocation {
             program.matches(host),
             "trusted program does not match the planned host"
         );
+        anyhow::ensure!(
+            !matches!(
+                program,
+                TrustedProgram::ClaudeCodeInstall | TrustedProgram::ClaudeCodeDownload
+            ),
+            "internal remediation programs require a typed constructor"
+        );
         Ok(Self {
             host,
             program,
             arguments,
             timeout,
+            internal: None,
+            progress: None,
+            #[cfg(test)]
+            test_mode: None,
+        })
+    }
+
+    pub(in crate::app::bootstrap_remediation) fn claude_install(
+        target: std::path::PathBuf,
+        progress: Sender<ClaudeInstallProgress>,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            target.is_absolute(),
+            "Claude install target is not absolute"
+        );
+        Ok(Self {
+            host: Host::Linux,
+            program: TrustedProgram::ClaudeCodeInstall,
+            arguments: Vec::new(),
+            timeout: Duration::from_secs(15 * 60),
+            internal: Some(InternalInvocation::ClaudeCodeInstall { target }),
+            progress: Some(progress),
+            #[cfg(test)]
+            test_mode: None,
+        })
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(in crate::app::bootstrap_remediation::supervisor::process) fn claude_download(
+        asset: ClaudeReleaseAsset,
+        destination: std::path::PathBuf,
+        max_bytes: u64,
+        timeout: Duration,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            destination.is_absolute()
+                && max_bytes > 0
+                && max_bytes <= 512 * 1024 * 1024
+                && timeout > Duration::ZERO
+                && timeout <= MAX_RUNTIME,
+            "Claude release download parameters are outside policy"
+        );
+        Ok(Self {
+            host: Host::Linux,
+            program: TrustedProgram::ClaudeCodeDownload,
+            arguments: Vec::new(),
+            timeout,
+            internal: Some(InternalInvocation::ClaudeCodeDownload {
+                asset,
+                destination,
+                max_bytes,
+            }),
+            progress: None,
             #[cfg(test)]
             test_mode: None,
         })
@@ -130,6 +230,24 @@ impl TrustedInvocation {
             digest.update((value.len() as u64).to_be_bytes());
             digest.update(value.as_bytes());
         }
+        if let Some(internal) = &self.internal {
+            let value = match internal {
+                InternalInvocation::ClaudeCodeInstall { target } => {
+                    format!("internal:claude_install:{}", target.display())
+                }
+                #[cfg(target_os = "linux")]
+                InternalInvocation::ClaudeCodeDownload {
+                    asset,
+                    destination,
+                    max_bytes,
+                } => format!(
+                    "internal:claude_download:{asset:?}:{}:{max_bytes}",
+                    destination.display()
+                ),
+            };
+            digest.update((value.len() as u64).to_be_bytes());
+            digest.update(value.as_bytes());
+        }
         Ok(format!("{:x}", digest.finalize()))
     }
 
@@ -148,6 +266,8 @@ impl TrustedInvocation {
                 TrustedArgument::TestLiteral("--nocapture".into()),
             ],
             timeout,
+            internal: None,
+            progress: None,
             test_mode: Some(mode.into()),
         }
     }

@@ -28,6 +28,7 @@ use browse::{DirRow, resolve_seed};
 pub use browse::{DlgBrowse, paint_browse_card};
 pub use code_repository::DlgCodeRepository;
 pub(crate) use harness_setup::probe_bootstrap_clis;
+pub(crate) use harness_setup::supported_provider_id;
 pub use harness_setup::{
     DlgHarnessSetup, HarnessSettingsSection, paint_harness_setup_card, paint_harness_setup_page,
 };

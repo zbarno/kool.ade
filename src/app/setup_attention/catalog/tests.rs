@@ -8,6 +8,9 @@ use crate::harness::discovery::{
     ExecutionCapability, ModelCatalogStatus, ProbeResult, ProbeStatus,
 };
 
+mod provider_chooser;
+mod providers;
+
 fn docker(state: DockerEnvironmentState, engine_ready: bool) -> DockerEnvironmentStatus {
     DockerEnvironmentStatus {
         state,
@@ -55,8 +58,24 @@ fn rootful_docker_does_not_hide_authenticated_cli_or_invent_image_error() {
         HostKind::Linux,
         1,
     );
-    assert_eq!(snapshot.findings.len(), 1);
-    assert_eq!(snapshot.findings[0].id, "setup:docker:rootless");
+    assert!(
+        snapshot
+            .findings
+            .iter()
+            .any(|finding| finding.id == "setup:docker:rootless")
+    );
+    assert!(
+        snapshot
+            .findings
+            .iter()
+            .any(|finding| finding.id == "setup:cli:codex:capability")
+    );
+    assert!(
+        !snapshot
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("setup:images:"))
+    );
 }
 
 #[test]
@@ -68,8 +87,18 @@ fn missing_image_is_only_a_finding_after_healthy_engine_probe() {
         HostKind::Linux,
         2,
     );
-    assert_eq!(snapshot.findings.len(), 1);
-    assert_eq!(snapshot.findings[0].id, "setup:images:general:amd64");
+    assert!(
+        snapshot
+            .findings
+            .iter()
+            .any(|finding| finding.id == "setup:images:general:amd64")
+    );
+    assert!(
+        snapshot
+            .findings
+            .iter()
+            .any(|finding| finding.id == "setup:cli:codex:capability")
+    );
 }
 
 #[test]
@@ -122,8 +151,13 @@ fn exact_general_image_suppresses_only_its_matching_task() {
 
 #[test]
 fn unknown_authentication_is_distinct_from_installation_and_docker_failure() {
+    let mut codex = agent(ReadinessState::Unknown);
+    codex.model_catalog_status = ModelCatalogStatus::Unavailable;
+    codex.models.clear();
+    codex.default_model = None;
+    codex.execution_capability.safe_for_planning = ReadinessState::Unknown;
     let snapshot = assess(
-        &[agent(ReadinessState::Unknown)],
+        &[codex],
         Some("codex"),
         &docker(DockerEnvironmentState::NotInstalled, false),
         HostKind::Windows,
@@ -133,7 +167,25 @@ fn unknown_authentication_is_distinct_from_installation_and_docker_failure() {
         snapshot
             .findings
             .iter()
-            .any(|f| f.id == "setup:cli:codex:verify")
+            .any(|f| f.id == "setup:cli:codex:auth-verify")
+    );
+    assert!(
+        snapshot
+            .findings
+            .iter()
+            .any(|f| f.id == "setup:cli:codex:models")
+    );
+    assert!(
+        snapshot
+            .findings
+            .iter()
+            .any(|f| f.id == "setup:cli:codex:capability")
+    );
+    assert!(
+        !snapshot
+            .findings
+            .iter()
+            .any(|f| f.id == "setup:cli:codex:install")
     );
     assert!(
         snapshot
@@ -156,19 +208,6 @@ fn unknown_authentication_is_distinct_from_installation_and_docker_failure() {
 }
 
 #[test]
-fn no_cli_produces_one_choice_not_six_install_tasks() {
-    let snap = assess(
-        &[],
-        None,
-        &docker(DockerEnvironmentState::NotInstalled, false),
-        HostKind::Linux,
-        4,
-    );
-    assert!(snap.findings.iter().any(|f| f.id == "setup:cli:install"));
-    assert_eq!(snap.findings.len(), 2);
-}
-
-#[test]
 fn selected_agent_and_mac_desktop_both_have_independent_readiness() {
     let mut engine = docker(DockerEnvironmentState::Ready, true);
     engine.available_images.push("general".into());
@@ -179,8 +218,15 @@ fn selected_agent_and_mac_desktop_both_have_independent_readiness() {
         HostKind::MacOs,
         5,
     );
-    assert_eq!(snap.findings.len(), 1);
-    assert_eq!(snap.findings[0].status, FindingStatus::Unsupported);
+    assert!(snap.findings.iter().any(|finding| {
+        finding.id == "setup:docker:desktop-transport"
+            && finding.status == FindingStatus::Unsupported
+    }));
+    assert!(
+        snap.findings
+            .iter()
+            .any(|finding| finding.id == "setup:cli:codex:capability")
+    );
 }
 
 mod validation;

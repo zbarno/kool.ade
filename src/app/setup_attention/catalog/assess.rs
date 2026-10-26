@@ -1,60 +1,24 @@
-use crate::execution::{contract::ReadinessState, docker::environment::DockerEnvironmentStatus};
-use crate::harness::discovery::{ModelCatalogStatus, ProbeResult, ProbeStatus};
+use crate::execution::docker::environment::DockerEnvironmentStatus;
+use crate::harness::discovery::{ProbeResult, ProbeStatus};
 
 use super::{
     EvidenceCode, EvidenceState, Finding, FindingStatus, GitProbeV1, HostKind, MachineSnapshotV1,
-    ProviderIdV1, SCHEMA_VERSION, evidence, images,
+    ProviderChoices, ProviderIdV1, SCHEMA_VERSION, evidence, images,
 };
 
 mod docker;
+mod provider_tasks;
+#[cfg(test)]
+mod test_support;
 
-fn authenticated_context_agent(probe: &ProbeResult, generation: u64) -> bool {
-    probe.status == ProbeStatus::Available
-        && probe.run_generation == generation
-        && probe.binary_path.is_some()
-        && probe.version.is_some()
-        && probe.authentication == ReadinessState::Ready
-        && probe.execution_capability.safe_for_planning == ReadinessState::Ready
-        && probe.model_catalog_status == ModelCatalogStatus::Fresh
-        && (!probe.models.is_empty() || probe.default_model.is_some())
-}
+#[cfg(test)]
+pub use test_support::{assess, assess_for_scan, assess_for_scan_with_git};
 
 /// Pure, deterministic interpretation. Missing image findings require
 /// engine_ready; a rootful or unqueryable engine is NOT an image failure.
-#[cfg(test)]
-pub fn assess(
+pub fn assess_for_scan_with_git_and_bootstrap_provider(
     probes: &[ProbeResult],
-    selected_agent: Option<&str>,
-    docker: &DockerEnvironmentStatus,
-    host: HostKind,
-    checked_at_unix_ms: u64,
-) -> MachineSnapshotV1 {
-    assess_for_scan(probes, selected_agent, docker, host, checked_at_unix_ms, 0)
-}
-
-#[cfg(test)]
-pub fn assess_for_scan(
-    probes: &[ProbeResult],
-    selected_agent: Option<&str>,
-    docker: &DockerEnvironmentStatus,
-    host: HostKind,
-    checked_at_unix_ms: u64,
-    scan_generation: u64,
-) -> MachineSnapshotV1 {
-    assess_for_scan_with_git(
-        probes,
-        selected_agent,
-        docker,
-        host,
-        checked_at_unix_ms,
-        scan_generation,
-        GitProbeV1::not_run(),
-    )
-}
-
-pub fn assess_for_scan_with_git(
-    probes: &[ProbeResult],
-    selected_agent: Option<&str>,
+    provider_choices: ProviderChoices<'_>,
     docker: &DockerEnvironmentStatus,
     host: HostKind,
     checked_at_unix_ms: u64,
@@ -62,85 +26,54 @@ pub fn assess_for_scan_with_git(
     git_probe: GitProbeV1,
 ) -> MachineSnapshotV1 {
     let mut findings = Vec::new();
-    let installed: Vec<_> = probes.iter().filter(|p| p.binary_path.is_some()).collect();
-    let verified: Vec<_> = installed
+    let verified: Vec<_> = probes
         .iter()
-        .copied()
-        .filter(|p| authenticated_context_agent(p, scan_generation))
+        .filter(|p| provider_tasks::authenticated_context_agent(p, scan_generation))
         .collect();
 
-    if installed.is_empty() {
-        let crashed = probes.iter().any(|p| p.status == ProbeStatus::Failed);
-        findings.push(if crashed {
-            Finding::unverified(
-                "setup:cli:scan",
-                "Check coding agent detection",
-                "One of the coding agent checks did not finish reliably.",
-                "Retry Coding Tools discovery before choosing an installer.",
-            )
-        } else {
-            Finding::action(
-                "setup:cli:install",
-                "Choose a coding agent",
-                "No supported coding agent is installed. Kool.ad/e can guide setup without one.",
-                "Choose an agent in Coding Tools to get its official installation steps.",
-            )
-        });
-    } else {
-        // Only the chosen provider (or installed candidates before selection)
-        // should create configuration cards, not every absent optional CLI.
-        for probe in installed {
-            let prefix = format!("setup:cli:{}", probe.provider_id);
-            if probe.run_generation != scan_generation {
-                findings.push(Finding::unverified(
-                    format!("{prefix}:verify"),
-                    "Refresh coding agent evidence",
-                    "This coding agent result belongs to an earlier machine scan.",
-                    "Retry Coding Tools discovery before relying on this agent.",
-                ));
-            } else if probe.authentication == ReadinessState::Unavailable {
-                findings.push(Finding::action(
-                    format!("{prefix}:auth"),
-                    "Connect your coding agent account",
-                    "The installed coding agent needs an authenticated account.",
-                    "Sign in using the agent's official account flow and retry verification.",
-                ));
-            } else if probe.authentication == ReadinessState::Unknown {
-                findings.push(Finding::unverified(
-                    format!("{prefix}:verify"),
-                    "Verify coding agent access",
-                    "This coding agent is installed, but its sign-in status could not be verified.",
-                    "Review this agent in Coding Tools; unknown access is not treated as ready.",
-                ));
-            } else if probe.model_catalog_status != ModelCatalogStatus::Fresh
-                || (probe.models.is_empty() && probe.default_model.is_none())
-            {
-                findings.push(Finding::unverified(
-                    format!("{prefix}:models"),
-                    "Configure a usable AI model",
-                    "This agent's current model availability is not verified.",
-                    "Select a supported model and refresh this agent's model catalog.",
-                ));
-            } else if !authenticated_context_agent(probe, scan_generation) {
-                findings.push(Finding::unverified(
-                    format!("{prefix}:capability"),
-                    "Verify safe agent mode",
-                    "The coding agent cannot yet be verified for context-only setup assistance.",
-                    "Review its capability diagnostics; host tools remain disabled.",
-                ));
-            }
+    let explicit_provider_ids = [
+        provider_choices.guided_setup,
+        provider_choices.default_agent,
+    ]
+    .into_iter()
+    .flatten()
+    .fold(Vec::new(), |mut ids, id| {
+        if !ids.contains(&id) {
+            ids.push(id);
         }
-        if !verified.is_empty()
-            && !selected_agent
-                .is_some_and(|id| verified.iter().any(|probe| probe.provider_id == id))
-        {
-            findings.push(Finding::action(
-                "setup:cli:select",
-                "Choose your setup assistant",
-                "An agent is ready, but none has been explicitly selected.",
-                "Select an authenticated agent in Coding Tools.",
+        ids
+    });
+    if !explicit_provider_ids.is_empty() {
+        for provider_id in &explicit_provider_ids {
+            findings.extend(provider_tasks::selected_provider_findings(
+                provider_id,
+                probes,
+                scan_generation,
             ));
         }
+    } else {
+        if !probes.is_empty()
+            && probes
+                .iter()
+                .all(|probe| probe.status == ProbeStatus::Failed)
+        {
+            findings.push(Finding::unverified(
+                "setup:cli:scan",
+                "Retry coding agent discovery",
+                "Kool.ad/e could not complete the provider checks on this machine.",
+                "Retry discovery in Coding Tools before choosing a provider.",
+            ));
+        } else {
+            findings.push(provider_tasks::choose_provider());
+        }
+    }
+    if !verified.is_empty() && provider_choices.default_agent.is_none() {
+        findings.push(Finding::action(
+            "setup:cli:select",
+            "Choose a default coding agent",
+            "At least one provider is ready, but no default coding agent was selected.",
+            "Open Coding Tools and choose Default tool on the provider you want to route coding work to.",
+        ));
     }
 
     if let Some(finding) = docker::finding(docker) {
@@ -233,7 +166,12 @@ pub fn assess_for_scan_with_git(
             .min()
             .unwrap_or(checked_at_unix_ms),
         host,
-        selected_provider: selected_agent.and_then(ProviderIdV1::from_probe_id),
+        setup_provider: provider_choices
+            .guided_setup
+            .and_then(ProviderIdV1::from_probe_id),
+        selected_provider: provider_choices
+            .default_agent
+            .and_then(ProviderIdV1::from_probe_id),
         checked_at_unix_ms,
         capability_matrix,
         probe_evidence,
@@ -245,10 +183,14 @@ pub fn assess_for_scan_with_git(
             // Docker prerequisite was fixed. Likewise, an unknown CLI account
             // cannot verify a previously failing provider.
             let mut domains = Vec::new();
-            if probes
-                .iter()
-                .any(|probe| probe.run_generation == scan_generation && probe.binary_path.is_some())
-            {
+            if explicit_provider_ids.iter().any(|provider_id| {
+                ProviderIdV1::from_probe_id(provider_id).is_some_and(|provider| {
+                    probes.iter().any(|probe| {
+                        probe.provider_id == provider.probe_id()
+                            && probe.run_generation == scan_generation
+                    })
+                })
+            }) {
                 domains.push("cli:install".into());
             }
             if probes.len() == 6
@@ -261,7 +203,9 @@ pub fn assess_for_scan_with_git(
             for probe in &verified {
                 domains.push(format!("cli:{}", probe.provider_id));
             }
-            if selected_agent.is_some_and(|id| verified.iter().any(|probe| probe.provider_id == id))
+            if provider_choices
+                .default_agent
+                .is_some_and(|id| verified.iter().any(|probe| probe.provider_id == id))
             {
                 domains.push("cli:select".into());
             }

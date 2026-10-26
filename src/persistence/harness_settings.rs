@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, path::Path};
 
 const FILE: &str = "harness-settings.json";
 pub const DISCOVERY_FRESHNESS_MS: u64 = 15 * 60 * 1000;
-const CURRENT_SCHEMA_VERSION: u8 = 4;
+const CURRENT_SCHEMA_VERSION: u8 = 5;
 
 #[cfg(test)]
 thread_local! {
@@ -34,6 +34,9 @@ pub(crate) fn with_settings_path<R>(path: std::path::PathBuf, run: impl FnOnce()
 pub struct HarnessSettings {
     pub schema_version: u8,
     pub default_harness: Option<String>,
+    /// Provider the operator chose to guide machine setup. This does not select
+    /// a default coding route or authorize project execution.
+    pub bootstrap_provider: Option<String>,
     /// Extensible category identifiers mapped to locally available harnesses.
     pub work_routes: BTreeMap<String, WorkRoute>,
     pub discovered: BTreeMap<String, DetectedHarness>,
@@ -164,6 +167,54 @@ impl DetectedHarness {
                 .as_ref()
                 .is_some_and(|snapshot| snapshot.supports_role(role))
     }
+
+    pub fn supports_context_only_planning_at(&self, now_unix_ms: u64) -> bool {
+        self.is_fresh_at(now_unix_ms)
+            && self
+                .capability_snapshot
+                .as_ref()
+                .is_some_and(|snapshot| snapshot.supports_context_only_planning())
+    }
+
+    pub fn supports_role_or_context_only_planning_at(
+        &self,
+        role: crate::execution::contract::HarnessRole,
+        now_unix_ms: u64,
+    ) -> bool {
+        self.supports_role_at(role, now_unix_ms)
+            || (role == crate::execution::contract::HarnessRole::PlanningAnalyst
+                && self.supports_context_only_planning_at(now_unix_ms))
+    }
+
+    pub fn has_current_model_catalog_at(&self, provider_id: &str, now_unix_ms: u64) -> bool {
+        self.is_fresh_at(now_unix_ms)
+            && self.model_catalog_fresh
+            && self.capability_snapshot.as_ref().is_some_and(|snapshot| {
+                snapshot.provider_id == provider_id
+                    && snapshot.validate().is_ok()
+                    && snapshot.model_catalog == crate::execution::contract::ReadinessState::Ready
+            })
+    }
+
+    pub fn has_verified_model_at(&self, provider_id: &str, model: &str, now_unix_ms: u64) -> bool {
+        !model.trim().is_empty()
+            && self.has_current_model_catalog_at(provider_id, now_unix_ms)
+            && self.models.iter().any(|available| available == model)
+    }
+
+    pub fn verified_default_model_at(&self, provider_id: &str, now_unix_ms: u64) -> Option<&str> {
+        self.default_model
+            .as_deref()
+            .filter(|model| self.has_verified_model_at(provider_id, model, now_unix_ms))
+    }
+
+    pub fn has_any_verified_model_at(&self, provider_id: &str, now_unix_ms: u64) -> bool {
+        self.has_current_model_catalog_at(provider_id, now_unix_ms)
+            && self
+                .models
+                .iter()
+                .any(|model| self.has_verified_model_at(provider_id, model, now_unix_ms))
+    }
 }
 
 pub fn current_unix_ms() -> u64 {
@@ -190,16 +241,14 @@ fn load_from(path: &Path) -> (HarnessSettings, Option<String>) {
     match std::fs::read(path) {
         Ok(bytes) => match serde_json::from_slice::<HarnessSettings>(&bytes) {
             Ok(mut settings) if (1..=CURRENT_SCHEMA_VERSION).contains(&settings.schema_version) => {
-                if settings.schema_version < CURRENT_SCHEMA_VERSION {
-                    // Before schema 4, successful executable probes were also
-                    // persisted as positive authentication evidence. That
-                    // inference is not valid; force a fresh provider auth probe.
-                    for detected in settings.discovered.values_mut() {
-                        if let Some(snapshot) = detected.capability_snapshot.as_mut() {
-                            snapshot.authentication =
-                                crate::execution::contract::ReadinessState::Unknown;
-                        }
-                    }
+                let original_schema_version = settings.schema_version;
+                migration::apply(&mut settings, original_schema_version);
+                if settings
+                    .bootstrap_provider
+                    .as_deref()
+                    .is_some_and(|provider| !crate::app::dialogs::supported_provider_id(provider))
+                {
+                    settings.bootstrap_provider = None;
                 }
                 settings.schema_version = CURRENT_SCHEMA_VERSION;
                 (settings, None)
@@ -241,3 +290,5 @@ fn save_to(path: &Path, settings: &HarnessSettings) -> anyhow::Result<()> {
 #[cfg(test)]
 #[path = "harness_settings/tests.rs"]
 mod tests;
+
+mod migration;

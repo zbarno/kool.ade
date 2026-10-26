@@ -7,4 +7,6 @@ mod tests;
 
 pub(crate) use artifact::{PublisherSignatureVerifier, VerifiedArtifact, verify_plan_artifact};
 pub(crate) use catalog::TrustedProgram;
-pub(crate) use invocation::{TrustedArgument, TrustedInvocation};
+#[cfg(target_os = "linux")]
+pub(crate) use invocation::ClaudeReleaseAsset;
+pub(crate) use invocation::{InternalInvocation, TrustedArgument, TrustedInvocation};

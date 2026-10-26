@@ -3,48 +3,11 @@ use super::super::HarnessProbe;
 pub(in crate::app::dialogs::harness_setup) fn apply_probe_results(
     settings: &mut crate::persistence::harness_settings::HarnessSettings,
     reports: &[HarnessProbe],
-    preferred: Option<&str>,
+    _preferred: Option<&str>,
     generation: u64,
 ) {
     for report in reports {
         update_settings_from_probe(settings, report, generation);
-    }
-    if settings.default_harness.is_none() {
-        settings.default_harness = preferred
-            .filter(|id| {
-                settings.discovered.get(*id).is_some_and(|entry| {
-                    super::super::has_current_provider_capabilities(
-                        id,
-                        entry,
-                        crate::persistence::harness_settings::current_unix_ms(),
-                    )
-                })
-            })
-            .map(str::to_owned)
-            .or_else(|| {
-                [
-                    "pi",
-                    "codex",
-                    "claude",
-                    "opencode",
-                    "copilot",
-                    "antigravity",
-                ]
-                .into_iter()
-                .find_map(|id| {
-                    settings
-                        .discovered
-                        .get(id)
-                        .is_some_and(|entry| {
-                            super::super::has_current_provider_capabilities(
-                                id,
-                                entry,
-                                crate::persistence::harness_settings::current_unix_ms(),
-                            )
-                        })
-                        .then(|| id.to_owned())
-                })
-            });
     }
 }
 

@@ -22,6 +22,8 @@ pub enum Operation {
     RecheckPrerequisites,
     /// A reviewed digest from the bundled runtime image lock; no freeform image.
     PrepareLockedImage,
+    /// Install one exact, app-owned Claude Code release for the current user.
+    InstallClaudeCode,
     /// Open existing application settings, never a process execution.
     OpenCodingTools,
 }
@@ -96,6 +98,18 @@ pub fn validate(proposal: &Proposal, detected_host: Host) -> anyhow::Result<Revi
             );
             (true, true)
         }
+        Operation::InstallClaudeCode => {
+            anyhow::ensure!(proposal.image_profile.is_none(), "unexpected image profile");
+            anyhow::ensure!(
+                proposal.prerequisite_id == "setup:cli:claude:install",
+                "Claude Code installation requires its canonical prerequisite"
+            );
+            anyhow::ensure!(
+                proposal.host == Host::Linux,
+                "Claude Code installation is only reviewed for Linux"
+            );
+            (true, true)
+        }
     };
     Ok(ReviewedAction {
         operation: proposal.operation,
@@ -150,6 +164,24 @@ mod tests {
                     Operation::PrepareLockedImage,
                     "setup:images:general:amd64",
                     Some("example.com/evil:latest")
+                ),
+                Host::Linux
+            )
+            .is_err()
+        );
+        let install = action(
+            Operation::InstallClaudeCode,
+            "setup:cli:claude:install",
+            None,
+        );
+        assert!(validate(&install, Host::Linux).unwrap().requires_consent);
+        assert!(validate(&install, Host::MacOs).is_err());
+        assert!(
+            validate(
+                &action(
+                    Operation::InstallClaudeCode,
+                    "setup:cli:codex:install",
+                    None
                 ),
                 Host::Linux
             )

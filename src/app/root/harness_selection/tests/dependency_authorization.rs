@@ -63,7 +63,7 @@ fn alternate_qa_harness_runs_read_only_when_verifying_implementation() {
 }
 
 #[test]
-fn supported_provider_clis_pass_implementation_requests_through_the_shared_policy() {
+fn runnable_provider_clis_pass_implementation_requests_through_the_shared_policy() {
     let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
     let request = crate::harness::PlanningRequest {
         prompt_manifest: None,
@@ -85,7 +85,7 @@ fn supported_provider_clis_pass_implementation_requests_through_the_shared_polic
         review_identity: None,
     };
 
-    for provider in ["codex", "claude", "antigravity", "opencode", "copilot"] {
+    for provider in ["pi", "antigravity", "opencode", "copilot"] {
         let calls = Arc::new(AtomicUsize::new(0));
         let harness = RoutedHarness {
             inner: Box::new(CountHarness(calls.clone(), "supported")),
@@ -95,6 +95,22 @@ fn supported_provider_clis_pass_implementation_requests_through_the_shared_polic
         };
         harness.execute(&request).unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 1, "{provider}");
+    }
+
+    for provider in ["codex", "claude"] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let harness = RoutedHarness {
+            inner: Box::new(CountHarness(calls.clone(), "must not run")),
+            harness_id: provider.into(),
+            model: None,
+            provenance: test_route_provenance(provider),
+        };
+        let error = harness.execute(&request).unwrap_err().detail();
+        assert!(
+            error.contains("organization-managed hooks"),
+            "{provider}: {error}"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "{provider}");
     }
 
     let calls = Arc::new(AtomicUsize::new(0));
@@ -126,13 +142,13 @@ fn test_route_provenance(provider: &str) -> crate::harness::HarnessRouteProvenan
 fn configured_alternate_implementation_route_fails_closed_without_repository_access() {
     let now = crate::persistence::harness_settings::current_unix_ms();
     let settings = crate::persistence::harness_settings::HarnessSettings {
-        default_harness: Some("codex".into()),
+        default_harness: Some("opencode".into()),
         discovered: std::collections::BTreeMap::from([(
-            "codex".into(),
+            "opencode".into(),
             crate::persistence::harness_settings::DetectedHarness {
-                status: "codex ready".into(),
+                status: "opencode ready".into(),
                 version: Some("1.0.0".into()),
-                executable: Some("/synthetic/bin/codex".into()),
+                executable: Some("/synthetic/bin/opencode".into()),
                 diagnostic: None,
                 ready: true,
                 models: Vec::new(),
@@ -141,7 +157,9 @@ fn configured_alternate_implementation_route_fails_closed_without_repository_acc
                 configuration_required: false,
                 implementation_available: false,
                 checked_at_unix_ms: now,
-                capability_snapshot: Some(super::routing::authentication::ready_snapshot("codex")),
+                capability_snapshot: Some(super::routing::authentication::ready_snapshot(
+                    "opencode",
+                )),
             },
         )]),
         ..Default::default()
@@ -150,7 +168,7 @@ fn configured_alternate_implementation_route_fails_closed_without_repository_acc
     let routes = std::collections::BTreeMap::from([(
         crate::persistence::harness_settings::IMPLEMENTATION.into(),
         crate::persistence::harness_settings::WorkRoute {
-            harness: "codex".into(),
+            harness: "opencode".into(),
             model: None,
         },
     )]);

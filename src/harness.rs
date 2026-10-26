@@ -58,6 +58,12 @@ pub(crate) fn require_application_implementation_boundary(
         "Copilot CLI" => "copilot",
         other => other,
     };
+    if let Some(reason) = execution_security::task_execution_block_reason(policy_id) {
+        return Err(crate::error::AppError::HarnessFailed {
+            reason: format!("{reason} No CLI was started."),
+            stderr_tail: String::new(),
+        });
+    }
     if !execution_security::for_harness(policy_id)
         .is_some_and(|capabilities| capabilities.supports(request.mode))
     {

@@ -4,6 +4,7 @@
 
 mod approval;
 mod attempt;
+mod claude_code_install;
 mod identity;
 mod plan;
 mod redaction;
@@ -17,6 +18,10 @@ mod tests;
 pub(crate) use approval::{ApprovalGate, ApprovalPreview, ApprovalRequest, ApprovedRemediation};
 #[allow(unused_imports)]
 pub(crate) use attempt::AttemptContext;
+pub(crate) use claude_code_install::verifier::ClaudeCodeReadinessVerifier;
+pub(crate) use claude_code_install::{
+    ClaudeInstallController, ClaudeInstallProgress, ClaudeInstallStatus,
+};
 #[allow(unused_imports)]
 pub(crate) use identity::HostIdentity;
 #[allow(unused_imports)]

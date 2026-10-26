@@ -200,6 +200,7 @@ fn operation_code(operation: crate::app::bootstrap_repair_policy::Operation) -> 
     match operation {
         Operation::RecheckPrerequisites => "recheck_prerequisites",
         Operation::PrepareLockedImage => "prepare_locked_image",
+        Operation::InstallClaudeCode => "install_claude_code",
         Operation::OpenCodingTools => "open_coding_tools",
     }
 }

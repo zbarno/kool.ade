@@ -1,6 +1,8 @@
 use crate::app::bootstrap_remediation::supervisor::Cancellation;
 
 mod capture;
+mod claude_code_install;
+mod claude_download;
 mod platform;
 mod program;
 mod runner;

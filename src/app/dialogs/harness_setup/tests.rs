@@ -31,7 +31,7 @@ fn report(ok: bool) -> HarnessProbe {
         version: ok.then(|| "0.30.1".into()),
         ready: ok,
         models: vec!["configured-model".into()],
-        default_model: None,
+        default_model: ok.then(|| "configured-model".into()),
         model_catalog_fresh: true,
         configuration_required: false,
         authentication: if ok {

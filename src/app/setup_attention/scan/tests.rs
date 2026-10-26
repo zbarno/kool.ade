@@ -82,19 +82,29 @@ fn daemon_or_provider_switch_rejects_the_scan_identity() {
         endpoint_fingerprint: Some("synthetic-endpoint".into()),
         daemon_identity_fingerprint: Some("synthetic-daemon".into()),
         docker_readiness_fingerprint: Some(docker.readiness_fingerprint()),
+        setup_provider: None,
         selected_provider: None,
         cancelled: false,
     };
     let matches =
         |result: &crate::app::setup_attention::SetupScanResult,
+         setup_provider,
          selected,
          before,
          after,
          docker: &crate::execution::docker::environment::DockerEnvironmentStatus| {
-            super::verification_identity_matches(result, selected, before, after, docker)
+            super::verification_identity_matches(
+                result,
+                setup_provider,
+                selected,
+                before,
+                after,
+                docker,
+            )
         };
     assert!(matches(
         &result,
+        None,
         None,
         Some("synthetic-endpoint".into()),
         Some("synthetic-endpoint".into()),
@@ -103,6 +113,7 @@ fn daemon_or_provider_switch_rejects_the_scan_identity() {
     assert!(!matches(
         &result,
         Some(catalog::ProviderIdV1::Codex),
+        None,
         Some("synthetic-endpoint".into()),
         Some("synthetic-endpoint".into()),
         &docker,
@@ -112,6 +123,7 @@ fn daemon_or_provider_switch_rejects_the_scan_identity() {
     assert!(!matches(
         &result,
         None,
+        None,
         Some("synthetic-endpoint".into()),
         Some("synthetic-endpoint".into()),
         &changed_readiness,
@@ -120,6 +132,7 @@ fn daemon_or_provider_switch_rejects_the_scan_identity() {
     switched_daemon.daemon_identity_fingerprint = Some("different-daemon".into());
     assert!(!matches(
         &result,
+        None,
         None,
         Some("synthetic-endpoint".into()),
         Some("synthetic-endpoint".into()),

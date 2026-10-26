@@ -5,6 +5,8 @@ use crate::app::bootstrap_remediation::request::{OperationParameters, Remediatio
 use crate::execution::docker::images::{ImageLock, RuntimeProfile};
 use sha2::{Digest, Sha256};
 
+mod validation;
+
 impl RemediationPlan {
     pub(crate) fn build(request: &RemediationRequest) -> anyhow::Result<Self> {
         request.validate()?;
@@ -36,6 +38,7 @@ impl RemediationPlan {
                 "{:x}",
                 Sha256::digest(serde_json::to_vec(&request.parameters)?)
             ),
+            install_target: None,
             effects: Vec::new(),
             file_changes: Vec::new(),
             service_changes: Vec::new(),
@@ -43,7 +46,7 @@ impl RemediationPlan {
             artifact_trust: None,
             privilege: PrivilegeLevel::CurrentUser,
             rollback: RollbackGuidance::NoMutation,
-            verification_probe_ids: vec![probe_for(&request.prerequisite_id)],
+            verification_probe_ids: vec![validation::probe_for(&request.prerequisite_id)],
             requires_consent: false,
             #[cfg(test)]
             test_override: false,
@@ -85,6 +88,41 @@ impl RemediationPlan {
                 plan.verification_probe_ids.push("docker:rootless".into());
                 plan.requires_consent = true;
             }
+            (
+                Operation::InstallClaudeCode,
+                OperationParameters::ClaudeCodeInstall { target_path },
+            ) => {
+                use super::super::claude_code_install::recipe;
+
+                let target = recipe::validate_target(target_path)?;
+                plan.install_target = Some(target_path.clone());
+                plan.effects.extend([
+                    PlanEffect::DownloadSignedProviderManifest,
+                    PlanEffect::VerifyProviderManifestSignature,
+                    PlanEffect::DownloadManifestSelectedProviderBinary,
+                    PlanEffect::InstallUserLocalProviderBinary,
+                ]);
+                plan.file_changes
+                    .push(ManagedFileChange::ClaudeCodeUserLocalBinary);
+                plan.artifact_source = Some(ArtifactSource::ClaudeCodeRelease {
+                    publisher: ApprovedPublisher::Anthropic,
+                    product: TrustedProduct::ClaudeCode,
+                    version: recipe::RELEASE.to_owned(),
+                    manifest_url: recipe::MANIFEST_URL.to_owned(),
+                    signature_url: recipe::SIGNATURE_URL.to_owned(),
+                    key_url: recipe::KEY_URL.to_owned(),
+                    key_fingerprint: recipe::KEY_FINGERPRINT.to_owned(),
+                    binary_url: recipe::BINARY_URL.to_owned(),
+                    target_path: target.display().to_string(),
+                });
+                plan.artifact_trust = Some(ArtifactTrust::PublisherSigned {
+                    sha256: recipe::BINARY_SHA256.to_owned(),
+                    publisher: ApprovedPublisher::Anthropic,
+                });
+                plan.rollback = RollbackGuidance::KeepVerifiedProviderBinaryForRetry;
+                plan.verification_probe_ids = vec!["cli:claude:install".into()];
+                plan.requires_consent = true;
+            }
             _ => anyhow::bail!("remediation plan does not match its typed request"),
         }
         Ok(plan)
@@ -97,7 +135,7 @@ impl RemediationPlan {
     }
 
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
-        let parameters = parameters_from_plan(self)?;
+        let parameters = validation::parameters_from_plan(self)?;
         let request = RemediationRequest {
             schema_version: self.schema_version,
             operation: self.operation,
@@ -119,7 +157,7 @@ impl RemediationPlan {
                     .all(|byte| byte.is_ascii_hexdigit()),
             "invalid remediation parameter digest"
         );
-        validate_artifact_policy(self)?;
+        validation::validate_artifact_policy(self)?;
         #[cfg(test)]
         if self.test_override {
             anyhow::ensure!(
@@ -140,6 +178,18 @@ impl RemediationPlan {
         Ok(())
     }
 
+    pub(crate) fn validate_current_target(&self) -> anyhow::Result<()> {
+        if self.operation == Operation::InstallClaudeCode {
+            super::super::claude_code_install::recipe::require_supported_host()?;
+            let expected = super::super::claude_code_install::recipe::current_target()?;
+            anyhow::ensure!(
+                self.install_target.as_deref() == Some(expected.as_str()),
+                "Claude Code install target changed after review"
+            );
+        }
+        Ok(())
+    }
+
     #[cfg(test)]
     pub(crate) fn set_privilege_for_test(&mut self, privilege: PrivilegeLevel) {
         self.privilege = privilege;
@@ -151,84 +201,5 @@ impl RemediationPlan {
         self.artifact_source = Some(source);
         self.artifact_trust = Some(trust);
         self.test_override = true;
-    }
-}
-
-fn validate_artifact_policy(plan: &RemediationPlan) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        plan.artifact_source.is_some() == plan.artifact_trust.is_some(),
-        "artifact source and trust policy must be paired"
-    );
-    let Some((source, trust)) = plan
-        .artifact_source
-        .as_ref()
-        .zip(plan.artifact_trust.as_ref())
-    else {
-        return Ok(());
-    };
-    let (digest, publisher) = match trust {
-        ArtifactTrust::DigestPinned { sha256 } => (sha256, None),
-        ArtifactTrust::PublisherSigned { sha256, publisher } => (sha256, Some(*publisher)),
-    };
-    anyhow::ensure!(
-        digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()),
-        "invalid artifact SHA-256 digest"
-    );
-    match source {
-        ArtifactSource::BundledContainerImage { reference } => {
-            anyhow::ensure!(
-                !reference.is_empty() && matches!(trust, ArtifactTrust::DigestPinned { .. }),
-                "container images require the approved bundled registry and digest lock"
-            );
-        }
-        ArtifactSource::VendorInstaller {
-            publisher: source_publisher,
-            ..
-        } => {
-            anyhow::ensure!(
-                publisher == Some(*source_publisher),
-                "vendor installers require that vendor's verified publisher signature"
-            );
-        }
-        ArtifactSource::SignedPackageRepository { repository, .. } => {
-            let required_publisher = match repository {
-                TrustedRepository::Debian => ApprovedPublisher::Debian,
-                TrustedRepository::Fedora => ApprovedPublisher::Fedora,
-                TrustedRepository::OpenSuse => ApprovedPublisher::OpenSuse,
-            };
-            anyhow::ensure!(
-                publisher == Some(required_publisher),
-                "OS packages require the configured repository's verified publisher"
-            );
-        }
-    }
-    Ok(())
-}
-
-fn probe_for(prerequisite_id: &str) -> String {
-    match prerequisite_id.strip_prefix("setup:") {
-        Some(id) => id.to_owned(),
-        None => "invalid".into(),
-    }
-}
-
-fn parameters_from_plan(plan: &RemediationPlan) -> anyhow::Result<OperationParameters> {
-    match plan.operation {
-        Operation::RecheckPrerequisites | Operation::OpenCodingTools => {
-            Ok(OperationParameters::None)
-        }
-        Operation::PrepareLockedImage => {
-            let image = plan
-                .prerequisite_id
-                .strip_prefix("setup:images:")
-                .ok_or_else(|| anyhow::anyhow!("locked image task identity is not canonical"))?;
-            let (profile, architecture) = image
-                .split_once(':')
-                .ok_or_else(|| anyhow::anyhow!("locked image task identity lacks architecture"))?;
-            Ok(OperationParameters::LockedImage {
-                profile: profile.to_owned(),
-                architecture: architecture.to_owned(),
-            })
-        }
     }
 }

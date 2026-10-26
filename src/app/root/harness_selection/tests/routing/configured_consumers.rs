@@ -6,12 +6,12 @@ use std::collections::BTreeMap;
 
 #[test]
 fn uncategorized_project_planning_uses_the_global_planning_route() {
-    let settings = settings_with_routes(BTreeMap::from([(PLANNING.into(), route("codex"))]));
+    let settings = settings_with_routes(BTreeMap::from([(PLANNING.into(), route("opencode"))]));
     with_settings(&settings, || {
         let mut override_harness = None;
         let harness = configured_harness_for_task(&mut override_harness, None, &BTreeMap::new());
         let provenance = harness.route_provenance(&request()).unwrap();
-        assert_eq!(provenance.provider_id, "codex");
+        assert_eq!(provenance.provider_id, "opencode");
         assert_eq!(
             provenance.role,
             crate::execution::contract::HarnessRole::PlanningAnalyst
@@ -23,7 +23,7 @@ fn uncategorized_project_planning_uses_the_global_planning_route() {
 fn implementation_repair_attempt_uses_the_configured_repair_provider() {
     let settings = settings_with_routes(BTreeMap::from([
         (IMPLEMENTATION.into(), route("pi")),
-        (REPAIR.into(), route("claude")),
+        (REPAIR.into(), route("opencode")),
     ]));
     with_settings(&settings, || {
         let mut override_harness = None;
@@ -36,7 +36,7 @@ fn implementation_repair_attempt_uses_the_configured_repair_provider() {
         repair_request.mode = crate::harness::ExecutionMode::Implementation;
         repair_request.telemetry_phase = Some("repair".into());
         let provenance = harness.route_provenance(&repair_request).unwrap();
-        assert_eq!(provenance.provider_id, "claude");
+        assert_eq!(provenance.provider_id, "opencode");
         assert_eq!(
             provenance.role,
             crate::execution::contract::HarnessRole::RepairWorker
@@ -48,14 +48,7 @@ fn implementation_repair_attempt_uses_the_configured_repair_provider() {
 fn every_role_route_selects_each_supported_provider_and_pins_its_model() {
     use crate::persistence::harness_settings as categories;
 
-    let providers = [
-        "pi",
-        "codex",
-        "claude",
-        "opencode",
-        "copilot",
-        "antigravity",
-    ];
+    let providers = ["pi", "opencode", "copilot", "antigravity"];
     let work_categories = [
         categories::MANAGER,
         categories::PLANNING,
@@ -115,6 +108,33 @@ fn every_role_route_selects_each_supported_provider_and_pins_its_model() {
                 "{provider} {category}"
             );
         }
+    }
+
+    for blocked_provider in ["codex", "claude"] {
+        let blocked_routes = BTreeMap::from([(
+            categories::IMPLEMENTATION.into(),
+            WorkRoute {
+                harness: blocked_provider.into(),
+                model: Some("synthetic-default".into()),
+            },
+        )]);
+        let blocked_settings = settings_with_routes(blocked_routes);
+        let blocked_harness = routed_harness(
+            &blocked_settings,
+            Some(categories::IMPLEMENTATION),
+            None,
+            None,
+        );
+        let mut blocked_request = request();
+        blocked_request.mode = crate::harness::ExecutionMode::Implementation;
+        assert!(blocked_harness.route_provenance(&blocked_request).is_none());
+        assert!(
+            blocked_harness
+                .check_available()
+                .unwrap_err()
+                .detail()
+                .contains("organization-managed hooks")
+        );
     }
 }
 

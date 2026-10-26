@@ -1,5 +1,6 @@
 mod evidence;
 mod identifiers;
+mod install_channels;
 mod snapshot;
 
 pub use evidence::{

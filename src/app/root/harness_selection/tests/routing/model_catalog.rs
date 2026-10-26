@@ -171,16 +171,16 @@ fn failed_optional_catalog_probe_does_not_treat_saved_models_as_fresh() {
         work_routes: std::collections::BTreeMap::from([(
             crate::persistence::harness_settings::QA.into(),
             WorkRoute {
-                harness: "codex".into(),
+                harness: "opencode".into(),
                 model: Some("saved-model".into()),
             },
         )]),
         discovered: std::collections::BTreeMap::from([(
-            "codex".into(),
+            "opencode".into(),
             DetectedHarness {
-                status: "codex ready".into(),
+                status: "opencode ready".into(),
                 version: Some("1.0.0".into()),
-                executable: Some("/tools/codex".into()),
+                executable: Some("/tools/opencode".into()),
                 diagnostic: Some("Model catalog could not be refreshed".into()),
                 ready: true,
                 models: vec!["saved-model".into()],
@@ -189,7 +189,7 @@ fn failed_optional_catalog_probe_does_not_treat_saved_models_as_fresh() {
                 configuration_required: false,
                 implementation_available: true,
                 checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
-                capability_snapshot: Some(super::authentication::ready_snapshot("codex")),
+                capability_snapshot: Some(super::authentication::ready_snapshot("opencode")),
             },
         )]),
         ..HarnessSettings::default()

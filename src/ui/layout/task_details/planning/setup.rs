@@ -109,7 +109,7 @@ fn details(
 
     ui.add_space(crate::ui::theme::spacing::M);
     ui.horizontal_wrapped(|ui| {
-        if supports_repair(task)
+        if supports_repair(task, surface.supports_provider_install(&task.id))
             && ui
                 .add_enabled(
                     !board.setup_checking,
@@ -140,6 +140,9 @@ fn details(
     });
     if should_paint_image_preparation(task) {
         surface.setup_image_preparation(ui, &task.id);
+    }
+    if should_paint_claude_install(task, surface.supports_provider_install(&task.id)) {
+        surface.setup_provider_install(ui, &task.id);
     }
     if task.state == crate::persistence::setup_tasks::State::Unsupported {
         ui.add_space(crate::ui::theme::spacing::S);
@@ -173,8 +176,12 @@ fn prerequisite_title(board: &crate::ui::planning_board::ViewModel, id: &str) ->
         .unwrap_or_else(|| guide::humanize_prerequisite(id))
 }
 
-fn supports_repair(task: &crate::persistence::setup_tasks::LocalTask) -> bool {
-    is_supported_general_image(task)
+fn supports_repair(
+    task: &crate::persistence::setup_tasks::LocalTask,
+    provider_install_supported: bool,
+) -> bool {
+    (is_supported_general_image(task)
+        || (is_claude_install_task(task) && provider_install_supported))
         && task.blocked_by.is_empty()
         && matches!(
             task.state,
@@ -186,13 +193,39 @@ fn supports_repair(task: &crate::persistence::setup_tasks::LocalTask) -> bool {
         )
 }
 
+fn is_claude_install_task(task: &crate::persistence::setup_tasks::LocalTask) -> bool {
+    task.id == "setup:cli:claude:install"
+}
+
+fn should_paint_claude_install(
+    task: &crate::persistence::setup_tasks::LocalTask,
+    provider_install_supported: bool,
+) -> bool {
+    use crate::persistence::setup_tasks::State;
+    is_claude_install_task(task)
+        && task.blocked_by.is_empty()
+        && provider_install_supported
+        && matches!(
+            task.state,
+            State::ReadyToFix
+                | State::NeedsApproval
+                | State::InProgress
+                | State::AwaitingVerification
+                | State::NeedsVerification
+                | State::Failed
+                | State::Paused
+                | State::Interrupted
+                | State::Cancelled
+        )
+}
+
 fn should_paint_image_preparation(task: &crate::persistence::setup_tasks::LocalTask) -> bool {
     use crate::persistence::setup_tasks::State;
     is_supported_general_image(task)
         && (matches!(
             task.state,
             State::NeedsApproval | State::InProgress | State::AwaitingVerification
-        ) || supports_repair(task))
+        ) || supports_repair(task, false))
 }
 
 fn is_supported_general_image(task: &crate::persistence::setup_tasks::LocalTask) -> bool {

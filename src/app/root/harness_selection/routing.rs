@@ -132,45 +132,36 @@ pub(super) fn routed_harness<'a>(
     };
     let harness = resolve(selected);
     let detected = settings.discovered.get(harness_id);
-    let discovery_fresh = detected.is_some_and(|entry| {
-        entry.is_fresh_at(crate::persistence::harness_settings::current_unix_ms())
-    });
-    let authenticated = detected.is_some_and(|entry| {
-        has_current_authenticated_snapshot(
-            harness_id,
-            entry,
-            crate::persistence::harness_settings::current_unix_ms(),
-        )
-    });
-    let route_requires_discovery = work_type.is_some() || route.is_some();
-    if route_requires_discovery && !discovery_fresh {
+    let now = crate::persistence::harness_settings::current_unix_ms();
+    if let Some(reason) =
+        crate::harness::execution_security::task_execution_block_reason(harness_id)
+    {
+        return Box::new(UnavailableHarness(reason.into()));
+    }
+    let discovery_fresh = detected.is_some_and(|entry| entry.is_fresh_at(now));
+    let authenticated =
+        detected.is_some_and(|entry| has_current_authenticated_snapshot(harness_id, entry, now));
+    if !discovery_fresh {
         return Box::new(UnavailableHarness(format!(
             "Discovery for {harness_id} is stale. Refresh Coding tools before starting this task; no fallback will run it."
         )));
     }
-    if route_requires_discovery && !detected.is_some_and(|entry| entry.ready) {
+    if !detected.is_some_and(|entry| entry.ready) {
         return Box::new(UnavailableHarness(format!(
             "Harness {harness_id} is currently unavailable. Review its Coding tools diagnostic; no fallback will run this task."
         )));
     }
-    if route_requires_discovery && !authenticated {
+    if !authenticated {
         return Box::new(UnavailableHarness(format!(
             "Authentication for harness {harness_id} is unconfirmed or unavailable; no current authenticated capability snapshot exists. Refresh Coding tools before starting this task; no fallback will run it."
         )));
     }
-    let selected_category = work_type.or_else(|| {
-        route
-            .is_some()
-            .then_some(crate::persistence::harness_settings::PLANNING)
-    });
-    if let Some(role) = selected_category.and_then(role_for_work_category)
-        && !detected.is_some_and(|entry| {
-            entry.supports_role_at(
-                role,
-                crate::persistence::harness_settings::current_unix_ms(),
-            )
-        })
-    {
+    let category = work_type.unwrap_or(crate::persistence::harness_settings::PLANNING);
+    let role = role_for_work_category(category)
+        .unwrap_or(crate::execution::contract::HarnessRole::PlanningAnalyst);
+    let role_ready =
+        detected.is_some_and(|entry| entry.supports_role_or_context_only_planning_at(role, now));
+    if !role_ready {
         return Box::new(UnavailableHarness(format!(
             "Harness {harness_id} has no current capability proof for the {work_type:?} role; refresh Coding tools and review its provider diagnostics."
         )));
@@ -197,33 +188,19 @@ pub(super) fn routed_harness<'a>(
         .and_then(|route| route.model.as_deref())
         .filter(|model| !model.trim().is_empty());
     if let Some(model) = explicit_model
-        && !detected.is_some_and(|entry| {
-            entry.is_fresh_at(crate::persistence::harness_settings::current_unix_ms())
-                && entry.model_catalog_fresh
-                && entry.models.iter().any(|available| available == model)
-        })
+        && !detected.is_some_and(|entry| entry.has_verified_model_at(harness_id, model, now))
     {
         return Box::new(UnavailableHarness(format!(
             "The selected model '{model}' is not in the refreshed {harness_id} CLI model catalog. Open Coding tools, refresh discovery, and choose an available model."
         )));
     }
-    let discovered_default_model = detected
-        .filter(|entry| {
-            entry.is_fresh_at(crate::persistence::harness_settings::current_unix_ms())
-                && entry.model_catalog_fresh
-        })
-        .and_then(|entry| entry.default_model.as_deref())
-        .filter(|model| {
-            detected.is_some_and(|entry| entry.models.iter().any(|available| available == *model))
-        });
-    if route_requires_discovery && explicit_model.is_none() && discovered_default_model.is_none() {
+    let discovered_default_model =
+        detected.and_then(|entry| entry.verified_default_model_at(harness_id, now));
+    if explicit_model.is_none() && discovered_default_model.is_none() {
         return Box::new(UnavailableHarness(format!(
             "No verified model is selected for {harness_id}. Refresh its model catalog or choose an available model in Coding tools; this task will not run with an unreported CLI default."
         )));
     }
-    let category = work_type.unwrap_or(crate::persistence::harness_settings::PLANNING);
-    let role = role_for_work_category(category)
-        .unwrap_or(crate::execution::contract::HarnessRole::PlanningAnalyst);
     let snapshot = detected.and_then(|entry| entry.capability_snapshot.as_ref());
     // Pin the fresh provider default so provenance matches the model passed to
     // the CLI. Preserve the difference between an explicit route and that

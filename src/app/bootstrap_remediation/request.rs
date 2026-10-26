@@ -25,6 +25,9 @@ pub(crate) enum OperationParameters {
         profile: String,
         architecture: String,
     },
+    ClaudeCodeInstall {
+        target_path: String,
+    },
 }
 
 impl RemediationRequest {
@@ -43,6 +46,7 @@ impl RemediationRequest {
             parameters: parameters_for(proposal)?,
         };
         request.validate_for_identity(&identity)?;
+        request.validate_supported_target()?;
         Ok(request)
     }
 
@@ -64,7 +68,8 @@ impl RemediationRequest {
     }
 
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
-        self.validate_for_identity(&HostIdentity::current()?)
+        self.validate_for_identity(&HostIdentity::current()?)?;
+        self.validate_supported_target()
     }
 
     pub(crate) fn validate_for_identity(&self, identity: &HostIdentity) -> anyhow::Result<()> {
@@ -118,6 +123,16 @@ impl RemediationRequest {
                     "locked image parameters do not match the affected prerequisite"
                 );
             }
+            (
+                Operation::InstallClaudeCode,
+                OperationParameters::ClaudeCodeInstall { target_path },
+            ) => {
+                anyhow::ensure!(
+                    self.host == Host::Linux && self.prerequisite_id == "setup:cli:claude:install",
+                    "Claude Code installation requires its canonical Linux setup task"
+                );
+                super::claude_code_install::recipe::validate_target(target_path)?;
+            }
             _ => anyhow::bail!("remediation parameters do not match the typed operation"),
         }
         Ok(())
@@ -126,7 +141,7 @@ impl RemediationRequest {
     pub(crate) fn proposal(&self) -> Proposal {
         let image_profile = match &self.parameters {
             OperationParameters::LockedImage { profile, .. } => Some(profile.clone()),
-            OperationParameters::None => None,
+            OperationParameters::None | OperationParameters::ClaudeCodeInstall { .. } => None,
         };
         Proposal {
             schema_version: self.schema_version,
@@ -135,6 +150,13 @@ impl RemediationRequest {
             prerequisite_id: self.prerequisite_id.clone(),
             image_profile,
         }
+    }
+
+    fn validate_supported_target(&self) -> anyhow::Result<()> {
+        if self.operation == Operation::InstallClaudeCode {
+            super::claude_code_install::recipe::require_supported_host()?;
+        }
+        Ok(())
     }
 }
 
@@ -157,6 +179,9 @@ fn parameters_for(proposal: &Proposal) -> anyhow::Result<OperationParameters> {
                 architecture: architecture.to_owned(),
             })
         }
+        Operation::InstallClaudeCode => Ok(OperationParameters::ClaudeCodeInstall {
+            target_path: super::claude_code_install::recipe::current_target()?,
+        }),
     }
 }
 

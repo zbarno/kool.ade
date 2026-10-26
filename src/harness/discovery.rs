@@ -13,7 +13,7 @@ mod search_paths;
 mod version;
 use process::{is_cancelled, spawn_reader, terminate_group, wait_bounded};
 mod configured;
-pub(crate) use configured::run_with_environment;
+pub(crate) use configured::{run_isolated_with_environment, run_with_environment};
 pub(crate) use search_paths::{host_executable_candidates, host_search_path};
 pub(crate) use version::normalize_cli_version;
 

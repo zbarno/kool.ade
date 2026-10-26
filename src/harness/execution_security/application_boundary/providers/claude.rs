@@ -6,16 +6,29 @@ use std::fs;
 #[cfg(not(test))]
 use std::path::Path;
 
-#[cfg(not(test))]
+#[cfg(all(not(test), target_os = "linux"))]
 const SYSTEM_SETTINGS: &str = "/etc/claude-code/managed-settings.json";
-#[cfg(not(test))]
+#[cfg(all(not(test), target_os = "linux"))]
 const SYSTEM_SETTINGS_DROPINS: &str = "/etc/claude-code/managed-settings.d";
-#[cfg(not(test))]
+#[cfg(all(not(test), target_os = "linux"))]
 const SYSTEM_MANAGED_MCP: &str = "/etc/claude-code/managed-mcp.json";
+#[cfg(all(not(test), target_os = "macos"))]
+const SYSTEM_SETTINGS: &str = "/Library/Application Support/ClaudeCode/managed-settings.json";
+#[cfg(all(not(test), target_os = "macos"))]
+const SYSTEM_SETTINGS_DROPINS: &str = "/Library/Application Support/ClaudeCode/managed-settings.d";
+#[cfg(all(not(test), target_os = "macos"))]
+const SYSTEM_MANAGED_MCP: &str = "/Library/Application Support/ClaudeCode/managed-mcp.json";
+#[cfg(all(not(test), target_os = "windows"))]
+const SYSTEM_SETTINGS: &str = r"C:\Program Files\ClaudeCode\managed-settings.json";
+#[cfg(all(not(test), target_os = "windows"))]
+const SYSTEM_SETTINGS_DROPINS: &str = r"C:\Program Files\ClaudeCode\managed-settings.d";
+#[cfg(all(not(test), target_os = "windows"))]
+const SYSTEM_MANAGED_MCP: &str = r"C:\Program Files\ClaudeCode\managed-mcp.json";
 
 pub(super) fn configure(
     boundary: &ApplicationBoundary,
     argv: &mut Vec<String>,
+    env: &mut Vec<(String, String)>,
 ) -> anyhow::Result<()> {
     #[cfg(not(test))]
     ensure_no_local_managed_host_execution()?;
@@ -31,6 +44,12 @@ pub(super) fn configure(
         .scratch
         .write_json("claude-mcp.json", &json!({ "mcpServers": servers }))?;
     set_option(argv, "--tools", String::new());
+    set_fixed_option(
+        argv,
+        "--settings",
+        crate::harness::claude_harness::UPDATE_LOCK_SETTINGS,
+    );
+    set_fixed_environment(env, "DISABLE_UPDATES", "1");
     set_option(argv, "--permission-mode", "dontAsk".into());
     set_option(argv, "--permission-prompts", "none".into());
     argv.extend([
@@ -50,8 +69,31 @@ pub(super) fn configure(
     Ok(())
 }
 
+fn set_fixed_option(argv: &mut Vec<String>, option: &str, value: &str) {
+    let assignment_prefix = format!("{option}=");
+    let mut index = 0;
+    while index < argv.len() {
+        if argv[index] == option {
+            argv.remove(index);
+            if index < argv.len() {
+                argv.remove(index);
+            }
+        } else if argv[index].starts_with(&assignment_prefix) {
+            argv.remove(index);
+        } else {
+            index += 1;
+        }
+    }
+    argv.extend([option.into(), value.into()]);
+}
+
+fn set_fixed_environment(env: &mut Vec<(String, String)>, name: &str, value: &str) {
+    env.retain(|(key, _)| key != name);
+    env.push((name.into(), value.into()));
+}
+
 #[cfg(not(test))]
-fn ensure_no_local_managed_host_execution() -> anyhow::Result<()> {
+pub(super) fn ensure_no_local_managed_host_execution() -> anyhow::Result<()> {
     ensure_no_windows_managed_policy_inheritance(is_wsl_environment())?;
     ensure_no_local_managed_settings(
         Path::new(SYSTEM_SETTINGS),

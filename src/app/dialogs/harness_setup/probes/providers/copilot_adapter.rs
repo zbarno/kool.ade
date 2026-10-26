@@ -6,7 +6,7 @@ use std::os::unix::fs::PermissionsExt;
 /// data stays independent. Unix shell and temporary files only; setup cost is one short CLI.
 #[cfg(unix)]
 #[test]
-fn copilot_version_failure_keeps_auth_unknown_and_catalog_separate() {
+fn copilot_version_failure_keeps_auth_unknown_and_configured_models_stale() {
     let root =
         std::env::temp_dir().join(format!("koolade-copilot-adapter-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(root.join(".copilot")).unwrap();
@@ -31,7 +31,7 @@ fn copilot_version_failure_keeps_auth_unknown_and_catalog_separate() {
     assert!(!report.ready);
     assert_eq!(report.authentication, ReadinessState::Unknown);
     assert_eq!(report.models, ["auto", "synthetic-copilot"]);
-    assert!(report.model_catalog_fresh);
+    assert!(!report.model_catalog_fresh);
     let result = super::super::super::super::probe_result::from_harness_probe(&report, 1, 10, 1);
     assert_eq!(
         result.status,
@@ -44,14 +44,14 @@ fn copilot_version_failure_keeps_auth_unknown_and_catalog_separate() {
     assert_eq!(result.authentication, ReadinessState::Unknown);
     assert_eq!(
         result.model_catalog_status,
-        crate::harness::discovery::ModelCatalogStatus::Fresh
+        crate::harness::discovery::ModelCatalogStatus::Stale
     );
 
     let mut settings = crate::persistence::harness_settings::HarnessSettings::default();
     super::super::super::super::discovery::apply_probe_results(&mut settings, &[report], None, 1);
     let detected = &settings.discovered["copilot"];
     assert!(!detected.ready);
-    assert!(detected.model_catalog_fresh);
+    assert!(!detected.model_catalog_fresh);
     assert_eq!(
         detected
             .capability_snapshot
@@ -74,7 +74,12 @@ fn copilot_version_success_remains_installed_until_auth_is_verified() {
         "koolade-copilot-installed-{}",
         uuid::Uuid::new_v4()
     ));
-    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(root.join(".copilot")).unwrap();
+    std::fs::write(
+        root.join(".copilot/settings.json"),
+        r#"{"model":"synthetic-copilot"}"#,
+    )
+    .unwrap();
     let binary = root.join("copilot");
     std::fs::write(&binary, "#!/bin/sh\necho 'GitHub Copilot CLI 1.2.3'\n").unwrap();
     std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -85,10 +90,13 @@ fn copilot_version_success_remains_installed_until_auth_is_verified() {
     );
     environment.set("HOME", root.as_os_str());
     environment.set("KOOLADE_HOME", root.join("isolated-state").as_os_str());
+    environment.remove(crate::harness::copilot_harness::COPILOT_MODEL_ENV);
 
     let report = discover_provider("copilot", true);
     assert!(report.ready, "binary identity/version probe succeeds");
     assert_eq!(report.authentication, ReadinessState::Unknown);
+    assert_eq!(report.models, ["auto", "synthetic-copilot"]);
+    assert!(!report.model_catalog_fresh);
     let result = super::super::super::super::probe_result::from_harness_probe(&report, 1, 10, 1);
     assert_eq!(
         result.status,
@@ -98,11 +106,21 @@ fn copilot_version_success_remains_installed_until_auth_is_verified() {
         result.execution_capability.safe_for_planning,
         ReadinessState::Unknown
     );
+    assert_eq!(
+        result.model_catalog_status,
+        crate::harness::discovery::ModelCatalogStatus::Stale
+    );
 
     let mut settings = crate::persistence::harness_settings::HarnessSettings::default();
     super::super::super::super::discovery::apply_probe_results(&mut settings, &[report], None, 1);
     let detected = &settings.discovered["copilot"];
     assert!(!detected.ready);
+    assert_eq!(detected.models, ["auto", "synthetic-copilot"]);
+    assert!(!detected.model_catalog_fresh);
+    assert_eq!(
+        detected.model_catalog_status(),
+        crate::harness::discovery::ModelCatalogStatus::Stale
+    );
     assert!(settings.default_harness.is_none());
     assert!(
         !super::super::super::super::has_current_provider_capabilities(
