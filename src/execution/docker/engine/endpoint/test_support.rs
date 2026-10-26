@@ -4,6 +4,25 @@ pub(super) fn isolated_rootless_socket(path: &Path) -> bool {
     if rootless_action_socket(path) {
         return true;
     }
+    daemon_restart_socket(path)
+}
+
+pub(super) fn daemon_restart_endpoint_from_environment() -> Option<super::DockerEndpoint> {
+    if std::env::var("DOCKER_CONTEXT")
+        .ok()
+        .is_some_and(|context| !context.trim().is_empty())
+    {
+        return None;
+    }
+    let host = std::env::var("DOCKER_HOST").ok()?;
+    let path = Path::new(host.strip_prefix("unix://")?);
+    daemon_restart_socket(path).then(|| super::DockerEndpoint::Unix {
+        path: path.to_path_buf(),
+        desktop: false,
+    })
+}
+
+fn daemon_restart_socket(path: &Path) -> bool {
     if std::env::var("KOOLADE_DOCKER_DAEMON_RESTART_INTEGRATION")
         .ok()
         .as_deref()

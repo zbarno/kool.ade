@@ -1,6 +1,6 @@
 use std::{path::Path, time::Duration};
 
-use super::{DockerEnvironmentStatus, app_staging_root};
+use super::{DockerEnvironmentStatus, app_staging_root, process_endpoint};
 use crate::execution::docker::{
     discovery::{PrerequisiteCode, PrerequisiteFailure},
     engine::{DockerEndpoint, EngineDiscovery, HostPlatform},
@@ -11,7 +11,7 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 pub(super) fn probe() -> DockerEnvironmentStatus {
     let platform = host_platform();
     let desktop_host = platform != HostPlatform::Linux;
-    let endpoint = match DockerEndpoint::from_process_environment(platform) {
+    let endpoint = match process_endpoint(platform) {
         Ok(endpoint) => endpoint,
         Err(failure) => return DockerEnvironmentStatus::from_failure(failure, desktop_host),
     };

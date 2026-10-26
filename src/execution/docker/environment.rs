@@ -9,12 +9,23 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     discovery::{EngineReadiness, PrerequisiteCode, PrerequisiteFailure},
-    engine::DockerEndpoint,
+    engine::{DockerEndpoint, HostPlatform},
 };
 use probe::{endpoint_fingerprint, host_platform, probe};
 
 const CACHE_TTL: Duration = Duration::from_secs(15);
 static CACHE: OnceLock<Mutex<Option<(Instant, DockerEnvironmentStatus)>>> = OnceLock::new();
+
+fn process_endpoint(platform: HostPlatform) -> Result<DockerEndpoint, PrerequisiteFailure> {
+    #[cfg(test)]
+    {
+        DockerEndpoint::from_process_environment_with_test_support(platform)
+    }
+    #[cfg(not(test))]
+    {
+        DockerEndpoint::from_process_environment(platform)
+    }
+}
 
 mod probe;
 mod staging;
@@ -251,9 +262,7 @@ impl DockerEnvironmentStatus {
         if !self.engine_ready {
             return None;
         }
-        let endpoint = DockerEndpoint::from_process_environment(probe::host_platform())
-            .ok()?
-            .fingerprint();
+        let endpoint = process_endpoint(probe::host_platform()).ok()?.fingerprint();
         let daemon = self.daemon_identity_fingerprint.as_deref()?;
         if !is_sha256_hex(&endpoint) || !is_sha256_hex(daemon) {
             return None;
@@ -264,7 +273,7 @@ impl DockerEnvironmentStatus {
     }
 
     pub(crate) fn current_endpoint_fingerprint() -> Option<String> {
-        let endpoint = DockerEndpoint::from_process_environment(host_platform()).ok()?;
+        let endpoint = process_endpoint(host_platform()).ok()?;
         Some(endpoint_fingerprint(
             &endpoint,
             std::env::var("DOCKER_CONTEXT").ok().as_deref(),
@@ -275,7 +284,7 @@ impl DockerEnvironmentStatus {
     /// Stable normalized endpoint identity, independent of shell overrides
     /// that resolve to the same trusted local socket.
     pub(crate) fn current_endpoint_identity_fingerprint() -> Option<String> {
-        let endpoint = DockerEndpoint::from_process_environment(host_platform()).ok()?;
+        let endpoint = process_endpoint(host_platform()).ok()?;
         Some(endpoint.fingerprint())
     }
 }
