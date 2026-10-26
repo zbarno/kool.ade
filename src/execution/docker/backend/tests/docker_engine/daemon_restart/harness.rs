@@ -95,10 +95,7 @@ impl IsolatedRootlessDaemon {
         let child = &mut self.process.as_mut().expect("daemon process exists").child;
         let ready = wait_for_daemon(endpoint, child).await;
         if let Err(error) = ready {
-            let log = self.failure_log_tail();
-            panic!(
-                "isolated rootless daemon did not become ready: {error}; daemon log tail:\n{log}"
-            );
+            panic!("isolated rootless daemon did not become ready: {error}");
         }
     }
 
@@ -136,6 +133,12 @@ impl IsolatedRootlessDaemon {
 
 impl Drop for IsolatedRootlessDaemon {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!(
+                "isolated rootless daemon log tail during test failure:\n{}",
+                self.failure_log_tail()
+            );
+        }
         if let Some(process) = self.process.take() {
             process.stop();
         }
