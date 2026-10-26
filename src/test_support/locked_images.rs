@@ -189,8 +189,11 @@ pub(crate) async fn prepare_approved_image(
 fn publish_image_task(task_id: &str) -> Result<(), ExecutionError> {
     let generation = crate::persistence::setup_tasks::begin_scan()
         .map_err(|_| image_error("a fresh machine setup scan could not start"))?;
-    let result =
-        crate::app::setup_attention::scan(generation, std::sync::Arc::new(AtomicBool::new(false)));
+    let result = std::thread::spawn(move || {
+        crate::app::setup_attention::scan(generation, std::sync::Arc::new(AtomicBool::new(false)))
+    })
+    .join()
+    .map_err(|_| image_error("the fresh machine setup scan worker stopped unexpectedly"))?;
     let snapshot = result
         .snapshot
         .ok_or_else(|| image_error("a fresh machine setup scan did not complete"))?;

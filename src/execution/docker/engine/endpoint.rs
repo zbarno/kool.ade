@@ -9,6 +9,8 @@ const API_TIMEOUT_SECONDS: u64 = 5;
 mod connection;
 #[cfg(unix)]
 mod pinned;
+#[cfg(test)]
+mod test_support;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HostPlatform {
@@ -166,12 +168,17 @@ impl DockerEndpoint {
                         == Some(std::ffi::OsStr::new(&uid.to_string()))
                 })
                 && path.file_name().is_some_and(|name| name == "docker.sock");
+            #[cfg(test)]
+            let test_socket = test_support::isolated_rootless_socket(&path);
+            #[cfg(not(test))]
+            let test_socket = false;
             let standard_socket = path == Path::new("/var/run/docker.sock")
                 || rootless_socket
                 || home_dir.is_some_and(|home| {
                     path == home.join(".docker/desktop/docker.sock")
                         || path == home.join(".docker/run/docker.sock")
-                });
+                })
+                || test_socket;
             if !standard_socket {
                 return Err(failure(
                     PrerequisiteCode::UntrustedEndpoint,
