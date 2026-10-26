@@ -11,6 +11,16 @@ mod reply;
 mod review;
 mod state;
 
+pub(super) fn machine_setup_summary(
+    task: &crate::persistence::setup_tasks::LocalTask,
+) -> &'static str {
+    planning::machine_setup_summary(task)
+}
+
+pub(super) fn machine_setup_title(task: &crate::persistence::setup_tasks::LocalTask) -> String {
+    planning::machine_setup_title(task)
+}
+
 #[cfg(test)]
 pub(super) fn seed_custom_target_repository_root_draft(
     context: &egui::Context,

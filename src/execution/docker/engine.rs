@@ -11,6 +11,10 @@ mod derived_image;
 mod docker_api;
 mod errors;
 mod image_derivation;
+mod image_inspection;
+mod image_preparation;
+mod image_pull;
+mod snapshot;
 pub(crate) use docker_api::DockerApi;
 use errors::{
     daemon_storage_capacity, failure, map_api_error, map_connect_error, operation_timeout,
@@ -18,8 +22,6 @@ use errors::{
 
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
-
-use serde::{Deserialize, Serialize};
 
 use crate::execution::docker::{
     discovery::{EngineReadiness, PrerequisiteCode, PrerequisiteFailure, validate_snapshot},
@@ -33,6 +35,8 @@ mod smoke;
 pub(crate) use approval::fingerprint as approval_fingerprint;
 use bollard_api::BollardApi;
 pub use endpoint::{DockerEndpoint, HostPlatform};
+pub(crate) use image_pull::{ImagePullControl, ImagePullProgress};
+pub use snapshot::EngineSnapshot;
 
 pub const PROBE_CACHE_TTL: Duration = Duration::from_secs(15);
 const ENGINE_OPERATION_TIMEOUT: Duration = Duration::from_secs(10);
@@ -55,28 +59,6 @@ impl Default for EngineApiTimeouts {
 
 pub type EngineFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct EngineSnapshot {
-    pub daemon_id: String,
-    pub daemon_version: String,
-    pub api_version: String,
-    pub minimum_api_version: String,
-    pub os_type: String,
-    pub architecture: String,
-    pub security_options: Vec<String>,
-    pub rootless: bool,
-    pub native_linux: bool,
-    pub docker_desktop: bool,
-    pub memory_limit: bool,
-    pub cpu_quota: bool,
-    pub pids_limit: bool,
-    pub seccomp_enabled: bool,
-    pub docker_storage_accessible: bool,
-    pub disk_available_bytes: Option<u64>,
-    pub minimum_disk_bytes: u64,
-}
-
 struct CacheEntry {
     expires_at: Instant,
     snapshot: EngineSnapshot,
@@ -93,12 +75,12 @@ pub struct EngineDiscovery {
 impl EngineDiscovery {
     pub fn connect(endpoint: DockerEndpoint) -> Result<Self, PrerequisiteFailure> {
         if let DockerEndpoint::Unix { path, .. } = &endpoint {
-            let metadata = std::fs::symlink_metadata(path).map_err(|error| {
+            let _metadata = std::fs::symlink_metadata(path).map_err(|error| {
                 let code = if error.kind() == std::io::ErrorKind::PermissionDenied { PrerequisiteCode::PermissionDenied } else { PrerequisiteCode::DockerMissing };
                 failure(code, if code == PrerequisiteCode::PermissionDenied { "Permission denied reading the Docker socket" } else { "Docker Engine socket was not found; install or start a supported local Docker Engine" }, code == PrerequisiteCode::DockerMissing)
             })?;
             #[cfg(unix)]
-            if !metadata.file_type().is_socket() {
+            if !_metadata.file_type().is_socket() {
                 return Err(failure(
                     PrerequisiteCode::UntrustedEndpoint,
                     "The configured Docker endpoint is not a Unix socket",
@@ -214,6 +196,10 @@ impl EngineDiscovery {
         };
         Ok(EngineReadiness {
             ready: result.is_none(),
+            daemon_identity_fingerprint: (!snapshot.daemon_id.is_empty()).then(|| {
+                use sha2::Digest as _;
+                format!("{:x}", sha2::Sha256::digest(snapshot.daemon_id.as_bytes()))
+            }),
             docker_desktop: self.endpoint.is_desktop() || snapshot.docker_desktop,
             daemon_version: Some(snapshot.daemon_version),
             api_version: Some(snapshot.api_version),
@@ -224,6 +210,14 @@ impl EngineDiscovery {
             memory_limit: Some(snapshot.memory_limit),
             cpu_quota: Some(snapshot.cpu_quota),
             pids_limit: Some(snapshot.pids_limit),
+            cgroups_supported: match (
+                snapshot.cgroup_version.as_deref(),
+                snapshot.cgroup_driver.as_deref(),
+            ) {
+                (Some("1" | "2"), Some("systemd" | "cgroupfs")) => Some(true),
+                (Some(_), Some(_)) => Some(false),
+                _ => None,
+            },
             workspace_staging_available: workspace_capacity.accessible,
             disk_available_bytes,
             available_images: images,
@@ -241,39 +235,9 @@ impl EngineDiscovery {
         Ok(snapshot)
     }
 
-    /// Pulls only an image selected from the bundled digest lock. Health probes never pull images.
+    /// Checks a locked image that is already local. Pulls require an approved action.
     pub async fn prepare_image(&self, image: &SelectedImage) -> Result<(), PrerequisiteFailure> {
-        self.prepare_image_with_fingerprint(image, None).await
-    }
-
-    async fn prepare_image_with_fingerprint(
-        &self,
-        image: &SelectedImage,
-        expected_engine_fingerprint: Option<&str>,
-    ) -> Result<(), PrerequisiteFailure> {
-        let lock = ImageLock::bundled()?;
-        let architecture = image.platform.strip_prefix("linux/").unwrap_or_default();
-        let expected = lock.select(image.profile, architecture)?;
-        if expected != *image {
-            return Err(failure(
-                PrerequisiteCode::ImageDigestMismatch,
-                "Requested image does not match the bundled approved digest lock",
-                false,
-            ));
-        }
-        let observed = tokio::time::timeout(
-            self.timeouts.image_preparation,
-            self.api.ensure_image(image, expected_engine_fingerprint),
-        )
-        .await
-        .map_err(|_| operation_timeout("trusted executor image preparation"))??;
-        crate::execution::docker::images::verify_image_observation(
-            image,
-            &observed.repo_digests,
-            &observed.os,
-            &observed.architecture,
-        )?;
-        Ok(())
+        self.verify_image_present(image).await
     }
 
     pub fn endpoint(&self) -> &DockerEndpoint {

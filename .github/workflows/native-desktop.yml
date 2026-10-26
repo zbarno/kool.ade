@@ -1,0 +1,180 @@
+name: Native desktop packages
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Linux x86_64 unsigned Debian package
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            package: linux
+          - label: Linux arm64 unsigned Debian package
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            package: linux
+          - label: macOS Intel unsigned DMG
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            package: macos
+          - label: macOS Apple Silicon unsigned DMG
+            runner: macos-15
+            target: aarch64-apple-darwin
+            package: macos
+          - label: Windows x64 unsigned per-user installer
+            runner: windows-2025
+            target: x86_64-pc-windows-msvc
+            package: windows
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Linux desktop build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            dpkg-dev \
+            libasound2-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libgl1-mesa-dev \
+            libwayland-dev \
+            libx11-dev \
+            libxcb1-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libxrandr-dev
+
+      - name: Install Inno Setup for unsigned Windows CI artifacts
+        if: matrix.package == 'windows'
+        shell: pwsh
+        run: choco install innosetup --version=6.7.1 --yes --no-progress
+
+      - name: Install pinned Rust toolchain
+        shell: bash
+        run: rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
+
+      - name: Cache Rust dependencies and build artifacts
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: rust-1.98.1-native-${{ matrix.target }}
+          cache-workspace-crates: true
+
+      - name: Prepare artifact logs
+        shell: bash
+        run: mkdir -p dist/native
+
+      - name: Check native formatting
+        shell: bash
+        run: cargo +1.98.1 fmt --all --check 2>&1 | tee dist/native/format.log
+
+      - name: Run native Clippy
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: cargo +1.98.1 clippy --locked --all-targets -- -D warnings 2>&1 | tee dist/native/clippy.log
+
+      - name: Run native desktop app Clippy
+        if: matrix.target != 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: cargo +1.98.1 clippy --locked --lib --bin koolade -- -D warnings 2>&1 | tee dist/native/app-clippy.log
+
+      - name: Test native desktop executable
+        shell: bash
+        run: cargo +1.98.1 test --locked --test native_cli 2>&1 | tee dist/native/tests.log
+
+      - name: Run platform-independent persistence tests on the native target
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: cargo +1.98.1 test --locked --lib persistence::home::tests 2>&1 | tee -a dist/native/tests.log
+
+      - name: Check the Windows icon package helper
+        if: matrix.package == 'windows'
+        shell: pwsh
+        run: |
+          python -m unittest scripts.tests.test_png_to_ico 2>&1 | Tee-Object -FilePath dist/native/icon-helper-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build the native desktop application
+        shell: bash
+        run: cargo +1.98.1 build --locked --release --bin koolade 2>&1 | tee dist/native/build.log
+
+      - name: Smoke-check the native executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          executable=target/release/koolade
+          if [[ "${{ runner.os }}" == Windows ]]; then executable+=".exe"; fi
+          actual="$("$executable" --version | tee dist/native/native-smoke.log)"
+          test "$actual" = "koolade $version"
+
+      - name: Package unsigned Linux Debian artifact
+        if: matrix.package == 'linux'
+        shell: bash
+        run: |
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          scripts/package-linux-deb.sh "${{ matrix.target }}" "$version"
+          artifact="$(find dist/native -maxdepth 1 -name '*.deb' -print -quit)"
+          python3 scripts/write-native-build-metadata.py \
+            --artifact "$artifact" --target "${{ matrix.target }}" --version "$version" \
+            --output dist/native/build-metadata.json
+
+      - name: Package unsigned macOS DMG
+        if: matrix.package == 'macos'
+        shell: bash
+        run: |
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          scripts/package-macos-dmg.sh "${{ matrix.target }}" "$version"
+          artifact="$(find dist/native -maxdepth 1 -name '*.dmg' -print -quit)"
+          python3 scripts/write-native-build-metadata.py \
+            --artifact "$artifact" --target "${{ matrix.target }}" --version "$version" \
+            --output dist/native/build-metadata.json
+
+      - name: Package unsigned Windows per-user installer
+        if: matrix.package == 'windows'
+        shell: pwsh
+        env:
+          KOOLADE_REPO_ROOT: ${{ github.workspace }}
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+          $env:KOOLADE_VERSION = $version
+          python scripts/png_to_ico.py assets/brand/app-icon.png assets/brand/app-icon.ico
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" scripts/windows-installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $artifact = Get-ChildItem dist/native/*.exe | Select-Object -First 1
+          python scripts/write-native-build-metadata.py --artifact $artifact.FullName --target "${{ matrix.target }}" --version $version --output dist/native/build-metadata.json
+
+      - name: Record artifact boundary
+        if: always()
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          This job produces an unsigned, CI-only build artifact. It does not certify installation, runtime support, signing, notarization, Gatekeeper, or Defender behavior.
+          EOF
+
+      - name: Upload traceable native package artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: unsigned-native-${{ matrix.target }}-${{ github.sha }}
+          path: dist/native/
+          if-no-files-found: warn
+          retention-days: 14

@@ -2,6 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 mod protocol;
+#[cfg(unix)]
+mod resource;
+#[cfg(windows)]
+#[path = "mcp_server/resource_windows.rs"]
 mod resource;
 mod tools;
 
@@ -190,6 +194,8 @@ pub(crate) fn serve(config_path: &Path) -> anyhow::Result<()> {
             "MCP server configuration must be private to the current user"
         );
     }
+    #[cfg(windows)]
+    crate::persistence::setup_tasks::verify_private_acl(config_path)?;
     let config: ServerConfig = serde_json::from_slice(&std::fs::read(config_path)?)?;
     config.validate()?;
     if let Some(access) = &config.screenshot_access {

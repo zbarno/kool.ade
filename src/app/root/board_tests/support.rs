@@ -17,6 +17,11 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
         std::process::id(),
         NEXT_FIXTURE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
+    let setup_state_root = std::env::temp_dir().join(format!(
+        "koolade-board-setup-state-{}-{}",
+        std::process::id(),
+        NEXT_FIXTURE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
     std::fs::create_dir_all(&test_root).unwrap();
     let root = test_root.join("workspace");
     std::fs::create_dir_all(&root).unwrap();
@@ -108,7 +113,9 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
         _test_temp_roots: vec![
             crate::app::root::TestTempRoot(test_root),
             crate::app::root::TestTempRoot(chat_root),
+            crate::app::root::TestTempRoot(setup_state_root.clone()),
         ],
+        setup_task_state_path: setup_state_root.join("machine-setup").join("tasks.json"),
         screen: Screen::Connected(Box::new(Project {
             specification_trace_navigation: None,
             task_chats: Default::default(),

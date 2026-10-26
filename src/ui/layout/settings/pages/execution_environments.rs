@@ -18,16 +18,13 @@ pub(super) fn paint(ui: &mut egui::Ui) -> Option<String> {
     let (smoke_pending, smoke_result, smoke_finished) = smoke::poll(ui.ctx());
     if smoke_finished {
         DockerEnvironmentStatus::invalidate();
-        crate::harness::runtime_capabilities::RuntimeCapabilities::invalidate();
     }
     let refresh_id = egui::Id::new("execution_environment_refresh_requested");
     let refresh = ui
         .ctx()
         .data_mut(|data| data.remove_temp::<bool>(refresh_id).unwrap_or(false));
     let status = if refresh {
-        let status = DockerEnvironmentStatus::refresh();
-        crate::harness::runtime_capabilities::RuntimeCapabilities::invalidate();
-        status
+        DockerEnvironmentStatus::refresh()
     } else {
         DockerEnvironmentStatus::detect()
     };
@@ -212,8 +209,21 @@ pub(super) fn state_label(
         State::NotRunning => "Not running",
         State::PermissionDenied => "Permission denied",
         State::RootfulLinuxRejected => "Rootful Linux rejected",
+        State::WindowsContainersRequired => "Linux containers required",
+        State::CgroupsUnavailable => "Cgroups unavailable",
+        State::InsufficientDisk => "Insufficient disk capacity",
+        State::LimitsUnavailable => "Resource limits unavailable",
+        State::SeccompUnavailable => "Seccomp unavailable",
+        State::UnsupportedApi => "Docker API unsupported",
+        State::UnsupportedOs => "Docker OS unsupported",
+        State::UnsupportedArchitecture => "Docker architecture unsupported",
+        State::WorkspaceUnavailable => "Workspace staging unavailable",
+        State::ProfileUnsupported => "Runtime profile unsupported",
         State::DesktopVmRequired => "Docker Desktop VM required",
         State::MissingApprovedImage => "Missing approved image",
+        State::ApprovedImageUncheckable => "Approved image could not be checked",
+        State::ApprovedImageDigestMismatch => "Approved image digest mismatch",
+        State::ApprovedImageArchitectureMismatch => "Approved image architecture mismatch",
         State::CapabilitiesIncompatible => "Capabilities incompatible",
         State::UntrustedEndpoint => "Untrusted endpoint rejected",
         State::Ready => "Ready",

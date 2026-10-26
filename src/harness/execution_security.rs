@@ -2,6 +2,10 @@ use super::ExecutionMode;
 
 mod application_boundary;
 mod mcp_server;
+#[cfg(unix)]
+mod session_bridge;
+#[cfg(windows)]
+#[path = "execution_security/session_bridge_windows.rs"]
 mod session_bridge;
 #[cfg(test)]
 pub(crate) use application_boundary::auto_remote_session_for_retry_test;

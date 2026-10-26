@@ -9,6 +9,7 @@ mod validation;
 pub(crate) use policy::decision_allowed;
 pub(crate) use policy::manager_decision_allowed;
 pub(super) use source::npm_registry_url;
+#[cfg(unix)]
 pub(super) use triage::{from_unsupported_manager, triage};
 pub(crate) use validation::system_install_packages;
 

@@ -48,9 +48,11 @@ fn choices(
     }, TargetChoice {
         preference: TargetPreference::Local,
         label: "Local Docker".into(),
-        available: local.ready(),
-        reason: if local.ready() {
+        available: local.local_execution_ready(),
+        reason: if local.local_execution_ready() {
             "Local Docker passed the current readiness check.".into()
+        } else if local.ready() {
+            "The Docker engine is reachable, but local task execution is enabled only for verified native Linux rootless Engine.".into()
         } else {
             format!("Local Docker is unavailable: {}", local.message)
         },

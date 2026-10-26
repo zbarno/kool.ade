@@ -1,5 +1,7 @@
 //! Versioned contracts for the future Docker-backed local and remote executors.
 //! This module defines interfaces only; it does not start containers.
+// Shared contracts stay compiled while native Docker execution remains Linux-only.
+#![cfg_attr(any(windows, target_os = "macos"), allow(dead_code))]
 
 pub mod backend;
 pub mod contract;

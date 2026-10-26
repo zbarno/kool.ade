@@ -187,11 +187,11 @@ fn request_id_from_path(path: &Path) -> String {
         .to_owned()
 }
 
-fn set_private_file(path: &Path) -> anyhow::Result<()> {
+fn set_private_file(_path: &Path) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+        fs::set_permissions(_path, fs::Permissions::from_mode(0o600))?;
     }
     Ok(())
 }

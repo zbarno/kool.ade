@@ -112,12 +112,9 @@ pub(super) fn paint(
                                         + usize::from(column == 3) * feature_approvals.len()
                                         + if column == 3 {
                                             board.setup_tasks.iter().filter(|task| {
-                                                task.state != crate::persistence::setup_tasks::State::Verified
+                                                task.is_active()
                                             }).count()
-                                                + usize::from(
-                                                    board.setup_tasks.is_empty()
-                                                        && board.setup_attention.is_some(),
-                                                )
+                                                + board.setup_attention.len()
                                         } else {
                                             0
                                         };
@@ -189,12 +186,9 @@ pub(super) fn paint(
                                     + usize::from(column == 3) * feature_approvals.len()
                                     + if column == 3 {
                                         board.setup_tasks.iter().filter(|task| {
-                                            task.state != crate::persistence::setup_tasks::State::Verified
+                                            task.is_active()
                                         }).count()
-                                            + usize::from(
-                                                board.setup_tasks.is_empty()
-                                                    && board.setup_attention.is_some(),
-                                            )
+                                            + board.setup_attention.len()
                                     } else {
                                         0
                                     };
@@ -237,11 +231,7 @@ pub(super) fn paint(
                                                 board,
                                                 attention::Lane {
                                                     planning: &planning,
-                                                    issue: if board.setup_tasks.is_empty() {
-                                                        board.setup_attention.as_ref()
-                                                    } else {
-                                                        None
-                                                    },
+                                                    issues: &board.setup_attention,
                                                     setup_tasks: &board.setup_tasks,
                                                     items: &questions,
                                                     tasks: &cards,

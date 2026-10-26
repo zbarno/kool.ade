@@ -8,6 +8,8 @@ mod audit;
 mod binding;
 mod capability;
 #[cfg(test)]
+pub(crate) mod test_support;
+#[cfg(test)]
 mod tests;
 
 use std::{collections::HashMap, time::SystemTime};
@@ -18,22 +20,25 @@ use uuid::Uuid;
 
 use crate::app::bootstrap_repair_policy::{self, Proposal};
 
-pub(crate) use self::capability::{ApprovalPreview, ApprovalRequest, ApprovedAction};
+pub(crate) use self::capability::{
+    ApprovalPreview, ApprovalRequest, ApprovedAction, ImagePreparationReceipt,
+    engine_identity_fingerprint,
+};
 use self::capability::{CONSENT_TTL_MS, Pending};
 
 /// The application controller owns this gate; tickets exist only in memory.
 pub(crate) struct ApprovalGate {
     approvals: HashMap<Uuid, Pending>,
-    audit_path: std::path::PathBuf,
+    audit_path: Result<std::path::PathBuf, String>,
 }
 
 impl ApprovalGate {
     pub(crate) fn new() -> Self {
         Self {
             approvals: HashMap::new(),
-            audit_path: crate::persistence::state_root()
-                .join("machine-setup")
-                .join("repair-approval-audit.json"),
+            audit_path: crate::persistence::setup_tasks::machine_setup_state_dir()
+                .map(|directory| repair_audit_path(&directory))
+                .map_err(|error| error.to_string()),
         }
     }
 
@@ -41,8 +46,14 @@ impl ApprovalGate {
     fn at_path(audit_path: std::path::PathBuf) -> Self {
         Self {
             approvals: HashMap::new(),
-            audit_path,
+            audit_path: Ok(audit_path),
         }
+    }
+
+    fn audit_path_ref(&self) -> anyhow::Result<&std::path::Path> {
+        self.audit_path.as_deref().map_err(|error| {
+            anyhow::anyhow!("Secure machine repair audit storage is unavailable: {error}")
+        })
     }
 
     /// Probe asynchronously before showing the confirmation UI. The preview
@@ -86,7 +97,7 @@ impl ApprovalGate {
             Ok(binding) => binding,
             Err(error) => {
                 audit::append(
-                    &self.audit_path,
+                    self.audit_path_ref()?,
                     pending.operation,
                     &pending.prerequisite_id,
                     &pending.proposal_digest,
@@ -104,7 +115,7 @@ impl ApprovalGate {
     pub(crate) fn cancel(&mut self, id: Uuid) -> anyhow::Result<()> {
         if let Some(pending) = self.approvals.remove(&id) {
             audit::append(
-                &self.audit_path,
+                self.audit_path_ref()?,
                 pending.operation,
                 &pending.prerequisite_id,
                 &pending.proposal_digest,
@@ -135,7 +146,7 @@ impl ApprovalGate {
         let proposal_digest = fingerprint(proposal)?;
         let binding_digest = binding.consent_digest()?;
         audit::append(
-            &self.audit_path,
+            self.audit_path_ref()?,
             plan.operation,
             &proposal.prerequisite_id,
             &proposal_digest,
@@ -172,7 +183,7 @@ impl ApprovalGate {
             && bootstrap_repair_policy::validate(proposal, current.host)
                 .is_ok_and(|plan| plan.requires_consent && plan.operation == pending.operation);
         audit::append(
-            &self.audit_path,
+            self.audit_path_ref()?,
             pending.operation,
             &pending.prerequisite_id,
             &pending.proposal_digest,
@@ -192,6 +203,7 @@ impl ApprovalGate {
             image_digest: current.image_digest.clone(),
             image_platform: current.image_platform.clone(),
             engine_fingerprint: current.probe_hash.clone(),
+            engine_identity_fingerprint: current.engine_identity_fingerprint.clone(),
             binding_digest: pending.binding_digest.clone(),
             proposal_digest: pending.proposal_digest.clone(),
         })
@@ -227,6 +239,28 @@ impl Default for ApprovalGate {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub(crate) fn repair_audit_path(state_directory: &std::path::Path) -> std::path::PathBuf {
+    state_directory.join("repair-approval-audit.json")
+}
+
+#[cfg(test)]
+pub(crate) fn append_audit_for_test(path: &std::path::Path) -> anyhow::Result<()> {
+    audit::append(
+        path,
+        bootstrap_repair_policy::Operation::PrepareLockedImage,
+        &format!("setup:images:general:amd64:{}", "e".repeat(64)),
+        &"a".repeat(64),
+        &"b".repeat(64),
+        "approved",
+        1,
+    )
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn linux_machine_id() -> anyhow::Result<String> {
+    binding::linux_machine_id()
 }
 
 fn fingerprint<T: Serialize>(value: &T) -> anyhow::Result<String> {

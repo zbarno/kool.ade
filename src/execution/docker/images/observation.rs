@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use super::{ImageLock, SelectedImage, failure};
 use crate::execution::docker::discovery::{
     PrerequisiteCode, PrerequisiteFailure, parse_architecture,
@@ -118,14 +116,17 @@ fn repository_has_registry(repository: &str) -> bool {
     first.contains('.') || first.contains(':') || first == "localhost"
 }
 
-/// Return only exact locked references observed on the daemon.
+/// Return canonical lock references whose digest is observed, including accepted aliases.
 pub fn approved_available_images(lock: &ImageLock, observed: &[String]) -> Vec<String> {
-    let observed: HashSet<&str> = observed.iter().map(String::as_str).collect();
     let mut available: Vec<String> = lock
         .profiles
         .values()
         .flatten()
-        .filter(|variant| observed.contains(variant.reference.as_str()))
+        .filter(|variant| {
+            observed
+                .iter()
+                .any(|reference| matches_docker_reference(&variant.reference, reference))
+        })
         .map(|variant| variant.reference.clone())
         .collect();
     available.sort();

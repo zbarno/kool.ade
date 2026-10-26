@@ -45,6 +45,29 @@ pub struct ReviewedAction {
     pub requires_engine_verification: bool,
 }
 
+pub(crate) fn parse_locked_image_task_id(id: &str) -> Option<(&str, &str, &str)> {
+    let mut parts = id.split(':');
+    if parts.next()? != "setup" || parts.next()? != "images" {
+        return None;
+    }
+    let profile = parts.next()?;
+    let architecture = parts.next()?;
+    let engine_identity = parts.next()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    if !matches!(profile, "general" | "rust" | "node" | "python" | "go")
+        || !matches!(architecture, "amd64" | "arm64")
+        || engine_identity.len() != 64
+        || !engine_identity
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
+        return None;
+    }
+    Some((profile, architecture, engine_identity))
+}
+
 /// Validate intent only. No host process, Docker action, or permission grant
 /// occurs here. An executable remediation engine must enforce this again
 /// against fresh host evidence and a separate, real user approval.
@@ -87,12 +110,10 @@ pub fn validate(proposal: &Proposal, detected_host: Host) -> anyhow::Result<Revi
                 .ok_or_else(|| {
                     anyhow::anyhow!("only bundled, approved runtime profiles may be prepared")
                 })?;
-            let architecture = proposal
-                .prerequisite_id
-                .strip_prefix(&format!("setup:images:{profile}:"));
+            let image_task = parse_locked_image_task_id(&proposal.prerequisite_id);
             anyhow::ensure!(
-                architecture.is_some_and(|arch| matches!(arch, "amd64" | "arm64")),
-                "image preparation requires a canonical approved profile and architecture"
+                image_task.is_some_and(|(task_profile, _, _)| task_profile == profile),
+                "image preparation requires a canonical approved profile, architecture and engine identity"
             );
             (true, true)
         }
@@ -108,6 +129,13 @@ pub fn validate(proposal: &Proposal, detected_host: Host) -> anyhow::Result<Revi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ENGINE_IDENTITY: &str =
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    fn image_task(profile: &str, architecture: &str) -> String {
+        format!("setup:images:{profile}:{architecture}:{ENGINE_IDENTITY}")
+    }
 
     fn action(operation: Operation, id: &str, image: Option<&str>) -> Proposal {
         Proposal {
@@ -134,7 +162,7 @@ mod tests {
     fn image_operation_requires_specific_approval_and_engine_verification() {
         let item = action(
             Operation::PrepareLockedImage,
-            "setup:images:general:amd64",
+            &image_task("general", "amd64"),
             Some("general"),
         );
         let reviewed = validate(&item, Host::Linux).unwrap();
@@ -148,7 +176,7 @@ mod tests {
             validate(
                 &action(
                     Operation::PrepareLockedImage,
-                    "setup:images:general:amd64",
+                    &image_task("general", "amd64"),
                     Some("example.com/evil:latest")
                 ),
                 Host::Linux
@@ -187,12 +215,12 @@ mod tests {
     fn image_intent_must_name_its_exact_profile_and_supported_architecture() {
         let mut proposal = action(
             Operation::PrepareLockedImage,
-            "setup:images:rust:amd64",
+            &image_task("rust", "amd64"),
             Some("general"),
         );
         assert!(validate(&proposal, Host::Linux).is_err());
 
-        proposal.prerequisite_id = "setup:images:general:x86_64".into();
+        proposal.prerequisite_id = image_task("general", "x86_64");
         assert!(validate(&proposal, Host::Linux).is_err());
     }
 }

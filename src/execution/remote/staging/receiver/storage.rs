@@ -86,11 +86,11 @@ pub(super) fn ensure_private_dir(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(super) fn set_private_file(path: &Path) -> anyhow::Result<()> {
+pub(super) fn set_private_file(_path: &Path) -> anyhow::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+        fs::set_permissions(_path, fs::Permissions::from_mode(0o600))?;
     }
     Ok(())
 }

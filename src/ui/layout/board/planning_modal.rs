@@ -145,8 +145,8 @@ pub(super) fn paint(
         clear_if_closed(selection, closed);
     } else if let Some(issue) = board
         .setup_attention
-        .as_ref()
-        .filter(|issue| selection.as_deref() == Some(issue.id))
+        .iter()
+        .find(|issue| selection.as_deref() == Some(issue.id))
     {
         let closed = crate::ui::overlays::show_task_modal(ui, issue.id, bounds, |ui| {
             super::super::task_details::paint_setup_issue(ui, surface, board, issue)

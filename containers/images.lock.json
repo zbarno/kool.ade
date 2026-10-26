@@ -10,7 +10,9 @@
         "tool_versions": {
           "shell": "POSIX /bin/sh",
           "base": "Debian bookworm-slim"
-        }
+        },
+        "estimated_pull_bytes": 28249776,
+        "estimated_storage_bytes": 56499552
       },
       {
         "platform": "linux/arm64",
@@ -19,7 +21,9 @@
         "tool_versions": {
           "shell": "POSIX /bin/sh",
           "base": "Debian bookworm-slim"
-        }
+        },
+        "estimated_pull_bytes": 28137647,
+        "estimated_storage_bytes": 56275294
       }
     ],
     "rust": [
@@ -31,7 +35,9 @@
           "rustc": "1.98.1",
           "cargo": "1.98.1",
           "base": "Debian bookworm-slim"
-        }
+        },
+        "estimated_pull_bytes": 562535499,
+        "estimated_storage_bytes": 1125070998
       },
       {
         "platform": "linux/arm64",
@@ -41,7 +47,9 @@
           "rustc": "1.98.1",
           "cargo": "1.98.1",
           "base": "Debian bookworm-slim"
-        }
+        },
+        "estimated_pull_bytes": 522040145,
+        "estimated_storage_bytes": 1044080290
       }
     ],
     "node": [
@@ -53,7 +61,9 @@
           "node": "24.21.0",
           "npm": "11.19.0",
           "base": "Debian bookworm-slim"
-        }
+        },
+        "estimated_pull_bytes": 80833351,
+        "estimated_storage_bytes": 161666702
       },
       {
         "platform": "linux/arm64",
@@ -63,7 +73,9 @@
           "node": "24.21.0",
           "npm": "11.19.0",
           "base": "Debian bookworm-slim"
-        }
+        },
+        "estimated_pull_bytes": 80705333,
+        "estimated_storage_bytes": 161410666
       }
     ],
     "python": [
@@ -74,7 +86,9 @@
         "tool_versions": {
           "python": "3.14.7",
           "base": "Debian bookworm slim"
-        }
+        },
+        "estimated_pull_bytes": 44816472,
+        "estimated_storage_bytes": 89632944
       },
       {
         "platform": "linux/arm64",
@@ -83,7 +97,9 @@
         "tool_versions": {
           "python": "3.14.7",
           "base": "Debian bookworm slim"
-        }
+        },
+        "estimated_pull_bytes": 44425381,
+        "estimated_storage_bytes": 88850762
       }
     ],
     "go": [
@@ -94,7 +110,9 @@
         "tool_versions": {
           "go": "1.26.8",
           "base": "Debian bookworm"
-        }
+        },
+        "estimated_pull_bytes": 298994969,
+        "estimated_storage_bytes": 597989938
       },
       {
         "platform": "linux/arm64",
@@ -103,7 +121,9 @@
         "tool_versions": {
           "go": "1.26.8",
           "base": "Debian bookworm"
-        }
+        },
+        "estimated_pull_bytes": 289483013,
+        "estimated_storage_bytes": 578966026
       }
     ],
     "browser_qa": [
