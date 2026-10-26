@@ -83,7 +83,8 @@ impl MachineBinding {
         Ok(())
     }
 
-    /// Identity digest excludes probe time; freshness is checked separately.
+    /// Identity digest excludes probe time and the exact free-space sample;
+    /// freshness and minimum capacity are checked against the current binding.
     pub(super) fn consent_digest(&self) -> anyhow::Result<String> {
         fingerprint(&(
             self.host,
@@ -93,7 +94,6 @@ impl MachineBinding {
             &self.engine_identity_fingerprint,
             self.estimated_pull_bytes,
             self.estimated_storage_bytes,
-            self.disk_available_bytes,
             self.minimum_disk_bytes,
         ))
     }
@@ -183,5 +183,23 @@ mod tests {
     fn endpoint_and_probe_hash_must_be_sha256() {
         let binding = MachineBinding::from_facts(Host::Linux, "id", "1", "not-a-hash", 10).unwrap();
         assert!(binding.validate(11).is_err());
+    }
+
+    #[test]
+    fn free_space_is_rechecked_without_becoming_part_of_consent_identity() {
+        let binding =
+            MachineBinding::from_facts(Host::Linux, "machine", "1000", &"a".repeat(64), 10)
+                .unwrap();
+        let digest = binding.consent_digest().unwrap();
+        let mut refreshed = binding.clone();
+        refreshed.disk_available_bytes -= 1;
+        assert_eq!(refreshed.consent_digest().unwrap(), digest);
+        refreshed.validate(11).unwrap();
+
+        refreshed.disk_available_bytes = refreshed
+            .minimum_disk_bytes
+            .saturating_add(refreshed.estimated_storage_bytes)
+            - 1;
+        assert!(refreshed.validate(11).is_err());
     }
 }
