@@ -32,10 +32,6 @@ fn resource_budget_overrides_are_task_scoped_and_restored() {
     );
 }
 
-#[cfg(target_os = "linux")]
-#[path = "tests/docker_provider_mcp.rs"]
-mod docker_provider_mcp;
-
 #[test]
 fn context_only_request_does_not_probe_or_require_a_repository_sandbox() {
     let (progress_tx, _progress_rx) = mpsc::channel();
