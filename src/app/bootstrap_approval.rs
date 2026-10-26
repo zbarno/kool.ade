@@ -8,6 +8,8 @@ mod audit;
 mod binding;
 mod capability;
 #[cfg(test)]
+pub(crate) mod test_support;
+#[cfg(test)]
 mod tests;
 
 use std::{collections::HashMap, time::SystemTime};

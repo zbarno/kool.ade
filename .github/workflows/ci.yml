@@ -120,6 +120,7 @@ jobs:
         env:
           KOOLADE_TEST_SUITE_LABEL: Docker/SSH and remaining tests
           KOOLADE_DOCKER_BACKEND_INTEGRATION: "1"
+          KOOLADE_TEST_APPROVE_LOCKED_IMAGES: "1"
           KOOLADE_REMOTE_DOCKER_BACKEND_INTEGRATION: "1"
           KOOLADE_REQUIRE_SSHD_E2E: "1"
           KOOLADE_TEST_WORKER_BINARY: target/debug/koolade
@@ -250,6 +251,7 @@ jobs:
       - name: Run isolated Docker daemon restart recovery E2E
         env:
           KOOLADE_DOCKER_DAEMON_RESTART_INTEGRATION: "1"
+          KOOLADE_TEST_APPROVE_LOCKED_IMAGES: "1"
         run: |
           unset DOCKER_CONTEXT
           cargo +1.98.1 nextest run --locked --lib --no-fail-fast --test-threads 1 \
@@ -329,6 +331,7 @@ jobs:
       - name: Exercise independent workers, planning overlap, and approval gates
         env:
           KOOLADE_DOCKER_BACKEND_INTEGRATION: "1"
+          KOOLADE_TEST_APPROVE_LOCKED_IMAGES: "1"
           KOOLADE_TEST_WORKER_BINARY: target/debug/koolade
           KOOLADE_TEST_SUITE_LABEL: Isolated queue concurrency E2E
         run: |

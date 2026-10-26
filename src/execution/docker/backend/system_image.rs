@@ -119,7 +119,7 @@ impl DockerExecutionBackend {
                 let verified = self.engine.verify_image_present(image).await;
                 match verified {
                     Ok(()) => {
-                        self.require_current_smoke_receipt(image).await?;
+                        self.ensure_current_smoke_receipt(image).await?;
                         Ok(None)
                     }
                     Err(failure)
@@ -136,12 +136,42 @@ impl DockerExecutionBackend {
                                     "recording a required runtime image profile",
                                 )
                             })?;
+                        #[cfg(test)]
+                        if crate::test_support::locked_images::enabled()
+                            && image_profile_name(image.profile).is_some()
+                        {
+                            crate::test_support::locked_images::prepare_approved_image(
+                                &self.engine,
+                                &self.resolver.staging_root(),
+                                image,
+                            )
+                            .await?;
+                            return Ok(None);
+                        }
                         Err(super::prerequisite_error(failure))
                     }
                     Err(failure) => Err(super::prerequisite_error(failure)),
                 }
             }
         }
+    }
+
+    async fn ensure_current_smoke_receipt(
+        &self,
+        image: &SelectedImage,
+    ) -> Result<(), ExecutionError> {
+        #[cfg(test)]
+        if crate::test_support::locked_images::enabled()
+            && image_profile_name(image.profile).is_some()
+        {
+            return crate::test_support::locked_images::prepare_approved_image(
+                &self.engine,
+                &self.resolver.staging_root(),
+                image,
+            )
+            .await;
+        }
+        self.require_current_smoke_receipt(image).await
     }
 
     async fn require_current_smoke_receipt(

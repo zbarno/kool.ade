@@ -44,6 +44,13 @@ pub(super) fn worker_state_command(
     let worker_command = state.join("serve-worker.sh");
     fs::create_dir_all(&executions)?;
     fs::create_dir_all(&worker_processes)?;
+    if crate::test_support::locked_images::enabled() {
+        crate::test_support::locked_images::prepare_profile_for_home(
+            &state,
+            crate::execution::docker::images::RuntimeProfile::General,
+        )
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    }
     fs::write(executions.join("owner-instance-id"), worker_id)?;
     #[cfg(unix)]
     {

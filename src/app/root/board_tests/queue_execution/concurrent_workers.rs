@@ -32,6 +32,13 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
     let _restore_home = fake_pi::configure_harness_settings(&root);
+    if crate::test_support::locked_images::enabled() {
+        crate::test_support::locked_images::prepare_profile_for_home(
+            &root.join("app-home"),
+            crate::execution::docker::images::RuntimeProfile::General,
+        )
+        .expect("queue child process must receive a real approved General image receipt");
+    }
     let app_binary = std::env::current_exe()
         .unwrap()
         .parent()
