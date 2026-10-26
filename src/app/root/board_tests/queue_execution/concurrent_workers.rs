@@ -11,12 +11,24 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
     // The invariant is that independent tasks overlap while a third waits for a
     // slot, with review and planning activity remaining live. A unit test cannot
     // prove this cross-process dispatch and admission behavior. This requires a
-    // working Docker Engine and built app binary; fixture setup creates temporary
-    // Git repositories and Docker executions, so it is a high-cost integration test.
+    // approved runtime image, a working Docker Engine, and the built app binary;
+    // fixture setup creates temporary Git repositories and Docker executions.
     // Capability detection resolves Docker through PATH, which this fixture
     // replaces later. Keep the initial host observation outside concurrent
     // PATH and provider override windows too.
     let _environment = crate::test_support::lock_process_environment();
+    if !std::env::var("KOOLADE_DOCKER_BACKEND_INTEGRATION").is_ok_and(|value| value == "1") {
+        eprintln!(
+            "Skipping queue execution integration: set KOOLADE_DOCKER_BACKEND_INTEGRATION=1 to run it"
+        );
+        return;
+    }
+    if !crate::test_support::locked_images::enabled() {
+        eprintln!(
+            "Skipping queue execution integration: set KOOLADE_TEST_APPROVE_LOCKED_IMAGES=1 to prepare an approved smoke-tested runtime image"
+        );
+        return;
+    }
     let _shield = crate::core::gitops::test_support::shield("auto-queue-e2e");
     if !fake_pi::sandbox_available() {
         eprintln!(
@@ -32,13 +44,11 @@ fn auto_queue_runs_independent_tasks_past_review_and_during_planning() {
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
     let _restore_home = fake_pi::configure_harness_settings(&root);
-    if crate::test_support::locked_images::enabled() {
-        crate::test_support::locked_images::prepare_profile_for_home(
-            &root.join("app-home"),
-            crate::execution::docker::images::RuntimeProfile::General,
-        )
-        .expect("queue child process must receive a real approved General image receipt");
-    }
+    crate::test_support::locked_images::prepare_profile_for_home(
+        &root.join("app-home"),
+        crate::execution::docker::images::RuntimeProfile::General,
+    )
+    .expect("queue child process must receive a real approved General image receipt");
     let app_binary = std::env::current_exe()
         .unwrap()
         .parent()
