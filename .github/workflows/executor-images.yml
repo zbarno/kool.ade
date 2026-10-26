@@ -404,6 +404,9 @@ jobs:
           KOOLADE_QA_REQUIRE_TASK_ARTIFACT: "1"
           KOOLADE_QA_REQUIRE_ROOTLESS: "1"
           KOOLADE_QA_REQUIRE_EGUI: "1"
+          KOOLADE_QA_NONRUST_FIXTURE_EXECUTABLE: ${{ runner.temp }}/koolade-qa-nonrust-fixture
+          KOOLADE_QA_NONRUST_MISSING_DEP_EXECUTABLE: ${{ runner.temp }}/koolade-qa-nonrust-missing-dep
+          KOOLADE_QA_REQUIRE_NON_RUST_ARTIFACT: "1"
         run: |
           set -euo pipefail
           export KOOLADE_QA_DESKTOP_IMAGE=koolade-runtime-qa:desktop_qa-candidate

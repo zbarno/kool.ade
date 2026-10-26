@@ -83,9 +83,12 @@ impl TargetProcess {
                 Ok(())
             });
         }
-        let mut child = command
-            .spawn()
-            .map_err(|error| format!("could not launch approved QA target: {error}"))?;
+        let mut child = command.spawn().map_err(|error| {
+            format!(
+                "could not launch approved QA target: {error} ({})",
+                launch_capability_diagnostic(&error)
+            )
+        })?;
         let logs = Arc::new(Mutex::new(Vec::new()));
         drain(child.stdout.take(), Arc::clone(&logs));
         drain(child.stderr.take(), Arc::clone(&logs));
@@ -153,6 +156,19 @@ impl Drop for TargetProcess {
     }
 }
 
+/// Maps a spawn failure for an approved artifact to the target-capability
+/// vocabulary used in QA summaries. The executable path is canonicalized,
+/// stat-checked, and exec-bit verified above, so a spawn-time `NotFound` means
+/// the dynamic loader could not resolve a shared-object dependency of the
+/// packaged artifact rather than the artifact file being absent.
+pub(super) fn launch_capability_diagnostic(error: &std::io::Error) -> &'static str {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        "dynamic loader could not resolve shared-object dependencies of the approved artifact (target capability: missing_dependencies)"
+    } else {
+        "approved artifact process could not be started (target capability: start_failed)"
+    }
+}
+
 fn drain(stream: Option<impl std::io::Read + Send + 'static>, logs: Arc<Mutex<Vec<String>>>) {
     if let Some(stream) = stream {
         thread::spawn(move || {
@@ -164,5 +180,26 @@ fn drain(stream: Option<impl std::io::Read + Send + 'static>, logs: Arc<Mutex<Ve
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::launch_capability_diagnostic;
+
+    /// Spawn NotFound on a canonicalized, stat-verified path is a loader
+    /// failure (unresolved NEEDED entry), which QA reports as a missing
+    /// dependency rather than a pass or a generic start failure.
+    #[test]
+    fn spawn_not_found_reports_missing_dependencies() {
+        let error = std::io::Error::from(std::io::ErrorKind::NotFound);
+        let diagnostic = launch_capability_diagnostic(&error);
+        assert!(diagnostic.ends_with("missing_dependencies"));
+    }
+
+    #[test]
+    fn other_spawn_failures_report_start_failed() {
+        let error = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        assert!(launch_capability_diagnostic(&error).ends_with("start_failed"));
     }
 }
