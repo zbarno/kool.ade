@@ -1,5 +1,7 @@
 # Kool.ad/e
 
+> This is going through a pretty substantial redesign.  It is currently in a non-working state
+
 ---
 
 ## Experimental software — use on a test repository 
