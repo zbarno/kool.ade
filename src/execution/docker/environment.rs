@@ -81,9 +81,12 @@ impl DockerEnvironmentStatus {
             && let Some((checked_at, status)) = &*cache
             && checked_at.elapsed() < CACHE_TTL
         {
-            return status.clone();
+            let mut status = status.clone();
+            persist_rootless_selection(&mut status);
+            return status;
         }
-        let status = probe();
+        let mut status = probe();
+        persist_rootless_selection(&mut status);
         if let Ok(mut cache) = cache.lock() {
             *cache = Some((Instant::now(), status.clone()));
         }
@@ -267,6 +270,30 @@ impl DockerEnvironmentStatus {
             std::env::var("DOCKER_CONTEXT").ok().as_deref(),
             std::env::var("DOCKER_HOST").ok().as_deref(),
         ))
+    }
+
+    /// Stable normalized endpoint identity, independent of shell overrides
+    /// that resolve to the same trusted local socket.
+    pub(crate) fn current_endpoint_identity_fingerprint() -> Option<String> {
+        let endpoint = DockerEndpoint::from_process_environment(host_platform()).ok()?;
+        Some(endpoint.fingerprint())
+    }
+}
+
+fn persist_rootless_selection(status: &mut DockerEnvironmentStatus) {
+    if !cfg!(target_os = "linux") {
+        return;
+    }
+    let selection_persisted = crate::persistence::linux_rootless_docker_selection::observe_current(
+        status.endpoint_fingerprint.as_deref(),
+        status.daemon_identity_fingerprint.as_deref(),
+        status.rootless,
+    )
+    .unwrap_or(false);
+    if status.local_execution_ready() && !selection_persisted {
+        status.state = DockerEnvironmentState::CapabilitiesIncompatible;
+        status.engine_ready = false;
+        status.message = "Kool.ad/e could not confirm the current-user rootless socket identity in private local settings. Check socket ownership and application storage permissions, then recheck.".into();
     }
 }
 

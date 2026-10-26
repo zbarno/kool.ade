@@ -78,8 +78,18 @@ fn rootful_docker_does_not_hide_authenticated_cli_or_invent_image_error() {
         HostKind::Linux,
         1,
     );
-    assert_eq!(snapshot.findings.len(), 1);
-    assert_eq!(snapshot.findings[0].id, "setup:docker:rootless");
+    assert!(
+        snapshot
+            .findings
+            .iter()
+            .any(|finding| finding.id == "setup:docker:rootless")
+    );
+    assert!(
+        !snapshot
+            .findings
+            .iter()
+            .any(|finding| finding.id.starts_with("setup:images:"))
+    );
 }
 
 #[test]
@@ -161,28 +171,49 @@ fn workload_requirement_creates_only_its_missing_runtime_profile_task() {
 }
 
 #[test]
-fn exact_general_image_suppresses_only_its_matching_task() {
+fn present_general_image_still_requires_a_current_smoke_receipt() {
     let lock = ImageLock::bundled().unwrap();
     let general = lock.select(RuntimeProfile::General, "amd64").unwrap();
     let mut engine = docker(DockerEnvironmentState::Ready, true);
     engine.available_images.push(general.reference);
+    let identity = engine.engine_identity_fingerprint().unwrap();
     let snapshot = assess_with_images(
         &engine,
         std::collections::BTreeSet::new(),
         [RuntimeProfile::General].into_iter().collect(),
         4,
     );
+    let image_task = snapshot
+        .findings
+        .iter()
+        .find(|finding| finding.id == format!("setup:images:general:amd64:{identity}"))
+        .expect("present but un-smoked image has a guided smoke task");
+    assert!(
+        !image_task
+            .prerequisites
+            .iter()
+            .any(|id| id == "setup:docker:rootless"),
+        "the rootless summary waits for smoke and cannot gate the smoke task"
+    );
+    assert!(
+        !snapshot
+            .checked_domains
+            .iter()
+            .any(|domain| domain.starts_with("images:general:amd64:")),
+        "inventory alone does not verify the approved image smoke task"
+    );
+    assert!(
+        !snapshot
+            .checked_domains
+            .iter()
+            .any(|domain| domain == "docker:rootless-smoke"),
+        "the smoke domain requires a current persisted receipt"
+    );
     assert!(
         !snapshot
             .findings
             .iter()
-            .any(|finding| finding.id.starts_with("setup:images:"))
-    );
-    assert!(
-        snapshot
-            .checked_domains
-            .iter()
-            .any(|domain| domain.starts_with("images:general:amd64:"))
+            .any(|finding| finding.id == "setup:images:general:unverified")
     );
 }
 
@@ -231,7 +262,19 @@ fn no_cli_produces_one_choice_not_six_install_tasks() {
         4,
     );
     assert!(snap.findings.iter().any(|f| f.id == "setup:cli:install"));
-    assert_eq!(snap.findings.len(), 2);
+    assert_eq!(
+        snap.findings
+            .iter()
+            .filter(|finding| finding.id.starts_with("setup:cli:"))
+            .count(),
+        1
+    );
+    assert!(
+        snap.findings
+            .iter()
+            .any(|f| f.id == "setup:docker:rootless")
+    );
+    assert!(!snap.findings.iter().any(|f| f.id == "setup:docker:install"));
 }
 
 #[test]

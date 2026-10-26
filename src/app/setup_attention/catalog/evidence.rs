@@ -10,6 +10,7 @@ mod graph;
 mod host;
 mod images;
 mod providers;
+mod rootless_smoke;
 #[cfg(test)]
 mod tests;
 
@@ -93,6 +94,13 @@ pub(super) fn collect(
         checked_at_unix_ms,
     );
     images::push(
+        &mut evidence,
+        docker_status,
+        host_kind,
+        generation,
+        checked_at_unix_ms,
+    );
+    rootless_smoke::push(
         &mut evidence,
         docker_status,
         host_kind,

@@ -18,6 +18,8 @@ pub mod execution_environment_settings;
 pub mod execution_records;
 pub(crate) mod feature_approvals;
 pub mod harness_settings;
+pub(crate) mod linux_rootless_docker_selection;
+pub(crate) mod linux_rootless_smoke_receipt;
 pub mod persona;
 pub mod project_harness_routes;
 pub mod remote_execution_telemetry;

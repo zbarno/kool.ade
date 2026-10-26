@@ -11,6 +11,10 @@ use super::super::lifecycle::{AttemptResolution, Completion, RecoveryAction};
 use super::super::{AttemptContext, Controller, WorkKind};
 
 impl Controller {
+    pub(crate) fn is_busy(&self) -> bool {
+        self.receiver.is_some() || self.preview.is_some() || self.pending_approval.is_some()
+    }
+
     pub(crate) fn request_review(&mut self, prerequisite_id: &str) {
         if crate::app::bootstrap_repair_policy::parse_locked_image_task_id(prerequisite_id)
             .is_none()

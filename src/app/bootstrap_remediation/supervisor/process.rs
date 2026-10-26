@@ -13,8 +13,9 @@ const OUTPUT_LIMIT: usize = 64 * 1024;
 const READER_JOIN_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(500);
 
 pub(crate) use program::{
-    PublisherSignatureVerifier, TrustedArgument, TrustedInvocation, TrustedProgram,
-    VerifiedArtifact, verify_plan_artifact,
+    DNF_MAX_STAGED_RPMS, DnfPackageNames, DnfStageId, HashBoundDnfRpm, PublisherSignatureVerifier,
+    StagedRpm, TrustedArgument, TrustedInvocation, TrustedProgram, VerifiedArtifact,
+    VerifiedDnfRpm, parse_installed_package_names, verify_plan_artifact,
 };
 
 pub(crate) struct SystemCommandRunner;

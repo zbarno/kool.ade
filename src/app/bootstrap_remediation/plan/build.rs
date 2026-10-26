@@ -1,10 +1,15 @@
 use super::*;
 #[cfg(test)]
 use crate::app::bootstrap_remediation::identity::HostIdentity;
-use crate::app::bootstrap_remediation::request::{OperationParameters, RemediationRequest};
-use crate::app::bootstrap_repair_policy::parse_locked_image_task_id;
+use crate::app::{
+    bootstrap_remediation::request::{OperationParameters, RemediationRequest},
+    bootstrap_repair_policy::parse_locked_image_task_id,
+    setup_attention::catalog::LinuxRootlessRecipeV1,
+};
 use crate::execution::docker::images::{ImageLock, RuntimeProfile};
 use sha2::{Digest, Sha256};
+
+mod rootless;
 
 impl RemediationPlan {
     pub(crate) fn build(request: &RemediationRequest) -> anyhow::Result<Self> {
@@ -38,13 +43,16 @@ impl RemediationPlan {
                 Sha256::digest(serde_json::to_vec(&request.parameters)?)
             ),
             effects: Vec::new(),
+            package_changes: Vec::new(),
             file_changes: Vec::new(),
             service_changes: Vec::new(),
+            precondition_probe_ids: Vec::new(),
             artifact_source: None,
             artifact_trust: None,
             privilege: PrivilegeLevel::CurrentUser,
             rollback: RollbackGuidance::NoMutation,
             verification_probe_ids: vec![probe_for(&request.prerequisite_id)],
+            required_consents: Vec::new(),
             requires_consent: false,
             #[cfg(test)]
             test_override: false,
@@ -86,6 +94,18 @@ impl RemediationPlan {
                 plan.verification_probe_ids.push("docker:rootless".into());
                 plan.requires_consent = true;
             }
+            (
+                Operation::InstallLinuxRootlessPackages,
+                OperationParameters::InstallLinuxRootlessPackages { recipe },
+            ) => rootless::install_packages(&mut plan, *recipe)?,
+            (
+                Operation::ConfigureLinuxSubordinateIds,
+                OperationParameters::ConfigureLinuxSubordinateIds { recipe },
+            ) => rootless::configure_subordinate_ids(&mut plan, *recipe)?,
+            (
+                Operation::InstallLinuxRootlessService,
+                OperationParameters::InstallLinuxRootlessService { recipe },
+            ) => rootless::install_service(&mut plan, *recipe)?,
             _ => anyhow::bail!("remediation plan does not match its typed request"),
         }
         Ok(plan)
@@ -214,6 +234,10 @@ fn probe_for(prerequisite_id: &str) -> String {
 }
 
 fn parameters_from_plan(plan: &RemediationPlan) -> anyhow::Result<OperationParameters> {
+    let rootless_recipe = || {
+        LinuxRootlessRecipeV1::from_os_version(&plan.os_version)
+            .ok_or_else(|| anyhow::anyhow!("plan host has no exact rootless recipe"))
+    };
     match plan.operation {
         Operation::RecheckPrerequisites | Operation::OpenCodingTools => {
             Ok(OperationParameters::None)
@@ -224,6 +248,21 @@ fn parameters_from_plan(plan: &RemediationPlan) -> anyhow::Result<OperationParam
             Ok(OperationParameters::LockedImage {
                 profile: profile.to_owned(),
                 architecture: architecture.to_owned(),
+            })
+        }
+        Operation::InstallLinuxRootlessPackages => {
+            Ok(OperationParameters::InstallLinuxRootlessPackages {
+                recipe: rootless_recipe()?,
+            })
+        }
+        Operation::ConfigureLinuxSubordinateIds => {
+            Ok(OperationParameters::ConfigureLinuxSubordinateIds {
+                recipe: rootless_recipe()?,
+            })
+        }
+        Operation::InstallLinuxRootlessService => {
+            Ok(OperationParameters::InstallLinuxRootlessService {
+                recipe: rootless_recipe()?,
             })
         }
     }

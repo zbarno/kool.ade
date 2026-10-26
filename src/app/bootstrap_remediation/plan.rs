@@ -76,18 +76,52 @@ pub(crate) enum PlanEffect {
     OpenCodingToolsSettings,
     DownloadLockedImage,
     RunIsolatedImageSmokeTest,
+    ConfigureDockerAptRepository,
+    ConfigureDockerDnfRepository,
+    InstallLinuxRootlessPackages,
+    ConfigureLinuxSubordinateIds,
+    VerifyRootlesskitBeforeInstall,
+    RefuseConflictingExistingRootlessInstallation,
+    InstallAndEnableCurrentUserRootlessDockerService,
+    PreserveSystemRootfulDockerService,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ManagedFileChange {
     DockerUserConfiguration,
+    DockerAptSigningKey,
+    DockerAptKeyringDirectory,
+    DockerAptSourcesEntry,
+    DockerDnfSigningKey,
+    DockerDnfRepositoryEntry,
+    LinuxSubordinateIdMappings,
+    CurrentUserRootlessDockerUnit,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ManagedServiceChange {
     DockerUserService,
+    CurrentUserRootlessDockerService,
+    SystemRootfulDockerServicePackageSideEffect,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ManagedPackageChange {
+    Debian,
+    Ubuntu,
+    PopOs,
+    Fedora,
+}
+
+/// A UI-level consent requirement included in the immutable plan digest.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum PlanConsent {
+    RootfulDockerPackageActivation,
+    RootfulDockerCoexistence,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -101,13 +135,18 @@ pub(crate) struct RemediationPlan {
     pub(crate) prerequisite_id: String,
     pub(crate) parameter_digest: String,
     pub(crate) effects: Vec<PlanEffect>,
+    pub(crate) package_changes: Vec<ManagedPackageChange>,
     pub(crate) file_changes: Vec<ManagedFileChange>,
     pub(crate) service_changes: Vec<ManagedServiceChange>,
+    /// Fresh checks that must pass before the operation may run.
+    pub(crate) precondition_probe_ids: Vec<String>,
     pub(crate) artifact_source: Option<ArtifactSource>,
     pub(crate) artifact_trust: Option<ArtifactTrust>,
     pub(crate) privilege: PrivilegeLevel,
     pub(crate) rollback: RollbackGuidance,
     pub(crate) verification_probe_ids: Vec<String>,
+    /// Explicit consent statements bound by the plan digest and approval scope.
+    pub(crate) required_consents: Vec<PlanConsent>,
     pub(crate) requires_consent: bool,
     #[cfg(test)]
     test_override: bool,

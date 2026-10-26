@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::identifiers::{
-    ImageArchitectureV1, LinuxDistributionV1, LinuxDistributionVersionV1, PrerequisiteId,
+    ImageArchitectureV1, LinuxDistributionV1, LinuxDistributionVersionV1, LinuxKernelVersionV1,
+    LinuxPackageManagerV1, LinuxRootlessRecipeV1, PrerequisiteId,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -24,6 +25,7 @@ pub enum EvidenceOrigin {
     ProviderCli,
     DockerDiscovery,
     ImageInventory,
+    ApprovedImageSmokeTest,
     GitCli,
 }
 
@@ -34,6 +36,13 @@ pub enum EvidenceCode {
     HostEditionNotProbed,
     HostCapabilityNotProbed,
     LinuxDistributionDetected,
+    LinuxHostCheckReady,
+    LinuxHostCheckMissing,
+    LinuxProbeInaccessible,
+    LinuxProbeMalformed,
+    LinuxProbeUnsupported,
+    LinuxRootlessRecipeCandidate,
+    LinuxRootlessRecipeUnverified,
     LinuxUidMappingsConfigured,
     LinuxUidMappingsMissing,
     LinuxServiceManagerDetected,
@@ -80,6 +89,7 @@ pub enum EvidenceCode {
     DockerDesktopTrustUnverified,
     DockerCgroupsSupported,
     DockerCgroupsUnavailable,
+    ApprovedImageSmokeSucceeded,
     ImagePresent,
     ImageMissing,
     ImageUncheckable,
@@ -143,6 +153,53 @@ pub enum ProbeObservationV1 {
     },
     DockerEngineIdentity {
         fingerprint: String,
+    },
+    LinuxRootlessRecipe {
+        candidate: Option<LinuxRootlessRecipeV1>,
+        distribution_state: EvidenceState,
+    },
+    LinuxKernel {
+        version: LinuxKernelVersionV1,
+    },
+    LinuxUserNamespaces {
+        max_user_namespaces: Option<u32>,
+        unprivileged_clone_allowed: Option<bool>,
+        apparmor_userns_restricted: Option<bool>,
+    },
+    LinuxSubordinateIds {
+        configured: bool,
+    },
+    LinuxRootlessHelpers {
+        newuidmap: bool,
+        newgidmap: bool,
+        rootlesskit: bool,
+        dockerd_rootless: bool,
+        setuptool: bool,
+        slirp4netns: Option<bool>,
+    },
+    LinuxCgroups {
+        cgroup_v2: bool,
+        cpu_delegated: bool,
+        memory_delegated: bool,
+        pids_delegated: bool,
+    },
+    LinuxServiceManager {
+        runtime_directory_ready: bool,
+        private_socket_ready: bool,
+        bus_socket_ready: bool,
+    },
+    LinuxPackageManager {
+        expected: Option<LinuxPackageManagerV1>,
+        found: Option<LinuxPackageManagerV1>,
+    },
+    DockerRootlessSmoke {
+        endpoint_fingerprint: String,
+        daemon_fingerprint: String,
+        daemon_version: String,
+        image_reference: String,
+        image_digest: String,
+        image_platform: String,
+        completed_at_unix_ms: u64,
     },
 }
 

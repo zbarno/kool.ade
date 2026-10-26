@@ -101,10 +101,29 @@ fn resume_dispatch_accepts_feature_named_workspace_story() {
         );
         p.queue.recovery_attempts.insert(ticket.into(), 1);
     }
-    app.implement_task(ticket.into());
+    let integration_enabled =
+        std::env::var("KOOLADE_DOCKER_BACKEND_INTEGRATION").is_ok_and(|value| value == "1");
+    let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities {
+        planning_access: crate::harness::runtime_capabilities::PlanningAccess::SuppliedContextOnly,
+        implementation: false,
+    };
+    if integration_enabled {
+        app.implement_task(ticket.into());
+    } else {
+        // Keep the ordinary unit path independent of whether this developer
+        // machine happens to have a usable Docker Engine.
+        app.start_implementation_with_capabilities(ticket.into(), true, capabilities);
+    }
     let Screen::Connected(p) = &mut app.screen else {
         panic!("disconnected")
     };
+    if !integration_enabled {
+        assert!(p.active_implementations.is_empty());
+        assert!(p.queue.last_error.contains("Docker"));
+        assert!(p.queue.blocked.contains_key(ticket));
+        std::fs::remove_dir_all(root).unwrap();
+        return;
+    }
     assert!(
         p.active_implementations.contains_key(ticket),
         "{}",

@@ -1,10 +1,11 @@
 #[cfg(target_os = "linux")]
 use crate::app::bootstrap_repair_policy::Host;
 use crate::app::bootstrap_repair_policy::{Operation, Proposal};
+use crate::execution::docker::images::RuntimeProfile;
 #[cfg(target_os = "linux")]
 use crate::execution::docker::{
     engine::{DockerEndpoint, EngineDiscovery, HostPlatform},
-    images::{ImageLock, RuntimeProfile},
+    images::ImageLock,
 };
 
 use super::MachineBinding;
@@ -13,6 +14,8 @@ pub(in crate::app::bootstrap_approval) struct VerifiedEngine {
     binding: MachineBinding,
     #[cfg(target_os = "linux")]
     engine: EngineDiscovery,
+    #[cfg(target_os = "linux")]
+    endpoint_fingerprint: String,
 }
 
 impl VerifiedEngine {
@@ -99,6 +102,7 @@ impl VerifiedEngine {
             let probe_hash = crate::execution::docker::engine::approval_fingerprint(
                 &endpoint, &snapshot, &image,
             )?;
+            let endpoint_fingerprint = endpoint.fingerprint();
             let mut binding = MachineBinding::from_facts(
                 Host::Linux,
                 &machine_id,
@@ -108,6 +112,7 @@ impl VerifiedEngine {
             )?;
             binding.daemon_id = snapshot.daemon_id.clone();
             binding.engine_identity_fingerprint = engine_identity_fingerprint;
+            binding.daemon_version = snapshot.daemon_version.clone();
             binding.image_reference.clone_from(&image.reference);
             binding.image_digest.clone_from(&image.digest);
             binding.image_platform.clone_from(&image.platform);
@@ -115,7 +120,11 @@ impl VerifiedEngine {
             binding.estimated_storage_bytes = estimate.estimated_storage_bytes;
             binding.disk_available_bytes = disk_available_bytes;
             binding.minimum_disk_bytes = snapshot.minimum_disk_bytes;
-            Ok(Self { binding, engine })
+            Ok(Self {
+                binding,
+                engine,
+                endpoint_fingerprint,
+            })
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -140,11 +149,50 @@ impl VerifiedEngine {
     ) -> anyhow::Result<super::super::capability::ImagePreparationReceipt> {
         #[cfg(target_os = "linux")]
         {
+            let expected_profile = approved_runtime_profile(_authorization.image_profile())
+                .ok_or_else(|| anyhow::anyhow!("The approved runtime image profile is invalid"))?;
             let staging = crate::execution::docker::environment::app_staging_root()?;
-            self.engine
+            let receipt = self
+                .engine
                 .test_approved_image(&staging, _authorization, _pull_control)
                 .await
-                .map_err(anyhow::Error::new)
+                .map_err(anyhow::Error::new)?;
+            anyhow::ensure!(
+                receipt.profile == expected_profile
+                    && receipt.image_digest == self.binding.image_digest
+                    && receipt.architecture
+                        == self.binding.image_platform.trim_start_matches("linux/")
+                    && receipt.engine_identity_fingerprint
+                        == self.binding.engine_identity_fingerprint,
+                "Approved image smoke receipt changed during verified preparation"
+            );
+            let image = ImageLock::bundled()?.select(
+                expected_profile,
+                self.binding.image_platform.trim_start_matches("linux/"),
+            )?;
+            anyhow::ensure!(
+                image.reference == self.binding.image_reference
+                    && image.digest == self.binding.image_digest
+                    && image.platform == self.binding.image_platform,
+                "Approved image changed during verified preparation"
+            );
+            if requires_rootless_readiness_receipt(expected_profile) {
+                let daemon_fingerprint = {
+                    use sha2::Digest as _;
+                    format!(
+                        "{:x}",
+                        sha2::Sha256::digest(self.binding.daemon_id.as_bytes())
+                    )
+                };
+                crate::persistence::linux_rootless_smoke_receipt::record(
+                    &self.endpoint_fingerprint,
+                    &daemon_fingerprint,
+                    &self.binding.daemon_version,
+                    &image,
+                    crate::persistence::harness_settings::current_unix_ms(),
+                )?;
+            }
+            Ok(receipt)
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -152,3 +200,22 @@ impl VerifiedEngine {
         }
     }
 }
+
+fn approved_runtime_profile(profile: Option<&str>) -> Option<RuntimeProfile> {
+    Some(match profile? {
+        "general" => RuntimeProfile::General,
+        "rust" => RuntimeProfile::Rust,
+        "node" => RuntimeProfile::Node,
+        "python" => RuntimeProfile::Python,
+        "go" => RuntimeProfile::Go,
+        _ => return None,
+    })
+}
+
+fn requires_rootless_readiness_receipt(profile: RuntimeProfile) -> bool {
+    profile == RuntimeProfile::General
+}
+
+#[cfg(test)]
+#[path = "engine/tests.rs"]
+mod tests;

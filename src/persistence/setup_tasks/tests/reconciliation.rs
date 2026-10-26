@@ -1,7 +1,7 @@
 use crate::app::setup_attention::catalog::FindingStatus;
 
 use super::super::{DependencyResolution, SetupTaskStateV1, SetupTaskStoreV1, ordered_task_ids};
-use super::support::{scan, snapshot};
+use super::support::{rootless_smoke_fact, scan, snapshot};
 
 #[path = "reconciliation/attempt_verification.rs"]
 mod attempt_verification;
@@ -77,12 +77,16 @@ fn only_current_exact_positive_evidence_verifies_and_regression_reopens() {
         SetupTaskStateV1::ReadyToFix
     );
 
-    scan(&mut store, &snapshot(&[], &["docker:rootless"], 3)).unwrap();
+    let mut current = snapshot(&[], &["docker:rootless-smoke"], 3);
+    current
+        .probe_evidence
+        .push(rootless_smoke_fact(store.latest_scan_generation + 1, 3));
+    scan(&mut store, &current).unwrap();
     let task = &store.tasks["setup:docker:rootless"];
     assert_eq!(task.state, SetupTaskStateV1::Verified);
     assert_eq!(
         task.verified_result.as_ref().unwrap().evidence_domain,
-        "docker"
+        "docker:rootless-smoke"
     );
 
     scan(&mut store, &snapshot(&[], &["cli:codex:auth"], 4)).unwrap();
@@ -165,19 +169,19 @@ fn a_dependency_blocks_children_then_unblocks_from_current_parent_evidence() {
         DependencyResolution::Pending
     );
 
-    scan(
-        &mut store,
-        &snapshot(
-            &[(
-                "setup:images:general:amd64",
-                FindingStatus::NeedsAttention,
-                &["setup:docker:rootless"],
-            )],
-            &["docker:rootless"],
-            2,
-        ),
-    )
-    .unwrap();
+    let mut current = snapshot(
+        &[(
+            "setup:images:general:amd64",
+            FindingStatus::NeedsAttention,
+            &["setup:docker:rootless"],
+        )],
+        &["docker:rootless-smoke"],
+        2,
+    );
+    current
+        .probe_evidence
+        .push(rootless_smoke_fact(store.latest_scan_generation + 1, 2));
+    scan(&mut store, &current).unwrap();
     let parent = &store.tasks["setup:docker:rootless"];
     let child = &store.tasks["setup:images:general:amd64"];
     assert_eq!(parent.state, SetupTaskStateV1::Verified);

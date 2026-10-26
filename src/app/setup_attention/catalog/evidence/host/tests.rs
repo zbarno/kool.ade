@@ -1,20 +1,27 @@
 use super::*;
 
 #[test]
-fn only_ci_validated_linux_matrix_is_marked_experimental() {
-    assert_eq!(
-        native_support(
-            HostKind::Linux,
-            Architecture::Amd64,
-            Some(Distribution::Ubuntu),
-            Some(DistributionVersion {
-                major: 24,
-                minor: 4
-            }),
-        ),
-        SupportClaim::Experimental
-    );
-    for distribution in [None, Some(Distribution::Debian), Some(Distribution::PopOs)] {
+fn only_exact_recipe_linux_matrices_are_marked_experimental() {
+    for (distribution, version) in [
+        (Distribution::Ubuntu, (24, 4)),
+        (Distribution::Debian, (13, 0)),
+        (Distribution::PopOs, (24, 4)),
+        (Distribution::Fedora, (45, 0)),
+    ] {
+        assert_eq!(
+            native_support(
+                HostKind::Linux,
+                Architecture::Amd64,
+                Some(distribution),
+                Some(DistributionVersion {
+                    major: version.0,
+                    minor: version.1,
+                }),
+            ),
+            SupportClaim::Experimental
+        );
+    }
+    for distribution in [None, Some(Distribution::Other)] {
         assert_eq!(
             native_support(
                 HostKind::Linux,
@@ -23,6 +30,24 @@ fn only_ci_validated_linux_matrix_is_marked_experimental() {
                 Some(DistributionVersion {
                     major: 24,
                     minor: 4
+                }),
+            ),
+            SupportClaim::Unverified
+        );
+    }
+    for (distribution, version) in [
+        (Distribution::Debian, (12, 0)),
+        (Distribution::PopOs, (22, 4)),
+        (Distribution::Fedora, (44, 0)),
+    ] {
+        assert_eq!(
+            native_support(
+                HostKind::Linux,
+                Architecture::Amd64,
+                Some(distribution),
+                Some(DistributionVersion {
+                    major: version.0,
+                    minor: version.1,
                 }),
             ),
             SupportClaim::Unverified

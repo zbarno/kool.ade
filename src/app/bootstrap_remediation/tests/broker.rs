@@ -3,6 +3,7 @@ use super::support::*;
 use crate::{app::bootstrap_repair_policy::Host, persistence::setup_tasks::AttemptState};
 
 mod launch;
+mod preconditions;
 mod recovery;
 
 // Production boundary: exercises plan-bound consent, attempt journaling,
@@ -26,6 +27,7 @@ fn broker_dispatches_only_plan_bound_work_for_each_host_contract() {
             &identity,
             &mut store,
             &FakeRegistry(host),
+            &FreshPreconditions,
             &FakeRunner(host),
             &FakeElevation { declined: false },
             &FreshReadiness,
