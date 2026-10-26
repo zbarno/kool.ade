@@ -52,6 +52,7 @@ pub(super) fn validate_output_refs(
         }
         RoleOutputV1::OpportunityDecision(_) => {}
         RoleOutputV1::QaScenarioDraft(_) => {}
+        RoleOutputV1::BootstrapConversation(_) => {}
         RoleOutputV1::PlanningTurn(_) => {}
     }
     Ok(())

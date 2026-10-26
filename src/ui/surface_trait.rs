@@ -144,6 +144,15 @@ pub trait Surface {
         planning_board::ViewModel::default()
     }
     fn setup_image_preparation(&mut self, _ui: &mut egui::Ui, _prerequisite_id: &str) {}
+    fn bootstrap_conversation(
+        &mut self,
+        _task_id: &str,
+    ) -> planning_board::BootstrapConversationView {
+        planning_board::BootstrapConversationView::default()
+    }
+    fn bootstrap_conversation_draft(&mut self, _task_id: &str) -> Option<&mut String> {
+        None
+    }
     fn implementation_state(
         &self,
         ticket: &str,

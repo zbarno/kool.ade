@@ -25,6 +25,7 @@ pub enum RoleOutputV1 {
     OpportunityDecision(OpportunityDecisionV1),
     PlanningTurn(Box<crate::harness::TurnEnvelope>),
     QaScenarioDraft(crate::harness::prompt_catalog::QaScenarioDraftV1),
+    BootstrapConversation(crate::harness::BootstrapConversationResponseV1),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -81,13 +82,17 @@ pub fn validate_output_with_context(
         return Err("model response exceeds 1 MiB".into());
     }
     let direct = decode(role, text, context.turn_purpose);
-    let decoded = direct.or_else(|_| {
-        decode(
-            role,
-            &extract_json(text).ok_or_else(|| "no JSON object found".to_owned())?,
-            context.turn_purpose,
-        )
-    })?;
+    let decoded = if role == PromptRole::BootstrapConversation {
+        direct?
+    } else {
+        direct.or_else(|_| {
+            decode(
+                role,
+                &extract_json(text).ok_or_else(|| "no JSON object found".to_owned())?,
+                context.turn_purpose,
+            )
+        })?
+    };
     review::validate(&decoded, role, context)?;
     if let RoleOutputV1::WorkResult(report) = &decoded {
         if report.schema_version != 2 {
@@ -194,6 +199,10 @@ fn decode(
         | PromptRole::RuntimeQaReviewerV3 => parse!(ReviewVerdictV1, Review),
         PromptRole::RuntimeQaScenarioSynthesizer => {
             parse!(QaScenarioDraftV1, QaScenarioDraft)
+        }
+        PromptRole::BootstrapConversation => {
+            crate::harness::BootstrapConversationResponseV1::parse_json(text)
+                .map(RoleOutputV1::BootstrapConversation)
         }
         PromptRole::Decomposer => parse!(TaskGraphV1, TaskGraph),
         PromptRole::Implementer | PromptRole::RepairWorker => parse!(WorkResultV1, WorkResult),
