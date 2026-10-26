@@ -39,7 +39,7 @@ pub(crate) fn enabled() -> bool {
 /// setup state. The fixture must call this before the child is started.
 pub(crate) fn prepare_profile_for_home(home: &Path, profile: RuntimeProfile) -> anyhow::Result<()> {
     let _home = KooladeHomeGuard::set(home);
-    let endpoint = DockerEndpoint::from_process_environment(host_platform())
+    let endpoint = DockerEndpoint::from_process_environment_with_test_support(host_platform())
         .map_err(|failure| anyhow::anyhow!(failure.message))?;
     let engine =
         EngineDiscovery::connect(endpoint).map_err(|failure| anyhow::anyhow!(failure.message))?;
@@ -63,6 +63,30 @@ pub(crate) fn prepare_profile_for_home(home: &Path, profile: RuntimeProfile) -> 
 }
 
 pub(crate) async fn prepare_approved_image(
+    engine: &EngineDiscovery,
+    staging_root: &Path,
+    image: &SelectedImage,
+) -> Result<(), ExecutionError> {
+    let _guard = PREPARATION
+        .get_or_init(|| tokio::sync::Mutex::new(()))
+        .lock()
+        .await;
+    let (profile, _) = profile_name(image.profile)
+        .ok_or_else(|| image_error("the selected profile is not an approved workload image"))?;
+    if profile != RuntimeProfile::General {
+        let architecture = image
+            .platform
+            .strip_prefix("linux/")
+            .ok_or_else(|| image_error("the selected image has an unsupported platform"))?;
+        let general_image = ImageLock::bundled()
+            .and_then(|lock| lock.select(RuntimeProfile::General, architecture))
+            .map_err(|failure| image_error(failure.message))?;
+        prepare_approved_image_unlocked(engine, staging_root, &general_image).await?;
+    }
+    prepare_approved_image_unlocked(engine, staging_root, image).await
+}
+
+async fn prepare_approved_image_unlocked(
     engine: &EngineDiscovery,
     staging_root: &Path,
     image: &SelectedImage,
@@ -92,13 +116,28 @@ pub(crate) async fn prepare_approved_image(
     .ok_or_else(|| image_error("the Docker Engine identity could not be verified"))?;
     let task_id = format!("setup:images:{profile_name}:{architecture}:{engine_identity}");
 
-    let _guard = PREPARATION
-        .get_or_init(|| tokio::sync::Mutex::new(()))
-        .lock()
-        .await;
     let store = crate::persistence::setup_tasks::load()
         .map_err(|_| image_error("machine setup state could not be read"))?;
+    #[cfg(target_os = "linux")]
+    let rootless_smoke_receipt_current = if profile == RuntimeProfile::General {
+        use sha2::Digest as _;
+
+        let endpoint_fingerprint = engine.endpoint().fingerprint();
+        let daemon_fingerprint =
+            format!("{:x}", sha2::Sha256::digest(snapshot.daemon_id.as_bytes()));
+        crate::persistence::linux_rootless_smoke_receipt::matches_current(
+            Some(&endpoint_fingerprint),
+            Some(&daemon_fingerprint),
+            Some(&snapshot.daemon_version),
+            Some(image),
+        )
+    } else {
+        true
+    };
+    #[cfg(not(target_os = "linux"))]
+    let rootless_smoke_receipt_current = true;
     if store.has_valid_image_preparation_receipt(&task_id)
+        && rootless_smoke_receipt_current
         && engine.verify_image_present(image).await.is_ok()
     {
         return Ok(());
@@ -118,7 +157,11 @@ pub(crate) async fn prepare_approved_image(
         requested_scopes: scopes.clone(),
         at_unix_ms: requested_at,
     })
-    .map_err(|_| image_error("the image preparation attempt could not be recorded"))?;
+    .map_err(|error| {
+        image_error(format!(
+            "the image preparation attempt could not be recorded: {error:#}"
+        ))
+    })?;
 
     let proposal = Proposal {
         schema_version: 1,
@@ -154,6 +197,21 @@ pub(crate) async fn prepare_approved_image(
         .await
         .map_err(|failure| image_error(failure.message))?;
     let completed_at = now_ms();
+    #[cfg(target_os = "linux")]
+    if profile == RuntimeProfile::General {
+        use sha2::Digest as _;
+
+        let daemon_fingerprint =
+            format!("{:x}", sha2::Sha256::digest(snapshot.daemon_id.as_bytes()));
+        crate::persistence::linux_rootless_smoke_receipt::record(
+            &engine.endpoint().fingerprint(),
+            &daemon_fingerprint,
+            &snapshot.daemon_version,
+            image,
+            completed_at,
+        )
+        .map_err(|_| image_error("the rootless Docker smoke receipt could not be persisted"))?;
+    }
     crate::persistence::setup_tasks::apply_transition(
         SetupTaskTransitionV1::RecordImagePreparationReceipt {
             task_id: task_id.clone(),
