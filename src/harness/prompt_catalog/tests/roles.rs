@@ -21,6 +21,7 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         PromptRole::SpecReconciler,
         PromptRole::RepairWorker,
         PromptRole::PrPreparer,
+        PromptRole::BootstrapConversation,
     ];
     for role in roles {
         assert!(
@@ -134,6 +135,11 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
             "0c67ec603bac35cb684d9c0ce12a4d601cddfd2025c5bb97efe8207444a5b6df",
             "ec66ecfc1a12eab8a1750430c6d846d58817c57e4c1fc7e1d33787819e8bf2ab",
         ),
+        (
+            PromptRole::BootstrapConversation,
+            "aaebcea7542c47a40d1d1f523d0978b111be467fbf1209d2fa6f97846fc097f2",
+            "270ae885b66059807edc4611117facceca34f9ad3287aecabf5ed93b9b484b2a",
+        ),
     ];
     for (role, system, user) in pinned {
         assert_eq!(
@@ -173,6 +179,7 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         PromptRole::SpecReconciler,
         PromptRole::RepairWorker,
         PromptRole::PrPreparer,
+        PromptRole::BootstrapConversation,
     ] {
         assert_eq!(
             template_hash(role.policy()),

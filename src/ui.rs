@@ -78,6 +78,16 @@ pub enum ApplicationCommand {
     },
     RetryTaskChatSave,
     RetrySetupCheck,
+    SendBootstrapConversationMessage {
+        task_id: String,
+    },
+    CancelBootstrapConversation {
+        task_id: String,
+    },
+    ApplyBootstrapSuggestion {
+        task_id: String,
+        generation: u64,
+    },
     RequestSetupTaskFix {
         task_id: String,
     },

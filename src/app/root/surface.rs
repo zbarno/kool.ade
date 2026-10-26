@@ -18,6 +18,17 @@ impl Surface for KooladeApp {
         }
     }
 
+    fn bootstrap_conversation(
+        &mut self,
+        task_id: &str,
+    ) -> crate::ui::planning_board::BootstrapConversationView {
+        self.bootstrap_conversation.view(task_id)
+    }
+
+    fn bootstrap_conversation_draft(&mut self, task_id: &str) -> Option<&mut String> {
+        self.bootstrap_conversation.draft_mut(task_id)
+    }
+
     fn planning_repository(&self) -> Option<crate::ui::PlanningRepositoryViewModel> {
         self.planning_repository_view()
     }
