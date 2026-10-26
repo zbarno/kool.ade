@@ -1,6 +1,7 @@
 #[cfg(target_os = "linux")]
 use crate::app::bootstrap_repair_policy::Host;
 use crate::app::bootstrap_repair_policy::{Operation, Proposal};
+#[cfg(any(target_os = "linux", test))]
 use crate::execution::docker::images::RuntimeProfile;
 #[cfg(target_os = "linux")]
 use crate::execution::docker::{
@@ -201,6 +202,7 @@ impl VerifiedEngine {
     }
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn approved_runtime_profile(profile: Option<&str>) -> Option<RuntimeProfile> {
     Some(match profile? {
         "general" => RuntimeProfile::General,
@@ -212,6 +214,7 @@ fn approved_runtime_profile(profile: Option<&str>) -> Option<RuntimeProfile> {
     })
 }
 
+#[cfg(any(target_os = "linux", test))]
 fn requires_rootless_readiness_receipt(profile: RuntimeProfile) -> bool {
     profile == RuntimeProfile::General
 }

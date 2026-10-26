@@ -1,5 +1,6 @@
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::MetadataExt;
+#[cfg(target_os = "linux")]
 use std::path::Path;
 
 use crate::app::bootstrap_remediation::{
@@ -10,6 +11,7 @@ use crate::app::bootstrap_remediation::{
 };
 use crate::app::setup_attention::catalog::LinuxRootlessRecipeV1;
 
+#[cfg(target_os = "linux")]
 use super::{
     DOCKER_KEYRING, LEGACY_SOURCES, SOURCES_DIR, keyring::verify_docker_signing_key,
     parser::inspect_source_contents, read_bounded_file, trusted_root_directory_metadata,

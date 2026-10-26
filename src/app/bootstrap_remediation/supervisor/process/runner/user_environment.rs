@@ -5,6 +5,7 @@ pub(super) struct UserEnvironment {
     pub(super) runtime_dir: PathBuf,
 }
 
+#[cfg(target_os = "linux")]
 pub(super) fn current_user_systemd() -> anyhow::Result<UserEnvironment> {
     use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
@@ -44,6 +45,11 @@ pub(super) fn current_user_systemd() -> anyhow::Result<UserEnvironment> {
     Ok(UserEnvironment { home, runtime_dir })
 }
 
+#[cfg(not(target_os = "linux"))]
+pub(super) fn current_user_systemd() -> anyhow::Result<UserEnvironment> {
+    anyhow::bail!("current-user systemd operations are Linux-only")
+}
+
 fn validate_config_home(
     home: &std::path::Path,
     configured: Option<&std::ffi::OsStr>,
@@ -64,7 +70,7 @@ fn current_user_home(uid: u32) -> anyhow::Result<PathBuf> {
     use std::{ffi::CStr, os::unix::ffi::OsStrExt, ptr};
 
     let mut record = std::mem::MaybeUninit::<libc::passwd>::zeroed();
-    let mut buffer = vec![0_i8; 16 * 1024];
+    let mut buffer = vec![0 as libc::c_char; 16 * 1024];
     let mut result = ptr::null_mut();
     let status = unsafe {
         libc::getpwuid_r(

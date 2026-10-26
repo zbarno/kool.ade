@@ -236,6 +236,16 @@ impl DockerEndpoint {
                     self,
                     Self::Unix { path, desktop: false }
                         if path == &PathBuf::from(format!("/run/user/{current_uid}/docker.sock"))
+                            || {
+                                #[cfg(test)]
+                                {
+                                    test_support::isolated_rootless_socket(path)
+                                }
+                                #[cfg(not(test))]
+                                {
+                                    false
+                                }
+                            }
                 )
         }
         #[cfg(not(target_os = "linux"))]

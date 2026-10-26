@@ -1,3 +1,4 @@
+#[cfg(target_os = "linux")]
 mod candidate;
 mod source;
 

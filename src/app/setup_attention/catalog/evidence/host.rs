@@ -11,6 +11,9 @@ use crate::app::setup_attention::catalog::{
 use crate::execution::docker::environment::DockerEnvironmentStatus;
 use crate::execution::docker::images::{ImageLock, RuntimeProfile};
 
+// This module retains Linux probe types for shared evidence, while only Linux
+// builds execute the host inspection implementation.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod probe;
 #[cfg(test)]
 #[path = "host/tests.rs"]

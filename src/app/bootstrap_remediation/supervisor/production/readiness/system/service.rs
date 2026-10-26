@@ -1,4 +1,6 @@
-use super::{ProbeOutcome, runtime};
+use super::ProbeOutcome;
+#[cfg(target_os = "linux")]
+use super::runtime;
 
 #[cfg(target_os = "linux")]
 mod unit;

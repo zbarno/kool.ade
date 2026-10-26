@@ -18,7 +18,11 @@ pub mod execution_environment_settings;
 pub mod execution_records;
 pub(crate) mod feature_approvals;
 pub mod harness_settings;
+// These schemas are used by Linux rootless Docker paths and remain declared
+// for shared call sites that return early on other operating systems.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod linux_rootless_docker_selection;
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod linux_rootless_smoke_receipt;
 pub mod persona;
 pub mod project_harness_routes;

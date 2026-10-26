@@ -7,6 +7,7 @@ pub(crate) use bootstrap::{docker_source_bootstrap, docker_source_file_artifacts
 use std::path::{Path, PathBuf};
 
 use crate::app::setup_attention::catalog::LinuxRootlessRecipeV1;
+#[cfg(any(target_os = "linux", test))]
 use parser::inspect_source_contents;
 
 const SOURCES_DIR: &str = "/etc/apt/sources.list.d";

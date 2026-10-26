@@ -1,8 +1,9 @@
 use std::{
-    fs::{self, OpenOptions},
-    io::Read,
+    fs,
     path::{Path, PathBuf},
 };
+#[cfg(unix)]
+use std::{fs::OpenOptions, io::Read};
 
 use crate::execution::docker::discovery::{PrerequisiteCode, PrerequisiteFailure};
 use sha2::Digest as _;

@@ -86,7 +86,7 @@ fn current_account() -> anyhow::Result<CurrentAccount> {
     let uid = unsafe { libc::geteuid() };
     anyhow::ensure!(uid != 0, "rootless subordinate IDs cannot target root");
     let mut record = std::mem::MaybeUninit::<libc::passwd>::zeroed();
-    let mut buffer = vec![0_i8; 16 * 1024];
+    let mut buffer = vec![0 as libc::c_char; 16 * 1024];
     let mut result = ptr::null_mut();
     let status = unsafe {
         libc::getpwuid_r(

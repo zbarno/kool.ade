@@ -8,9 +8,9 @@ use crate::app::bootstrap_remediation::{
     },
 };
 
-use super::key::{
-    verify_docker_signing_key, verify_fedora_signing_key as verify_fedora_key_fingerprint,
-};
+use super::key::verify_docker_signing_key;
+#[cfg(target_os = "linux")]
+use super::key::verify_fedora_signing_key as verify_fedora_key_fingerprint;
 #[cfg(target_os = "linux")]
 mod configuration;
 #[cfg(target_os = "linux")]

@@ -12,7 +12,9 @@ mod system;
 
 #[cfg(test)]
 pub(super) use distro::distribution_from_os_release;
-pub(super) use linux::{LinuxProbeFacts, inspect as inspect_linux};
+pub(super) use linux::LinuxProbeFacts;
+#[cfg(target_os = "linux")]
+pub(super) use linux::inspect as inspect_linux;
 #[cfg(test)]
 pub(super) use linux::{parse_distribution, parse_kernel};
 

@@ -7,7 +7,7 @@ pub(super) fn validate_name(uid: u32, expected_name: &str) -> anyhow::Result<()>
         "rootless subordinate IDs require a valid non-root account"
     );
     let mut record = std::mem::MaybeUninit::<libc::passwd>::zeroed();
-    let mut buffer = vec![0_i8; 16 * 1024];
+    let mut buffer = vec![0 as libc::c_char; 16 * 1024];
     let mut result = ptr::null_mut();
     let status = unsafe {
         libc::getpwuid_r(
