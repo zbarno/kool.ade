@@ -181,7 +181,11 @@ pub(super) fn service_body(
     })
 }
 
-pub(super) fn relay_body(spec: &QaWebPreviewSpec<'_>, network_id: &str) -> ContainerCreateBody {
+pub(super) fn relay_body(
+    spec: &QaWebPreviewSpec<'_>,
+    network_id: &str,
+    relay_token: &str,
+) -> ContainerCreateBody {
     ContainerCreateBody {
         user: Some(spec.browser_image.runtime_user.clone()),
         image: Some(spec.browser_image.reference.clone()),
@@ -193,6 +197,7 @@ pub(super) fn relay_body(spec: &QaWebPreviewSpec<'_>, network_id: &str) -> Conta
             "LANG=C.UTF-8".into(),
             format!("QA_TARGET_PORT={}", spec.preview_port),
             format!("QA_HEALTH_PATH={}", spec.health_path),
+            format!("QA_RELAY_TOKEN={relay_token}"),
         ]),
         labels: Some(labels(spec.request, "preview-relay")),
         host_config: Some(HostConfig {
@@ -222,7 +227,7 @@ pub(super) fn relay_body(spec: &QaWebPreviewSpec<'_>, network_id: &str) -> Conta
                 "node".into(),
                 "-e".into(),
                 format!(
-                    "const http=require('node:http');let remaining=2,failed=false;const check=(options,accept)=>http.get(options,res=>{{res.resume();if(!accept(res.statusCode))failed=true;if(--remaining===0)process.exit(failed?1:0)}}).on('error',()=>process.exit(1));check({{host:'127.0.0.1',port:8080,path:'/__koolade_health',headers:{{host:'qa-preview:8080'}}}},status=>status===204);check({{host:'qa-task',port:{},path:{:?}}},status=>status<500)",
+                    "const http=require('node:http');let remaining=2,failed=false;const check=(options,accept)=>http.get(options,res=>{{res.resume();if(!accept(res.statusCode))failed=true;if(--remaining===0)process.exit(failed?1:0)}}).on('error',()=>process.exit(1));check({{host:'127.0.0.1',port:8080,path:'/__koolade_health',headers:{{host:'qa-preview:8080','x-koolade-qa-relay-token':'{relay_token}'}}}},status=>status===204);check({{host:'qa-task',port:{},path:{:?}}},status=>status<500)",
                     spec.preview_port, spec.health_path
                 ),
             ]),

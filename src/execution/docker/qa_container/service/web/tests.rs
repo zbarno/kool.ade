@@ -169,10 +169,11 @@ fn preview_relay_health_checks_the_exact_task_service_path() {
         health_path: "/healthz?probe=ready",
         resources: &resources,
     };
-    let body = relay_body(&spec, "task-network");
+    let body = relay_body(&spec, "task-network", &"0123456789abcdef".repeat(4));
     let command = body.healthcheck.unwrap().test.unwrap();
     assert!(command[3].contains("status=>status<500"));
-    assert!(command[3].contains("headers:{host:'qa-preview:8080'}"));
+    assert!(command[3].contains("headers:{host:'qa-preview:8080'"));
+    assert!(command[3].contains("'x-koolade-qa-relay-token':'0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'"));
     assert!(command[3].contains("path:\"/healthz?probe=ready\""));
     assert_eq!(
         command.len(),

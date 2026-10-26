@@ -100,6 +100,7 @@ async fn start_web_preview_for_lock(
     };
     let task_name = format!("koolade-qa-service-{run}");
     let relay_name = format!("koolade-qa-relay-{run}");
+    let relay_token = format!("{:x}{:x}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
     let result = task_service::launch_containers(
         docker,
         &spec,
@@ -108,6 +109,7 @@ async fn start_web_preview_for_lock(
         &browser_network,
         &task_name,
         &relay_name,
+        &relay_token,
     )
     .await;
     match result {
@@ -137,6 +139,7 @@ async fn start_web_preview_for_lock(
                 task_execution_id: spec.request.execution_session_id.clone(),
                 task_container_id: task_id,
                 relay_container_id: relay_id,
+                relay_token,
                 browser_container_id: None,
                 task_network_id: task_network,
                 relay_browser_network_id: browser_network,

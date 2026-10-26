@@ -68,6 +68,7 @@ pub struct QaPreviewRelayBindingV1 {
     pub task_execution_id: String,
     pub task_container_id: String,
     pub relay_container_id: String,
+    pub relay_token: String,
     pub browser_container_id: Option<String>,
     pub task_network_id: String,
     pub relay_browser_network_id: String,
@@ -107,6 +108,7 @@ impl QaPreviewRelayBindingV1 {
                 .is_some_and(|id| !is_container_id(id))
             || (require_browser && self.browser_container_id.is_none())
             || self.task_container_id == self.relay_container_id
+            || !is_relay_token(&self.relay_token)
             || self
                 .browser_container_id
                 .as_deref()
@@ -185,6 +187,13 @@ pub fn pinned_browser_qa_image(
 
 fn is_container_id(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn is_relay_token(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 fn valid_recipe_id(value: &str) -> bool {

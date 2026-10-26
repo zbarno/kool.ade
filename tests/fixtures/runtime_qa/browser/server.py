@@ -3,9 +3,15 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import re
 import socketserver
 import threading
 import time
+from urllib.parse import parse_qs
+
+SINK_LOCK = threading.Lock()
+SINK_HITS = {}
+SINK_TAG = re.compile(r"^[a-z0-9-]{1,32}$")
 
 UDP_SEEN = threading.Event()
 
@@ -38,6 +44,12 @@ if(params.get('defect')==='iframe') { const frame=document.createElement('iframe
 if(params.get('defect')==='localhost') fetch('http://127.0.0.1:4173/').catch(()=>{});
 if(params.get('defect')==='alternate-port') fetch('http://qa-preview:8081/').catch(()=>{});
 if(params.get('defect')==='websocket') { const socket=new WebSocket('ws://example.com/socket'); socket.onerror=()=>{}; }
+if(params.get('defect')==='ws-loopback') { const socket=new WebSocket('ws://127.0.0.1:8080/'); socket.onerror=()=>{}; }
+if(params.get('defect')==='ip-port') fetch('http://127.0.0.1:8080/').catch(()=>{});
+if(params.get('defect')==='ipv6-port') fetch('http://[::1]:8080/').catch(()=>{});
+if(params.get('defect')==='adjacent') fetch('http://qa-task:4173/__sink_hit?tag=adjacent').catch(()=>{});
+if(params.get('defect')==='dns-rebind') fetch('http://rebound.internal:4173/__sink_hit?tag=rebind').catch(()=>{});
+if(params.get('defect')==='internet') fetch('http://www.example.invalid/').catch(()=>{});
 if(params.get('defect')==='wrong-action') document.querySelector('#open-dialog').addEventListener('click',()=>{status.textContent='Wrong destination';history.pushState({},'', '/?page=wrong')});
 document.querySelector('#save').addEventListener('submit',async event=>{event.preventDefault();const input=document.querySelector('#message');
 if(!input.value.trim()){status.textContent='Message is required';status.className='error';return}
@@ -116,6 +128,34 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/__udp_seen":
             body = b"yes" if UDP_SEEN.is_set() else b"no"
             self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path.startswith("/__sink_hit?"):
+            tag = parse_qs(self.path.partition("?")[2]).get("tag", [""])[0]
+            if not SINK_TAG.fullmatch(tag):
+                self.send_error(400)
+                return
+            with SINK_LOCK:
+                SINK_HITS[tag] = SINK_HITS.get(tag, 0) + 1
+                count = SINK_HITS[tag]
+            body = json.dumps({"tag": tag, "hit": count}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path.startswith("/__sink_hits?"):
+            tag = parse_qs(self.path.partition("?")[2]).get("tag", [""])[0]
+            if not SINK_TAG.fullmatch(tag):
+                self.send_error(400)
+                return
+            with SINK_LOCK:
+                body = str(SINK_HITS.get(tag, 0)).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
