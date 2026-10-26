@@ -6,8 +6,11 @@ use super::{
     ProviderChoices, ProviderIdV1, SCHEMA_VERSION, evidence, images,
 };
 
+mod checked_domains;
 mod docker;
+mod inputs;
 mod provider_tasks;
+pub(crate) use inputs::{ImageScanState, ScanInputs};
 #[cfg(test)]
 mod test_support;
 
@@ -16,6 +19,7 @@ pub use test_support::{assess, assess_for_scan, assess_for_scan_with_git};
 
 /// Pure, deterministic interpretation. Missing image findings require
 /// engine_ready; a rootful or unqueryable engine is NOT an image failure.
+#[cfg(test)]
 pub fn assess_for_scan_with_git_and_bootstrap_provider(
     probes: &[ProbeResult],
     provider_choices: ProviderChoices<'_>,
@@ -25,6 +29,33 @@ pub fn assess_for_scan_with_git_and_bootstrap_provider(
     scan_generation: u64,
     git_probe: GitProbeV1,
 ) -> MachineSnapshotV1 {
+    assess_for_scan_with_inputs_and_bootstrap_provider(
+        probes,
+        provider_choices,
+        docker,
+        host,
+        checked_at_unix_ms,
+        scan_generation,
+        ScanInputs {
+            git_probe,
+            ..ScanInputs::default()
+        },
+    )
+}
+
+pub(crate) fn assess_for_scan_with_inputs_and_bootstrap_provider(
+    probes: &[ProbeResult],
+    provider_choices: ProviderChoices<'_>,
+    docker: &DockerEnvironmentStatus,
+    host: HostKind,
+    checked_at_unix_ms: u64,
+    scan_generation: u64,
+    inputs: ScanInputs,
+) -> MachineSnapshotV1 {
+    let ScanInputs {
+        git_probe,
+        images: image_state,
+    } = inputs;
     let mut findings = Vec::new();
     let verified: Vec<_> = probes
         .iter()
@@ -80,7 +111,12 @@ pub fn assess_for_scan_with_git_and_bootstrap_provider(
         findings.push(finding);
     }
 
-    findings.extend(images::findings(docker, host));
+    findings.extend(images::findings(
+        docker,
+        host,
+        &image_state.required_profiles,
+        &image_state.smoke_verified_profiles,
+    ));
 
     // Docker Desktop endpoints are parseable today, but safe end-to-end
     // execution on these hosts is not production validated (#347).
@@ -177,72 +213,17 @@ pub fn assess_for_scan_with_git_and_bootstrap_provider(
         probe_evidence,
         prerequisite_graph,
         findings,
-        checked_domains: {
-            // Readiness, not merely completed probing, can resolve old tasks.
-            // A stopped/rootful/untrusted Engine cannot prove that an earlier
-            // Docker prerequisite was fixed. Likewise, an unknown CLI account
-            // cannot verify a previously failing provider.
-            let mut domains = Vec::new();
-            if explicit_provider_ids.iter().any(|provider_id| {
-                ProviderIdV1::from_probe_id(provider_id).is_some_and(|provider| {
-                    probes.iter().any(|probe| {
-                        probe.provider_id == provider.probe_id()
-                            && probe.run_generation == scan_generation
-                    })
-                })
-            }) {
-                domains.push("cli:install".into());
-            }
-            if probes.len() == 6
-                && probes.iter().all(|probe| {
-                    probe.run_generation == scan_generation && probe.status != ProbeStatus::Failed
-                })
-            {
-                domains.push("cli:scan".into());
-            }
-            for probe in &verified {
-                domains.push(format!("cli:{}", probe.provider_id));
-            }
-            if provider_choices
-                .default_agent
-                .is_some_and(|id| verified.iter().any(|probe| probe.provider_id == id))
-            {
-                domains.push("cli:select".into());
-            }
-            if host == HostKind::Linux
-                && !docker.desktop_vm
-                && docker.engine_ready
-                && docker.rootless == Some(true)
-            {
-                domains.push("docker".into());
-            }
-            if matches!(host, HostKind::MacOs | HostKind::Windows)
-                && docker.desktop_vm
-                && docker.engine_ready
-                && matches!(
-                    docker.state,
-                    crate::execution::docker::environment::DockerEnvironmentState::MissingApprovedImage
-                        | crate::execution::docker::environment::DockerEnvironmentState::Ready
-                )
-            {
-                domains.push("docker:desktop".into());
-            }
-            if git_probe.executable_state == EvidenceState::Ready {
-                domains.push("git:executable".into());
-            }
-            if git_probe.executable_state == EvidenceState::Ready
-                && git_probe.identity_state == EvidenceState::Ready
-            {
-                domains.push("git:identity".into());
-            }
-            if git_probe.executable_state == EvidenceState::Ready
-                && git_probe.identity_state == EvidenceState::Ready
-            {
-                domains.push("git".into());
-            }
-            domains.extend(images::checked_domains(docker, host));
-            domains
-        },
+        checked_domains: checked_domains::collect(checked_domains::Inputs {
+            probes,
+            scan_generation,
+            verified: &verified,
+            setup_provider: provider_choices.guided_setup,
+            selected_agent: provider_choices.default_agent,
+            docker,
+            host,
+            git_probe: &git_probe,
+            image_state: &image_state,
+        }),
     };
     debug_assert!(
         snapshot.validate().is_ok(),

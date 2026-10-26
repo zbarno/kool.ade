@@ -11,6 +11,9 @@ mod derived_image;
 mod docker_api;
 mod errors;
 mod image_derivation;
+mod image_inspection;
+mod image_preparation;
+mod image_pull;
 mod snapshot;
 pub(crate) use docker_api::DockerApi;
 use errors::{
@@ -32,6 +35,7 @@ mod smoke;
 pub(crate) use approval::fingerprint as approval_fingerprint;
 use bollard_api::BollardApi;
 pub use endpoint::{DockerEndpoint, HostPlatform};
+pub(crate) use image_pull::{ImagePullControl, ImagePullProgress};
 pub use snapshot::EngineSnapshot;
 
 pub const PROBE_CACHE_TTL: Duration = Duration::from_secs(15);
@@ -231,39 +235,9 @@ impl EngineDiscovery {
         Ok(snapshot)
     }
 
-    /// Pulls only an image selected from the bundled digest lock. Health probes never pull images.
+    /// Checks a locked image that is already local. Pulls require an approved action.
     pub async fn prepare_image(&self, image: &SelectedImage) -> Result<(), PrerequisiteFailure> {
-        self.prepare_image_with_fingerprint(image, None).await
-    }
-
-    async fn prepare_image_with_fingerprint(
-        &self,
-        image: &SelectedImage,
-        expected_engine_fingerprint: Option<&str>,
-    ) -> Result<(), PrerequisiteFailure> {
-        let lock = ImageLock::bundled()?;
-        let architecture = image.platform.strip_prefix("linux/").unwrap_or_default();
-        let expected = lock.select(image.profile, architecture)?;
-        if expected != *image {
-            return Err(failure(
-                PrerequisiteCode::ImageDigestMismatch,
-                "Requested image does not match the bundled approved digest lock",
-                false,
-            ));
-        }
-        let observed = tokio::time::timeout(
-            self.timeouts.image_preparation,
-            self.api.ensure_image(image, expected_engine_fingerprint),
-        )
-        .await
-        .map_err(|_| operation_timeout("trusted executor image preparation"))??;
-        crate::execution::docker::images::verify_image_observation(
-            image,
-            &observed.repo_digests,
-            &observed.os,
-            &observed.architecture,
-        )?;
-        Ok(())
+        self.verify_image_present(image).await
     }
 
     pub fn endpoint(&self) -> &DockerEndpoint {

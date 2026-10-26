@@ -128,7 +128,5 @@ fn can_approve_image_fix(task: &LocalTask) -> bool {
 }
 
 fn supported_image_task(task: &LocalTask) -> bool {
-    task.id
-        .strip_prefix("setup:images:general:")
-        .is_some_and(|architecture| matches!(architecture, "amd64" | "arm64"))
+    crate::app::bootstrap_repair_policy::parse_locked_image_task_id(&task.id).is_some()
 }

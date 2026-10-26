@@ -1,6 +1,7 @@
 use super::{SetupIssue, bootstrap, catalog};
 
 mod commit;
+mod image_receipts;
 #[cfg(test)]
 mod tests;
 
@@ -87,17 +88,40 @@ pub fn scan(
         return SetupScanResult::cancelled(generation);
     }
     let checked_at = crate::persistence::harness_settings::current_unix_ms();
-    let mut snapshot = catalog::assess_for_scan_with_git_and_bootstrap_provider(
+    let setup_store = match crate::persistence::setup_tasks::load() {
+        Ok(store) => store,
+        Err(_) => {
+            return SetupScanResult {
+                generation,
+                issue: Some(SetupIssue::provider(
+                    "Could not read workload image requirements. Retry the machine setup check.",
+                )),
+                snapshot: None,
+                endpoint_fingerprint: None,
+                daemon_identity_fingerprint: None,
+                docker_readiness_fingerprint: None,
+                setup_provider: None,
+                selected_provider: None,
+                cancelled: false,
+            };
+        }
+    };
+    let host = catalog::HostKind::current();
+    let image_state = image_receipts::scan_state(&setup_store, &docker, host);
+    let mut snapshot = catalog::assess_for_scan_with_inputs_and_bootstrap_provider(
         &probes,
         catalog::ProviderChoices {
             default_agent: selected,
             guided_setup: setup_provider,
         },
         &docker,
-        catalog::HostKind::current(),
+        host,
         checked_at,
         generation,
-        git_probe,
+        catalog::ScanInputs {
+            git_probe,
+            images: image_state,
+        },
     );
     snapshot.scan_started_at_unix_ms = started_at;
     if snapshot.validate().is_err() {
@@ -137,7 +161,7 @@ fn issue_for_readiness(
 ) -> Option<SetupIssue> {
     let pending_required_task = snapshot.findings.iter().any(|finding| {
         finding.status == catalog::FindingStatus::Unsupported
-            || finding.id.starts_with("setup:images:general:")
+            || finding.id.starts_with("setup:images:")
             || finding.id.starts_with("setup:git:")
     });
     cli_issue.or_else(|| {

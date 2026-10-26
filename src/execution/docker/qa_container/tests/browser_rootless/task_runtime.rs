@@ -20,6 +20,10 @@ mod setup;
 #[ignore = "requires rootless Docker and the loaded Python/browser QA images"]
 fn rootless_approved_task_build_test_start_receipts_feed_browser_qa_artifact() {
     let endpoint = rootless_action_endpoint();
+    let mut action_socket_environment = crate::test_support::ProcessEnvironmentGuard::new();
+    if let crate::execution::docker::engine::DockerEndpoint::Unix { path, .. } = &endpoint {
+        action_socket_environment.set("KOOLADE_TEST_ROOTLESS_ACTION_SOCKET", path.as_os_str());
+    }
     let docker = endpoint.connect().unwrap();
     let info = tokio::runtime::Builder::new_current_thread()
         .enable_all()

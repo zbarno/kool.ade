@@ -15,7 +15,8 @@ use super::recovery::{
 };
 use super::steps::{PipelineFailureKind, authorize_publish_execute};
 
-const TASK_ID: &str = "setup:images:general:amd64";
+const TASK_ID: &str =
+    "setup:images:general:amd64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const OPERATION_ID: &str = "00000000-0000-4000-8000-000000000001";
 const RECEIPT_ID: &str = "00000000-0000-4000-8000-000000000002";
 const NEXT_OPERATION_ID: &str = "00000000-0000-4000-8000-000000000003";

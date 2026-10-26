@@ -1,5 +1,6 @@
 use super::super::*;
 use crate::app::bootstrap_remediation::request::OperationParameters;
+use crate::app::bootstrap_repair_policy::parse_locked_image_task_id;
 
 pub(super) fn validate_artifact_policy(plan: &RemediationPlan) -> anyhow::Result<()> {
     anyhow::ensure!(
@@ -93,13 +94,8 @@ pub(super) fn parameters_from_plan(plan: &RemediationPlan) -> anyhow::Result<Ope
             Ok(OperationParameters::None)
         }
         Operation::PrepareLockedImage => {
-            let image = plan
-                .prerequisite_id
-                .strip_prefix("setup:images:")
+            let (profile, architecture, _) = parse_locked_image_task_id(&plan.prerequisite_id)
                 .ok_or_else(|| anyhow::anyhow!("locked image task identity is not canonical"))?;
-            let (profile, architecture) = image
-                .split_once(':')
-                .ok_or_else(|| anyhow::anyhow!("locked image task identity lacks architecture"))?;
             Ok(OperationParameters::LockedImage {
                 profile: profile.to_owned(),
                 architecture: architecture.to_owned(),

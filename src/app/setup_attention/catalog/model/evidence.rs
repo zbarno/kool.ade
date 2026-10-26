@@ -143,6 +143,9 @@ pub enum ProbeObservationV1 {
         distribution: Option<LinuxDistributionV1>,
         version: Option<LinuxDistributionVersionV1>,
     },
+    DockerEngineIdentity {
+        fingerprint: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

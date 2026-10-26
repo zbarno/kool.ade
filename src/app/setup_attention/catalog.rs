@@ -72,7 +72,11 @@ impl Finding {
 
 #[cfg(test)]
 pub use assess::assess;
-pub use assess::assess_for_scan_with_git_and_bootstrap_provider;
 pub(crate) use assess::probe_git;
+pub(crate) use assess::{
+    ImageScanState, ScanInputs, assess_for_scan_with_inputs_and_bootstrap_provider,
+};
 #[cfg(test)]
-pub use assess::{assess_for_scan, assess_for_scan_with_git};
+pub use assess::{
+    assess_for_scan, assess_for_scan_with_git, assess_for_scan_with_git_and_bootstrap_provider,
+};

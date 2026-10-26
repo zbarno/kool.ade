@@ -194,7 +194,10 @@ fn unselected_provider_chooser_has_no_provider_specific_install_recipe() {
 fn only_unblocked_supported_repairs_offer_the_typed_action() {
     use crate::persistence::setup_tasks::State;
 
-    let mut image = task("setup:images:general:amd64", State::ReadyToFix);
+    let mut image = task(
+        "setup:images:general:amd64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        State::ReadyToFix,
+    );
     assert!(supports_repair(&image, false));
     image.blocked_by.push("setup:docker:rootless".into());
     assert!(!supports_repair(&image, false));
@@ -242,7 +245,10 @@ fn claude_install_review_is_limited_to_active_supported_task_states() {
 fn image_approval_and_progress_states_keep_the_repair_panel_visible() {
     use crate::persistence::setup_tasks::State;
 
-    let mut image = task("setup:images:general:amd64", State::NeedsApproval);
+    let mut image = task(
+        "setup:images:general:amd64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        State::NeedsApproval,
+    );
     assert!(!supports_repair(&image, false));
     assert!(should_paint_image_preparation(&image));
     image.state = State::InProgress;

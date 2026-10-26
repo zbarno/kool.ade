@@ -239,6 +239,27 @@ impl DockerEnvironmentStatus {
         format!("{:x}", sha2::Sha256::digest(encoded))
     }
 
+    /// Stable identity for image task IDs and receipts. The daemon ID is
+    /// already reduced to a hash by the probe; readiness and image inventory
+    /// are intentionally excluded so a pull does not change the task key.
+    pub(crate) fn engine_identity_fingerprint(&self) -> Option<String> {
+        use sha2::Digest as _;
+
+        if !self.engine_ready {
+            return None;
+        }
+        let endpoint = DockerEndpoint::from_process_environment(probe::host_platform())
+            .ok()?
+            .fingerprint();
+        let daemon = self.daemon_identity_fingerprint.as_deref()?;
+        if !is_sha256_hex(&endpoint) || !is_sha256_hex(daemon) {
+            return None;
+        }
+        let identity =
+            serde_json::to_vec(&("koolade-engine-identity-v1", endpoint, daemon)).ok()?;
+        Some(format!("{:x}", sha2::Sha256::digest(identity)))
+    }
+
     pub(crate) fn current_endpoint_fingerprint() -> Option<String> {
         let endpoint = DockerEndpoint::from_process_environment(host_platform()).ok()?;
         Some(endpoint_fingerprint(
@@ -247,6 +268,13 @@ impl DockerEnvironmentStatus {
             std::env::var("DOCKER_HOST").ok().as_deref(),
         ))
     }
+}
+
+fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 #[cfg(test)]

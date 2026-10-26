@@ -59,15 +59,38 @@ impl VerifiedEngine {
                 Some("go") => RuntimeProfile::Go,
                 _ => anyhow::bail!("The requested image profile is not approved"),
             };
-            let image = ImageLock::bundled()?.select(profile, &snapshot.architecture)?;
+            let lock = ImageLock::bundled()?;
+            let image = lock.select(profile, &snapshot.architecture)?;
+            let estimate = lock.size_estimate(profile, &snapshot.architecture)?;
+            let disk_available_bytes = snapshot.disk_available_bytes.ok_or_else(|| {
+                anyhow::anyhow!("Docker storage capacity is unknown; image preparation is disabled")
+            })?;
+            let minimum_required_bytes = snapshot
+                .minimum_disk_bytes
+                .checked_add(estimate.estimated_storage_bytes)
+                .ok_or_else(|| anyhow::anyhow!("Image storage requirement overflowed"))?;
+            anyhow::ensure!(
+                disk_available_bytes >= minimum_required_bytes,
+                "Docker image storage does not have enough free space for this pinned runtime image"
+            );
+            let profile_name = proposal
+                .image_profile
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("The repair proposal has no image profile"))?;
+            let engine_identity_fingerprint = super::super::engine_identity_fingerprint(
+                &endpoint.fingerprint(),
+                &snapshot.daemon_id,
+            )
+            .ok_or_else(|| {
+                anyhow::anyhow!("The trusted engine identity could not be fingerprinted")
+            })?;
             anyhow::ensure!(
                 proposal.prerequisite_id
                     == format!(
-                        "setup:images:{}:{}",
-                        proposal.image_profile.as_deref().unwrap(),
+                        "setup:images:{profile_name}:{}:{engine_identity_fingerprint}",
                         image.platform.trim_start_matches("linux/")
                     ),
-                "Repair proposal does not match the approved image architecture"
+                "Repair proposal does not match the approved image architecture and engine identity"
             );
             let machine_id = super::linux_machine_id()?;
             let principal = unsafe { libc::geteuid() };
@@ -84,9 +107,14 @@ impl VerifiedEngine {
                 super::super::now_unix_ms()?,
             )?;
             binding.daemon_id = snapshot.daemon_id.clone();
+            binding.engine_identity_fingerprint = engine_identity_fingerprint;
             binding.image_reference.clone_from(&image.reference);
             binding.image_digest.clone_from(&image.digest);
             binding.image_platform.clone_from(&image.platform);
+            binding.estimated_pull_bytes = estimate.estimated_pull_bytes;
+            binding.estimated_storage_bytes = estimate.estimated_storage_bytes;
+            binding.disk_available_bytes = disk_available_bytes;
+            binding.minimum_disk_bytes = snapshot.minimum_disk_bytes;
             Ok(Self { binding, engine })
         }
         #[cfg(not(target_os = "linux"))]
@@ -107,15 +135,16 @@ impl VerifiedEngine {
 
     pub(in crate::app::bootstrap_approval) async fn run_smoke_test(
         self,
-        _authorization: &super::super::capability::ApprovedAction,
-    ) -> anyhow::Result<()> {
+        _authorization: super::super::capability::ApprovedAction,
+        _pull_control: &crate::execution::docker::engine::ImagePullControl,
+    ) -> anyhow::Result<super::super::capability::ImagePreparationReceipt> {
         #[cfg(target_os = "linux")]
         {
             let staging = crate::execution::docker::environment::app_staging_root()?;
             self.engine
-                .test_approved_image(&staging, _authorization)
-                .await?;
-            Ok(())
+                .test_approved_image(&staging, _authorization, _pull_control)
+                .await
+                .map_err(anyhow::Error::new)
         }
         #[cfg(not(target_os = "linux"))]
         {

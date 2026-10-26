@@ -97,7 +97,15 @@ pub(super) fn push(
     } else {
         (State::Unknown, Code::DockerCapabilityUnknown)
     };
-    result.push(add(Capability::DockerEndpoint, endpoint.0, endpoint.1));
+    let mut endpoint_evidence = add(Capability::DockerEndpoint, endpoint.0, endpoint.1);
+    if let Some(fingerprint) = docker.engine_identity_fingerprint() {
+        endpoint_evidence.observation = Some(
+            crate::app::setup_attention::catalog::ProbeObservationV1::DockerEngineIdentity {
+                fingerprint,
+            },
+        );
+    }
+    result.push(endpoint_evidence);
     let rootless = if host != HostKind::Linux {
         (State::NotApplicable, Code::DockerCapabilityUnknown)
     } else {

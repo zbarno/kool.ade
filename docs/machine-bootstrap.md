@@ -2,12 +2,14 @@
 
 Tracking: [#337](https://github.com/zbarno/kool.ade/issues/337).
 
-## Implementation status: incremental slices
+## Implementation status: incremental foundation; provider routeability and locked image preparation remain in progress
 
 The readiness catalog, machine-local tasks, shared setup UI, remediation
-broker, and provider setup guidance are implemented in slices #339–#343. This
-does not certify native execution or novice first-run acceptance on every
-host; real-host and usability evidence remains tracked by #346–#351.
+broker, and provider setup guidance are implemented in slices #339–#343. No
+fresh-install path currently proves a provider can authenticate, expose a
+usable model, and run in Kool.ad/e's context-only route. Issue #343 remains
+open for that routeability gap. Native execution and novice first-run
+acceptance also remain tracked by #346–#351.
 
 Kool.ad/e starts bounded discovery of the six supported coding-agent CLIs and
 Git from first launch, before a workspace or Docker daemon exists. Provider
@@ -155,6 +157,20 @@ endpoint or model is available. A live endpoint that omits the configured model
 produces a fresh catalog with no usable model. Remote model lists and saved
 remote credentials do not verify account access and remain unverified.
 
+## Locked image preparation
+
+Locked image tasks are created only after a trusted native Linux rootless Engine
+is available. Their IDs bind the runtime profile, Engine architecture, and a
+stable hash of the endpoint and daemon identity. General is always checked;
+Rust, Node, Python, and Go are requested from actual workload requirements.
+Preparation selects only the bundled digest lock, shows its registry and
+approximate transfer and storage costs, then pulls only after the operator
+approves. A successful task records an Engine- and digest-bound receipt after
+the isolated smoke test. Workload execution rechecks that receipt and inspects
+the exact local image; ordinary execution never pulls an image implicitly.
+Browser and desktop QA images remain disabled. Docker Desktop image preparation
+remains gated on the trusted VM transport and capacity evidence tracked by #347.
+
 ## Safety contract
 
 - A Docker or image finding comes only from its own typed probe evidence. An
@@ -217,7 +233,7 @@ validation. Synthetic platform fixtures validate classification; they do not
 establish support on those hosts.
 
 This readiness layer does not install packages, configure services, pull images
-automatically, or execute model-provided shell commands. A supported
+without explicit approval, or execute model-provided shell commands. A supported
 remediation operation uses a typed action, required operator approval and
 native privilege confirmation, and an independent readiness probe. If a coding
 CLI is absent or unusable, deterministic setup instructions remain available
