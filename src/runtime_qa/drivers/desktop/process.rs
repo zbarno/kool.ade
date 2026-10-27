@@ -158,12 +158,12 @@ impl Drop for TargetProcess {
 
 /// Maps a spawn failure for an approved artifact to the target-capability
 /// vocabulary used in QA summaries. The executable path is canonicalized,
-/// stat-checked, and exec-bit verified above, so a spawn-time `NotFound` means
-/// the dynamic loader could not resolve a shared-object dependency of the
-/// packaged artifact rather than the artifact file being absent.
+/// stat-checked, and exec-bit verified above, so a spawn-time `NotFound` points
+/// to a runtime-loader problem, such as an absent ELF interpreter or an
+/// unresolved shared-object dependency, rather than the artifact file being absent.
 pub(super) fn launch_capability_diagnostic(error: &std::io::Error) -> &'static str {
     if error.kind() == std::io::ErrorKind::NotFound {
-        "dynamic loader could not resolve shared-object dependencies of the approved artifact (target capability: missing_dependencies)"
+        "runtime loader or a shared-object dependency of the approved artifact is unavailable (target capability: missing_dependencies)"
     } else {
         "approved artifact process could not be started (target capability: start_failed)"
     }
@@ -187,13 +187,13 @@ fn drain(stream: Option<impl std::io::Read + Send + 'static>, logs: Arc<Mutex<Ve
 mod tests {
     use super::launch_capability_diagnostic;
 
-    /// Spawn NotFound on a canonicalized, stat-verified path is a loader
-    /// failure (unresolved NEEDED entry), which QA reports as a missing
-    /// dependency rather than a pass or a generic start failure.
+    /// Spawn NotFound on a canonicalized, stat-verified path is a runtime
+    /// loader or dependency problem rather than a pass or generic start failure.
     #[test]
     fn spawn_not_found_reports_missing_dependencies() {
         let error = std::io::Error::from(std::io::ErrorKind::NotFound);
         let diagnostic = launch_capability_diagnostic(&error);
+        assert!(diagnostic.contains("runtime loader or a shared-object dependency"));
         assert!(diagnostic.ends_with("(target capability: missing_dependencies)"));
     }
 
