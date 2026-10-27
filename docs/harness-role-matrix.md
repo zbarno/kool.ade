@@ -123,9 +123,12 @@ validation, and Docker-backed provider smoke tests remain open before treating
 every `P` cell as release-ready.
 
 The current probes do not establish fresh account-specific model access for
-cloud providers: Pi's credential resolver is not invoked because its auth file
-can run a user command, Codex and Claude model catalogs remain stale, and
-Copilot and Antigravity authentication remains unknown. Only an explicitly
-configured OpenCode loopback model endpoint can currently provide fresh model
-evidence without a remote account check. The `P` cells describe conditional
-role contracts; they do not mean these providers are ready on a fresh clone.
+most cloud providers: Pi's credential resolver is not invoked because its auth
+file can run a user command, Codex and Claude model catalogs remain stale, and
+Copilot and Antigravity authentication remains unknown. OpenCode can verify a
+saved Anthropic API key with a non-generative HTTPS models request and promote
+only model IDs also present in its selectable catalog. Other OpenCode remote
+credentials remain unverified. An explicitly configured OpenCode loopback
+model endpoint can also provide fresh model evidence. The `P` cells describe
+conditional role contracts; they do not mean every provider is ready on a
+fresh clone.

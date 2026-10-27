@@ -69,7 +69,7 @@ pub(crate) const UNSAFE_PROVIDER_LAUNCH_ENV: &[&str] = &[
 pub(crate) use application_boundary::PrivateDirectory;
 pub(crate) use application_boundary::{
     ApplicationBoundary, CliProvider, ProfileProbeEvidence, ValidatedProviderLaunch,
-    ensure_claude_update_policy,
+    ensure_claude_update_policy, opencode_has_custom_provider_settings,
 };
 #[cfg(test)]
 pub(crate) use application_boundary::{override_test_app_binary, override_test_resource_budgets};

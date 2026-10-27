@@ -249,6 +249,10 @@ pub(super) fn configure(
     Ok(())
 }
 
+pub(crate) fn opencode_has_custom_provider_settings(provider: &str) -> anyhow::Result<bool> {
+    opencode::has_custom_provider_settings(provider)
+}
+
 pub(crate) fn ensure_claude_update_policy() -> anyhow::Result<()> {
     #[cfg(not(test))]
     claude::ensure_no_local_managed_host_execution()?;

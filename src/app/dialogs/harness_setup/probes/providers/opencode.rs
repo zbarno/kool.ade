@@ -8,29 +8,30 @@ pub(super) fn discover(runtime_available: bool) -> HarnessProbe {
         crate::harness::opencode_harness::OpenCodeReadiness::Ready
             | crate::harness::opencode_harness::OpenCodeReadiness::CatalogUnavailable
     );
-    let mut authentication = if probe.readiness
-        == crate::harness::opencode_harness::OpenCodeReadiness::AuthenticationRequired
-    {
-        ReadinessState::Unavailable
-    } else if let Some(binary) = probe.binary.as_deref() {
-        super::opencode_authentication::probe(binary)
-    } else {
-        ReadinessState::Unknown
-    };
     let local_evidence = super::opencode_local_models::probe_local_models(&probe.models);
     // For known local-only providers, authentication Ready means no credentials are required;
-    // only a fresh catalog response that lists a configured model can make it routable.
-    let (models, model_catalog_fresh, local_diagnostic) = match local_evidence {
+    // only a fresh catalog response that lists a configured model can make it routable. Remote
+    // Anthropic access uses a separate non-generative key and model-list check.
+    let (authentication, models, model_catalog_fresh, local_diagnostic) = match local_evidence {
         super::opencode_local_models::LocalModelEvidence::NotConfigured => {
-            let catalog_is_fresh =
-                authentication == ReadinessState::Ready && !probe.models.is_empty();
-            (probe.models, catalog_is_fresh, None)
+            if let Some(binary) = probe.binary.as_deref() {
+                let evidence =
+                    super::opencode_authentication::verify_anthropic(binary, &probe.models);
+                (
+                    evidence.authentication,
+                    evidence.models.unwrap_or(probe.models),
+                    evidence.model_catalog_fresh,
+                    evidence.diagnostic,
+                )
+            } else {
+                (ReadinessState::Unknown, probe.models, false, None)
+            }
         }
         super::opencode_local_models::LocalModelEvidence::EndpointUnavailable => {
             // For these documented local-only providers, authentication is not required. The
             // stale catalog still blocks routing until the endpoint returns fresh model evidence.
-            authentication = ReadinessState::Ready;
             (
+                ReadinessState::Ready,
                 probe.models,
                 false,
                 Some(
@@ -38,22 +39,19 @@ pub(super) fn discover(runtime_available: bool) -> HarnessProbe {
                 ),
             )
         }
-        super::opencode_local_models::LocalModelEvidence::AuthenticationRequired => {
-            authentication = ReadinessState::Unavailable;
-            (
-                probe.models,
-                false,
-                Some(
-                    "The configured local OpenCode endpoint rejected an unauthenticated model-catalog request.",
-                ),
-            )
-        }
+        super::opencode_local_models::LocalModelEvidence::AuthenticationRequired => (
+            ReadinessState::Unavailable,
+            probe.models,
+            false,
+            Some(
+                "The configured local OpenCode endpoint rejected an unauthenticated model-catalog request.",
+            ),
+        ),
         super::opencode_local_models::LocalModelEvidence::FreshCatalog(models) => {
-            authentication = ReadinessState::Ready;
             let diagnostic = models.is_empty().then_some(
                 "The live local OpenCode catalog does not list the configured model. Choose an available model and retry discovery.",
             );
-            (models, true, diagnostic)
+            (ReadinessState::Ready, models, true, diagnostic)
         }
     };
     let auth_diagnostic = if local_diagnostic.is_none()
@@ -61,9 +59,7 @@ pub(super) fn discover(runtime_available: bool) -> HarnessProbe {
         && probe.readiness
             != crate::harness::opencode_harness::OpenCodeReadiness::AuthenticationRequired
     {
-        Some(
-            "OpenCode provider access is unverified. Sign in with `opencode auth login`, or start the configured local model endpoint, then rediscover.",
-        )
+        Some("OpenCode provider access is unverified. Sign in with the provider, then rediscover.")
     } else if authentication == ReadinessState::Unknown && probe.diagnostic.is_empty() {
         Some("OpenCode authentication could not be verified by `opencode auth list`.")
     } else {

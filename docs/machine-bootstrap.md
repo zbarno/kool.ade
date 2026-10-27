@@ -2,14 +2,16 @@
 
 Tracking: [#337](https://github.com/zbarno/kool.ade/issues/337).
 
-## Implementation status: incremental foundation; provider routeability and locked image preparation remain in progress
+## Implementation status: guided provider setup and one verified account/model path; real-provider validation remains
 
 The readiness catalog, machine-local tasks, shared setup UI, remediation
-broker, and provider setup guidance are implemented in slices #339–#343. No
-fresh-install path currently proves a provider can authenticate, expose a
-usable model, and run in Kool.ad/e's context-only route. Issue #343 remains
-open for that routeability gap. Native execution and novice first-run
-acceptance also remain tracked by #346–#351.
+broker, and provider setup guidance are implemented in slices #339–#343.
+OpenCode v2 with a saved Anthropic API key now has a non-generative account
+check and fresh usable-model evidence. Actual provider conversation, Docker
+MCP routing, accessibility, and native first-run behavior still need human
+validation; PR #374 records that follow-up. OAuth and environment credentials
+remain unverified. Native execution and novice first-run acceptance are also
+tracked by #346–#351.
 
 Kool.ad/e starts bounded discovery of the six supported coding-agent CLIs and
 Git from first launch, before a workspace or Docker daemon exists. Provider
@@ -125,11 +127,22 @@ resolve a key by running a configured `!command`; Kool.ad/e does not invoke this
 check and leaves Pi authentication unknown. Its bundled/configured model
 catalog can be cached or used offline. See Pi's [provider guide](https://pi.dev/docs/latest/providers)
 for command-backed keys and [CLI reference](https://pi.dev/docs/latest/cli) for
-the credential command. Stored OpenCode
-credentials, Copilot sign-in configuration, and Antigravity configuration/model
-listings also do not prove current account access and remain unverified. Claude
-model names read from local configuration are not treated as a fresh provider
-catalog. Claude Code's documented
+the credential command. For OpenCode v2, a saved Anthropic API key can be
+checked without generating a response: Kool.ad/e captures only the selected
+provider's documented `auth export` output in memory, sends one fixed HTTPS
+`GET /v1/models` request to Anthropic, and intersects active API model IDs with
+OpenCode's selectable model catalog. It does not follow redirects or use a
+proxy, and it never records the exported key in setup-task logs. OAuth and
+environment credentials, custom Anthropic provider settings, and OpenCode
+versions without the provider-scoped export remain unverified. OpenCode's
+[provider guide](https://dev.opencode.ai/v2/docs/cli/providers) and
+[CLI commands](https://dev.opencode.ai/v2/docs/cli/commands/) describe login and
+credential export; Anthropic documents the non-generative
+[List Models API](https://platform.claude.com/docs/en/api/models/list).
+Copilot sign-in configuration and Antigravity configuration/model listings do
+not prove current account access and remain unverified. Claude model names read
+from local configuration are not treated as a fresh provider catalog. Claude
+Code's documented
 [`auth status` command](https://code.claude.com/docs/en/cli-reference)
 records that the CLI reports a logged-in method; it does not prove current
 model entitlement. Providers without a safe
@@ -155,7 +168,9 @@ unreachable service as stale model evidence. For Ollama, LM Studio, and vLLM,
 authentication ready means credentials are not required; it does not prove the
 endpoint or model is available. A live endpoint that omits the configured model
 produces a fresh catalog with no usable model. Remote model lists and saved
-remote credentials do not verify account access and remain unverified.
+credentials remain unverified unless they use the OpenCode v2 Anthropic API-key
+check described above. Verified API keys are re-exported only for the selected
+Anthropic model into a private per-invocation home for provider execution.
 
 ## Locked image preparation
 

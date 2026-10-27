@@ -23,6 +23,7 @@ use construction::default_resource_budget;
 pub(crate) use private_directory::PrivateDirectory;
 pub(crate) use providers::{
     CliProvider, ProfileProbeEvidence, ValidatedProviderLaunch, ensure_claude_update_policy,
+    opencode_has_custom_provider_settings,
 };
 #[cfg(test)]
 pub(crate) use test_overrides::override_test_resource_budgets;

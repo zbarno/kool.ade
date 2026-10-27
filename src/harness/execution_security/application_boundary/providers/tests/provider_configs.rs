@@ -3,6 +3,10 @@ use super::{read_json, test_boundary};
 use crate::harness::ToolAccess;
 use serde_json::Value;
 
+#[cfg(unix)]
+#[path = "provider_configs/opencode_auth.rs"]
+mod opencode_auth;
+
 #[test]
 fn claude_is_restricted_to_exact_application_mcp_tools() {
     let boundary = test_boundary(ToolAccess::BoundedImplementation);
