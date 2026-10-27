@@ -101,14 +101,18 @@ pub(super) fn append_findings(
         )),
         _ => {}
     }
-    if state(Capability::WindowsWslFeature) == EvidenceState::Missing
-        || state(Capability::WindowsVmPlatformFeature) == EvidenceState::Missing
+    let host_ready = state(Capability::HostEdition) == EvidenceState::Ready;
+    let policy_ready = state(Capability::WindowsWslPolicy) == EvidenceState::Ready;
+    if host_ready
+        && policy_ready
+        && (state(Capability::WindowsWslFeature) == EvidenceState::Missing
+            || state(Capability::WindowsVmPlatformFeature) == EvidenceState::Missing)
     {
         findings.push(Finding::action(
             "setup:windows:wsl-features",
             "Enable WSL2 Windows features",
             "Windows Subsystem for Linux and Virtual Machine Platform must both be enabled.",
-            "Enable both optional Windows features, then restart Windows if prompted.",
+            "From Start, search for ‘Turn Windows features on or off’. Select both ‘Windows Subsystem for Linux’ and ‘Virtual Machine Platform’, choose OK, and restart when Windows asks. If your device blocks the change or requires an administrator, ask your administrator; do not change security policy.",
         ));
     }
     match state(Capability::WindowsReboot) {
@@ -134,20 +138,25 @@ pub(super) fn append_findings(
             "Enable virtualization in firmware or the parent hypervisor settings, then retry.",
         ));
     }
-    match state(Capability::WindowsWslKernel) {
-        EvidenceState::Missing => findings.push(Finding::action(
-            "setup:windows:wsl-kernel",
-            "Install or update the WSL2 kernel",
-            "Windows did not report an installed WSL2 Linux kernel.",
-            "Run the official WSL update flow, then retry the readiness scan.",
-        )),
-        EvidenceState::Unknown | EvidenceState::Failed => findings.push(Finding::unverified(
-            "setup:windows:wsl-kernel-check",
-            "Verify the WSL2 kernel",
-            "Kool.ad/e could not confirm the installed WSL2 Linux kernel version.",
-            "Run the official WSL status and update flow, then retry.",
-        )),
-        _ => {}
+    let features_ready = state(Capability::WindowsWslFeature) == EvidenceState::Ready
+        && state(Capability::WindowsVmPlatformFeature) == EvidenceState::Ready
+        && state(Capability::WindowsReboot) == EvidenceState::Ready;
+    if host_ready && policy_ready && features_ready {
+        match state(Capability::WindowsWslKernel) {
+            EvidenceState::Missing => findings.push(Finding::action(
+                "setup:windows:wsl-kernel",
+                "Install or update the WSL2 kernel",
+                "Windows did not report an installed WSL2 Linux kernel.",
+                "Run the official WSL update flow, then retry the readiness scan.",
+            )),
+            EvidenceState::Unknown | EvidenceState::Failed => findings.push(Finding::unverified(
+                "setup:windows:wsl-kernel-check",
+                "Verify the WSL2 kernel",
+                "Kool.ad/e could not confirm the installed WSL2 Linux kernel version.",
+                "Run the official WSL status and update flow, then retry.",
+            )),
+            _ => {}
+        }
     }
     let readiness = [
         Capability::HostEdition,
