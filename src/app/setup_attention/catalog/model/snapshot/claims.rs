@@ -10,6 +10,9 @@ mod evidence;
 mod images;
 mod rootless_smoke;
 mod support;
+mod windows;
+
+pub(super) use windows::observation_is_consistent as windows_observation_is_consistent;
 
 use images::{image_domain_ready, is_lower_sha256};
 

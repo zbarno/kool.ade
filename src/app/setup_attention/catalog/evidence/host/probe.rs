@@ -9,6 +9,8 @@ mod distro;
 mod linux;
 #[cfg(target_os = "linux")]
 mod system;
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod windows;
 
 #[cfg(test)]
 pub(super) use distro::distribution_from_os_release;
@@ -17,6 +19,8 @@ pub(super) use linux::LinuxProbeFacts;
 pub(super) use linux::inspect as inspect_linux;
 #[cfg(test)]
 pub(super) use linux::{parse_distribution, parse_kernel};
+pub(super) use windows::WindowsFacts;
+pub(crate) use windows::collect as collect_windows;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ProbeRead<T> {
@@ -49,7 +53,7 @@ pub(super) trait ProbeSource {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct ProbeFact {
+pub(crate) struct ProbeFact {
     pub state: State,
     pub code: Code,
     pub observation: Option<Observation>,
