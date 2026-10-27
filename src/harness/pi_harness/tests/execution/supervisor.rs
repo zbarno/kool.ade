@@ -26,7 +26,15 @@ fn tool_harness_receives_supervisor_identity_and_process_ownership_rules() {
         r#"{"providers":{"fixture":{"api":"openai-completions","baseUrl":"https://api.example.invalid/v1","models":[{"id":"fixture-model","name":"Fixture Model"}]}}}"#,
     )
     .unwrap();
-    let script = root.join("pi");
+    let package = root.join("pi-package");
+    let script_directory = package.join("dist/bundle");
+    fs::create_dir_all(&script_directory).unwrap();
+    fs::write(
+        package.join("package.json"),
+        r#"{"name":"@earendil-works/pi-coding-agent"}"#,
+    )
+    .unwrap();
+    let script = script_directory.join("pi");
     fs::write(&script, r#"#!/bin/sh
 if [ "$1" = --version ]; then
     echo 'pi - v0.84.4'
@@ -36,7 +44,7 @@ if [ "$1" = --help ]; then
     printf '%s\n' '--print' '--mode <mode> json' '--provider' '--model' '--no-session' '--no-approve' '--append-system-prompt' '--thinking <level> xhigh' '--no-extensions' '--no-skills' '--no-prompt-templates' '--no-themes' '--no-context-files' '--no-tools' '--tools' '--no-builtin-tools' '--extension'
     exit 0
 fi
-dir=$(dirname "$0")
+dir=$(cd "$(dirname "$0")/../../.." && pwd)
 args="$*"
 system=''
 while [ "$#" -gt 0 ]; do

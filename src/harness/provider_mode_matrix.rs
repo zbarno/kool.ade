@@ -62,7 +62,19 @@ fn supported_providers_normalize_results_and_managed_hook_providers_stay_blocked
         ),
     ];
     for (provider, env_key, source) in &providers {
-        let binary = root.join(provider);
+        let binary = if *provider == "pi" {
+            let package = root.join("pi-package");
+            let dist = package.join("dist/bundle");
+            fs::create_dir_all(&dist).unwrap();
+            fs::write(
+                package.join("package.json"),
+                r#"{"name":"@earendil-works/pi-coding-agent"}"#,
+            )
+            .unwrap();
+            dist.join("pi")
+        } else {
+            root.join(provider)
+        };
         fs::write(&binary, source).unwrap();
         fs::set_permissions(&binary, fs::Permissions::from_mode(0o700)).unwrap();
         environment.set(env_key, &binary);
@@ -89,11 +101,11 @@ fn supported_providers_normalize_results_and_managed_hook_providers_stay_blocked
             })
             .unwrap_or_else(|error| panic!("{provider} {mode:?}: {error}"));
             assert_eq!(outcome.final_text, MATRIX_RESULT, "{provider} {mode:?}");
-            assert_reasoning_argument(provider, &root.join(format!("{provider}.argv")));
+            assert_reasoning_argument(provider, &argument_capture(&root, provider));
         }
     }
     for provider in ["pi", "opencode", "copilot", "antigravity"] {
-        let capture = root.join(format!("{provider}.argv"));
+        let capture = argument_capture(&root, provider);
         let before = fs::read(&capture).unwrap();
         let mut invalid = request(root.clone(), ExecutionMode::Planning);
         invalid.reasoning_level = "ultramax".into();
@@ -142,6 +154,14 @@ fn assert_reasoning_argument(provider: &str, path: &Path) {
         honored,
         "{provider} did not receive the requested medium effort: {args}"
     );
+}
+
+fn argument_capture(root: &Path, provider: &str) -> PathBuf {
+    if provider == "pi" {
+        root.join("pi-package/dist/bundle/pi.argv")
+    } else {
+        root.join(format!("{provider}.argv"))
+    }
 }
 
 fn request(root: PathBuf, mode: ExecutionMode) -> PlanningRequest {
