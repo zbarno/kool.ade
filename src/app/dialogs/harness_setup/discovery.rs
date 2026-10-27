@@ -56,7 +56,7 @@ impl DlgHarnessSetup {
                 Ok(message) => self.apply_probe_message(message),
                 Err(mpsc::TryRecvError::Disconnected) => {
                     self.probe_rx = None;
-                    self.feedback = Some((false, "Harness discovery stopped unexpectedly.".into()));
+                    self.set_feedback(false, "Harness discovery stopped unexpectedly.".into());
                     break;
                 }
                 Err(mpsc::TryRecvError::Empty) => break,
@@ -115,7 +115,7 @@ impl DlgHarnessSetup {
                 if !preserve_last_known {
                     self.scan_results.push(report);
                 }
-                self.persist();
+                self.persist_quiet();
             }
             ProbeMessage::Runtime {
                 generation,
@@ -133,7 +133,7 @@ impl DlgHarnessSetup {
                 for entry in self.settings.discovered.values_mut() {
                     entry.implementation_available = entry.ready && implementation_available;
                 }
-                self.persist();
+                self.persist_quiet();
             }
             ProbeMessage::Finished { generation } if generation == self.scan_generation => {
                 self.running_providers.clear();
@@ -145,7 +145,7 @@ impl DlgHarnessSetup {
                         .as_deref(),
                     generation,
                 );
-                self.persist();
+                self.persist_quiet();
                 self.probe_rx = None;
                 self.scan_cancel = None;
                 self.probe_view = ProbeView::Complete;

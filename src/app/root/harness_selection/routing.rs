@@ -58,7 +58,7 @@ pub(crate) fn configured_harness_for_project_task(
     if work_type == Some(crate::persistence::harness_settings::MANAGER)
         && task_routes.contains_key(crate::persistence::harness_settings::MANAGER)
     {
-        return Box::new(UnavailableHarness(
+        return Box::new(UnavailableHarness::guidance(
             "Kool.ad/e Manager is application-routed and cannot be overridden by a task".into(),
         ));
     }
@@ -126,7 +126,7 @@ pub(super) fn routed_harness<'a>(
     let (selected, route) =
         route_selection(settings, project_routes, work_type, legacy, task_route);
     let Some(harness_id) = route.map(|route| route.harness.as_str()).or(selected) else {
-        return Box::new(UnavailableHarness(
+        return Box::new(UnavailableHarness::guidance(
             "No CLI is selected. Choose a default in Coding tools; Kool.ad/e will not silently route work to a provider.".into(),
         ));
     };
@@ -144,17 +144,17 @@ pub(super) fn routed_harness<'a>(
     });
     let route_requires_discovery = work_type.is_some() || route.is_some();
     if route_requires_discovery && !discovery_fresh {
-        return Box::new(UnavailableHarness(format!(
+        return Box::new(UnavailableHarness::guidance(format!(
             "Discovery for {harness_id} is stale. Refresh Coding tools before starting this task; no fallback will run it."
         )));
     }
     if route_requires_discovery && !detected.is_some_and(|entry| entry.ready) {
-        return Box::new(UnavailableHarness(format!(
+        return Box::new(UnavailableHarness::guidance(format!(
             "Harness {harness_id} is currently unavailable. Review its Coding tools diagnostic; no fallback will run this task."
         )));
     }
     if route_requires_discovery && !authenticated {
-        return Box::new(UnavailableHarness(format!(
+        return Box::new(UnavailableHarness::guidance(format!(
             "Authentication for harness {harness_id} is unconfirmed or unavailable; no current authenticated capability snapshot exists. Refresh Coding tools before starting this task; no fallback will run it."
         )));
     }
@@ -171,7 +171,7 @@ pub(super) fn routed_harness<'a>(
             )
         })
     {
-        return Box::new(UnavailableHarness(format!(
+        return Box::new(UnavailableHarness::guidance(format!(
             "Harness {harness_id} has no current capability proof for the {work_type:?} role; refresh Coding tools and review its provider diagnostics."
         )));
     }
@@ -179,12 +179,12 @@ pub(super) fn routed_harness<'a>(
         work_type == Some(crate::persistence::harness_settings::IMPLEMENTATION);
     if implementation_route {
         if !detected.is_some_and(|entry| entry.implementation_available) {
-            return Box::new(UnavailableHarness(format!(
+            return Box::new(UnavailableHarness::guidance(format!(
                 "Harness {harness_id} is not currently available for implementation inside Kool.ad/e's application-owned Docker execution session. Refresh Coding tools or select a supported tool."
             )));
         }
         if !crate::harness::implementation_route_available(harness_id) {
-            return Box::new(UnavailableHarness(format!(
+            return Box::new(UnavailableHarness::guidance(format!(
                 "Harness {harness_id} has no supported application-owned implementation route. Select a supported tool before starting the task."
             )));
         }
@@ -203,7 +203,7 @@ pub(super) fn routed_harness<'a>(
                 && entry.models.iter().any(|available| available == model)
         })
     {
-        return Box::new(UnavailableHarness(format!(
+        return Box::new(UnavailableHarness::guidance(format!(
             "The selected model '{model}' is not in the refreshed {harness_id} CLI model catalog. Open Coding tools, refresh discovery, and choose an available model."
         )));
     }
@@ -217,7 +217,7 @@ pub(super) fn routed_harness<'a>(
             detected.is_some_and(|entry| entry.models.iter().any(|available| available == *model))
         });
     if route_requires_discovery && explicit_model.is_none() && discovered_default_model.is_none() {
-        return Box::new(UnavailableHarness(format!(
+        return Box::new(UnavailableHarness::guidance(format!(
             "No verified model is selected for {harness_id}. Refresh its model catalog or choose an available model in Coding tools; this task will not run with an unreported CLI default."
         )));
     }
@@ -272,7 +272,7 @@ pub(super) fn route_selection<'a>(
 
 pub(super) fn resolve(selected: Option<&str>) -> Box<dyn AiHarness> {
     match selected {
-        None => Box::new(UnavailableHarness(
+        None => Box::new(UnavailableHarness::guidance(
             "No CLI is selected. Choose a default in Coding tools; Kool.ad/e will not silently route work to a provider.".into(),
         )),
         Some("pi") => Box::new(PiHarness),
@@ -281,6 +281,6 @@ pub(super) fn resolve(selected: Option<&str>) -> Box<dyn AiHarness> {
         Some("copilot") => Box::new(CopilotHarness),
         Some("opencode") => Box::new(OpenCodeHarness),
         Some("antigravity") => Box::new(AntigravityHarness),
-        Some(id) => Box::new(UnavailableHarness(id.to_owned())),
+        Some(id) => Box::new(UnavailableHarness::unknown_saved_route(id.to_owned())),
     }
 }

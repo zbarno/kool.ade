@@ -29,6 +29,14 @@ pub(crate) fn with_settings_path<R>(path: std::path::PathBuf, run: impl FnOnce()
     run()
 }
 
+// Quarantine store for test threads without an explicit override. Allocated
+// lazily and uniquely per thread so concurrent tests can never observe one
+// another, and no test build can ever touch the operator's live store.
+#[cfg(test)]
+thread_local! {
+    static TEST_STORE_FALLBACK: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct HarnessSettings {
@@ -174,12 +182,48 @@ pub fn current_unix_ms() -> u64 {
         .min(u64::MAX as u128) as u64
 }
 
+/// Absolute path of the persisted harness settings.
+///
+/// In test builds this is fail-closed with respect to the operator's live
+/// store. Resolution layers:
+/// 1. An explicit test-thread override from [`with_settings_path`].
+/// 2. A test process that exported `KOOLADE_HOME` (the documented env-
+///    isolation lever), which `state_root` already honors.
+/// 3. Otherwise a uniquely named per-thread temporary directory created on
+///    first use, so ambient suites can never touch the live store.
 pub fn settings_path() -> std::path::PathBuf {
     #[cfg(test)]
     if let Some(path) = SETTINGS_PATH_OVERRIDE.with(|path| path.borrow().clone()) {
         return path;
     }
-    crate::persistence::state_root().join(FILE)
+    #[cfg(test)]
+    if std::env::var_os("KOOLADE_HOME")
+        .filter(|value| !value.is_empty())
+        .is_some()
+    {
+        return crate::persistence::state_root().join(FILE);
+    }
+    #[cfg(test)]
+    {
+        return TEST_STORE_FALLBACK.with(|fallback| {
+            fallback
+                .borrow_mut()
+                .get_or_insert_with(|| {
+                    let unique = std::env::temp_dir()
+                        .join("koolade-harness-settings-test")
+                        .join(uuid::Uuid::new_v4().simple().to_string());
+                    let _ = std::fs::create_dir_all(&unique);
+                    unique.join(FILE)
+                })
+                .clone()
+        });
+    }
+    // Plain production path; the layers above make this expression
+    // unreachable in test builds, hence the narrow allowance.
+    #[cfg_attr(test, allow(unreachable_code))]
+    {
+        crate::persistence::state_root().join(FILE)
+    }
 }
 
 pub fn load() -> (HarnessSettings, Option<String>) {
