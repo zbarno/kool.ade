@@ -13,7 +13,9 @@ use super::{
     process::TargetProcess,
 };
 
+mod assertions;
 mod expectation;
+mod process_lifecycle;
 pub(super) use expectation::expected_state_met;
 
 const DRIVER_VERSION: &str = "linux-x11-driver/v1";
@@ -174,29 +176,29 @@ pub(crate) fn run(
             evidence_ids: evidence_ids.clone(),
             occurred_at_unix_ms,
         });
-        if let (Some(expected), Some(observed)) = (&step.expected_state, post_state) {
-            let passed = expected_state_met(expected, &observed);
-            output.assertions.push(QaAssertionV1 {
-                id: uuid::Uuid::new_v4().hyphenated().to_string(),
-                scenario_ids: vec![scenario.id.clone()],
-                requirement_ids: scenario.requirement_ids.clone(),
-                expected: expected.clone(),
-                observed,
-                // An observed mismatch is a functional failure. Reserve
-                // Untested for expectations the driver could not observe.
-                status: if passed {
-                    QaAssertionStatus::Passed
-                } else {
-                    QaAssertionStatus::Failed
-                },
-                evidence_refs: std::mem::take(&mut evidence_ids),
-            });
-        }
-        if index + 1 < scenario.steps.len()
-            && process
-                .as_mut()
-                .is_some_and(|child| child.is_running().ok() == Some(false))
+        assertions::record_expected(
+            &mut output,
+            scenario,
+            step.expected_state.as_deref(),
+            post_state,
+            &mut evidence_ids,
+        );
+        if matches!(step.driver_action, QaDriverActionV1::LaunchValidatedTarget)
+            && let Err(error) = process_lifecycle::require_started(
+                process.as_mut(),
+                deadline.saturating_duration_since(Instant::now()),
+            )
         {
+            output
+                .crashes
+                .push("approved target exited during startup".into());
+            output.failure = Some(error);
+            break;
+        }
+        if process_lifecycle::exited_before_next_action(
+            process.as_mut(),
+            index + 1 < scenario.steps.len(),
+        ) {
             output
                 .crashes
                 .push("approved target exited during runtime QA".into());
