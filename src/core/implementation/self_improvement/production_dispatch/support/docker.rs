@@ -46,6 +46,13 @@ pub(crate) fn exercise_authorized_docker_if_enabled(
             "E2E requires the approved rootless Docker engine: {}",
             String::from_utf8_lossy(&engine.stderr)
         );
+        if crate::test_support::locked_images::enabled() {
+            crate::test_support::locked_images::prepare_profile_for_home(
+                &crate::persistence::state_root(),
+                crate::execution::docker::images::RuntimeProfile::Rust,
+            )
+            .expect("dispatch fixture must receive approved General and Rust image receipts");
+        }
         let session =
             crate::execution::session::ExecutionSession::connect_local_with_authorization(
                 crate::execution::contract::WorkspaceRef {

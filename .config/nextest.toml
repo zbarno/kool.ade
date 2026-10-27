@@ -21,6 +21,16 @@ filter = 'test(/^(app::root::board_tests::queue_execution::concurrent_workers::a
 test-group = 'rootless-docker'
 threads-required = 'num-test-threads'
 
+[[profile.default.overrides]]
+filter = 'test(/^execution::docker::backend::tests::docker_engine::recovery::/)'
+test-group = 'rootless-docker'
+threads-required = 'num-test-threads'
+
+[[profile.default.overrides]]
+filter = 'test(/^(app::root::board_tests::implementation_gates::resume_dispatch_accepts_feature_named_workspace_story|harness::execution_security::application_boundary::tests::docker_provider_mcp::codex_reads_the_selected_repository_through_the_docker_mcp_bridge|harness::resource_bridge::tests::end_to_end::remote::(cache_restore::denial::denied_remote_dependency_request_never_stages_or_installs_cache|claim_takeover::git_claim_takeover_fences_the_stale_remote_worker_result|private_files::(output_isolation::ssh_worker_suppresses_private_file_output_and_discards_workspace_results|ssh_worker_mounts_confirmed_private_file_read_only_for_executor_uid|ssh_worker_stops_active_execution_when_private_file_grant_(expires|is_revoked)|unapproved_denial::ssh_worker_never_stages_an_unapproved_private_file)|two_controllers::two_worker_concurrency::separate_controllers_run_distinct_tasks_on_two_workers_without_cross_applying_results))$/)'
+test-group = 'rootless-docker'
+threads-required = 'num-test-threads'
+
 [profile.default.junit]
 path = "nextest.xml"
 report-skipped = "all"

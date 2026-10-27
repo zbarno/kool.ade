@@ -1,15 +1,15 @@
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 
 use crate::app::setup_attention::catalog::{
     Finding, FindingStatus, SCHEMA_VERSION as SNAPSHOT_VERSION,
 };
-
 mod attempts;
 mod evidence;
+mod image_receipt;
+mod image_requirements;
 mod reconciliation;
+mod store;
 mod transitions;
 mod validation;
 
@@ -17,8 +17,11 @@ pub use attempts::{
     RemediationAttemptResultV1, RemediationProcessStatusV1, RemediationVerificationStatusV1,
     RemediationVerificationV1,
 };
+pub use image_receipt::ImagePreparationReceiptV1;
+pub use store::{SetupTaskStoreV1, Store};
 
 pub(super) use evidence::positive_domain_for;
+pub(super) use image_receipt::is_image_task_id;
 pub use transitions::SetupTaskTransitionV1;
 
 pub(super) const FILE_SCHEMA_VERSION: u8 = 2;
@@ -134,6 +137,9 @@ pub struct SetupAttemptV1 {
     /// Sanitized repair result and the fresh probe receipt, if repair started.
     #[serde(default)]
     pub remediation_result: Option<RemediationAttemptResultV1>,
+    /// A successful, isolated smoke receipt for a locked runtime image.
+    #[serde(default)]
+    pub image_preparation_receipt: Option<ImagePreparationReceiptV1>,
     /// Enumerated, redacted failure information; raw diagnostics are not stored.
     pub failure: Option<FailureCode>,
 }
@@ -237,26 +243,6 @@ impl SetupTaskV1 {
             SetupTaskStateV1::Paused => "Paused",
             SetupTaskStateV1::Interrupted => "Interrupted",
             SetupTaskStateV1::Superseded => "Replaced by specific checks",
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub struct SetupTaskStoreV1 {
-    pub schema_version: u8,
-    pub latest_scan_generation: u64,
-    pub tasks: BTreeMap<String, SetupTaskV1>,
-}
-
-pub type Store = SetupTaskStoreV1;
-
-impl Default for SetupTaskStoreV1 {
-    fn default() -> Self {
-        Self {
-            schema_version: FILE_SCHEMA_VERSION,
-            latest_scan_generation: 0,
-            tasks: BTreeMap::new(),
         }
     }
 }

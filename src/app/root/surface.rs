@@ -3,10 +3,11 @@ use super::*;
 mod details;
 mod plan_review;
 mod runtime_qa;
+mod setup_repair;
 
 impl Surface for KooladeApp {
     fn setup_image_preparation(&mut self, ui: &mut egui::Ui, prerequisite_id: &str) {
-        let (completed, request) = self.setup_image_preparation.paint(ui, prerequisite_id);
+        let (completed, request) = setup_repair::paint(self, ui, prerequisite_id);
         self.publish_setup_task_store_update();
         if completed {
             self.refresh_setup_attention(true);
@@ -16,6 +17,17 @@ impl Surface for KooladeApp {
                 task_id,
             });
         }
+    }
+
+    fn bootstrap_conversation(
+        &mut self,
+        task_id: &str,
+    ) -> crate::ui::planning_board::BootstrapConversationView {
+        self.bootstrap_conversation.view(task_id)
+    }
+
+    fn bootstrap_conversation_draft(&mut self, task_id: &str) -> Option<&mut String> {
+        self.bootstrap_conversation.draft_mut(task_id)
     }
 
     fn planning_repository(&self) -> Option<crate::ui::PlanningRepositoryViewModel> {

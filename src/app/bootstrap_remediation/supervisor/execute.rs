@@ -7,7 +7,7 @@ use crate::{
         plan::{PrivilegeLevel, RemediationPlan},
         supervisor::{
             Cancellation, NativeCommandRunner, NativeElevation, OperationRegistry,
-            ReadinessVerifier, RemediationResult,
+            PreconditionVerifier, ReadinessVerifier, RemediationResult,
         },
     },
     persistence::setup_tasks::{FailureCode, RemediationProcessStatusV1},
@@ -16,6 +16,7 @@ use crate::{
 mod journal;
 mod launch;
 mod outcome;
+mod preconditions;
 mod verification;
 
 #[cfg(test)]
@@ -25,6 +26,7 @@ use launch::prepare_launch;
 use outcome::{
     apply_cancel, apply_failure, ensure_active_authorization, finish_launched, record_not_started,
 };
+use preconditions::check_preconditions;
 use verification::sanitize_diagnostic;
 
 use super::ProcessRunFailure;
@@ -37,6 +39,7 @@ impl RemediationSupervisor {
         approved: ApprovedRemediation,
         plan: &RemediationPlan,
         registry: &dyn OperationRegistry,
+        precondition_verifier: &dyn PreconditionVerifier,
         runner: &dyn NativeCommandRunner,
         elevation: &dyn NativeElevation,
         verifier: &dyn ReadinessVerifier,
@@ -50,6 +53,7 @@ impl RemediationSupervisor {
             &identity,
             &mut journal,
             registry,
+            precondition_verifier,
             runner,
             elevation,
             verifier,
@@ -67,6 +71,7 @@ impl RemediationSupervisor {
         identity: &HostIdentity,
         store: &mut SetupTaskStoreV1,
         registry: &dyn OperationRegistry,
+        precondition_verifier: &dyn PreconditionVerifier,
         runner: &dyn NativeCommandRunner,
         elevation: &dyn NativeElevation,
         verifier: &dyn ReadinessVerifier,
@@ -81,6 +86,7 @@ impl RemediationSupervisor {
             identity,
             &mut journal,
             registry,
+            precondition_verifier,
             runner,
             elevation,
             verifier,
@@ -97,6 +103,7 @@ impl RemediationSupervisor {
         identity: &HostIdentity,
         journal: &mut dyn RemediationJournal,
         registry: &dyn OperationRegistry,
+        precondition_verifier: &dyn PreconditionVerifier,
         runner: &dyn NativeCommandRunner,
         elevation: &dyn NativeElevation,
         verifier: &dyn ReadinessVerifier,
@@ -139,6 +146,18 @@ impl RemediationSupervisor {
             )?;
             apply_cancel(journal, &approved, now)?;
             anyhow::bail!("remediation was cancelled before launch");
+        }
+
+        if let Err(error) = check_preconditions(precondition_verifier, plan) {
+            record_not_started(
+                journal,
+                &approved,
+                plan,
+                now,
+                RemediationProcessStatusV1::NotStarted,
+            )?;
+            apply_failure(journal, &approved, FailureCode::VerificationFailed, now)?;
+            return Err(error);
         }
 
         let invocation = match registry.compile(plan) {

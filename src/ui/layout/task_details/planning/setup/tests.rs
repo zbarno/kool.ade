@@ -76,10 +76,59 @@ fn macos_docker_help_does_not_claim_windows_or_native_linux_parity() {
 }
 
 #[test]
+fn macos_desktop_guide_covers_finder_first_run_and_fail_closed_vm_resources() {
+    use crate::app::setup_attention::catalog::HostKind;
+    use crate::persistence::setup_tasks::State;
+
+    let desktop = task("setup:docker:desktop", State::ReadyToFix);
+    let desktop_steps = guide::steps(&desktop, HostKind::MacOs);
+    assert!(desktop_steps.iter().any(|step| step.contains("processor")));
+    assert!(
+        desktop_steps
+            .iter()
+            .any(|step| step.contains("Applications"))
+    );
+    assert!(desktop_steps.iter().any(|step| step.contains("license")));
+    assert!(desktop_steps.iter().any(|step| step.contains("Gatekeeper")));
+
+    let disk = task("setup:docker:disk", State::ReadyToFix);
+    assert!(
+        guide::steps(&disk, HostKind::MacOs)
+            .iter()
+            .any(|step| step.contains("Mac host free space alone is not proof"))
+    );
+    assert!(
+        guide::help_links(&disk, HostKind::MacOs)
+            .iter()
+            .any(|(_, url)| url.contains("settings-and-maintenance/settings"))
+    );
+    let endpoint = task("setup:docker:endpoint", State::ReadyToFix);
+    assert!(
+        guide::steps(&endpoint, HostKind::MacOs)
+            .iter()
+            .any(|step| step.contains("security warnings"))
+    );
+    assert!(
+        guide::help_links(&endpoint, HostKind::MacOs)
+            .iter()
+            .any(|(_, url)| url.contains("mac-install"))
+    );
+    let limits = task("setup:docker:limits", State::ReadyToFix);
+    assert!(
+        guide::steps(&limits, HostKind::MacOs)
+            .iter()
+            .any(|step| step.contains("coding tasks stay paused"))
+    );
+}
+
+#[test]
 fn only_unblocked_general_images_offer_the_typed_repair() {
     use crate::persistence::setup_tasks::State;
 
-    let mut image = task("setup:images:general:amd64", State::ReadyToFix);
+    let mut image = task(
+        "setup:images:general:amd64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        State::ReadyToFix,
+    );
     assert!(supports_repair(&image));
     image.blocked_by.push("setup:docker:rootless".into());
     assert!(!supports_repair(&image));
@@ -87,7 +136,7 @@ fn only_unblocked_general_images_offer_the_typed_repair() {
     image.state = State::Unsupported;
     assert!(!supports_repair(&image));
     image.state = State::ReadyToFix;
-    image.id = "setup:images:general:unknown".into();
+    image.id = "setup:images:general:unknown:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into();
     assert!(!supports_repair(&image));
 }
 
@@ -95,7 +144,10 @@ fn only_unblocked_general_images_offer_the_typed_repair() {
 fn image_approval_and_progress_states_keep_the_repair_panel_visible() {
     use crate::persistence::setup_tasks::State;
 
-    let mut image = task("setup:images:general:amd64", State::NeedsApproval);
+    let mut image = task(
+        "setup:images:general:amd64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        State::NeedsApproval,
+    );
     assert!(!supports_repair(&image));
     assert!(should_paint_image_preparation(&image));
     image.state = State::InProgress;

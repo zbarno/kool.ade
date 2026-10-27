@@ -65,6 +65,8 @@ impl Default for KooladeApp {
             setup_retry_requested: false,
             setup_refresh_pending: None,
             setup_image_preparation: crate::app::bootstrap_image_prepare::Controller::default(),
+            setup_remediation: crate::app::bootstrap_remediation::Controller::default(),
+            bootstrap_conversation: crate::app::root::bootstrap_conversation::Controller::default(),
             #[cfg(test)]
             attention_fixture: Default::default(),
             #[cfg(test)]

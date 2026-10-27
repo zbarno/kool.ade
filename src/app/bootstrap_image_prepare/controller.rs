@@ -2,6 +2,7 @@ use std::sync::mpsc::{Receiver, SyncSender};
 
 use crate::app::bootstrap_approval::{ApprovalGate, ApprovalPreview, ApprovalRequest};
 use crate::app::bootstrap_repair_policy::Proposal;
+use crate::execution::docker::engine::{ImagePullControl, ImagePullProgress};
 use crate::persistence::setup_tasks::SetupTaskStoreV1;
 
 mod lifecycle;
@@ -31,6 +32,10 @@ pub(crate) struct Controller {
     pending_approval: Option<ApprovalRequest>,
     attempt: Option<AttemptContext>,
     receiver: Option<Receiver<Completion>>,
+    progress_receiver: Option<Receiver<ImagePullProgress>>,
+    pull_control: Option<ImagePullControl>,
+    pull_progress: Option<ImagePullProgress>,
+    pull_cancel_requested: bool,
     work_kind: Option<WorkKind>,
     result: Option<Result<(), String>>,
     store_update: Option<SetupTaskStoreV1>,
@@ -47,6 +52,10 @@ impl Default for Controller {
             pending_approval: None,
             attempt: None,
             receiver: None,
+            progress_receiver: None,
+            pull_control: None,
+            pull_progress: None,
+            pull_cancel_requested: false,
             work_kind: None,
             result: None,
             store_update: None,

@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use super::PromptRole;
+use super::{BootstrapConversationPayloadV1, PromptRole};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -45,6 +45,27 @@ pub struct RoleInputV1 {
     pub execution_policy_ref: String,
     pub output_schema_version: String,
     pub payload: RolePayloadV1,
+}
+
+impl RoleInputV1 {
+    /// Build the stable no-workspace envelope used for machine setup dialogue.
+    pub fn bootstrap_conversation(payload: BootstrapConversationPayloadV1) -> Self {
+        let role = PromptRole::BootstrapConversation;
+        Self {
+            role,
+            workspace_uid: "machine-setup".into(),
+            feature_uid: "bootstrap-conversation".into(),
+            task_uid: None,
+            original_goal: "Help the user understand this machine setup prerequisite.".into(),
+            approved_spec_ref: None,
+            approved_spec_hash: None,
+            decision_refs: Vec::new(),
+            evidence_manifest: Vec::new(),
+            execution_policy_ref: "bootstrap_conversation/v1".into(),
+            output_schema_version: role.output_schema_version().into(),
+            payload: RolePayloadV1::BootstrapConversation(payload),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -118,4 +139,5 @@ pub enum RolePayloadV1 {
         base_ref: String,
         head_ref: String,
     },
+    BootstrapConversation(BootstrapConversationPayloadV1),
 }

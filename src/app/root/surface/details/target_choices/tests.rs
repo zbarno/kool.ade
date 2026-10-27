@@ -6,6 +6,9 @@ fn local_status() -> DockerEnvironmentStatus {
         engine_ready: false,
         message: "Docker is not installed".into(),
         desktop_vm: false,
+        desktop_transport_verified: false,
+        desktop_vm_capacity_verified: false,
+        workspace_staging_available: false,
         daemon_version: None,
         architecture: None,
         rootless: None,
@@ -114,7 +117,7 @@ fn reachable_desktop_engine_remains_unavailable_for_local_tasks() {
     assert!(
         local
             .reason
-            .contains("verified native Linux rootless Engine")
+            .contains("platform-specific execution trust checks")
     );
 }
 

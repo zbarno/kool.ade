@@ -106,6 +106,10 @@ pub(super) fn validate_input(input: &RoleInputV1) -> Result<(), String> {
             | (PromptRole::RepairWorker, RolePayloadV1::Repair { .. })
             | (PromptRole::SpecReconciler, RolePayloadV1::SpecSync { .. })
             | (PromptRole::PrPreparer, RolePayloadV1::Pr { .. })
+            | (
+                PromptRole::BootstrapConversation,
+                RolePayloadV1::BootstrapConversation(_)
+            )
     );
     if !payload_matches {
         return Err("role and typed task payload do not match".into());

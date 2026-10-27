@@ -4,6 +4,24 @@ use super::{PrerequisiteCode, PrerequisiteFailure};
 
 pub(crate) fn app_staging_root() -> Result<PathBuf, PrerequisiteFailure> {
     let state_root = crate::persistence::state_root();
+    std::fs::create_dir_all(&state_root).map_err(|error| PrerequisiteFailure {
+        code: PrerequisiteCode::WorkspaceUnavailable,
+        message: format!("Could not prepare the app-owned execution state directory: {error}"),
+        retryable: false,
+    })?;
+    let state_root = state_root.canonicalize().map_err(|_| PrerequisiteFailure {
+        code: PrerequisiteCode::WorkspaceUnavailable,
+        message: "Could not resolve the app-owned execution state directory".into(),
+        retryable: false,
+    })?;
+    crate::execution::docker::private_storage::verify_private_root(&state_root).map_err(|_| {
+        PrerequisiteFailure {
+            code: PrerequisiteCode::WorkspaceUnavailable,
+            message: "App-owned execution state must have a private Windows ACL".into(),
+            retryable: false,
+        }
+    })?;
+
     let staging = state_root.join("execution-staging");
     if std::fs::symlink_metadata(&staging).is_ok_and(|metadata| metadata.file_type().is_symlink()) {
         return Err(PrerequisiteFailure {
@@ -15,11 +33,6 @@ pub(crate) fn app_staging_root() -> Result<PathBuf, PrerequisiteFailure> {
     std::fs::create_dir_all(&staging).map_err(|error| PrerequisiteFailure {
         code: PrerequisiteCode::WorkspaceUnavailable,
         message: format!("Could not prepare app-owned execution staging: {error}"),
-        retryable: false,
-    })?;
-    let state_root = state_root.canonicalize().map_err(|_| PrerequisiteFailure {
-        code: PrerequisiteCode::WorkspaceUnavailable,
-        message: "Could not resolve the app-owned execution state directory".into(),
         retryable: false,
     })?;
     let staging = staging.canonicalize().map_err(|_| PrerequisiteFailure {
@@ -35,5 +48,12 @@ pub(crate) fn app_staging_root() -> Result<PathBuf, PrerequisiteFailure> {
             retryable: false,
         });
     }
+    crate::execution::docker::private_storage::verify_private_root(&staging).map_err(|_| {
+        PrerequisiteFailure {
+            code: PrerequisiteCode::WorkspaceUnavailable,
+            message: "App-owned execution staging must have a private Windows ACL".into(),
+            retryable: false,
+        }
+    })?;
     Ok(staging)
 }

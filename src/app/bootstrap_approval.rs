@@ -8,6 +8,8 @@ mod audit;
 mod binding;
 mod capability;
 #[cfg(test)]
+pub(crate) mod test_support;
+#[cfg(test)]
 mod tests;
 
 use std::{collections::HashMap, time::SystemTime};
@@ -18,7 +20,10 @@ use uuid::Uuid;
 
 use crate::app::bootstrap_repair_policy::{self, Proposal};
 
-pub(crate) use self::capability::{ApprovalPreview, ApprovalRequest, ApprovedAction};
+pub(crate) use self::capability::{
+    ApprovalPreview, ApprovalRequest, ApprovedAction, ImagePreparationReceipt,
+    engine_identity_fingerprint,
+};
 use self::capability::{CONSENT_TTL_MS, Pending};
 
 /// The application controller owns this gate; tickets exist only in memory.
@@ -197,7 +202,9 @@ impl ApprovalGate {
             image_reference: current.image_reference.clone(),
             image_digest: current.image_digest.clone(),
             image_platform: current.image_platform.clone(),
+            capacity_probe_required: current.capacity_probe_required,
             engine_fingerprint: current.probe_hash.clone(),
+            engine_identity_fingerprint: current.engine_identity_fingerprint.clone(),
             binding_digest: pending.binding_digest.clone(),
             proposal_digest: pending.proposal_digest.clone(),
         })
@@ -244,7 +251,7 @@ pub(crate) fn append_audit_for_test(path: &std::path::Path) -> anyhow::Result<()
     audit::append(
         path,
         bootstrap_repair_policy::Operation::PrepareLockedImage,
-        "setup:images:general:amd64",
+        &format!("setup:images:general:amd64:{}", "e".repeat(64)),
         &"a".repeat(64),
         &"b".repeat(64),
         "approved",

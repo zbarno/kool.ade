@@ -7,6 +7,9 @@ fn ready_engine() -> crate::execution::docker::environment::DockerEnvironmentSta
         engine_ready: true,
         message: "synthetic ready engine".into(),
         desktop_vm: false,
+        desktop_transport_verified: false,
+        desktop_vm_capacity_verified: false,
+        workspace_staging_available: true,
         daemon_version: Some("28.0.0".into()),
         architecture: Some("amd64".into()),
         rootless: Some(true),
@@ -17,7 +20,7 @@ fn ready_engine() -> crate::execution::docker::environment::DockerEnvironmentSta
         available_images: Vec::new(),
         disk_available_bytes: Some(1_000_000_000),
         endpoint_fingerprint: Some("synthetic-endpoint".into()),
-        daemon_identity_fingerprint: Some("synthetic-daemon".into()),
+        daemon_identity_fingerprint: Some("d".repeat(64)),
     }
 }
 
@@ -80,7 +83,7 @@ fn daemon_or_provider_switch_rejects_the_scan_identity() {
         issue: None,
         snapshot: None,
         endpoint_fingerprint: Some("synthetic-endpoint".into()),
-        daemon_identity_fingerprint: Some("synthetic-daemon".into()),
+        daemon_identity_fingerprint: docker.daemon_identity_fingerprint.clone(),
         docker_readiness_fingerprint: Some(docker.readiness_fingerprint()),
         selected_provider: None,
         cancelled: false,
