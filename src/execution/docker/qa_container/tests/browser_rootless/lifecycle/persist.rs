@@ -152,10 +152,10 @@ pub(crate) fn review_expected_outcome_and_persist(
             &mut reviewer,
         )
         .expect("the live rootless service evidence is reviewable and persistable");
+    let case_statuses: Vec<_> = result.cases.iter().map(|case| case.status).collect();
     assert_eq!(
         result.outcome, expected_outcome,
-        "reviewed rootless QA result had unexpected case evidence: {:#?}",
-        result.cases
+        "reviewed rootless QA result had unexpected case statuses: {case_statuses:?}"
     );
     assert!(
         receipt.is_some(),
