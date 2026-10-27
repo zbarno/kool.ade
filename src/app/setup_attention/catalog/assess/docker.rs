@@ -5,7 +5,14 @@ use crate::execution::docker::environment::{
 
 use super::super::Finding;
 
+mod macos;
+
 pub(super) fn finding(docker: &DockerEnvironmentStatus, host: HostKind) -> Option<Finding> {
+    if host == HostKind::MacOs
+        && let Some(finding) = macos::finding(docker.state)
+    {
+        return Some(finding);
+    }
     Some(match docker.state {
         State::NotInstalled if host == HostKind::Linux => Finding::action(
             "setup:docker:rootless",

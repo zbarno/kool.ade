@@ -217,7 +217,13 @@ fn host_evidence(
 fn host_evidence_code(capability: Capability, state: EvidenceState) -> EvidenceCode {
     match capability {
         Capability::HostFamily => EvidenceCode::RuntimeTargetDetected,
-        Capability::HostEdition => EvidenceCode::HostEditionNotProbed,
+        Capability::HostEdition => {
+            if state == EvidenceState::Ready {
+                EvidenceCode::MacOsReleaseDetected
+            } else {
+                EvidenceCode::HostEditionNotProbed
+            }
+        }
         Capability::HostArchitecture => EvidenceCode::ArchitectureDetected,
         Capability::LinuxDistribution => {
             if state == EvidenceState::Ready {
