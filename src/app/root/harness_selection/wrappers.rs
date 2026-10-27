@@ -164,11 +164,17 @@ impl AiHarness for ImplementationQaHarness {
     }
 }
 
-pub(super) struct UnavailableHarness(pub(super) String);
+pub(super) struct UnavailableHarness {
+    pub(super) message: String,
+    /// A saved route identifier this build cannot resolve is framed as a
+    /// "saved route unavailable" error; anything else is user-facing guidance
+    /// and must render verbatim.
+    pub(super) saved_route: bool,
+}
 
 impl AiHarness for UnavailableHarness {
     fn label(&self) -> String {
-        format!("{} (unavailable)", self.0)
+        format!("{} (unavailable)", self.message)
     }
 
     fn check_available(&self) -> Result<String, crate::error::AppError> {
@@ -185,18 +191,31 @@ impl AiHarness for UnavailableHarness {
 
 impl UnavailableHarness {
     fn error(&self) -> crate::error::AppError {
-        crate::error::AppError::Other(
-            if self.0.starts_with("The selected model ")
-                || self.0.starts_with("Implementation is unavailable")
-                || self.0.starts_with("Repository access is unavailable")
-            {
-                self.0.clone()
-            } else {
-                format!(
-                    "The saved coding harness route '{}' is unavailable in this Kool.ad/e build. Open Coding tool configuration to choose an available harness.",
-                    self.0
-                )
-            },
-        )
+        crate::error::AppError::Other(if self.saved_route {
+            format!(
+                "The saved coding harness route '{}' is unavailable in this Kool.ad/e build. Open Coding tool configuration to choose an available harness.",
+                self.message
+            )
+        } else {
+            self.message.clone()
+        })
+    }
+}
+
+impl UnavailableHarness {
+    /// Operator guidance rendered verbatim.
+    pub(super) fn guidance(message: String) -> Self {
+        Self {
+            message,
+            saved_route: false,
+        }
+    }
+
+    /// A persisted route identifier this build cannot resolve.
+    pub(super) fn unknown_saved_route(route_id: String) -> Self {
+        Self {
+            message: route_id,
+            saved_route: true,
+        }
     }
 }
