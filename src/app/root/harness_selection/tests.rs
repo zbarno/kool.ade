@@ -6,7 +6,7 @@ use std::sync::{
 
 #[test]
 fn removed_saved_harness_is_reported_instead_of_silently_routing_to_pi() {
-    let harness = UnavailableHarness("codex".into());
+    let harness = UnavailableHarness::unknown_saved_route("codex".into());
     assert_eq!(harness.label(), "codex (unavailable)");
     let error = harness.check_available().unwrap_err();
     assert!(
@@ -15,6 +15,16 @@ fn removed_saved_harness_is_reported_instead_of_silently_routing_to_pi() {
             .contains("saved coding harness route 'codex'")
     );
     assert!(error.detail().contains("choose an available harness"));
+}
+
+#[test]
+fn guidance_sentinels_render_verbatim_without_saved_route_framing() {
+    let message = "No CLI is selected. Choose a default in Coding tools; Kool.ad/e will not silently route work to a provider.";
+    let harness = UnavailableHarness::guidance(message.into());
+    assert_eq!(harness.label(), format!("{message} (unavailable)"));
+    let error = harness.check_available().unwrap_err();
+    assert_eq!(error.detail(), message);
+    assert!(!error.detail().contains("saved coding harness route"));
 }
 
 struct CountHarness(Arc<AtomicUsize>, &'static str);
