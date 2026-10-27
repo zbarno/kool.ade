@@ -29,8 +29,10 @@ pub(super) async fn run_scenario(
     steps: Vec<(QaDriverActionV1, Option<&'static str>, bool)>,
     label: &str,
 ) -> serde_json::Value {
-    let fixture =
-        crate::app::root::test_runtime_qa::DesktopArtifactFixture::from_executable(executable);
+    let fixture = crate::app::root::test_runtime_qa::DesktopArtifactFixture::from_executable_with_start_arguments(
+        executable,
+        vec!["--qa-fixture".into()],
+    );
     let dispatch: crate::app::root::test_runtime_qa::RootlessDesktopDispatch =
         crate::app::root::test_runtime_qa::prepare_rootless_desktop_dispatch(
             &fixture.project,
