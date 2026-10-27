@@ -2,6 +2,8 @@ use super::*;
 use crate::app::setup_attention::catalog::MachineSnapshot;
 use crate::persistence::setup_tasks::{MAX_TASKS, graph, valid_id};
 
+mod image_superseding;
+
 impl SetupTaskStoreV1 {
     /// Reconcile a read-only snapshot reserved by `begin_scan`.
     pub fn reconcile(
@@ -61,6 +63,13 @@ impl SetupTaskStoreV1 {
                 next.events.clone_from(&existing.events);
                 preserve_dependency_resolutions(&existing, &mut next);
                 preserve_inflight_state(&existing, &mut next);
+                if let Some(superseding_changed) = image_superseding::supersede_seen_image_task(
+                    &mut next, &existing, snapshot, generation,
+                ) {
+                    changed |= superseding_changed;
+                    self.tasks.insert(finding.id.clone(), next);
+                    continue;
+                }
                 if existing.state == SetupTaskStateV1::AwaitingVerification {
                     fail_awaiting_attempt(&mut next, finding_state, snapshot.checked_at_unix_ms);
                 }
@@ -81,17 +90,17 @@ impl SetupTaskStoreV1 {
         }
 
         for task in self.tasks.values_mut() {
-            if seen.contains(&task.id) || task.state == SetupTaskStateV1::Superseded {
+            if seen.contains(task.id.as_str()) || task.state == SetupTaskStateV1::Superseded {
                 continue;
             }
             if task.legacy_source_id.is_some() {
                 let superseded_by = snapshot
                     .findings
                     .iter()
-                    .filter(|finding| legacy_matches(&task.id, &finding.id))
+                    .filter(|finding| legacy_matches(task.id.as_str(), finding.id.as_str()))
                     .map(|finding| finding.id.clone())
                     .collect::<Vec<_>>();
-                if !superseded_by.is_empty() || positive_domain_for(&task.id, snapshot).is_some() {
+                if !superseded_by.is_empty() || positive_domain_for_task(task, snapshot).is_some() {
                     let meaningful = task.state != SetupTaskStateV1::Superseded
                         || task.superseded_by != superseded_by;
                     task.state = SetupTaskStateV1::Superseded;
@@ -107,7 +116,14 @@ impl SetupTaskStoreV1 {
                 continue;
             }
 
-            if let Some(domain) = positive_domain_for(&task.id, snapshot) {
+            if let Some(superseding_changed) =
+                image_superseding::supersede_stale_image_task(task, snapshot, generation)
+            {
+                changed |= superseding_changed;
+                continue;
+            }
+
+            if let Some(domain) = positive_domain_for_task(task, snapshot) {
                 if task
                     .attempts
                     .iter()
@@ -145,7 +161,7 @@ impl SetupTaskStoreV1 {
             // the relevant domain. Keep its timestamp as history, not as a
             // current readiness receipt.
             if task.state == SetupTaskStateV1::Verified
-                && super::validation::has_expected_evidence_domain(&task.id)
+                && super::validation::has_expected_evidence_domain(task.id.as_str())
             {
                 task.state = SetupTaskStateV1::NeedsVerification;
                 task.verified_result = None;
@@ -163,6 +179,19 @@ impl SetupTaskStoreV1 {
         );
         Ok(changed)
     }
+}
+
+fn positive_domain_for_task(task: &SetupTaskV1, snapshot: &MachineSnapshot) -> Option<String> {
+    let domain = positive_domain_for(task.id.as_str(), snapshot)?;
+    if super::is_image_task_id(task.id.as_str())
+        && !super::image_receipt::has_valid_image_preparation_receipt_for_task(
+            task.id.as_str(),
+            task.attempts.as_slice(),
+        )
+    {
+        return None;
+    }
+    Some(domain)
 }
 
 fn preserve_dependency_resolutions(existing: &SetupTaskV1, next: &mut SetupTaskV1) {
@@ -262,9 +291,6 @@ fn task_observation_changed(existing: &SetupTaskV1, next: &SetupTaskV1) -> bool 
 }
 
 fn legacy_matches(legacy_id: &str, current_id: &str) -> bool {
-    match legacy_id {
-        "setup:legacy:docker" => current_id.starts_with("setup:docker:"),
-        "setup:legacy:provider" => current_id.starts_with("setup:cli:"),
-        _ => false,
-    }
+    (legacy_id == "setup:legacy:docker" && current_id.starts_with("setup:docker:"))
+        || (legacy_id == "setup:legacy:provider" && current_id.starts_with("setup:cli:"))
 }

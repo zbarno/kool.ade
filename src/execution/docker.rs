@@ -7,6 +7,7 @@ pub mod environment;
 pub(crate) mod image_extension;
 pub mod images;
 pub mod prerequisites;
+mod private_storage;
 pub mod qa_container;
 pub mod sandbox;
 

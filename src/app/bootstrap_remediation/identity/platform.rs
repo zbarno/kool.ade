@@ -5,23 +5,15 @@ use sha2::{Digest, Sha256};
 use super::validate_os_version;
 
 mod labels;
+#[cfg(target_os = "linux")]
+mod linux;
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(super) use labels::{unix_machine_label, unix_principal_label};
 #[cfg(target_os = "windows")]
 pub(super) use labels::{windows_machine_label, windows_principal_label};
-
 #[cfg(target_os = "linux")]
-pub(super) fn linux_os_version() -> anyhow::Result<String> {
-    let mut info = std::mem::MaybeUninit::<libc::utsname>::zeroed();
-    anyhow::ensure!(
-        unsafe { libc::uname(info.as_mut_ptr()) } == 0,
-        "could not read Linux version"
-    );
-    let info = unsafe { info.assume_init() };
-    let value = unsafe { std::ffi::CStr::from_ptr(info.release.as_ptr()) }.to_str()?;
-    Ok(value.to_owned())
-}
+pub(super) use linux::linux_os_version;
 
 #[cfg(target_os = "macos")]
 pub(super) fn macos_machine_id() -> anyhow::Result<String> {

@@ -9,6 +9,8 @@ use tar::Archive;
 
 mod capture;
 pub(crate) use capture::{capture, capture_excluding};
+#[cfg(any(test, windows, target_os = "macos"))]
+mod windows_paths;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Fingerprint {
@@ -21,6 +23,15 @@ pub(crate) enum Fingerprint {
 }
 
 pub(crate) type Manifest = BTreeMap<PathBuf, Fingerprint>;
+
+pub(super) fn contains_git_metadata(path: &Path) -> bool {
+    path.components().any(|component| {
+        component
+            .as_os_str()
+            .to_str()
+            .is_some_and(|name| name.eq_ignore_ascii_case(".git"))
+    })
+}
 
 #[derive(Debug)]
 pub(super) struct ReturnedEntry {
@@ -54,10 +65,7 @@ pub(super) fn parse_returned(
             continue;
         }
         validate_relative(&path)?;
-        if path
-            .components()
-            .any(|component| component.as_os_str() == ".git")
-        {
+        if contains_git_metadata(&path) {
             continue;
         }
         anyhow::ensure!(
@@ -109,10 +117,7 @@ pub(super) fn parse_returned(
                 .unwrap_or(&raw_target)
                 .to_path_buf();
             validate_relative(&target)?;
-            if target
-                .components()
-                .any(|component| component.as_os_str() == ".git")
-            {
+            if contains_git_metadata(&target) {
                 continue;
             }
             let source = entries
@@ -178,6 +183,10 @@ pub(super) fn parse_returned(
             parent = parent_path.parent();
         }
     }
+    #[cfg(windows)]
+    windows_paths::validate_collisions(entries.keys().map(PathBuf::as_path))?;
+    #[cfg(all(not(windows), any(target_os = "macos", test)))]
+    windows_paths::validate_case_collisions(entries.keys().map(PathBuf::as_path))?;
     Ok(entries)
 }
 
@@ -191,6 +200,8 @@ pub(super) fn validate_relative(path: &Path) -> anyhow::Result<()> {
         );
     }
     anyhow::ensure!(path.to_str().is_some(), "archive path is not UTF-8");
+    #[cfg(windows)]
+    windows_paths::validate_path(path)?;
     Ok(())
 }
 

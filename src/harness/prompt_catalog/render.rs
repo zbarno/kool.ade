@@ -60,6 +60,7 @@ pub fn validate_prompt_manifest(manifest: &PromptManifest) -> Result<PromptRole,
         PromptRole::SpecReconciler,
         PromptRole::RepairWorker,
         PromptRole::PrPreparer,
+        PromptRole::BootstrapConversation,
     ]
     .into_iter()
     .find(|role| role.id() == manifest.role_version)

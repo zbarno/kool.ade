@@ -41,7 +41,7 @@ pub(super) fn write_file(
         return Err("Temporary workspace file could not be created safely".into());
     }
     let mut file = unsafe { File::from_raw_fd(fd) };
-    if unsafe { libc::fchmod(file.as_raw_fd(), mode) } != 0 {
+    if unsafe { libc::fchmod(file.as_raw_fd(), mode as libc::mode_t) } != 0 {
         drop(file);
         unsafe {
             libc::unlinkat(parent.as_raw_fd(), temporary.as_ptr(), 0);
@@ -161,6 +161,7 @@ pub(super) fn remove_entry(
 }
 
 pub(super) fn rename_noreplace(parent: &File, from: &CString, to: &CString) -> i32 {
+    #[cfg(target_os = "linux")]
     unsafe {
         libc::renameat2(
             parent.as_raw_fd(),
@@ -170,9 +171,20 @@ pub(super) fn rename_noreplace(parent: &File, from: &CString, to: &CString) -> i
             libc::RENAME_NOREPLACE,
         )
     }
+    #[cfg(target_os = "macos")]
+    unsafe {
+        libc::renameatx_np(
+            parent.as_raw_fd(),
+            from.as_ptr(),
+            parent.as_raw_fd(),
+            to.as_ptr(),
+            libc::RENAME_EXCL,
+        )
+    }
 }
 
 pub(super) fn rename_exchange(parent: &File, left: &CString, right: &CString) -> i32 {
+    #[cfg(target_os = "linux")]
     unsafe {
         libc::renameat2(
             parent.as_raw_fd(),
@@ -180,6 +192,16 @@ pub(super) fn rename_exchange(parent: &File, left: &CString, right: &CString) ->
             parent.as_raw_fd(),
             right.as_ptr(),
             libc::RENAME_EXCHANGE,
+        )
+    }
+    #[cfg(target_os = "macos")]
+    unsafe {
+        libc::renameatx_np(
+            parent.as_raw_fd(),
+            left.as_ptr(),
+            parent.as_raw_fd(),
+            right.as_ptr(),
+            libc::RENAME_SWAP,
         )
     }
 }

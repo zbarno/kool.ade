@@ -11,8 +11,10 @@ pub(super) fn plain_title(task: &LocalTask) -> String {
         "setup:docker:endpoint" => "Choose a trusted local service".into(),
         "setup:docker:capabilities" => "Check coding task requirements".into(),
         "setup:cli:scan" => "Check for coding assistants".into(),
-        id if id.starts_with("setup:images:general:") => {
-            "Prepare the safe coding environment".into()
+        id if let Some((profile, _, _)) =
+            crate::app::bootstrap_repair_policy::parse_locked_image_task_id(id) =>
+        {
+            format!("Prepare the {profile} runtime image")
         }
         _ => task.title.clone(),
     }
@@ -117,7 +119,11 @@ pub(super) fn humanize_prerequisite(id: &str) -> String {
         "setup:cli:install" => "Choose a coding agent".into(),
         "setup:cli:scan" => "Check coding agent discovery".into(),
         _ if id.starts_with("setup:cli:") => "Finish coding agent setup".into(),
-        _ if id.starts_with("setup:images:general:") => "Prepare the pinned runtime image".into(),
+        _ if let Some((profile, _, _)) =
+            crate::app::bootstrap_repair_policy::parse_locked_image_task_id(id) =>
+        {
+            format!("Prepare the pinned {profile} runtime image")
+        }
         _ => "Complete another machine setup step".into(),
     }
 }

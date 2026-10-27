@@ -90,7 +90,7 @@ impl DockerExecutionBackend {
         if !endpoint.supports_application_execution() {
             return Err(ExecutionError::new(
                 ExecutionErrorKind::PolicyDenied,
-                "Local Docker execution is enabled only for verified native Linux rootless Engine",
+                "Local Docker execution requires a supported, verified endpoint for this platform",
                 false,
             ));
         }

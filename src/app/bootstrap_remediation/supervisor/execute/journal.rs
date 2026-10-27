@@ -96,7 +96,10 @@ impl RemediationJournal for InMemoryJournal<'_> {
                 self.owner_instance_id,
                 at_unix_ms,
             )?,
-            Transition::RequestAttempt { .. } | Transition::RecordAuthorization { .. } => {
+            Transition::RequireImageProfile { .. }
+            | Transition::RequestAttempt { .. }
+            | Transition::RecordImagePreparationReceipt { .. }
+            | Transition::RecordAuthorization { .. } => {
                 anyhow::bail!("test supervisor journal received an unexpected setup transition")
             }
         }

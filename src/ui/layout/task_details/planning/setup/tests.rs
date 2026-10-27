@@ -79,7 +79,10 @@ fn macos_docker_help_does_not_claim_windows_or_native_linux_parity() {
 fn only_unblocked_general_images_offer_the_typed_repair() {
     use crate::persistence::setup_tasks::State;
 
-    let mut image = task("setup:images:general:amd64", State::ReadyToFix);
+    let mut image = task(
+        "setup:images:general:amd64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        State::ReadyToFix,
+    );
     assert!(supports_repair(&image));
     image.blocked_by.push("setup:docker:rootless".into());
     assert!(!supports_repair(&image));
@@ -87,7 +90,7 @@ fn only_unblocked_general_images_offer_the_typed_repair() {
     image.state = State::Unsupported;
     assert!(!supports_repair(&image));
     image.state = State::ReadyToFix;
-    image.id = "setup:images:general:unknown".into();
+    image.id = "setup:images:general:unknown:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into();
     assert!(!supports_repair(&image));
 }
 
@@ -95,7 +98,10 @@ fn only_unblocked_general_images_offer_the_typed_repair() {
 fn image_approval_and_progress_states_keep_the_repair_panel_visible() {
     use crate::persistence::setup_tasks::State;
 
-    let mut image = task("setup:images:general:amd64", State::NeedsApproval);
+    let mut image = task(
+        "setup:images:general:amd64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        State::NeedsApproval,
+    );
     assert!(!supports_repair(&image));
     assert!(should_paint_image_preparation(&image));
     image.state = State::InProgress;

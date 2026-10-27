@@ -3,22 +3,32 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use super::super::super::workspace_identity::{WorkspaceObjectId, matches_file_identity};
 use super::super::archive::validate_relative;
 use super::{Fingerprint, Manifest, ReturnedEntry};
 
 mod fs;
 mod write;
-use fs::{create_directory, fingerprint_at, open_root_nofollow};
+use fs::{create_directory, fingerprint_at, open_directory_nofollow, open_root_nofollow};
 use write::{remove_entry, write_file};
 
 pub(super) fn apply(
     root: &Path,
+    expected_root_identity: &WorkspaceObjectId,
+    expected_git_identity: &WorkspaceObjectId,
     baseline: &Manifest,
     returned: &BTreeMap<PathBuf, ReturnedEntry>,
     byte_limit: u64,
     source_output_paths: Option<&[String]>,
 ) -> Result<(), String> {
     let root = open_root_nofollow(root)?;
+    if !matches_file_identity(&root, expected_root_identity) {
+        return Err("Task-clone root identity changed before synchronization".into());
+    }
+    let git_metadata = open_directory_nofollow(&root, Path::new(".git"))?;
+    if !matches_file_identity(&git_metadata, expected_git_identity) {
+        return Err("Task-clone Git metadata identity changed before synchronization".into());
+    }
     let changed = changed_entries(baseline, returned);
     if changed.is_empty() {
         return Ok(());

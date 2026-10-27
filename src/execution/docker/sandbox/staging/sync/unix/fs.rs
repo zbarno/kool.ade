@@ -38,6 +38,27 @@ pub(super) fn open_root_nofollow(path: &Path) -> Result<File, String> {
     Ok(current)
 }
 
+pub(super) fn open_directory_nofollow(parent: &File, path: &Path) -> Result<File, String> {
+    let mut current = parent
+        .try_clone()
+        .map_err(|_| "Task-clone directory could not be duplicated")?;
+    for component in path.components() {
+        match component {
+            std::path::Component::Normal(name) => {
+                let name = CString::new(name.as_bytes())
+                    .map_err(|_| "Task-clone directory path is invalid")?;
+                let fd = unsafe { libc::openat(current.as_raw_fd(), name.as_ptr(), NOFOLLOW_DIR) };
+                if fd < 0 {
+                    return Err("Task-clone directory is a symlink or unavailable".into());
+                }
+                current = unsafe { File::from_raw_fd(fd) };
+            }
+            _ => return Err("Task-clone directory path is not canonical".into()),
+        }
+    }
+    Ok(current)
+}
+
 pub(super) fn parent(root: &File, relative: &Path) -> Result<Option<(File, CString)>, String> {
     super::validate_relative(relative).map_err(|_| "Workspace path is unsafe")?;
     let mut components = relative.components().peekable();

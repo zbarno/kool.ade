@@ -14,11 +14,11 @@ mod tests;
 
 pub use graph::ordered_task_ids;
 pub use model::{
-    AttemptState, AuthorizationBindingV1, DependencyResolution, FailureCode, LocalTask,
-    RemediationAttemptResultV1, RemediationProcessStatusV1, RemediationVerificationStatusV1,
-    RemediationVerificationV1, SetupAttemptV1, SetupDependencyV1, SetupTaskEventV1,
-    SetupTaskStateV1, SetupTaskStoreV1, SetupTaskTransitionV1, SetupTaskV1, State, Store,
-    VerifiedResultV1, authorization_scope_digest,
+    AttemptState, AuthorizationBindingV1, DependencyResolution, FailureCode,
+    ImagePreparationReceiptV1, LocalTask, RemediationAttemptResultV1, RemediationProcessStatusV1,
+    RemediationVerificationStatusV1, RemediationVerificationV1, SetupAttemptV1, SetupDependencyV1,
+    SetupTaskEventV1, SetupTaskStateV1, SetupTaskStoreV1, SetupTaskTransitionV1, SetupTaskV1,
+    State, Store, VerifiedResultV1, authorization_scope_digest,
 };
 pub use transaction::{apply_transition, begin_scan, load, reconcile_live, recover_after_restart};
 pub(crate) use transaction::{
@@ -38,6 +38,15 @@ pub(crate) fn machine_setup_state_dir() -> anyhow::Result<std::path::PathBuf> {
     {
         storage::state_dir()
     }
+}
+
+/// Persist a locked runtime profile selected for an actual workload. The next
+/// machine setup scan binds the requirement to the currently verified engine
+/// identity and architecture before publishing a preparation task.
+pub fn require_image_profile(
+    profile: crate::execution::docker::images::RuntimeProfile,
+) -> anyhow::Result<SetupTaskStoreV1> {
+    apply_transition(SetupTaskTransitionV1::RequireImageProfile { profile })
 }
 
 #[cfg(test)]

@@ -2,7 +2,7 @@
 
 Tracking: [#337](https://github.com/zbarno/kool.ade/issues/337).
 
-## Implementation status: slices A-C (incremental foundation)
+## Implementation status: locked image preparation and Linux rootless bootstrap in progress
 
 Kool.ad/e starts bounded discovery of the six supported coding-agent CLIs and
 Git from first launch, before a workspace or Docker daemon exists. Provider
@@ -52,12 +52,25 @@ blockers, progress history, and verification evidence; narrow windows stack the
 panes. Platform-specific vendor guides are linked from each task. Unsupported
 platforms remain explicitly unavailable and never appear ready.
 
-Image preparation opens a review first. Approval sends a typed application
-command through the consent gate; it does not give the setup assistant
-host-shell access. The setup view shows only bounded status and redacted audit
-metadata. Raw host command output and credentials are not retained. Attempt and
-authorization records are typed audit metadata only; they do not execute repairs,
-grant host access, or authorize machine mutation.
+Image preparation and supported host repairs open a review first. Approval
+sends a typed application command through the consent gate; it does not give the
+setup assistant host-shell access. Linux rootless repair uses fixed package,
+subordinate-ID, and current-user service operations with native elevation only
+for the package and subordinate-ID changes. The setup view shows bounded status
+and redacted audit metadata. Raw host command output and credentials are not
+retained.
+
+Locked image tasks are created only after a trusted native Linux rootless Engine
+is available. Their IDs bind the runtime profile, Engine architecture, and a
+stable hash of the endpoint and daemon identity. General is always checked;
+Rust, Node, Python, and Go are requested from actual workload requirements.
+Preparation selects only the bundled digest lock, shows its registry and
+approximate transfer and storage costs, then pulls only after the operator
+approves. A successful task records an Engine- and digest-bound receipt after
+the isolated smoke test. Workload execution rechecks that receipt and inspects
+the exact local image; ordinary execution never pulls an image implicitly.
+Browser and desktop QA images remain disabled. Docker Desktop image preparation
+remains gated on the trusted VM transport and capacity evidence tracked by #347.
 
 ## Safety contract
 
@@ -80,34 +93,93 @@ grant host access, or authorize machine mutation.
   no coding CLI is installed or authenticated.
 - Runtime QA remains disabled until #171 passes.
 
-The #342 remediation broker now defines strict typed requests and exact plans,
+The #342 remediation broker defines strict typed requests and exact plans,
 derives the current host identity and OS version at consent and launch, and
 persists authorization, bounded redacted outcomes, and post-operation probe
 receipts in the setup journal. A launched operation is probed after success,
 failure, timeout, or cancellation. Restart recovery marks an in-flight repair
 interrupted and requires fresh setup evidence before any retry.
 
-This broker slice registers no production host installer or service operation
-and has no controller call site. Its native elevation executor remains
-fail-closed, and the supervised native command runner is disabled on macOS
-until its process-containment adapter is implemented. Existing consented Linux
-rootless image preparation remains the #362 path. The distro-specific Linux,
-macOS, and Windows host operations belong to #346, #348, and #349; they must add
-exact file/service targets and their own supported-host evidence before they
-can run. This PR makes no new native platform support claim.
+The #346 controller registers narrowly scoped Debian, Ubuntu, Pop!_OS, and
+Fedora rootless package, subordinate-ID, and current-user systemd-service
+operations for exact amd64 recipes. Every mutation has an exact typed preview
+and user consent; package and subordinate-ID operations also require the native
+administrator prompt. The supervisor rechecks the selected package source or
+account mappings immediately before elevation and independently probes
+readiness after execution. A failed or interrupted operation is not replayed
+automatically. The separate #362 image-preparation flow still requires an
+already reachable, verified Engine.
 
 ## Platform and operation limits
 
-The capability matrix marks Ubuntu 24.04 x86_64 as the current experimental
-Linux controller combination. It records Linux family and numeric major and
-minor version using a fixed enum; unrecognized distribution IDs collapse to
-`other`. The probe checks subordinate UID/GID mappings, the current systemd
-user socket, and known package-manager executable locations without storing
-account names or raw distribution identifiers. Other Linux releases,
-distributions, and architectures remain unverified. Rootless readiness also
-requires a verified rootless Engine, supported cgroups, capacity, and security
-evidence; systemd-user availability alone does not establish execution
-support.
+The experimental Linux matrix is Debian 13 amd64, Ubuntu 24.04 amd64,
+Pop!_OS 24.04 amd64, and Fedora 45 x86_64. Debian, Ubuntu, and Pop!_OS use
+exact APT sources; Fedora uses only the exact DNF5 recipe. Other releases,
+other architectures, and other RPM-family systems remain manual. The app never
+infers a recipe from the presence of `apt-get` or `dnf` alone. These recipes
+still require disposable-VM acceptance before they can be called validated.
+The upstream package references are Docker's [Debian](https://docs.docker.com/engine/install/debian/),
+[Ubuntu](https://docs.docker.com/engine/install/ubuntu/), and
+[Fedora](https://docs.docker.com/engine/install/fedora/) guides. Docker does
+not officially support Ubuntu derivative distributions; Pop!_OS therefore
+remains an experimental Noble compatibility recipe until its VM acceptance
+passes.
+
+The read-only host probe distinguishes missing, inaccessible, malformed, and
+observed facts. Automatic rootless repair requires kernel 4.15 or later, the
+documented minimum for Docker cgroup v2 support (see [Docker's cgroup v2
+requirements](https://docs.docker.com/engine/containers/runmetrics/#running-docker-on-cgroup-v2)).
+It checks the kernel release, user-namespace controls,
+current-user subordinate UID/GID ranges, `newuidmap`/`newgidmap` and rootless
+helper binaries, cgroup v2 CPU/memory/pids delegation, the current user's
+systemd runtime sockets, and the expected package manager for the exact recipe.
+
+The Debian 13 recipe uses Docker's signed Trixie APT repository; Ubuntu 24.04
+uses Noble; Pop!_OS 24.04 uses Docker's Ubuntu Noble repository and checks the
+Pop!_OS Ubuntu archive mirror or the official Ubuntu archive for helper
+packages. Each path uses the bundled Docker key pinned to its approved
+fingerprint, refuses conflicting source files, refreshes signed metadata,
+checks candidate origins, and installs only Docker Engine, CLI, containerd,
+rootless extras, and the distro's `uidmap` and `dbus-user-session` packages.
+Fedora 45 uses the exact signed Docker stable DNF5 repository and checks Docker,
+Fedora, and Updates package origins before installing Docker Engine, CLI,
+containerd, rootless extras, `shadow-utils`, and `slirp4netns`.
+
+A custom `XDG_CONFIG_HOME` is unsupported for automatic user-unit setup; that
+task stays manual because the unit writer only manages
+`~/.config/systemd/user`. APT-family Docker package scripts may install, enable,
+or start the system rootful service; a separate consent is required. Fedora's
+package operation does not activate the rootful service. The app never stops,
+disables, or changes a rootful service. The subordinate-ID operation adds a
+fixed range only when both current-user mappings are absent; partial or split
+mappings remain manual. The service operation writes the fixed Kool.ad/e user
+unit and starts/enables it only when inactive. Engine readiness separately
+checks rootless identity, security options, resource limits, staging capacity,
+and approved images.
+
+Linux endpoint discovery derives `/run/user/<uid>/docker.sock` from the current
+UID, independent of shell exports and desktop-launch environment forwarding.
+It accepts `DOCKER_CONTEXT=rootless` only when safely owned local metadata names
+that exact socket, rejects other non-empty contexts, and accepts `DOCKER_HOST`
+only when it names the same socket. A private user-local record persists the
+current UID, socket owner, and hashed endpoint and daemon fingerprints. It
+stores no path, environment override, daemon ID, or credential, and invalidates
+when the UID, socket owner, endpoint, or daemon changes. Rootful
+`/var/run/docker.sock` is not selected as a fallback. See the [Docker
+Engine prerequisite and manual setup/rollback
+workflow](docker-engine-prerequisites.md#manual-setup-and-rollback).
+
+Docker's [official rootless-mode prerequisites and setup
+guide](https://docs.docker.com/engine/security/rootless/) and [systemd
+user-service guidance](https://docs.docker.com/engine/security/rootless/tips/)
+are reference material only. They do not establish that Kool.ad/e has tested or
+approved a package recipe for a particular distribution. Rollback removes only
+the current-user app unit and APT or DNF files when records prove this operation
+created them. Package removal and user-data deletion are separate operator
+decisions; retain Docker Engine packages if their removal could affect the
+system rootful service. See the [Engine prerequisite and manual setup/rollback
+workflow](docker-engine-prerequisites.md#manual-setup-and-rollback) for exact
+paths and safety checks.
 
 Windows WSL2, virtualization, and Docker Desktop trust facts that have not been
 directly probed remain unknown. macOS and Windows native execution remains
@@ -116,7 +188,7 @@ validation. Synthetic platform fixtures validate classification; they do not
 establish support on those hosts.
 
 This readiness layer does not install packages, configure services, pull images
-automatically, or execute model-provided shell commands. A supported
+without explicit approval, or execute model-provided shell commands. A supported
 remediation operation uses a typed action, required operator approval and
 native privilege confirmation, and an independent readiness probe. If a coding
 CLI is absent or unusable, deterministic setup instructions remain available
@@ -124,15 +196,29 @@ without agent assistance.
 
 ## Acceptance evidence and remaining work
 
-The automated suite covers typed evidence and dependency consistency,
-redaction, stale generations, exact image prerequisites, task-store lifecycle,
-and the UI result-acceptance boundary. Human validation is still required for
-novice first-run usability, visual review at 360/900/1280/1600 px, keyboard and
-screen-reader use, reduced motion, and real-host setup behavior. Release
-acceptance also requires disposable native Linux checks for rootless Docker and
-Git/provider readiness; macOS Docker Desktop on Intel and Apple Silicon;
-Windows WSL2 x64; signed native packaging; and the full security/usability gate
-tracked by #342–#351. Mocks or Linux CI do not certify those platforms.
+Automated tests cover typed evidence and dependency consistency, approval and
+journal behavior, package-source validation, apt update/candidate failure
+handling, subordinate-ID classification, user-service failure and unit
+creation/idempotence, and endpoint ownership and conflict checks. Scripted
+service tests assert that only current-user `systemctl --user` operations are
+issued; they do not prove coexistence with a live rootful service. These tests
+do not install host packages or validate a live systemd user manager. The
+Docker CI daemon is pre-provisioned, so rootless execution tests are not
+bootstrap acceptance.
+
+Human acceptance remains required on disposable Ubuntu 24.04, Debian 13,
+Fedora 45, and Pop!_OS 24.04 amd64 VMs where runnable: package and
+native-elevation flows, startup with an existing rootful Docker service left
+untouched, desktop launch without shell exports, rootless Engine verification
+and approved-image smoke, reboot/relogin, and repeated idempotent scans. No
+recipe should be described as production-ready before that evidence is
+recorded. Human validation is also required for novice first-run usability,
+visual review at 360/900/1280/1600 px, keyboard and screen-reader use, and
+reduced motion.
+Release acceptance includes macOS Docker Desktop on Intel and Apple Silicon,
+Windows WSL2 x64, signed native packaging, and the full security/usability gate
+tracked by #342–#351. Mocks or Linux CI do not certify these hosts or setup
+workflows.
 
 Native package build artifacts are unsigned and CI-only. They do not change the
 support matrix; see [native desktop packaging status](native-desktop-distribution.md).
