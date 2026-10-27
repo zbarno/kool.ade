@@ -6,8 +6,11 @@ use std::{
 
 use serde_json::{Map, Value, json};
 
+mod asset_bridge;
+
 const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
 
+#[derive(Debug)]
 pub(super) struct CleanPiProfile {
     pub agent_directory: PathBuf,
     pub session_directory: PathBuf,
@@ -19,15 +22,17 @@ pub(super) struct CleanPiProfile {
 pub(super) fn prepare(
     controller_directory: &Path,
     model_override: Option<&str>,
+    pi_executable: &Path,
 ) -> anyhow::Result<CleanPiProfile> {
     let source = configured_agent_directory()?;
-    prepare_from(&source, controller_directory, model_override)
+    prepare_from(&source, controller_directory, model_override, pi_executable)
 }
 
 fn prepare_from(
     source: &Path,
     controller_directory: &Path,
     model_override: Option<&str>,
+    pi_executable: &Path,
 ) -> anyhow::Result<CleanPiProfile> {
     let metadata = fs::symlink_metadata(source)?;
     anyhow::ensure!(
@@ -62,6 +67,7 @@ fn prepare_from(
     create_private_directory(&session_directory)?;
     let package_directory = controller_directory.join("pi-packages");
     create_private_directory(&package_directory)?;
+    asset_bridge::link_builtin_package_assets(&package_directory, pi_executable)?;
     let clean_settings = json!({
         "defaultProvider": provider,
         "defaultModel": selected_model,

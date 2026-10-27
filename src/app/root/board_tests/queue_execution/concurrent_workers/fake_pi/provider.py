@@ -24,7 +24,7 @@ if '--version' in sys.argv:
     sys.exit(0)
 prompt = sys.stdin.read()
 ticket_line = next((line for line in prompt.splitlines() if line.startswith('TICKET PATH: ')), None)
-root = pathlib.Path(__file__).parent
+root = pathlib.Path(__file__).resolve().parents[3]
 def write_progress_marker(task_number, name):
     if task_number in (1, 2):
         (root / f'{name}-task-{task_number}').touch()
