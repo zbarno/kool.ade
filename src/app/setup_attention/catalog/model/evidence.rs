@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use super::identifiers::{
     ImageArchitectureV1, LinuxDistributionV1, LinuxDistributionVersionV1, LinuxKernelVersionV1,
-    LinuxPackageManagerV1, LinuxRootlessRecipeV1, PrerequisiteId,
+    LinuxPackageManagerV1, LinuxRootlessRecipeV1, PrerequisiteId, WindowsEditionV1,
+    WindowsKernelVersionV1, WindowsProductV1,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -34,7 +35,21 @@ pub enum EvidenceOrigin {
 pub enum EvidenceCode {
     RuntimeTargetDetected,
     HostEditionNotProbed,
+    MacOsReleaseDetected,
     HostCapabilityNotProbed,
+    WindowsHostDetected,
+    WindowsHostUnsupported,
+    WindowsFeatureEnabled,
+    WindowsFeatureDisabled,
+    WindowsFeaturePendingReboot,
+    WindowsWslKernelDetected,
+    WindowsWslKernelUnknown,
+    WindowsRebootPending,
+    WindowsNoRebootPending,
+    WindowsWslPolicyBlocked,
+    WindowsWslPolicyAllowed,
+    WindowsProbeInaccessible,
+    WindowsProbeMalformed,
     LinuxDistributionDetected,
     LinuxHostCheckReady,
     LinuxHostCheckMissing,
@@ -88,6 +103,7 @@ pub enum EvidenceCode {
     DockerImageDigestMismatch,
     DockerImageArchitectureMismatch,
     DockerDesktopVmDetected,
+    DockerDesktopTrustVerified,
     DockerDesktopTrustUnverified,
     DockerCgroupsSupported,
     DockerCgroupsUnavailable,
@@ -148,6 +164,31 @@ pub enum ProbeObservationV1 {
     HostArchitecture {
         observed: ImageArchitectureV1,
         supported_runtime_architectures: Vec<ImageArchitectureV1>,
+    },
+    MacOsVersion {
+        version: String,
+    },
+    WindowsHost {
+        product: WindowsProductV1,
+        edition: WindowsEditionV1,
+        build_number: u32,
+        architecture: ImageArchitectureV1,
+    },
+    WindowsOptionalFeature {
+        enabled: bool,
+        pending_reboot: bool,
+    },
+    WindowsWslKernel {
+        version: Option<WindowsKernelVersionV1>,
+    },
+    WindowsRebootPending {
+        pending: bool,
+    },
+    WindowsWslPolicy {
+        allowed: Option<bool>,
+    },
+    WindowsVirtualization {
+        enabled: bool,
     },
     LinuxDistribution {
         distribution: Option<LinuxDistributionV1>,

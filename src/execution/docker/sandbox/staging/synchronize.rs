@@ -77,6 +77,8 @@ pub(crate) fn synchronize_with_source_output_policy(
     }
     sync::apply_entries(
         workspace.root(),
+        workspace.root_identity(),
+        workspace.git_identity(),
         &snapshot.manifest,
         entries,
         limit,

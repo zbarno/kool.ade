@@ -96,6 +96,39 @@ fn aggregate_reported_size_cannot_exceed_the_bound() {
 }
 
 #[test]
+fn bounded_bootstrap_rejects_zero_total_progress() {
+    let (sender, _receiver) = mpsc::sync_channel(1);
+    let control = ImagePullControl::new(sender);
+    control.restrict_reported_bytes(1024);
+    let error = control
+        .record_progress(Some("layer"), Some(0), Some(0))
+        .unwrap_err();
+    assert_eq!(
+        error.code,
+        crate::execution::docker::discovery::PrerequisiteCode::ImageUnavailable
+    );
+}
+
+#[test]
+fn bounded_bootstrap_does_not_clear_unmeasured_transfer_on_retry() {
+    let (sender, _receiver) = mpsc::sync_channel(1);
+    let control = ImagePullControl::new(sender);
+    control.restrict_reported_bytes(1024);
+    control
+        .record_unmeasured_layer(Some("layer"), false)
+        .unwrap();
+
+    let error = control
+        .record_unmeasured_layer(Some("layer"), true)
+        .unwrap_err();
+
+    assert_eq!(
+        error.code,
+        crate::execution::docker::discovery::PrerequisiteCode::ImageUnavailable
+    );
+}
+
+#[test]
 fn clones_share_cancellation_state() {
     let (sender, _receiver) = mpsc::sync_channel(1);
     let control = ImagePullControl::new(sender);

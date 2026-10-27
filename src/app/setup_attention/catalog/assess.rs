@@ -11,6 +11,7 @@ mod docker;
 mod inputs;
 mod linux_rootless;
 mod provider_tasks;
+mod windows;
 pub(crate) use inputs::{ImageScanState, ScanInputs};
 #[cfg(test)]
 mod test_support;
@@ -124,8 +125,8 @@ pub(crate) fn assess_for_scan_with_inputs_and_bootstrap_provider(
             ..Finding::unverified(
                 "setup:docker:desktop-transport",
                 "Verify Docker Desktop compatibility",
-                "Docker Desktop execution on this host is not yet release-certified.",
-                "Complete native Docker Desktop staging/security validation before enabling coding tasks.",
+                "Docker Desktop execution on this host remains unsupported until native security and task-lifecycle validation passes.",
+                "Validate cold startup, staged project reads and writes, restart/cancellation, and sensitive-file denial on macOS Intel, macOS Apple Silicon, and Windows x64 before claiming support.",
             )
         });
     } else if host == HostKind::Unsupported {
@@ -148,6 +149,7 @@ pub(crate) fn assess_for_scan_with_inputs_and_bootstrap_provider(
         checked_at_unix_ms,
         git_probe,
     );
+    windows::append_findings(&mut findings, host, &probe_evidence);
     linux_rootless::append_findings(
         &mut findings,
         host,

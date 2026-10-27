@@ -62,6 +62,11 @@ pub(super) fn ready_claim(
             Origin::DockerDiscovery,
             Code::DockerDesktopVmDetected,
         ) | (
+            Domain::Host,
+            Capability::DockerDesktopTrust,
+            Origin::HostRuntime,
+            Code::DockerDesktopTrustVerified,
+        ) | (
             Domain::Docker,
             Capability::DockerRootless,
             Origin::DockerDiscovery,

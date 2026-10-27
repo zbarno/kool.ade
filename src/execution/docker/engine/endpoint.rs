@@ -4,10 +4,15 @@ use crate::execution::docker::discovery::{PrerequisiteCode, PrerequisiteFailure}
 
 use super::failure;
 
+#[cfg(unix)]
 const API_TIMEOUT_SECONDS: u64 = 5;
 
 mod connection;
 mod context;
+#[cfg(target_os = "macos")]
+mod macos_app;
+#[cfg(windows)]
+pub(crate) mod named_pipe;
 #[cfg(unix)]
 mod pinned;
 #[cfg(test)]
@@ -36,14 +41,19 @@ impl DockerEndpoint {
         let uid = Some(unsafe { libc::geteuid() });
         #[cfg(not(target_os = "linux"))]
         let uid = None;
-        Self::from_environment(
+        let endpoint = Self::from_environment(
             docker_host.as_deref(),
             docker_context.as_deref(),
             runtime_dir.as_deref(),
             home_dir.as_deref(),
             uid,
             platform,
-        )
+        )?;
+        #[cfg(target_os = "macos")]
+        if platform == HostPlatform::MacOs {
+            macos_app::verify_installed_docker_desktop()?;
+        }
+        Ok(endpoint)
     }
 
     #[cfg(test)]
@@ -258,7 +268,31 @@ impl DockerEndpoint {
                             }
                 )
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "macos")]
+        {
+            let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+                return false;
+            };
+            matches!(
+                self,
+                Self::Unix {
+                    path,
+                    desktop: true
+                } if path == &home.join(".docker/run/docker.sock")
+                    || path == &home.join(".docker/desktop/docker.sock")
+            )
+        }
+        #[cfg(target_os = "windows")]
+        {
+            matches!(
+                self,
+                Self::NamedPipe {
+                    path,
+                    desktop: true
+                } if path == r"\\.\pipe\docker_engine"
+            )
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         {
             false
         }
@@ -268,34 +302,6 @@ impl DockerEndpoint {
 #[cfg(unix)]
 pub(crate) mod socket;
 
-#[cfg(all(test, unix))]
-mod tests {
-    use super::socket::validate_unix_socket;
-    use super::*;
-    use std::os::unix::net::UnixListener;
-
-    #[test]
-    fn accepts_only_a_direct_socket_owned_by_the_current_user() {
-        let directory = tempfile::tempdir().unwrap();
-        let socket_path = directory.path().join("docker.sock");
-        let _listener = UnixListener::bind(&socket_path).unwrap();
-
-        validate_unix_socket(&socket_path, false).unwrap();
-    }
-
-    #[test]
-    fn rejects_symlinked_and_non_socket_endpoints() {
-        let directory = tempfile::tempdir().unwrap();
-        let regular_file = directory.path().join("not-a-socket");
-        std::fs::write(&regular_file, "fixture").unwrap();
-        let symlink_path = directory.path().join("docker.sock");
-        std::os::unix::fs::symlink(&regular_file, &symlink_path).unwrap();
-
-        for path in [&regular_file, &symlink_path] {
-            assert_eq!(
-                validate_unix_socket(path, false).unwrap_err().code,
-                PrerequisiteCode::UntrustedEndpoint
-            );
-        }
-    }
-}
+#[cfg(test)]
+#[path = "endpoint/tests.rs"]
+mod tests;

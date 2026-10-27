@@ -59,6 +59,7 @@ impl DockerApi for FakePullApi {
         &'a self,
         image: &'a SelectedImage,
         _expected_engine_fingerprint: &'a str,
+        _verified_capacity_bytes: Option<u64>,
         control: &'a ImagePullControl,
     ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
         Box::pin(async move {

@@ -2,7 +2,7 @@
 
 Tracking: [#337](https://github.com/zbarno/kool.ade/issues/337).
 
-## Implementation status: guided provider setup and Linux rootless bootstrap in progress
+## Implementation status: guided provider setup, Linux rootless and desktop onboarding in progress
 
 The readiness catalog, machine-local tasks, shared setup UI, remediation
 broker, and provider setup guidance are implemented in slices #339–#343.
@@ -312,11 +312,30 @@ system rootful service. See the [Engine prerequisite and manual setup/rollback
 workflow](docker-engine-prerequisites.md#manual-setup-and-rollback) for exact
 paths and safety checks.
 
-Windows WSL2, virtualization, and Docker Desktop trust facts that have not been
-directly probed remain unknown. macOS and Windows native execution remains
-blocked pending native Docker Desktop staging, security, and runtime
-validation. Synthetic platform fixtures validate classification; they do not
+The Docker Desktop transport and bounded staging paths for macOS and Windows
+are implemented, but native security and task-lifecycle validation is still
+required before those hosts are enabled. The macOS endpoint probe now checks
+Docker.app's signed bundle identity and version before discovering its local
+socket. The catalog does not yet record the physical Mac architecture under
+Rosetta or certify the publisher pin against current Intel and Apple silicon
+releases. Windows edition, WSL2 kernel, reboot, and policy state also remain
+unprobed. These facts and native host acceptance remain open under #348 and
+#349. Synthetic platform fixtures validate classification; they do not
 establish support on those hosts.
+On Windows 11 x64, the read-only host probe reports edition/build/architecture, WSL and
+Virtual Machine Platform feature states, WSL kernel version, pending restart
+markers, the WSL policy setting, and whether virtualization is available to
+Windows. It uses signed tools from the Windows system directory and does not
+change host settings. Readiness results produce operator-guided setup tasks;
+Kool.ad/e does not enable Windows features, change pipe ACLs or policy, restart
+Windows, or change firmware settings. Docker Desktop trust and native task
+execution remain unverified until Windows end-to-end validation passes.
+Windows 10 and ARM64 hosts remain unsupported until their separate native
+end-to-end acceptance evidence is completed.
+macOS and Windows native execution remains blocked pending native Docker
+Desktop staging, security, and runtime validation. Synthetic platform
+fixtures validate classification; they do not establish support on those
+hosts.
 
 This readiness layer does not install packages, configure services, pull images
 without explicit approval, or execute model-provided shell commands. A supported

@@ -9,9 +9,11 @@ use crate::app::setup_attention::catalog::{
 use super::super::MachineSnapshotV1;
 
 mod linux_probes;
+mod windows_probes;
 
 pub(super) fn validate_capability_matrix(snapshot: &MachineSnapshotV1) -> anyhow::Result<()> {
     linux_probes::validate(snapshot)?;
+    windows_probes::validate(snapshot)?;
     let matrix = &snapshot.capability_matrix;
     validate_host_fact(snapshot, Capability::HostFamily, EvidenceState::Ready)?;
     let architecture_state = match matrix.observed_host_architecture {
@@ -217,7 +219,13 @@ fn host_evidence(
 fn host_evidence_code(capability: Capability, state: EvidenceState) -> EvidenceCode {
     match capability {
         Capability::HostFamily => EvidenceCode::RuntimeTargetDetected,
-        Capability::HostEdition => EvidenceCode::HostEditionNotProbed,
+        Capability::HostEdition => {
+            if state == EvidenceState::Ready {
+                EvidenceCode::MacOsReleaseDetected
+            } else {
+                EvidenceCode::HostEditionNotProbed
+            }
+        }
         Capability::HostArchitecture => EvidenceCode::ArchitectureDetected,
         Capability::LinuxDistribution => {
             if state == EvidenceState::Ready {
@@ -249,7 +257,13 @@ fn host_evidence_code(capability: Capability, state: EvidenceState) -> EvidenceC
             _ => EvidenceCode::HostCapabilityNotProbed,
         },
         Capability::Wsl2 | Capability::Virtualization => EvidenceCode::HostCapabilityNotProbed,
-        Capability::DockerDesktopTrust => EvidenceCode::DockerDesktopTrustUnverified,
+        Capability::DockerDesktopTrust => {
+            if state == EvidenceState::Ready {
+                EvidenceCode::DockerDesktopTrustVerified
+            } else {
+                EvidenceCode::DockerDesktopTrustUnverified
+            }
+        }
         _ => EvidenceCode::HostCapabilityNotProbed,
     }
 }

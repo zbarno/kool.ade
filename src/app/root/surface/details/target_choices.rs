@@ -52,7 +52,7 @@ fn choices(
         reason: if local.local_execution_ready() {
             "Local Docker passed the current readiness check.".into()
         } else if local.ready() {
-            "The Docker engine is reachable, but local task execution is enabled only for verified native Linux rootless Engine.".into()
+            "The Docker engine is reachable, but its platform-specific execution trust checks did not pass.".into()
         } else {
             format!("Local Docker is unavailable: {}", local.message)
         },

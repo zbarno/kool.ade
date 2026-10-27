@@ -1,4 +1,4 @@
-use crate::app::bootstrap_repair_policy::{Operation, Proposal};
+use crate::app::bootstrap_repair_policy::{Host, Operation, Proposal};
 use crate::execution::docker::images::RuntimeProfile;
 use sha2::{Digest, Sha256};
 
@@ -61,6 +61,7 @@ pub(crate) struct ApprovedAction {
     pub(super) image_reference: String,
     pub(super) image_digest: String,
     pub(super) image_platform: String,
+    pub(super) capacity_probe_required: bool,
     pub(super) engine_fingerprint: String,
     pub(super) engine_identity_fingerprint: String,
     pub(super) binding_digest: String,
@@ -91,6 +92,10 @@ impl ApprovedAction {
 
     pub(crate) fn image_platform(&self) -> &str {
         &self.image_platform
+    }
+
+    pub(crate) fn capacity_probe_required(&self) -> bool {
+        self.capacity_probe_required
     }
 
     pub(crate) fn engine_fingerprint(&self) -> &str {
@@ -137,11 +142,32 @@ impl ApprovedAction {
             image_reference: image.reference.clone(),
             image_digest: image.digest.clone(),
             image_platform: image.platform.clone(),
+            capacity_probe_required: false,
             engine_fingerprint: engine_fingerprint.to_owned(),
             engine_identity_fingerprint: engine_identity_fingerprint.to_owned(),
             binding_digest: "b".repeat(64),
             proposal_digest: "c".repeat(64),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test_with_capacity_probe(
+        profile: &str,
+        prerequisite_id: &str,
+        image: &crate::execution::docker::images::SelectedImage,
+        engine_fingerprint: &str,
+        engine_identity_fingerprint: &str,
+        capacity_probe_required: bool,
+    ) -> Self {
+        let mut action = Self::for_test(
+            profile,
+            prerequisite_id,
+            image,
+            engine_fingerprint,
+            engine_identity_fingerprint,
+        );
+        action.capacity_probe_required = capacity_probe_required;
+        action
     }
 
     pub(super) fn validate_binding(
@@ -157,7 +183,8 @@ impl ApprovedAction {
                 && current.engine_identity_fingerprint == self.engine_identity_fingerprint
                 && current.image_reference == self.image_reference
                 && current.image_digest == self.image_digest
-                && current.image_platform == self.image_platform,
+                && current.image_platform == self.image_platform
+                && current.capacity_probe_required == self.capacity_probe_required,
             "Approved operation, endpoint or image digest changed before preparation"
         );
         Ok(())
@@ -176,8 +203,12 @@ impl ApprovalPreview {
     #[allow(dead_code)] // Consumed by the dependent image setup UI in #345.
     pub(crate) fn show_confirmation(&self, ui: &mut egui::Ui) -> Option<ApprovalRequest> {
         ui.heading("Review approved image preparation");
+        let engine_description = match self.binding.host {
+            Host::Linux => "verified local rootless Docker Engine",
+            Host::MacOs | Host::Windows => "verified local Docker Desktop Linux VM",
+        };
         ui.label(format!(
-            "This machine's verified local rootless Docker Engine ({}) will prepare the pinned image below. It will pull the image only if its exact digest is absent.",
+            "This machine's {engine_description} ({}) will prepare the pinned image below. It will pull the image only if its exact digest is absent.",
             self.binding.daemon_id
         ));
         ui.label(format!(
@@ -199,20 +230,36 @@ impl ApprovalPreview {
             "Approximate cold-cache transfer: {}. Docker may reuse existing layers.",
             human_bytes(self.binding.estimated_pull_bytes)
         ));
-        ui.label(format!(
-            "Approximate added storage: {}; keep at least {} free for the runtime after preparation. Current Docker storage free space: {}.",
-            human_bytes(self.binding.estimated_storage_bytes),
-            human_bytes(self.binding.minimum_disk_bytes),
-            human_bytes(self.binding.disk_available_bytes)
-        ));
-        ui.label(format!(
-            "Approval requires about {} free before download; storage must remain measurable from the Docker Engine.",
-            human_bytes(
-                self.binding
-                    .minimum_disk_bytes
-                    .saturating_add(self.binding.estimated_storage_bytes)
-            )
-        ));
+        if self.binding.capacity_probe_required {
+            ui.label(format!(
+                "Docker Desktop cannot measure VM free space before this first General image. Its bounded lock estimate is {} transfer and {} added storage.",
+                human_bytes(self.binding.estimated_pull_bytes),
+                human_bytes(self.binding.estimated_storage_bytes)
+            ));
+            ui.label(
+                "The app will measure VM capacity after pulling the pinned General image and before smoke verification. If the pull runs out of space or capacity cannot be measured, preparation fails and no successful receipt is recorded. Other images remain blocked until capacity is measurable.",
+            );
+        } else {
+            let available = self
+                .binding
+                .disk_available_bytes
+                .map(human_bytes)
+                .unwrap_or_else(|| "unknown".into());
+            ui.label(format!(
+                "Approximate added storage: {}; keep at least {} free for the runtime after preparation. Current Docker storage free space: {}.",
+                human_bytes(self.binding.estimated_storage_bytes),
+                human_bytes(self.binding.minimum_disk_bytes),
+                available
+            ));
+            ui.label(format!(
+                "Approval requires about {} free before download; storage is rechecked before the pull.",
+                human_bytes(
+                    self.binding
+                        .minimum_disk_bytes
+                        .saturating_add(self.binding.estimated_storage_bytes)
+                )
+            ));
+        }
         ui.label(
             "Transfer estimates sum the exact digest's compressed layers and config. Storage is an approximate 2× layer-size reserve; actual unpacked use varies.",
         );

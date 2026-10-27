@@ -127,8 +127,16 @@ impl MachineSnapshotV1 {
                     Some(ProbeObservationV1::HostArchitecture { .. }),
                 ) | (
                     PrerequisiteDomain::Host,
+                    PrerequisiteCapability::HostEdition,
+                    Some(ProbeObservationV1::MacOsVersion { .. }),
+                ) | (
+                    PrerequisiteDomain::Host,
                     PrerequisiteCapability::LinuxDistribution,
                     Some(ProbeObservationV1::LinuxDistribution { .. }),
+                ) | (
+                    PrerequisiteDomain::Host,
+                    PrerequisiteCapability::HostEdition,
+                    Some(ProbeObservationV1::WindowsHost { .. }),
                 ) | (
                     PrerequisiteDomain::Docker,
                     PrerequisiteCapability::DockerEndpoint,
@@ -166,6 +174,27 @@ impl MachineSnapshotV1 {
                     PrerequisiteCapability::LinuxPackageManager,
                     Some(ProbeObservationV1::LinuxPackageManager { .. }),
                 ) | (
+                    PrerequisiteDomain::Host,
+                    PrerequisiteCapability::Virtualization,
+                    Some(ProbeObservationV1::WindowsVirtualization { .. }),
+                ) | (
+                    PrerequisiteDomain::Host,
+                    PrerequisiteCapability::WindowsWslFeature
+                        | PrerequisiteCapability::WindowsVmPlatformFeature,
+                    Some(ProbeObservationV1::WindowsOptionalFeature { .. }),
+                ) | (
+                    PrerequisiteDomain::Host,
+                    PrerequisiteCapability::WindowsWslKernel,
+                    Some(ProbeObservationV1::WindowsWslKernel { .. }),
+                ) | (
+                    PrerequisiteDomain::Host,
+                    PrerequisiteCapability::WindowsReboot,
+                    Some(ProbeObservationV1::WindowsRebootPending { .. }),
+                ) | (
+                    PrerequisiteDomain::Host,
+                    PrerequisiteCapability::WindowsWslPolicy,
+                    Some(ProbeObservationV1::WindowsWslPolicy { .. }),
+                ) | (
                     PrerequisiteDomain::Docker,
                     PrerequisiteCapability::DockerRootlessSmoke,
                     Some(ProbeObservationV1::DockerRootlessSmoke { .. }),
@@ -174,6 +203,39 @@ impl MachineSnapshotV1 {
             anyhow::ensure!(
                 observation_matches,
                 "probe observation does not match its prerequisite"
+            );
+            if requires_macos_release(item) {
+                anyhow::ensure!(
+                    item.code == super::evidence::EvidenceCode::MacOsReleaseDetected,
+                    "ready host edition evidence lacks a verified macOS release"
+                );
+            }
+            if item.code == super::evidence::EvidenceCode::MacOsReleaseDetected {
+                let Some(ProbeObservationV1::MacOsVersion { version }) = &item.observation else {
+                    anyhow::bail!("macOS release evidence lacks its typed version observation");
+                };
+                anyhow::ensure!(
+                    item.prerequisite.platform == HostKind::MacOs
+                        && item.prerequisite.domain == PrerequisiteDomain::Host
+                        && item.prerequisite.capability == PrerequisiteCapability::HostEdition
+                        && item.prerequisite.subject == PrerequisiteSubject::None
+                        && item.state == EvidenceState::Ready
+                        && item.code == super::evidence::EvidenceCode::MacOsReleaseDetected
+                        && item.origin == super::evidence::EvidenceOrigin::HostRuntime
+                        && item.source_generation.is_none()
+                        && valid_macos_version(version),
+                    "macOS version observation is not valid host release evidence"
+                );
+            }
+            if let Some(ProbeObservationV1::MacOsVersion { .. }) = &item.observation {
+                anyhow::ensure!(
+                    item.code == super::evidence::EvidenceCode::MacOsReleaseDetected,
+                    "macOS version observation lacks matching release evidence"
+                );
+            }
+            anyhow::ensure!(
+                claims::windows_observation_is_consistent(item),
+                "Windows probe observation conflicts with its readiness state"
             );
             if item.prerequisite.capability == PrerequisiteCapability::DockerRootlessSmoke {
                 let Some(ProbeObservationV1::DockerRootlessSmoke {
@@ -265,6 +327,20 @@ impl MachineSnapshotV1 {
         }
         Ok(())
     }
+}
+
+fn requires_macos_release(item: &ProbeEvidenceV1) -> bool {
+    item.prerequisite.capability == PrerequisiteCapability::HostEdition
+        && item.prerequisite.platform == HostKind::MacOs
+        && item.state == EvidenceState::Ready
+}
+
+fn valid_macos_version(version: &str) -> bool {
+    version.len() <= 32
+        && !version.is_empty()
+        && version
+            .split('.')
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 fn rootless_smoke_subject_matches(subject: &PrerequisiteSubject, image_platform: &str) -> bool {

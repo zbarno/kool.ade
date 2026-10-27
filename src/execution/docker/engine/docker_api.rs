@@ -18,6 +18,23 @@ pub(crate) trait DockerApi: Send + Sync {
         })
     }
 
+    /// Measure free bytes in a verified Docker Desktop Linux VM using an
+    /// already-installed, exact-lock General image. The probe has no host
+    /// mounts or network access and adapters must clean up only its container.
+    fn desktop_storage_capacity<'a>(
+        &'a self,
+        _image: &'a SelectedImage,
+        _expected_engine_fingerprint: &'a str,
+    ) -> EngineFuture<'a, Result<u64, PrerequisiteFailure>> {
+        Box::pin(async {
+            Err(failure(
+                PrerequisiteCode::CapabilitiesIncompatible,
+                "Docker adapter cannot measure Desktop VM storage safely",
+                false,
+            ))
+        })
+    }
+
     #[cfg(test)]
     fn ensure_image<'a>(
         &'a self,
@@ -26,11 +43,15 @@ pub(crate) trait DockerApi: Send + Sync {
     ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>>;
 
     /// Pull an approved image with cancellation and bounded progress control.
-    /// Adapters that cannot uphold cancellation must fail closed.
+    /// `verified_capacity_bytes` is fresh VM/engine evidence from the same
+    /// fingerprinted engine; `None` may authorize only the size-capped first
+    /// Desktop General image. Adapters that cannot uphold cancellation must
+    /// fail closed.
     fn ensure_image_with_control<'a>(
         &'a self,
         _image: &'a SelectedImage,
         _expected_engine_fingerprint: &'a str,
+        _verified_capacity_bytes: Option<u64>,
         _control: &'a super::ImagePullControl,
     ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
         Box::pin(async {

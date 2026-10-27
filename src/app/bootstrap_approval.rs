@@ -202,6 +202,7 @@ impl ApprovalGate {
             image_reference: current.image_reference.clone(),
             image_digest: current.image_digest.clone(),
             image_platform: current.image_platform.clone(),
+            capacity_probe_required: current.capacity_probe_required,
             engine_fingerprint: current.probe_hash.clone(),
             engine_identity_fingerprint: current.engine_identity_fingerprint.clone(),
             binding_digest: pending.binding_digest.clone(),

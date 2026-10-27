@@ -20,10 +20,29 @@ pub(super) fn proposal(prerequisite_id: &str) -> Result<Proposal, String> {
     Ok(Proposal {
         schema_version: 1,
         operation: Operation::PrepareLockedImage,
-        host: Host::Linux,
+        host: current_host()?,
         prerequisite_id: prerequisite_id.to_owned(),
         image_profile: Some(profile.into()),
     })
+}
+
+fn current_host() -> Result<Host, String> {
+    #[cfg(target_os = "linux")]
+    {
+        Ok(Host::Linux)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Ok(Host::MacOs)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Ok(Host::Windows)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        Err("Approved image preparation is unavailable on this host.".into())
+    }
 }
 
 pub(super) fn prepare_approved(
@@ -78,3 +97,7 @@ pub(super) fn runtime() -> Result<tokio::runtime::Runtime, String> {
         .build()
         .map_err(|error| format!("Could not start the image preparation worker: {error}"))
 }
+
+#[cfg(test)]
+#[path = "executor/tests.rs"]
+mod tests;

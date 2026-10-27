@@ -11,6 +11,9 @@ mod images;
 mod providers;
 mod rootless_smoke;
 mod support;
+mod windows;
+
+pub(super) use windows::observation_is_consistent as windows_observation_is_consistent;
 
 use images::{image_domain_ready, is_lower_sha256};
 
@@ -51,13 +54,31 @@ fn desktop_docker_ready(snapshot: &MachineSnapshotV1) -> bool {
     matches!(
         snapshot.host,
         super::super::identifiers::HostKind::MacOs | super::super::identifiers::HostKind::Windows
-    ) && [
-        Capability::DockerEngine,
-        Capability::DockerEndpoint,
-        Capability::DockerDesktopVm,
-    ]
-    .into_iter()
-    .all(|capability| current_ready(snapshot, Domain::Docker, capability, Subject::None, false))
+    ) && snapshot.capability_matrix.docker_desktop_vm_trust == EvidenceState::Ready
+        && snapshot.probe_evidence.iter().any(|evidence| {
+            evidence.prerequisite.domain == Domain::Host
+                && evidence.prerequisite.platform == snapshot.host
+                && evidence.prerequisite.capability == Capability::DockerDesktopTrust
+                && evidence.prerequisite.subject == Subject::None
+                && evidence.state == EvidenceState::Ready
+                && evidence.scan_generation == snapshot.scan_generation
+                && evidence.source_generation.is_none()
+                && evidence::ready_claim(
+                    Domain::Host,
+                    Capability::DockerDesktopTrust,
+                    evidence.origin,
+                    evidence.code,
+                )
+        })
+        && [
+            Capability::DockerEngine,
+            Capability::DockerEndpoint,
+            Capability::DockerDesktopVm,
+            Capability::DockerCapacity,
+            Capability::DockerSecurity,
+        ]
+        .into_iter()
+        .all(|capability| current_ready(snapshot, Domain::Docker, capability, Subject::None, false))
 }
 
 pub(super) fn validate(snapshot: &MachineSnapshotV1) -> anyhow::Result<()> {
@@ -165,3 +186,6 @@ pub(super) fn validate(snapshot: &MachineSnapshotV1) -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

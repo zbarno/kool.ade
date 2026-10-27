@@ -1,6 +1,7 @@
 use crate::{app::setup_attention::catalog::HostKind, persistence::setup_tasks::LocalTask};
 
 mod instructions;
+mod macos;
 mod providers;
 
 pub(super) fn plain_title(task: &LocalTask) -> String {
@@ -143,11 +144,25 @@ pub(super) fn humanize_prerequisite(id: &str) -> String {
 }
 
 pub(super) fn steps(task: &LocalTask, host: HostKind) -> &'static [&'static str] {
-    instructions::steps(task, host)
+    match (task.id.as_str(), host) {
+        ("setup:docker:desktop", HostKind::MacOs) => macos::desktop_steps(),
+        ("setup:docker:disk", HostKind::MacOs) => macos::disk_steps(),
+        ("setup:docker:limits", HostKind::MacOs) => macos::limits_steps(),
+        ("setup:docker:endpoint", HostKind::MacOs) => macos::endpoint_steps(),
+        _ => instructions::steps(task, host),
+    }
 }
 
 pub(super) fn help_links(task: &LocalTask, host: HostKind) -> Vec<(&'static str, &'static str)> {
-    instructions::help_links(task, host)
+    match (task.id.as_str(), host) {
+        (
+            "setup:docker:install" | "setup:docker:start" | "setup:docker:desktop",
+            HostKind::MacOs,
+        )
+        | ("setup:docker:endpoint", HostKind::MacOs) => macos::setup_links(),
+        ("setup:docker:disk" | "setup:docker:limits", HostKind::MacOs) => macos::resource_links(),
+        _ => instructions::help_links(task, host),
+    }
 }
 
 pub(super) fn provider_task_guidance(
