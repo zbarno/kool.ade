@@ -13,6 +13,8 @@ use crate::execution::docker::images::{ImageLock, RuntimeProfile};
 
 // This module retains Linux probe types for shared evidence, while only Linux
 // builds execute the host inspection implementation.
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod probe;
 #[cfg(test)]
@@ -32,6 +34,7 @@ pub(super) struct HostFacts {
     windows_wsl2: State,
     virtualization: State,
     docker_desktop_vm_trust: State,
+    macos_release: Option<String>,
 }
 
 pub(super) fn probe(host: HostKind, docker: &DockerEnvironmentStatus) -> HostFacts {
@@ -41,6 +44,12 @@ pub(super) fn probe(host: HostKind, docker: &DockerEnvironmentStatus) -> HostFac
         host,
         Architecture::from_platform_arch(std::env::consts::ARCH),
     );
+    #[cfg(target_os = "macos")]
+    let macos_release = (host == HostKind::MacOs)
+        .then(macos::product_version)
+        .flatten();
+    #[cfg(not(target_os = "macos"))]
+    let macos_release = None;
     let distribution = linux_probe.distribution;
     let linux_distribution_id = distribution.map(|(id, _)| id);
     let linux_distribution_version = distribution.and_then(|(_, version)| version);
@@ -92,6 +101,7 @@ pub(super) fn probe(host: HostKind, docker: &DockerEnvironmentStatus) -> HostFac
         } else {
             State::Unknown
         },
+        macos_release,
     }
 }
 
@@ -118,16 +128,21 @@ pub(super) fn push(
         State::Ready,
         Code::RuntimeTargetDetected,
     ));
-    result.push(add(
-        Capability::HostEdition,
-        if host == HostKind::Linux {
-            State::NotApplicable
-        } else {
-            State::Unknown
-        },
-        Code::HostEditionNotProbed,
-    ));
-    let arch = Architecture::from_platform_arch(std::env::consts::ARCH);
+    let host_edition = if host == HostKind::Linux {
+        (State::NotApplicable, Code::HostEditionNotProbed)
+    } else if host == HostKind::MacOs && facts.macos_release.is_some() {
+        (State::Ready, Code::MacOsReleaseDetected)
+    } else {
+        (State::Unknown, Code::HostEditionNotProbed)
+    };
+    let mut edition = add(Capability::HostEdition, host_edition.0, host_edition.1);
+    if let Some(version) = &facts.macos_release {
+        edition.observation = Some(Observation::MacOsVersion {
+            version: version.clone(),
+        });
+    }
+    result.push(edition);
+    let arch = host_architecture(host);
     let mut architecture = add(
         Capability::HostArchitecture,
         if matches!(arch, Architecture::Amd64 | Architecture::Arm64) {
@@ -183,7 +198,7 @@ pub(super) fn push(
 }
 
 pub(super) fn matrix(host: HostKind, facts: &HostFacts) -> HostCapabilityMatrixV1 {
-    let host_arch = Architecture::from_platform_arch(std::env::consts::ARCH);
+    let host_arch = host_architecture(host);
     HostCapabilityMatrixV1 {
         native_controller: native_support(
             host,
@@ -205,6 +220,15 @@ pub(super) fn matrix(host: HostKind, facts: &HostFacts) -> HostCapabilityMatrixV
         virtualization: facts.virtualization,
         docker_desktop_vm_trust: facts.docker_desktop_vm_trust,
     }
+}
+
+fn host_architecture(host: HostKind) -> Architecture {
+    #[cfg(target_os = "macos")]
+    if host == HostKind::MacOs {
+        return macos::physical_architecture();
+    }
+    let _ = host;
+    Architecture::from_platform_arch(std::env::consts::ARCH)
 }
 
 fn supported_runtime_architectures() -> Vec<Architecture> {
