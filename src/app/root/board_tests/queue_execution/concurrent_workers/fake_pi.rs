@@ -103,7 +103,11 @@ pub(super) fn configure_harness_settings(root: &Path) -> HarnessEnvironment {
                 crate::persistence::harness_settings::DetectedHarness {
                     status: "pi fixture 1.0".into(),
                     version: Some("1.0".into()),
-                    executable: Some(root.join("pi-fixture").to_string_lossy().into_owned()),
+                    executable: Some(
+                        root.join("pi-package/dist/bundle/pi-fixture")
+                            .to_string_lossy()
+                            .into_owned(),
+                    ),
                     diagnostic: None,
                     ready: true,
                     models: vec!["fixture-model".into()],
@@ -127,7 +131,15 @@ pub(super) fn configure_harness_settings(root: &Path) -> HarnessEnvironment {
 }
 
 pub(super) fn create(root: &Path) -> PathBuf {
-    let pi = root.join("pi-fixture");
+    let package = root.join("pi-package");
+    let dist_bundle = package.join("dist/bundle");
+    std::fs::create_dir_all(&dist_bundle).unwrap();
+    std::fs::write(
+        package.join("package.json"),
+        r#"{"name":"@earendil-works/pi-coding-agent"}"#,
+    )
+    .unwrap();
+    let pi = dist_bundle.join("pi-fixture");
     std::fs::write(&pi, include_str!("fake_pi/provider.py")).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&pi, std::fs::Permissions::from_mode(0o700)).unwrap();
