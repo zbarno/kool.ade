@@ -1,6 +1,9 @@
 use super::*;
 use crate::app::bootstrap_repair_policy::Operation;
 
+// Covers native Win32 atomic replacement and private audit/lock DACL invariants.
+// Cross-target checks cannot prove kernel ACL or rename behavior; this needs native
+// Windows but no external service, using one temporary directory with low setup cost.
 #[test]
 fn audit_append_replaces_atomically_and_keeps_private_windows_acl() {
     let root = tempfile::tempdir().unwrap();
