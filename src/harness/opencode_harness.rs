@@ -8,14 +8,20 @@ use crate::error::AppError;
 pub const OPENCODE_BINARY_ENV: &str = "KOOLADE_OPENCODE_BIN";
 const PROBE_TIMEOUT: Duration = Duration::from_secs(12);
 
+mod auth;
 mod execute;
 mod readiness;
 mod stream;
+pub(crate) use auth::{AuthExport, export_api_key};
 #[cfg(test)]
 pub(super) use execute::prompt_input;
 use readiness::{probe, probe_version};
 #[cfg(test)]
 use stream::{OpenCodeEvent, parse_event};
+
+pub(crate) fn cli_version(path: &Path) -> Result<String, String> {
+    probe_version(path, PROBE_TIMEOUT)
+}
 
 #[derive(Default)]
 pub struct OpenCodeHarness;

@@ -171,6 +171,8 @@ fn recipe_stage_out_rejects_deleting_ancestor_of_declared_output() {
     assert!(result.is_err());
     assert_eq!(fs::read(fixture.0.join("dist")).unwrap(), b"tracked file");
 }
+#[path = "synchronization/recipes.rs"]
+mod recipes;
 
 #[cfg(unix)]
 #[test]
@@ -185,6 +187,65 @@ fn synchronization_preserves_host_files() {
         fs::read(fixture.0.join("source.txt")).unwrap(),
         b"host edit"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn stage_out_rejects_a_replaced_workspace_root_identity() {
+    let fixture = Fixture::new();
+    let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();
+    let snapshot = capture(&workspace, 1024 * 1024, false).unwrap();
+    let archive = returned(&[("source.txt", b"container edit")]);
+    let entries = super::super::archive::parse_returned(&archive, 1024 * 1024, 10).unwrap();
+    let moved = fixture.0.with_extension("moved");
+    fs::rename(&fixture.0, &moved).unwrap();
+    fs::create_dir_all(fixture.0.join(".git")).unwrap();
+    fs::write(fixture.0.join("source.txt"), b"replacement clone").unwrap();
+
+    let result = super::super::sync::apply_entries(
+        workspace.root(),
+        workspace.root_identity(),
+        workspace.git_identity(),
+        &snapshot.manifest,
+        entries,
+        1024 * 1024,
+        None,
+    );
+
+    assert!(result.is_err());
+    assert_eq!(
+        fs::read(fixture.0.join("source.txt")).unwrap(),
+        b"replacement clone"
+    );
+    assert_eq!(fs::read(moved.join("source.txt")).unwrap(), b"original");
+    fs::remove_dir_all(moved).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn stage_out_rejects_replaced_git_metadata_identity() {
+    let fixture = Fixture::new();
+    let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();
+    let snapshot = capture(&workspace, 1024 * 1024, false).unwrap();
+    let archive = returned(&[("source.txt", b"container edit")]);
+    let entries = super::super::archive::parse_returned(&archive, 1024 * 1024, 10).unwrap();
+    let moved_git = fixture.0.join(".git-moved");
+    fs::rename(fixture.0.join(".git"), &moved_git).unwrap();
+    fs::create_dir(fixture.0.join(".git")).unwrap();
+
+    let result = super::super::sync::apply_entries(
+        workspace.root(),
+        workspace.root_identity(),
+        workspace.git_identity(),
+        &snapshot.manifest,
+        entries,
+        1024 * 1024,
+        None,
+    );
+
+    assert!(result.is_err());
+    assert_eq!(fs::read(fixture.0.join("source.txt")).unwrap(), b"original");
+    fs::remove_dir_all(moved_git).unwrap();
 }
 
 #[cfg(unix)]

@@ -62,6 +62,11 @@ pub(super) fn ready_claim(
             Origin::DockerDiscovery,
             Code::DockerDesktopVmDetected,
         ) | (
+            Domain::Host,
+            Capability::DockerDesktopTrust,
+            Origin::HostRuntime,
+            Code::DockerDesktopTrustVerified,
+        ) | (
             Domain::Docker,
             Capability::DockerRootless,
             Origin::DockerDiscovery,
@@ -81,6 +86,11 @@ pub(super) fn ready_claim(
             Capability::DockerSecurity,
             Origin::DockerDiscovery,
             Code::DockerReady,
+        ) | (
+            Domain::Docker,
+            Capability::DockerRootlessSmoke,
+            Origin::ApprovedImageSmokeTest,
+            Code::ApprovedImageSmokeSucceeded,
         ) | (
             Domain::Image,
             Capability::ApprovedImage,
@@ -118,6 +128,10 @@ pub(super) fn provider_evidence(
             Code::ProviderProbeFailed
         ) | (
             Capability::ProviderExecutable,
+            State::Failed,
+            Code::ProviderPathInvalid
+        ) | (
+            Capability::ProviderExecutable,
             State::Stale,
             Code::StaleProbeGeneration
         ) | (
@@ -128,6 +142,10 @@ pub(super) fn provider_evidence(
             Capability::ProviderVersion,
             State::Failed,
             Code::ProviderProbeFailed
+        ) | (
+            Capability::ProviderVersion,
+            State::Failed,
+            Code::ProviderVersionUnsupported
         ) | (
             Capability::ProviderVersion,
             State::Stale,

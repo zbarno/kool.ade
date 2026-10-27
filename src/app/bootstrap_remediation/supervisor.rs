@@ -5,15 +5,20 @@ use crate::app::bootstrap_remediation::{
     plan::{PrivilegeLevel, RemediationPlan},
 };
 
+mod claude_code_registry;
 mod execute;
 mod process;
+mod production;
 
+pub(crate) use claude_code_registry::ClaudeCodeOperationRegistry;
 pub(crate) use execute::RemediationSupervisor;
 pub(crate) use process::{
-    NativeCommandRunner, ProcessOutput, ProcessRunError, ProcessRunFailure,
-    PublisherSignatureVerifier, SystemCommandRunner, TrustedArgument, TrustedInvocation,
-    TrustedProgram, VerifiedArtifact, verify_plan_artifact,
+    DNF_MAX_STAGED_RPMS, DnfPackageNames, DnfStageId, HashBoundDnfRpm, NativeCommandRunner,
+    ProcessOutput, ProcessRunError, ProcessRunFailure, PublisherSignatureVerifier, StagedRpm,
+    SystemCommandRunner, TrustedArgument, TrustedInvocation, TrustedProgram, VerifiedArtifact,
+    VerifiedDnfRpm, parse_installed_package_names, verify_plan_artifact,
 };
+pub(crate) use production::{LinuxNativeElevation, LinuxReadinessVerifier};
 
 pub(crate) struct Cancellation(AtomicBool);
 
@@ -35,8 +40,21 @@ pub(crate) trait OperationRegistry {
     fn compile(&self, plan: &RemediationPlan) -> anyhow::Result<TrustedInvocation>;
 }
 
+pub(crate) trait PreconditionVerifier {
+    fn verify(&self, probe_ids: &[String]) -> anyhow::Result<PreconditionReceipt>;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PreconditionReceipt {
+    pub(super) probe_ids: Vec<String>,
+    pub(super) observed_at_unix_ms: u64,
+    pub(super) evidence_digest: String,
+    pub(super) ready: bool,
+}
+
 pub(crate) trait NativeElevation {
-    /// Return `None` when the operator declines the OS-native privilege prompt.
+    /// Run a fixed, read-only elevation preflight to trigger the OS-native
+    /// authorization prompt. Return `None` when the operator declines it.
     fn request(
         &self,
         plan: &RemediationPlan,
@@ -44,6 +62,20 @@ pub(crate) trait NativeElevation {
         invocation: &TrustedInvocation,
         cancellation: &Cancellation,
     ) -> anyhow::Result<Option<ElevationReceipt>>;
+}
+
+pub(crate) struct NoNativeElevation;
+
+impl NativeElevation for NoNativeElevation {
+    fn request(
+        &self,
+        _plan: &RemediationPlan,
+        _identity: &HostIdentity,
+        _invocation: &TrustedInvocation,
+        _cancellation: &Cancellation,
+    ) -> anyhow::Result<Option<ElevationReceipt>> {
+        anyhow::bail!("this broker operation has no administrator execution path")
+    }
 }
 
 pub(crate) struct ElevationReceipt {
@@ -91,6 +123,13 @@ impl ElevationReceipt {
         Ok(self.plan_digest == plan.digest()?
             && self.host_digest == identity.digest()?
             && self.invocation_digest == invocation.binding_digest()?)
+    }
+
+    pub(super) fn matches_invocation(
+        &self,
+        invocation: &crate::app::bootstrap_remediation::supervisor::TrustedInvocation,
+    ) -> anyhow::Result<bool> {
+        Ok(self.invocation_digest == invocation.binding_digest()?)
     }
 }
 

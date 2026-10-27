@@ -213,6 +213,7 @@ impl KooladeApp {
                     endpoint_fingerprint: None,
                     daemon_identity_fingerprint: None,
                     docker_readiness_fingerprint: None,
+                    setup_provider: None,
                     selected_provider: None,
                     cancelled: false,
                 },

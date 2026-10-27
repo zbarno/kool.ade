@@ -12,6 +12,7 @@ use crate::execution::contract::DependencyCacheEcosystemV1;
 use crate::runtime_qa::{QaRunRequestV1, QaValidatedTargetV1};
 
 const LOG_LIMIT: usize = 256 * 1024;
+const STARTUP_PROBE: std::time::Duration = std::time::Duration::from_millis(250);
 
 pub(super) struct TargetProcess {
     child: Child,
@@ -103,13 +104,54 @@ impl TargetProcess {
                 Ok(())
             });
         }
-        let mut child = command
-            .spawn()
-            .map_err(|error| format!("could not launch approved QA target: {error}"))?;
+        let mut child = command.spawn().map_err(|error| {
+            format!(
+                "could not launch approved QA target: {error} ({})",
+                launch_capability_diagnostic(&error)
+            )
+        })?;
         let logs = Arc::new(Mutex::new(Vec::new()));
         drain(child.stdout.take(), Arc::clone(&logs));
         drain(child.stderr.take(), Arc::clone(&logs));
         Ok(Self { child, logs })
+    }
+
+    pub(super) fn startup_failure(
+        &mut self,
+        budget: std::time::Duration,
+    ) -> Result<Option<String>, String> {
+        let deadline = std::time::Instant::now() + budget.min(STARTUP_PROBE);
+        loop {
+            match self.child.try_wait() {
+                Ok(Some(_)) => {
+                    let now = std::time::Instant::now();
+                    let log_deadline = now
+                        + std::time::Duration::from_millis(100)
+                            .min(deadline.saturating_duration_since(now));
+                    loop {
+                        let logs = self.logs();
+                        let loader_failed = startup_loader_error_observed(&logs);
+                        if loader_failed || std::time::Instant::now() >= log_deadline {
+                            return Ok(Some(format!(
+                                "approved artifact exited during startup ({})",
+                                startup_exit_capability_diagnostic(&logs)
+                            )));
+                        }
+                        thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    return Err(format!(
+                        "could not inspect approved artifact startup: {error}"
+                    ));
+                }
+            }
+            if std::time::Instant::now() >= deadline {
+                return Ok(None);
+            }
+            thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
 
     pub(super) fn is_running(&mut self) -> Result<bool, String> {
@@ -173,6 +215,36 @@ impl Drop for TargetProcess {
     }
 }
 
+/// Maps a spawn failure for an approved artifact to the target-capability
+/// vocabulary used in QA summaries. The executable path is canonicalized,
+/// stat-checked, and exec-bit verified above, so a spawn-time `NotFound` points
+/// to a runtime-loader problem, such as an absent ELF interpreter or an
+/// unresolved shared-object dependency, rather than the artifact file being absent.
+pub(super) fn launch_capability_diagnostic(error: &std::io::Error) -> &'static str {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        "runtime loader or an executable dependency of the approved artifact is unavailable (target capability: missing_dependencies)"
+    } else {
+        "approved artifact process could not be started (target capability: start_failed)"
+    }
+}
+
+fn startup_exit_capability_diagnostic(logs: &[String]) -> &'static str {
+    if startup_loader_error_observed(logs) {
+        "dynamic loader reported an unavailable shared-object dependency (target capability: missing_dependencies)"
+    } else {
+        "approved artifact process exited during startup (target capability: start_failed)"
+    }
+}
+
+fn startup_loader_error_observed(logs: &[String]) -> bool {
+    logs.iter().any(|line| {
+        let line = line.to_ascii_lowercase();
+        line.contains("error while loading shared libraries")
+            || line.contains("cannot open shared object file")
+            || line.contains("error loading shared library")
+    })
+}
+
 fn drain(stream: Option<impl std::io::Read + Send + 'static>, logs: Arc<Mutex<Vec<String>>>) {
     if let Some(stream) = stream {
         thread::spawn(move || {
@@ -184,5 +256,44 @@ fn drain(stream: Option<impl std::io::Read + Send + 'static>, logs: Arc<Mutex<Ve
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::launch_capability_diagnostic;
+
+    /// Spawn NotFound on a canonicalized, stat-verified path is a runtime
+    /// loader or dependency problem rather than a pass or generic start failure.
+    #[test]
+    fn spawn_not_found_reports_missing_dependencies() {
+        let error = std::io::Error::from(std::io::ErrorKind::NotFound);
+        let diagnostic = launch_capability_diagnostic(&error);
+        assert!(diagnostic.contains("runtime loader or an executable dependency"));
+        assert!(diagnostic.ends_with("(target capability: missing_dependencies)"));
+    }
+
+    #[test]
+    fn other_spawn_failures_report_start_failed() {
+        let error = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        assert!(
+            launch_capability_diagnostic(&error).ends_with("(target capability: start_failed)")
+        );
+    }
+
+    #[test]
+    fn startup_loader_errors_report_missing_dependencies() {
+        let logs = vec![
+            "approved-desktop-app: error while loading shared libraries: libmissing.so: cannot open shared object file: No such file or directory".into(),
+        ];
+        let diagnostic = super::startup_exit_capability_diagnostic(&logs);
+        assert!(diagnostic.ends_with("(target capability: missing_dependencies)"));
+    }
+
+    #[test]
+    fn unrelated_early_exit_reports_start_failed() {
+        let logs = vec!["the application exited before creating a window".into()];
+        let diagnostic = super::startup_exit_capability_diagnostic(&logs);
+        assert!(diagnostic.ends_with("(target capability: start_failed)"));
     }
 }

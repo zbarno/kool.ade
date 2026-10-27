@@ -35,6 +35,28 @@ pub struct ViewModel {
     pub lifecycle_error: Option<String>,
 }
 
+#[derive(Clone, Default)]
+pub struct BootstrapConversationView {
+    pub messages: Vec<crate::domain::chatlog::ChatMessage>,
+    pub busy: bool,
+    pub active_for_task: bool,
+    pub error: Option<String>,
+    pub suggestion: Option<BootstrapSuggestionView>,
+}
+
+#[derive(Clone)]
+pub struct BootstrapSuggestionView {
+    pub operation: BootstrapSuggestionOperation,
+    pub turn_generation: u64,
+}
+
+#[derive(Clone)]
+pub enum BootstrapSuggestionOperation {
+    RecheckPrerequisites,
+    PrepareLockedImage { profile: String },
+    OpenCodingTools,
+}
+
 #[derive(Clone)]
 pub struct LifecyclePrBoardTask {
     pub parent_path: String,

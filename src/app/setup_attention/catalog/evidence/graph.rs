@@ -25,6 +25,42 @@ fn dependencies(item: &Evidence, host: HostKind) -> Vec<PrerequisiteId> {
             Capability::GitExecutable,
             none.clone(),
         )],
+        Capability::WindowsWslFeature | Capability::WindowsVmPlatformFeature => vec![
+            id(Domain::Host, host, Capability::HostEdition, none.clone()),
+            id(
+                Domain::Host,
+                host,
+                Capability::WindowsWslPolicy,
+                none.clone(),
+            ),
+        ],
+        Capability::WindowsWslKernel => vec![
+            id(
+                Domain::Host,
+                host,
+                Capability::WindowsWslFeature,
+                none.clone(),
+            ),
+            id(
+                Domain::Host,
+                host,
+                Capability::WindowsWslPolicy,
+                none.clone(),
+            ),
+        ],
+        Capability::WindowsWslPolicy | Capability::WindowsReboot => Vec::new(),
+        Capability::Wsl2 => [
+            Capability::HostEdition,
+            Capability::WindowsWslFeature,
+            Capability::WindowsVmPlatformFeature,
+            Capability::WindowsWslKernel,
+            Capability::WindowsReboot,
+            Capability::WindowsWslPolicy,
+            Capability::Virtualization,
+        ]
+        .into_iter()
+        .map(|capability| id(Domain::Host, host, capability, none.clone()))
+        .collect(),
         Capability::DockerCgroups => vec![id(
             Domain::Docker,
             host,
@@ -43,6 +79,26 @@ fn dependencies(item: &Evidence, host: HostKind) -> Vec<PrerequisiteId> {
             ];
             if desktop_host {
                 dependencies.push(id(Domain::Host, host, Capability::DockerDesktopTrust, none));
+            }
+            dependencies
+        }
+        Capability::DockerRootlessSmoke => {
+            let mut dependencies = vec![
+                id(Domain::Docker, host, Capability::DockerEngine, none.clone()),
+                id(
+                    Domain::Docker,
+                    host,
+                    Capability::DockerEndpoint,
+                    none.clone(),
+                ),
+            ];
+            if matches!(&prerequisite.subject, Subject::Image { .. }) {
+                dependencies.push(id(
+                    Domain::Image,
+                    host,
+                    Capability::ApprovedImage,
+                    prerequisite.subject.clone(),
+                ));
             }
             dependencies
         }

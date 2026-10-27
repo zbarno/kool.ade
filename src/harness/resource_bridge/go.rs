@@ -1,12 +1,19 @@
 //! go.sum-backed Go module preparation through the approved module proxy.
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
 
+#[cfg(unix)]
 mod adapter;
+#[cfg(unix)]
 mod cache;
 mod lockfile;
+#[cfg(unix)]
 mod prepare;
 
+#[cfg(unix)]
 pub(super) use adapter::Adapter;
+#[cfg(unix)]
 pub(super) use prepare::SharedPreparationOperations;
 
 pub(super) fn package_identities(
@@ -32,15 +39,17 @@ pub(super) fn manifest_inputs_from_bytes(
     lockfile::manifest_inputs_from_bytes(manifest, sums)
 }
 
+#[cfg(unix)]
 pub(super) fn persistent_cache_at(state_root: &Path) -> anyhow::Result<PathBuf> {
     cache::persistent_cache_at(state_root)
 }
 
+#[cfg(unix)]
 pub(super) fn snapshot_root(cache_root: &Path, lockfile_identity: &str) -> anyhow::Result<PathBuf> {
     cache::snapshot_root(cache_root, lockfile_identity)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) fn test_preparation_operations(
     fetch: impl Fn(&Path, &Path, usize) -> (usize, anyhow::Result<()>) + Send + Sync + 'static,
 ) -> std::sync::Arc<SharedPreparationOperations> {

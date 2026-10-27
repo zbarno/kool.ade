@@ -58,6 +58,12 @@ pub(crate) fn require_application_implementation_boundary(
         "Copilot CLI" => "copilot",
         other => other,
     };
+    if let Some(reason) = execution_security::task_execution_block_reason(policy_id) {
+        return Err(crate::error::AppError::HarnessFailed {
+            reason: format!("{reason} No CLI was started."),
+            stderr_tail: String::new(),
+        });
+    }
     if !execution_security::for_harness(policy_id)
         .is_some_and(|capabilities| capabilities.supports(request.mode))
     {
@@ -229,16 +235,17 @@ pub use antigravity_harness::AntigravityHarness;
 pub(crate) use api::normalize_provider_error;
 pub(crate) use api::validate_reasoning_level;
 pub use api::{
-    ActivityTelemetry, AiHarness, ApplicationAction, CleanLaunchTelemetry,
-    DependencyAuthorizationScope, DependencyAuthorizationSource, DependencyDecision,
-    DependencyFailureCategory, DependencyKind, DependencyNeed, DependencyPackageIdentity,
-    DependencyPreparationStatus, DependencyPreparationTelemetry, DependencyRequest,
-    DependencyRequestStatus, DependencyRetryResult, DocumentUpdate, ExecutionMode,
-    HarnessExecutionFailure, HarnessFailureCategory, HarnessOutcome, HarnessRouteProvenance,
-    LivePost, LiveProgress, ModelCallUsage, PackageEcosystem, PlanningRequest, PlanningTaskDraft,
-    PlanningTaskOffer, RequestedAction, RetrievalPlan, ReviewExecutionIdentity,
-    RuntimeQaReviewScreenshot, RuntimeQaScreenshotReview, ToolAccess, TurnEnvelope, TurnItem,
-    TurnItemUpdate,
+    ActivityTelemetry, AiHarness, ApplicationAction, BootstrapConversationReplyV1,
+    BootstrapConversationResponseV1, BootstrapImageProfileV1, BootstrapIntentOperationV1,
+    BootstrapIntentSuggestionV1, CleanLaunchTelemetry, DependencyAuthorizationScope,
+    DependencyAuthorizationSource, DependencyDecision, DependencyFailureCategory, DependencyKind,
+    DependencyNeed, DependencyPackageIdentity, DependencyPreparationStatus,
+    DependencyPreparationTelemetry, DependencyRequest, DependencyRequestStatus,
+    DependencyRetryResult, DocumentUpdate, ExecutionMode, HarnessExecutionFailure,
+    HarnessFailureCategory, HarnessOutcome, HarnessRouteProvenance, LivePost, LiveProgress,
+    ModelCallUsage, PackageEcosystem, PlanningRequest, PlanningTaskDraft, PlanningTaskOffer,
+    RequestedAction, RetrievalPlan, ReviewExecutionIdentity, RuntimeQaReviewScreenshot,
+    RuntimeQaScreenshotReview, ToolAccess, TurnEnvelope, TurnItem, TurnItemUpdate,
 };
 pub use claude_harness::ClaudeHarness;
 pub use codex_harness::CodexHarness;

@@ -1,178 +1,155 @@
-use std::{fs::File, io::Read, path::Path};
-
-use crate::app::setup_attention::catalog::EvidenceState as State;
 use crate::app::setup_attention::catalog::{
-    LinuxDistributionV1 as Distribution, LinuxDistributionVersionV1 as Version,
+    EvidenceCode as Code, EvidenceOrigin as Origin, EvidenceState as State, HostKind,
+    ImageArchitectureV1 as Architecture, PrerequisiteCapability as Capability,
+    PrerequisiteDomain as Domain, PrerequisiteSubject as Subject, ProbeEvidenceV1 as Evidence,
+    ProbeObservationV1 as Observation,
 };
 
+mod distro;
+mod linux;
 #[cfg(target_os = "linux")]
-use std::os::unix::fs::FileTypeExt;
+mod system;
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+mod windows;
 
-const MAX_SYSTEM_FILE_BYTES: u64 = 256 * 1024;
+#[cfg(test)]
+pub(super) use distro::distribution_from_os_release;
+pub(super) use linux::LinuxProbeFacts;
 #[cfg(target_os = "linux")]
-const MIN_SUBID_RANGE: u64 = 65_536;
+pub(super) use linux::inspect as inspect_linux;
+#[cfg(test)]
+pub(super) use linux::{parse_distribution, parse_kernel};
+pub(super) use windows::WindowsFacts;
+pub(crate) use windows::collect as collect_windows;
 
-pub(super) fn linux_distribution() -> Option<(Distribution, Option<Version>)> {
-    bounded_text(Path::new("/etc/os-release"))
-        .and_then(|contents| parse_os_release_distribution(&contents))
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ProbeRead<T> {
+    Found(T),
+    Missing,
+    Inaccessible,
+    Malformed,
 }
 
-pub(super) fn linux_uid_mappings() -> State {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum EntryKind {
+    Directory,
+    Socket,
+    RegularFile,
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct EntryMetadata {
+    pub kind: EntryKind,
+    pub owner_uid: u32,
+    pub mode: u32,
+    pub symlink: bool,
+}
+
+pub(super) trait ProbeSource {
+    fn read_text(&self, path: &str) -> ProbeRead<String>;
+    fn metadata(&self, path: &str) -> ProbeRead<EntryMetadata>;
+    fn executable(&self, name: &str) -> ProbeRead<bool>;
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ProbeFact {
+    pub state: State,
+    pub code: Code,
+    pub observation: Option<Observation>,
+}
+
+pub(super) fn fact(state: State, code: Code, observation: Option<Observation>) -> ProbeFact {
+    ProbeFact {
+        state,
+        code,
+        observation,
+    }
+}
+
+pub(super) fn collect(host: HostKind, architecture: Architecture) -> LinuxProbeFacts {
     #[cfg(target_os = "linux")]
     {
-        let uid = unsafe { libc::geteuid() };
-        let user = current_username(uid);
-        let Some(subuid) = bounded_text(Path::new("/etc/subuid")) else {
-            return State::Unknown;
-        };
-        let Some(subgid) = bounded_text(Path::new("/etc/subgid")) else {
-            return State::Unknown;
-        };
-        if has_subid_range(&subuid, uid, user.as_deref())
-            && has_subid_range(&subgid, uid, user.as_deref())
-        {
-            State::Ready
-        } else {
-            State::Missing
+        if host != HostKind::Linux {
+            return LinuxProbeFacts::not_applicable();
         }
+        let uid = unsafe { libc::geteuid() };
+        inspect_linux(
+            &system::SystemProbeSource,
+            uid,
+            current_username(uid),
+            architecture,
+        )
     }
     #[cfg(not(target_os = "linux"))]
     {
-        State::Unknown
+        let _ = (host, architecture);
+        LinuxProbeFacts::not_applicable()
     }
-}
-
-pub(super) fn linux_service_manager() -> State {
-    #[cfg(target_os = "linux")]
-    {
-        let uid = unsafe { libc::geteuid() };
-        let path = format!("/run/user/{uid}/systemd/private");
-        if std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_socket()) {
-            State::Ready
-        } else {
-            State::Unknown
-        }
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        State::Unknown
-    }
-}
-
-pub(super) fn linux_package_manager() -> State {
-    if has_package_manager() {
-        State::Ready
-    } else {
-        State::Unknown
-    }
-}
-
-fn bounded_text(path: &Path) -> Option<String> {
-    let file = File::open(path).ok()?;
-    let mut contents = String::new();
-    file.take(MAX_SYSTEM_FILE_BYTES + 1)
-        .read_to_string(&mut contents)
-        .ok()?;
-    (contents.len() as u64 <= MAX_SYSTEM_FILE_BYTES).then_some(contents)
-}
-
-fn parse_os_release_distribution(contents: &str) -> Option<(Distribution, Option<Version>)> {
-    let id = os_release_value(contents, "ID")?;
-    if id.is_empty()
-        || !id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
-    {
-        return None;
-    }
-    let distribution = match id.to_ascii_lowercase().as_str() {
-        "ubuntu" => Distribution::Ubuntu,
-        "debian" => Distribution::Debian,
-        "fedora" => Distribution::Fedora,
-        "arch" => Distribution::Arch,
-        "opensuse" | "opensuse-leap" | "opensuse-tumbleweed" | "sles" => Distribution::Suse,
-        "alpine" => Distribution::Alpine,
-        "pop" => Distribution::PopOs,
-        _ => Distribution::Other,
-    };
-    let version = os_release_value(contents, "VERSION_ID").and_then(parse_distribution_version);
-    Some((distribution, version))
-}
-
-fn os_release_value<'a>(contents: &'a str, key: &str) -> Option<&'a str> {
-    contents
-        .lines()
-        .find_map(|line| line.strip_prefix(key)?.strip_prefix('='))
-        .map(str::trim)
-        .map(|value| value.trim_matches(['"', '\'']))
-}
-
-fn parse_distribution_version(value: &str) -> Option<Version> {
-    let (major, minor) = value.split_once('.').unwrap_or((value, "0"));
-    if !major.bytes().all(|byte| byte.is_ascii_digit())
-        || !minor.bytes().all(|byte| byte.is_ascii_digit())
-    {
-        return None;
-    }
-    Some(Version {
-        major: major.parse().ok()?,
-        minor: minor.parse().ok()?,
-    })
-}
-
-#[cfg(target_os = "linux")]
-fn has_subid_range(contents: &str, uid: u32, user: Option<&str>) -> bool {
-    let numeric_uid = uid.to_string();
-    contents.lines().any(|line| {
-        let mut fields = line.split(':');
-        let Some(owner) = fields.next() else {
-            return false;
-        };
-        let Some(start) = fields.next().and_then(|field| field.parse::<u64>().ok()) else {
-            return false;
-        };
-        let Some(count) = fields.next().and_then(|field| field.parse::<u64>().ok()) else {
-            return false;
-        };
-        (owner == numeric_uid || user == Some(owner))
-            && count >= MIN_SUBID_RANGE
-            && start.checked_add(count).is_some()
-    })
 }
 
 #[cfg(target_os = "linux")]
 fn current_username(uid: u32) -> Option<String> {
-    let contents = bounded_text(Path::new("/etc/passwd"))?;
-    contents.lines().find_map(|line| {
-        let mut fields = line.split(':');
-        let name = fields.next()?;
-        let _password = fields.next()?;
-        let entry_uid = fields.next()?.parse::<u32>().ok()?;
-        (entry_uid == uid).then(|| name.to_owned())
-    })
+    match system::SystemProbeSource.read_text("/etc/passwd") {
+        ProbeRead::Found(contents) => contents.lines().find_map(|line| {
+            let mut fields = line.split(':');
+            let name = fields.next()?;
+            let _password = fields.next()?;
+            let entry_uid = fields.next()?.parse::<u32>().ok()?;
+            (entry_uid == uid).then(|| name.to_owned())
+        }),
+        ProbeRead::Missing | ProbeRead::Inaccessible | ProbeRead::Malformed => None,
+    }
 }
 
-fn has_package_manager() -> bool {
-    let Some(path) = std::env::var_os("PATH") else {
-        return false;
-    };
-    std::env::split_paths(&path).take(64).any(|directory| {
-        ["apt-get", "dnf", "yum", "pacman", "zypper", "apk"]
-            .into_iter()
-            .any(|name| is_executable(&directory.join(name)))
-    })
+pub(super) fn push_evidence(
+    result: &mut Vec<Evidence>,
+    host: HostKind,
+    generation: u64,
+    now: u64,
+    facts: &LinuxProbeFacts,
+) {
+    for (capability, probe_fact) in [
+        (Capability::LinuxRootlessRecipe, &facts.recipe),
+        (Capability::LinuxKernel, &facts.kernel),
+        (Capability::LinuxUserNamespaces, &facts.user_namespaces),
+        (Capability::LinuxSubuid, &facts.subuid),
+        (Capability::LinuxSubgid, &facts.subgid),
+        (Capability::LinuxRootlessHelpers, &facts.helpers),
+        (Capability::LinuxCgroups, &facts.cgroups),
+        (Capability::LinuxUidMappings, &facts.uid_mappings),
+        (Capability::LinuxServiceManager, &facts.service_manager),
+        (Capability::LinuxPackageManager, &facts.package_manager),
+    ] {
+        let mut item = crate::app::setup_attention::catalog::evidence::evidence(
+            crate::app::setup_attention::catalog::PrerequisiteId {
+                domain: Domain::Host,
+                platform: host,
+                capability,
+                subject: Subject::None,
+            },
+            probe_fact.state,
+            probe_fact.code,
+            Origin::HostRuntime,
+            generation,
+            None,
+            now,
+        );
+        item.observation = probe_fact.observation.clone();
+        result.push(item);
+    }
 }
 
-#[cfg(unix)]
-fn is_executable(path: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::metadata(path)
-        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
-}
-
-#[cfg(not(unix))]
-fn is_executable(path: &Path) -> bool {
-    path.is_file()
+pub(super) fn state_code(state: State) -> Code {
+    match state {
+        State::Ready => Code::LinuxHostCheckReady,
+        State::Missing => Code::LinuxHostCheckMissing,
+        State::Unknown | State::Stale | State::Blocked | State::NotApplicable => {
+            Code::HostCapabilityNotProbed
+        }
+        State::Failed => Code::LinuxProbeMalformed,
+        State::Unsupported => Code::LinuxProbeUnsupported,
+    }
 }
 
 #[cfg(test)]

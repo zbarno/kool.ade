@@ -1,14 +1,19 @@
 use crate::app::setup_attention::catalog::{
     EvidenceCode, EvidenceOrigin, EvidenceState, HostKind, ImageArchitectureV1,
     LinuxDistributionV1, LinuxDistributionVersionV1, LinuxRootlessMechanismV1,
-    PrerequisiteCapability as Capability, PrerequisiteDomain as Domain,
+    LinuxRootlessRecipeV1, PrerequisiteCapability as Capability, PrerequisiteDomain as Domain,
     PrerequisiteSubject as Subject, ProbeEvidenceV1, ProbeObservationV1 as Observation,
     SupportClaim,
 };
 
 use super::super::MachineSnapshotV1;
 
+mod linux_probes;
+mod windows_probes;
+
 pub(super) fn validate_capability_matrix(snapshot: &MachineSnapshotV1) -> anyhow::Result<()> {
+    linux_probes::validate(snapshot)?;
+    windows_probes::validate(snapshot)?;
     let matrix = &snapshot.capability_matrix;
     validate_host_fact(snapshot, Capability::HostFamily, EvidenceState::Ready)?;
     let architecture_state = match matrix.observed_host_architecture {
@@ -137,13 +142,12 @@ pub(super) fn validate_capability_matrix(snapshot: &MachineSnapshotV1) -> anyhow
     }
     let expected_native_support = match snapshot.host {
         HostKind::Linux
-            if matrix.observed_host_architecture == ImageArchitectureV1::Amd64
-                && matrix.linux_distribution_id == Some(LinuxDistributionV1::Ubuntu)
-                && matrix.linux_distribution_version
-                    == Some(LinuxDistributionVersionV1 {
-                        major: 24,
-                        minor: 4,
-                    }) =>
+            if LinuxRootlessRecipeV1::for_host(
+                matrix.linux_distribution_id,
+                matrix.linux_distribution_version,
+                matrix.observed_host_architecture,
+            )
+            .is_some() =>
         {
             SupportClaim::Experimental
         }
@@ -164,12 +168,33 @@ fn validate_host_fact(
     expected: EvidenceState,
 ) -> anyhow::Result<()> {
     let evidence = host_evidence(snapshot, capability)?;
+    let expected_code = host_evidence_code(capability, expected);
+    let code_matches = evidence.code == expected_code
+        || (expected == EvidenceState::Unknown
+            && matches!(
+                capability,
+                Capability::LinuxUidMappings
+                    | Capability::LinuxServiceManager
+                    | Capability::LinuxPackageManager
+            )
+            && evidence.code == EvidenceCode::LinuxProbeInaccessible)
+        || (!linux_probes::has_new_facts(snapshot)
+            && expected == EvidenceState::Unknown
+            && match capability {
+                Capability::LinuxUidMappings => {
+                    evidence.code == EvidenceCode::HostCapabilityNotProbed
+                }
+                Capability::LinuxServiceManager => {
+                    evidence.code == EvidenceCode::LinuxServiceManagerUnknown
+                }
+                _ => false,
+            });
     anyhow::ensure!(
         evidence.scan_generation == snapshot.scan_generation
             && evidence.source_generation.is_none()
             && evidence.origin == EvidenceOrigin::HostRuntime
             && evidence.state == expected
-            && evidence.code == host_evidence_code(capability, expected),
+            && code_matches,
         "host capability matrix conflicts with current probe evidence"
     );
     Ok(())
@@ -194,7 +219,13 @@ fn host_evidence(
 fn host_evidence_code(capability: Capability, state: EvidenceState) -> EvidenceCode {
     match capability {
         Capability::HostFamily => EvidenceCode::RuntimeTargetDetected,
-        Capability::HostEdition => EvidenceCode::HostEditionNotProbed,
+        Capability::HostEdition => {
+            if state == EvidenceState::Ready {
+                EvidenceCode::MacOsReleaseDetected
+            } else {
+                EvidenceCode::HostEditionNotProbed
+            }
+        }
         Capability::HostArchitecture => EvidenceCode::ArchitectureDetected,
         Capability::LinuxDistribution => {
             if state == EvidenceState::Ready {
@@ -206,22 +237,33 @@ fn host_evidence_code(capability: Capability, state: EvidenceState) -> EvidenceC
         Capability::LinuxUidMappings => match state {
             EvidenceState::Ready => EvidenceCode::LinuxUidMappingsConfigured,
             EvidenceState::Missing => EvidenceCode::LinuxUidMappingsMissing,
+            EvidenceState::Failed => EvidenceCode::LinuxProbeMalformed,
+            EvidenceState::Unknown => EvidenceCode::LinuxProbeInaccessible,
             _ => EvidenceCode::HostCapabilityNotProbed,
         },
-        Capability::LinuxServiceManager => {
-            if state == EvidenceState::Ready {
-                EvidenceCode::LinuxServiceManagerDetected
-            } else {
-                EvidenceCode::LinuxServiceManagerUnknown
-            }
-        }
+        Capability::LinuxServiceManager => match state {
+            EvidenceState::Ready => EvidenceCode::LinuxServiceManagerDetected,
+            EvidenceState::Missing => EvidenceCode::LinuxHostCheckMissing,
+            EvidenceState::Failed => EvidenceCode::LinuxProbeMalformed,
+            EvidenceState::Unknown => EvidenceCode::HostCapabilityNotProbed,
+            EvidenceState::Unsupported => EvidenceCode::LinuxProbeUnsupported,
+            _ => EvidenceCode::HostCapabilityNotProbed,
+        },
         Capability::LinuxPackageManager => match state {
             EvidenceState::Ready => EvidenceCode::LinuxPackageManagerDetected,
             EvidenceState::Missing => EvidenceCode::LinuxPackageManagerMissing,
+            EvidenceState::Failed => EvidenceCode::LinuxProbeMalformed,
+            EvidenceState::Unknown => EvidenceCode::HostCapabilityNotProbed,
             _ => EvidenceCode::HostCapabilityNotProbed,
         },
         Capability::Wsl2 | Capability::Virtualization => EvidenceCode::HostCapabilityNotProbed,
-        Capability::DockerDesktopTrust => EvidenceCode::DockerDesktopTrustUnverified,
+        Capability::DockerDesktopTrust => {
+            if state == EvidenceState::Ready {
+                EvidenceCode::DockerDesktopTrustVerified
+            } else {
+                EvidenceCode::DockerDesktopTrustUnverified
+            }
+        }
         _ => EvidenceCode::HostCapabilityNotProbed,
     }
 }
@@ -230,12 +272,7 @@ fn distribution_support(
     distribution: Option<LinuxDistributionV1>,
     version: Option<LinuxDistributionVersionV1>,
 ) -> SupportClaim {
-    if distribution == Some(LinuxDistributionV1::Ubuntu)
-        && version
-            == Some(LinuxDistributionVersionV1 {
-                major: 24,
-                minor: 4,
-            })
+    if LinuxRootlessRecipeV1::for_host(distribution, version, ImageArchitectureV1::Amd64).is_some()
     {
         SupportClaim::Experimental
     } else {

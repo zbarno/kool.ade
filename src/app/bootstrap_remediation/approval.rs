@@ -32,6 +32,7 @@ impl ApprovalGate {
         &mut self,
         request: ApprovalRequest,
     ) -> anyhow::Result<AuthorizationBindingV1> {
+        request.plan.validate_current_target()?;
         let current_identity = HostIdentity::current()?;
         self.grant_inner(request, &current_identity, now_unix_ms()?)
     }
@@ -54,6 +55,10 @@ impl ApprovalGate {
     ) -> anyhow::Result<AuthorizationBindingV1> {
         request.plan.validate()?;
         current_identity.validate()?;
+        anyhow::ensure!(
+            request.consented == request.plan.required_consents,
+            "required machine repair consent was not granted"
+        );
         let plan_digest = request.plan.digest()?;
         let host_digest = request.identity.digest()?;
         anyhow::ensure!(
@@ -102,6 +107,7 @@ impl ApprovalGate {
         plan: &RemediationPlan,
         attempt: &AttemptContext,
     ) -> anyhow::Result<ApprovedRemediation> {
+        plan.validate_current_target()?;
         let current_identity = HostIdentity::current()?;
         self.consume_inner(binding, plan, &current_identity, attempt, now_unix_ms()?)
     }

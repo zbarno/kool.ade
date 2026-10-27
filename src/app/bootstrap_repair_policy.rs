@@ -22,8 +22,16 @@ pub enum Operation {
     RecheckPrerequisites,
     /// A reviewed digest from the bundled runtime image lock; no freeform image.
     PrepareLockedImage,
+    /// Install one exact, app-owned Claude Code release for the current user.
+    InstallClaudeCode,
     /// Open existing application settings, never a process execution.
     OpenCodingTools,
+    /// Install the exact supported Linux distro package recipe for rootless Docker.
+    InstallLinuxRootlessPackages,
+    /// Add subordinate ID mappings for the current Linux user.
+    ConfigureLinuxSubordinateIds,
+    /// Install and enable the current user's rootless Docker service.
+    InstallLinuxRootlessService,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -116,6 +124,41 @@ pub fn validate(proposal: &Proposal, detected_host: Host) -> anyhow::Result<Revi
                 "image preparation requires a canonical approved profile, architecture and engine identity"
             );
             (true, true)
+        }
+        Operation::InstallClaudeCode => {
+            anyhow::ensure!(proposal.image_profile.is_none(), "unexpected image profile");
+            anyhow::ensure!(
+                proposal.prerequisite_id == "setup:cli:claude:install",
+                "Claude Code installation requires its canonical prerequisite"
+            );
+            anyhow::ensure!(
+                proposal.host == Host::Linux,
+                "Claude Code installation is only reviewed for Linux"
+            );
+            (true, true)
+        }
+        Operation::InstallLinuxRootlessPackages
+        | Operation::ConfigureLinuxSubordinateIds
+        | Operation::InstallLinuxRootlessService => {
+            anyhow::ensure!(
+                proposal.host == Host::Linux,
+                "rootless Docker repair is Linux-only"
+            );
+            anyhow::ensure!(
+                proposal.image_profile.is_none(),
+                "unexpected image profile for rootless Docker repair"
+            );
+            let expected_id = match proposal.operation {
+                Operation::InstallLinuxRootlessPackages => "setup:linux:rootless:packages",
+                Operation::ConfigureLinuxSubordinateIds => "setup:linux:rootless:subids",
+                Operation::InstallLinuxRootlessService => "setup:linux:rootless:service",
+                _ => unreachable!("rootless operation was selected above"),
+            };
+            anyhow::ensure!(
+                proposal.prerequisite_id == expected_id,
+                "rootless Docker operation does not match its canonical prerequisite"
+            );
+            (true, false)
         }
     };
     Ok(ReviewedAction {

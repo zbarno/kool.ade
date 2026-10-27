@@ -1,10 +1,10 @@
 use crate::harness::DependencyPackageIdentity;
 use sha2::{Digest, Sha256};
+#[cfg(unix)]
+use std::fs;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
     io::Read,
-    os::unix::fs::OpenOptionsExt,
     path::Path,
 };
 
@@ -25,14 +25,10 @@ pub(super) fn collect(root: &Path) -> anyhow::Result<Vec<LockedPackage>> {
     let root = root.canonicalize()?;
     anyhow::ensure!(root.is_dir(), "Pip dependency root is not a directory");
     let path = root.join("requirements.txt");
-    let mut options = fs::OpenOptions::new();
-    options
-        .read(true)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
-    let file = options.open(&path)?;
+    let file = super::super::secure_file::open_read_nofollow(&path)?;
     let metadata = file.metadata()?;
     anyhow::ensure!(
-        metadata.is_file(),
+        metadata.is_file() && !metadata.file_type().is_symlink(),
         "requirements.txt must be a regular file"
     );
     anyhow::ensure!(
@@ -78,6 +74,7 @@ pub(super) fn identity(packages: &[LockedPackage]) -> anyhow::Result<String> {
     ))
 }
 
+#[cfg(unix)]
 pub(super) fn write_canonical_snapshot(
     path: &Path,
     packages: &[LockedPackage],

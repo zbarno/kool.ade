@@ -4,12 +4,27 @@ use std::fs;
 
 mod config;
 
+pub(super) fn has_custom_provider_settings(provider: &str) -> anyhow::Result<bool> {
+    config::has_custom_provider_settings(provider)
+}
+
 pub(super) fn configure(
     boundary: &ApplicationBoundary,
     argv: &mut Vec<String>,
     env: &mut Vec<(String, String)>,
 ) -> anyhow::Result<()> {
     let mut config = config::provider_settings()?;
+    let selected_model = selected_model(argv, config["model"].as_str()).map(str::to_owned);
+    if selected_model
+        .as_deref()
+        .and_then(|model| model.split_once('/').map(|(provider, _)| provider))
+        == Some("anthropic")
+        && config["provider"]["anthropic"]
+            .as_object()
+            .is_some_and(|settings| !settings.is_empty())
+    {
+        anyhow::bail!("OpenCode custom Anthropic settings cannot use the verified provider route");
+    }
     let server_name = boundary.mcp_server_name();
     let tool_pattern = format!("{server_name}_*");
     let agent_name = server_name;
@@ -35,7 +50,13 @@ pub(super) fn configure(
     let path = boundary.scratch.write_json("opencode.json", &config)?;
     let home = boundary.scratch.path.join("opencode-home");
     fs::create_dir(&home)?;
-    config::copy_auth(boundary, &home, config["model"].as_str())?;
+    config::copy_auth(
+        boundary,
+        &home,
+        &config,
+        selected_model.as_deref(),
+        argv.first().map(std::path::Path::new),
+    )?;
     let config_dir = home.join("config");
     fs::create_dir(&config_dir)?;
     env.extend([
@@ -70,4 +91,11 @@ pub(super) fn configure(
         boundary.working_directory().to_string_lossy().into_owned(),
     );
     Ok(())
+}
+
+fn selected_model<'a>(argv: &'a [String], configured: Option<&'a str>) -> Option<&'a str> {
+    argv.windows(2)
+        .find(|pair| pair[0] == "--model")
+        .map(|pair| pair[1].as_str())
+        .or(configured)
 }

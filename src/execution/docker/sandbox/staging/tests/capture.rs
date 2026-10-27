@@ -24,6 +24,52 @@ fn capture_excludes_git_and_sync_applies_changes_through_directory_handles() {
 
 #[cfg(unix)]
 #[test]
+fn capture_excludes_case_variant_git_metadata() {
+    let fixture = Fixture::new();
+    fs::create_dir_all(fixture.0.join(".GIT")).unwrap();
+    fs::write(fixture.0.join(".GIT/config"), b"synthetic metadata").unwrap();
+    let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();
+
+    let snapshot = capture(&workspace, 1024 * 1024, false).unwrap();
+
+    assert!(
+        snapshot
+            .manifest
+            .keys()
+            .all(|path| !super::super::archive::contains_git_metadata(path))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn capture_rejects_a_replaced_workspace_root_identity() {
+    let fixture = Fixture::new();
+    let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();
+    let moved = fixture.0.with_extension("moved");
+    fs::rename(&fixture.0, &moved).unwrap();
+    fs::create_dir_all(fixture.0.join(".git")).unwrap();
+    fs::write(fixture.0.join("source.txt"), b"replacement clone").unwrap();
+
+    let result = super::super::archive::capture(
+        workspace.root(),
+        workspace.root_identity(),
+        None,
+        1024 * 1024,
+        false,
+        100,
+    );
+
+    assert!(result.is_err());
+    assert_eq!(
+        fs::read(fixture.0.join("source.txt")).unwrap(),
+        b"replacement clone"
+    );
+    assert_eq!(fs::read(moved.join("source.txt")).unwrap(), b"original");
+    fs::remove_dir_all(moved).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn read_only_snapshot_makes_nested_files_and_directories_non_writable() {
     let fixture = Fixture::new();
     fs::create_dir_all(fixture.0.join("nested/deeper")).unwrap();

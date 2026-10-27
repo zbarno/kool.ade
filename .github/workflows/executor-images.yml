@@ -454,6 +454,9 @@ jobs:
           KOOLADE_QA_REQUIRE_TASK_ARTIFACT: "1"
           KOOLADE_QA_REQUIRE_ROOTLESS: "1"
           KOOLADE_QA_REQUIRE_EGUI: "1"
+          KOOLADE_QA_NONRUST_FIXTURE_EXECUTABLE: ${{ runner.temp }}/koolade-qa-nonrust-fixture
+          KOOLADE_QA_NONRUST_MISSING_DEP_EXECUTABLE: ${{ runner.temp }}/koolade-qa-nonrust-missing-dep
+          KOOLADE_QA_REQUIRE_NON_RUST_ARTIFACT: "1"
         run: |
           set -euo pipefail
           export KOOLADE_QA_DESKTOP_IMAGE=koolade-runtime-qa:desktop_qa-candidate
@@ -504,6 +507,7 @@ jobs:
           KOOLADE_TEST_APPROVE_LOCKED_IMAGES: "1"
         run: |
           set -euo pipefail
+          unset DOCKER_CONTEXT
           test_name=execution::docker::qa_container::tests::browser_rootless::run::rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up
           export KOOLADE_QA_BROWSER_IMAGE=koolade-runtime-qa:browser_qa-candidate
           export KOOLADE_QA_BROWSER_DIGEST="$(jq -er '.digest' "$IMAGE_RECORD")"
@@ -519,6 +523,9 @@ jobs:
           node_image="$(jq -er '.profiles.node[] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
           [[ "$node_image" =~ @sha256:[0-9a-f]{64}$ ]]
           docker pull --platform linux/amd64 "$node_image"
+          general_image="$(jq -er '.profiles.general[] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
+          [[ "$general_image" =~ @sha256:[0-9a-f]{64}$ ]]
+          docker pull --platform linux/amd64 "$general_image"
           cargo +1.98.1 test --locked --lib "$test_name" -- --ignored --exact --list | grep -Fx "$test_name: test"
           cargo +1.98.1 test --locked --lib \
             "$test_name" \

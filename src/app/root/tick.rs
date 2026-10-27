@@ -18,10 +18,14 @@ impl KooladeApp {
     pub(super) fn tick(&mut self, _dt: f32, ctx: &egui::Context) {
         self.surface_time_ledger_errors();
         self.poll_attention(ctx);
+        self.poll_bootstrap_conversation();
         self.poll_setup_attention(ctx);
-        let completed = self.setup_image_preparation.poll(ctx);
+        let image_completed = self.setup_image_preparation.poll(ctx);
+        self.claude_install.poll(ctx);
+        let claude_install_completed = self.claude_install.take_completion().is_some();
+        let remediation_completed = self.setup_remediation.poll(ctx);
         self.publish_setup_task_store_update();
-        if completed {
+        if image_completed || claude_install_completed || remediation_completed {
             self.refresh_setup_attention(true);
         }
         self.queue_manager_setup_update();

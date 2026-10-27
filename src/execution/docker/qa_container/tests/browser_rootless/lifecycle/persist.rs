@@ -152,7 +152,11 @@ pub(crate) fn review_expected_outcome_and_persist(
             &mut reviewer,
         )
         .expect("the live rootless service evidence is reviewable and persistable");
-    assert_eq!(result.outcome, expected_outcome);
+    assert_eq!(
+        result.outcome, expected_outcome,
+        "reviewed rootless QA result had unexpected case evidence: {:#?}",
+        result.cases
+    );
     assert!(
         receipt.is_some(),
         "reviewed terminal QA outcome must produce a gate receipt"

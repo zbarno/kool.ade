@@ -19,20 +19,14 @@ fn snapshot_validation_rejects_a_docker_failure_with_a_positive_readiness_domain
     assert!(snapshot.validate().is_err());
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn snapshot_validation_rejects_a_docker_failure_with_a_positive_image_domain() {
-    let image = ImageLock::bundled()
-        .unwrap()
-        .select(RuntimeProfile::General, "amd64")
-        .unwrap();
-    let mut engine = docker(DockerEnvironmentState::Ready, true);
-    engine.available_images.push(image.reference);
-    let mut snapshot = assess_with_images(
-        &engine,
-        std::collections::BTreeSet::new(),
-        [RuntimeProfile::General].into_iter().collect(),
-        13,
-    );
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipping positive rootless smoke fixture for uid 0");
+        return;
+    }
+    let mut snapshot = assess_with_current_smoke_receipt(13);
     assert!(
         snapshot
             .checked_domains
@@ -51,9 +45,11 @@ fn snapshot_validation_rejects_a_docker_failure_with_a_positive_image_domain() {
 
 #[test]
 fn snapshot_validation_rejects_provider_readiness_with_its_failure() {
+    let mut pi = agent(ReadinessState::Ready);
+    pi.provider_id = "pi".into();
     let mut snapshot = assess(
-        &[agent(ReadinessState::Ready)],
-        Some("codex"),
+        &[pi],
+        Some("pi"),
         &docker(DockerEnvironmentState::NotInstalled, false),
         HostKind::Linux,
         14,
@@ -62,10 +58,10 @@ fn snapshot_validation_rejects_provider_readiness_with_its_failure() {
         snapshot
             .checked_domains
             .iter()
-            .any(|domain| domain == "cli:codex")
+            .any(|domain| domain == "cli:pi")
     );
     snapshot.findings.push(Finding::action(
-        "setup:cli:codex:auth",
+        "setup:cli:pi:auth",
         "Connect the selected provider",
         "Provider authentication failed.",
         "Authenticate with the provider, then retry.",
@@ -106,27 +102,27 @@ fn snapshot_validation_rejects_git_readiness_with_its_failure() {
     assert!(snapshot.validate().is_err());
 }
 
+#[cfg(target_os = "linux")]
 #[test]
 fn snapshot_validation_rejects_an_exact_image_domain_with_its_failure() {
-    let engine_identity = docker(DockerEnvironmentState::Ready, true)
-        .engine_identity_fingerprint()
-        .unwrap();
-    let image_failure_id = format!("setup:images:general:amd64:{engine_identity}");
-    for failure_id in [image_failure_id.as_str(), "setup:docker:image-digest"] {
-        let image = ImageLock::bundled()
-            .unwrap()
-            .select(RuntimeProfile::General, "amd64")
-            .unwrap();
-        let mut engine = docker(DockerEnvironmentState::Ready, true);
-        engine.available_images.push(image.reference);
-        let mut snapshot = assess_with_images(
-            &engine,
-            std::collections::BTreeSet::new(),
-            [RuntimeProfile::General].into_iter().collect(),
-            16,
-        );
+    if unsafe { libc::geteuid() } == 0 {
+        eprintln!("skipping positive rootless smoke fixture for uid 0");
+        return;
+    }
+    for image_failure in [true, false] {
+        let mut snapshot = assess_with_current_smoke_receipt(16);
+        let failure_id = if image_failure {
+            let identity = snapshot
+                .checked_domains
+                .iter()
+                .find_map(|domain| domain.strip_prefix("images:general:amd64:"))
+                .unwrap();
+            format!("setup:images:general:amd64:{identity}")
+        } else {
+            "setup:docker:image-digest".to_owned()
+        };
         snapshot.findings.push(Finding::action(
-            failure_id,
+            &failure_id,
             "Verify the approved runtime image",
             "The runtime image could not be verified.",
             "Review runtime image readiness, then retry.",
@@ -134,4 +130,46 @@ fn snapshot_validation_rejects_an_exact_image_domain_with_its_failure() {
 
         assert!(snapshot.validate().is_err(), "accepted {failure_id}");
     }
+}
+
+#[cfg(target_os = "linux")]
+fn assess_with_current_smoke_receipt(checked_at_unix_ms: u64) -> MachineSnapshotV1 {
+    use std::os::unix::fs::PermissionsExt;
+
+    let home = tempfile::tempdir().unwrap();
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    environment.remove("DOCKER_HOST");
+    environment.remove("DOCKER_CONTEXT");
+    environment.remove("DOCKER_CONFIG");
+    let _home = crate::test_support::KooladeHomeGuard::set(home.path());
+    let state_dir = crate::persistence::state_root().join("machine-setup");
+    std::fs::create_dir_all(&state_dir).unwrap();
+    std::fs::set_permissions(&state_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    let image = ImageLock::bundled()
+        .unwrap()
+        .select(RuntimeProfile::General, "amd64")
+        .unwrap();
+    let endpoint = DockerEnvironmentStatus::current_endpoint_identity_fingerprint().unwrap();
+    let daemon = "d".repeat(64);
+    let version = "29.0.0";
+    crate::persistence::linux_rootless_smoke_receipt::record(
+        &endpoint,
+        &daemon,
+        version,
+        &image,
+        checked_at_unix_ms.saturating_sub(1).max(1),
+    )
+    .unwrap();
+
+    let mut engine = docker(DockerEnvironmentState::Ready, true);
+    engine.daemon_version = Some(version.into());
+    engine.available_images.push(image.reference);
+    engine.daemon_identity_fingerprint = Some(daemon);
+    assess_with_images(
+        &engine,
+        std::collections::BTreeSet::new(),
+        [RuntimeProfile::General].into_iter().collect(),
+        checked_at_unix_ms,
+    )
 }

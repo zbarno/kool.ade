@@ -27,6 +27,20 @@ async fn restarted_rootless_daemon_preserves_dirty_clone_without_command_replay(
     let fixture = Fixture::new();
     let mut daemon = IsolatedRootlessDaemon::start(&fixture.root).await;
     let endpoint = daemon.endpoint().clone();
+    let docker = endpoint
+        .connect()
+        .expect("isolated daemon endpoint must be a trusted socket");
+    let info = docker
+        .info()
+        .await
+        .expect("isolated daemon must answer Docker info");
+    assert!(
+        info.security_options
+            .unwrap_or_default()
+            .iter()
+            .any(|option| option.contains("name=rootless")),
+        "daemon recovery must use an actual rootless Docker Engine"
+    );
     let mut docker_environment = crate::test_support::ProcessEnvironmentGuard::new();
     docker_environment.remove("DOCKER_CONTEXT");
     match &endpoint {

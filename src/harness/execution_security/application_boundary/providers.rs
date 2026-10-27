@@ -79,6 +79,7 @@ impl CliProvider {
                     "--strict-mcp-config",
                     "--mcp-config",
                     "--allowedTools",
+                    "--settings",
                 ],
                 launch_tokens: &[
                     "--tools",
@@ -87,8 +88,9 @@ impl CliProvider {
                     "--permission-mode",
                     "dontAsk",
                     "--effort",
+                    "--settings",
                 ],
-                environment_keys: &[],
+                environment_keys: &["DISABLE_UPDATES"],
             },
             Self::Codex => ProfileRequirements {
                 minimum_version: None,
@@ -238,11 +240,21 @@ pub(super) fn configure(
 ) -> anyhow::Result<()> {
     match provider {
         CliProvider::Codex => codex::configure(boundary, argv)?,
-        CliProvider::Claude => claude::configure(boundary, argv)?,
+        CliProvider::Claude => claude::configure(boundary, argv, env)?,
         CliProvider::Antigravity => antigravity::configure(boundary, argv, env)?,
         CliProvider::OpenCode => opencode::configure(boundary, argv, env)?,
         CliProvider::Copilot => copilot::configure(boundary, argv, env)?,
         CliProvider::Pi => pi::configure(boundary, argv, env)?,
     }
+    Ok(())
+}
+
+pub(crate) fn opencode_has_custom_provider_settings(provider: &str) -> anyhow::Result<bool> {
+    opencode::has_custom_provider_settings(provider)
+}
+
+pub(crate) fn ensure_claude_update_policy() -> anyhow::Result<()> {
+    #[cfg(not(test))]
+    claude::ensure_no_local_managed_host_execution()?;
     Ok(())
 }

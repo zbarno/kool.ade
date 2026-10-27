@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn discovery_keeps_adapter_failures_independent_and_uses_ready_fallback() {
+fn discovery_keeps_adapter_failures_independent_without_forcing_a_fallback() {
     let mut pi = report(true);
     pi.id = "pi".into();
     let codex = HarnessProbe {
@@ -29,26 +29,38 @@ fn discovery_keeps_adapter_failures_independent_and_uses_ready_fallback() {
     assert!(settings.discovered["pi"].ready);
     assert!(!settings.discovered["codex"].ready);
     assert!(settings.discovered["codex"].configuration_required);
-    assert_eq!(settings.default_harness.as_deref(), Some("pi"));
+    assert_eq!(settings.default_harness, None);
 }
 
 #[test]
-fn configured_codex_default_is_preserved_when_ready() {
+fn one_ready_provider_does_not_become_the_default_without_explicit_selection() {
+    let mut settings = HarnessSettings::default();
+    super::super::super::discovery::apply_probe_results(&mut settings, &[report(true)], None, 1);
+    assert!(settings.discovered["pi"].ready);
+    assert_eq!(settings.default_harness, None);
+    assert_eq!(settings.bootstrap_provider, None);
+}
+
+#[test]
+fn configured_codex_default_is_preserved_when_authentication_is_unverified() {
     let codex = HarnessProbe {
         id: "codex".into(),
-        status: "codex 0.1.0".into(),
+        status: "codex (authentication unverified)".into(),
         version: Some("0.1.0".into()),
         executable: Some("/example/bin/codex".into()),
-        diagnostic: None,
-        ready: true,
+        diagnostic: Some("Codex account and model access remain unverified".into()),
+        ready: false,
         models: vec!["gpt-configured".into()],
         default_model: Some("gpt-configured".into()),
-        model_catalog_fresh: true,
+        model_catalog_fresh: false,
         configuration_required: false,
-        authentication: crate::execution::contract::ReadinessState::Ready,
+        authentication: crate::execution::contract::ReadinessState::Unknown,
         implementation_available: false,
     };
-    let mut settings = HarnessSettings::default();
+    let mut settings = HarnessSettings {
+        default_harness: Some("codex".into()),
+        ..HarnessSettings::default()
+    };
     super::super::super::discovery::apply_probe_results(
         &mut settings,
         &[report(true), codex],
@@ -56,6 +68,22 @@ fn configured_codex_default_is_preserved_when_ready() {
         1,
     );
     assert_eq!(settings.default_harness.as_deref(), Some("codex"));
+    let detected = &settings.discovered["codex"];
+    assert!(!detected.ready);
+    assert!(!detected.implementation_available);
+    assert!(!detected.model_catalog_fresh);
+    assert_eq!(
+        detected
+            .capability_snapshot
+            .as_ref()
+            .unwrap()
+            .authentication,
+        crate::execution::contract::ReadinessState::Unknown
+    );
+    assert!(!detected.has_current_authenticated_capability(
+        "codex",
+        crate::persistence::harness_settings::current_unix_ms()
+    ));
 }
 
 #[test]

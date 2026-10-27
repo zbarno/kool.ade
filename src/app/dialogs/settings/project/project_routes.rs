@@ -36,22 +36,14 @@ pub(super) fn paint_routes(
             .filter(|(id, entry)| {
                 role.is_some_and(|role| {
                     entry.has_current_authenticated_capability(id, now)
-                        && entry.supports_role_at(role, now)
+                        && entry.has_any_verified_model_at(id, now)
+                        && entry.supports_role_or_context_only_planning_at(role, now)
                         && (category != harness_settings::IMPLEMENTATION
                             || (entry.implementation_available
                                 && crate::harness::implementation_route_available(id)))
                 })
             })
-            .flat_map(|(id, entry)| {
-                std::iter::once(WorkRoute {
-                    harness: id.clone(),
-                    model: None,
-                })
-                .chain(entry.models.iter().map(|model| WorkRoute {
-                    harness: id.clone(),
-                    model: Some(model.clone()),
-                }))
-            })
+            .flat_map(|(id, entry)| model_routes_for(id, entry, now))
             .collect::<Vec<_>>();
         let selected_text = selected.as_ref().map_or_else(
             || "Use Coding tools default".to_owned(),
@@ -86,14 +78,54 @@ pub(super) fn paint_routes(
     }
 }
 
+fn model_routes_for(
+    id: &str,
+    entry: &crate::persistence::harness_settings::DetectedHarness,
+    now: u64,
+) -> Vec<WorkRoute> {
+    let default = entry.verified_default_model_at(id, now).map(|_| WorkRoute {
+        harness: id.to_owned(),
+        model: None,
+    });
+    default
+        .into_iter()
+        .chain(
+            entry
+                .models
+                .iter()
+                .filter(|model| entry.has_verified_model_at(id, model, now))
+                .map(|model| WorkRoute {
+                    harness: id.to_owned(),
+                    model: Some(model.clone()),
+                }),
+        )
+        .collect()
+}
+
+#[cfg(test)]
+#[path = "project_routes/model_tests.rs"]
+mod model_tests;
+
 fn route_label(route: &WorkRoute, settings: &HarnessSettings) -> String {
-    match route.model.as_deref().or_else(|| {
-        settings
+    let now = harness_settings::current_unix_ms();
+    if let Some(model) = route
+        .model
+        .as_deref()
+        .filter(|model| !model.trim().is_empty())
+    {
+        let verified = settings
             .discovered
             .get(&route.harness)
-            .and_then(|entry| entry.default_model.as_deref())
-    }) {
+            .is_some_and(|entry| entry.has_verified_model_at(&route.harness, model, now));
+        let qualifier = if verified { "" } else { " (unverified)" };
+        return format!("{} / {model}{qualifier}", route.harness);
+    }
+    match settings
+        .discovered
+        .get(&route.harness)
+        .and_then(|entry| entry.verified_default_model_at(&route.harness, now))
+    {
         Some(model) => format!("{} / {model}", route.harness),
-        None => format!("{} / CLI default", route.harness),
+        None => format!("{} / CLI default (unverified)", route.harness),
     }
 }

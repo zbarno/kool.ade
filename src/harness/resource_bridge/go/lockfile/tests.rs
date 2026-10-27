@@ -1,4 +1,5 @@
 use super::*;
+use std::fs;
 
 const MOD: &str =
     "module example.invalid/service\n\ngo 1.23\n\nrequire github.com/google/uuid v1.6.0\n";

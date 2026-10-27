@@ -1,8 +1,9 @@
 use super::super::*;
 use crate::{
     app::bootstrap_remediation::supervisor::{
-        ElevationReceipt, NativeCommandRunner, NativeElevation, OperationRegistry, ProcessOutput,
-        ProcessRunError, ProcessRunFailure, ReadinessVerifier, TrustedInvocation, TrustedProgram,
+        ElevationReceipt, NativeCommandRunner, NativeElevation, OperationRegistry,
+        PreconditionReceipt, PreconditionVerifier, ProcessOutput, ProcessRunError,
+        ProcessRunFailure, ReadinessVerifier, TrustedInvocation, TrustedProgram,
         VerificationReceipt,
     },
     app::bootstrap_repair_policy::{Host, Operation, Proposal},
@@ -27,6 +28,26 @@ pub(super) fn plan(host: Host, privilege: Option<PrivilegeLevel>) -> Remediation
         plan.validate().unwrap();
     }
     plan
+}
+
+pub(super) fn rootless_packages_plan() -> (RemediationPlan, HostIdentity) {
+    let identity = HostIdentity::from_facts(
+        Host::Linux,
+        "ubuntu-24.04-amd64-kernel-6.8.0",
+        "synthetic-machine",
+        "1000",
+    )
+    .unwrap();
+    let proposal = Proposal {
+        schema_version: 1,
+        operation: Operation::InstallLinuxRootlessPackages,
+        host: Host::Linux,
+        prerequisite_id: "setup:linux:rootless:packages".into(),
+        image_profile: None,
+    };
+    let request = RemediationRequest::from_proposal_for_test(&proposal, &identity).unwrap();
+    let plan = RemediationPlan::build_for_test(&request, &identity).unwrap();
+    (plan, identity)
 }
 
 pub(super) fn ready_store(task_id: &str) -> SetupTaskStoreV1 {
@@ -101,6 +122,19 @@ impl OperationRegistry for FakeRegistry {
             Vec::new(),
             std::time::Duration::from_secs(5),
         )
+    }
+}
+
+pub(super) struct FreshPreconditions;
+
+impl PreconditionVerifier for FreshPreconditions {
+    fn verify(&self, probe_ids: &[String]) -> anyhow::Result<PreconditionReceipt> {
+        Ok(PreconditionReceipt {
+            probe_ids: probe_ids.to_vec(),
+            observed_at_unix_ms: approval::now_unix_ms()?,
+            evidence_digest: "c".repeat(64),
+            ready: true,
+        })
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::harness::DependencyPackageIdentity;
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, fs, io::Read, os::unix::fs::OpenOptionsExt, path::Path};
+use std::{collections::BTreeMap, io::Read, path::Path};
 
 mod sums;
 use sums::parse_sums;
@@ -109,13 +109,12 @@ fn read_inputs(root: &Path) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
 }
 
 fn read_regular_file(path: &Path, limit: u64, name: &str) -> anyhow::Result<Vec<u8>> {
-    let mut options = fs::OpenOptions::new();
-    options
-        .read(true)
-        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
-    let file = options.open(path)?;
+    let file = super::super::secure_file::open_read_nofollow(path)?;
     let metadata = file.metadata()?;
-    anyhow::ensure!(metadata.is_file(), "{name} must be a regular file");
+    anyhow::ensure!(
+        metadata.is_file() && !metadata.file_type().is_symlink(),
+        "{name} must be a regular file"
+    );
     anyhow::ensure!(metadata.len() <= limit, "{name} exceeds its scan limit");
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
     file.take(limit + 1).read_to_end(&mut bytes)?;

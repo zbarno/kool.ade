@@ -39,14 +39,14 @@ fn run_provider_probe(
 impl DlgHarnessSetup {
     pub fn retry_provider(&mut self, id: &str) {
         if !PROVIDERS.contains(&id) {
-            self.feedback = Some((false, format!("Unsupported provider: {id}")));
+            self.set_feedback(false, format!("Unsupported provider: {id}"));
             return;
         }
         if let Some(cancel) = &self.scan_cancel {
             cancel.store(true, Ordering::Release);
         }
         super::super::invalidate_discovery(&mut self.settings, Some(id));
-        self.persist();
+        self.persist_quiet();
         let generation = SCAN_GENERATION.fetch_add(1, Ordering::Relaxed);
         let cancel = Arc::new(AtomicBool::new(false));
         let (tx, rx) = mpsc::channel();
@@ -119,14 +119,13 @@ impl DlgHarnessSetup {
         self.running_providers.clear();
         self.runtime_available = None;
         self.probe_view = ProbeView::Pending;
-        self.feedback = Some((true, format!("Refreshing {id} discovery…")));
     }
 
     pub fn refresh(&mut self) {
         let (tx, rx) = mpsc::channel();
         let (generation, cancelled) = begin_scan_state(self);
         super::super::invalidate_discovery(&mut self.settings, None);
-        self.persist();
+        self.persist_quiet();
         self.feedback = None;
         self.probe_rx = Some(Arc::new(Mutex::new(rx)));
         launch_scan_workers(generation, tx, cancelled);

@@ -8,28 +8,58 @@ pub(super) fn discover(runtime_available: bool) -> HarnessProbe {
         crate::harness::opencode_harness::OpenCodeReadiness::Ready
             | crate::harness::opencode_harness::OpenCodeReadiness::CatalogUnavailable
     );
-    let mut authentication = if probe.readiness
-        == crate::harness::opencode_harness::OpenCodeReadiness::AuthenticationRequired
-    {
-        ReadinessState::Unavailable
-    } else if let Some(binary) = probe.binary.as_deref() {
-        super::opencode_authentication::probe(binary)
-    } else {
-        ReadinessState::Unknown
+    let local_evidence = super::opencode_local_models::probe_local_models(&probe.models);
+    // For known local-only providers, authentication Ready means no credentials are required;
+    // only a fresh catalog response that lists a configured model can make it routable. Remote
+    // Anthropic access uses a separate non-generative key and model-list check.
+    let (authentication, models, model_catalog_fresh, local_diagnostic) = match local_evidence {
+        super::opencode_local_models::LocalModelEvidence::NotConfigured => {
+            if let Some(binary) = probe.binary.as_deref() {
+                let evidence =
+                    super::opencode_authentication::verify_anthropic(binary, &probe.models);
+                (
+                    evidence.authentication,
+                    evidence.models.unwrap_or(probe.models),
+                    evidence.model_catalog_fresh,
+                    evidence.diagnostic,
+                )
+            } else {
+                (ReadinessState::Unknown, probe.models, false, None)
+            }
+        }
+        super::opencode_local_models::LocalModelEvidence::EndpointUnavailable => {
+            // For these documented local-only providers, authentication is not required. The
+            // stale catalog still blocks routing until the endpoint returns fresh model evidence.
+            (
+                ReadinessState::Ready,
+                probe.models,
+                false,
+                Some(
+                    "The configured local OpenCode endpoint did not return a usable model catalog. Start it and retry discovery.",
+                ),
+            )
+        }
+        super::opencode_local_models::LocalModelEvidence::AuthenticationRequired => (
+            ReadinessState::Unavailable,
+            probe.models,
+            false,
+            Some(
+                "The configured local OpenCode endpoint rejected an unauthenticated model-catalog request.",
+            ),
+        ),
+        super::opencode_local_models::LocalModelEvidence::FreshCatalog(models) => {
+            let diagnostic = models.is_empty().then_some(
+                "The live local OpenCode catalog does not list the configured model. Choose an available model and retry discovery.",
+            );
+            (ReadinessState::Ready, models, true, diagnostic)
+        }
     };
-    let models = if authentication == ReadinessState::Unavailable {
-        super::opencode_local_models::models_available_without_authentication(&probe.models)
-            .inspect(|_| authentication = ReadinessState::Ready)
-            .unwrap_or(probe.models)
-    } else {
-        probe.models
-    };
-    let model_catalog_fresh = !models.is_empty();
-    let auth_diagnostic = if authentication == ReadinessState::Unavailable
+    let auth_diagnostic = if local_diagnostic.is_none()
+        && authentication == ReadinessState::Unavailable
         && probe.readiness
             != crate::harness::opencode_harness::OpenCodeReadiness::AuthenticationRequired
     {
-        Some("OpenCode authentication is not configured. Run `opencode auth login` and rediscover.")
+        Some("OpenCode provider access is unverified. Sign in with the provider, then rediscover.")
     } else if authentication == ReadinessState::Unknown && probe.diagnostic.is_empty() {
         Some("OpenCode authentication could not be verified by `opencode auth list`.")
     } else {
@@ -37,6 +67,7 @@ pub(super) fn discover(runtime_available: bool) -> HarnessProbe {
     };
     let diagnostic = [
         (!probe.diagnostic.is_empty()).then_some(probe.diagnostic),
+        local_diagnostic.map(str::to_owned),
         auth_diagnostic.map(str::to_owned),
     ]
     .into_iter()

@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 mod probe;
 mod telemetry;
+mod validation;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ProfileRequirements {
@@ -153,9 +154,9 @@ impl ValidatedProviderLaunch {
             env,
             seal: String::new(),
         };
-        launch.validate_profile()?;
+        validation::validate_profile(&launch)?;
         let mut launch = launch;
-        launch.seal = launch.fingerprint()?;
+        launch.seal = validation::fingerprint(&launch)?;
         Ok(launch)
     }
 
@@ -164,13 +165,13 @@ impl ValidatedProviderLaunch {
         cwd: &Path,
         input: Option<String>,
     ) -> anyhow::Result<crate::harness::pi_proc::ChildTask> {
-        self.validate_profile()?;
+        validation::validate_profile(&self)?;
         anyhow::ensure!(
             cwd == self.cwd,
             "provider launch working directory changed after validation"
         );
         anyhow::ensure!(
-            self.seal == self.fingerprint()?,
+            self.seal == validation::fingerprint(&self)?,
             "provider launch profile changed after validation"
         );
         crate::harness::pi_proc::spawn_with_input_clear_env(&self.argv, &self.cwd, input, &self.env)
@@ -181,73 +182,6 @@ impl ValidatedProviderLaunch {
         prompt_role_version: Option<&str>,
     ) -> crate::harness::CleanLaunchTelemetry {
         telemetry::for_launch(self, prompt_role_version)
-    }
-
-    fn validate_profile(&self) -> anyhow::Result<()> {
-        self.evidence.validate()?;
-        let executable = self
-            .argv
-            .first()
-            .ok_or_else(|| anyhow::anyhow!("provider argv is empty"))?;
-        anyhow::ensure!(
-            Path::new(executable) == self.evidence.executable,
-            "provider launch executable does not match its validated probe"
-        );
-        let missing = self
-            .evidence
-            .provider
-            .profile_requirements()
-            .launch_tokens
-            .iter()
-            .filter(|token| {
-                if token.ends_with('=') {
-                    !self
-                        .argv
-                        .iter()
-                        .any(|argument| argument.starts_with(**token))
-                } else {
-                    !self.argv.iter().any(|argument| argument == **token)
-                }
-            })
-            .copied()
-            .collect::<Vec<_>>();
-        let missing_env = self
-            .evidence
-            .provider
-            .profile_requirements()
-            .environment_keys
-            .iter()
-            .filter(|key| {
-                !self
-                    .env
-                    .iter()
-                    .any(|(name, value)| name == **key && !value.is_empty())
-            })
-            .copied()
-            .collect::<Vec<_>>();
-        anyhow::ensure!(
-            missing.is_empty() && missing_env.is_empty(),
-            "{} launch profile is missing required arguments [{}] or environment entries [{}]",
-            self.evidence.provider.name(),
-            missing.join(", "),
-            missing_env.join(", "),
-        );
-        Ok(())
-    }
-
-    fn fingerprint(&self) -> anyhow::Result<String> {
-        let evidence = &self.evidence;
-        let bytes = serde_json::to_vec(&(
-            evidence.provider.name(),
-            &evidence.executable,
-            &evidence.version,
-            &evidence.capabilities,
-            &self.argv,
-            &self.cwd,
-            &self.env,
-        ))?;
-        use sha2::Digest;
-        Ok(format!("{:x}", sha2::Sha256::digest(bytes)))
     }
 }
 

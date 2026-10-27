@@ -1,5 +1,7 @@
 mod evidence;
 mod identifiers;
+mod install_channels;
+mod recipe;
 mod snapshot;
 
 pub use evidence::{
@@ -8,7 +10,8 @@ pub use evidence::{
 };
 pub use identifiers::{
     HostKind, ImageArchitectureV1, ImageProfileV1, LinuxDistributionV1, LinuxDistributionVersionV1,
-    LinuxRootlessMechanismV1, PrerequisiteCapability, PrerequisiteDomain, PrerequisiteId,
-    PrerequisiteSubject, ProviderIdV1,
+    LinuxKernelVersionV1, LinuxPackageManagerV1, LinuxRootlessMechanismV1, LinuxRootlessRecipeV1,
+    PrerequisiteCapability, PrerequisiteDomain, PrerequisiteId, PrerequisiteSubject, ProviderIdV1,
+    WindowsEditionV1, WindowsKernelVersionV1, WindowsProductV1,
 };
 pub use snapshot::{HostCapabilityMatrixV1, MachineSnapshotV1, SupportClaim};

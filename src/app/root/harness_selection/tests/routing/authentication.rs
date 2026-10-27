@@ -104,19 +104,19 @@ fn configured_implementation_route_requires_current_ready_authentication_snapsho
     use crate::persistence::harness_settings::DISCOVERY_FRESHNESS_MS;
     let now = crate::persistence::harness_settings::current_unix_ms();
 
-    let mut missing = settings_with("codex", ReadinessState::Ready, now);
+    let mut missing = settings_with("opencode", ReadinessState::Ready, now);
     missing
         .discovered
-        .get_mut("codex")
+        .get_mut("opencode")
         .unwrap()
         .capability_snapshot = None;
     assert_configured_route_rejected(&missing);
 
-    let unknown = settings_with("codex", ReadinessState::Unknown, now);
+    let unknown = settings_with("opencode", ReadinessState::Unknown, now);
     assert_configured_route_rejected(&unknown);
 
     let stale = settings_with(
-        "codex",
+        "opencode",
         ReadinessState::Ready,
         now.saturating_sub(DISCOVERY_FRESHNESS_MS + 1),
     );
@@ -144,13 +144,13 @@ fn task_route_validation_requires_typed_ready_authentication() {
     let route = std::collections::BTreeMap::from([(
         IMPLEMENTATION.into(),
         WorkRoute {
-            harness: "codex".into(),
+            harness: "opencode".into(),
             model: None,
         },
     )]);
 
     for auth in [ReadinessState::Unknown, ReadinessState::Unavailable] {
-        let settings = settings_with("codex", auth, now);
+        let settings = settings_with("opencode", auth, now);
         let error = validate_task_routes(&settings, &route).unwrap_err();
         assert!(
             error.contains("authenticated capability snapshot"),
@@ -159,7 +159,7 @@ fn task_route_validation_requires_typed_ready_authentication() {
     }
 
     let stale = settings_with(
-        "codex",
+        "opencode",
         ReadinessState::Ready,
         now.saturating_sub(crate::persistence::harness_settings::DISCOVERY_FRESHNESS_MS + 1),
     );
@@ -169,10 +169,10 @@ fn task_route_validation_requires_typed_ready_authentication() {
             .contains("discovery is stale")
     );
 
-    let mut missing = settings_with("codex", ReadinessState::Ready, now);
+    let mut missing = settings_with("opencode", ReadinessState::Ready, now);
     missing
         .discovered
-        .get_mut("codex")
+        .get_mut("opencode")
         .unwrap()
         .capability_snapshot = None;
     assert!(
@@ -183,17 +183,45 @@ fn task_route_validation_requires_typed_ready_authentication() {
 }
 
 #[test]
+fn task_route_without_explicit_model_requires_a_fresh_listed_cli_default() {
+    let now = crate::persistence::harness_settings::current_unix_ms();
+    let route = std::collections::BTreeMap::from([(
+        crate::persistence::harness_settings::PLANNING.into(),
+        WorkRoute {
+            harness: "opencode".into(),
+            model: None,
+        },
+    )]);
+    let mut settings = settings_with("opencode", ReadinessState::Ready, now);
+    settings
+        .discovered
+        .get_mut("opencode")
+        .unwrap()
+        .default_model = None;
+
+    let error = validate_task_routes(&settings, &route).unwrap_err();
+    assert!(error.contains("no verified default model"), "{error}");
+
+    settings
+        .discovered
+        .get_mut("opencode")
+        .unwrap()
+        .default_model = Some("synthetic-default".into());
+    validate_task_routes(&settings, &route).unwrap();
+}
+
+#[test]
 fn uncategorized_turn_does_not_fall_back_around_an_explicit_implementation_route() {
     let now = crate::persistence::harness_settings::current_unix_ms();
     let mut settings = settings_with("pi", ReadinessState::Ready, now);
     settings.discovered.insert(
-        "codex".into(),
-        detected("codex", ReadinessState::Unknown, now),
+        "opencode".into(),
+        detected("opencode", ReadinessState::Unknown, now),
     );
     let routes = std::collections::BTreeMap::from([(
         IMPLEMENTATION.into(),
         WorkRoute {
-            harness: "codex".into(),
+            harness: "opencode".into(),
             model: None,
         },
     )]);
@@ -210,7 +238,7 @@ fn uncategorized_turn_does_not_fall_back_around_an_explicit_implementation_route
             crate::persistence::harness_settings::save(&settings).unwrap();
             let mut override_harness = None;
             let harness = configured_harness_for_task(&mut override_harness, None, task_routes);
-            assert!(harness.label().to_ascii_lowercase().contains("codex"));
+            assert!(harness.label().to_ascii_lowercase().contains("opencode"));
             let error = harness.check_available().unwrap_err().detail();
             assert!(
                 error.contains("authenticated capability snapshot"),

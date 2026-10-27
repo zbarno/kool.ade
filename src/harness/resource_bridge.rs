@@ -9,6 +9,10 @@ use std::{
     os::unix::net::UnixStream,
 };
 
+// The Docker-backed resource broker is Unix-only. Keep the dependency lockfile
+// readers available on every platform, but do not compile its Unix cache writers
+// and adapters into the Windows desktop package.
+#[cfg(unix)]
 mod adapter;
 #[cfg(unix)]
 mod broker;
@@ -27,6 +31,7 @@ mod npm;
 mod pip;
 mod policy;
 mod proxy;
+mod secure_file;
 #[cfg(all(test, unix))]
 mod tests;
 
@@ -43,7 +48,7 @@ pub(crate) struct NpmFixtureArchive {
     pub(crate) registry_url: String,
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) fn test_go_preparation_operations(
     fetch: impl Fn(&Path, &Path, usize) -> (usize, anyhow::Result<()>) + Send + Sync + 'static,
 ) -> std::sync::Arc<go::SharedPreparationOperations> {

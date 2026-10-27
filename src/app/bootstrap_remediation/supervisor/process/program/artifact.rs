@@ -60,6 +60,29 @@ pub(crate) fn verify_plan_artifact(
 }
 
 impl VerifiedArtifact {
+    pub(crate) fn from_bundled_bytes(
+        label: &'static str,
+        bytes: &'static [u8],
+        expected_digest: &str,
+    ) -> anyhow::Result<Self> {
+        use std::io::Write;
+
+        let actual_digest = format!("{:x}", Sha256::digest(bytes));
+        anyhow::ensure!(
+            actual_digest == expected_digest,
+            "bundled remediation artifact differs from its pinned digest"
+        );
+        let mut source = tempfile::tempfile()?;
+        source.write_all(bytes)?;
+        source.flush()?;
+        let file = sealed_verified_copy(source, &actual_digest)?;
+        Ok(Self {
+            path: PathBuf::from(label),
+            file,
+            sha256: actual_digest,
+        })
+    }
+
     pub(crate) fn digest(&self) -> &str {
         &self.sha256
     }
@@ -90,6 +113,18 @@ impl VerifiedArtifact {
         #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
         {
             self.path.as_os_str().to_owned()
+        }
+    }
+
+    pub(super) fn privileged_source_path(&self) -> OsString {
+        #[cfg(target_os = "linux")]
+        {
+            use std::os::fd::AsRawFd;
+            format!("/proc/{}/fd/{}", std::process::id(), self.file.as_raw_fd()).into()
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            self.execution_path()
         }
     }
 }

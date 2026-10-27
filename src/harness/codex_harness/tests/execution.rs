@@ -1,5 +1,40 @@
 use super::*;
 
+// These lifecycle tests intentionally use the test-only uncontained provider context,
+// which lets fake CLI output exercise execution without treating it as auth evidence.
+// Production readiness is covered separately by the fail-closed probe tests.
+
+/// Production boundary: direct `CodexHarness::execute` must reject account-managed hook risk
+/// before it starts the configured CLI. A guard-only unit test cannot prove this adapter path
+/// reaches the guard before spawn. Uses a temporary executable marker fixture on Unix only; no
+/// real provider, credentials, network, or Docker, with low setup cost.
+#[cfg(unix)]
+#[test]
+fn managed_hook_block_rejects_direct_execution_before_cli_spawn() {
+    let root = std::env::temp_dir().join(format!("koolade-codex-block-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let marker = root.join("spawned");
+    let binary = root.join("codex-marker.sh");
+    std::fs::write(
+        &binary,
+        format!("#!/bin/sh\ntouch '{}'\nexit 0\n", marker.display()),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let _env = EnvOverride::set(super::CODEX_BINARY_ENV, &binary);
+    let (tx, _) = mpsc::channel();
+
+    let error = CodexHarness
+        .execute(&request(root.clone(), tx))
+        .unwrap_err();
+
+    assert!(error.detail().contains("organization-managed hooks"));
+    assert!(error.detail().contains("No CLI was started"));
+    assert!(!marker.exists(), "blocked Codex task started the fake CLI");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn executes_structured_events_and_normalizes_usage() {

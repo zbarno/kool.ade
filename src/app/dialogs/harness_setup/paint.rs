@@ -4,6 +4,7 @@ use egui::RichText;
 
 pub fn paint_harness_setup_card(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) -> (bool, bool) {
     dialog.drain_probe();
+    dialog.drop_expired_feedback();
     ui.horizontal(|ui| {
         section_tab(
             ui,
@@ -24,7 +25,7 @@ pub fn paint_harness_setup_card(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
         HarnessSettingsSection::Routing => paint_work_routes(ui, dialog),
     }
     ui.add_space(6.0);
-    if let Some((ok, message)) = &dialog.feedback {
+    if let Some((ok, message, _since)) = &dialog.feedback {
         ui.label(RichText::new(message).size(11.0).color(if *ok {
             theme::SUCCESS
         } else {
@@ -59,6 +60,28 @@ fn section_tab(
 
 pub(super) use super::tools::paint_tools;
 
+pub fn paint_harness_setup_page(
+    ui: &mut egui::Ui,
+    dialog: &mut DlgHarnessSetup,
+    section: HarnessSettingsSection,
+) {
+    dialog.drop_expired_feedback();
+    match section {
+        HarnessSettingsSection::Tools => paint_tools(ui, dialog),
+        HarnessSettingsSection::Routing => paint_work_routes(ui, dialog),
+    }
+    if let Some((ok, message, _since)) = &dialog.feedback {
+        ui.colored_label(
+            if *ok {
+                crate::ui::theme::SUCCESS
+            } else {
+                crate::ui::theme::DANGER
+            },
+            message,
+        );
+    }
+}
+
 fn route_available(
     id: &str,
     harness: &crate::persistence::harness_settings::DetectedHarness,
@@ -69,7 +92,8 @@ fn route_available(
     };
     let now = crate::persistence::harness_settings::current_unix_ms();
     harness.has_current_authenticated_capability(id, now)
-        && harness.supports_role_at(role, now)
+        && harness.has_any_verified_model_at(id, now)
+        && harness.supports_role_or_context_only_planning_at(role, now)
         && (category != crate::persistence::harness_settings::IMPLEMENTATION
             || (harness.implementation_available
                 && crate::harness::implementation_route_available(id)))
@@ -185,22 +209,8 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
                 .get(id)
                 .is_some_and(|harness| route_available(id, harness, key))
         {
-            let detail = if dialog.settings.discovered.get(id).is_some_and(|harness| {
-                !harness.is_fresh_at(crate::persistence::harness_settings::current_unix_ms())
-            }) {
-                "has stale provider discovery; refresh Coding tools"
-            } else if dialog
-                .settings
-                .discovered
-                .get(id)
-                .is_some_and(|harness| harness.ready)
-            {
-                "does not support repository work through Kool.ad/e's Docker ExecutionSession"
-            } else {
-                "is currently unavailable"
-            };
             ui.label(
-                RichText::new(format!("Saved {label} route uses {id}, which {detail}. Choose an available route before starting work."))
+                RichText::new(format!("Saved {label} route uses {id}, which no longer has current verified provider, model, role, or execution evidence. Refresh Coding tools or choose a verified route before starting work."))
                     .size(10.5)
                     .color(theme::DANGER),
             );
@@ -224,13 +234,26 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
                 Vec::new()
             };
             let default_model = if fresh {
-                detected.and_then(|entry| entry.default_model.as_deref())
+                detected.and_then(|entry| {
+                    entry.verified_default_model_at(
+                        &id,
+                        crate::persistence::harness_settings::current_unix_ms(),
+                    )
+                })
             } else {
                 None
             };
+            let default_model_available = detected.is_some_and(|entry| {
+                entry
+                    .verified_default_model_at(
+                        &id,
+                        crate::persistence::harness_settings::current_unix_ms(),
+                    )
+                    .is_some()
+            });
             let default_label = default_model
                 .map(|model| format!("CLI default (last discovered: {model})"))
-                .unwrap_or_else(|| "CLI default (model not reported)".into());
+                .unwrap_or_else(|| "No verified CLI default; choose a listed model".into());
             let mut model = current_model.clone();
             ui.vertical(|ui| {
                 ui.label("Model");
@@ -239,7 +262,9 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
                     .width(ui.available_width().min(360.0))
                     .wrap_mode(egui::TextWrapMode::Truncate)
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut model, None, default_label.as_str());
+                        ui.add_enabled_ui(default_model_available, |ui| {
+                            ui.selectable_value(&mut model, None, default_label.as_str());
+                        });
                         for candidate in &models {
                             ui.selectable_value(&mut model, Some(candidate.clone()), candidate);
                         }
@@ -262,3 +287,7 @@ pub(super) fn paint_work_routes(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
         }
     }
 }
+
+#[cfg(test)]
+#[path = "paint/route_tests.rs"]
+mod route_tests;

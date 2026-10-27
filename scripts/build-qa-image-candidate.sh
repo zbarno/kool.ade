@@ -108,6 +108,11 @@ SMOKE
     fixture_binary="$RUNNER_TEMP/koolade-qa-desktop-fixture"
     cp target/release/koolade-qa-desktop "$binary"
     cp target/release/koolade-qa-desktop-fixture "$fixture_binary"
+    # Compile the non-Rust packaged-executable fixture (GitHub issue #167):
+    # sources live under tests/fixtures/runtime_qa/desktop; build.sh enforces
+    # the missing-dependency resolution guard. Artifacts are uploaded per run
+    # (never embedded in the image); builder needs cc + libx11-dev headers.
+    tests/fixtures/runtime_qa/desktop/build.sh "$RUNNER_TEMP"
     strip --strip-all --remove-section=.note.gnu.build-id "$binary"
     strip --strip-all --remove-section=.note.gnu.build-id "$fixture_binary"
     cp "$binary" "$output_directory/koolade-qa-desktop"

@@ -3,6 +3,10 @@ use super::{read_json, test_boundary};
 use crate::harness::ToolAccess;
 use serde_json::Value;
 
+#[cfg(unix)]
+#[path = "provider_configs/opencode_auth.rs"]
+mod opencode_auth;
+
 #[test]
 fn claude_is_restricted_to_exact_application_mcp_tools() {
     let boundary = test_boundary(ToolAccess::BoundedImplementation);
@@ -24,6 +28,35 @@ fn claude_is_restricted_to_exact_application_mcp_tools() {
             .collect::<Vec<_>>()
             .join(",")
     );
+}
+
+#[test]
+fn claude_update_lock_replaces_hostile_settings_and_parent_environment() {
+    let boundary = test_boundary(ToolAccess::BoundedImplementation);
+    let mut args = vec![
+        "--settings".into(),
+        r#"{"env":{"DISABLE_UPDATES":"0"}}"#.into(),
+        r#"--settings={"env":{"DISABLE_UPDATES":"0"}}"#.into(),
+    ];
+    let mut env = vec![("DISABLE_UPDATES".into(), "0".into())];
+
+    configure(&boundary, CliProvider::Claude, &mut args, &mut env).unwrap();
+
+    let settings = args
+        .windows(2)
+        .filter(|pair| pair[0] == "--settings")
+        .collect::<Vec<_>>();
+    assert_eq!(settings.len(), 1);
+    assert_eq!(
+        settings[0][1],
+        crate::harness::claude_harness::UPDATE_LOCK_SETTINGS
+    );
+    let update_locks = env
+        .iter()
+        .filter(|(name, _)| name == "DISABLE_UPDATES")
+        .collect::<Vec<_>>();
+    assert_eq!(update_locks.len(), 1);
+    assert_eq!(update_locks[0].1, "1");
 }
 
 #[test]
