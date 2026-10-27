@@ -92,6 +92,7 @@ pub(super) fn open_state_root(path: &Path, current_uid: u32) -> anyhow::Result<F
         current.metadata()?.uid() == current_uid,
         "Repair audit state root must be owned by the current user"
     );
+    super::verify_macos_acl_absent(&current)?;
     Ok(current)
 }
 
@@ -132,7 +133,7 @@ pub(super) fn open_existing_audit(
         libc::openat(
             directory.as_raw_fd(),
             name.as_ptr(),
-            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK,
+            libc::O_RDWR | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK,
         )
     };
     if fd < 0 {
@@ -144,6 +145,7 @@ pub(super) fn open_existing_audit(
     }
     let file = unsafe { File::from_raw_fd(fd) };
     verify_private_regular_file(&file, current_uid)?;
+    super::secure_macos_acl(&file)?;
     anyhow::ensure!(
         file.metadata()?.len() <= super::super::MAX_AUDIT_BYTES,
         "Machine repair audit is oversized"

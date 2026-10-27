@@ -14,6 +14,20 @@ pub(super) fn verify_private_acl(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
+pub(in crate::persistence::setup_tasks) fn verify_private_acl_handle(
+    handle: std::os::windows::io::RawHandle,
+) -> anyhow::Result<()> {
+    windows_acl::verify_private_acl_handle(handle as windows_sys::Win32::Foundation::HANDLE)
+}
+
+#[cfg(windows)]
+pub(in crate::persistence::setup_tasks) fn verify_no_untrusted_delete_rights(
+    handle: std::os::windows::io::RawHandle,
+) -> anyhow::Result<()> {
+    windows_acl::verify_no_untrusted_delete_rights(handle as windows_sys::Win32::Foundation::HANDLE)
+}
+
 pub(in crate::persistence::setup_tasks) fn ensure_private_directory(
     path: &Path,
 ) -> anyhow::Result<()> {
