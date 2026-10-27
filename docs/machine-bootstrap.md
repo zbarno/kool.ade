@@ -2,7 +2,27 @@
 
 Tracking: [#337](https://github.com/zbarno/kool.ade/issues/337).
 
-## Implementation status: Linux onboarding available; Desktop setup in progress
+## Implementation status (2026-10-27): setup code in place; release acceptance blocked
+
+The implementation slices are on `main` or in review: Linux rootless repair
+([#396](https://github.com/zbarno/kool.ade/pull/396)), context-only setup
+conversations ([#397](https://github.com/zbarno/kool.ade/pull/397)), macOS
+readiness ([#403](https://github.com/zbarno/kool.ade/pull/403)), trusted
+Docker Desktop execution ([#400](https://github.com/zbarno/kool.ade/pull/400)),
+Windows readiness ([#404](https://github.com/zbarno/kool.ade/pull/404)), native
+packaging ([#372](https://github.com/zbarno/kool.ade/pull/372)), image
+provisioning ([#373](https://github.com/zbarno/kool.ade/pull/373)), and release
+evidence ([#405](https://github.com/zbarno/kool.ade/pull/405)) are merged.
+Guided provider setup ([#374](https://github.com/zbarno/kool.ade/pull/374)) is
+ready for review. Its verified OpenCode context-only path still depends on
+user-completed provider setup or a supported local model endpoint.
+
+These implementation and CI results do not certify native host support. Linux
+VM acceptance, macOS Intel and Apple silicon validation, Windows 11/WSL2
+validation, nonexpert usability, accessibility, and the release security
+review remain pending. Keep unsupported or unverified execution blocked; do
+not advertise these platforms as accepted. The dated matrix and release gates
+are in the [Bootstrap release validation record](bootstrap-release-validation-2026-10-27.md).
 
 Kool.ad/e starts bounded discovery of the six supported coding-agent CLIs and
 Git from first launch, before a workspace or Docker daemon exists. Provider
