@@ -182,8 +182,8 @@ pub(crate) fn assess_for_scan_with_inputs(
             ..Finding::unverified(
                 "setup:docker:desktop-transport",
                 "Verify Docker Desktop compatibility",
-                "Docker Desktop execution on this host is not yet release-certified.",
-                "Complete native Docker Desktop staging/security validation before enabling coding tasks.",
+                "Docker Desktop execution on this host remains unsupported until native security and task-lifecycle validation passes.",
+                "Validate cold startup, staged project reads and writes, restart/cancellation, and sensitive-file denial on macOS Intel, macOS Apple Silicon, and Windows x64 before claiming support.",
             )
         });
     } else if host == HostKind::Unsupported {

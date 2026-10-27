@@ -32,6 +32,36 @@ pub(super) fn open_root_nofollow(path: &Path) -> anyhow::Result<fs::File> {
 }
 
 #[cfg(unix)]
+pub(super) fn open_directory_nofollow(parent: &fs::File, path: &Path) -> anyhow::Result<fs::File> {
+    use std::os::{
+        fd::{AsRawFd, FromRawFd},
+        unix::ffi::OsStrExt,
+    };
+    let mut current = parent.try_clone()?;
+    for component in path.components() {
+        match component {
+            Component::Normal(name) => {
+                let name = std::ffi::CString::new(name.as_bytes())?;
+                let fd = unsafe {
+                    libc::openat(
+                        current.as_raw_fd(),
+                        name.as_ptr(),
+                        libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_DIRECTORY,
+                    )
+                };
+                anyhow::ensure!(
+                    fd >= 0,
+                    "workspace scope contains a symlink or unavailable directory"
+                );
+                current = unsafe { fs::File::from_raw_fd(fd) };
+            }
+            _ => anyhow::bail!("workspace scope is not canonical"),
+        }
+    }
+    Ok(current)
+}
+
+#[cfg(unix)]
 pub(super) fn read_child_names(directory: &fs::File) -> anyhow::Result<Vec<std::ffi::OsString>> {
     use std::os::{fd::AsRawFd, unix::ffi::OsStringExt};
     let duplicate = unsafe { libc::dup(directory.as_raw_fd()) };

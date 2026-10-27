@@ -33,6 +33,20 @@ impl OwnedTaskWorkspaceResolver {
         workspace: WorkspaceRef,
         task_clone: &Path,
     ) -> Result<Self, ExecutionError> {
+        Self::new_with_private_root_check(
+            projects_root,
+            workspace,
+            task_clone,
+            crate::execution::docker::private_storage::verify_private_root,
+        )
+    }
+
+    fn new_with_private_root_check(
+        projects_root: &Path,
+        workspace: WorkspaceRef,
+        task_clone: &Path,
+        mut verify_private_root: impl FnMut(&Path) -> anyhow::Result<()>,
+    ) -> Result<Self, ExecutionError> {
         workspace.validate().map_err(|_| denied())?;
         let projects_input_meta = std::fs::symlink_metadata(projects_root).map_err(|_| denied())?;
         if !projects_input_meta.is_dir() || projects_input_meta.file_type().is_symlink() {
@@ -74,6 +88,9 @@ impl OwnedTaskWorkspaceResolver {
         // different clone that later occupies the same path.
         let verified = ValidatedWorkspace::inspect(&root)?;
         let state_root = projects.parent().ok_or_else(denied)?;
+        for path in [state_root, projects.as_path(), root.as_path()] {
+            verify_private_root(path).map_err(|_| denied())?;
+        }
         let staging = state_root.join("execution-staging");
         if std::fs::symlink_metadata(&staging)
             .is_ok_and(|metadata| metadata.file_type().is_symlink())
@@ -85,6 +102,7 @@ impl OwnedTaskWorkspaceResolver {
         if staging.parent() != Some(state_root) {
             return Err(denied());
         }
+        verify_private_root(&staging).map_err(|_| denied())?;
         Ok(Self {
             workspace,
             root,
@@ -216,5 +234,47 @@ mod tests {
             resolver.resolve_owned_clone(&workspace()).unwrap_err().kind,
             ExecutionErrorKind::PolicyDenied
         );
+    }
+
+    #[test]
+    fn verifies_private_acl_for_state_projects_task_and_staging_roots() {
+        let fixture = fixture();
+        let mut checked = Vec::new();
+        let resolver = OwnedTaskWorkspaceResolver::new_with_private_root_check(
+            &fixture.projects,
+            workspace(),
+            &fixture.task,
+            |path| {
+                checked.push(path.to_path_buf());
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert!(checked.contains(&fixture.root.canonicalize().unwrap()));
+        assert!(checked.contains(&fixture.projects.canonicalize().unwrap()));
+        assert!(checked.contains(&fixture.task.canonicalize().unwrap()));
+        assert!(checked.contains(&resolver.staging));
+    }
+
+    #[test]
+    fn rejects_a_workspace_when_any_private_root_check_fails() {
+        let fixture = fixture();
+        let task = fixture.task.canonicalize().unwrap();
+
+        let result = OwnedTaskWorkspaceResolver::new_with_private_root_check(
+            &fixture.projects,
+            workspace(),
+            &fixture.task,
+            |path| {
+                if path == task.as_path() {
+                    Err(anyhow::anyhow!("insecure ACL"))
+                } else {
+                    Ok(())
+                }
+            },
+        );
+
+        assert!(result.is_err());
     }
 }
