@@ -1,3 +1,5 @@
+#[cfg(target_os = "macos")]
+use std::os::fd::AsRawFd;
 use std::{
     future::Future,
     io,
@@ -22,6 +24,8 @@ use hyper_util::{
 use tokio::net::UnixStream;
 use tower_service::Service;
 
+#[cfg(target_os = "macos")]
+mod peer;
 #[cfg(test)]
 mod tests;
 
@@ -29,6 +33,8 @@ mod tests;
 struct PinnedUnixConnector {
     path: PathBuf,
     used: Arc<AtomicBool>,
+    #[cfg(target_os = "macos")]
+    verify_desktop_peer: bool,
 }
 
 struct PinnedUnixStream(TokioIo<UnixStream>);
@@ -45,6 +51,8 @@ impl Service<Uri> for PinnedUnixConnector {
     fn call(&mut self, _uri: Uri) -> Self::Future {
         let path = self.path.clone();
         let used = self.used.clone();
+        #[cfg(target_os = "macos")]
+        let verify_desktop_peer = self.verify_desktop_peer;
         Box::pin(async move {
             used.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
                 .map_err(|_| {
@@ -53,9 +61,12 @@ impl Service<Uri> for PinnedUnixConnector {
                         "The approved Docker connection cannot be redirected or reopened",
                     )
                 })?;
-            Ok(PinnedUnixStream(TokioIo::new(
-                UnixStream::connect(path).await?,
-            )))
+            let stream = UnixStream::connect(path).await?;
+            #[cfg(target_os = "macos")]
+            if verify_desktop_peer {
+                peer::verify_docker_desktop_peer(stream.as_raw_fd())?;
+            }
+            Ok(PinnedUnixStream(TokioIo::new(stream)))
         })
     }
 }
@@ -94,13 +105,21 @@ impl hyper::rt::Write for PinnedUnixStream {
     }
 }
 
-pub(super) fn connect(path: &Path) -> Result<Docker, bollard::errors::Error> {
+pub(super) fn connect(
+    path: &Path,
+    verify_desktop_peer: bool,
+) -> Result<Docker, bollard::errors::Error> {
+    #[cfg(not(target_os = "macos"))]
+    let _ = verify_desktop_peer;
+
     let client = Arc::new(
         Client::builder(TokioExecutor::new())
             .pool_max_idle_per_host(1)
             .build(PinnedUnixConnector {
                 path: path.to_owned(),
                 used: Arc::new(AtomicBool::new(false)),
+                #[cfg(target_os = "macos")]
+                verify_desktop_peer,
             }),
     );
     let transport = move |request: BollardRequest| {

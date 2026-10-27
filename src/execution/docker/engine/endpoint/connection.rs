@@ -1,4 +1,6 @@
-use bollard::{API_DEFAULT_VERSION, Docker};
+#[cfg(unix)]
+use bollard::API_DEFAULT_VERSION;
+use bollard::Docker;
 
 use crate::execution::docker::discovery::{PrerequisiteCode, PrerequisiteFailure};
 
@@ -18,40 +20,53 @@ impl DockerEndpoint {
     }
 
     pub(crate) fn connect(&self) -> Result<Docker, PrerequisiteFailure> {
-        let result = match self {
-            #[cfg(unix)]
-            Self::Unix { path, desktop } => {
-                super::socket::validate_unix_socket(path, *desktop)?;
-                Docker::connect_with_unix(
-                    &path.to_string_lossy(),
-                    super::API_TIMEOUT_SECONDS,
-                    API_DEFAULT_VERSION,
-                )
-            }
-            #[cfg(not(unix))]
-            Self::Unix { .. } => {
-                return Err(super::super::failure(
+        #[cfg(windows)]
+        {
+            return match self {
+                Self::NamedPipe { path, .. } => super::named_pipe::connect(path),
+                Self::Unix { .. } => Err(super::super::failure(
                     PrerequisiteCode::UntrustedEndpoint,
                     "Docker Unix sockets are unavailable on this platform",
                     false,
-                ));
-            }
-            #[cfg(windows)]
-            Self::NamedPipe { path, .. } => Docker::connect_with_named_pipe(
-                path,
-                super::API_TIMEOUT_SECONDS,
-                API_DEFAULT_VERSION,
-            ),
-            #[cfg(not(windows))]
-            Self::NamedPipe { .. } => {
-                return Err(super::super::failure(
-                    PrerequisiteCode::UntrustedEndpoint,
-                    "Docker Desktop named pipes are supported only on Windows",
-                    false,
-                ));
-            }
-        };
-        result.map_err(|error| super::super::map_connect_error(&error))
+                )),
+            };
+        }
+
+        #[cfg(not(windows))]
+        {
+            let result = match self {
+                #[cfg(unix)]
+                Self::Unix { path, desktop } => {
+                    super::socket::validate_unix_socket(path, *desktop)?;
+                    #[cfg(target_os = "macos")]
+                    if *desktop {
+                        return super::pinned::connect(path, *desktop)
+                            .map_err(|error| super::super::map_connect_error(&error));
+                    }
+                    Docker::connect_with_unix(
+                        &path.to_string_lossy(),
+                        super::API_TIMEOUT_SECONDS,
+                        API_DEFAULT_VERSION,
+                    )
+                }
+                #[cfg(not(unix))]
+                Self::Unix { .. } => {
+                    return Err(super::super::failure(
+                        PrerequisiteCode::UntrustedEndpoint,
+                        "Docker Unix sockets are unavailable on this platform",
+                        false,
+                    ));
+                }
+                Self::NamedPipe { .. } => {
+                    return Err(super::super::failure(
+                        PrerequisiteCode::UntrustedEndpoint,
+                        "Docker Desktop named pipes are supported only on Windows",
+                        false,
+                    ));
+                }
+            };
+            result.map_err(|error| super::super::map_connect_error(&error))
+        }
     }
 
     #[cfg(unix)]
@@ -59,7 +74,7 @@ impl DockerEndpoint {
         match self {
             Self::Unix { path, desktop } => {
                 super::socket::validate_unix_socket(path, *desktop)?;
-                super::pinned::connect(path)
+                super::pinned::connect(path, *desktop)
                     .map_err(|error| super::super::map_connect_error(&error))
             }
             Self::NamedPipe { .. } => Err(super::super::failure(

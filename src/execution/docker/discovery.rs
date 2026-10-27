@@ -49,6 +49,14 @@ impl std::error::Error for PrerequisiteFailure {}
 #[serde(deny_unknown_fields)]
 pub struct EngineReadiness {
     pub ready: bool,
+    /// The native Desktop peer or named pipe was authenticated and its Engine
+    /// passed the Linux-container and security checks. Storage capacity is a
+    /// separate readiness gate.
+    #[serde(default)]
+    pub desktop_transport_verified: bool,
+    /// The dedicated guest VM capacity probe returned a current free-space sample.
+    #[serde(default)]
+    pub desktop_vm_capacity_verified: bool,
     /// Hash of the daemon ID; never contains the daemon's raw identity.
     pub daemon_identity_fingerprint: Option<String>,
     pub docker_desktop: bool,
@@ -62,6 +70,8 @@ pub struct EngineReadiness {
     pub cpu_quota: Option<bool>,
     pub pids_limit: Option<bool>,
     pub cgroups_supported: Option<bool>,
+    /// The application-owned staging directory is accessible and meets the
+    /// configured minimum free-space requirement.
     pub workspace_staging_available: bool,
     pub disk_available_bytes: Option<u64>,
     pub available_images: Vec<String>,
@@ -69,6 +79,16 @@ pub struct EngineReadiness {
 }
 
 pub fn validate_snapshot(snapshot: &EngineSnapshot) -> Result<(), PrerequisiteFailure> {
+    validate_snapshot_engine(snapshot)?;
+    validate_snapshot_storage(snapshot)
+}
+
+/// Validate daemon identity, Linux-container compatibility, and isolation
+/// capabilities separately from storage telemetry. Desktop transport trust
+/// uses this result, while execution readiness still requires storage below.
+pub(crate) fn validate_snapshot_engine(
+    snapshot: &EngineSnapshot,
+) -> Result<(), PrerequisiteFailure> {
     let fail = |code, message: &str, retryable| {
         Err(PrerequisiteFailure {
             code,
@@ -166,6 +186,17 @@ pub fn validate_snapshot(snapshot: &EngineSnapshot) -> Result<(), PrerequisiteFa
             false,
         );
     }
+    Ok(())
+}
+
+fn validate_snapshot_storage(snapshot: &EngineSnapshot) -> Result<(), PrerequisiteFailure> {
+    let fail = |code, message: &str, retryable| {
+        Err(PrerequisiteFailure {
+            code,
+            message: message.into(),
+            retryable,
+        })
+    };
     if !snapshot.docker_storage_accessible {
         return fail(
             PrerequisiteCode::InsufficientDisk,

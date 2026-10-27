@@ -35,8 +35,16 @@ pub(super) fn push(
             profile,
             architecture,
         };
-        let desktop_untrusted =
-            docker.desktop_vm || matches!(host, HostKind::MacOs | HostKind::Windows);
+        let desktop_untrusted = match host {
+            HostKind::MacOs | HostKind::Windows => {
+                !docker.desktop_vm
+                    || !docker.desktop_transport_verified
+                    || !docker.desktop_vm_capacity_verified
+                    || !docker.workspace_staging_available
+            }
+            HostKind::Linux => docker.desktop_vm,
+            HostKind::Unsupported => true,
+        };
         let image_failure = match docker.state {
             crate::execution::docker::environment::DockerEnvironmentState::ApprovedImageUncheckable => {
                 Some((State::Unknown, Code::DockerImageUncheckable))

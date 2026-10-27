@@ -86,6 +86,7 @@ pub enum EvidenceCode {
     DockerImageDigestMismatch,
     DockerImageArchitectureMismatch,
     DockerDesktopVmDetected,
+    DockerDesktopTrustVerified,
     DockerDesktopTrustUnverified,
     DockerCgroupsSupported,
     DockerCgroupsUnavailable,

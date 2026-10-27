@@ -13,6 +13,7 @@ pub(super) struct BollardApi {
     minimum_disk_bytes: u64,
 }
 
+mod capacity;
 mod image_derivation;
 mod image_inspection;
 mod image_pull;
@@ -147,6 +148,17 @@ impl DockerApi for BollardApi {
         Box::pin(async move { self.inspect_image_without_pull(image).await })
     }
 
+    fn desktop_storage_capacity<'a>(
+        &'a self,
+        image: &'a SelectedImage,
+        expected_engine_fingerprint: &'a str,
+    ) -> EngineFuture<'a, Result<u64, PrerequisiteFailure>> {
+        Box::pin(async move {
+            self.desktop_storage_capacity_impl(image, expected_engine_fingerprint)
+                .await
+        })
+    }
+
     #[cfg(test)]
     fn ensure_image<'a>(
         &'a self,
@@ -165,10 +177,18 @@ impl DockerApi for BollardApi {
         &'a self,
         image: &'a SelectedImage,
         expected_engine_fingerprint: &'a str,
+        verified_capacity_bytes: Option<u64>,
         control: &'a super::ImagePullControl,
     ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
         Box::pin(async move {
-            image_pull::pull_approved_image(self, image, expected_engine_fingerprint, control).await
+            image_pull::pull_approved_image(
+                self,
+                image,
+                expected_engine_fingerprint,
+                verified_capacity_bytes,
+                control,
+            )
+            .await
         })
     }
 

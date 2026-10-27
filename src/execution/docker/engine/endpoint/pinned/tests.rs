@@ -73,6 +73,8 @@ fn pinned_connector_refuses_a_replacement_socket_after_connection_loss() {
     let mut connector = PinnedUnixConnector {
         path: path.clone(),
         used: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        #[cfg(target_os = "macos")]
+        verify_desktop_peer: false,
     };
     let uri = Uri::from_static("http://pinned-docker/");
     let stream = runtime.block_on(connector.call(uri.clone())).unwrap();
@@ -88,6 +90,34 @@ fn pinned_connector_refuses_a_replacement_socket_after_connection_loss() {
         Err(error) => error,
     };
     assert_eq!(error.kind(), std::io::ErrorKind::ConnectionRefused);
+}
+
+/// Production boundary: the macOS Desktop connector after connecting to a
+/// Unix socket. Invariant: an unsigned local process cannot impersonate the
+/// Docker Desktop backend; a socket-path test cannot verify peer signing.
+/// Dependencies: temporary Unix socket only, no Docker daemon; low setup cost.
+#[cfg(target_os = "macos")]
+#[test]
+fn desktop_pinned_connector_rejects_an_unverified_socket_peer() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("docker.sock");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _listener = runtime.block_on(async { UnixListener::bind(&path).unwrap() });
+    let mut connector = PinnedUnixConnector {
+        path,
+        used: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        verify_desktop_peer: true,
+    };
+    let uri = Uri::from_static("http://pinned-docker/");
+
+    let error = match runtime.block_on(connector.call(uri)) {
+        Ok(_) => panic!("an unverified Unix socket peer was admitted as Docker Desktop"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
 }
 
 /// Production boundary: Bollard's API client after its accepted connection

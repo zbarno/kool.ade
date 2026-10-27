@@ -1,4 +1,5 @@
 use super::*;
+use std::path::Path;
 use std::sync::{
     Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -8,6 +9,8 @@ use crate::execution::docker::images::{ImageObservation, RuntimeProfile, Selecte
 
 #[path = "smoke/approved.rs"]
 mod approved;
+#[path = "smoke/desktop_bootstrap.rs"]
+mod desktop_bootstrap;
 #[path = "smoke/environment.rs"]
 mod environment;
 
@@ -113,6 +116,7 @@ impl DockerApi for SmokeApi {
         &'a self,
         image: &'a SelectedImage,
         expected_engine_fingerprint: &'a str,
+        _verified_capacity_bytes: Option<u64>,
         control: &'a ImagePullControl,
     ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
         Box::pin(async move {

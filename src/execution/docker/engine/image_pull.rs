@@ -1,7 +1,8 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{
         Arc, Mutex,
+        atomic::AtomicU64,
         atomic::{AtomicBool, Ordering},
         mpsc::{SyncSender, TrySendError},
     },
@@ -34,6 +35,7 @@ struct LayerProgress {
 #[derive(Default)]
 struct ProgressState {
     layers: BTreeMap<String, LayerProgress>,
+    pending_layers: BTreeSet<String>,
     incomplete: bool,
 }
 
@@ -42,6 +44,7 @@ struct ProgressState {
 #[derive(Clone)]
 pub(crate) struct ImagePullControl {
     cancelled: Arc<AtomicBool>,
+    maximum_reported_bytes: Arc<AtomicU64>,
     progress: SyncSender<ImagePullProgress>,
     emitted_events: Arc<Mutex<usize>>,
     state: Arc<Mutex<ProgressState>>,
@@ -51,6 +54,7 @@ impl ImagePullControl {
     pub(crate) fn new(progress: SyncSender<ImagePullProgress>) -> Self {
         Self {
             cancelled: Arc::new(AtomicBool::new(false)),
+            maximum_reported_bytes: Arc::new(AtomicU64::new(MAX_REPORTED_PULL_BYTES)),
             progress,
             emitted_events: Arc::new(Mutex::new(0)),
             state: Arc::new(Mutex::new(ProgressState::default())),
@@ -65,22 +69,91 @@ impl ImagePullControl {
         self.cancelled.load(Ordering::Acquire)
     }
 
+    pub(crate) fn restrict_reported_bytes(&self, maximum: u64) {
+        self.maximum_reported_bytes
+            .fetch_min(maximum, Ordering::AcqRel);
+    }
+
+    pub(crate) fn record_unmeasured_layer(
+        &self,
+        layer_id: Option<&str>,
+        terminal_without_transfer: bool,
+    ) -> Result<(), PrerequisiteFailure> {
+        let maximum = self.maximum_reported_bytes.load(Ordering::Acquire);
+        if maximum == MAX_REPORTED_PULL_BYTES {
+            return Ok(());
+        }
+        let Some(key) = layer_key(layer_id) else {
+            return Err(bounded_progress_failure());
+        };
+        let mut state = self.state.lock().map_err(|_| {
+            failure(
+                PrerequisiteCode::CapabilitiesIncompatible,
+                "Image pull progress state is unavailable",
+                false,
+            )
+        })?;
+        if state.layers.contains_key(&key) {
+            state.pending_layers.remove(&key);
+            return Ok(());
+        }
+        if terminal_without_transfer {
+            if state.pending_layers.contains(&key) {
+                return Err(bounded_progress_failure());
+            }
+            return Ok(());
+        }
+        if !state.pending_layers.contains(&key) && state.pending_layers.len() >= MAX_PROGRESS_LAYERS
+        {
+            return Err(bounded_progress_failure());
+        }
+        state.pending_layers.insert(key);
+        Ok(())
+    }
+
+    pub(crate) fn finish_pull_attempt(&self) -> Result<(), PrerequisiteFailure> {
+        let maximum = self.maximum_reported_bytes.load(Ordering::Acquire);
+        if maximum == MAX_REPORTED_PULL_BYTES {
+            return Ok(());
+        }
+        let state = self.state.lock().map_err(|_| {
+            failure(
+                PrerequisiteCode::CapabilitiesIncompatible,
+                "Image pull progress state is unavailable",
+                false,
+            )
+        })?;
+        if state.pending_layers.is_empty() {
+            Ok(())
+        } else {
+            Err(bounded_progress_failure())
+        }
+    }
+
     pub(crate) fn record_progress(
         &self,
         layer_id: Option<&str>,
         current: Option<i64>,
         total: Option<i64>,
     ) -> Result<(), PrerequisiteFailure> {
+        let maximum = self.maximum_reported_bytes.load(Ordering::Acquire);
+        let strict = maximum < MAX_REPORTED_PULL_BYTES;
         let (Some(current), Some(total)) = (
             current.and_then(|value| u64::try_from(value).ok()),
             total.and_then(|value| u64::try_from(value).ok()),
         ) else {
+            if strict {
+                return Err(bounded_progress_failure());
+            }
             return Ok(());
         };
         if total == 0 {
+            if strict {
+                return Err(bounded_progress_failure());
+            }
             return Ok(());
         }
-        if total > MAX_REPORTED_PULL_BYTES || current > MAX_REPORTED_PULL_BYTES {
+        if total > maximum || current > maximum {
             return Err(failure(
                 PrerequisiteCode::ImageUnavailable,
                 "Docker reported image transfer progress outside the supported size bound",
@@ -89,6 +162,9 @@ impl ImagePullControl {
         }
 
         let Some(key) = layer_key(layer_id) else {
+            if strict {
+                return Err(bounded_progress_failure());
+            }
             self.state
                 .lock()
                 .map_err(|_| {
@@ -109,7 +185,11 @@ impl ImagePullControl {
                 false,
             )
         })?;
+        state.pending_layers.remove(&key);
         if !state.layers.contains_key(&key) && state.layers.len() >= MAX_PROGRESS_LAYERS {
+            if strict {
+                return Err(bounded_progress_failure());
+            }
             state.incomplete = true;
         } else {
             let layer = state.layers.entry(key).or_default();
@@ -122,7 +202,7 @@ impl ImagePullControl {
             aggregate_current = aggregate_current.saturating_add(layer.current);
             aggregate_total = aggregate_total.saturating_add(layer.total);
         }
-        if aggregate_total > MAX_REPORTED_PULL_BYTES {
+        if aggregate_total > maximum {
             return Err(failure(
                 PrerequisiteCode::ImageUnavailable,
                 "Docker reported aggregate image transfer progress outside the supported size bound",
@@ -168,6 +248,14 @@ impl ImagePullControl {
 fn layer_key(value: Option<&str>) -> Option<String> {
     let value = value.filter(|value| !value.is_empty() && value.len() <= MAX_LAYER_ID_BYTES)?;
     Some(format!("{:x}", Sha256::digest(value.as_bytes())))
+}
+
+fn bounded_progress_failure() -> PrerequisiteFailure {
+    failure(
+        PrerequisiteCode::ImageUnavailable,
+        "Docker did not provide complete size-bounded progress for the bootstrap image pull",
+        false,
+    )
 }
 
 #[cfg(test)]

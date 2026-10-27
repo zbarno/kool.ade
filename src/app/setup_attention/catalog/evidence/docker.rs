@@ -132,9 +132,15 @@ pub(super) fn push(
     };
     result.push(add(Capability::DockerDesktopVm, desktop_vm.0, desktop_vm.1));
     let capacity = [docker.cpu_limits, docker.memory_limits, docker.pids_limit];
+    let desktop_host = matches!(host, HostKind::MacOs | HostKind::Windows) || docker.desktop_vm;
+    let desktop_capacity_verified = !desktop_host
+        || (docker.desktop_vm_capacity_verified
+            && docker.workspace_staging_available
+            && docker.disk_available_bytes.is_some());
     let (state, code) = match docker.state {
         DockerEnvironmentState::InsufficientDisk => (State::Failed, Code::DockerDiskUnavailable),
         DockerEnvironmentState::LimitsUnavailable => (State::Failed, Code::DockerLimitsUnavailable),
+        _ if !desktop_capacity_verified => (State::Unknown, Code::DockerCapacityUnavailable),
         _ if capacity.iter().all(|item| *item == Some(true)) => (State::Ready, Code::DockerReady),
         _ if capacity.contains(&Some(false)) => (State::Failed, Code::DockerCapacityUnavailable),
         _ => (State::Unknown, Code::DockerCapacityUnavailable),
@@ -142,7 +148,9 @@ pub(super) fn push(
     result.push(add(Capability::DockerCapacity, state, code));
     result.push(add(
         Capability::DockerSecurity,
-        if matches!(host, HostKind::MacOs | HostKind::Windows) || docker.desktop_vm {
+        if desktop_host && docker.desktop_vm && docker.desktop_transport_verified {
+            State::Ready
+        } else if desktop_host {
             State::Unknown
         } else if docker.state == DockerEnvironmentState::SeccompUnavailable {
             State::Failed
@@ -151,7 +159,9 @@ pub(super) fn push(
         } else {
             State::Unknown
         },
-        if matches!(host, HostKind::MacOs | HostKind::Windows) || docker.desktop_vm {
+        if desktop_host && docker.desktop_vm && docker.desktop_transport_verified {
+            Code::DockerReady
+        } else if desktop_host {
             Code::DockerDesktopTrustUnverified
         } else if docker.state == DockerEnvironmentState::SeccompUnavailable {
             Code::DockerSeccompUnavailable
