@@ -16,7 +16,7 @@ use windows_sys::Win32::Security::WinTrust::{
 };
 use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
 
-pub(super) fn authenticode_publisher(image_path: &Path) -> Option<String> {
+pub(crate) fn authenticode_publisher(image_path: &Path) -> Option<String> {
     // Keep the opened file object stable during verification. Denying write/delete sharing also
     // prevents the path from being replaced while WinVerifyTrust hashes this handle.
     let image_file = OpenOptions::new()

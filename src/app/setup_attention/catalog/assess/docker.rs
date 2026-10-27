@@ -13,6 +13,11 @@ pub(super) fn finding(docker: &DockerEnvironmentStatus, host: HostKind) -> Optio
     {
         return Some(finding);
     }
+    if host == HostKind::Windows
+        && let Some(finding) = windows_finding(docker.state)
+    {
+        return Some(finding);
+    }
     Some(match docker.state {
         State::NotInstalled if host == HostKind::Linux => Finding::action(
             "setup:docker:rootless",
@@ -149,3 +154,61 @@ pub(super) fn finding(docker: &DockerEnvironmentStatus, host: HostKind) -> Optio
         State::MissingApprovedImage | State::Ready => return None,
     })
 }
+
+fn windows_finding(state: State) -> Option<Finding> {
+    Some(match state {
+        State::NotInstalled => Finding::action(
+            "setup:docker:install",
+            "Install Docker Desktop for Windows",
+            "Kool.ad/e could not find a local Docker Desktop installation.",
+            "Install Docker Desktop from the official Docker website. Verify the publisher is Docker, Inc.; review the license and each Windows permission prompt yourself. Do not use an unofficial installer or disable Windows security controls.",
+        ),
+        State::NotRunning => Finding::action(
+            "setup:docker:start",
+            "Finish Docker Desktop first run",
+            "Docker Desktop is installed, but its local Linux engine is not ready.",
+            "Open Docker Desktop from the Windows Start menu. Complete its first-run steps, choose the WSL 2 based engine when offered, accept only the expected license and permission prompts, and wait until Docker Desktop reports that its engine is running.",
+        ),
+        State::PermissionDenied => Finding::action(
+            "setup:docker:permission",
+            "Restore Docker Desktop access",
+            "Kool.ad/e cannot safely access Docker Desktop's local Windows pipe.",
+            "Restart Docker Desktop and retry the setup check. Do not change the named-pipe ACL, grant broad access, or switch to a remote Docker endpoint; contact your administrator if device policy blocks access.",
+        ),
+        State::WindowsContainersRequired => Finding::action(
+            "setup:docker:windows-containers",
+            "Switch Docker Desktop to Linux containers",
+            "Docker Desktop is serving Windows containers; Kool.ad/e requires its Linux container engine.",
+            "Use Docker Desktop's tray menu to switch to Linux containers, then wait for the local Linux engine to start and retry the setup check. Do not install or select a remote context.",
+        ),
+        State::DesktopVmRequired => Finding::action(
+            "setup:docker:desktop",
+            "Start Docker Desktop's WSL 2 engine",
+            "Kool.ad/e could not verify Docker Desktop's local Linux engine.",
+            "Open Docker Desktop, select the WSL 2 based engine in its settings if available, and wait for the Linux engine to finish starting. If Windows asks for a reboot or WSL update, complete that Windows-managed step and run a fresh setup check afterward.",
+        ),
+        State::UntrustedEndpoint => Finding::action(
+            "setup:docker:endpoint",
+            "Select the local Docker Desktop connection",
+            "The selected Docker connection is not a verified local Windows Docker Desktop pipe.",
+            "Choose Docker Desktop's local default connection in Kool.ad/e and retry. Remote, TCP, SSH, and manually supplied Docker endpoints are not accepted.",
+        ),
+        State::UnsupportedArchitecture => Finding::unverified(
+            "setup:docker:architecture",
+            "Use a supported Docker Desktop architecture",
+            "Docker Desktop's Linux VM reported an architecture outside the approved runtime image matrix.",
+            "Use a Linux VM architecture supported by the exact locked image. Native Windows ARM64 support has not been validated and remains gated.",
+        ),
+        State::InsufficientDisk => Finding::action(
+            "setup:docker:disk",
+            "Free space in Docker Desktop's Linux VM",
+            "Docker Desktop's Linux VM does not have the required free storage.",
+            "Use Docker Desktop's resource settings to review its Linux VM disk usage. Free space only with your approval, then run a fresh setup check; Windows host free space does not prove VM capacity.",
+        ),
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+#[path = "docker_tests.rs"]
+mod tests;

@@ -55,5 +55,7 @@ following first:
   support evidence.
 
 If signing credentials are absent, artifacts stay in CI and no user-facing
-release is published. Linux x86_64 remains the only advertised desktop host;
+release is published. Linux x86_64 remains the only advertised desktop host.
+Windows 11 x64 is the current Windows bootstrap target; Windows 10 and ARM64
+remain unsupported until separate native end-to-end acceptance is recorded.
 macOS, Windows, and Linux arm64 remain gated by the bootstrap support matrix.

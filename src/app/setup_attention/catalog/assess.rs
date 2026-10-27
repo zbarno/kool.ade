@@ -11,6 +11,7 @@ mod checked_domains;
 mod docker;
 mod inputs;
 mod linux_rootless;
+mod windows;
 pub(crate) use inputs::{ImageScanState, ScanInputs};
 
 /// Pure, deterministic interpretation. Missing image findings require
@@ -206,6 +207,7 @@ pub(crate) fn assess_for_scan_with_inputs(
         checked_at_unix_ms,
         git_probe,
     );
+    windows::append_findings(&mut findings, host, &probe_evidence);
     linux_rootless::append_findings(
         &mut findings,
         host,

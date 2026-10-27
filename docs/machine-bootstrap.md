@@ -2,7 +2,27 @@
 
 Tracking: [#337](https://github.com/zbarno/kool.ade/issues/337).
 
-## Implementation status: Linux onboarding available; Desktop setup in progress
+## Implementation status (2026-10-27): setup code in place; release acceptance blocked
+
+The implementation slices are on `main` or in review: Linux rootless repair
+([#396](https://github.com/zbarno/kool.ade/pull/396)), context-only setup
+conversations ([#397](https://github.com/zbarno/kool.ade/pull/397)), macOS
+readiness ([#403](https://github.com/zbarno/kool.ade/pull/403)), trusted
+Docker Desktop execution ([#400](https://github.com/zbarno/kool.ade/pull/400)),
+Windows readiness ([#404](https://github.com/zbarno/kool.ade/pull/404)), native
+packaging ([#372](https://github.com/zbarno/kool.ade/pull/372)), image
+provisioning ([#373](https://github.com/zbarno/kool.ade/pull/373)), and release
+evidence ([#405](https://github.com/zbarno/kool.ade/pull/405)) are merged.
+Guided provider setup ([#374](https://github.com/zbarno/kool.ade/pull/374)) is
+ready for review. Its verified OpenCode context-only path still depends on
+user-completed provider setup or a supported local model endpoint.
+
+These implementation and CI results do not certify native host support. Linux
+VM acceptance, macOS Intel and Apple silicon validation, Windows 11/WSL2
+validation, nonexpert usability, accessibility, and the release security
+review remain pending. Keep unsupported or unverified execution blocked; do
+not advertise these platforms as accepted. The dated matrix and release gates
+are in the [Bootstrap release validation record](bootstrap-release-validation-2026-10-27.md).
 
 Kool.ad/e starts bounded discovery of the six supported coding-agent CLIs and
 Git from first launch, before a workspace or Docker daemon exists. Provider
@@ -191,6 +211,20 @@ releases. Windows edition, WSL2 kernel, reboot, and policy state also remain
 unprobed. These facts and native host acceptance remain open under #348 and
 #349. Synthetic platform fixtures validate classification; they do not
 establish support on those hosts.
+On Windows 11 x64, the read-only host probe reports edition/build/architecture, WSL and
+Virtual Machine Platform feature states, WSL kernel version, pending restart
+markers, the WSL policy setting, and whether virtualization is available to
+Windows. It uses signed tools from the Windows system directory and does not
+change host settings. Readiness results produce operator-guided setup tasks;
+Kool.ad/e does not enable Windows features, change pipe ACLs or policy, restart
+Windows, or change firmware settings. Docker Desktop trust and native task
+execution remain unverified until Windows end-to-end validation passes.
+Windows 10 and ARM64 hosts remain unsupported until their separate native
+end-to-end acceptance evidence is completed.
+macOS and Windows native execution remains blocked pending native Docker
+Desktop staging, security, and runtime validation. Synthetic platform
+fixtures validate classification; they do not establish support on those
+hosts.
 
 This readiness layer does not install packages, configure services, pull images
 without explicit approval, or execute model-provided shell commands. A supported
@@ -227,3 +261,5 @@ workflows.
 
 Native package build artifacts are unsigned and CI-only. They do not change the
 support matrix; see [native desktop packaging status](native-desktop-distribution.md).
+The current dated cross-platform release evidence and unverified host cells
+are tracked in the [Bootstrap release validation record](bootstrap-release-validation-2026-10-27.md).
