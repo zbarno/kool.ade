@@ -4,6 +4,7 @@ use egui::RichText;
 
 pub fn paint_harness_setup_card(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) -> (bool, bool) {
     dialog.drain_probe();
+    dialog.drop_expired_feedback();
     ui.horizontal(|ui| {
         section_tab(
             ui,
@@ -24,7 +25,7 @@ pub fn paint_harness_setup_card(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup)
         HarnessSettingsSection::Routing => paint_work_routes(ui, dialog),
     }
     ui.add_space(6.0);
-    if let Some((ok, message)) = &dialog.feedback {
+    if let Some((ok, message, _since)) = &dialog.feedback {
         ui.label(RichText::new(message).size(11.0).color(if *ok {
             theme::SUCCESS
         } else {
@@ -58,6 +59,28 @@ fn section_tab(
 }
 
 pub(super) use super::tools::paint_tools;
+
+pub fn paint_harness_setup_page(
+    ui: &mut egui::Ui,
+    dialog: &mut DlgHarnessSetup,
+    section: HarnessSettingsSection,
+) {
+    dialog.drop_expired_feedback();
+    match section {
+        HarnessSettingsSection::Tools => paint_tools(ui, dialog),
+        HarnessSettingsSection::Routing => paint_work_routes(ui, dialog),
+    }
+    if let Some((ok, message, _since)) = &dialog.feedback {
+        ui.colored_label(
+            if *ok {
+                crate::ui::theme::SUCCESS
+            } else {
+                crate::ui::theme::DANGER
+            },
+            message,
+        );
+    }
+}
 
 fn route_available(
     id: &str,

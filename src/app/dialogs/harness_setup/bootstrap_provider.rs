@@ -13,7 +13,7 @@ impl DlgHarnessSetup {
     pub fn select_bootstrap_provider(&mut self, id: &str) {
         let previous = self.settings.clone();
         if !set_provider(&mut self.settings, id) {
-            self.feedback = Some((false, format!("Unsupported provider: {id}")));
+            self.set_feedback(false, format!("Unsupported provider: {id}"));
             return;
         }
         if self.persist_saved() {

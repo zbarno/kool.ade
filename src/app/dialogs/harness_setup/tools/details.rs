@@ -8,6 +8,9 @@ pub(super) fn paint_tool_details(
     id: &str,
     harness: &crate::persistence::harness_settings::DetectedHarness,
 ) {
+    if id == "pi" {
+        super::super::pi_guide::paint(ui, dialog);
+    }
     paint_provider_guidance(ui, dialog, id, harness);
     let now = crate::persistence::harness_settings::current_unix_ms();
     let fresh = harness.is_fresh_at(now);
