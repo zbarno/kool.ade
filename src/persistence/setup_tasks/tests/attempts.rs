@@ -3,7 +3,7 @@ use crate::app::setup_attention::catalog::FindingStatus;
 use super::super::{
     AttemptState, AuthorizationBindingV1, FailureCode, SetupTaskStateV1, authorization_scope_digest,
 };
-use super::support::{ready_store, scan, snapshot};
+use super::support::{ready_store, rootless_smoke_fact, scan, snapshot};
 
 const TASK_ID: &str = "setup:docker:rootless";
 const OPERATION_ID: &str = "00000000-0000-4000-8000-000000000001";
@@ -51,11 +51,23 @@ fn consent_metadata_binds_exact_attempt_and_verification_requires_fresh_evidence
         AttemptState::AwaitingVerification
     );
 
-    scan(&mut store, &snapshot(&[], &["docker:rootless"], 5)).unwrap();
+    let generation = store.latest_scan_generation + 1;
+    let mut current = snapshot(&[], &["docker:rootless-smoke"], 5);
+    current
+        .probe_evidence
+        .push(rootless_smoke_fact(generation, 5));
+    scan(&mut store, &current).unwrap();
     let task = &store.tasks[TASK_ID];
     assert_eq!(task.state, SetupTaskStateV1::Verified);
     assert_eq!(task.attempts[0].state, AttemptState::Verified);
-    assert!(task.attempts[0].verified_result.is_some());
+    assert_eq!(
+        task.attempts[0]
+            .verified_result
+            .as_ref()
+            .unwrap()
+            .evidence_domain,
+        "docker:rootless-smoke"
+    );
     assert!(task.attempts[0].authorization_binding.is_none());
     assert!(task.attempts[0].authorization_history.is_some());
     store.validate().unwrap();

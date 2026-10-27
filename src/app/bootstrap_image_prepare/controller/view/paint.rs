@@ -7,16 +7,18 @@ impl Controller {
         ui: &mut egui::Ui,
         prerequisite_id: &str,
     ) -> (bool, Option<String>) {
-        if !prerequisite_id.starts_with("setup:images:general:") {
+        let Some((profile, _, _)) =
+            crate::app::bootstrap_repair_policy::parse_locked_image_task_id(prerequisite_id)
+        else {
             return (false, None);
-        }
+        };
         let refresh_scan = self.poll(ui.ctx());
         ui.add_space(crate::ui::theme::spacing::M);
         ui.label(crate::ui::theme::section_heading(
             "Prepare the approved image",
         ));
         ui.label(
-            "This downloads the architecture-matched, digest-locked general runtime image if needed, then runs a bounded non-root smoke test with networking disabled. The operation uses the local Docker Engine and does not access project files, run host shell commands, or request administrator privileges.",
+            format!("This downloads the architecture-matched, digest-locked {profile} runtime image if needed, then runs a bounded non-root smoke test with networking disabled. The operation uses the local Docker Engine and does not access project files, run host shell commands, or request administrator privileges."),
         );
 
         if let Some(kind) = self.work_kind {
@@ -28,6 +30,39 @@ impl Controller {
                     WorkKind::Cancel => "Updating setup history…",
                 });
             });
+            if matches!(kind, WorkKind::Prepare) {
+                if let Some(progress) = self.latest_pull_progress().cloned() {
+                    if let Some(percent) = progress.percent {
+                        ui.add(
+                            egui::ProgressBar::new(f32::from(percent) / 100.0).show_percentage(),
+                        );
+                        if let (Some(current), Some(total)) =
+                            (progress.current_bytes, progress.total_bytes)
+                        {
+                            ui.label(format!(
+                                "{} of {} transferred",
+                                format_bytes(current),
+                                format_bytes(total)
+                            ));
+                        }
+                    } else {
+                        ui.label("Downloading the approved image; Docker has not reported a reliable total yet.");
+                    }
+                }
+                let cancelling = self.pull_cancel_requested;
+                let label = if cancelling {
+                    "Cancelling preparation…"
+                } else {
+                    "Cancel preparation"
+                };
+                if ui
+                    .add_enabled(!cancelling, egui::Button::new(label))
+                    .clicked()
+                {
+                    self.cancel_preparation();
+                    ui.ctx().request_repaint();
+                }
+            }
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(100));
         } else if let Some(preview) = &self.preview {
@@ -67,5 +102,14 @@ impl Controller {
             );
         }
         (refresh_scan, None)
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const MIB: u64 = 1024 * 1024;
+    if bytes >= MIB {
+        format!("{:.1} MiB", bytes as f64 / MIB as f64)
+    } else {
+        format!("{bytes} B")
     }
 }

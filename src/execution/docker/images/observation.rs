@@ -1,7 +1,4 @@
-use std::borrow::Cow;
-use std::collections::HashSet;
-
-use super::{ImageLock, SelectedImage, failure, is_digest};
+use super::{ImageLock, SelectedImage, failure};
 use crate::execution::docker::discovery::{
     PrerequisiteCode, PrerequisiteFailure, parse_architecture,
 };
@@ -119,38 +116,17 @@ fn repository_has_registry(repository: &str) -> bool {
     first.contains('.') || first.contains(':') || first == "localhost"
 }
 
-/// Normalize a daemon-reported repository digest with the same repository
-/// canonicalization `matches_docker_reference` uses, so set-based inventory
-/// lookups accept engines that elide the default-registry prefix from
-/// reported digests. References carrying an explicit registry, or values that
-/// are not digest specifications, pass through unchanged.
-fn canonical_repository_digest(reference: &str) -> Cow<'_, str> {
-    let Some((repository, digest)) = reference.rsplit_once('@') else {
-        return Cow::Borrowed(reference);
-    };
-    if !is_digest(digest) {
-        return Cow::Borrowed(reference);
-    }
-    let canonical_repository = canonical_docker_repository(repository);
-    if canonical_repository == repository {
-        Cow::Borrowed(reference)
-    } else {
-        Cow::Owned(format!("{canonical_repository}@{digest}"))
-    }
-}
-
-/// Return only exact locked references observed on the daemon.
+/// Return canonical lock references whose digest is observed, including accepted aliases.
 pub fn approved_available_images(lock: &ImageLock, observed: &[String]) -> Vec<String> {
-    let observed_canonical: Vec<String> = observed
-        .iter()
-        .map(|reference| canonical_repository_digest(reference).into_owned())
-        .collect();
-    let observed: HashSet<&str> = observed_canonical.iter().map(String::as_str).collect();
     let mut available: Vec<String> = lock
         .profiles
         .values()
         .flatten()
-        .filter(|variant| observed.contains(variant.reference.as_str()))
+        .filter(|variant| {
+            observed
+                .iter()
+                .any(|reference| matches_docker_reference(&variant.reference, reference))
+        })
         .map(|variant| variant.reference.clone())
         .collect();
     available.sort();

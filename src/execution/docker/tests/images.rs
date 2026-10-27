@@ -19,6 +19,32 @@ fn bundled_profiles_resolve_digest_only_architecture_specific_images() {
 }
 
 #[test]
+fn approved_profiles_have_bounded_digest_specific_transfer_and_storage_estimates() {
+    let lock = ImageLock::bundled().unwrap();
+    for profile in [
+        RuntimeProfile::General,
+        RuntimeProfile::Rust,
+        RuntimeProfile::Node,
+        RuntimeProfile::Python,
+        RuntimeProfile::Go,
+    ] {
+        for architecture in ["amd64", "arm64"] {
+            let estimate = lock.size_estimate(profile, architecture).unwrap();
+            assert!(estimate.estimated_pull_bytes > 0);
+            assert!(estimate.estimated_pull_bytes <= 8 * 1024 * 1024 * 1024);
+            assert_eq!(
+                estimate.estimated_storage_bytes,
+                estimate.estimated_pull_bytes * 2
+            );
+        }
+    }
+    assert!(
+        lock.size_estimate(RuntimeProfile::BrowserQa, "amd64")
+            .is_err()
+    );
+}
+
+#[test]
 fn image_manifest_rejects_unapproved_registry_and_profile_names() {
     let mut lock = ImageLock::bundled().unwrap();
     let image = lock
@@ -228,22 +254,35 @@ fn derived_image_verification_requires_registered_content_and_daemon_identity() 
 }
 
 #[test]
-fn engine_inventory_exposes_only_exact_locked_image_references() {
+fn engine_inventory_canonicalizes_docker_hub_aliases_and_rejects_unapproved_images() {
     let lock = ImageLock::bundled().unwrap();
     let approved = lock
         .select(RuntimeProfile::General, "amd64")
         .unwrap()
         .reference;
-    let available = approved_available_images(
-        &lock,
-        &[
-            approved.clone(),
-            "docker.io/library/debian:bookworm-slim".into(),
-            "attacker.invalid/tool@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
-        ],
+    let (repository, digest) = approved.rsplit_once('@').unwrap();
+    let short_alias = format!(
+        "{}@{digest}",
+        repository.strip_prefix("docker.io/library/").unwrap()
+    );
+    let index_alias = format!(
+        "index.docker.io/library/{}@{digest}",
+        repository.strip_prefix("docker.io/library/").unwrap()
     );
 
-    assert_eq!(available, vec![approved]);
+    for alias in [short_alias, index_alias] {
+        let available = approved_available_images(&lock, &[alias]);
+        assert_eq!(available, vec![approved.clone()]);
+    }
+
+    assert_eq!(
+        approved_available_images(&lock, std::slice::from_ref(&approved)),
+        vec![approved.clone()]
+    );
+    let wrong_digest = format!("debian@sha256:{}", "a".repeat(64));
+    let wrong_repository = format!("attacker.invalid/library/debian@{digest}");
+    let tag = "docker.io/library/debian:bookworm-slim".to_owned();
+    assert!(approved_available_images(&lock, &[wrong_digest, wrong_repository, tag]).is_empty());
 }
 
 #[test]

@@ -3,6 +3,10 @@ use crate::execution::contract::ResourceBudgetV1;
 use crate::harness::{ExecutionMode, ToolAccess};
 use std::sync::{Arc, atomic::AtomicBool, mpsc};
 
+#[cfg(target_os = "linux")]
+#[path = "tests/docker_provider_mcp.rs"]
+mod docker_provider_mcp;
+
 #[path = "tests/runtime_qa_empty_review.rs"]
 mod runtime_qa_empty_review;
 
@@ -31,10 +35,6 @@ fn resource_budget_overrides_are_task_scoped_and_restored() {
         ResourceBudgetV1::default()
     );
 }
-
-#[cfg(target_os = "linux")]
-#[path = "tests/docker_provider_mcp.rs"]
-mod docker_provider_mcp;
 
 #[test]
 fn context_only_request_does_not_probe_or_require_a_repository_sandbox() {

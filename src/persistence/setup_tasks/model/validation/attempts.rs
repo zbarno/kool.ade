@@ -77,6 +77,11 @@ pub(super) fn validate_attempts(
                 );
             }
         }
+        if let Some(receipt) = &attempt.image_preparation_receipt {
+            super::super::image_receipt::validate_image_preparation_receipt(
+                task_id, receipt, false,
+            )?;
+        }
         if let Some(result) = &attempt.verified_result {
             anyhow::ensure!(
                 attempt.state == AttemptState::Verified,
@@ -183,6 +188,15 @@ pub(crate) fn desktop_docker_evidence(task_id: &str, evidence_domain: &str) -> b
 }
 
 pub(crate) fn expected_evidence_domain(id: &str) -> Option<String> {
+    let rootless_domain = match id {
+        "setup:linux:rootless:packages" => Some("host:linux:rootless_helpers"),
+        "setup:linux:rootless:subids" => Some("host:linux:subordinate_ids"),
+        "setup:linux:rootless:service" | "setup:docker:rootless" => Some("docker:rootless-smoke"),
+        _ => None,
+    };
+    if let Some(domain) = rootless_domain {
+        return Some(domain.to_owned());
+    }
     match id.split(':').collect::<Vec<_>>().as_slice() {
         ["setup", "legacy", "docker"] => Some("docker".to_owned()),
         ["setup", "cli", "install"] => Some("cli:install".to_owned()),
@@ -209,8 +223,17 @@ pub(crate) fn expected_evidence_domain(id: &str) -> Option<String> {
             | "limits" | "cgroups" | "seccomp" | "api" | "os" | "architecture" | "workspace"
             | "profile" | "endpoint" | "engine" | "capabilities",
         ] => Some("docker".to_owned()),
-        ["setup", "images", profile, architecture] => {
+        ["setup", "images", profile, architecture]
+            if approved_image_profile(profile) && matches!(*architecture, "amd64" | "arm64") =>
+        {
             Some(format!("images:{profile}:{architecture}"))
+        }
+        ["setup", "images", profile, architecture, engine_identity]
+            if approved_image_profile(profile)
+                && matches!(*architecture, "amd64" | "arm64")
+                && is_lower_sha256(engine_identity) =>
+        {
+            Some(format!("images:{profile}:{architecture}:{engine_identity}"))
         }
         _ => None,
     }
@@ -238,4 +261,15 @@ fn dynamic_general_image_evidence(task_id: &str, evidence_domain: &str) -> bool 
         evidence_domain,
         "images:general:amd64" | "images:general:arm64"
     )
+}
+
+fn approved_image_profile(profile: &str) -> bool {
+    matches!(profile, "general" | "rust" | "node" | "python" | "go")
+}
+
+fn is_lower_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }

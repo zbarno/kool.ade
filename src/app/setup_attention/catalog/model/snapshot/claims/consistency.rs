@@ -17,10 +17,15 @@ pub(super) fn finding_conflicts(domain: &str, finding_id: &str) -> bool {
         }
         _ if domain.starts_with("images:") => {
             let parts = domain.split(':').collect::<Vec<_>>();
-            parts.len() == 3
+            (parts.len() == 3 || parts.len() == 4)
                 && (docker_engine_finding(finding_id)
                     || (parts[1] == "general" && docker_image_finding(finding_id))
-                    || finding_id == format!("setup:images:{}:{}", parts[1], parts[2])
+                    || finding_id
+                        == if parts.len() == 4 {
+                            format!("setup:images:{}:{}:{}", parts[1], parts[2], parts[3])
+                        } else {
+                            format!("setup:images:{}:{}", parts[1], parts[2])
+                        }
                     || (parts[1] == "general" && finding_id == "setup:images:general:unverified"))
         }
         _ => false,

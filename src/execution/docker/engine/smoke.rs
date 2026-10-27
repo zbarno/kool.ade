@@ -1,9 +1,9 @@
-use std::{path::Path, time::Duration};
+use std::path::Path;
 
 use crate::app::{bootstrap_approval::ApprovedAction, bootstrap_repair_policy::Operation};
 use crate::execution::docker::{
     discovery::{PrerequisiteCode, PrerequisiteFailure},
-    images::{ImageLock, RuntimeProfile, SelectedImage},
+    images::{ImageLock, RuntimeProfile, SelectedImage, verify_image_observation},
 };
 
 use super::{EngineDiscovery, EngineSnapshot};
@@ -46,14 +46,19 @@ impl EngineDiscovery {
     pub(crate) async fn test_approved_image(
         &self,
         workspace: &Path,
-        authorization: &ApprovedAction,
-    ) -> Result<(), PrerequisiteFailure> {
+        authorization: ApprovedAction,
+        pull_control: &super::ImagePullControl,
+    ) -> Result<crate::app::bootstrap_approval::ImagePreparationReceipt, PrerequisiteFailure> {
         let profile = match authorization.image_profile() {
             Some("general") => RuntimeProfile::General,
+            Some("rust") => RuntimeProfile::Rust,
+            Some("node") => RuntimeProfile::Node,
+            Some("python") => RuntimeProfile::Python,
+            Some("go") => RuntimeProfile::Go,
             _ => {
                 return Err(super::failure(
                     PrerequisiteCode::ProfileUnsupported,
-                    "Only the reviewed General image preparation flow is enabled",
+                    "Only approved General, Rust, Node, Python, and Go images can be prepared",
                     false,
                 ));
             }
@@ -66,18 +71,54 @@ impl EngineDiscovery {
             ));
         }
         let lock = ImageLock::bundled()?;
-        let reference = format!("setup:images:{}:", authorization.image_profile().unwrap());
-        let architecture = authorization
-            .prerequisite_id()
-            .strip_prefix(&reference)
-            .filter(|value| matches!(*value, "amd64" | "arm64"))
-            .ok_or_else(|| {
-                super::failure(
-                    PrerequisiteCode::UnsupportedArchitecture,
-                    "The approved image prerequisite is not canonical",
-                    false,
-                )
-            })?;
+        let profile_name = authorization.image_profile().ok_or_else(|| {
+            super::failure(
+                PrerequisiteCode::ProfileUnsupported,
+                "The approved action does not name an image profile",
+                false,
+            )
+        })?;
+        let mut task_parts = authorization.prerequisite_id().split(':');
+        let canonical = task_parts.next() == Some("setup")
+            && task_parts.next() == Some("images")
+            && task_parts.next() == Some(profile_name);
+        let architecture = task_parts.next().ok_or_else(|| {
+            super::failure(
+                PrerequisiteCode::ImageDigestMismatch,
+                "The approved image task identity is incomplete",
+                false,
+            )
+        })?;
+        let requested_engine_identity = task_parts.next().ok_or_else(|| {
+            super::failure(
+                PrerequisiteCode::UntrustedEndpoint,
+                "The approved image task is missing its trusted engine identity",
+                false,
+            )
+        })?;
+        if !canonical || task_parts.next().is_some() {
+            return Err(super::failure(
+                PrerequisiteCode::ImageDigestMismatch,
+                "The approved image task identity is not canonical",
+                false,
+            ));
+        }
+        if !matches!(architecture, "amd64" | "arm64") {
+            return Err(super::failure(
+                PrerequisiteCode::UnsupportedArchitecture,
+                "The approved image task architecture is unsupported",
+                false,
+            ));
+        }
+        if !is_lower_sha256(requested_engine_identity)
+            || requested_engine_identity != authorization.engine_identity_fingerprint()
+        {
+            return Err(super::failure(
+                PrerequisiteCode::UntrustedEndpoint,
+                "The approved image task does not match its trusted engine identity",
+                false,
+            ));
+        }
         let image = lock.select(profile, architecture)?;
         if authorization.image_reference() != image.reference
             || authorization.image_digest() != image.digest
@@ -114,39 +155,41 @@ impl EngineDiscovery {
             ));
         }
         let before_pull = self.inspect_snapshot().await?;
-        if !matches_approval(self, authorization, &before_pull, &image)? {
+        if !matches_approval(self, &authorization, &before_pull, &image)? {
             return Err(super::failure(
                 PrerequisiteCode::UntrustedEndpoint,
                 "Docker daemon identity changed before the approved image pull",
                 true,
             ));
         }
-        tokio::time::timeout(
-            Duration::from_secs(120),
-            self.prepare_image_with_fingerprint(&image, Some(authorization.engine_fingerprint())),
-        )
-        .await
-        .map_err(|_| {
-            super::failure(
-                PrerequisiteCode::ImageUnavailable,
-                "Approved image preparation timed out",
-                true,
-            )
-        })??;
+        if pull_control.is_cancelled() {
+            return Err(pull_cancelled());
+        }
+        self.prepare_approved_image(&image, &authorization, pull_control)
+            .await?;
+        if pull_control.is_cancelled() {
+            return Err(pull_cancelled());
+        }
         let before_smoke = self.inspect_snapshot().await?;
-        if !matches_approval(self, authorization, &before_smoke, &image)? {
+        if !matches_approval(self, &authorization, &before_smoke, &image)? {
             return Err(super::failure(
                 PrerequisiteCode::UntrustedEndpoint,
                 "Docker daemon identity changed before the isolation smoke test",
                 true,
             ));
         }
+        if pull_control.is_cancelled() {
+            return Err(pull_cancelled());
+        }
         let name = format!("koolade-smoke-{}", uuid::Uuid::new_v4().simple());
         self.api
             .smoke_test(&image, &name, Some(authorization.engine_fingerprint()))
             .await?;
+        if pull_control.is_cancelled() {
+            return Err(pull_cancelled());
+        }
         let after_smoke = self.inspect_snapshot().await?;
-        if !matches_approval(self, authorization, &after_smoke, &image)? {
+        if !matches_approval(self, &authorization, &after_smoke, &image)? {
             return Err(super::failure(
                 PrerequisiteCode::UntrustedEndpoint,
                 "Docker daemon identity changed during the isolation smoke test",
@@ -154,22 +197,45 @@ impl EngineDiscovery {
             ));
         }
         let available = self.api.image_digests().await?;
-        if !available.contains(&image.reference) {
-            return Err(super::failure(
-                PrerequisiteCode::ImageUnavailable,
-                "The exact approved image is no longer present after its isolation check",
-                true,
-            ));
-        }
+        verify_image_observation(&image, &available, "linux", architecture)?;
+        self.verify_image_present(&image).await?;
         let after_inventory = self.inspect_snapshot().await?;
-        if !matches_approval(self, authorization, &after_inventory, &image)? {
+        if !matches_approval(self, &authorization, &after_inventory, &image)? {
             return Err(super::failure(
                 PrerequisiteCode::UntrustedEndpoint,
                 "Docker daemon identity changed during final image verification",
                 true,
             ));
         }
-        Ok(())
+        let final_engine_identity = crate::app::bootstrap_approval::engine_identity_fingerprint(
+            &self.endpoint().fingerprint(),
+            &after_inventory.daemon_id,
+        )
+        .ok_or_else(|| {
+            super::failure(
+                PrerequisiteCode::UntrustedEndpoint,
+                "The final Docker daemon identity could not be verified",
+                false,
+            )
+        })?;
+        if final_engine_identity != requested_engine_identity
+            || final_engine_identity != authorization.engine_identity_fingerprint()
+        {
+            return Err(super::failure(
+                PrerequisiteCode::UntrustedEndpoint,
+                "Docker engine identity changed before image preparation completed",
+                true,
+            ));
+        }
+        if pull_control.is_cancelled() {
+            return Err(pull_cancelled());
+        }
+        Ok(crate::app::bootstrap_approval::ImagePreparationReceipt {
+            profile,
+            architecture: architecture.to_owned(),
+            image_digest: image.digest,
+            engine_identity_fingerprint: final_engine_identity,
+        })
     }
 }
 
@@ -188,4 +254,19 @@ fn matches_approval(
             )
         })?;
     Ok(fingerprint == authorization.engine_fingerprint())
+}
+
+fn is_lower_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn pull_cancelled() -> PrerequisiteFailure {
+    super::failure(
+        PrerequisiteCode::ImageUnavailable,
+        "Approved image preparation was cancelled",
+        true,
+    )
 }

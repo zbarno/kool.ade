@@ -11,14 +11,14 @@ pub(super) fn requires(
     finding
 }
 
-pub(super) fn docker_rootless() -> String {
-    "setup:docker:rootless".into()
-}
-
 pub(super) fn docker_engine() -> String {
     "setup:docker:engine".into()
 }
 
 pub(super) fn docker_capabilities() -> String {
     "setup:docker:capabilities".into()
+}
+
+pub(super) fn docker_rootless() -> String {
+    "setup:docker:rootless".into()
 }

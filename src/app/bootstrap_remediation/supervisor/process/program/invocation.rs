@@ -1,69 +1,80 @@
 use sha2::{Digest, Sha256};
-use std::{ffi::OsString, time::Duration};
+use std::time::Duration;
 
-use super::{
-    artifact::VerifiedArtifact,
-    catalog::{NativePackage, TrustedFlag, TrustedProgram},
+mod arguments;
+mod dnf;
+pub(crate) use arguments::{
+    DNF_MAX_STAGED_RPMS, DnfPackageNames, DnfStageId, HashBoundDnfRpm, StagedRpm, TrustedArgument,
+    VerifiedDnfRpm, parse_installed_package_names,
 };
+
+use super::catalog::TrustedProgram;
 use crate::app::bootstrap_repair_policy::Host;
+use crate::app::setup_attention::catalog::LinuxRootlessRecipeV1;
 
-const MAX_RUNTIME: Duration = Duration::from_secs(120);
-
-pub(crate) enum TrustedArgument {
-    Flag(TrustedFlag),
-    Package(NativePackage),
-    VerifiedArtifact(VerifiedArtifact),
-    #[cfg(test)]
-    TestLiteral(String),
-}
-
-impl TrustedArgument {
-    pub(in crate::app::bootstrap_remediation::supervisor::process) fn as_os_string(
-        &self,
-    ) -> OsString {
-        match self {
-            Self::Flag(flag) => flag.as_str().into(),
-            Self::Package(package) => package.as_str().into(),
-            Self::VerifiedArtifact(artifact) => artifact.execution_path(),
-            #[cfg(test)]
-            Self::TestLiteral(value) => value.into(),
-        }
-    }
-
-    pub(in crate::app::bootstrap_remediation::supervisor::process) fn validate(
-        &self,
-    ) -> anyhow::Result<()> {
-        if let Self::VerifiedArtifact(artifact) = self {
-            artifact.validate()?;
-        }
-        Ok(())
-    }
-}
-
-impl TrustedFlag {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::AptInstall => "install",
-            Self::AssumeYes => "--assume-yes",
-            Self::Quiet => "--quiet",
-            Self::MsiInstall => "/i",
-            Self::NoRestart => "/norestart",
-        }
-    }
-}
+const MAX_RUNTIME: Duration = Duration::from_secs(600);
 
 pub(crate) struct TrustedInvocation {
     pub(in crate::app::bootstrap_remediation::supervisor::process) host: Host,
     pub(in crate::app::bootstrap_remediation::supervisor::process) program: TrustedProgram,
     pub(in crate::app::bootstrap_remediation::supervisor::process) arguments: Vec<TrustedArgument>,
     pub(in crate::app::bootstrap_remediation::supervisor::process) timeout: Duration,
+    pub(in crate::app::bootstrap_remediation::supervisor::process) environment: TrustedEnvironment,
     #[cfg(test)]
     pub(in crate::app::bootstrap_remediation::supervisor::process) test_mode: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TrustedEnvironment {
+    Isolated,
+    CurrentUserSystemd,
 }
 
 impl TrustedInvocation {
     pub(crate) fn host(&self) -> Host {
         self.host
+    }
+
+    pub(crate) fn program(&self) -> TrustedProgram {
+        self.program
+    }
+
+    pub(crate) fn current_user_identity(&self) -> anyhow::Result<(u32, &str)> {
+        anyhow::ensure!(
+            self.program == TrustedProgram::Usermod,
+            "current account binding is only valid for usermod"
+        );
+        let mut identities = self.arguments.iter().filter_map(|argument| match argument {
+            TrustedArgument::CurrentUserName { uid, name } => Some((*uid, name.as_str())),
+            _ => None,
+        });
+        let identity = identities
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("usermod invocation lacks a bound current account"))?;
+        anyhow::ensure!(
+            identities.next().is_none(),
+            "usermod invocation has multiple account identities"
+        );
+        Ok(identity)
+    }
+
+    pub(crate) fn rootless_package_recipe(&self) -> anyhow::Result<LinuxRootlessRecipeV1> {
+        anyhow::ensure!(
+            self.program == TrustedProgram::LinuxRootlessPackageSetup,
+            "rootless recipe binding is only valid for package setup"
+        );
+        let mut recipes = self.arguments.iter().filter_map(|argument| match argument {
+            TrustedArgument::LinuxRootlessRecipe(recipe) => Some(*recipe),
+            _ => None,
+        });
+        let recipe = recipes
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("rootless package setup lacks a recipe binding"))?;
+        anyhow::ensure!(
+            recipes.next().is_none(),
+            "rootless package setup has multiple recipe bindings"
+        );
+        Ok(recipe)
     }
 
     #[cfg(unix)]
@@ -91,19 +102,145 @@ impl TrustedInvocation {
             timeout > Duration::ZERO && timeout <= MAX_RUNTIME,
             "remediation timeout is outside policy"
         );
+        let bounded_variable_arguments = match program {
+            TrustedProgram::Dnf => dnf::trusted_arguments(&arguments),
+            TrustedProgram::RpmKeys => dnf::trusted_rpmkeys_arguments(&arguments),
+            TrustedProgram::Rpm => dnf::trusted_rpm_query_arguments(&arguments),
+            TrustedProgram::Sha256sum => dnf::trusted_sha256sum_arguments(&arguments),
+            _ => false,
+        };
         anyhow::ensure!(
-            arguments.len() <= 48,
-            "too many fixed remediation arguments"
+            arguments.len() <= if bounded_variable_arguments { 256 } else { 48 },
+            "too many remediation arguments"
         );
         anyhow::ensure!(
             program.matches(host),
             "trusted program does not match the planned host"
         );
+        if program == TrustedProgram::Dd {
+            anyhow::ensure!(
+                trusted_docker_repository_create(&arguments),
+                "dd is restricted to exclusive creation of the pinned Docker repository files"
+            );
+        }
+        if program == TrustedProgram::Dnf {
+            anyhow::ensure!(
+                dnf::trusted_arguments(&arguments),
+                "DNF is restricted to approved Fedora 45 rootless package operations"
+            );
+        }
+        if program == TrustedProgram::Mkdir {
+            anyhow::ensure!(
+                matches!(
+                    arguments.as_slice(),
+                    [
+                        TrustedArgument::MkdirMode0755,
+                        TrustedArgument::MkdirDockerAptKeyringsDirectory
+                    ]
+                ) || dnf::trusted_stage_mkdir_arguments(&arguments),
+                "mkdir is restricted to approved keyring or private DNF stage directories"
+            );
+        }
+        if program == TrustedProgram::Find {
+            anyhow::ensure!(
+                dnf::trusted_find_arguments(&arguments),
+                "find is restricted to listing one private DNF package stage"
+            );
+        }
+        if program == TrustedProgram::Sha256sum {
+            anyhow::ensure!(
+                dnf::trusted_sha256sum_arguments(&arguments),
+                "sha256sum is restricted to bounded files in one private DNF stage"
+            );
+        }
+        if program == TrustedProgram::Rm {
+            anyhow::ensure!(
+                dnf::trusted_remove_stage_arguments(&arguments),
+                "rm is restricted to cleaning one private DNF package stage"
+            );
+        }
+        if program == TrustedProgram::RpmDb {
+            anyhow::ensure!(
+                dnf::trusted_rpmdb_arguments(&arguments),
+                "rpmdb is restricted to initializing one isolated DNF key database"
+            );
+        }
+        if program == TrustedProgram::RpmKeys {
+            anyhow::ensure!(
+                dnf::trusted_rpmkeys_arguments(&arguments),
+                "rpmkeys is restricted to pinned-key inventory and staged RPM verification"
+            );
+        }
+        if program == TrustedProgram::Rpm {
+            anyhow::ensure!(
+                dnf::trusted_rpm_query_arguments(&arguments),
+                "rpm query is restricted to installed names or staged package names"
+            );
+        }
+        if program == TrustedProgram::LinuxRootlessPackageSetup {
+            anyhow::ensure!(
+                matches!(
+                    arguments.as_slice(),
+                    [TrustedArgument::LinuxRootlessRecipe(_)]
+                ),
+                "rootless package setup requires one typed recipe binding"
+            );
+            arguments[0].validate()?;
+        }
         Ok(Self {
             host,
             program,
             arguments,
             timeout,
+            environment: TrustedEnvironment::Isolated,
+            #[cfg(test)]
+            test_mode: None,
+        })
+    }
+
+    pub(in crate::app::bootstrap_remediation) fn new_for_current_user_systemd(
+        host: Host,
+        program: TrustedProgram,
+        arguments: Vec<TrustedArgument>,
+        timeout: Duration,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            host == Host::Linux,
+            "current-user systemd operations are Linux-only"
+        );
+        let mut invocation = Self::new(host, program, arguments, timeout)?;
+        invocation.environment = TrustedEnvironment::CurrentUserSystemd;
+        Ok(invocation)
+    }
+
+    pub(in crate::app::bootstrap_remediation) fn native_elevation_preflight(
+        &self,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            self.host == Host::Linux,
+            "native package elevation preflight is Linux-only"
+        );
+        let (program, version_argument) = match self.program {
+            TrustedProgram::AptGet => (TrustedProgram::AptGet, TrustedArgument::AptGetVersion),
+            TrustedProgram::LinuxRootlessPackageSetup => match self.rootless_package_recipe()? {
+                LinuxRootlessRecipeV1::Debian13Amd64
+                | LinuxRootlessRecipeV1::Ubuntu2404Amd64
+                | LinuxRootlessRecipeV1::PopOs2404Amd64 => {
+                    (TrustedProgram::AptGet, TrustedArgument::AptGetVersion)
+                }
+                LinuxRootlessRecipeV1::Fedora45Amd64 => {
+                    (TrustedProgram::Dnf, TrustedArgument::DnfVersion)
+                }
+            },
+            TrustedProgram::Usermod => (TrustedProgram::Usermod, TrustedArgument::UsermodVersion),
+            _ => anyhow::bail!("native elevation preflight is unsupported for this program"),
+        };
+        Ok(Self {
+            host: self.host,
+            program,
+            arguments: TrustedArgument::version_probe_arguments(version_argument),
+            timeout: self.timeout,
+            environment: self.environment,
             #[cfg(test)]
             test_mode: None,
         })
@@ -114,23 +251,40 @@ impl TrustedInvocation {
     ) -> anyhow::Result<String> {
         let mut digest = Sha256::new();
         digest.update(format!(
-            "koolade-remediation-invocation-v1|{:?}|{:?}|{:?}",
-            self.host, self.program, self.timeout
+            "koolade-remediation-invocation-v1|{:?}|{:?}|{:?}|{:?}",
+            self.host, self.program, self.timeout, self.environment
         ));
         for argument in &self.arguments {
-            let value = match argument {
-                TrustedArgument::Flag(flag) => format!("flag:{flag:?}"),
-                TrustedArgument::Package(package) => format!("package:{package:?}"),
-                TrustedArgument::VerifiedArtifact(artifact) => {
-                    format!("artifact:{}:{}", artifact.path.display(), artifact.sha256)
-                }
-                #[cfg(test)]
-                TrustedArgument::TestLiteral(value) => format!("test:{value}"),
-            };
+            let value = argument.binding_value();
             digest.update((value.len() as u64).to_be_bytes());
             digest.update(value.as_bytes());
         }
         Ok(format!("{:x}", digest.finalize()))
+    }
+
+    #[cfg(test)]
+    pub(in crate::app::bootstrap_remediation) fn program_for_test(&self) -> TrustedProgram {
+        self.program
+    }
+
+    #[cfg(test)]
+    pub(in crate::app::bootstrap_remediation) fn arguments_for_test(&self) -> Vec<String> {
+        self.arguments
+            .iter()
+            .map(|argument| argument.as_os_string().to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[cfg(test)]
+    pub(in crate::app::bootstrap_remediation) fn uses_current_user_systemd_for_test(&self) -> bool {
+        self.environment == TrustedEnvironment::CurrentUserSystemd
+    }
+
+    #[cfg(test)]
+    pub(in crate::app::bootstrap_remediation) fn binding_digest_for_test(
+        &self,
+    ) -> anyhow::Result<String> {
+        self.binding_digest()
     }
 
     #[cfg(test)]
@@ -148,7 +302,39 @@ impl TrustedInvocation {
                 TrustedArgument::TestLiteral("--nocapture".into()),
             ],
             timeout,
+            environment: TrustedEnvironment::Isolated,
             test_mode: Some(mode.into()),
         }
     }
+}
+
+fn trusted_docker_repository_create(arguments: &[TrustedArgument]) -> bool {
+    matches!(
+        arguments,
+        [
+            TrustedArgument::DockerAptKeyDdInput(_),
+            TrustedArgument::DdDockerAptKeyOutput,
+            TrustedArgument::DdOutputExclusive,
+            TrustedArgument::DdSync,
+            TrustedArgument::DdStatusNone
+        ] | [
+            TrustedArgument::DockerAptSourcesDdInput(_),
+            TrustedArgument::DdDockerAptSourcesOutput,
+            TrustedArgument::DdOutputExclusive,
+            TrustedArgument::DdSync,
+            TrustedArgument::DdStatusNone
+        ] | [
+            TrustedArgument::DockerDnfKeyDdInput(_),
+            TrustedArgument::DdDockerDnfKeyOutput,
+            TrustedArgument::DdOutputExclusive,
+            TrustedArgument::DdSync,
+            TrustedArgument::DdStatusNone
+        ] | [
+            TrustedArgument::DockerDnfRepoDdInput(_),
+            TrustedArgument::DdDockerDnfRepoOutput,
+            TrustedArgument::DdOutputExclusive,
+            TrustedArgument::DdSync,
+            TrustedArgument::DdStatusNone
+        ]
+    )
 }

@@ -75,6 +75,7 @@ fn expired_admin_approval_after_elevation_never_dispatches_process() {
             &identity,
             &mut store,
             &FakeRegistry(Host::Linux),
+            &FreshPreconditions,
             &CountingRunner(runner_calls.clone()),
             &CountingElevation(elevation_calls.clone()),
             &FreshReadiness,

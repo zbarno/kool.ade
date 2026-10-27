@@ -27,6 +27,10 @@ fn apply_to_store(
     owner_id: &str,
 ) -> anyhow::Result<()> {
     match transition {
+        Transition::RequireImageProfile { profile } => {
+            store.require_image_profile(profile)?;
+            Ok(())
+        }
         Transition::RequestAttempt {
             task_id,
             operation_id,
@@ -53,6 +57,18 @@ fn apply_to_store(
             result,
             at_unix_ms,
         } => store.record_remediation_result(&task_id, &operation_id, result, owner_id, at_unix_ms),
+        Transition::RecordImagePreparationReceipt {
+            task_id,
+            operation_id,
+            receipt,
+            at_unix_ms,
+        } => store.record_image_preparation_receipt(
+            &task_id,
+            &operation_id,
+            owner_id,
+            receipt,
+            at_unix_ms,
+        ),
         Transition::AwaitVerification {
             task_id,
             operation_id,

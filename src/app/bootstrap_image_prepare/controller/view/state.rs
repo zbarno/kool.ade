@@ -11,8 +11,14 @@ use super::super::lifecycle::{AttemptResolution, Completion, RecoveryAction};
 use super::super::{AttemptContext, Controller, WorkKind};
 
 impl Controller {
+    pub(crate) fn is_busy(&self) -> bool {
+        self.receiver.is_some() || self.preview.is_some() || self.pending_approval.is_some()
+    }
+
     pub(crate) fn request_review(&mut self, prerequisite_id: &str) {
-        if !prerequisite_id.starts_with("setup:images:general:") {
+        if crate::app::bootstrap_repair_policy::parse_locked_image_task_id(prerequisite_id)
+            .is_none()
+        {
             self.result = Some(Err(
                 "There is no approved repair for this setup task.".into()
             ));
@@ -85,7 +91,11 @@ impl Controller {
     }
 
     pub(crate) fn poll(&mut self, ctx: &egui::Context) -> bool {
+        let progress_changed = self.poll_pull_progress();
         let Some(receiver) = &self.receiver else {
+            if progress_changed {
+                ctx.request_repaint();
+            }
             return false;
         };
         match receiver.try_recv() {
@@ -139,13 +149,23 @@ impl Controller {
                 if let Some(resolution) = resolution {
                     self.apply_resolution(resolution);
                 }
+                let cancelled = !succeeded && self.pull_cancel_requested;
                 self.result = Some(if succeeded {
                     Ok(())
+                } else if cancelled {
+                    Err(
+                        "Image preparation was cancelled. Review the setup task to try again."
+                            .into(),
+                    )
                 } else {
                     Err("The approved repair did not complete. Check setup history, then retry the setup check.".into())
                 });
                 self.receiver = None;
                 self.work_kind = None;
+                self.progress_receiver = None;
+                self.pull_control = None;
+                self.pull_progress = None;
+                self.pull_cancel_requested = false;
                 crate::execution::docker::environment::DockerEnvironmentStatus::invalidate();
                 crate::harness::runtime_capabilities::RuntimeCapabilities::invalidate();
                 ctx.request_repaint();

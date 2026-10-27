@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::AppError;
 
 mod activity;
+mod bootstrap_conversation;
 mod dependency;
 mod execution;
 mod execution_failure;
@@ -23,6 +24,10 @@ mod reasoning;
 mod route;
 pub use activity::{
     ActivityTelemetry, CleanLaunchTelemetry, LivePost, LiveProgress, ModelCallUsage,
+};
+pub use bootstrap_conversation::{
+    BootstrapConversationReplyV1, BootstrapConversationResponseV1, BootstrapImageProfileV1,
+    BootstrapIntentOperationV1, BootstrapIntentSuggestionV1,
 };
 pub use dependency::{
     DependencyAuthorizationScope, DependencyAuthorizationSource, DependencyDecision,

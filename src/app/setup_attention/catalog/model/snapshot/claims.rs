@@ -1,13 +1,17 @@
 use super::super::evidence::EvidenceState;
 use super::super::identifiers::{
-    ImageArchitectureV1, ImageProfileV1, PrerequisiteCapability as Capability,
-    PrerequisiteDomain as Domain, PrerequisiteSubject as Subject, ProviderIdV1,
+    PrerequisiteCapability as Capability, PrerequisiteDomain as Domain,
+    PrerequisiteSubject as Subject, ProviderIdV1,
 };
 use super::MachineSnapshotV1;
 
 mod consistency;
 mod evidence;
+mod images;
+mod rootless_smoke;
 mod support;
+
+use images::{image_domain_ready, is_lower_sha256};
 
 fn current_ready(
     snapshot: &MachineSnapshotV1,
@@ -111,37 +115,6 @@ fn desktop_docker_ready(snapshot: &MachineSnapshotV1) -> bool {
     .all(|capability| current_ready(snapshot, Domain::Docker, capability, Subject::None, false))
 }
 
-fn image_domain_ready(snapshot: &MachineSnapshotV1, profile: &str, architecture: &str) -> bool {
-    let profile = match profile {
-        "general" => ImageProfileV1::General,
-        "rust" => ImageProfileV1::Rust,
-        "node" => ImageProfileV1::Node,
-        "python" => ImageProfileV1::Python,
-        "go" => ImageProfileV1::Go,
-        _ => return false,
-    };
-    let architecture = match architecture {
-        "amd64" => ImageArchitectureV1::Amd64,
-        "arm64" => ImageArchitectureV1::Arm64,
-        _ => return false,
-    };
-    snapshot
-        .capability_matrix
-        .supported_runtime_architectures
-        .contains(&architecture)
-        && docker_ready(snapshot)
-        && current_ready(
-            snapshot,
-            Domain::Image,
-            Capability::ApprovedImage,
-            Subject::Image {
-                profile,
-                architecture,
-            },
-            false,
-        )
-}
-
 pub(super) fn validate(snapshot: &MachineSnapshotV1) -> anyhow::Result<()> {
     support::validate_capability_matrix(snapshot)?;
     let providers = [
@@ -214,6 +187,10 @@ pub(super) fn validate(snapshot: &MachineSnapshotV1) -> anyhow::Result<()> {
                 desktop_docker_ready(snapshot),
                 "Docker Desktop readiness domain lacks current positive evidence"
             ),
+            "docker:rootless-smoke" => anyhow::ensure!(
+                rootless_smoke::ready_for_any_architecture(snapshot),
+                "rootless smoke domain lacks a current approved-image smoke receipt"
+            ),
             _ if domain.starts_with("cli:") => {
                 let provider_id = domain.strip_prefix("cli:").unwrap_or_default();
                 let provider = ProviderIdV1::from_probe_id(provider_id);
@@ -225,7 +202,10 @@ pub(super) fn validate(snapshot: &MachineSnapshotV1) -> anyhow::Result<()> {
             _ if domain.starts_with("images:") => {
                 let parts = domain.split(':').collect::<Vec<_>>();
                 anyhow::ensure!(
-                    parts.len() == 3 && image_domain_ready(snapshot, parts[1], parts[2]),
+                    (parts.len() == 3 && image_domain_ready(snapshot, parts[1], parts[2], None))
+                        || (parts.len() == 4
+                            && is_lower_sha256(parts[3])
+                            && image_domain_ready(snapshot, parts[1], parts[2], Some(parts[3]))),
                     "image domain lacks exact current positive evidence"
                 );
             }

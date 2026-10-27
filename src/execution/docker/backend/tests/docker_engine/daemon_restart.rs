@@ -26,11 +26,34 @@ async fn restarted_rootless_daemon_preserves_dirty_clone_without_command_replay(
 
     let fixture = Fixture::new();
     let mut daemon = IsolatedRootlessDaemon::start(&fixture.root).await;
+    let endpoint = daemon.endpoint().clone();
+    let docker = endpoint
+        .connect()
+        .expect("isolated daemon endpoint must be a trusted socket");
+    let info = docker
+        .info()
+        .await
+        .expect("isolated daemon must answer Docker info");
+    assert!(
+        info.security_options
+            .unwrap_or_default()
+            .iter()
+            .any(|option| option.contains("name=rootless")),
+        "daemon recovery must use an actual rootless Docker Engine"
+    );
+    let mut docker_environment = crate::test_support::ProcessEnvironmentGuard::new();
+    docker_environment.remove("DOCKER_CONTEXT");
+    match &endpoint {
+        crate::execution::docker::engine::DockerEndpoint::Unix { path, .. } => {
+            docker_environment.set("DOCKER_HOST", format!("unix://{}", path.display()));
+        }
+        _ => panic!("isolated daemon recovery requires a Unix socket"),
+    }
     let workspace = workspace();
     let (backend, task_clone) = backend_for_endpoint(
         &fixture,
         workspace.clone(),
-        daemon.endpoint(),
+        endpoint.clone(),
         uuid::Uuid::new_v4().hyphenated().to_string(),
     );
     let dirty_file = task_clone.join("unfinished-change.txt");
@@ -40,7 +63,7 @@ async fn restarted_rootless_daemon_preserves_dirty_clone_without_command_replay(
         "printf 'container-only change\\n' > unfinished-change.txt; printf 'restart-ready\\n'; sleep 300; printf 'must-not-complete\\n'",
     );
     let _container_cleanup = IsolatedContainerCleanup::new(
-        daemon.endpoint().clone(),
+        endpoint.clone(),
         format!("koolade-exec-{}", request.execution_id),
     );
     let (_lease, handle) = super::prepare_and_start(&backend, &request).await;
@@ -61,7 +84,7 @@ async fn restarted_rootless_daemon_preserves_dirty_clone_without_command_replay(
     drop(backend);
 
     daemon.restart().await;
-    let (restarted, _) = backend_for_endpoint(&fixture, workspace, daemon.endpoint(), owner_id);
+    let (restarted, _) = backend_for_endpoint(&fixture, workspace, endpoint, owner_id);
     restarted
         .probe(&crate::execution::contract::ExecutionTarget::local())
         .await

@@ -1,6 +1,13 @@
 use serde::Serialize;
 
+mod bootstrap_conversation;
 mod context;
+pub use bootstrap_conversation::{
+    BootstrapAttributedTextV1, BootstrapConversationMessageV1, BootstrapConversationPayloadV1,
+    BootstrapConversationSourceV1, BootstrapConversationSpeakerV1, BootstrapFactDomainV1,
+    BootstrapFactSourceV1, BootstrapFactStatusV1, BootstrapPlatformV1, BootstrapTaskFactV1,
+    BootstrapTaskStatusV1,
+};
 pub use context::{
     EvidenceConfidentiality, EvidenceItem, EvidenceOrigin, RoleInputV1, RolePayloadV1,
 };
@@ -33,6 +40,7 @@ pub enum PromptRole {
     SpecReconciler,
     RepairWorker,
     PrPreparer,
+    BootstrapConversation,
 }
 
 impl PromptRole {
@@ -60,6 +68,7 @@ impl PromptRole {
             Self::SpecReconciler => "spec_sync/v1",
             Self::RepairWorker => "repair/v1",
             Self::PrPreparer => "pr/v1",
+            Self::BootstrapConversation => "bootstrap_conversation/v1",
         }
     }
 
@@ -86,6 +95,7 @@ impl PromptRole {
             Self::Implementer | Self::RepairWorker => "WorkResultV1",
             Self::SpecReconciler => "SpecDeltaV1",
             Self::PrPreparer => "PRProposalV1",
+            Self::BootstrapConversation => "BootstrapConversationResponseV1",
         }
     }
 
@@ -119,6 +129,9 @@ impl PromptRole {
             Self::SpecReconciler => include_str!("../../../prompts/v1/spec_sync.system.md"),
             Self::RepairWorker => include_str!("../../../prompts/v1/repair.system.md"),
             Self::PrPreparer => include_str!("../../../prompts/v1/pr.system.md"),
+            Self::BootstrapConversation => {
+                include_str!("../../../prompts/v1/bootstrap_conversation.system.md")
+            }
         }
     }
 
@@ -148,6 +161,9 @@ impl PromptRole {
             Self::SpecReconciler => include_str!("../../../prompts/v1/spec_sync.user.md"),
             Self::RepairWorker => include_str!("../../../prompts/v1/repair.user.md"),
             Self::PrPreparer => include_str!("../../../prompts/v1/pr.user.md"),
+            Self::BootstrapConversation => {
+                include_str!("../../../prompts/v1/bootstrap_conversation.user.md")
+            }
         }
     }
 
@@ -165,6 +181,7 @@ impl PromptRole {
             | Self::Decomposer
             | Self::SpecReconciler
             | Self::PrPreparer => "no_tools; propose_typed_actions_only",
+            Self::BootstrapConversation => "no_tools; typed_suggestions_only",
             Self::PlanReviewer
             | Self::PlanReviewerV1
             | Self::CodeReviewer

@@ -27,6 +27,13 @@ fn denied_remote_dependency_request_never_stages_or_installs_cache() {
     let (task_home_path, repository, archive, registry_url) =
         super::setup::prepare_workspace(&workspace);
     let _home = support::task_home(&task_home_path);
+    if crate::test_support::locked_images::enabled() {
+        crate::test_support::locked_images::prepare_profile_for_home(
+            &task_home_path,
+            crate::execution::docker::images::RuntimeProfile::Node,
+        )
+        .expect("remote worker must receive a real approved Node image receipt");
+    }
     let worker_id = crate::persistence::execution_records::owner_instance_id().unwrap();
     let sshd = match sshd::SshdFixture::start(&workspace, &worker_binary) {
         Ok(fixture) => fixture,
