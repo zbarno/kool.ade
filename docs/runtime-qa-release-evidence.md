@@ -1,6 +1,45 @@
 # Runtime QA release evidence
 
-## Current tracker context (2026-10-23)
+## Refreshed exact-main matrix (2026-10-27)
+
+Evidence is pinned to exact `main` commit
+[`dbc6f2a`](https://github.com/zbarno/kool.ade/commit/dbc6f2abb5dd44dd481ad903d2e804373ac8b00c).
+The candidate workflow is [run 40584878538](https://github.com/zbarno/kool.ade/actions/runs/40584878538);
+the required quality workflow is [run 40584878885](https://github.com/zbarno/kool.ade/actions/runs/40584878885).
+The trusted-image run passed rootless browser and desktop candidate suites,
+including app-owned browser preview/driver evidence and the approved-task
+Build/Test/Start-to-browser-artifact path. Both QA profiles in
+[`containers/images.lock.json`](../containers/images.lock.json) still have
+`runtime_enabled: false`. Publication and published-image smoke jobs were
+skipped, so candidate success is not a release authorization.
+
+“Partial” records only the evidence proved by the linked run; it does not
+certify the full row. The live issue body currently marks its first of five
+release-acceptance boxes checked, while its introduction says zero are
+certified. This matrix rates that first criterion **Partial** because the
+profiles remain disabled and the cited run does not prove the full release
+acceptance path. Reconcile the tracker checkbox with reviewable release proof.
+
+| #171 requirement | Exact-main evidence | Status and remaining acceptance |
+| --- | --- | --- |
+| 1. Docker RuntimeQa security matrix across local/remote Linux | Rootless browser and desktop candidate suites passed in [trusted-image run 40584878538](https://github.com/zbarno/kool.ade/actions/runs/40584878538). The workflow verifies a rootless daemon; browser scenarios include relay isolation and origin/network-denial coverage. | **Partial.** The complete local/remote matrix for credentials, host resources, mounts, roles, network boundaries, and service-port relay is not evidenced. |
+| 2. Pinned rootless Linux desktop and browser QA images | Browser and desktop candidate image builds and candidate verification passed in [run 40584878538](https://github.com/zbarno/kool.ade/actions/runs/40584878538). The locked references are recorded in `containers/images.lock.json`; both profiles remain disabled. | **Partial.** Publication and published-image smoke were skipped. No release approval or enabled profile exists. |
+| 3. Real desktop and browser fixtures detect seeded defects | The browser app-owned preview/driver and approved-task-to-browser-artifact tests passed; the desktop app-owned upload/run/read/cleanup test passed in [run 40584878538](https://github.com/zbarno/kool.ade/actions/runs/40584878538). | **Partial.** This does not establish the full desktop/browser interaction and seeded-defect matrix (including all resize, clipping, crash/hang, responsive, console, and disabled-control cases). |
+| 4. Approved-plan-to-PR lifecycle repair loop | Deterministic lifecycle and evidence tests are included in the passing [quality run 40584878885](https://github.com/zbarno/kool.ade/actions/runs/40584878885). | **Partial.** The run does not prove the complete approved-plan, implementation, independent review, QA repair, spec reconciliation, and distinct PR work-item path against the candidate images. |
+| 5. Negative runtime security tests | Rootless browser candidate coverage and relay-token/origin-escape checks passed on the reviewed main state in [run 40584878538](https://github.com/zbarno/kool.ade/actions/runs/40584878538). | **Partial.** The complete runtime-denial battery for host credentials/HOME, Docker socket, host display/DBus, arbitrary executables, installs, internet/metadata, forged evidence, and shell escalation is not evidenced. |
+| 6. Runtime failure and recovery matrix | The passing [quality run 40584878885](https://github.com/zbarno/kool.ade/actions/runs/40584878885) includes Docker daemon recovery and queue-concurrency checks. | **Partial.** It does not evidence every QA-specific daemon, driver, preview, storage, cancellation, remote-worker, and restart failure case. |
+| 7. Reviewer prompt evaluations | Prompt construction and evidence-bound review behavior have deterministic tests in the quality workflow. | **Not started for release acceptance.** No measurable model-recall evaluation set and reviewed result for the required adversarial and visual-regression prompts is attached. |
+| 8. Setup diagnostics and Task Details evidence | Current implementation and operator guidance are documented in [`runtime-qa-operations.md`](runtime-qa-operations.md) and exercised by the quality workflow. | **Partial.** Full setup/readiness and repair-timeline UX acceptance, evidence quota/retention behavior, and manual support review remain outstanding. |
+| 9. Architecture, runbook, privacy, recovery, and support docs | Current contracts and operations guidance are linked from [`runtime-qa-operations.md`](runtime-qa-operations.md), [`runtime-qa-contract.md`](runtime-qa-contract.md), and [`project-runtime-contract.md`](project-runtime-contract.md). | **Partial.** Documentation exists; measured startup/performance and live manual smoke evidence remain outstanding. |
+| 10. Required CI and release checklist gate | The required format, tests, docs, Clippy, Docker runtime, recovery, and concurrency checks passed in [quality run 40584878885](https://github.com/zbarno/kool.ade/actions/runs/40584878885). Candidate image suites passed separately in [run 40584878538](https://github.com/zbarno/kool.ade/actions/runs/40584878538). | **Partial.** Candidate QA suites are not included in the `quality` aggregator's required needs, and publication/smoke jobs were skipped while profiles remain disabled. |
+
+The cited rootless CI jobs are hosted-only on this machine. No local test result
+is used as a substitute for them. Future updates must record the exact commit,
+workflow run or manual smoke artifact, image digest, scenario, and observed
+result. A passing source test or candidate-image run changes only the row it
+directly covers.
+
+## Historical evidence snapshot (2026-10-23)
 
 The dated table below is a **historical evidence snapshot for PR #264**, not
 the current `main` release sign-off. #264 has now **merged**, as have #295
@@ -49,7 +88,7 @@ using any candidate digest as current release evidence.
 Do not enable either QA image profile, describe Runtime QA as shipped, close
 issues #166, #167, #168, #169, #171, or #173 until every
 applicable row has a passing, reviewable artifact for the supported platform
-matrix. Merged PR #264 was a partial candidate delivery, not release approval.
+matrix. Candidate delivery and passing candidate suites are not release approval.
 For each update, record the exact commit, workflow run or manual smoke artifact,
 image digest, fixture/scenario, and observed failure result. A passing source
 test or candidate-image smoke only changes the row it directly covers.
