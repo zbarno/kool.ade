@@ -2,7 +2,7 @@
 
 Tracking: [#337](https://github.com/zbarno/kool.ade/issues/337).
 
-## Implementation status: locked image preparation and Linux rootless bootstrap in progress
+## Implementation status: Linux onboarding available; Desktop setup in progress
 
 Kool.ad/e starts bounded discovery of the six supported coding-agent CLIs and
 Git from first launch, before a workspace or Docker daemon exists. Provider
@@ -181,10 +181,15 @@ system rootful service. See the [Engine prerequisite and manual setup/rollback
 workflow](docker-engine-prerequisites.md#manual-setup-and-rollback) for exact
 paths and safety checks.
 
-Windows WSL2, virtualization, and Docker Desktop trust facts that have not been
-directly probed remain unknown. macOS and Windows native execution remains
-blocked pending native Docker Desktop staging, security, and runtime
-validation. Synthetic platform fixtures validate classification; they do not
+The Docker Desktop transport and bounded staging paths for macOS and Windows
+are implemented, but native security and task-lifecycle validation is still
+required before those hosts are enabled. The macOS endpoint probe now checks
+Docker.app's signed bundle identity and version before discovering its local
+socket. The catalog does not yet record the physical Mac architecture under
+Rosetta or certify the publisher pin against current Intel and Apple silicon
+releases. Windows edition, WSL2 kernel, reboot, and policy state also remain
+unprobed. These facts and native host acceptance remain open under #348 and
+#349. Synthetic platform fixtures validate classification; they do not
 establish support on those hosts.
 
 This readiness layer does not install packages, configure services, pull images

@@ -34,6 +34,7 @@ pub enum EvidenceOrigin {
 pub enum EvidenceCode {
     RuntimeTargetDetected,
     HostEditionNotProbed,
+    MacOsReleaseDetected,
     HostCapabilityNotProbed,
     LinuxDistributionDetected,
     LinuxHostCheckReady,
@@ -147,6 +148,9 @@ pub enum ProbeObservationV1 {
     HostArchitecture {
         observed: ImageArchitectureV1,
         supported_runtime_architectures: Vec<ImageArchitectureV1>,
+    },
+    MacOsVersion {
+        version: String,
     },
     LinuxDistribution {
         distribution: Option<LinuxDistributionV1>,

@@ -9,6 +9,8 @@ const API_TIMEOUT_SECONDS: u64 = 5;
 
 mod connection;
 mod context;
+#[cfg(target_os = "macos")]
+mod macos_app;
 #[cfg(windows)]
 mod named_pipe;
 #[cfg(unix)]
@@ -39,14 +41,19 @@ impl DockerEndpoint {
         let uid = Some(unsafe { libc::geteuid() });
         #[cfg(not(target_os = "linux"))]
         let uid = None;
-        Self::from_environment(
+        let endpoint = Self::from_environment(
             docker_host.as_deref(),
             docker_context.as_deref(),
             runtime_dir.as_deref(),
             home_dir.as_deref(),
             uid,
             platform,
-        )
+        )?;
+        #[cfg(target_os = "macos")]
+        if platform == HostPlatform::MacOs {
+            macos_app::verify_installed_docker_desktop()?;
+        }
+        Ok(endpoint)
     }
 
     #[cfg(test)]
