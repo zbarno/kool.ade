@@ -23,9 +23,9 @@ use std::{
 /// The invariant is that an ordinary controller start supplies the approved
 /// task's workspace fence to execution, and app cancellation revokes the next
 /// command. Unit/store tests cannot prove the controller-to-session handoff.
-/// Requires Linux rootless Docker and the pinned Rust image; setup uses one
-/// approved headless app flow and two small Docker commands, with no real model
-/// service or public network dependency.
+/// Requires Linux rootless Docker and the pinned General and Rust images; setup
+/// smokes both images before one approved headless app flow and two small
+/// Docker commands, with no real model service or public task data.
 #[test]
 fn app_controller_dispatches_approved_task_to_isolated_docker_and_revokes_it_on_cancel() {
     let temp = tempfile::tempdir_in("/tmp").unwrap();
@@ -59,6 +59,14 @@ fn app_controller_dispatches_approved_task_to_isolated_docker_and_revokes_it_on_
             "skipping Evolve controller Docker commands; set KOOLADE_DOCKER_BACKEND_INTEGRATION=1"
         );
         return;
+    }
+
+    if crate::test_support::locked_images::enabled() {
+        crate::test_support::locked_images::prepare_profile_for_home(
+            &temp.path().join("operator-home"),
+            crate::execution::docker::images::RuntimeProfile::Rust,
+        )
+        .expect("controller fixture must receive approved General and Rust image receipts");
     }
 
     let engine = std::process::Command::new("docker")

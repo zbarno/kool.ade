@@ -1,11 +1,18 @@
+use std::{cell::RefCell, collections::BTreeSet};
+
 use egui::Ui;
 
-use super::super::{attempt::AttemptContext, identity::HostIdentity, plan::RemediationPlan};
+use super::super::{
+    attempt::AttemptContext,
+    identity::HostIdentity,
+    plan::{PlanConsent, RemediationPlan},
+};
 
 pub(crate) struct ApprovalPreview {
     plan: RemediationPlan,
     identity: HostIdentity,
     attempt: AttemptContext,
+    selected_consents: RefCell<BTreeSet<PlanConsent>>,
 }
 
 impl ApprovalPreview {
@@ -52,6 +59,7 @@ impl ApprovalPreview {
             plan,
             identity,
             attempt,
+            selected_consents: RefCell::new(BTreeSet::new()),
         })
     }
 
@@ -77,9 +85,28 @@ impl ApprovalPreview {
             self.plan.host, self.plan.os_version
         ));
         ui.label(format!("Privilege: {}", self.plan.privilege.description()));
+        if !self.plan.precondition_probe_ids.is_empty() {
+            ui.label("Required checks before this operation:");
+            for probe in &self.plan.precondition_probe_ids {
+                ui.label(format!("• {probe}"));
+            }
+        }
         ui.label("Effects:");
         for effect in &self.plan.effects {
             ui.label(format!("• {}", effect.description()));
+        }
+        if !self.plan.package_changes.is_empty() {
+            ui.label(format!(
+                "Package changes: {}",
+                self.plan
+                    .package_changes
+                    .iter()
+                    .map(|change| change.description())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        } else {
+            ui.label("Packages changed: none");
         }
         if !self.plan.file_changes.is_empty() {
             ui.label(format!(
@@ -121,18 +148,38 @@ impl ApprovalPreview {
             "Readiness checks after this operation: {}",
             self.plan.verification_probe_ids.join(", ")
         ));
-        ui.button("Approve this operation")
+        if !self.plan.required_consents.is_empty() {
+            ui.heading("Additional consent required");
+            for consent in &self.plan.required_consents {
+                let mut selected = self.selected_consents.borrow_mut();
+                let mut accepted = selected.contains(consent);
+                if ui.checkbox(&mut accepted, consent.description()).changed() {
+                    if accepted {
+                        selected.insert(*consent);
+                    } else {
+                        selected.remove(consent);
+                    }
+                }
+            }
+        }
+        let consented = all_required_consents_selected(
+            &self.plan.required_consents,
+            &self.selected_consents.borrow(),
+        );
+        ui.add_enabled(consented, egui::Button::new("Approve this operation"))
             .clicked()
             .then(|| ApprovalRequest {
                 plan: self.plan.clone(),
                 identity: self.identity.clone(),
                 attempt: self.attempt.clone(),
+                consented: self.plan.required_consents.clone(),
             })
     }
 
     #[cfg(test)]
     pub(crate) fn request_for_test(self) -> ApprovalRequest {
         ApprovalRequest {
+            consented: self.plan.required_consents.clone(),
             plan: self.plan,
             identity: self.identity,
             attempt: self.attempt,
@@ -140,8 +187,20 @@ impl ApprovalPreview {
     }
 }
 
+fn all_required_consents_selected(
+    required: &[PlanConsent],
+    selected: &BTreeSet<PlanConsent>,
+) -> bool {
+    required.iter().all(|consent| selected.contains(consent))
+}
+
+#[cfg(test)]
+#[path = "preview_tests.rs"]
+mod tests;
+
 pub(crate) struct ApprovalRequest {
-    pub(super) plan: RemediationPlan,
-    pub(super) identity: HostIdentity,
-    pub(super) attempt: AttemptContext,
+    pub(in crate::app::bootstrap_remediation) plan: RemediationPlan,
+    pub(in crate::app::bootstrap_remediation) identity: HostIdentity,
+    pub(in crate::app::bootstrap_remediation) attempt: AttemptContext,
+    pub(in crate::app::bootstrap_remediation) consented: Vec<PlanConsent>,
 }

@@ -124,6 +124,7 @@ pub struct KooladeApp {
     setup_retry_requested: bool,
     setup_refresh_pending: Option<bool>,
     setup_image_preparation: super::bootstrap_image_prepare::Controller,
+    setup_remediation: super::bootstrap_remediation::Controller,
     bootstrap_conversation: bootstrap_conversation::Controller,
     #[cfg(test)]
     attention_fixture: std::collections::BTreeMap<String, crate::core::attention::Brief>,

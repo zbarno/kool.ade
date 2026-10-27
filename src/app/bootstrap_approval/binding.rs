@@ -17,6 +17,7 @@ pub(super) struct MachineBinding {
     pub(super) engine_identity_fingerprint: String,
     pub(super) probed_at_unix_ms: u64,
     pub(super) daemon_id: String,
+    pub(super) daemon_version: String,
     pub(super) image_reference: String,
     pub(super) image_digest: String,
     pub(super) image_platform: String,
@@ -49,6 +50,7 @@ impl MachineBinding {
             engine_identity_fingerprint: "e".repeat(64),
             probed_at_unix_ms,
             daemon_id: "synthetic-daemon".into(),
+            daemon_version: "synthetic-version".into(),
             image_reference: "ghcr.io/zbarno/koolade-runtime-general:test".into(),
             image_digest: format!("sha256:{}", "a".repeat(64)),
             image_platform: "linux/amd64".into(),
@@ -65,6 +67,12 @@ impl MachineBinding {
                 && is_sha256_hex(&self.principal_hash)
                 && is_sha256_hex(&self.probe_hash)
                 && is_sha256_hex(&self.engine_identity_fingerprint)
+                && !self.daemon_version.is_empty()
+                && self.daemon_version.len() <= 128
+                && !self
+                    .daemon_version
+                    .bytes()
+                    .any(|byte| byte.is_ascii_control())
                 && self.image_digest.starts_with("sha256:")
                 && is_sha256_hex(&self.image_digest[7..])
                 && matches!(self.image_platform.as_str(), "linux/amd64" | "linux/arm64")
@@ -92,6 +100,7 @@ impl MachineBinding {
             &self.principal_hash,
             &self.probe_hash,
             &self.engine_identity_fingerprint,
+            &self.daemon_version,
             self.estimated_pull_bytes,
             self.estimated_storage_bytes,
             self.minimum_disk_bytes,

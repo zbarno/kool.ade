@@ -3,10 +3,11 @@ use super::*;
 mod details;
 mod plan_review;
 mod runtime_qa;
+mod setup_repair;
 
 impl Surface for KooladeApp {
     fn setup_image_preparation(&mut self, ui: &mut egui::Ui, prerequisite_id: &str) {
-        let (completed, request) = self.setup_image_preparation.paint(ui, prerequisite_id);
+        let (completed, request) = setup_repair::paint(self, ui, prerequisite_id);
         self.publish_setup_task_store_update();
         if completed {
             self.refresh_setup_attention(true);

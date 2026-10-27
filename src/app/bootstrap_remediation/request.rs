@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::app::{
     bootstrap_remediation::identity::HostIdentity,
     bootstrap_repair_policy::{self, Host, Operation, Proposal, parse_locked_image_task_id},
+    setup_attention::catalog::LinuxRootlessRecipeV1,
 };
 
 /// A strict request shape. All executable details are absent by construction.
@@ -25,6 +26,15 @@ pub(crate) enum OperationParameters {
         profile: String,
         architecture: String,
     },
+    InstallLinuxRootlessPackages {
+        recipe: LinuxRootlessRecipeV1,
+    },
+    ConfigureLinuxSubordinateIds {
+        recipe: LinuxRootlessRecipeV1,
+    },
+    InstallLinuxRootlessService {
+        recipe: LinuxRootlessRecipeV1,
+    },
 }
 
 impl RemediationRequest {
@@ -40,7 +50,7 @@ impl RemediationRequest {
             host: proposal.host,
             os_version: identity.os_version().to_owned(),
             prerequisite_id: proposal.prerequisite_id.clone(),
-            parameters: parameters_for(proposal)?,
+            parameters: parameters_for(proposal, identity.os_version())?,
         };
         request.validate_for_identity(&identity)?;
         Ok(request)
@@ -57,7 +67,7 @@ impl RemediationRequest {
             host: proposal.host,
             os_version: identity.os_version().to_owned(),
             prerequisite_id: proposal.prerequisite_id.clone(),
-            parameters: parameters_for(proposal)?,
+            parameters: parameters_for(proposal, identity.os_version())?,
         };
         request.validate_for_identity(&identity.clone())?;
         Ok(request)
@@ -122,6 +132,38 @@ impl RemediationRequest {
                     "locked image parameters do not match the affected prerequisite"
                 );
             }
+            (
+                Operation::InstallLinuxRootlessPackages,
+                OperationParameters::InstallLinuxRootlessPackages { recipe },
+            )
+            | (
+                Operation::ConfigureLinuxSubordinateIds,
+                OperationParameters::ConfigureLinuxSubordinateIds { recipe },
+            )
+            | (
+                Operation::InstallLinuxRootlessService,
+                OperationParameters::InstallLinuxRootlessService { recipe },
+            ) => {
+                let prefix = recipe.os_version_prefix();
+                anyhow::ensure!(
+                    LinuxRootlessRecipeV1::from_os_version(&self.os_version) == Some(*recipe),
+                    "rootless Docker recipe does not match the exact host identity"
+                );
+                anyhow::ensure!(
+                    self.os_version
+                        .strip_prefix(prefix)
+                        .is_some_and(|kernel| !kernel.is_empty()),
+                    "rootless Docker operation does not match its exact distro recipe"
+                );
+                let kernel = self
+                    .os_version
+                    .strip_prefix(prefix)
+                    .expect("rootless recipe identity was checked above");
+                anyhow::ensure!(
+                    kernel_meets_rootless_floor(kernel),
+                    "rootless Docker operation requires Linux kernel 4.15 or newer"
+                );
+            }
             _ => anyhow::bail!("remediation parameters do not match the typed operation"),
         }
         Ok(())
@@ -130,7 +172,10 @@ impl RemediationRequest {
     pub(crate) fn proposal(&self) -> Proposal {
         let image_profile = match &self.parameters {
             OperationParameters::LockedImage { profile, .. } => Some(profile.clone()),
-            OperationParameters::None => None,
+            OperationParameters::None
+            | OperationParameters::InstallLinuxRootlessPackages { .. }
+            | OperationParameters::ConfigureLinuxSubordinateIds { .. }
+            | OperationParameters::InstallLinuxRootlessService { .. } => None,
         };
         Proposal {
             schema_version: self.schema_version,
@@ -142,7 +187,25 @@ impl RemediationRequest {
     }
 }
 
-fn parameters_for(proposal: &Proposal) -> anyhow::Result<OperationParameters> {
+fn kernel_meets_rootless_floor(release: &str) -> bool {
+    let mut components = release.split(['.', '-']);
+    let Some(major) = components
+        .next()
+        .and_then(|value| value.parse::<u16>().ok())
+    else {
+        return false;
+    };
+    let Some(minor) = components
+        .next()
+        .and_then(|value| value.parse::<u16>().ok())
+    else {
+        return false;
+    };
+    major > 4 || (major == 4 && minor >= 15)
+}
+
+fn parameters_for(proposal: &Proposal, os_version: &str) -> anyhow::Result<OperationParameters> {
+    let recipe = LinuxRootlessRecipeV1::from_os_version(os_version);
     match proposal.operation {
         Operation::RecheckPrerequisites | Operation::OpenCodingTools => {
             Ok(OperationParameters::None)
@@ -164,83 +227,27 @@ fn parameters_for(proposal: &Proposal) -> anyhow::Result<OperationParameters> {
                 architecture: architecture.to_owned(),
             })
         }
+        Operation::InstallLinuxRootlessPackages => {
+            let recipe = recipe.ok_or_else(|| {
+                anyhow::anyhow!("Linux host identity has no supported rootless recipe")
+            })?;
+            Ok(OperationParameters::InstallLinuxRootlessPackages { recipe })
+        }
+        Operation::ConfigureLinuxSubordinateIds => {
+            let recipe = recipe.ok_or_else(|| {
+                anyhow::anyhow!("Linux host identity has no supported rootless recipe")
+            })?;
+            Ok(OperationParameters::ConfigureLinuxSubordinateIds { recipe })
+        }
+        Operation::InstallLinuxRootlessService => {
+            let recipe = recipe.ok_or_else(|| {
+                anyhow::anyhow!("Linux host identity has no supported rootless recipe")
+            })?;
+            Ok(OperationParameters::InstallLinuxRootlessService { recipe })
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn image_request() -> RemediationRequest {
-        let identity =
-            HostIdentity::from_facts(Host::Linux, "6.12.1", "test-machine", "test-user").unwrap();
-        RemediationRequest::from_proposal_for_test(
-            &Proposal {
-                schema_version: 1,
-                operation: Operation::PrepareLockedImage,
-                host: Host::Linux,
-                prerequisite_id: format!("setup:images:general:amd64:{}", "a".repeat(64)),
-                image_profile: Some("general".into()),
-            },
-            &identity,
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn strict_request_round_trip_rejects_commands_and_unknown_parameters() {
-        let request = image_request();
-        let encoded = serde_json::to_string(&request).unwrap();
-        assert_eq!(
-            serde_json::from_str::<RemediationRequest>(&encoded).unwrap(),
-            request
-        );
-        assert_eq!(
-            request.parameters,
-            OperationParameters::LockedImage {
-                profile: "general".into(),
-                architecture: "amd64".into(),
-            }
-        );
-        assert_eq!(request.proposal().prerequisite_id, request.prerequisite_id);
-        let injected = encoded.replace(
-            "\"kind\":\"locked_image\"",
-            "\"kind\":\"locked_image\",\"script\":\"sudo anything\"",
-        );
-        assert!(serde_json::from_str::<RemediationRequest>(&injected).is_err());
-        assert!(serde_json::from_str::<RemediationRequest>(
-            r#"{"schemaVersion":1,"operation":"run_host_command","host":"linux","osVersion":"6.12","prerequisiteId":"setup:docker","parameters":{"kind":"none"}}"#
-        ).is_err());
-    }
-
-    #[test]
-    fn parameters_host_and_os_version_are_revalidated() {
-        let mut request = image_request();
-        request.parameters = OperationParameters::None;
-        assert!(request.validate_shape().is_err());
-        let mut request = image_request();
-        request.os_version = "6.12\nmalicious".into();
-        assert!(request.validate_shape().is_err());
-        let mut request = image_request();
-        request.prerequisite_id = "setup:../../escape".into();
-        assert!(request.validate_shape().is_err());
-        let mut request = image_request();
-        request.prerequisite_id = "setup:images:general:amd64".into();
-        assert!(request.validate_shape().is_err());
-        let mut request = image_request();
-        if let OperationParameters::LockedImage { architecture, .. } = &mut request.parameters {
-            *architecture = "arm64".into();
-        }
-        assert!(request.validate_shape().is_err());
-    }
-
-    #[test]
-    fn request_requires_verified_current_host_and_os_version() {
-        let request = image_request();
-        assert!(
-            request
-                .validate_for_identity(&HostIdentity::current().unwrap())
-                .is_err()
-        );
-    }
-}
+#[path = "request/tests.rs"]
+mod tests;

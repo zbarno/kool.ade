@@ -10,8 +10,8 @@ mod setup;
 /// PlanReviewer, and app task generation produce the persisted authorization
 /// consumed by a rootless Docker session. Store tests cannot prove this binding
 /// across the app and execution session. Requires Linux rootless Docker and the
-/// pinned Rust image; setup costs one headless app flow, one local task clone,
-/// and two short Docker commands.
+/// pinned General and Rust images; setup prepares both image receipts, one
+/// headless app flow, one local task clone, and two short Docker commands.
 #[cfg(unix)]
 #[test]
 fn pursued_app_task_executes_in_rootless_docker_and_cancellation_revokes_it() {
@@ -40,7 +40,16 @@ fn pursued_app_task_executes_in_rootless_docker_and_cancellation_revokes_it() {
         return;
     }
     #[cfg(target_os = "linux")]
-    docker::execute(&ready, temp.path());
+    {
+        if crate::test_support::locked_images::enabled() {
+            crate::test_support::locked_images::prepare_profile_for_home(
+                &temp.path().join("operator-home"),
+                crate::execution::docker::images::RuntimeProfile::Rust,
+            )
+            .expect("Evolve fixture must receive approved General and Rust image receipts");
+        }
+        docker::execute(&ready, temp.path());
+    }
     #[cfg(not(target_os = "linux"))]
     eprintln!("skipping Evolve Docker commands: rootless Docker integration requires Linux");
 }

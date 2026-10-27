@@ -6,21 +6,12 @@ use super::{
     ProviderIdV1, SCHEMA_VERSION, evidence, images,
 };
 
+mod agent;
 mod checked_domains;
 mod docker;
 mod inputs;
+mod linux_rootless;
 pub(crate) use inputs::{ImageScanState, ScanInputs};
-
-fn authenticated_context_agent(probe: &ProbeResult, generation: u64) -> bool {
-    probe.status == ProbeStatus::Available
-        && probe.run_generation == generation
-        && probe.binary_path.is_some()
-        && probe.version.is_some()
-        && probe.authentication == ReadinessState::Ready
-        && probe.execution_capability.safe_for_planning == ReadinessState::Ready
-        && probe.model_catalog_status == ModelCatalogStatus::Fresh
-        && (!probe.models.is_empty() || probe.default_model.is_some())
-}
 
 /// Pure, deterministic interpretation. Missing image findings require
 /// engine_ready; a rootful or unqueryable engine is NOT an image failure.
@@ -94,7 +85,7 @@ pub(crate) fn assess_for_scan_with_inputs(
     let verified: Vec<_> = installed
         .iter()
         .copied()
-        .filter(|p| authenticated_context_agent(p, scan_generation))
+        .filter(|p| agent::authenticated_context(p, scan_generation))
         .collect();
 
     if installed.is_empty() {
@@ -149,7 +140,7 @@ pub(crate) fn assess_for_scan_with_inputs(
                     "This agent's current model availability is not verified.",
                     "Select a supported model and refresh this agent's model catalog.",
                 ));
-            } else if !authenticated_context_agent(probe, scan_generation) {
+            } else if !agent::authenticated_context(probe, scan_generation) {
                 findings.push(Finding::unverified(
                     format!("{prefix}:capability"),
                     "Verify safe agent mode",
@@ -171,15 +162,16 @@ pub(crate) fn assess_for_scan_with_inputs(
         }
     }
 
-    if let Some(finding) = docker::finding(docker) {
+    if let Some(finding) = docker::finding(docker, host) {
         findings.push(finding);
     }
 
+    let image_state = linux_rootless::effective_image_scan_state(&images, docker, host);
     findings.extend(images::findings(
         docker,
         host,
-        &images.required_profiles,
-        &images.smoke_verified_profiles,
+        &image_state.required_profiles,
+        &image_state.smoke_verified_profiles,
     ));
 
     // Docker Desktop endpoints are parseable today, but safe end-to-end
@@ -213,6 +205,13 @@ pub(crate) fn assess_for_scan_with_inputs(
         scan_generation,
         checked_at_unix_ms,
         git_probe,
+    );
+    linux_rootless::append_findings(
+        &mut findings,
+        host,
+        scan_generation,
+        &capability_matrix,
+        &probe_evidence,
     );
     match git_probe.executable_state {
         EvidenceState::Missing => findings.push(Finding::action(
@@ -254,6 +253,19 @@ pub(crate) fn assess_for_scan_with_inputs(
     }
     findings.sort_by(|left, right| left.id.cmp(&right.id));
     findings.dedup_by(|left, right| left.id == right.id);
+    let mut checked_domains = checked_domains::collect(checked_domains::Inputs {
+        probes,
+        scan_generation,
+        verified: &verified,
+        selected_agent,
+        docker,
+        host,
+        git_probe: &git_probe,
+        image_state: &image_state,
+    });
+    if linux_rootless::smoke_verified(host, scan_generation, &probe_evidence) {
+        checked_domains.push("docker:rootless-smoke".into());
+    }
     let snapshot = MachineSnapshotV1 {
         schema_version: SCHEMA_VERSION,
         scan_generation,
@@ -272,16 +284,7 @@ pub(crate) fn assess_for_scan_with_inputs(
         probe_evidence,
         prerequisite_graph,
         findings,
-        checked_domains: checked_domains::collect(checked_domains::Inputs {
-            probes,
-            scan_generation,
-            verified: &verified,
-            selected_agent,
-            docker,
-            host,
-            git_probe: &git_probe,
-            image_state: &images,
-        }),
+        checked_domains,
     };
     debug_assert!(
         snapshot.validate().is_ok(),

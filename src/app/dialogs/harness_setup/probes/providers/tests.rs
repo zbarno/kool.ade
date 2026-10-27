@@ -17,6 +17,9 @@ mod codex_adapter;
 mod copilot_adapter;
 #[cfg(unix)]
 mod opencode_adapter;
+#[cfg(unix)]
+#[path = "tests/oversized_version.rs"]
+mod oversized_version;
 
 #[test]
 fn opencode_catalog_failure_keeps_provider_installed_but_not_selectable() {

@@ -9,14 +9,27 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     discovery::{EngineReadiness, PrerequisiteCode, PrerequisiteFailure},
-    engine::DockerEndpoint,
+    engine::{DockerEndpoint, HostPlatform},
 };
 use probe::{endpoint_fingerprint, host_platform, probe};
+use rootless_selection::persist_rootless_selection;
 
 const CACHE_TTL: Duration = Duration::from_secs(15);
 static CACHE: OnceLock<Mutex<Option<(Instant, DockerEnvironmentStatus)>>> = OnceLock::new();
 
+fn process_endpoint(platform: HostPlatform) -> Result<DockerEndpoint, PrerequisiteFailure> {
+    #[cfg(test)]
+    {
+        DockerEndpoint::from_process_environment_with_test_support(platform)
+    }
+    #[cfg(not(test))]
+    {
+        DockerEndpoint::from_process_environment(platform)
+    }
+}
+
 mod probe;
+mod rootless_selection;
 mod staging;
 pub use probe::run_smoke_test;
 pub(crate) use staging::app_staging_root;
@@ -81,9 +94,12 @@ impl DockerEnvironmentStatus {
             && let Some((checked_at, status)) = &*cache
             && checked_at.elapsed() < CACHE_TTL
         {
-            return status.clone();
+            let mut status = status.clone();
+            persist_rootless_selection(&mut status);
+            return status;
         }
-        let status = probe();
+        let mut status = probe();
+        persist_rootless_selection(&mut status);
         if let Ok(mut cache) = cache.lock() {
             *cache = Some((Instant::now(), status.clone()));
         }
@@ -248,9 +264,7 @@ impl DockerEnvironmentStatus {
         if !self.engine_ready {
             return None;
         }
-        let endpoint = DockerEndpoint::from_process_environment(probe::host_platform())
-            .ok()?
-            .fingerprint();
+        let endpoint = process_endpoint(probe::host_platform()).ok()?.fingerprint();
         let daemon = self.daemon_identity_fingerprint.as_deref()?;
         if !is_sha256_hex(&endpoint) || !is_sha256_hex(daemon) {
             return None;
@@ -261,12 +275,19 @@ impl DockerEnvironmentStatus {
     }
 
     pub(crate) fn current_endpoint_fingerprint() -> Option<String> {
-        let endpoint = DockerEndpoint::from_process_environment(host_platform()).ok()?;
+        let endpoint = process_endpoint(host_platform()).ok()?;
         Some(endpoint_fingerprint(
             &endpoint,
             std::env::var("DOCKER_CONTEXT").ok().as_deref(),
             std::env::var("DOCKER_HOST").ok().as_deref(),
         ))
+    }
+
+    /// Stable normalized endpoint identity, independent of shell overrides
+    /// that resolve to the same trusted local socket.
+    pub(crate) fn current_endpoint_identity_fingerprint() -> Option<String> {
+        let endpoint = process_endpoint(host_platform()).ok()?;
+        Some(endpoint.fingerprint())
     }
 }
 

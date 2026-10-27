@@ -419,12 +419,16 @@ jobs:
           KOOLADE_TEST_APPROVE_LOCKED_IMAGES: "1"
         run: |
           set -euo pipefail
+          unset DOCKER_CONTEXT
           test_name=execution::docker::qa_container::tests::browser_rootless::run::rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up
           export KOOLADE_QA_BROWSER_IMAGE=koolade-runtime-qa:browser_qa-candidate
           export KOOLADE_QA_BROWSER_DIGEST="$(jq -er '.digest' "$IMAGE_RECORD")"
           python_image="$(jq -er '.profiles.python[] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
           [[ "$python_image" =~ @sha256:[0-9a-f]{64}$ ]]
           docker pull --platform linux/amd64 "$python_image"
+          general_image="$(jq -er '.profiles.general[] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
+          [[ "$general_image" =~ @sha256:[0-9a-f]{64}$ ]]
+          docker pull --platform linux/amd64 "$general_image"
           cargo +1.98.1 test --locked --lib "$test_name" -- --ignored --exact --list | grep -Fx "$test_name: test"
           cargo +1.98.1 test --locked --lib \
             "$test_name" \

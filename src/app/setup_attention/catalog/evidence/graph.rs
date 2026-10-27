@@ -46,6 +46,26 @@ fn dependencies(item: &Evidence, host: HostKind) -> Vec<PrerequisiteId> {
             }
             dependencies
         }
+        Capability::DockerRootlessSmoke => {
+            let mut dependencies = vec![
+                id(Domain::Docker, host, Capability::DockerEngine, none.clone()),
+                id(
+                    Domain::Docker,
+                    host,
+                    Capability::DockerEndpoint,
+                    none.clone(),
+                ),
+            ];
+            if matches!(&prerequisite.subject, Subject::Image { .. }) {
+                dependencies.push(id(
+                    Domain::Image,
+                    host,
+                    Capability::ApprovedImage,
+                    prerequisite.subject.clone(),
+                ));
+            }
+            dependencies
+        }
         Capability::DockerEngine | Capability::DockerEndpoint if desktop_host => {
             vec![id(Domain::Host, host, Capability::DockerDesktopTrust, none)]
         }
