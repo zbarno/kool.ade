@@ -100,7 +100,11 @@ async fn start_web_preview_for_lock(
     };
     let task_name = format!("koolade-qa-service-{run}");
     let relay_name = format!("koolade-qa-relay-{run}");
-    let relay_token = format!("{:x}{:x}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
+    let relay_token = format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    );
     let result = task_service::launch_containers(
         docker,
         &spec,
