@@ -222,3 +222,5 @@ workflows.
 
 Native package build artifacts are unsigned and CI-only. They do not change the
 support matrix; see [native desktop packaging status](native-desktop-distribution.md).
+The current dated cross-platform release evidence and unverified host cells
+are tracked in the [Bootstrap release validation record](bootstrap-release-validation-2026-10-27.md).
