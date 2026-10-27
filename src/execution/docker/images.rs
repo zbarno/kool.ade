@@ -20,6 +20,9 @@ const PINNED_GO_RUNTIME: &str = "1.26.8";
 const TRUSTED_BROWSER_QA_REPOSITORY: &str = "ghcr.io/zbarno/koolade-runtime-qa-browser";
 const TRUSTED_DESKTOP_QA_REPOSITORY: &str = "ghcr.io/zbarno/koolade-runtime-qa-desktop";
 
+pub(crate) const DESKTOP_CAPACITY_PROBE_MAX_PULL_BYTES: u64 = 32 * 1024 * 1024;
+pub(crate) const DESKTOP_CAPACITY_PROBE_MAX_STORAGE_BYTES: u64 = 64 * 1024 * 1024;
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeProfile {

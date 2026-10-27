@@ -82,10 +82,15 @@ pub(super) fn probe(host: HostKind, docker: &DockerEnvironmentStatus) -> HostFac
         } else {
             State::NotApplicable
         },
-        docker_desktop_vm_trust: if desktop {
-            State::Unknown
-        } else {
+        docker_desktop_vm_trust: if !desktop {
             State::NotApplicable
+        } else if matches!(host, HostKind::MacOs | HostKind::Windows)
+            && docker.desktop_vm
+            && docker.desktop_transport_verified
+        {
+            State::Ready
+        } else {
+            State::Unknown
         },
     }
 }
@@ -169,7 +174,11 @@ pub(super) fn push(
     result.push(add(
         Capability::DockerDesktopTrust,
         facts.docker_desktop_vm_trust,
-        Code::DockerDesktopTrustUnverified,
+        if facts.docker_desktop_vm_trust == State::Ready {
+            Code::DockerDesktopTrustVerified
+        } else {
+            Code::DockerDesktopTrustUnverified
+        },
     ));
 }
 

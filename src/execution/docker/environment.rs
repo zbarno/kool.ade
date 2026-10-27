@@ -11,7 +11,7 @@ use super::{
     discovery::{EngineReadiness, PrerequisiteCode, PrerequisiteFailure},
     engine::{DockerEndpoint, HostPlatform},
 };
-use probe::{endpoint_fingerprint, host_platform, probe};
+use probe::probe;
 use rootless_selection::persist_rootless_selection;
 
 const CACHE_TTL: Duration = Duration::from_secs(15);
@@ -28,6 +28,7 @@ fn process_endpoint(platform: HostPlatform) -> Result<DockerEndpoint, Prerequisi
     }
 }
 
+mod identity;
 mod probe;
 mod rootless_selection;
 mod staging;
@@ -70,6 +71,17 @@ pub struct DockerEnvironmentStatus {
     pub engine_ready: bool,
     pub message: String,
     pub desktop_vm: bool,
+    /// The Desktop peer or pipe and its Linux Engine passed verification.
+    /// Desktop VM capacity is checked separately by `engine_ready`.
+    #[serde(default)]
+    pub desktop_transport_verified: bool,
+    /// A dedicated Linux VM probe measured current free space.
+    #[serde(default)]
+    pub desktop_vm_capacity_verified: bool,
+    /// The application-owned task staging directory is accessible and has
+    /// enough free space for the configured minimum.
+    #[serde(default)]
+    pub workspace_staging_available: bool,
     pub daemon_version: Option<String>,
     pub architecture: Option<String>,
     pub rootless: Option<bool>,
@@ -89,10 +101,12 @@ pub struct DockerEnvironmentStatus {
 
 impl DockerEnvironmentStatus {
     pub fn detect() -> Self {
+        let current_endpoint_fingerprint = Self::current_endpoint_fingerprint();
         let cache = CACHE.get_or_init(|| Mutex::new(None));
         if let Ok(cache) = cache.lock()
             && let Some((checked_at, status)) = &*cache
             && checked_at.elapsed() < CACHE_TTL
+            && status.endpoint_fingerprint == current_endpoint_fingerprint
         {
             let mut status = status.clone();
             persist_rootless_selection(&mut status);
@@ -159,6 +173,9 @@ impl DockerEnvironmentStatus {
             engine_ready: false,
             message: failure.message,
             desktop_vm: false,
+            desktop_transport_verified: false,
+            desktop_vm_capacity_verified: false,
+            workspace_staging_available: false,
             daemon_version: None,
             architecture: None,
             rootless: None,
@@ -201,6 +218,13 @@ impl DockerEnvironmentStatus {
             engine_ready: readiness.ready,
             message,
             desktop_vm: readiness.docker_desktop,
+            desktop_transport_verified: readiness.desktop_transport_verified
+                && readiness.docker_desktop
+                && readiness.linux_containers == Some(true),
+            desktop_vm_capacity_verified: readiness.desktop_vm_capacity_verified
+                && readiness.docker_desktop
+                && readiness.desktop_transport_verified,
+            workspace_staging_available: readiness.workspace_staging_available,
             daemon_version: readiness.daemon_version,
             architecture: readiness.architecture,
             rootless: readiness.rootless,
@@ -220,82 +244,18 @@ impl DockerEnvironmentStatus {
     }
 
     pub fn local_execution_ready(&self) -> bool {
-        cfg!(target_os = "linux")
+        (cfg!(target_os = "linux")
             && self.engine_ready
             && !self.desktop_vm
             && self.rootless == Some(true)
+            && self.workspace_staging_available)
+            || (cfg!(any(target_os = "macos", target_os = "windows"))
+                && self.engine_ready
+                && self.desktop_vm
+                && self.desktop_transport_verified
+                && self.desktop_vm_capacity_verified
+                && self.workspace_staging_available)
     }
-
-    pub(crate) fn readiness_fingerprint(&self) -> String {
-        use sha2::Digest as _;
-
-        let mut available_images = self
-            .available_images
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        available_images.sort_unstable();
-        available_images.dedup();
-        let binding = (
-            self.state,
-            self.engine_ready,
-            self.desktop_vm,
-            &self.daemon_version,
-            &self.architecture,
-            self.rootless,
-            self.cpu_limits,
-            self.memory_limits,
-            self.pids_limit,
-            self.cgroups_supported,
-            available_images,
-            self.disk_available_bytes,
-            &self.daemon_identity_fingerprint,
-        );
-        let encoded = serde_json::to_vec(&binding).expect("Docker readiness facts serialize");
-        format!("{:x}", sha2::Sha256::digest(encoded))
-    }
-
-    /// Stable identity for image task IDs and receipts. The daemon ID is
-    /// already reduced to a hash by the probe; readiness and image inventory
-    /// are intentionally excluded so a pull does not change the task key.
-    pub(crate) fn engine_identity_fingerprint(&self) -> Option<String> {
-        use sha2::Digest as _;
-
-        if !self.engine_ready {
-            return None;
-        }
-        let endpoint = process_endpoint(probe::host_platform()).ok()?.fingerprint();
-        let daemon = self.daemon_identity_fingerprint.as_deref()?;
-        if !is_sha256_hex(&endpoint) || !is_sha256_hex(daemon) {
-            return None;
-        }
-        let identity =
-            serde_json::to_vec(&("koolade-engine-identity-v1", endpoint, daemon)).ok()?;
-        Some(format!("{:x}", sha2::Sha256::digest(identity)))
-    }
-
-    pub(crate) fn current_endpoint_fingerprint() -> Option<String> {
-        let endpoint = process_endpoint(host_platform()).ok()?;
-        Some(endpoint_fingerprint(
-            &endpoint,
-            std::env::var("DOCKER_CONTEXT").ok().as_deref(),
-            std::env::var("DOCKER_HOST").ok().as_deref(),
-        ))
-    }
-
-    /// Stable normalized endpoint identity, independent of shell overrides
-    /// that resolve to the same trusted local socket.
-    pub(crate) fn current_endpoint_identity_fingerprint() -> Option<String> {
-        let endpoint = process_endpoint(host_platform()).ok()?;
-        Some(endpoint.fingerprint())
-    }
-}
-
-fn is_sha256_hex(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 #[cfg(test)]

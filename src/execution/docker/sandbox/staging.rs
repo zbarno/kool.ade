@@ -1,6 +1,8 @@
 //! Bounded task-clone staging and optimistic change synchronization.
 mod archive;
 mod artifacts;
+#[cfg(any(windows, test))]
+mod bounded_child;
 mod failure;
 mod reviewed;
 mod sync;
@@ -85,7 +87,7 @@ impl WorkspaceSnapshot {
                     "Persisted workspace baseline escapes its scoped write grant",
                 ));
             }
-            if path == std::path::Path::new(".git") || path.starts_with(".git") {
+            if archive::contains_git_metadata(&path) {
                 return Err(failure(
                     "Persisted workspace baseline includes Git metadata",
                 ));
@@ -127,12 +129,19 @@ pub(crate) fn capture(
 ) -> Result<WorkspaceSnapshot, ExecutionError> {
     workspace.revalidate()?;
     let limit = budget.min(MAX_STAGED_BYTES);
-    archive::capture(workspace.root(), limit, read_only, MAX_ENTRIES)
-        .map(|mut snapshot| {
-            snapshot.scope_root = None;
-            snapshot
-        })
-        .map_err(|_| failure("Workspace cannot be staged safely within its size limit"))
+    archive::capture(
+        workspace.root(),
+        workspace.root_identity(),
+        None,
+        limit,
+        read_only,
+        MAX_ENTRIES,
+    )
+    .map(|mut snapshot| {
+        snapshot.scope_root = None;
+        snapshot
+    })
+    .map_err(|_| failure("Workspace cannot be staged safely within its size limit"))
 }
 
 /// Capture the controller apply baseline using only files staged to a remote
@@ -148,6 +157,8 @@ pub(crate) fn capture_remote(
     let limit = budget.min(MAX_STAGED_BYTES);
     archive::capture_excluding(
         workspace.root(),
+        workspace.root_identity(),
+        None,
         limit,
         read_only,
         MAX_ENTRIES,
@@ -166,9 +177,29 @@ pub(crate) fn capture_scoped(
     budget: u64,
 ) -> Result<WorkspaceSnapshot, ExecutionError> {
     workspace.revalidate()?;
-    let scope = checked_scope(workspace.root(), root_relative)?;
     let limit = budget.min(MAX_STAGED_BYTES);
-    let mut snapshot = archive::capture(&scope, limit, false, MAX_ENTRIES).map_err(|error| {
+    #[cfg(windows)]
+    let captured = archive::capture(
+        workspace.root(),
+        workspace.root_identity(),
+        Some(std::path::Path::new(root_relative)),
+        limit,
+        false,
+        MAX_ENTRIES,
+    );
+    #[cfg(not(windows))]
+    let captured = {
+        checked_scope(workspace.root(), root_relative)?;
+        archive::capture(
+            workspace.root(),
+            workspace.root_identity(),
+            Some(std::path::Path::new(root_relative)),
+            limit,
+            false,
+            MAX_ENTRIES,
+        )
+    };
+    let mut snapshot = captured.map_err(|error| {
         failure(&format!(
             "Scoped workspace cannot be staged safely: {}",
             scoped_capture_failure_reason(&error)
@@ -210,9 +241,10 @@ fn checked_scope(root: &std::path::Path, relative: &str) -> Result<PathBuf, Exec
     let path = PathBuf::from(relative);
     if relative.is_empty()
         || relative.contains('\\')
-        || path.components().any(|part| {
-            !matches!(part, std::path::Component::Normal(_)) || part.as_os_str() == ".git"
-        })
+        || path
+            .components()
+            .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        || archive::contains_git_metadata(&path)
     {
         return Err(failure("Scoped workspace path is invalid"));
     }

@@ -249,7 +249,13 @@ fn host_evidence_code(capability: Capability, state: EvidenceState) -> EvidenceC
             _ => EvidenceCode::HostCapabilityNotProbed,
         },
         Capability::Wsl2 | Capability::Virtualization => EvidenceCode::HostCapabilityNotProbed,
-        Capability::DockerDesktopTrust => EvidenceCode::DockerDesktopTrustUnverified,
+        Capability::DockerDesktopTrust => {
+            if state == EvidenceState::Ready {
+                EvidenceCode::DockerDesktopTrustVerified
+            } else {
+                EvidenceCode::DockerDesktopTrustUnverified
+            }
+        }
         _ => EvidenceCode::HostCapabilityNotProbed,
     }
 }

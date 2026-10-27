@@ -21,10 +21,18 @@ pub(super) fn scan_state(
 ) -> catalog::ImageScanState {
     let required_profiles = store.required_image_profiles.clone();
     let mut smoke_verified_profiles = BTreeSet::new();
-    if host == HostKind::Linux
+    let linux_ready = host == HostKind::Linux
         && docker.engine_ready
         && !docker.desktop_vm
-        && docker.rootless == Some(true)
+        && docker.rootless == Some(true);
+    let desktop_ready = matches!(host, HostKind::MacOs | HostKind::Windows)
+        && docker.engine_ready
+        && docker.desktop_vm
+        && docker.desktop_transport_verified
+        && docker.desktop_vm_capacity_verified
+        && docker.workspace_staging_available
+        && docker.disk_available_bytes.is_some();
+    if (linux_ready || desktop_ready)
         && let (Some(architecture), Some(engine_identity)) = (
             docker
                 .architecture

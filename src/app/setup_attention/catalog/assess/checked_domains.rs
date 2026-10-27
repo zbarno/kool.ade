@@ -58,6 +58,10 @@ pub(super) fn collect(inputs: Inputs<'_>) -> Vec<String> {
     if matches!(host, HostKind::MacOs | HostKind::Windows)
         && docker.desktop_vm
         && docker.engine_ready
+        && docker.desktop_transport_verified
+        && docker.desktop_vm_capacity_verified
+        && docker.workspace_staging_available
+        && docker.disk_available_bytes.is_some()
         && matches!(
             docker.state,
             crate::execution::docker::environment::DockerEnvironmentState::MissingApprovedImage

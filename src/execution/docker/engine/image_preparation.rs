@@ -1,9 +1,11 @@
 use super::{EngineDiscovery, ImagePullControl, approval_fingerprint, failure, operation_timeout};
-use crate::execution::docker::images::{ImageLock, SelectedImage};
+use crate::execution::docker::images::{ImageLock, RuntimeProfile, SelectedImage};
 use crate::{
     app::{bootstrap_approval::ApprovedAction, bootstrap_repair_policy::Operation},
     execution::docker::discovery::{PrerequisiteCode, PrerequisiteFailure},
 };
+
+mod capacity;
 
 impl EngineDiscovery {
     /// Pull only after rechecking the consent-bound daemon identity. The
@@ -18,7 +20,9 @@ impl EngineDiscovery {
         if control.is_cancelled() {
             return Err(cancelled());
         }
-        let snapshot = self.inspect_snapshot().await?;
+        let snapshot = self
+            .inspect_snapshot_for_image_preparation(image.profile)
+            .await?;
         let actual_identity = crate::app::bootstrap_approval::engine_identity_fingerprint(
             &self.endpoint().fingerprint(),
             &snapshot.daemon_id,
@@ -51,14 +55,36 @@ impl EngineDiscovery {
                 true,
             ));
         }
-        verify_image_storage_capacity(image, &snapshot)?;
+        if authorization.capacity_probe_required() {
+            if image.profile != RuntimeProfile::General
+                || !self.desktop_transport_candidate
+                || !self.endpoint().is_desktop()
+                || !snapshot.docker_desktop
+                || snapshot.docker_storage_accessible
+                || snapshot.disk_available_bytes.is_some()
+            {
+                return Err(failure(
+                    PrerequisiteCode::UntrustedEndpoint,
+                    "The approved Desktop capacity bootstrap no longer matches the verified engine state",
+                    true,
+                ));
+            }
+        } else {
+            verify_image_storage_capacity(image, &snapshot)?;
+        }
         if control.is_cancelled() {
             return Err(cancelled());
         }
         let observed = tokio::time::timeout(
             self.timeouts.image_preparation,
-            self.api
-                .ensure_image_with_control(image, authorization.engine_fingerprint(), control),
+            self.api.ensure_image_with_control(
+                image,
+                authorization.engine_fingerprint(),
+                snapshot
+                    .disk_available_bytes
+                    .filter(|_| snapshot.docker_storage_accessible),
+                control,
+            ),
         )
         .await
         .map_err(|_| operation_timeout("approved runtime image preparation"))??;
@@ -74,13 +100,19 @@ fn verify_image_storage_capacity(
     snapshot: &super::EngineSnapshot,
 ) -> Result<(), PrerequisiteFailure> {
     let estimate = ImageLock::bundled()?.size_estimate(image.profile, &snapshot.architecture)?;
-    let available = snapshot.disk_available_bytes.ok_or_else(|| {
-        failure(
-            PrerequisiteCode::InsufficientDisk,
-            "Docker image storage capacity could not be verified before the approved pull",
-            false,
-        )
-    })?;
+    let available = match snapshot
+        .disk_available_bytes
+        .filter(|_| snapshot.docker_storage_accessible)
+    {
+        Some(available) => available,
+        None => {
+            return Err(failure(
+                PrerequisiteCode::InsufficientDisk,
+                "Docker image storage capacity could not be verified before the approved pull",
+                false,
+            ));
+        }
+    };
     let required = snapshot
         .minimum_disk_bytes
         .checked_add(estimate.estimated_storage_bytes)

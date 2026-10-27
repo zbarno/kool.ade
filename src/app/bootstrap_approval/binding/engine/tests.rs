@@ -1,6 +1,7 @@
+use crate::app::bootstrap_repair_policy::Host;
 use crate::execution::docker::images::RuntimeProfile;
 
-use super::{approved_runtime_profile, requires_rootless_readiness_receipt};
+use super::smoke::{approved_runtime_profile, requires_rootless_readiness_receipt};
 
 #[test]
 fn shared_image_profiles_prepare_but_only_general_records_rootless_readiness() {
@@ -14,11 +15,19 @@ fn shared_image_profiles_prepare_but_only_general_records_rootless_readiness() {
         let profile = approved_runtime_profile(Some(name)).expect("supported image profile");
         assert_eq!(profile, expected);
         assert_eq!(
-            requires_rootless_readiness_receipt(profile),
+            requires_rootless_readiness_receipt(profile, Host::Linux),
             profile == RuntimeProfile::General
         );
     }
 
     assert_eq!(approved_runtime_profile(None), None);
     assert_eq!(approved_runtime_profile(Some("browser_qa")), None);
+    assert!(!requires_rootless_readiness_receipt(
+        RuntimeProfile::General,
+        Host::MacOs
+    ));
+    assert!(!requires_rootless_readiness_receipt(
+        RuntimeProfile::General,
+        Host::Windows
+    ));
 }
