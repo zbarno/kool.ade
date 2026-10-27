@@ -1,9 +1,10 @@
-use std::mem::{offset_of, size_of, zeroed};
+use std::mem::{align_of, offset_of, size_of, zeroed};
 
 use windows_sys::Win32::{
     Security::{
         ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, ACL_SIZE_INFORMATION, AclSizeInformation, GetAce,
-        GetAclInformation, IsWellKnownSid, PSID, WinBuiltinAdministratorsSid, WinLocalSystemSid,
+        GetAclInformation, GetSecurityDescriptorLength, IsWellKnownSid, PSECURITY_DESCRIPTOR, PSID,
+        WinBuiltinAdministratorsSid, WinLocalSystemSid,
     },
     System::SystemServices::{
         ACCESS_ALLOWED_ACE_TYPE, ACCESS_ALLOWED_CALLBACK_ACE_TYPE,
@@ -14,14 +15,72 @@ use windows_sys::Win32::{
 
 use super::verify_sid;
 
-pub fn verify_no_untrusted_delete_rights(dacl: *mut ACL, current_user: PSID) -> anyhow::Result<()> {
+pub fn verify_no_untrusted_delete_rights(
+    descriptor: PSECURITY_DESCRIPTOR,
+    dacl: *mut ACL,
+    current_user: PSID,
+) -> anyhow::Result<()> {
     use windows_sys::Win32::Storage::FileSystem::{
         DELETE, FILE_DELETE_CHILD, WRITE_DAC, WRITE_OWNER,
     };
 
     anyhow::ensure!(
-        !dacl.is_null() && !current_user.is_null(),
+        !descriptor.is_null() && !dacl.is_null() && !current_user.is_null(),
         "machine setup ancestor ACL is incomplete"
+    );
+    let descriptor_length = unsafe { GetSecurityDescriptorLength(descriptor) } as usize;
+    anyhow::ensure!(
+        descriptor_length >= size_of::<windows_sys::Win32::Security::SECURITY_DESCRIPTOR>()
+            && descriptor_length <= isize::MAX as usize,
+        "machine setup ancestor security descriptor has an invalid size"
+    );
+    let descriptor_start = descriptor as usize;
+    let descriptor_end = descriptor_start
+        .checked_add(descriptor_length)
+        .ok_or_else(|| anyhow::anyhow!("machine setup ancestor descriptor size overflowed"))?;
+    // SAFETY: GetSecurityInfo succeeded and returned this LocalFree-owned
+    // descriptor. GetSecurityDescriptorLength reports its complete allocation.
+    let descriptor_bytes =
+        unsafe { std::slice::from_raw_parts(descriptor.cast::<u8>(), descriptor_length) };
+    let dacl_start = dacl as usize;
+    anyhow::ensure!(
+        dacl_start.is_multiple_of(align_of::<ACL>()),
+        "machine setup ancestor DACL is misaligned"
+    );
+    let dacl_offset = dacl_start
+        .checked_sub(descriptor_start)
+        .ok_or_else(|| anyhow::anyhow!("machine setup ancestor DACL is outside its descriptor"))?;
+    let dacl_header_end = dacl_offset
+        .checked_add(size_of::<ACL>())
+        .ok_or_else(|| anyhow::anyhow!("machine setup ancestor DACL header size overflowed"))?;
+    let dacl_header = descriptor_bytes
+        .get(dacl_offset..dacl_header_end)
+        .ok_or_else(|| {
+            anyhow::anyhow!("machine setup ancestor DACL header is outside its descriptor")
+        })?;
+    let acl_size_offset = offset_of!(ACL, AclSize);
+    let acl_size = usize::from(u16::from_ne_bytes([
+        dacl_header[acl_size_offset],
+        dacl_header[acl_size_offset + 1],
+    ]));
+    let ace_count_offset = offset_of!(ACL, AceCount);
+    let acl_ace_count = u32::from(u16::from_ne_bytes([
+        dacl_header[ace_count_offset],
+        dacl_header[ace_count_offset + 1],
+    ]));
+    anyhow::ensure!(
+        acl_size >= size_of::<ACL>() && acl_size.is_multiple_of(size_of::<u32>()),
+        "machine setup ancestor DACL has an invalid size"
+    );
+    let dacl_end = dacl_start
+        .checked_add(acl_size)
+        .ok_or_else(|| anyhow::anyhow!("machine setup ancestor DACL address overflowed"))?;
+    let dacl_end_offset = dacl_offset
+        .checked_add(acl_size)
+        .ok_or_else(|| anyhow::anyhow!("machine setup ancestor DACL size overflowed"))?;
+    anyhow::ensure!(
+        dacl_end <= descriptor_end && dacl_end_offset <= descriptor_bytes.len(),
+        "machine setup ancestor DACL is outside its descriptor"
     );
     let mut info: ACL_SIZE_INFORMATION = unsafe { zeroed() };
     anyhow::ensure!(
@@ -35,18 +94,24 @@ pub fn verify_no_untrusted_delete_rights(dacl: *mut ACL, current_user: PSID) -> 
         } != 0,
         "could not inspect machine setup ancestor ACL"
     );
-    let acl_size = usize::from(unsafe { (*dacl).AclSize });
     let acl_bytes_in_use = info.AclBytesInUse as usize;
+    let acl_bytes_free = info.AclBytesFree as usize;
     anyhow::ensure!(
         acl_size >= size_of::<ACL>()
             && acl_bytes_in_use >= size_of::<ACL>()
             && acl_bytes_in_use <= acl_size
-            && info.AceCount == unsafe { (*dacl).AceCount } as u32,
+            && acl_bytes_in_use.checked_add(acl_bytes_free) == Some(acl_size)
+            && info.AceCount == acl_ace_count,
         "machine setup ancestor ACL size metadata is invalid"
     );
     // SAFETY: GetSecurityInfo returned this ACL and GetAclInformation bounded
     // its initialized contents within the ACL's declared allocation.
-    let acl_bytes = unsafe { std::slice::from_raw_parts(dacl.cast::<u8>(), acl_bytes_in_use) };
+    let acl_used_end = dacl_offset
+        .checked_add(acl_bytes_in_use)
+        .ok_or_else(|| anyhow::anyhow!("machine setup ancestor DACL contents overflowed"))?;
+    let acl_bytes = descriptor_bytes
+        .get(dacl_offset..acl_used_end)
+        .ok_or_else(|| anyhow::anyhow!("machine setup ancestor DACL contents are truncated"))?;
     let mut cursor = size_of::<ACL>();
     for index in 0..info.AceCount {
         let mut raw_ace: *mut core::ffi::c_void = std::ptr::null_mut();
@@ -68,9 +133,11 @@ pub fn verify_no_untrusted_delete_rights(dacl: *mut ACL, current_user: PSID) -> 
             remaining.len() >= size_of::<ACE_HEADER>(),
             "machine setup ancestor ACL has a truncated ACE header"
         );
-        // SAFETY: the header fits in the bounded ACL byte slice above.
-        let header = unsafe { &*(raw_ace as *const ACE_HEADER) };
-        let ace_size = usize::from(header.AceSize);
+        let header_ace_size_offset = offset_of!(ACE_HEADER, AceSize);
+        let ace_size = usize::from(u16::from_ne_bytes([
+            remaining[header_ace_size_offset],
+            remaining[header_ace_size_offset + 1],
+        ]));
         anyhow::ensure!(
             ace_size >= size_of::<ACE_HEADER>()
                 && ace_size.is_multiple_of(size_of::<u32>())
@@ -78,7 +145,7 @@ pub fn verify_no_untrusted_delete_rights(dacl: *mut ACL, current_user: PSID) -> 
             "machine setup ancestor ACL has an invalid ACE size"
         );
         let ace_bytes = &remaining[..ace_size];
-        let ace_type = u32::from(header.AceType);
+        let ace_type = u32::from(ace_bytes[offset_of!(ACE_HEADER, AceType)]);
         match ace_type {
             ACCESS_ALLOWED_ACE_TYPE => {
                 anyhow::ensure!(
@@ -91,14 +158,19 @@ pub fn verify_no_untrusted_delete_rights(dacl: *mut ACL, current_user: PSID) -> 
                     .ok_or_else(|| anyhow::anyhow!("machine setup ancestor SID is truncated"))?;
                 let sid = sid_bytes.as_ptr().cast_mut().cast();
                 verify_sid(sid, sid_bytes, "machine setup ancestor ACL entry")?;
-                // SAFETY: the ACE and mask fit in the validated slice above.
-                let allow = unsafe { &*(raw_ace as *const ACCESS_ALLOWED_ACE) };
+                let mask_offset = offset_of!(ACCESS_ALLOWED_ACE, Mask);
+                let allow_mask = u32::from_ne_bytes([
+                    ace_bytes[mask_offset],
+                    ace_bytes[mask_offset + 1],
+                    ace_bytes[mask_offset + 2],
+                    ace_bytes[mask_offset + 3],
+                ]);
                 let trusted = unsafe {
                     windows_sys::Win32::Security::EqualSid(sid, current_user) != 0
                         || IsWellKnownSid(sid, WinLocalSystemSid) != 0
                         || IsWellKnownSid(sid, WinBuiltinAdministratorsSid) != 0
                 };
-                let inherit_only = u32::from(header.AceFlags)
+                let inherit_only = u32::from(ace_bytes[offset_of!(ACE_HEADER, AceFlags)])
                     & windows_sys::Win32::Security::INHERIT_ONLY_ACE
                     != 0;
                 let replace_rights = DELETE
@@ -107,7 +179,7 @@ pub fn verify_no_untrusted_delete_rights(dacl: *mut ACL, current_user: PSID) -> 
                     | WRITE_OWNER
                     | windows_sys::Win32::Foundation::GENERIC_ALL;
                 anyhow::ensure!(
-                    trusted || inherit_only || allow.Mask & replace_rights == 0,
+                    trusted || inherit_only || allow_mask & replace_rights == 0,
                     "machine setup ancestor ACL allows another principal to replace protected state"
                 );
             }

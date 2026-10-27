@@ -131,7 +131,7 @@ pub(super) fn verify_no_untrusted_delete_rights(handle: HANDLE) -> anyhow::Resul
         is_trusted_ancestor_owner(owner, current_user)?,
         "machine setup ancestor has an untrusted owner"
     );
-    acl::verify_no_untrusted_delete_rights(dacl, current_user)
+    acl::verify_no_untrusted_delete_rights(descriptor, dacl, current_user)
 }
 
 fn is_trusted_ancestor_owner(owner: PSID, current_user: PSID) -> anyhow::Result<bool> {
