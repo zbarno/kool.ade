@@ -8,6 +8,8 @@ mod orchestration;
 mod persisted_result;
 #[path = "tests/reviewer.rs"]
 mod reviewer;
+#[path = "tests/seed_findings.rs"]
+mod seed_findings;
 #[path = "tests/support.rs"]
 mod support;
 #[path = "tests/visual_review.rs"]
