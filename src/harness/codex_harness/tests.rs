@@ -62,7 +62,7 @@ struct EnvOverride {
 #[cfg(unix)]
 impl EnvOverride {
     fn set(name: &'static str, value: &std::path::Path) -> Self {
-        let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+        let mut environment = clean_codex_auth_environment();
         environment.set(name, value.as_os_str());
         Self { name, environment }
     }
@@ -70,4 +70,17 @@ impl EnvOverride {
     fn set_value(&mut self, value: &std::path::Path) {
         self.environment.set(self.name, value.as_os_str());
     }
+}
+
+#[cfg(unix)]
+fn clean_codex_auth_environment() -> crate::test_support::ProcessEnvironmentGuard {
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    for name in [
+        "OPENAI_API_KEY",
+        "OPENAI_FEDERATION_RULE_ID",
+        "OPENAI_IDENTITY_TOKEN_FILE",
+    ] {
+        environment.remove(name);
+    }
+    environment
 }

@@ -1,5 +1,6 @@
 use serde_json::{Map, Value, json};
 use std::{fs, io::Read, path::Path};
+use zeroize::{Zeroize, Zeroizing};
 
 mod managed;
 
@@ -34,17 +35,56 @@ pub(super) fn provider_settings() -> anyhow::Result<Value> {
     Ok(output)
 }
 
+pub(super) fn has_custom_provider_settings(provider: &str) -> anyhow::Result<bool> {
+    let settings = provider_settings()?;
+    Ok(settings["provider"]
+        .get(provider)
+        .and_then(Value::as_object)
+        .is_some_and(|settings| !settings.is_empty()))
+}
+
 pub(super) fn copy_auth(
     boundary: &super::super::super::ApplicationBoundary,
     home: &Path,
-    model: Option<&str>,
+    provider_settings: &Value,
+    selected_model: Option<&str>,
+    binary: Option<&Path>,
 ) -> anyhow::Result<()> {
-    let Some(provider) = model
+    let Some(provider) = selected_model
         .and_then(|model| model.split_once('/').map(|(provider, _)| provider))
         .filter(|provider| !provider.is_empty())
     else {
         return Ok(());
     };
+    if provider == "anthropic" {
+        anyhow::ensure!(
+            provider_settings["provider"][provider]
+                .as_object()
+                .is_none_or(Map::is_empty),
+            "OpenCode custom Anthropic settings cannot use the verified provider route"
+        );
+        let binary = binary.ok_or_else(|| anyhow::anyhow!("OpenCode executable is unavailable"))?;
+        let version = crate::harness::opencode_harness::cli_version(binary)
+            .map_err(|_| anyhow::anyhow!("OpenCode version is unavailable"))?;
+        let major = version
+            .split('.')
+            .next()
+            .and_then(|component| component.parse::<u64>().ok())
+            .ok_or_else(|| anyhow::anyhow!("OpenCode version is unsupported"))?;
+        if major >= 2 {
+            return match crate::harness::opencode_harness::export_api_key(binary, provider) {
+                crate::harness::opencode_harness::AuthExport::ApiKey(key) => {
+                    write_api_key_auth(boundary, home, &key)
+                }
+                crate::harness::opencode_harness::AuthExport::NoSavedCredential => {
+                    anyhow::bail!("OpenCode has no saved Anthropic API key")
+                }
+                crate::harness::opencode_harness::AuthExport::Unsupported => {
+                    anyhow::bail!("OpenCode Anthropic credentials could not be exported safely")
+                }
+            };
+        }
+    }
     let data_home = std::env::var_os("XDG_DATA_HOME")
         .map(Into::into)
         .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".local/share")));
@@ -66,6 +106,37 @@ pub(super) fn copy_auth(
             .ok_or_else(|| anyhow::anyhow!("OpenCode auth path is not valid UTF-8"))?,
         &value,
     )?;
+    Ok(())
+}
+
+fn write_api_key_auth(
+    boundary: &super::super::super::ApplicationBoundary,
+    home: &Path,
+    key: &str,
+) -> anyhow::Result<()> {
+    #[derive(serde::Serialize)]
+    struct ApiCredential<'a> {
+        #[serde(rename = "type")]
+        kind: &'static str,
+        key: &'a str,
+    }
+    #[derive(serde::Serialize)]
+    struct AuthFile<'a> {
+        anthropic: ApiCredential<'a>,
+    }
+
+    let destination = home.join(".local/share/opencode/auth.json");
+    let relative = destination.strip_prefix(&boundary.scratch.path)?;
+    let mut contents = Zeroizing::new(serde_json::to_vec(&AuthFile {
+        anthropic: ApiCredential { kind: "api", key },
+    })?);
+    boundary.scratch.write_file(
+        relative
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("OpenCode auth path is not valid UTF-8"))?,
+        &contents,
+    )?;
+    contents.zeroize();
     Ok(())
 }
 
@@ -217,34 +288,5 @@ fn strip_jsonc(text: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn auth_profile_contains_only_the_selected_model_provider() {
-        let auth = json!({
-            "anthropic": { "type": "api", "key": "selected-synthetic-token" },
-            "openai": { "type": "api", "key": "unselected-synthetic-token" },
-        });
-        let profile = selected_auth(&auth, "anthropic").unwrap();
-        assert_eq!(profile["anthropic"]["key"], "selected-synthetic-token");
-        assert!(profile.get("openai").is_none());
-        assert_eq!(profile.as_object().unwrap().len(), 1);
-        assert!(selected_auth(&auth, "missing-provider").is_none());
-    }
-
-    #[test]
-    fn jsonc_parser_preserves_comment_markers_in_strings_and_strips_trailing_commas() {
-        let config = parse_config(
-            r#"{ // comment
-            "model": "provider/model//v1",
-            "provider": { "custom": { "npm": "unsafe", "options": {}, }, },
-        }"#,
-        )
-        .unwrap();
-        assert_eq!(config["model"], "provider/model//v1");
-        let mut output = json!({ "provider": {} });
-        merge_provider_values(&mut output, config);
-        assert!(output["provider"]["custom"].get("npm").is_none());
-    }
-}
+#[path = "config/tests.rs"]
+mod tests;

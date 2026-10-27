@@ -1,11 +1,11 @@
 //! Operator-local discovery and default selection for coding harnesses.
 
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, path::Path};
+use std::collections::BTreeMap;
 
 const FILE: &str = "harness-settings.json";
 pub const DISCOVERY_FRESHNESS_MS: u64 = 15 * 60 * 1000;
-const CURRENT_SCHEMA_VERSION: u8 = 4;
+const CURRENT_SCHEMA_VERSION: u8 = 5;
 
 #[cfg(test)]
 thread_local! {
@@ -42,6 +42,9 @@ thread_local! {
 pub struct HarnessSettings {
     pub schema_version: u8,
     pub default_harness: Option<String>,
+    /// Provider the operator chose to guide machine setup. This does not select
+    /// a default coding route or authorize project execution.
+    pub bootstrap_provider: Option<String>,
     /// Extensible category identifiers mapped to locally available harnesses.
     pub work_routes: BTreeMap<String, WorkRoute>,
     pub discovered: BTreeMap<String, DetectedHarness>,
@@ -172,6 +175,54 @@ impl DetectedHarness {
                 .as_ref()
                 .is_some_and(|snapshot| snapshot.supports_role(role))
     }
+
+    pub fn supports_context_only_planning_at(&self, now_unix_ms: u64) -> bool {
+        self.is_fresh_at(now_unix_ms)
+            && self
+                .capability_snapshot
+                .as_ref()
+                .is_some_and(|snapshot| snapshot.supports_context_only_planning())
+    }
+
+    pub fn supports_role_or_context_only_planning_at(
+        &self,
+        role: crate::execution::contract::HarnessRole,
+        now_unix_ms: u64,
+    ) -> bool {
+        self.supports_role_at(role, now_unix_ms)
+            || (role == crate::execution::contract::HarnessRole::PlanningAnalyst
+                && self.supports_context_only_planning_at(now_unix_ms))
+    }
+
+    pub fn has_current_model_catalog_at(&self, provider_id: &str, now_unix_ms: u64) -> bool {
+        self.is_fresh_at(now_unix_ms)
+            && self.model_catalog_fresh
+            && self.capability_snapshot.as_ref().is_some_and(|snapshot| {
+                snapshot.provider_id == provider_id
+                    && snapshot.validate().is_ok()
+                    && snapshot.model_catalog == crate::execution::contract::ReadinessState::Ready
+            })
+    }
+
+    pub fn has_verified_model_at(&self, provider_id: &str, model: &str, now_unix_ms: u64) -> bool {
+        !model.trim().is_empty()
+            && self.has_current_model_catalog_at(provider_id, now_unix_ms)
+            && self.models.iter().any(|available| available == model)
+    }
+
+    pub fn verified_default_model_at(&self, provider_id: &str, now_unix_ms: u64) -> Option<&str> {
+        self.default_model
+            .as_deref()
+            .filter(|model| self.has_verified_model_at(provider_id, model, now_unix_ms))
+    }
+
+    pub fn has_any_verified_model_at(&self, provider_id: &str, now_unix_ms: u64) -> bool {
+        self.has_current_model_catalog_at(provider_id, now_unix_ms)
+            && self
+                .models
+                .iter()
+                .any(|model| self.has_verified_model_at(provider_id, model, now_unix_ms))
+    }
 }
 
 pub fn current_unix_ms() -> u64 {
@@ -182,106 +233,13 @@ pub fn current_unix_ms() -> u64 {
         .min(u64::MAX as u128) as u64
 }
 
-/// Absolute path of the persisted harness settings.
-///
-/// In test builds this is fail-closed with respect to the operator's live
-/// store. Resolution layers:
-/// 1. An explicit test-thread override from [`with_settings_path`].
-/// 2. A test process that exported `KOOLADE_HOME` (the documented env-
-///    isolation lever), which `state_root` already honors.
-/// 3. Otherwise a uniquely named per-thread temporary directory created on
-///    first use, so ambient suites can never touch the live store.
-pub fn settings_path() -> std::path::PathBuf {
-    #[cfg(test)]
-    if let Some(path) = SETTINGS_PATH_OVERRIDE.with(|path| path.borrow().clone()) {
-        return path;
-    }
-    #[cfg(test)]
-    if std::env::var_os("KOOLADE_HOME")
-        .filter(|value| !value.is_empty())
-        .is_some()
-    {
-        return crate::persistence::state_root().join(FILE);
-    }
-    #[cfg(test)]
-    {
-        return TEST_STORE_FALLBACK.with(|fallback| {
-            fallback
-                .borrow_mut()
-                .get_or_insert_with(|| {
-                    let unique = std::env::temp_dir()
-                        .join("koolade-harness-settings-test")
-                        .join(uuid::Uuid::new_v4().simple().to_string());
-                    let _ = std::fs::create_dir_all(&unique);
-                    unique.join(FILE)
-                })
-                .clone()
-        });
-    }
-    // Plain production path; the layers above make this expression
-    // unreachable in test builds, hence the narrow allowance.
-    #[cfg_attr(test, allow(unreachable_code))]
-    {
-        crate::persistence::state_root().join(FILE)
-    }
-}
-
-pub fn load() -> (HarnessSettings, Option<String>) {
-    load_from(&settings_path())
-}
-
-fn load_from(path: &Path) -> (HarnessSettings, Option<String>) {
-    match std::fs::read(path) {
-        Ok(bytes) => match serde_json::from_slice::<HarnessSettings>(&bytes) {
-            Ok(mut settings) if (1..=CURRENT_SCHEMA_VERSION).contains(&settings.schema_version) => {
-                if settings.schema_version < CURRENT_SCHEMA_VERSION {
-                    // Before schema 4, successful executable probes were also
-                    // persisted as positive authentication evidence. That
-                    // inference is not valid; force a fresh provider auth probe.
-                    for detected in settings.discovered.values_mut() {
-                        if let Some(snapshot) = detected.capability_snapshot.as_mut() {
-                            snapshot.authentication =
-                                crate::execution::contract::ReadinessState::Unknown;
-                        }
-                    }
-                }
-                settings.schema_version = CURRENT_SCHEMA_VERSION;
-                (settings, None)
-            }
-            Ok(settings) => (
-                HarnessSettings::default(),
-                Some(format!(
-                    "Unsupported harness settings version {} in {}",
-                    settings.schema_version,
-                    path.display()
-                )),
-            ),
-            Err(error) => (
-                HarnessSettings::default(),
-                Some(format!("Could not read {}: {error}", path.display())),
-            ),
-        },
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            (HarnessSettings::default(), None)
-        }
-        Err(error) => (
-            HarnessSettings::default(),
-            Some(format!("Could not read {}: {error}", path.display())),
-        ),
-    }
-}
-
-pub fn save(settings: &HarnessSettings) -> anyhow::Result<()> {
-    save_to(&settings_path(), settings)
-}
-
-fn save_to(path: &Path, settings: &HarnessSettings) -> anyhow::Result<()> {
-    let mut next = settings.clone();
-    next.schema_version = CURRENT_SCHEMA_VERSION;
-    let json = serde_json::to_string_pretty(&next)?;
-    crate::artifacts::atomic_write(path, &json)
-}
+mod storage;
+pub use storage::{load, save, settings_path};
+#[cfg(test)]
+use storage::{load_from, save_to};
 
 #[cfg(test)]
 #[path = "harness_settings/tests.rs"]
 mod tests;
+
+mod migration;

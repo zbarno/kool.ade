@@ -22,6 +22,10 @@ const PROVIDERS: [(&str, ProviderIdV1); 6] = [
 fn installed(probe: &ProbeResult, generation: u64) -> (State, Code) {
     if probe.run_generation != generation {
         (State::Stale, Code::StaleProbeGeneration)
+    } else if probe.diagnostic_code
+        == Some(crate::harness::discovery::ProbeDiagnosticCode::ExecutableInvalid)
+    {
+        (State::Failed, Code::ProviderPathInvalid)
     } else if probe.binary_path.is_some() {
         (State::Ready, Code::ProviderInstalled)
     } else if probe.status == ProbeStatus::Failed {
@@ -66,6 +70,10 @@ pub(super) fn push(
         result.push(add(Capability::ProviderExecutable, state, code));
         let (state, code) = if stale {
             (State::Stale, Code::StaleProbeGeneration)
+        } else if probe.diagnostic_code
+            == Some(crate::harness::discovery::ProbeDiagnosticCode::UnsupportedVersion)
+        {
+            (State::Failed, Code::ProviderVersionUnsupported)
         } else if probe.version.is_some() {
             (State::Ready, Code::ProviderVersionDetected)
         } else if probe.status == ProbeStatus::Failed {

@@ -160,6 +160,7 @@ fn source(with_smoke: bool) -> Source {
                 scan_generation: GENERATION,
                 scan_started_at_unix_ms: 1,
                 host: setup::HostKind::Linux,
+                setup_provider: None,
                 selected_provider: None,
                 checked_at_unix_ms: 100,
                 capability_matrix: setup::HostCapabilityMatrixV1 {
@@ -189,6 +190,7 @@ fn source(with_smoke: bool) -> Source {
             endpoint_fingerprint: Some(ENDPOINT.into()),
             daemon_identity_fingerprint: Some(DAEMON.into()),
             docker_readiness_fingerprint: Some(READINESS.into()),
+            setup_provider: None,
             selected_provider: None,
             cancelled: false,
         },

@@ -107,7 +107,7 @@ pub(crate) fn validate_task_routes(
         let role = role_for_work_category(category).ok_or_else(|| {
             format!("Task work category '{category}' has no supported harness role")
         })?;
-        if !detected.supports_role_at(
+        if !detected.supports_role_or_context_only_planning_at(
             role,
             crate::persistence::harness_settings::current_unix_ms(),
         ) {
@@ -125,12 +125,32 @@ pub(crate) fn validate_task_routes(
                 route.harness
             ));
         }
-        if let Some(model) = route.model.as_deref()
-            && (!detected.model_catalog_fresh
-                || !detected.models.iter().any(|available| available == model))
+        let selected_model = route
+            .model
+            .as_deref()
+            .filter(|model| !model.trim().is_empty());
+        if let Some(model) = selected_model
+            && !detected.has_verified_model_at(
+                &route.harness,
+                model,
+                crate::persistence::harness_settings::current_unix_ms(),
+            )
         {
             return Err(format!(
                 "Model '{model}' is unavailable for harness '{}'",
+                route.harness
+            ));
+        }
+        if selected_model.is_none()
+            && detected
+                .verified_default_model_at(
+                    &route.harness,
+                    crate::persistence::harness_settings::current_unix_ms(),
+                )
+                .is_none()
+        {
+            return Err(format!(
+                "Harness '{}' has no verified default model; choose a model from its fresh catalog",
                 route.harness
             ));
         }

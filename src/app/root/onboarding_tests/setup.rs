@@ -170,6 +170,7 @@ fn a_slow_setup_probe_keeps_the_welcome_board_renderable() {
             endpoint_fingerprint: None,
             daemon_identity_fingerprint: None,
             docker_readiness_fingerprint: None,
+            setup_provider: None,
             selected_provider: None,
             cancelled: true,
         })

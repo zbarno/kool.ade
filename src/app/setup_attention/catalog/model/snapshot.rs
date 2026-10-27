@@ -50,6 +50,9 @@ pub struct MachineSnapshotV1 {
     /// an older slow scan that finishes after a newer scan.
     pub scan_started_at_unix_ms: u64,
     pub host: HostKind,
+    /// Provider explicitly chosen to guide machine setup. This is separate
+    /// from the selected default used for project routing.
+    pub setup_provider: Option<ProviderIdV1>,
     pub selected_provider: Option<ProviderIdV1>,
     pub checked_at_unix_ms: u64,
     pub capability_matrix: HostCapabilityMatrixV1,
@@ -61,7 +64,7 @@ pub struct MachineSnapshotV1 {
 }
 
 impl MachineSnapshotV1 {
-    pub const SCHEMA_VERSION: u8 = 1;
+    pub const SCHEMA_VERSION: u8 = 2;
 
     pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(

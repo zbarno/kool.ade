@@ -144,6 +144,10 @@ pub trait Surface {
         planning_board::ViewModel::default()
     }
     fn setup_image_preparation(&mut self, _ui: &mut egui::Ui, _prerequisite_id: &str) {}
+    fn supports_provider_install(&self, _task_id: &str) -> bool {
+        false
+    }
+    fn setup_provider_install(&mut self, _ui: &mut egui::Ui, _task_id: &str) {}
     fn bootstrap_conversation(
         &mut self,
         _task_id: &str,

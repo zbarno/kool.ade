@@ -103,18 +103,18 @@ fn runtime_qa_reviewer_dispatch_uses_a_fresh_toolless_context() {
 }
 
 #[test]
-fn application_boundary_accepts_supported_clis_and_rejects_unknown_providers() {
+fn application_boundary_blocks_uncontained_clis_across_every_mode() {
     for mode in ExecutionMode::ALL {
         let request = planning_request(mode);
-        for provider in [
-            "pi",
-            "codex",
-            "claude",
-            "opencode",
-            "copilot",
-            "antigravity",
-        ] {
+        for provider in ["pi", "opencode", "copilot", "antigravity"] {
             require_application_implementation_boundary(provider, &request).unwrap();
+        }
+        for provider in ["codex", "Codex CLI", "claude", "Claude Code"] {
+            let error = require_application_implementation_boundary(provider, &request)
+                .unwrap_err()
+                .detail();
+            assert!(error.contains("task execution is unavailable"), "{error}");
+            assert!(error.contains("No CLI was started"), "{error}");
         }
         let error = require_application_implementation_boundary("unsupported", &request)
             .unwrap_err()
@@ -139,10 +139,18 @@ fn providers_fail_closed_when_the_application_cannot_prepare_a_workspace() {
     ];
     for (name, provider) in providers {
         let error = provider.execute(&request).unwrap_err().detail();
-        assert!(
-            error.contains("sandbox") || error.contains("resource broker"),
-            "{name}: {error}"
-        );
+        if name == "Codex" {
+            assert!(
+                error.contains("organization-managed hooks"),
+                "{name}: {error}"
+            );
+            assert!(error.contains("No CLI was started"), "{name}: {error}");
+        } else {
+            assert!(
+                error.contains("sandbox") || error.contains("resource broker"),
+                "{name}: {error}"
+            );
+        }
     }
 }
 

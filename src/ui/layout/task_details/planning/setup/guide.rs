@@ -1,6 +1,8 @@
 use crate::{app::setup_attention::catalog::HostKind, persistence::setup_tasks::LocalTask};
 
+mod instructions;
 mod macos;
+mod providers;
 
 pub(super) fn plain_title(task: &LocalTask) -> String {
     match task.id.as_str() {
@@ -64,9 +66,20 @@ pub(super) fn paint(ui: &mut egui::Ui, task: &LocalTask, host: HostKind) {
     ui.add_space(crate::ui::theme::spacing::M);
     ui.label(crate::ui::theme::section_heading("Setup guide"));
     ui.label(summary(task));
+    if let Some((provider, stage)) = providers::provider_task(task) {
+        providers::paint_progress(ui, task, provider);
+        ui.label(provider.install_note(host));
+        ui.label(crate::ui::theme::helper_text(
+            provider.install_channel_note(host),
+        ));
+        ui.label(provider_task_guidance(provider, stage));
+        ui.label("Provider accounts, plans, and model usage terms vary. Review the vendor's account and pricing terms before signing in; Kool.ad/e does not enroll you or make purchases.");
+        ui.label("Complete sign-in and model choices on the provider's own surface. Do not paste passwords, tokens, API keys, or browser data into Kool.ad/e.");
+    }
     ui.add_space(crate::ui::theme::spacing::M);
     ui.label(crate::ui::theme::section_heading("What to do"));
-    for (index, step) in steps(task, host).iter().enumerate() {
+    let rendered_steps = rendered_steps(task, host);
+    for (index, step) in rendered_steps.iter().enumerate() {
         ui.horizontal_top(|ui| {
             crate::ui::theme::badge(
                 ui,
@@ -131,154 +144,44 @@ pub(super) fn humanize_prerequisite(id: &str) -> String {
 }
 
 pub(super) fn steps(task: &LocalTask, host: HostKind) -> &'static [&'static str] {
-    match task.id.as_str() {
-        "setup:docker:install" => match host {
-            HostKind::Linux => &[
-                "Open Docker's installation guide for your Linux distribution.",
-                "Choose Docker Engine and follow the rootless setup steps for your account.",
-                "Return here and choose Check again when the service is ready.",
-            ],
-            HostKind::MacOs => &[
-                "Install Docker Desktop using Docker's Mac guide.",
-                "Open Docker Desktop and wait for its Linux environment to start.",
-                "Return here and choose Check again.",
-            ],
-            HostKind::Windows => &[
-                "Install Docker Desktop using Docker's Windows guide.",
-                "Use the Linux container backend. WSL 2 setup may ask for one-time Windows approval.",
-                "Start Docker Desktop, then choose Check again.",
-            ],
-            HostKind::Unsupported => &[
-                "Kool.ad/e has not certified coding-task execution on this operating system.",
-                "Choose a supported operating system before enabling coding tasks.",
-            ],
-        },
-        "setup:docker:start" => match host {
-            HostKind::MacOs => &[
-                "Open Docker Desktop from Applications.",
-                "Wait until Docker Desktop says it is running, then choose Check again.",
-            ],
-            HostKind::Windows => &[
-                "Open Docker Desktop from the Start menu.",
-                "Wait until Docker Desktop says it is running, then choose Check again.",
-            ],
-            HostKind::Linux => &[
-                "Open your system's service manager and start the Docker service for your user.",
-                "Return here and choose Check again after the service is ready.",
-            ],
-            HostKind::Unsupported => {
-                &["Coding-task execution is not supported on this operating system."]
-            }
-        },
-        "setup:docker:rootless" => &[
-            "Set Docker up to run under your Linux account.",
-            "Do not grant Docker administrator-level access just to pass this check.",
-            "Choose Check again after the service is ready.",
-        ],
-        "setup:docker:permission" => &[
-            "Confirm that the selected service belongs to this machine and your account.",
-            "Avoid granting administrator-equivalent access just to dismiss this check.",
-            "Choose Check again after access is corrected.",
-        ],
-        "setup:docker:desktop" => match host {
-            HostKind::MacOs => macos::desktop_steps(),
-            HostKind::Windows => &[
-                "Open Docker Desktop and turn on its Linux container backend.",
-                "If prompted, allow the one-time WSL 2 Windows feature setup.",
-                "Wait for Docker Desktop to finish starting, then choose Check again.",
-            ],
-            _ => &[
-                "Open Docker Desktop and start its Linux environment.",
-                "Wait until the engine is running, then choose Check again.",
-            ],
-        },
-        "setup:docker:disk" if host == HostKind::MacOs => macos::disk_steps(),
-        "setup:docker:limits" if host == HostKind::MacOs => macos::limits_steps(),
-        "setup:docker:endpoint" if host == HostKind::MacOs => macos::endpoint_steps(),
-        "setup:docker:desktop-transport" => &[
-            "This setup check does not enable coding-task execution on this platform.",
-            "Use the vendor guide for setup information; wait for a release-certified platform update before running coding tasks.",
-        ],
-        "setup:cli:install" => &[
-            "Choose a supported coding agent in Coding Tools when you are ready.",
-            "You can keep planning without installing a coding agent.",
-        ],
-        "setup:cli:scan" => &[
-            "Choose Check again to repeat discovery.",
-            "If the check keeps failing, open Technical details and share only the redacted status with support.",
-        ],
-        _ => &[
-            "Review the explanation and recommended next step.",
-            "Choose Check again after making a change, or open Coding Tools for account settings.",
-        ],
+    match (task.id.as_str(), host) {
+        ("setup:docker:desktop", HostKind::MacOs) => macos::desktop_steps(),
+        ("setup:docker:disk", HostKind::MacOs) => macos::disk_steps(),
+        ("setup:docker:limits", HostKind::MacOs) => macos::limits_steps(),
+        ("setup:docker:endpoint", HostKind::MacOs) => macos::endpoint_steps(),
+        _ => instructions::steps(task, host),
     }
 }
 
 pub(super) fn help_links(task: &LocalTask, host: HostKind) -> Vec<(&'static str, &'static str)> {
-    match task.id.as_str() {
-        "setup:docker:rootless" => vec![(
-            "Docker rootless Engine guide",
-            "https://docs.docker.com/engine/security/rootless/",
-        )],
-        "setup:docker:install" | "setup:docker:start" | "setup:docker:desktop"
-            if host == HostKind::MacOs =>
-        {
-            macos::setup_links()
-        }
-        "setup:docker:disk" | "setup:docker:limits" if host == HostKind::MacOs => {
-            macos::resource_links()
-        }
-        "setup:docker:endpoint" if host == HostKind::MacOs => macos::setup_links(),
-        "setup:docker:disk" | "setup:docker:limits" if host == HostKind::MacOs => vec![
-            (
-                "Docker Desktop resources and disk image settings",
-                "https://docs.docker.com/desktop/settings-and-maintenance/settings/",
-            ),
-            (
-                "Docker Desktop disk image details",
-                "https://docs.docker.com/desktop/troubleshoot-and-support/faqs/macfaqs/",
-            ),
-        ],
-        "setup:docker:install" | "setup:docker:start" | "setup:docker:desktop"
-            if host == HostKind::Windows =>
-        {
-            vec![
-                (
-                    "Docker Desktop for Windows guide",
-                    "https://docs.docker.com/desktop/setup/install/windows-install/",
-                ),
-                (
-                    "Docker Desktop with WSL 2",
-                    "https://docs.docker.com/desktop/features/wsl/",
-                ),
-                (
-                    "Install WSL",
-                    "https://learn.microsoft.com/windows/wsl/install",
-                ),
-            ]
-        }
-        "setup:docker:install" | "setup:docker:start" | "setup:docker:desktop"
-            if host == HostKind::Linux =>
-        {
-            vec![(
-                "Docker Engine installation guide",
-                "https://docs.docker.com/engine/install/",
-            )]
-        }
-        "setup:docker:desktop-transport" if host == HostKind::Windows => vec![
-            (
-                "Docker Desktop with WSL 2",
-                "https://docs.docker.com/desktop/features/wsl/",
-            ),
-            (
-                "Install WSL",
-                "https://learn.microsoft.com/windows/wsl/install",
-            ),
-        ],
-        "setup:docker:desktop-transport" if host == HostKind::MacOs => vec![(
-            "Docker Desktop for Mac guide",
-            "https://docs.docker.com/desktop/setup/install/mac-install/",
-        )],
-        _ => Vec::new(),
+    match (task.id.as_str(), host) {
+        (
+            "setup:docker:install" | "setup:docker:start" | "setup:docker:desktop",
+            HostKind::MacOs,
+        )
+        | ("setup:docker:endpoint", HostKind::MacOs) => macos::setup_links(),
+        ("setup:docker:disk" | "setup:docker:limits", HostKind::MacOs) => macos::resource_links(),
+        _ => instructions::help_links(task, host),
     }
+}
+
+pub(super) fn provider_task_guidance(
+    provider: crate::app::setup_attention::catalog::ProviderIdV1,
+    stage: &str,
+) -> &'static str {
+    providers::provider_task_guidance(provider, stage)
+}
+
+#[cfg(test)]
+pub(super) fn provider_progress(
+    task: &LocalTask,
+) -> Option<(&'static str, &'static str, &'static str)> {
+    providers::provider_progress(task)
+        .map(|(provider, stage, state)| (provider.display_name(), stage, state))
+}
+
+pub(super) fn rendered_steps(task: &LocalTask, host: HostKind) -> Vec<&'static str> {
+    providers::provider_task(task)
+        .map(|(provider, stage)| providers::provider_steps(provider, stage))
+        .unwrap_or_else(|| steps(task, host).to_vec())
 }

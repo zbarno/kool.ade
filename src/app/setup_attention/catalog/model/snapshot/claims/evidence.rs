@@ -128,6 +128,10 @@ pub(super) fn provider_evidence(
             Code::ProviderProbeFailed
         ) | (
             Capability::ProviderExecutable,
+            State::Failed,
+            Code::ProviderPathInvalid
+        ) | (
+            Capability::ProviderExecutable,
             State::Stale,
             Code::StaleProbeGeneration
         ) | (
@@ -138,6 +142,10 @@ pub(super) fn provider_evidence(
             Capability::ProviderVersion,
             State::Failed,
             Code::ProviderProbeFailed
+        ) | (
+            Capability::ProviderVersion,
+            State::Failed,
+            Code::ProviderVersionUnsupported
         ) | (
             Capability::ProviderVersion,
             State::Stale,

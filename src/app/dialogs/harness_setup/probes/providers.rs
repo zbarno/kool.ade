@@ -54,7 +54,9 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
             };
             let (configured_provider, models, default_model, catalog_diagnostic) =
                 pi_model_catalog();
-            let model_catalog_fresh = !models.is_empty() && catalog_diagnostic.is_none();
+            // Pi's configured and bundled catalogs can be cached or loaded offline; a local
+            // model entry does not prove that the selected account can use it.
+            let model_catalog_fresh = false;
             let diagnostic = [
                 (!pi_diagnostic.is_empty()).then_some(pi_diagnostic),
                 catalog_diagnostic,
@@ -91,10 +93,10 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
         "codex" => {
             let codex = crate::harness::CodexHarness::probe_report();
             let (configured_models, configured_default) = configured_model_catalog(id);
-            let (available_models, available_default, catalog_diagnostic, catalog_refreshed) =
+            let (available_models, available_default, catalog_diagnostic) =
                 match codex.binary.as_deref() {
                     Some(binary) => match codex_models::discover(binary) {
-                        Ok((models, default_model)) => (models, default_model, None, true),
+                        Ok((models, default_model)) => (models, default_model, None),
                         Err(error) => (
                             Vec::new(),
                             None,
@@ -102,13 +104,13 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                                 "Codex model catalog could not be refreshed: {}",
                                 crate::error::redact_secrets(&error.to_string())
                             )),
-                            false,
                         ),
                     },
-                    None => (Vec::new(), None, None, false),
+                    None => (Vec::new(), None, None),
                 };
-            let model_catalog_fresh =
-                catalog_refreshed || !configured_models.is_empty() && catalog_diagnostic.is_none();
+            // `login status`, app-server startup, and `model/list` do not prove
+            // account-specific access, so Codex catalogs remain stale until a safe check exists.
+            let model_catalog_fresh = false;
             let diagnostic = [
                 (!codex.diagnostic.is_empty()).then_some(codex.diagnostic),
                 catalog_diagnostic,
@@ -120,6 +122,9 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                 crate::harness::codex_harness::CodexReadiness::Ready => ReadinessState::Ready,
                 crate::harness::codex_harness::CodexReadiness::AuthenticationRequired => {
                     ReadinessState::Unavailable
+                }
+                crate::harness::codex_harness::CodexReadiness::AuthenticationUnverified => {
+                    ReadinessState::Unknown
                 }
                 _ => ReadinessState::Unknown,
             };
@@ -143,11 +148,16 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
         "claude" => {
             let probe = crate::harness::ClaudeHarness::probe_report();
             let (models, default_model) = configured_model_catalog(id);
-            let model_catalog_fresh = !models.is_empty();
+            // A configured model name is not evidence that Claude Code currently
+            // accepts that account/model combination; do not promote it to fresh.
+            let model_catalog_fresh = false;
             let authentication = match probe.readiness {
                 crate::harness::claude_harness::ClaudeReadiness::Ready => ReadinessState::Ready,
                 crate::harness::claude_harness::ClaudeReadiness::AuthenticationRequired => {
                     ReadinessState::Unavailable
+                }
+                crate::harness::claude_harness::ClaudeReadiness::AuthenticationUnverified => {
+                    ReadinessState::Unknown
                 }
                 _ => ReadinessState::Unknown,
             };
@@ -172,7 +182,9 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
         "copilot" => {
             let probe = crate::harness::CopilotHarness::probe_report();
             let (models, default_model) = configured_model_catalog(id);
-            let model_catalog_fresh = !models.is_empty();
+            // Local model preferences (including `auto`) do not show that the
+            // current account can use any model from the live provider catalog.
+            let model_catalog_fresh = false;
             let probe_ready =
                 probe.readiness == crate::harness::copilot_harness::CopilotReadiness::Ready;
             // The supported noninteractive probe only verifies CLI identity/version. Do not
@@ -209,11 +221,11 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
         "antigravity" => {
             let probe = crate::harness::AntigravityHarness::probe_report();
             let model_catalog_fresh = !probe.models.is_empty();
+            // A specific sign-in challenge proves authentication is required.
+            // A successful model listing still cannot prove account access.
             let authentication = if probe.configuration_required {
                 ReadinessState::Unavailable
             } else {
-                // `agy models` documents catalog listing, not an authentication check. Keep
-                // authentication unknown until Antigravity exposes a supported status probe.
                 ReadinessState::Unknown
             };
             let ready = probe.ready;

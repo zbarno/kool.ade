@@ -1,5 +1,21 @@
 use super::*;
 
+macro_rules! runtime_qa_surface_methods {
+    () => {
+        fn load_runtime_qa_screenshots(
+            &self,
+            ticket: &str,
+            qa_run_id: &str,
+            offset: usize,
+            limit: usize,
+        ) -> Result<crate::ui::task_detail::RuntimeQaScreenshotGalleryView, String> {
+            self.runtime_qa_screenshots(ticket, qa_run_id, offset, limit)
+        }
+    };
+}
+
+pub(super) use runtime_qa_surface_methods;
+
 impl KooladeApp {
     pub(super) fn runtime_qa_screenshots(
         &self,

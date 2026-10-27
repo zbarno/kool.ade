@@ -105,6 +105,7 @@ fn snapshot(at: u64, title: &str) -> MachineSnapshot {
         scan_generation: at,
         scan_started_at_unix_ms: at,
         host: HostKind::Linux,
+        setup_provider: None,
         selected_provider: None,
         checked_at_unix_ms: at,
         capability_matrix: crate::app::setup_attention::catalog::HostCapabilityMatrixV1 {

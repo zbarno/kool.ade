@@ -20,3 +20,23 @@ pub(crate) fn run_with_environment(
         false,
     )
 }
+
+/// Runs an isolated provider probe with a small set of fixed environment overrides.
+pub(crate) fn run_isolated_with_environment(
+    argv: &[String],
+    timeout: Duration,
+    stdout_limit: usize,
+    stderr_limit: usize,
+    excluded_environment: &[&str],
+    environment_overrides: &[(&str, &str)],
+) -> anyhow::Result<ProbeOutput> {
+    super::run_inner(
+        argv,
+        timeout,
+        stdout_limit,
+        stderr_limit,
+        excluded_environment,
+        environment_overrides,
+        true,
+    )
+}

@@ -8,6 +8,7 @@ use super::MachineSnapshotV1;
 mod consistency;
 mod evidence;
 mod images;
+mod providers;
 mod rootless_smoke;
 mod support;
 mod windows;
@@ -33,62 +34,6 @@ fn current_ready(
             && (provider_source == evidence.source_generation.is_some())
             && (!provider_source || evidence.source_generation == Some(snapshot.scan_generation))
     })
-}
-
-fn provider_ready(snapshot: &MachineSnapshotV1, provider: ProviderIdV1) -> bool {
-    [
-        Capability::ProviderExecutable,
-        Capability::ProviderVersion,
-        Capability::ProviderAuthentication,
-        Capability::ProviderModels,
-        Capability::ProviderContextOnly,
-    ]
-    .into_iter()
-    .all(|capability| {
-        current_ready(
-            snapshot,
-            Domain::Provider,
-            capability,
-            Subject::Provider(provider),
-            true,
-        )
-    })
-}
-
-fn provider_scan_current(snapshot: &MachineSnapshotV1, provider: ProviderIdV1) -> bool {
-    let items = snapshot
-        .probe_evidence
-        .iter()
-        .filter(|item| {
-            item.prerequisite.domain == Domain::Provider
-                && item.prerequisite.subject == Subject::Provider(provider)
-        })
-        .collect::<Vec<_>>();
-    items.len() == 5
-        && items.iter().all(|item| {
-            item.scan_generation == snapshot.scan_generation
-                && item.source_generation == Some(snapshot.scan_generation)
-                && !matches!(item.state, EvidenceState::Failed | EvidenceState::Stale)
-                && evidence::provider_evidence(
-                    item.prerequisite.capability,
-                    item.state,
-                    item.origin,
-                    item.code,
-                )
-        })
-        && [
-            Capability::ProviderExecutable,
-            Capability::ProviderVersion,
-            Capability::ProviderAuthentication,
-            Capability::ProviderModels,
-            Capability::ProviderContextOnly,
-        ]
-        .into_iter()
-        .all(|capability| {
-            items
-                .iter()
-                .any(|item| item.prerequisite.capability == capability)
-        })
 }
 
 fn docker_ready(snapshot: &MachineSnapshotV1) -> bool {
@@ -138,6 +83,13 @@ fn desktop_docker_ready(snapshot: &MachineSnapshotV1) -> bool {
 
 pub(super) fn validate(snapshot: &MachineSnapshotV1) -> anyhow::Result<()> {
     support::validate_capability_matrix(snapshot)?;
+    if let Some(provider) = snapshot.setup_provider {
+        anyhow::ensure!(
+            providers::provider_scan_current(snapshot, provider)
+                || providers::missing_setup_provider_has_verification_finding(snapshot, provider),
+            "selected setup provider lacks current provider scan evidence or an explicit verification finding"
+        );
+    }
     let providers = [
         ProviderIdV1::Pi,
         ProviderIdV1::Codex,
@@ -151,27 +103,19 @@ pub(super) fn validate(snapshot: &MachineSnapshotV1) -> anyhow::Result<()> {
         anyhow::ensure!(unique.insert(domain), "duplicate checked domain");
         match domain.as_str() {
             "cli:install" => anyhow::ensure!(
-                providers.iter().any(|provider| {
-                    current_ready(
-                        snapshot,
-                        Domain::Provider,
-                        Capability::ProviderExecutable,
-                        Subject::Provider(*provider),
-                        true,
-                    )
-                }),
-                "CLI installation domain lacks current positive evidence"
+                providers::explicit_provider_choice_current(snapshot),
+                "CLI provider selection domain lacks a current explicit provider choice"
             ),
             "cli:scan" => anyhow::ensure!(
                 providers
                     .iter()
-                    .all(|provider| provider_scan_current(snapshot, *provider)),
+                    .all(|provider| providers::provider_scan_current(snapshot, *provider)),
                 "CLI scan domain lacks current provider evidence"
             ),
             "cli:select" => anyhow::ensure!(
                 snapshot
                     .selected_provider
-                    .is_some_and(|provider| provider_ready(snapshot, provider)),
+                    .is_some_and(|provider| providers::provider_ready(snapshot, provider)),
                 "CLI selection domain lacks current selected-provider evidence"
             ),
             "git:executable" => anyhow::ensure!(
@@ -216,7 +160,7 @@ pub(super) fn validate(snapshot: &MachineSnapshotV1) -> anyhow::Result<()> {
                 let provider_id = domain.strip_prefix("cli:").unwrap_or_default();
                 let provider = ProviderIdV1::from_probe_id(provider_id);
                 anyhow::ensure!(
-                    provider.is_some_and(|provider| provider_ready(snapshot, provider)),
+                    provider.is_some_and(|provider| providers::provider_ready(snapshot, provider)),
                     "provider domain lacks current readiness evidence"
                 );
             }
