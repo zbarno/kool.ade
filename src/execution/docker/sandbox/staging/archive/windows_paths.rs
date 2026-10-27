@@ -73,7 +73,11 @@ fn validate_case_collisions_with_separators<'a>(
     separators: &[char],
 ) -> anyhow::Result<()> {
     let comparison_failed = Rc::new(Cell::new(false));
+    // Ord sets this shared flag if Windows' comparison API fails; preserve BTreeMap's efficient
+    // lookup and reject the archive after all comparisons rather than changing the sort order.
+    #[allow(clippy::mutable_key_type)]
     let mut seen = BTreeMap::<CaseInsensitivePath, String>::new();
+    #[allow(clippy::mutable_key_type)]
     let mut canonical_paths = BTreeMap::<CaseInsensitivePath, String>::new();
     for path in paths {
         let raw = path

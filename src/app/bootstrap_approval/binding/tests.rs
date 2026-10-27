@@ -39,13 +39,13 @@ fn endpoint_and_probe_hash_must_be_sha256() {
 }
 
 #[test]
-fn free_space_changes_revoke_consent_and_are_rechecked() {
+fn linux_free_space_is_rechecked_without_changing_consent_scope() {
     let binding =
         MachineBinding::from_facts(Host::Linux, "machine", "1000", &"a".repeat(64), 10).unwrap();
     let digest = binding.consent_digest().unwrap();
     let mut refreshed = binding.clone();
     refreshed.disk_available_bytes = Some(refreshed.disk_available_bytes.unwrap() - 1);
-    assert_ne!(refreshed.consent_digest().unwrap(), digest);
+    assert_eq!(refreshed.consent_digest().unwrap(), digest);
     refreshed.validate(11).unwrap();
 
     refreshed.disk_available_bytes = Some(
@@ -55,6 +55,16 @@ fn free_space_changes_revoke_consent_and_are_rechecked() {
             - 1,
     );
     assert!(refreshed.validate(11).is_err());
+}
+
+#[test]
+fn desktop_capacity_sample_is_bound_to_consent() {
+    let mut binding =
+        MachineBinding::from_facts(Host::MacOs, "machine", "501", &"a".repeat(64), 10).unwrap();
+    let digest = binding.consent_digest().unwrap();
+    binding.disk_available_bytes = Some(binding.disk_available_bytes.unwrap() - 1);
+    assert_ne!(binding.consent_digest().unwrap(), digest);
+    binding.validate(11).unwrap();
 }
 
 #[test]

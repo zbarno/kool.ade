@@ -23,7 +23,7 @@ pub(super) fn from_metadata(metadata: &Metadata, _path: &Path) -> Option<Workspa
 pub(super) fn from_metadata(_metadata: &Metadata, path: &Path) -> Option<WorkspaceObjectId> {
     #[cfg(windows)]
     {
-        return windows::from_path(path);
+        windows::from_path(path)
     }
     #[cfg(not(windows))]
     {

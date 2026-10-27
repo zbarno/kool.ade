@@ -1,4 +1,4 @@
-use std::{fs::File, path::Path};
+use std::path::Path;
 
 use anyhow::{Context, ensure};
 use tar::Builder;

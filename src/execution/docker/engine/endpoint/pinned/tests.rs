@@ -1,11 +1,24 @@
 use super::super::DockerEndpoint;
 use super::PinnedUnixConnector;
 use hyper::Uri;
+#[cfg(target_os = "macos")]
+use std::{os::unix::fs::PermissionsExt, path::PathBuf};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::UnixListener,
 };
 use tower_service::Service;
+
+#[cfg(target_os = "macos")]
+fn desktop_socket_fixture() -> (tempfile::TempDir, PathBuf, UnixListener) {
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap();
+    let directory = tempfile::tempdir_in(home).unwrap();
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let path = directory.path().join("docker.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    (directory, path, listener)
+}
 
 /// Production boundary: Bollard's pooled client and the pinned Unix transport.
 /// Invariant: version and info requests reuse the same accepted socket; a
@@ -99,13 +112,11 @@ fn pinned_connector_refuses_a_replacement_socket_after_connection_loss() {
 #[cfg(target_os = "macos")]
 #[test]
 fn desktop_pinned_connector_rejects_an_unverified_socket_peer() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("docker.sock");
+    let (_root, path, _listener) = desktop_socket_fixture();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
-    let _listener = runtime.block_on(async { UnixListener::bind(&path).unwrap() });
     let mut connector = PinnedUnixConnector {
         path,
         used: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),

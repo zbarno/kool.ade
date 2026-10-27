@@ -27,6 +27,8 @@ struct Child {
     attributes: u32,
 }
 
+// The recursive archive walker keeps its shared output and validation state explicit.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn append_directory(
     directory: &File,
     relative: &Path,
@@ -75,7 +77,11 @@ pub(super) fn append_directory(
             child.attributes & (ATTRIBUTE_REPARSE_POINT | ATTRIBUTE_DEVICE) == 0,
             "workspace contains a reparse point or special file"
         );
-        let file = native::open_at(directory, &child.name, OPEN_REPARSE_ATTRIBUTES)?;
+        let file = native::open_at(
+            directory,
+            std::ffi::OsStr::new(&child.name),
+            OPEN_REPARSE_ATTRIBUTES,
+        )?;
         let opened = metadata(&file)?;
         ensure_not_reparse(&opened)?;
         let identity = handle_identity(&file)?;

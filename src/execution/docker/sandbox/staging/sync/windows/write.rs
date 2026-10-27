@@ -21,13 +21,17 @@ use super::{
     },
 };
 
+pub(super) struct WriteOptions<'a> {
+    pub(super) git_root: &'a Path,
+    pub(super) byte_limit: u64,
+}
+
 pub(super) fn write_file(
-    git_root: &Path,
+    options: &WriteOptions<'_>,
     root: &PinnedDirectory,
     relative: &Path,
     entry: &ReturnedEntry,
     expected: Option<&Fingerprint>,
-    byte_limit: u64,
     index_executable: Option<bool>,
     hook: &mut impl FnMut(Checkpoint) -> bool,
 ) -> Result<(), String> {
@@ -37,12 +41,12 @@ pub(super) fn write_file(
         return Err("Container returned a non-file workspace entry".into());
     };
     if *size != entry.bytes.len() as u64
-        || *size > byte_limit
+        || *size > options.byte_limit
         || super::super::super::archive::hash(&entry.bytes) != *sha256
     {
         return Err("Container workspace file does not match its validated fingerprint".into());
     }
-    if fingerprint_at(root, relative, byte_limit, index_executable)?.as_ref() != expected {
+    if fingerprint_at(root, relative, options.byte_limit, index_executable)?.as_ref() != expected {
         return Err(
             "Task clone changed during synchronization; host changes were preserved".into(),
         );
@@ -79,16 +83,14 @@ pub(super) fn write_file(
                 "Concurrent task-clone change prevented safe synchronization".into()
             }));
         }
-        modes::persist_new_file_mode(
-            git_root,
+        modes::ModeUpdate::new(
+            options.git_root,
             relative,
-            &parent,
-            &temporary,
-            &name,
             index_executable,
             entry.mode & 0o111 != 0,
-            hook,
-        )?;
+            &mut *hook,
+        )
+        .persist_new_file(&parent, &temporary, &name)?;
         return Ok(());
     }
 
@@ -105,7 +107,7 @@ pub(super) fn write_file(
             return Err(cleanup.unwrap_or(message));
         }
     };
-    let current = match fingerprint_handle(&mut displaced, byte_limit, index_executable) {
+    let current = match fingerprint_handle(&mut displaced, options.byte_limit, index_executable) {
         Ok(current) => current,
         Err(message) => {
             let cleanup = cleanup_temporary(&parent, &temporary, &temporary_name);
@@ -125,7 +127,7 @@ pub(super) fn write_file(
             "Concurrent task-clone change prevented safe synchronization".into()
         }));
     }
-    if fingerprint_handle(&mut displaced, byte_limit, index_executable)
+    if fingerprint_handle(&mut displaced, options.byte_limit, index_executable)
         .ok()
         .as_ref()
         != expected
@@ -150,18 +152,14 @@ pub(super) fn write_file(
             cleanup.unwrap_or_default()
         ));
     }
-    modes::persist_replacement_file_mode(
-        git_root,
+    modes::ModeUpdate::new(
+        options.git_root,
         relative,
-        &parent,
-        &displaced,
-        &temporary,
-        &name,
-        &backup_name,
         index_executable,
         entry.mode & 0o111 != 0,
-        hook,
-    )?;
+        &mut *hook,
+    )
+    .persist_replacement_file(&parent, &displaced, &temporary, &name, &backup_name)?;
     if delete_file(&displaced).is_err() {
         let preserved = preserve_conflict(&parent, &displaced, &backup_name);
         return Err(format!(
@@ -186,12 +184,8 @@ pub(super) fn remove_entry(
     let (parent, name) =
         parent(root, relative, true)?.ok_or("Workspace deletion parent is unavailable")?;
     let mut displaced = open_transaction_file(&parent, &name)?;
-    if Some(fingerprint_handle(
-        &mut displaced,
-        byte_limit,
-        index_executable,
-    )?) != expected
-    {
+    let current = fingerprint_handle(&mut displaced, byte_limit, index_executable)?;
+    if Some(&current) != expected {
         return Err(
             "Task clone changed during synchronization; host changes were preserved".into(),
         );

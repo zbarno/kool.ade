@@ -3,6 +3,15 @@ use std::path::Path;
 use super::super::failure;
 use crate::execution::docker::discovery::{PrerequisiteCode, PrerequisiteFailure};
 
+#[cfg(target_os = "macos")]
+mod macos_acl;
+#[cfg(all(target_os = "macos", test))]
+use macos_acl::validate_macos_acl_fd;
+#[cfg(target_os = "macos")]
+use macos_acl::validate_macos_directory_acl;
+#[cfg(target_os = "macos")]
+use macos_acl::validate_macos_socket_acl;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SocketFilesystemError {
     Missing,
@@ -77,6 +86,26 @@ pub(super) fn validate_unix_socket(path: &Path, desktop: bool) -> Result<(), Pre
             "The Docker Desktop socket grants group or other access",
             false,
         ));
+    }
+    #[cfg(target_os = "macos")]
+    if desktop {
+        validate_macos_socket_acl(path, expected_owner).map_err(|error| match error {
+            SocketFilesystemError::Missing => failure(
+                PrerequisiteCode::DockerMissing,
+                "The Docker Desktop socket disappeared during ACL inspection",
+                true,
+            ),
+            SocketFilesystemError::Inaccessible => failure(
+                PrerequisiteCode::PermissionDenied,
+                "Permission denied inspecting the Docker Desktop socket ACL",
+                false,
+            ),
+            SocketFilesystemError::Untrusted => failure(
+                PrerequisiteCode::UntrustedEndpoint,
+                "The Docker Desktop socket ACL or identity is unsafe",
+                false,
+            ),
+        })?;
     }
     #[cfg(target_os = "linux")]
     if !desktop && is_current_user_rootless_socket(path, expected_owner) {
@@ -183,40 +212,6 @@ fn validate_desktop_directory(
     #[cfg(target_os = "macos")]
     validate_macos_directory_acl(directory)?;
     Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn validate_macos_directory_acl(directory: &std::fs::File) -> Result<(), SocketFilesystemError> {
-    use std::os::fd::AsRawFd;
-
-    validate_macos_acl_fd(directory.as_raw_fd())
-}
-
-#[cfg(target_os = "macos")]
-fn validate_macos_acl_fd(fd: libc::c_int) -> Result<(), SocketFilesystemError> {
-    const ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
-    // A failed lookup (including EOPNOTSUPP) is not evidence that no ACL exists.
-    let acl = unsafe { acl_get_fd_np(fd, ACL_TYPE_EXTENDED) };
-    if acl.is_null() {
-        return Err(match std::io::Error::last_os_error().kind() {
-            std::io::ErrorKind::PermissionDenied => SocketFilesystemError::Inaccessible,
-            _ => SocketFilesystemError::Untrusted,
-        });
-    }
-    let mut trivial = 0;
-    let inspected = unsafe { acl_is_trivial_np(acl, &mut trivial) };
-    let released = unsafe { acl_free(acl) };
-    if inspected != 0 || released != 0 || trivial != 1 {
-        return Err(SocketFilesystemError::Untrusted);
-    }
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
-unsafe extern "C" {
-    fn acl_get_fd_np(fd: libc::c_int, acl_type: libc::c_int) -> *mut libc::c_void;
-    fn acl_is_trivial_np(acl: *mut libc::c_void, trivial: *mut libc::c_int) -> libc::c_int;
-    fn acl_free(value: *mut libc::c_void) -> libc::c_int;
 }
 
 #[cfg(target_os = "linux")]

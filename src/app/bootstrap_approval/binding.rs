@@ -152,8 +152,12 @@ impl MachineBinding {
     }
 
     /// Consent binds whether capacity is measured and its current sample. Probe
-    /// time stays outside the digest; Desktop General bootstrap is explicit.
+    /// time stays outside the digest. Desktop samples are bound exactly; native
+    /// Linux capacity is revalidated against the required minimum at consumption.
     pub(super) fn consent_digest(&self) -> anyhow::Result<String> {
+        let desktop_capacity = matches!(self.host, Host::MacOs | Host::Windows)
+            .then_some(self.disk_available_bytes)
+            .flatten();
         fingerprint(&(
             self.host,
             &self.machine_hash,
@@ -164,7 +168,7 @@ impl MachineBinding {
             &self.image_profile,
             self.estimated_pull_bytes,
             self.estimated_storage_bytes,
-            self.disk_available_bytes,
+            desktop_capacity,
             self.minimum_disk_bytes,
             self.capacity_probe_required,
         ))

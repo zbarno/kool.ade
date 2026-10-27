@@ -8,7 +8,7 @@ use windows_sys::Win32::Security::Cryptography::{
     CERT_NAME_SIMPLE_DISPLAY_TYPE, CertGetNameStringW,
 };
 use windows_sys::Win32::Security::WinTrust::{
-    WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_FILE_INFO,
+    WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_FILE_INFO,
     WTD_CACHE_ONLY_URL_RETRIEVAL, WTD_CHOICE_FILE, WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT,
     WTD_REVOKE_WHOLECHAIN, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE,
     WTHelperGetProvCertFromChain, WTHelperGetProvSignerFromChain, WTHelperProvDataFromStateData,
@@ -39,16 +39,25 @@ pub(super) fn authenticode_publisher(image_path: &Path) -> Option<String> {
         hFile: std::os::windows::io::AsRawHandle::as_raw_handle(&image_file) as HANDLE,
         pgKnownSubject: std::ptr::null_mut(),
     };
-    let mut trust = WINTRUST_DATA::default();
-    trust.cbStruct = std::mem::size_of::<WINTRUST_DATA>() as u32;
-    trust.dwUIChoice = WTD_UI_NONE;
-    trust.fdwRevocationChecks = WTD_REVOKE_WHOLECHAIN;
-    trust.dwUnionChoice = WTD_CHOICE_FILE;
-    trust.Anonymous.pFile = &mut trust_file;
-    trust.dwStateAction = WTD_STATEACTION_VERIFY;
     // Trust checks use the local certificate/revocation cache only. If required data is missing,
     // verification fails closed instead of contacting a network revocation endpoint.
-    trust.dwProvFlags = WTD_CACHE_ONLY_URL_RETRIEVAL | WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT;
+    let mut trust = WINTRUST_DATA {
+        cbStruct: std::mem::size_of::<WINTRUST_DATA>() as u32,
+        pPolicyCallbackData: std::ptr::null_mut(),
+        pSIPClientData: std::ptr::null_mut(),
+        dwUIChoice: WTD_UI_NONE,
+        fdwRevocationChecks: WTD_REVOKE_WHOLECHAIN,
+        dwUnionChoice: WTD_CHOICE_FILE,
+        Anonymous: WINTRUST_DATA_0 {
+            pFile: &mut trust_file,
+        },
+        dwStateAction: WTD_STATEACTION_VERIFY,
+        hWVTStateData: std::ptr::null_mut(),
+        pwszURLReference: std::ptr::null_mut(),
+        dwProvFlags: WTD_CACHE_ONLY_URL_RETRIEVAL | WTD_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT,
+        dwUIContext: 0,
+        pSignatureSettings: std::ptr::null_mut(),
+    };
     let mut action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
     let status = unsafe {
         WinVerifyTrust(

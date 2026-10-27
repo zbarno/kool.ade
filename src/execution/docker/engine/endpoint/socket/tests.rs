@@ -182,6 +182,33 @@ fn rejects_an_acl_on_any_desktop_socket_parent_directory() {
 
 #[cfg(target_os = "macos")]
 #[test]
+// Covers the real socket-vnode ACL lookup used by the production Desktop endpoint validator.
+// A unit mock cannot prove macOS observes an ACL-only grant while POSIX mode stays private.
+// Requires macOS with an ACL-capable filesystem and /bin/chmod; no Docker or network. Setup is low cost.
+fn rejects_an_acl_on_the_desktop_socket_node() {
+    use std::os::unix::fs::MetadataExt;
+    use std::process::Command;
+
+    let (_root, socket, _listener) = desktop_fixture();
+    let status = Command::new("/bin/chmod")
+        .arg("+a")
+        .arg("everyone allow readsecurity")
+        .arg(&socket)
+        .status()
+        .unwrap();
+    assert!(status.success(), "could not install test ACL on socket");
+    assert_eq!(
+        std::fs::symlink_metadata(&socket).unwrap().mode() & 0o077,
+        0
+    );
+
+    let error = validate_unix_socket(&socket, true).unwrap_err();
+
+    assert_eq!(error.code, PrerequisiteCode::UntrustedEndpoint);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
 fn fails_closed_when_the_acl_api_cannot_inspect_a_directory() {
     assert_eq!(
         validate_macos_acl_fd(-1),

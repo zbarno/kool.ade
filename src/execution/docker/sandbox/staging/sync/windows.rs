@@ -23,7 +23,7 @@ mod native;
 mod write;
 use fs::{create_directory, fingerprint_at, open_root_nofollow, pin_git_metadata};
 use index::IndexModes;
-use write::{remove_entry, write_file};
+use write::{WriteOptions, remove_entry, write_file};
 
 pub(super) fn apply(
     root: &Path,
@@ -46,6 +46,8 @@ pub(super) fn apply(
     )
 }
 
+// Keep the full transaction request and its race-test hook explicit at this boundary.
+#[allow(clippy::too_many_arguments)]
 fn apply_with_hook(
     root_path: &Path,
     expected_root_identity: &WorkspaceObjectId,
@@ -136,15 +138,18 @@ fn apply_with_hook(
         .filter(|(_, entry)| matches!(entry.fingerprint, Fingerprint::File { .. }))
         .collect::<Vec<_>>();
     files.sort_by(|left, right| left.0.cmp(&right.0));
+    let write_options = WriteOptions {
+        git_root: root_path,
+        byte_limit,
+    };
     for (path, entry) in files {
         let index_executable = index_modes.executable(&path)?;
         write_file(
-            root_path,
+            &write_options,
             &root,
             &path,
             entry,
             baseline.get(&path),
-            byte_limit,
             index_executable,
             &mut hook,
         )?;

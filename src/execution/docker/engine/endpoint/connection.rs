@@ -22,14 +22,14 @@ impl DockerEndpoint {
     pub(crate) fn connect(&self) -> Result<Docker, PrerequisiteFailure> {
         #[cfg(windows)]
         {
-            return match self {
+            match self {
                 Self::NamedPipe { path, .. } => super::named_pipe::connect(path),
                 Self::Unix { .. } => Err(super::super::failure(
                     PrerequisiteCode::UntrustedEndpoint,
                     "Docker Unix sockets are unavailable on this platform",
                     false,
                 )),
-            };
+            }
         }
 
         #[cfg(not(windows))]

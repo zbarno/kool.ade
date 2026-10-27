@@ -60,7 +60,7 @@ impl ServerProcess {
 }
 
 fn process_image_path_for_current_user(process: &ProcessHandle) -> io::Result<PathBuf> {
-    let result = (|| {
+    (|| {
         let mut buffer = vec![0_u16; 32_768];
         let mut length = buffer.len() as u32;
         if unsafe { QueryFullProcessImageNameW(process.raw(), 0, buffer.as_mut_ptr(), &mut length) }
@@ -82,8 +82,7 @@ fn process_image_path_for_current_user(process: &ProcessHandle) -> io::Result<Pa
         Ok(PathBuf::from(OsString::from_wide(
             &buffer[..length as usize],
         )))
-    })();
-    result
+    })()
 }
 
 struct ProcessHandle(HANDLE);

@@ -72,11 +72,13 @@ pub(super) fn open_at(
         MaximumLength: byte_length,
         Buffer: name.as_mut_ptr(),
     };
-    let mut object_attributes = OBJECT_ATTRIBUTES::default();
-    object_attributes.Length = u32::try_from(size_of::<OBJECT_ATTRIBUTES>()).map_err(|_| -1)?;
-    object_attributes.RootDirectory = parent.as_raw_handle();
-    object_attributes.ObjectName = &unicode;
-    object_attributes.Attributes = OBJ_CASE_INSENSITIVE;
+    let object_attributes = OBJECT_ATTRIBUTES {
+        Length: u32::try_from(size_of::<OBJECT_ATTRIBUTES>()).map_err(|_| -1)?,
+        RootDirectory: parent.as_raw_handle(),
+        ObjectName: &unicode,
+        Attributes: OBJ_CASE_INSENSITIVE,
+        ..OBJECT_ATTRIBUTES::default()
+    };
     let mut io_status = IO_STATUS_BLOCK::default();
     let mut handle = ptr::null_mut();
     let status = unsafe {
@@ -85,12 +87,12 @@ pub(super) fn open_at(
             desired_access,
             &object_attributes,
             &mut io_status,
-            None,
+            ptr::null(),
             file_attributes,
             share_access,
             disposition,
             create_options,
-            None,
+            ptr::null(),
             0,
         )
     };

@@ -1,20 +1,21 @@
 use std::io;
 use std::mem::size_of;
 
-use windows_sys::Win32::Foundation::{CloseHandle, GENERIC_ALL, GENERIC_WRITE, HANDLE, LocalFree};
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, LocalFree};
 use windows_sys::Win32::Security::Authorization::{GetSecurityInfo, SE_FILE_OBJECT};
 use windows_sys::Win32::Security::{
-    ACCESS_ALLOWED_ACE, ACE_HEADER, DACL_SECURITY_INFORMATION, EqualSid, GetLengthSid,
-    GetTokenInformation, IsValidAcl, IsValidSid, IsWellKnownSid, OWNER_SECURITY_INFORMATION, PSID,
-    TOKEN_QUERY, TOKEN_USER, TokenUser, WinAnonymousSid, WinAuthenticatedUserSid,
-    WinBuiltinAdministratorsSid, WinBuiltinUsersSid, WinLocalSystemSid, WinWorldSid,
-};
-use windows_sys::Win32::Storage::FileSystem::{
-    DELETE, FILE_APPEND_DATA, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_WRITE_ATTRIBUTES,
-    FILE_WRITE_DATA, FILE_WRITE_EA, WRITE_DAC, WRITE_OWNER,
+    ACCESS_ALLOWED_ACE, ACE_HEADER, ACL_SIZE_INFORMATION, AclSizeInformation,
+    DACL_SECURITY_INFORMATION, EqualSid, GetAclInformation, GetLengthSid, GetTokenInformation,
+    IsValidAcl, IsValidSid, IsWellKnownSid, OWNER_SECURITY_INFORMATION, PSID, TOKEN_QUERY,
+    TOKEN_USER, TokenUser, WinBuiltinAdministratorsSid, WinLocalSystemSid,
 };
 use windows_sys::Win32::System::SystemServices::ACCESS_ALLOWED_ACE_TYPE;
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+mod policy;
+#[cfg(test)]
+use policy::Trustee;
+use policy::{AclEntry, classify_trustee, trusted_pipe_acl};
 
 pub(super) fn validate_handle(pipe: HANDLE) -> io::Result<()> {
     let current_user = current_user_sid()?;
@@ -68,25 +69,56 @@ fn validate_security_descriptor(
         return Err(untrusted_acl());
     }
 
+    let mut acl_info = ACL_SIZE_INFORMATION::default();
+    if unsafe {
+        GetAclInformation(
+            dacl,
+            (&mut acl_info as *mut ACL_SIZE_INFORMATION).cast(),
+            size_of::<ACL_SIZE_INFORMATION>() as u32,
+            AclSizeInformation,
+        )
+    } == 0
+    {
+        return Err(untrusted_acl());
+    }
+    let acl_start = dacl as usize;
+    let acl_bytes = acl_info.AclBytesInUse as usize;
+    if acl_bytes < size_of::<windows_sys::Win32::Security::ACL>() {
+        return Err(untrusted_acl());
+    }
+    let acl_end = acl_start.checked_add(acl_bytes).ok_or_else(untrusted_acl)?;
+    let ace_start_min = acl_start
+        .checked_add(size_of::<windows_sys::Win32::Security::ACL>())
+        .ok_or_else(untrusted_acl)?;
+
     let mut entries = Vec::new();
-    let ace_count = unsafe { (*dacl).AceCount };
-    for index in 0..u32::from(ace_count) {
+    for index in 0..acl_info.AceCount {
         let mut ace_ptr = std::ptr::null_mut();
         if unsafe { windows_sys::Win32::Security::GetAce(dacl, index, &mut ace_ptr) } == 0
             || ace_ptr.is_null()
         {
             return Err(untrusted_acl());
         }
-        let header = unsafe { &*(ace_ptr as *const ACE_HEADER) };
-        if header.AceType != ACCESS_ALLOWED_ACE_TYPE as u8
-            || usize::from(header.AceSize) < size_of::<ACCESS_ALLOWED_ACE>()
+        let ace_start = ace_ptr as usize;
+        if ace_start < ace_start_min || ace_start >= acl_end {
+            return Err(untrusted_acl());
+        }
+        let remaining_len = acl_end.checked_sub(ace_start).ok_or_else(untrusted_acl)?;
+        let remaining = unsafe { std::slice::from_raw_parts(ace_ptr.cast::<u8>(), remaining_len) };
+        let header_len = size_of::<ACE_HEADER>();
+        if remaining.len() < header_len {
+            return Err(untrusted_acl());
+        }
+        let ace_type = remaining[0];
+        let ace_size = usize::from(u16::from_le_bytes([remaining[2], remaining[3]]));
+        if ace_type != ACCESS_ALLOWED_ACE_TYPE as u8
+            || ace_size < size_of::<ACCESS_ALLOWED_ACE>()
+            || ace_size > remaining.len()
         {
             return Err(untrusted_acl());
         }
-        let ace = unsafe { &*(ace_ptr as *const ACCESS_ALLOWED_ACE) };
-        let sid = std::ptr::addr_of!(ace.SidStart) as PSID;
-        let sid_offset = size_of::<ACE_HEADER>() + size_of::<u32>();
-        let ace_size = usize::from(header.AceSize);
+        let ace = &remaining[..ace_size];
+        let sid_offset = header_len + size_of::<u32>();
         // SID's fixed header is eight bytes: revision, subauthority count, and identifier
         // authority. Bound that header before reading its count, then bound the full SID before
         // calling Windows SID helpers that inspect it.
@@ -94,23 +126,34 @@ fn validate_security_descriptor(
         if ace_size < sid_offset + SID_HEADER_SIZE {
             return Err(untrusted_acl());
         }
-        let subauthority_count = unsafe { *sid.cast::<u8>().add(1) } as usize;
+        let subauthority_count = usize::from(ace[sid_offset + 1]);
         let subauthority_bytes = subauthority_count
             .checked_mul(size_of::<u32>())
             .ok_or_else(untrusted_acl)?;
         let sid_len = SID_HEADER_SIZE
             .checked_add(subauthority_bytes)
             .ok_or_else(untrusted_acl)?;
-        if sid_len > ace_size - sid_offset
-            || unsafe { IsValidSid(sid) } == 0
-            || unsafe { GetLengthSid(sid) } as usize != sid_len
-        {
+        if sid_len > ace.len() - sid_offset {
+            return Err(untrusted_acl());
+        }
+        let sid = unsafe {
+            ace_ptr
+                .cast::<u8>()
+                .add(sid_offset)
+                .cast::<std::ffi::c_void>()
+        };
+        if unsafe { IsValidSid(sid) } == 0 || unsafe { GetLengthSid(sid) } as usize != sid_len {
             return Err(untrusted_acl());
         }
         let trustee = classify_trustee(sid, current_user);
         entries.push(AclEntry {
             trustee,
-            mask: ace.Mask,
+            mask: u32::from_le_bytes([
+                ace[header_len],
+                ace[header_len + 1],
+                ace[header_len + 2],
+                ace[header_len + 3],
+            ]),
         });
     }
 
@@ -127,81 +170,6 @@ fn validate_security_descriptor(
     } else {
         Err(untrusted_acl())
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Trustee {
-    CurrentUser,
-    LocalSystem,
-    Administrators,
-    BroadReadOnly,
-    Other,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct AclEntry {
-    trustee: Trustee,
-    mask: u32,
-}
-
-fn classify_trustee(sid: PSID, current_user: &[u8]) -> Trustee {
-    unsafe {
-        if EqualSid(sid, current_user.as_ptr() as PSID) != 0 {
-            Trustee::CurrentUser
-        } else if IsWellKnownSid(sid, WinLocalSystemSid) != 0 {
-            Trustee::LocalSystem
-        } else if IsWellKnownSid(sid, WinBuiltinAdministratorsSid) != 0 {
-            Trustee::Administrators
-        } else if IsWellKnownSid(sid, WinWorldSid) != 0
-            || IsWellKnownSid(sid, WinAnonymousSid) != 0
-            || IsWellKnownSid(sid, WinAuthenticatedUserSid) != 0
-            || IsWellKnownSid(sid, WinBuiltinUsersSid) != 0
-        {
-            Trustee::BroadReadOnly
-        } else {
-            Trustee::Other
-        }
-    }
-}
-
-fn trusted_pipe_acl(
-    dacl_present: bool,
-    owner_is_user: bool,
-    owner_is_system_or_admin: bool,
-    entries: &[AclEntry],
-) -> bool {
-    if !dacl_present || !(owner_is_user || owner_is_system_or_admin) || entries.is_empty() {
-        return false;
-    }
-
-    let mut caller_has_read_write = false;
-    for entry in entries {
-        match entry.trustee {
-            Trustee::CurrentUser => {
-                caller_has_read_write |= entry.mask & FILE_GENERIC_READ == FILE_GENERIC_READ
-                    && entry.mask & FILE_GENERIC_WRITE == FILE_GENERIC_WRITE;
-            }
-            Trustee::LocalSystem | Trustee::Administrators => {}
-            Trustee::BroadReadOnly => {
-                if entry.mask
-                    & (FILE_WRITE_DATA
-                        | FILE_APPEND_DATA
-                        | FILE_WRITE_EA
-                        | FILE_WRITE_ATTRIBUTES
-                        | WRITE_DAC
-                        | WRITE_OWNER
-                        | DELETE
-                        | GENERIC_WRITE
-                        | GENERIC_ALL)
-                    != 0
-                {
-                    return false;
-                }
-            }
-            Trustee::Other => return false,
-        }
-    }
-    caller_has_read_write
 }
 
 pub(super) fn current_user_sid() -> io::Result<Vec<u8>> {

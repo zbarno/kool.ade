@@ -61,6 +61,11 @@ impl Service<Uri> for PinnedUnixConnector {
                         "The approved Docker connection cannot be redirected or reopened",
                     )
                 })?;
+            #[cfg(target_os = "macos")]
+            if verify_desktop_peer {
+                super::socket::validate_unix_socket(&path, true)
+                    .map_err(|error| io::Error::new(io::ErrorKind::PermissionDenied, error))?;
+            }
             let stream = UnixStream::connect(path).await?;
             #[cfg(target_os = "macos")]
             if verify_desktop_peer {

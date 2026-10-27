@@ -21,7 +21,7 @@ use crate::execution::docker::sandbox::workspace_identity::WorkspaceObjectId;
 const SHARE_DIRECTORIES: u32 = SHARE_READ | SHARE_WRITE;
 const MISSING_DIRECTORY: &str = "missing-directory";
 
-pub(super) fn open_root_nofollow(
+pub(in crate::execution::docker::sandbox::staging::sync::windows) fn open_root_nofollow(
     path: &Path,
     expected_identity: &WorkspaceObjectId,
 ) -> Result<PinnedDirectory, String> {
@@ -80,7 +80,7 @@ pub(super) fn open_root_nofollow(
     Ok(root)
 }
 
-pub(super) fn parent(
+pub(in crate::execution::docker::sandbox::staging::sync::windows) fn parent(
     root: &PinnedDirectory,
     relative: &Path,
     for_update: bool,
@@ -110,7 +110,7 @@ pub(super) fn parent(
     Err("Workspace path is empty".into())
 }
 
-pub(super) fn pin_git_metadata(
+pub(in crate::execution::docker::sandbox::staging::sync::windows) fn pin_git_metadata(
     root: &PinnedDirectory,
     expected_identity: &WorkspaceObjectId,
 ) -> Result<File, String> {
@@ -125,7 +125,10 @@ pub(super) fn pin_git_metadata(
     Ok(directory)
 }
 
-pub(super) fn create_directory(root: &PinnedDirectory, relative: &Path) -> Result<(), String> {
+pub(in crate::execution::docker::sandbox::staging::sync::windows) fn create_directory(
+    root: &PinnedDirectory,
+    relative: &Path,
+) -> Result<(), String> {
     let (parent, name) =
         parent(root, relative, true)?.ok_or("Workspace directory parent is unavailable")?;
     let mut wide = name.encode_utf16().collect::<Vec<_>>();
