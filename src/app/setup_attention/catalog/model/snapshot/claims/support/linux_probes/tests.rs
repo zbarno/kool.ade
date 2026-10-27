@@ -181,6 +181,7 @@ fn valid_snapshot() -> MachineSnapshotV1 {
         scan_generation: 2,
         scan_started_at_unix_ms: 100,
         host: HostKind::Linux,
+        setup_provider: None,
         selected_provider: None,
         checked_at_unix_ms: 100,
         capability_matrix: HostCapabilityMatrixV1 {

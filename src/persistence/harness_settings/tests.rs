@@ -13,6 +13,7 @@ fn settings_round_trip_persists_default_and_discovery_diagnostics() {
     let settings = HarnessSettings {
         schema_version: 0,
         default_harness: Some("pi".into()),
+        bootstrap_provider: Some("codex".into()),
         work_routes: BTreeMap::from([(
             "implementation".into(),
             WorkRoute {
@@ -41,8 +42,9 @@ fn settings_round_trip_persists_default_and_discovery_diagnostics() {
     };
     save_to(&path, &settings).unwrap();
     let loaded: HarnessSettings = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    assert_eq!(loaded.schema_version, 4);
+    assert_eq!(loaded.schema_version, 5);
     assert_eq!(loaded.default_harness.as_deref(), Some("pi"));
+    assert_eq!(loaded.bootstrap_provider.as_deref(), Some("codex"));
     assert_eq!(loaded.work_routes["implementation"].harness, "codex");
     assert_eq!(
         loaded.work_routes["implementation"].model.as_deref(),
@@ -57,11 +59,29 @@ fn settings_round_trip_persists_default_and_discovery_diagnostics() {
 }
 
 #[test]
+fn unsupported_bootstrap_provider_is_cleared_on_load() {
+    let path = temp_file();
+    std::fs::write(
+        &path,
+        r#"{"schemaVersion":5,"defaultHarness":"pi","bootstrapProvider":"unknown"}"#,
+    )
+    .unwrap();
+
+    let (settings, diagnostic) = load_from(&path);
+
+    assert!(diagnostic.is_none());
+    assert_eq!(settings.default_harness.as_deref(), Some("pi"));
+    assert_eq!(settings.bootstrap_provider, None);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn unavailable_tools_remain_recorded_without_rewriting_the_default() {
     let path = temp_file();
     let settings = HarnessSettings {
         schema_version: 1,
         default_harness: Some("pi".into()),
+        bootstrap_provider: None,
         work_routes: BTreeMap::new(),
         discovered: BTreeMap::from([(
             "pi".into(),
@@ -99,7 +119,7 @@ fn version_one_settings_migrate_without_losing_default_or_discovery() {
     .unwrap();
     let (settings, diagnostic) = load_from(&path);
     assert!(diagnostic.is_none());
-    assert_eq!(settings.schema_version, 4);
+    assert_eq!(settings.schema_version, 5);
     assert_eq!(settings.default_harness.as_deref(), Some("pi"));
     std::fs::remove_file(path).unwrap();
 }
@@ -212,9 +232,9 @@ fn schema_three_migrates_inferred_authentication_and_schema_four_preserves_expli
     };
     std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
 
-    let (mut migrated, diagnostic) = load_from(&path);
+    let (migrated, diagnostic) = load_from(&path);
     assert!(diagnostic.is_none());
-    assert_eq!(migrated.schema_version, 4);
+    assert_eq!(migrated.schema_version, 5);
     let detected = &migrated.discovered["pi"];
     assert!(detected.ready, "installed readiness is preserved");
     assert_eq!(
@@ -227,25 +247,32 @@ fn schema_three_migrates_inferred_authentication_and_schema_four_preserves_expli
     );
     assert!(!detected.has_current_authenticated_capability("pi", current_unix_ms()));
 
-    migrated
-        .discovered
-        .get_mut("pi")
+    let mut schema_four = serde_json::to_value(&old).unwrap();
+    schema_four["schemaVersion"] = serde_json::Value::from(4);
+    schema_four
+        .as_object_mut()
         .unwrap()
-        .capability_snapshot
-        .as_mut()
-        .unwrap()
-        .authentication = ReadinessState::Ready;
-    save_to(&path, &migrated).unwrap();
-    let (reloaded, diagnostic) = load_from(&path);
+        .remove("bootstrapProvider");
+    std::fs::write(&path, serde_json::to_vec(&schema_four).unwrap()).unwrap();
+
+    let (schema_four_migrated, diagnostic) = load_from(&path);
     assert!(diagnostic.is_none());
+    assert_eq!(schema_four_migrated.schema_version, 5);
     assert_eq!(
-        reloaded.discovered["pi"]
+        schema_four_migrated.discovered["pi"]
             .capability_snapshot
             .as_ref()
             .unwrap()
             .authentication,
         ReadinessState::Ready,
-        "schema 4 retains fresh positive authentication evidence"
+        "schema 4 retains fresh explicit authentication evidence"
+    );
+    assert!(
+        schema_four_migrated.discovered["pi"]
+            .has_current_authenticated_capability("pi", current_unix_ms())
     );
     std::fs::remove_file(path).unwrap();
 }
+
+#[path = "tests/migration.rs"]
+mod migration;

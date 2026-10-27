@@ -30,6 +30,8 @@ pub(crate) enum TrustedProgram {
     Zypper,
     MacInstaller,
     WindowsMsiExec,
+    ClaudeCodeInstall,
+    ClaudeCodeDownload,
     #[cfg(test)]
     TestHelper,
 }
@@ -86,6 +88,7 @@ impl TrustedProgram {
             | Self::Zypper => host == Host::Linux,
             Self::MacInstaller => host == Host::MacOs,
             Self::WindowsMsiExec => host == Host::Windows,
+            Self::ClaudeCodeInstall | Self::ClaudeCodeDownload => host == Host::Linux,
             #[cfg(test)]
             Self::TestHelper => true,
         }
@@ -132,6 +135,10 @@ impl TrustedProgram {
             Self::Zypper => Ok(PathBuf::from("/usr/bin/zypper")),
             Self::MacInstaller => Ok(PathBuf::from("/usr/sbin/installer")),
             Self::WindowsMsiExec => windows_msiexec_path(),
+            Self::ClaudeCodeInstall => {
+                anyhow::bail!("Claude Code installation is a typed internal broker operation")
+            }
+            Self::ClaudeCodeDownload => Ok(PathBuf::from("/usr/bin/curl")),
             #[cfg(test)]
             Self::TestHelper => Ok(std::env::current_exe()?),
         }

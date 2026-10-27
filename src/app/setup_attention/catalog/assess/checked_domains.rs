@@ -1,12 +1,13 @@
 use crate::execution::docker::environment::DockerEnvironmentStatus;
 use crate::harness::discovery::{ProbeResult, ProbeStatus};
 
-use super::{EvidenceState, GitProbeV1, HostKind, ImageScanState, images};
+use super::{EvidenceState, GitProbeV1, HostKind, ImageScanState, ProviderIdV1, images};
 
 pub(super) struct Inputs<'a> {
     pub(super) probes: &'a [ProbeResult],
     pub(super) scan_generation: u64,
     pub(super) verified: &'a [&'a ProbeResult],
+    pub(super) setup_provider: Option<&'a str>,
     pub(super) selected_agent: Option<&'a str>,
     pub(super) docker: &'a DockerEnvironmentStatus,
     pub(super) host: HostKind,
@@ -19,6 +20,7 @@ pub(super) fn collect(inputs: Inputs<'_>) -> Vec<String> {
         probes,
         scan_generation,
         verified,
+        setup_provider,
         selected_agent,
         docker,
         host,
@@ -29,9 +31,15 @@ pub(super) fn collect(inputs: Inputs<'_>) -> Vec<String> {
     // stopped/rootful/untrusted Engine cannot prove an earlier prerequisite
     // was fixed. An unknown CLI account also cannot verify its old failures.
     let mut domains = Vec::new();
-    if probes
-        .iter()
-        .any(|probe| probe.run_generation == scan_generation && probe.binary_path.is_some())
+    if [setup_provider, selected_agent]
+        .into_iter()
+        .flatten()
+        .any(|provider_id| {
+            ProviderIdV1::from_probe_id(provider_id).is_some()
+                && probes.iter().any(|probe| {
+                    probe.provider_id == provider_id && probe.run_generation == scan_generation
+                })
+        })
     {
         domains.push("cli:install".into());
     }

@@ -5,6 +5,7 @@ use std::sync::mpsc::Receiver;
 use crate::harness::discovery::ProbeResult;
 
 mod bootstrap_probe;
+mod bootstrap_provider;
 mod discovery;
 mod paint;
 pub use self::paint::paint_harness_setup_page;
@@ -73,6 +74,10 @@ pub(super) fn invalidate_discovery(
     }
 }
 
+pub(crate) fn supported_provider_id(id: &str) -> bool {
+    probes::PROVIDERS.contains(&id)
+}
+
 pub(super) fn has_current_provider_capabilities(
     id: &str,
     detected: &crate::persistence::harness_settings::DetectedHarness,
@@ -86,16 +91,7 @@ pub(super) fn has_current_model_catalog(
     detected: &crate::persistence::harness_settings::DetectedHarness,
     now_unix_ms: u64,
 ) -> bool {
-    detected.is_fresh_at(now_unix_ms)
-        && detected.model_catalog_fresh
-        && detected
-            .capability_snapshot
-            .as_ref()
-            .is_some_and(|snapshot| {
-                snapshot.provider_id == id
-                    && snapshot.validate().is_ok()
-                    && snapshot.model_catalog == crate::execution::contract::ReadinessState::Ready
-            })
+    detected.has_current_model_catalog_at(id, now_unix_ms)
 }
 
 impl DlgHarnessSetup {
@@ -133,8 +129,11 @@ impl DlgHarnessSetup {
                 crate::persistence::harness_settings::current_unix_ms(),
             )
         }) {
+            let previous = self.settings.clone();
             self.settings.default_harness = Some(id.to_owned());
-            self.persist();
+            if !self.persist_saved() {
+                self.settings = previous;
+            }
         } else {
             self.set_feedback(false, format!(
                 "{id} cannot be set as the default yet: no fresh authenticated capability evidence exists. Refresh Coding tools, then select it again."

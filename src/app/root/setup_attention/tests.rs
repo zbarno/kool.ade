@@ -10,6 +10,7 @@ fn empty_scan(generation: u64, cancelled: bool) -> SetupScanResult {
         endpoint_fingerprint: None,
         daemon_identity_fingerprint: None,
         docker_readiness_fingerprint: None,
+        setup_provider: None,
         selected_provider: None,
         cancelled,
     }

@@ -69,6 +69,7 @@ pub(crate) const UNSAFE_PROVIDER_LAUNCH_ENV: &[&str] = &[
 pub(crate) use application_boundary::PrivateDirectory;
 pub(crate) use application_boundary::{
     ApplicationBoundary, CliProvider, ProfileProbeEvidence, ValidatedProviderLaunch,
+    ensure_claude_update_policy, opencode_has_custom_provider_settings,
 };
 #[cfg(test)]
 pub(crate) use application_boundary::{override_test_app_binary, override_test_resource_budgets};
@@ -137,10 +138,6 @@ impl HarnessCapabilities {
         self.modes.contains(&mode)
     }
 
-    pub(crate) fn supports_implementation(self) -> bool {
-        self.supports(ExecutionMode::Implementation)
-    }
-
     pub(crate) fn settings_summary(self) -> &'static str {
         match self.policy {
             ExecutionSecurityPolicy {
@@ -151,13 +148,15 @@ impl HarnessCapabilities {
                 credentials: CredentialPolicy::ProviderManagedButUnavailableToRepositoryCommands,
                 process_isolation: ProcessIsolation::DockerExecutionSession,
             } => {
-                "Supported provider CLIs stay on the host for authentication and model connection, start in a private working directory, and have native repository tools disabled. Every repository operation runs through Kool.ad/e's application-owned MCP session and Docker ExecutionSession, bound to the selected workspace and execution mode. Docker mounts only the assigned clone writable for implementation or the selected repository read-only for planning; containers receive no provider credentials or ambient network. Dependency and public-resource access remains application-mediated. Provider launches and probes remove inherited startup-code, shell-init, loader, Git-config, and IDE-connection variables while retaining provider auth and model transport. Locally visible host hooks, commands, and extra MCP servers are rejected; any local Claude Code managed-settings file or drop-in is rejected, and its host-side MCP shell-prefix override is removed. Codex or Claude account-managed policy may still supply host-side hooks, helper commands, MCP servers, or feature settings; the app cannot preflight cloud-delivered policy. Claude Code is unavailable under WSL because it can inherit Windows-managed policy that Kool.ad/e cannot inspect."
+                "Supported provider CLIs stay on the host for authentication and model connection, start in a private working directory, and have native repository tools disabled. Every repository operation runs through Kool.ad/e's application-owned MCP session and Docker ExecutionSession, bound to the selected workspace and execution mode. Docker mounts only the assigned clone writable for implementation or the selected repository read-only for planning; containers receive no provider credentials or ambient network. Dependency and public-resource access remains application-mediated. Provider launches and probes remove inherited startup-code, shell-init, loader, Git-config, and IDE-connection variables while retaining provider auth and model transport. Locally visible host hooks, commands, and extra MCP servers are rejected; any local Claude Code managed-settings file or drop-in is rejected, and its host-side MCP shell-prefix override is removed. Codex or Claude account-managed policy may still supply host-side hooks, helper commands, MCP servers, or feature settings; the app cannot preflight cloud-delivered policy, so task execution for both providers is blocked. Claude Code is unavailable under WSL because it can inherit Windows-managed policy that Kool.ad/e cannot inspect."
             }
         }
     }
 }
 
 static SUPPORTED_MODES: [ExecutionMode; 8] = ExecutionMode::ALL;
+const CLAUDE_TASK_EXECUTION_BLOCK: &str = "Claude Code task execution is unavailable until Kool.ad/e can sandbox organization-managed hooks; the CLI does not provide a supported way to disable those hooks while keeping normal sign-in.";
+const CODEX_TASK_EXECUTION_BLOCK: &str = "Codex task execution is unavailable until Kool.ad/e can contain organization-managed hooks; Codex feature-disable flags do not override admin-enforced hook policy.";
 const APPLICATION_CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
     policy: ExecutionSecurityPolicy {
         filesystem: FilesystemScope::PrivateCliDirectoryAndAssignedCloneAllowlist,
@@ -189,13 +188,31 @@ pub(crate) fn for_harness(id: &str) -> Option<HarnessCapabilities> {
 }
 
 pub(crate) fn implementation_route_available(id: &str) -> bool {
-    for_harness(id).is_some_and(HarnessCapabilities::supports_implementation)
+    supports_mode_contract(id, ExecutionMode::Implementation)
+}
+
+pub(crate) fn task_execution_block_reason(id: &str) -> Option<&'static str> {
+    let id = id.trim();
+    if ["claude", "claude code"]
+        .iter()
+        .any(|name| id.eq_ignore_ascii_case(name))
+    {
+        Some(CLAUDE_TASK_EXECUTION_BLOCK)
+    } else if ["codex", "codex cli"]
+        .iter()
+        .any(|name| id.eq_ignore_ascii_case(name))
+    {
+        Some(CODEX_TASK_EXECUTION_BLOCK)
+    } else {
+        None
+    }
 }
 
 /// Whether a provider adapter in this build implements the selected mode.
 /// Discovery combines this with the installed CLI's verified launch profile.
 pub(crate) fn supports_mode_contract(id: &str, mode: ExecutionMode) -> bool {
-    for_harness(id).is_some_and(|capabilities| capabilities.supports(mode))
+    task_execution_block_reason(id).is_none()
+        && for_harness(id).is_some_and(|capabilities| capabilities.supports(mode))
 }
 
 /// Whether this build has a configured app-owned MCP adapter and execution
@@ -205,22 +222,25 @@ pub(crate) fn supports_universal_role_contract(id: &str) -> bool {
     let Some(provider) = CliProvider::from_id(id) else {
         return false;
     };
-    let Some(capabilities) = for_harness(id) else {
+    if for_harness(id).is_none() {
         return false;
-    };
+    }
     let profile = provider.profile_requirements();
     if profile.launch_tokens.is_empty() || profile.capabilities.is_empty() {
         return false;
     }
     ExecutionMode::ALL
         .into_iter()
-        .all(|mode| capabilities.supports(mode))
+        .all(|mode| supports_mode_contract(id, mode))
         && crate::execution::contract::HarnessRole::ALL
             .into_iter()
-            .all(|role| capabilities.supports(role.harness_mode()))
+            .all(|role| supports_mode_contract(id, role.harness_mode()))
 }
 
 pub(crate) fn summary_for_harness(id: &str) -> &'static str {
+    if let Some(reason) = task_execution_block_reason(id) {
+        return reason;
+    }
     for_harness(id).map_or(
         "Repository execution is disabled because this CLI has no application-owned sandbox policy.",
         HarnessCapabilities::settings_summary,
@@ -233,16 +253,9 @@ mod tests {
 
     #[test]
     fn every_supported_cli_advertises_the_shared_application_owned_policy() {
-        for id in [
-            "pi",
-            "codex",
-            "claude",
-            "opencode",
-            "copilot",
-            "antigravity",
-        ] {
+        for id in ["pi", "opencode", "copilot", "antigravity"] {
             let capabilities = for_harness(id).unwrap();
-            assert!(capabilities.supports_implementation(), "{id}");
+            assert!(capabilities.supports(ExecutionMode::Implementation), "{id}");
             assert!(
                 ExecutionMode::ALL
                     .into_iter()
@@ -254,6 +267,20 @@ mod tests {
             );
             assert!(implementation_route_available(id), "{id}");
         }
+        assert!(!supports_mode_contract("claude", ExecutionMode::Planning));
+        assert!(!supports_mode_contract(
+            "claude",
+            ExecutionMode::Implementation
+        ));
+        assert!(!implementation_route_available("claude code"));
+        assert!(task_execution_block_reason("claude").is_some());
+        assert!(!supports_mode_contract("codex", ExecutionMode::Planning));
+        assert!(!supports_mode_contract(
+            "Codex CLI",
+            ExecutionMode::Implementation
+        ));
+        assert!(!implementation_route_available("codex"));
+        assert!(task_execution_block_reason("codex").is_some());
         assert!(for_harness("unknown").is_none());
         assert!(!implementation_route_available("unknown"));
     }

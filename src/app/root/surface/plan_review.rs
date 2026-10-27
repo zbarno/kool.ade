@@ -1,5 +1,18 @@
 use super::*;
 
+macro_rules! plan_review_surface_methods {
+    () => {
+        fn lifecycle_plan_review(
+            &self,
+            feature_uid: &str,
+        ) -> Result<crate::ui::task_detail::LifecyclePlanReviewView, String> {
+            self.load_lifecycle_plan_review(feature_uid)
+        }
+    };
+}
+
+pub(super) use plan_review_surface_methods;
+
 impl KooladeApp {
     pub(super) fn load_lifecycle_plan_review(
         &self,

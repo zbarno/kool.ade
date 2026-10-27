@@ -8,6 +8,7 @@ use crate::execution::contract::ReadinessState;
 use crate::harness::discovery::{ModelCatalogStatus, ProbeResult, ProbeStatus};
 
 use super::SetupIssue;
+use super::catalog::ProviderIdV1;
 
 fn verified_for_bootstrap(report: &ProbeResult, generation: u64) -> bool {
     report.status == ProbeStatus::Available
@@ -25,14 +26,48 @@ fn verified_for_bootstrap(report: &ProbeResult, generation: u64) -> bool {
 pub(super) fn assess(
     reports: &[ProbeResult],
     selected: Option<&str>,
+    setup_provider: Option<&str>,
     generation: u64,
 ) -> Option<SetupIssue> {
+    let mut chosen = Vec::new();
+    for id in [setup_provider, selected].into_iter().flatten() {
+        if !chosen.contains(&id) {
+            chosen.push(id);
+        }
+    }
     let verified = reports
         .iter()
         .filter(|report| verified_for_bootstrap(report, generation))
         .collect::<Vec<_>>();
-    if selected.is_some_and(|id| verified.iter().any(|report| report.provider_id == id)) {
-        return None;
+    if !chosen.is_empty() {
+        for id in &chosen {
+            if ProviderIdV1::from_probe_id(id).is_none() {
+                return Some(selected_provider_verification_issue());
+            }
+            let Some(report) = reports.iter().find(|report| report.provider_id == *id) else {
+                return Some(selected_provider_verification_issue());
+            };
+            if verified_for_bootstrap(report, generation) {
+                continue;
+            }
+            if report.run_generation != generation {
+                return Some(SetupIssue::cli_verify());
+            }
+            return Some(
+                if report.binary_path.is_none() && report.status == ProbeStatus::Missing {
+                    SetupIssue::cli_install()
+                } else if report.authentication == ReadinessState::Unavailable {
+                    SetupIssue::cli_authenticate()
+                } else {
+                    SetupIssue::cli_verify()
+                },
+            );
+        }
+        return if selected.is_some() {
+            None
+        } else {
+            Some(SetupIssue::cli_select())
+        };
     }
     if !verified.is_empty() {
         return Some(SetupIssue::cli_select());
@@ -56,6 +91,16 @@ pub(super) fn assess(
         return Some(SetupIssue::cli_authenticate());
     }
     Some(SetupIssue::cli_verify())
+}
+
+fn selected_provider_verification_issue() -> SetupIssue {
+    let mut issue = SetupIssue::cli_verify();
+    issue.issue =
+        "Kool.ad/e could not match the explicitly selected provider to current discovery results."
+            .into();
+    issue.recommendation = "Choose a supported provider in Coding Tools, then retry discovery to verify its account and model access.";
+    issue.next_action = "Review the selected provider and retry the machine setup check.";
+    issue
 }
 
 #[cfg(test)]
@@ -93,30 +138,39 @@ mod tests {
     #[test]
     fn first_run_without_any_cli_requests_installation() {
         let reports = vec![probe("pi", false, ReadinessState::Unknown)];
-        assert_eq!(assess(&reports, None, 0).unwrap().id, "setup:cli:install");
+        assert_eq!(
+            assess(&reports, None, None, 0).unwrap().id,
+            "setup:cli:install"
+        );
     }
 
     #[test]
     fn rootful_docker_cannot_hide_a_valid_existing_agent() {
         let reports = vec![probe("codex", true, ReadinessState::Ready)];
         let docker_issue = || SetupIssue::docker("Rootful Linux rejected");
-        let first = assess(&reports, Some("codex"), 0).or_else(|| Some(docker_issue()));
+        let first = assess(&reports, Some("codex"), None, 0).or_else(|| Some(docker_issue()));
         assert_eq!(first.unwrap().id, "setup:docker");
-        assert_eq!(assess(&reports, None, 0).unwrap().id, "setup:cli:select");
+        assert_eq!(
+            assess(&reports, None, None, 0).unwrap().id,
+            "setup:cli:select"
+        );
     }
 
     #[test]
     fn failed_probe_is_not_misreported_as_missing_software() {
         let mut broken = probe("codex", false, ReadinessState::Unknown);
         broken.status = ProbeStatus::Failed;
-        assert_eq!(assess(&[broken], None, 0).unwrap().id, "setup:cli:verify");
+        assert_eq!(
+            assess(&[broken], None, None, 0).unwrap().id,
+            "setup:cli:verify"
+        );
     }
 
     #[test]
     fn authentication_missing_is_distinct_from_installation() {
         let reports = vec![probe("pi", true, ReadinessState::Unavailable)];
         assert_eq!(
-            assess(&reports, None, 0).unwrap().id,
+            assess(&reports, None, None, 0).unwrap().id,
             "setup:cli:authenticate"
         );
     }
@@ -125,7 +179,7 @@ mod tests {
     fn unknown_authentication_must_not_be_treated_as_ready() {
         let reports = vec![probe("copilot", true, ReadinessState::Unknown)];
         assert_eq!(
-            assess(&reports, Some("copilot"), 0).unwrap().id,
+            assess(&reports, Some("copilot"), None, 0).unwrap().id,
             "setup:cli:verify"
         );
     }
@@ -135,7 +189,7 @@ mod tests {
         let mut report = probe("claude", true, ReadinessState::Ready);
         report.model_catalog_status = ModelCatalogStatus::NotChecked;
         assert_eq!(
-            assess(&[report], Some("claude"), 0).unwrap().id,
+            assess(&[report], Some("claude"), None, 0).unwrap().id,
             "setup:cli:verify"
         );
     }
@@ -146,10 +200,10 @@ mod tests {
             probe("pi", true, ReadinessState::Ready),
             probe("codex", true, ReadinessState::Ready),
         ];
-        assert!(assess(&reports, Some("codex"), 0).is_none());
+        assert!(assess(&reports, Some("codex"), None, 0).is_none());
         assert_eq!(
-            assess(&reports, Some("missing"), 0).unwrap().id,
-            "setup:cli:select"
+            assess(&reports, Some("missing"), None, 0).unwrap().id,
+            "setup:cli:verify"
         );
     }
 
@@ -158,8 +212,44 @@ mod tests {
         let mut report = probe("codex", true, ReadinessState::Ready);
         report.run_generation = 3;
         assert_eq!(
-            assess(&[report], Some("codex"), 4).unwrap().id,
+            assess(&[report], Some("codex"), None, 4).unwrap().id,
             "setup:cli:verify"
         );
+    }
+
+    #[test]
+    fn guided_and_default_providers_are_both_assessed() {
+        let mut default = probe("codex", true, ReadinessState::Unavailable);
+        default.run_generation = 0;
+        let guided = probe("pi", true, ReadinessState::Ready);
+        assert_eq!(
+            assess(&[guided, default], Some("codex"), Some("pi"), 0)
+                .unwrap()
+                .id,
+            "setup:cli:authenticate"
+        );
+    }
+
+    #[test]
+    fn matching_guided_and_default_provider_is_assessed_once() {
+        let report = probe("codex", true, ReadinessState::Unavailable);
+        assert_eq!(
+            assess(&[report], Some("codex"), Some("codex"), 0)
+                .unwrap()
+                .id,
+            "setup:cli:authenticate"
+        );
+    }
+
+    #[test]
+    fn unknown_or_missing_selected_provider_returns_actionable_verification() {
+        let unknown = assess(&[], Some("future-provider"), None, 0).unwrap();
+        assert_eq!(unknown.id, "setup:cli:verify");
+        assert!(unknown.issue.contains("could not match"));
+        assert!(unknown.next_action.contains("Review the selected provider"));
+
+        let missing = assess(&[], Some("codex"), None, 0).unwrap();
+        assert_eq!(missing.id, "setup:cli:verify");
+        assert!(missing.issue.contains("could not match"));
     }
 }

@@ -96,6 +96,7 @@ fn desktop_snapshot(host: HostKind) -> MachineSnapshotV1 {
         scan_generation: SCAN_GENERATION,
         scan_started_at_unix_ms: 10,
         host,
+        setup_provider: None,
         selected_provider: None,
         checked_at_unix_ms: 10,
         capability_matrix: HostCapabilityMatrixV1 {

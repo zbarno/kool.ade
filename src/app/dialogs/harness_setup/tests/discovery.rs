@@ -53,118 +53,6 @@ fn invalidating_a_manual_provider_keeps_only_stale_diagnostics() {
     assert_eq!(detected.version.as_deref(), Some("0.30.1"));
 }
 
-#[cfg(unix)]
-#[test]
-fn verified_profiles_enable_provider_roles_without_a_docker_target() {
-    use crate::execution::contract::{HarnessRole, ReadinessState};
-    use std::fs;
-
-    let root =
-        std::env::temp_dir().join(format!("harness-profile-matrix-{}", uuid::Uuid::new_v4()));
-    fs::create_dir(&root).unwrap();
-    for (id, version) in [
-        ("pi", "0.30.1"),
-        ("codex", "1.0.0"),
-        ("claude", "2.1.268"),
-        ("opencode", "1.0.0"),
-        ("copilot", "1.0.0"),
-        ("antigravity", "1.0.0"),
-    ] {
-        let binary = root.join(id);
-        fs::write(&binary, "synthetic provider executable").unwrap();
-        let mut provider = report(true);
-        provider.id = id.into();
-        provider.executable = Some(binary.to_string_lossy().into_owned());
-        provider.version = Some(version.into());
-        provider.implementation_available = false;
-        let mut settings = HarnessSettings::default();
-        super::super::discovery::apply_probe_results(
-            &mut settings,
-            std::slice::from_ref(&provider),
-            None,
-            1,
-        );
-        let snapshot = settings.discovered[id]
-            .capability_snapshot
-            .as_ref()
-            .unwrap();
-
-        assert_eq!(
-            snapshot.scriptable_invocation,
-            ReadinessState::Ready,
-            "{id}"
-        );
-        assert_eq!(
-            snapshot.docker_mcp_bridge,
-            ReadinessState::Unavailable,
-            "{id}"
-        );
-        assert_eq!(
-            snapshot.execution_target,
-            ReadinessState::Unavailable,
-            "{id}"
-        );
-        assert!(
-            snapshot
-                .modes
-                .iter()
-                .all(|mode| mode.available == ReadinessState::Ready),
-            "{id}"
-        );
-        assert!(
-            snapshot
-                .roles
-                .iter()
-                .filter(|role| role.role.requires_execution_target())
-                .all(|role| role.available == ReadinessState::Unavailable),
-            "{id}"
-        );
-        assert!(
-            snapshot
-                .roles
-                .iter()
-                .filter(|role| !role.role.requires_execution_target())
-                .all(|role| role.available == ReadinessState::Ready),
-            "{id}"
-        );
-        assert!(snapshot.supports_role(HarnessRole::SpecReconciler), "{id}");
-        assert!(!snapshot.supports_role(HarnessRole::Implementer), "{id}");
-
-        let mut refreshed_report = provider.clone();
-        super::super::discovery::update_runtime_readiness(
-            &mut settings,
-            std::slice::from_mut(&mut refreshed_report),
-            true,
-        );
-        let refreshed = settings.discovered[id]
-            .capability_snapshot
-            .as_ref()
-            .unwrap();
-        assert_eq!(refreshed.docker_mcp_bridge, ReadinessState::Ready, "{id}");
-        assert!(refreshed.supports_role(HarnessRole::Implementer), "{id}");
-    }
-    fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
-fn full_refresh_keeps_cached_provider_results_until_each_result_arrives() {
-    let pi = report(true);
-    let mut claude = report(true);
-    claude.id = "claude".into();
-    claude.executable = Some("/example/bin/claude".into());
-    let mut settings = HarnessSettings::default();
-    super::super::discovery::apply_probe_results(&mut settings, &[pi.clone(), claude], None, 1);
-    let before = settings.discovered.clone();
-
-    invalidate_discovery(&mut settings, None);
-
-    assert_eq!(settings.discovered, before);
-    assert!(settings.discovered["pi"].ready);
-    assert!(settings.discovered["pi"].capability_snapshot.is_some());
-    assert!(settings.discovered["claude"].ready);
-    assert!(settings.discovered["claude"].capability_snapshot.is_some());
-}
-
 #[test]
 fn setup_selection_requires_a_valid_current_capability_snapshot() {
     let generation = crate::persistence::harness_settings::current_unix_ms();
@@ -358,15 +246,6 @@ fn closing_discovery_cancels_the_active_provider_scan() {
 }
 
 #[test]
-fn successful_discovery_persists_version_and_selects_first_ready_default() {
-    let mut settings = HarnessSettings::default();
-    super::super::discovery::apply_probe_results(&mut settings, &[report(true)], None, 1);
-    assert_eq!(settings.default_harness.as_deref(), Some("pi"));
-    assert_eq!(settings.discovered["pi"].version.as_deref(), Some("0.30.1"));
-    assert!(settings.discovered["pi"].ready);
-}
-
-#[test]
 fn rediscovery_reflects_tool_removal_without_rewriting_the_saved_default() {
     let mut settings = HarnessSettings {
         default_harness: Some("pi".into()),
@@ -403,5 +282,7 @@ mod fallback;
 mod model_catalog;
 #[path = "discovery/progress.rs"]
 mod progress;
+#[path = "discovery/provider_readiness.rs"]
+mod provider_readiness;
 #[path = "discovery/runtime.rs"]
 mod runtime;
