@@ -1,7 +1,7 @@
 use crate::app::bootstrap_repair_policy::Operation;
 use serde::{Deserialize, Serialize};
 
-const OPERATION_CODE_VERSION: u16 = 1;
+const OPERATION_CODE_VERSION: u16 = 2;
 
 mod build;
 mod descriptions;
@@ -31,6 +31,7 @@ pub(crate) enum ArtifactTrust {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ApprovedPublisher {
     Docker,
+    Anthropic,
     Apple,
     Microsoft,
     Debian,
@@ -48,6 +49,17 @@ pub(crate) enum ArtifactSource {
         publisher: ApprovedPublisher,
         product: TrustedProduct,
     },
+    ClaudeCodeRelease {
+        publisher: ApprovedPublisher,
+        product: TrustedProduct,
+        version: String,
+        manifest_url: String,
+        signature_url: String,
+        key_url: String,
+        key_fingerprint: String,
+        binary_url: String,
+        target_path: String,
+    },
     SignedPackageRepository {
         repository: TrustedRepository,
         product: TrustedProduct,
@@ -59,6 +71,7 @@ pub(crate) enum ArtifactSource {
 pub(crate) enum TrustedProduct {
     DockerEngine,
     DockerDesktop,
+    ClaudeCode,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -76,6 +89,10 @@ pub(crate) enum PlanEffect {
     OpenCodingToolsSettings,
     DownloadLockedImage,
     RunIsolatedImageSmokeTest,
+    DownloadSignedProviderManifest,
+    VerifyProviderManifestSignature,
+    DownloadManifestSelectedProviderBinary,
+    InstallUserLocalProviderBinary,
     ConfigureDockerAptRepository,
     ConfigureDockerDnfRepository,
     InstallLinuxRootlessPackages,
@@ -90,6 +107,7 @@ pub(crate) enum PlanEffect {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ManagedFileChange {
     DockerUserConfiguration,
+    ClaudeCodeUserLocalBinary,
     DockerAptSigningKey,
     DockerAptKeyringDirectory,
     DockerAptSourcesEntry,
@@ -134,6 +152,7 @@ pub(crate) struct RemediationPlan {
     pub(crate) os_version: String,
     pub(crate) prerequisite_id: String,
     pub(crate) parameter_digest: String,
+    pub(crate) install_target: Option<String>,
     pub(crate) effects: Vec<PlanEffect>,
     pub(crate) package_changes: Vec<ManagedPackageChange>,
     pub(crate) file_changes: Vec<ManagedFileChange>,

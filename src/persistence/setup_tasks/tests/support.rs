@@ -22,6 +22,7 @@ pub fn snapshot(
         scan_generation: 1,
         scan_started_at_unix_ms: at,
         host: HostKind::Linux,
+        setup_provider: None,
         selected_provider: None,
         checked_at_unix_ms: at,
         capability_matrix: HostCapabilityMatrixV1 {

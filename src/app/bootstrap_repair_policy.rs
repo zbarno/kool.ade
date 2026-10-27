@@ -22,6 +22,8 @@ pub enum Operation {
     RecheckPrerequisites,
     /// A reviewed digest from the bundled runtime image lock; no freeform image.
     PrepareLockedImage,
+    /// Install one exact, app-owned Claude Code release for the current user.
+    InstallClaudeCode,
     /// Open existing application settings, never a process execution.
     OpenCodingTools,
     /// Install the exact supported Linux distro package recipe for rootless Docker.
@@ -120,6 +122,18 @@ pub fn validate(proposal: &Proposal, detected_host: Host) -> anyhow::Result<Revi
             anyhow::ensure!(
                 image_task.is_some_and(|(task_profile, _, _)| task_profile == profile),
                 "image preparation requires a canonical approved profile, architecture and engine identity"
+            );
+            (true, true)
+        }
+        Operation::InstallClaudeCode => {
+            anyhow::ensure!(proposal.image_profile.is_none(), "unexpected image profile");
+            anyhow::ensure!(
+                proposal.prerequisite_id == "setup:cli:claude:install",
+                "Claude Code installation requires its canonical prerequisite"
+            );
+            anyhow::ensure!(
+                proposal.host == Host::Linux,
+                "Claude Code installation is only reviewed for Linux"
             );
             (true, true)
         }

@@ -5,10 +5,12 @@ use crate::app::bootstrap_remediation::{
     plan::{PrivilegeLevel, RemediationPlan},
 };
 
+mod claude_code_registry;
 mod execute;
 mod process;
 mod production;
 
+pub(crate) use claude_code_registry::ClaudeCodeOperationRegistry;
 pub(crate) use execute::RemediationSupervisor;
 pub(crate) use process::{
     DNF_MAX_STAGED_RPMS, DnfPackageNames, DnfStageId, HashBoundDnfRpm, NativeCommandRunner,
@@ -60,6 +62,20 @@ pub(crate) trait NativeElevation {
         invocation: &TrustedInvocation,
         cancellation: &Cancellation,
     ) -> anyhow::Result<Option<ElevationReceipt>>;
+}
+
+pub(crate) struct NoNativeElevation;
+
+impl NativeElevation for NoNativeElevation {
+    fn request(
+        &self,
+        _plan: &RemediationPlan,
+        _identity: &HostIdentity,
+        _invocation: &TrustedInvocation,
+        _cancellation: &Cancellation,
+    ) -> anyhow::Result<Option<ElevationReceipt>> {
+        anyhow::bail!("this broker operation has no administrator execution path")
+    }
 }
 
 pub(crate) struct ElevationReceipt {

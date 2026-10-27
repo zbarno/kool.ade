@@ -47,10 +47,10 @@ impl SetupIssue {
             id: "setup:cli:install",
             title: "Install a coding agent",
             issue: "No supported coding-agent CLI was detected on this computer.".into(),
-            why: "A coding agent can guide you through the remaining setup tasks, but Kool.ad/e can also provide non-AI setup instructions.",
-            recommendation: "Open Coding Tools to choose and install Pi, Codex, Claude Code, OpenCode, Copilot, or Antigravity.",
-            impact: "Agent-guided setup and model-backed work are unavailable until a coding CLI is installed and configured.",
-            next_action: "Choose a coding agent, install it, then retry the setup check.",
+            why: "A coding agent enables AI-assisted planning and model-backed work; Kool.ad/e still provides deterministic setup instructions without one.",
+            recommendation: "Choose a provider in Coding Tools, follow its official installation guide, then retry discovery.",
+            impact: "AI-assisted planning and model-backed work are unavailable until a coding CLI is installed and configured. Deterministic setup guidance remains available.",
+            next_action: "Choose a coding agent, follow its installation guide, then retry the setup check.",
             related_task_prefix: None,
         }
     }
@@ -64,7 +64,7 @@ impl SetupIssue {
                     .into(),
             why: "Finding a command on your machine does not prove that it can answer prompts.",
             recommendation: "Open Coding Tools, inspect each agent's authentication result, and sign in using the provider's supported flow.",
-            impact: "Agent-guided setup cannot start until a usable agent is independently verified.",
+            impact: "AI-assisted planning and model-backed work stay unavailable until a usable agent is independently verified. Deterministic setup guidance remains available.",
             next_action: "Authenticate an installed agent, then retry the setup check.",
             related_task_prefix: None,
         }
@@ -77,7 +77,7 @@ impl SetupIssue {
             issue: "A coding agent was detected, but its authentication or model access could not be verified.".into(),
             why: "Kool.ad/e must not mistake an installed CLI or unknown authentication status for a working agent.",
             recommendation: "Open Coding Tools and review the CLI, account and available-model diagnostics.",
-            impact: "Bootstrap assistance stays unavailable until at least one agent is verified.",
+            impact: "AI-assisted planning and model-backed work stay unavailable until an agent is verified. Deterministic setup guidance remains available.",
             next_action: "Confirm your model and account configuration, then retry the setup check.",
             related_task_prefix: None,
         }
@@ -86,13 +86,13 @@ impl SetupIssue {
     pub fn cli_select() -> Self {
         Self {
             id: "setup:cli:select",
-            title: "Choose your bootstrap agent",
+            title: "Choose a default coding agent",
             issue:
                 "At least one coding agent is ready, but none has been selected as your default."
                     .into(),
             why: "Kool.ad/e won't silently choose a different provider or charge an unexpected account.",
-            recommendation: "Open Coding Tools and select your preferred verified agent as the default.",
-            impact: "Your agent-assisted setup route has not been chosen yet; deterministic setup remains available.",
+            recommendation: "Open Coding Tools and set Default tool on your preferred verified provider.",
+            impact: "A default conversation route has not been chosen. Deterministic setup guidance remains available.",
             next_action: "Choose your default coding agent, then retry the setup check.",
             related_task_prefix: None,
         }

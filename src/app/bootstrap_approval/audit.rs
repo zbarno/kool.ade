@@ -1,23 +1,20 @@
 use std::path::Path;
 
-#[cfg(unix)]
 use serde::{Deserialize, Serialize};
 
 use crate::app::bootstrap_repair_policy::Operation;
 
-#[cfg(unix)]
 const VERSION: u8 = 1;
-#[cfg(unix)]
 const MAX_AUDIT_BYTES: u64 = 512 * 1024;
-#[cfg(unix)]
 const MAX_EVENTS: usize = 256;
 
 #[cfg(all(test, unix))]
 mod tests;
 #[cfg(unix)]
 mod unix;
+#[cfg(windows)]
+mod windows;
 
-#[cfg(unix)]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct AuditEntry {
@@ -29,7 +26,6 @@ struct AuditEntry {
     outcome: String,
 }
 
-#[cfg(unix)]
 #[derive(Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct AuditStore {
@@ -75,22 +71,22 @@ pub(super) fn append(
                 .all(|byte| { byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-') }),
         "Invalid repair audit file name"
     );
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
-        unix::append(
-            path,
-            name,
-            AuditEntry {
-                observed_at_unix_ms,
-                operation,
-                prerequisite_id: prerequisite_id.to_owned(),
-                proposal_sha256: proposal_digest.to_owned(),
-                binding_sha256: binding_digest.to_owned(),
-                outcome: outcome.to_owned(),
-            },
-        )
+        let entry = AuditEntry {
+            observed_at_unix_ms,
+            operation,
+            prerequisite_id: prerequisite_id.to_owned(),
+            proposal_sha256: proposal_digest.to_owned(),
+            binding_sha256: binding_digest.to_owned(),
+            outcome: outcome.to_owned(),
+        };
+        #[cfg(unix)]
+        return unix::append(path, name, entry);
+        #[cfg(windows)]
+        return windows::append(path, name, entry);
     }
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (
             path,

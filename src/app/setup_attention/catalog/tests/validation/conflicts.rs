@@ -45,9 +45,11 @@ fn snapshot_validation_rejects_a_docker_failure_with_a_positive_image_domain() {
 
 #[test]
 fn snapshot_validation_rejects_provider_readiness_with_its_failure() {
+    let mut pi = agent(ReadinessState::Ready);
+    pi.provider_id = "pi".into();
     let mut snapshot = assess(
-        &[agent(ReadinessState::Ready)],
-        Some("codex"),
+        &[pi],
+        Some("pi"),
         &docker(DockerEnvironmentState::NotInstalled, false),
         HostKind::Linux,
         14,
@@ -56,10 +58,10 @@ fn snapshot_validation_rejects_provider_readiness_with_its_failure() {
         snapshot
             .checked_domains
             .iter()
-            .any(|domain| domain == "cli:codex")
+            .any(|domain| domain == "cli:pi")
     );
     snapshot.findings.push(Finding::action(
-        "setup:cli:codex:auth",
+        "setup:cli:pi:auth",
         "Connect the selected provider",
         "Provider authentication failed.",
         "Authenticate with the provider, then retry.",

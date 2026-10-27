@@ -18,6 +18,7 @@ fn tick_refreshes_setup_after_image_preparation_without_open_details() {
                 endpoint_fingerprint: None,
                 daemon_identity_fingerprint: None,
                 docker_readiness_fingerprint: None,
+                setup_provider: None,
                 selected_provider: None,
                 cancelled: true,
             },

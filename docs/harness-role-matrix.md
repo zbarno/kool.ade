@@ -52,14 +52,16 @@ the QA role name. Runtime and visual QA require their approved drivers and
 the binary/version, authentication, selected model, invocation/stream format,
 and requested mode. For any mode with tools, the snapshot must also confirm the
 same application-managed Docker MCP bridge and an available execution target.
-An unavailable capability is a categorized blocker; routing never substitutes
-another provider or model silently.
+`—` means task execution is disabled because provider-managed hooks cannot be
+contained by the current process boundary. An unavailable capability is a
+categorized blocker; routing never substitutes another provider or model
+silently.
 
 | Provider CLI | Planning | Read-only analysis | Task generation | Investigation | Implementation | Reconciliation | Decision explanation |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Pi | P | P | P | P | P | P | P |
-| Codex CLI | P | P | P | P | P | P | P |
-| Claude Code | P | P | P | P | P | P | P |
+| Codex CLI | — | — | — | — | — | — | — |
+| Claude Code | — | — | — | — | — | — | — |
 | OpenCode | P | P | P | P | P | P | P |
 | GitHub Copilot CLI | P | P | P | P | P | P | P |
 | Antigravity CLI | P | P | P | P | P | P | P |
@@ -73,10 +75,11 @@ provider's capability snapshot and persisted with the task attempt.
 ## Capability gates
 
 Provider transport readiness is separate from execution-target readiness.
-Planning modes with `ToolAccess::None` remain available when Docker is missing.
-Read-only and bounded modes require the Docker bridge and target required by
-their mode; a remote worker does not need the provider CLI, model credentials,
-or SSH credentials.
+Planning may run from app-supplied context without a repository execution
+target; in that case it receives no repository tools. Planning that includes
+repository context and all other repository-tool modes require the Docker
+bridge and target required by their mode. A remote worker does not need the
+provider CLI, model credentials, or SSH credentials.
 
 Before enabling a matrix cell, the implementation must prove all of the
 following:
@@ -101,15 +104,31 @@ marks the provider's mode and role contract ready only after it confirms
 authentication, a fresh model catalog, the exact executable's clean launch
 profile, and a supported application adapter. The app MCP adapter contract and
 live execution target are recorded separately; tool modes require both at
-routing time, while context-only modes do not require Docker. Project routes
+routing time, while context-only modes do not require Docker. Codex CLI and
+Claude Code are currently blocked in every task mode because their managed
+account policy can require host-side hooks that Kool.ad/e cannot contain; local
+launch flags cannot prove that managed hooks are absent. Other providers remain
+subject to fresh authentication, model, and role evidence. Project routes
 are stored in the project's planning store and participate in the same central
 precedence resolver across planning, task, review, reconciliation, and QA
 entry points. The six-by-seven
-fake CLI result matrix now exercises each production adapter through
-`execute_with_model` and checks normalized final output. The separate MCP
+fake CLI result matrix exercises each task-capable production adapter through
+`execute_with_model` and checks normalized final output; Codex and Claude
+negative cases verify rejection before provider execution. The separate MCP
 authority E2E verifies that provider role calls use only the application-owned
 MCP tools. Together these prove invocation and tool configuration, but not
 that each real provider interprets every tool policy identically. Full role
 workflow E2E coverage, normalized typed provider failures, model/reasoning
 validation, and Docker-backed provider smoke tests remain open before treating
 every `P` cell as release-ready.
+
+The current probes do not establish fresh account-specific model access for
+most cloud providers: Pi's credential resolver is not invoked because its auth
+file can run a user command, Codex and Claude model catalogs remain stale, and
+Copilot and Antigravity authentication remains unknown. OpenCode can verify a
+saved Anthropic API key with a non-generative HTTPS models request and promote
+only model IDs also present in its selectable catalog. Other OpenCode remote
+credentials remain unverified. An explicitly configured OpenCode loopback
+model endpoint can also provide fresh model evidence. The `P` cells describe
+conditional role contracts; they do not mean every provider is ready on a
+fresh clone.

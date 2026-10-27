@@ -37,7 +37,7 @@ fn pi_configured_model_output_cannot_persist_secret_text() {
     environment.set("KOOLADE_HOME", root.join("isolated-state").as_os_str());
 
     let report = discover_provider("pi", true);
-    assert_eq!(report.authentication, ReadinessState::Ready);
+    assert_eq!(report.authentication, ReadinessState::Unknown);
     assert!(report.models.is_empty());
     assert!(report.default_model.is_none());
     assert!(!report.model_catalog_fresh);

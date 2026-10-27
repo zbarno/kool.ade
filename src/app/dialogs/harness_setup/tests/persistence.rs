@@ -30,25 +30,39 @@ fn manual_path_save_and_reset_roll_back_memory_when_settings_cannot_be_written()
         probe_results: Default::default(),
         running_providers: Default::default(),
     };
-    dialog.set_manual_path("pi", binary.display().to_string());
-    assert!(!dialog.settings.manual_executable_paths.contains_key("pi"));
-    assert!(dialog.feedback.as_ref().is_some_and(|(ok, _)| !ok));
+    // Point persistence at a path whose ancestry cannot exist so the save
+    // fails deterministically, independent of ambient HOME handling.
+    let outcome = crate::persistence::harness_settings::with_settings_path(
+        blocked_home.join("nested").join("harness-settings.json"),
+        || {
+            dialog.set_manual_path("pi", binary.display().to_string());
+            let rolled_back = !dialog.settings.manual_executable_paths.contains_key("pi");
+            let refused = dialog.feedback.as_ref().is_some_and(|(ok, _, _)| !ok);
 
-    dialog
-        .settings
-        .manual_executable_paths
-        .insert("pi".into(), binary.display().to_string());
-    dialog
-        .manual_path_drafts
-        .insert("pi".into(), binary.display().to_string());
-    let saved = dialog.settings.clone();
-    dialog.reset_manual_path("pi");
-    assert_eq!(dialog.settings, saved);
-    assert_eq!(
-        dialog.manual_path_drafts["pi"],
-        binary.display().to_string()
+            dialog
+                .settings
+                .manual_executable_paths
+                .insert("pi".into(), binary.display().to_string());
+            dialog
+                .manual_path_drafts
+                .insert("pi".into(), binary.display().to_string());
+            let saved = dialog.settings.clone();
+            dialog.reset_manual_path("pi");
+            (
+                rolled_back,
+                refused,
+                dialog.settings == saved,
+                dialog.manual_path_drafts["pi"] == binary.display().to_string(),
+                dialog.feedback.as_ref().is_some_and(|(ok, _, _)| !ok),
+            )
+        },
     );
-    assert!(dialog.feedback.as_ref().is_some_and(|(ok, _)| !ok));
+    let (rolled_back, refused, memory_unchanged, drafts_kept, reset_refused) = outcome;
+    assert!(rolled_back);
+    assert!(refused);
+    assert!(memory_unchanged);
+    assert!(drafts_kept);
+    assert!(reset_refused);
 
     let _ = std::fs::remove_dir_all(root);
 }

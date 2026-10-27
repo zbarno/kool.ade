@@ -1,12 +1,13 @@
 use super::super::{ReadinessState, discover_provider};
 use std::os::unix::fs::PermissionsExt;
 
-/// Covers the production adapter, typed result conversion, and saved settings boundary. The fake
-/// CLI proves an auth failure remains distinct from a successful model catalog; parser tests alone
-/// cannot verify that mapping. Uses a Unix shell and temporary files; setup cost is one short CLI.
+/// Covers the production adapter, typed result conversion, and saved settings boundary. A logged-in
+/// status and successful app-server model list do not prove account-specific model access; this
+/// verifies those observations remain unverified through persistence. Uses a Unix shell and
+/// temporary files; setup cost is one short CLI and app-server exchange.
 #[cfg(unix)]
 #[test]
-fn codex_auth_failure_keeps_catalog_evidence_and_blocks_selection() {
+fn codex_login_and_model_list_do_not_prove_account_access_or_select_provider() {
     let root = std::env::temp_dir().join(format!("koolade-codex-adapter-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let binary = root.join("codex");
@@ -15,7 +16,7 @@ fn codex_auth_failure_keeps_catalog_evidence_and_blocks_selection() {
         r##"#!/bin/sh
 if [ "$1" = "--version" ]; then echo 'codex-cli 1.2.3 token=synthetic-secret'; exit 0; fi
 if [ "$1" = "exec" ]; then echo '--json --cd --sandbox --ephemeral --model --config --disable --ignore-user-config --skip-git-repo-check'; exit 0; fi
-if [ "$1" = "login" ]; then echo 'Not logged in'; exit 1; fi
+if [ "$1" = "login" ]; then echo 'Logged in'; exit 0; fi
 if [ "$1" = "app-server" ]; then
   while read -r message; do
     case "$message" in
@@ -40,10 +41,10 @@ exit 1
 
     let report = discover_provider("codex", true);
     assert!(!report.ready);
-    assert_eq!(report.authentication, ReadinessState::Unavailable);
-    assert!(report.configuration_required);
+    assert_eq!(report.authentication, ReadinessState::Unknown);
+    assert!(!report.configuration_required);
     assert_eq!(report.models, ["gpt-synthetic"]);
-    assert!(report.model_catalog_fresh);
+    assert!(!report.model_catalog_fresh);
     assert_eq!(report.version.as_deref(), Some("1.2.3"));
     assert!(!report.status.contains("synthetic-secret"));
     assert!(
@@ -56,15 +57,24 @@ exit 1
     let result = super::super::super::super::probe_result::from_harness_probe(&report, 1, 10, 1);
     assert_eq!(
         result.status,
-        crate::harness::discovery::ProbeStatus::NeedsAuthentication
+        crate::harness::discovery::ProbeStatus::Installed
     );
     assert_eq!(
         result.failure_stage,
-        Some(crate::harness::discovery::ProbeKind::Authentication)
+        Some(crate::harness::discovery::ProbeKind::Capability)
     );
     assert_eq!(
         result.model_catalog_status,
-        crate::harness::discovery::ModelCatalogStatus::Fresh
+        crate::harness::discovery::ModelCatalogStatus::Stale
+    );
+    assert_eq!(result.authentication, ReadinessState::Unknown);
+    assert_eq!(
+        result.execution_capability.safe_for_planning,
+        ReadinessState::Unavailable
+    );
+    assert_eq!(
+        result.execution_capability.safe_for_implementation,
+        ReadinessState::Unavailable
     );
     assert_eq!(result.version.as_deref(), Some("1.2.3"));
     assert!(!result.display_status.contains("synthetic-secret"));
@@ -90,15 +100,19 @@ exit 1
             .contains("synthetic-secret")
     );
     assert_eq!(detected.models, ["gpt-synthetic"]);
-    assert!(detected.model_catalog_fresh);
+    assert!(!detected.model_catalog_fresh);
     assert_eq!(
         detected
             .capability_snapshot
             .as_ref()
             .unwrap()
             .authentication,
-        ReadinessState::Unavailable
+        ReadinessState::Unknown
     );
+    assert!(!detected.has_current_authenticated_capability(
+        "codex",
+        crate::persistence::harness_settings::current_unix_ms()
+    ));
     assert!(settings.default_harness.is_none());
     std::fs::remove_dir_all(root).unwrap();
 }

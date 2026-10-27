@@ -30,6 +30,11 @@ impl AiHarness for ClaudeHarness {
         request: &PlanningRequest,
         model: Option<&str>,
     ) -> Result<HarnessOutcome, AppError> {
+        if let Some(reason) =
+            crate::harness::execution_security::task_execution_block_reason("claude")
+        {
+            return Err(AppError::Other(reason.into()));
+        }
         crate::harness::validate_reasoning_level("claude", &request.reasoning_level)?;
         crate::harness::require_application_implementation_boundary("Claude Code", request)?;
         let boundary = crate::harness::execution_security::ApplicationBoundary::new(request)

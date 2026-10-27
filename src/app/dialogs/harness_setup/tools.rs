@@ -91,16 +91,14 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
                         {
                             selected = Some(id.clone());
                         }
-                        let fresh = harness
-                            .is_fresh_at(crate::persistence::harness_settings::current_unix_ms());
-                        if !fresh {
-                            ui.label(theme::metadata_text("Stale; refresh"));
-                        } else if !super::has_current_provider_capabilities(
+                        let status = details::availability_label(
                             id,
                             harness,
                             crate::persistence::harness_settings::current_unix_ms(),
-                        ) {
-                            ui.label(theme::metadata_text("Unavailable"));
+                            matches!(dialog.probe_view, ProbeView::Pending),
+                        );
+                        if status != "Available" {
+                            ui.label(theme::metadata_text(status));
                         }
                     }
                 },
@@ -122,17 +120,17 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
     });
     if dialog.settings.default_harness.as_ref().is_some_and(|id| {
         !dialog.settings.discovered.get(id).is_some_and(|harness| {
-            super::has_current_provider_capabilities(
+            details::availability_label(
                 id,
                 harness,
                 crate::persistence::harness_settings::current_unix_ms(),
-            ) && harness.implementation_available
-                && crate::harness::implementation_route_available(id)
+                false,
+            ) == "Available"
         })
     }) {
         ui.colored_label(
             theme::DANGER,
-            "Your saved default has no current supported repository execution capability. Refresh Coding tools and select an available tool before starting work.",
+            "Your saved default is not verified for context-only planning. Refresh Coding tools and resolve its sign-in, model, or Planning capability blocker. Repository reads still need Docker.",
         );
     }
     paint_rediscover_button(ui, dialog);

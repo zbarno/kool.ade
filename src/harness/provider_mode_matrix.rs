@@ -1,8 +1,9 @@
-//! Adapter boundary E2E: fake CLIs exercise each production `AiHarness` process
-//! path and normalized result for all six providers and eight modes. Parser-only
-//! unit tests cannot prove argv construction, stdin delivery, child supervision,
-//! and stream-to-outcome integration together. No Docker/network dependency;
-//! setup is six temporary scripts and one short process per matrix cell.
+//! Adapter boundary E2E: fake CLIs exercise each enabled production `AiHarness`
+//! process path and normalized result for four providers across eight modes;
+//! Codex and Claude are checked for rejection before task-process creation.
+//! Parser-only unit tests cannot prove argv construction, child supervision, or
+//! the blocked launch boundary together. No Docker/network dependency; setup
+//! creates six temporary scripts and starts four providers per mode.
 
 use super::{
     AiHarness, AntigravityHarness, ClaudeHarness, CodexHarness, CopilotHarness, ExecutionMode,
@@ -20,7 +21,7 @@ const MATRIX_RESULT: &str = "matrix-result";
 
 #[cfg(unix)]
 #[test]
-fn all_six_providers_normalize_results_for_every_execution_mode() {
+fn supported_providers_normalize_results_and_managed_hook_providers_stay_blocked() {
     use std::os::unix::fs::PermissionsExt;
 
     let root = std::env::temp_dir().join(format!(
@@ -71,6 +72,18 @@ fn all_six_providers_normalize_results_for_every_execution_mode() {
     for (provider, _, _) in providers {
         for mode in MODES {
             let request = request(root.clone(), mode);
+            if matches!(provider, "codex" | "claude") {
+                let error = execute(provider, &request).unwrap_err();
+                assert!(
+                    error.detail().contains("organization-managed hooks"),
+                    "{provider} {mode:?} did not report its process-sandbox blocker: {error}"
+                );
+                assert!(
+                    !root.join(format!("{provider}.argv")).exists(),
+                    "{provider} {mode:?} reached the fake task process"
+                );
+                continue;
+            }
             let outcome = crate::harness::with_uncontained_provider_test_execution(|| {
                 execute(provider, &request)
             })
@@ -79,14 +92,7 @@ fn all_six_providers_normalize_results_for_every_execution_mode() {
             assert_reasoning_argument(provider, &root.join(format!("{provider}.argv")));
         }
     }
-    for provider in [
-        "pi",
-        "codex",
-        "claude",
-        "opencode",
-        "copilot",
-        "antigravity",
-    ] {
+    for provider in ["pi", "opencode", "copilot", "antigravity"] {
         let capture = root.join(format!("{provider}.argv"));
         let before = fs::read(&capture).unwrap();
         let mut invalid = request(root.clone(), ExecutionMode::Planning);
@@ -101,17 +107,12 @@ fn all_six_providers_normalize_results_for_every_execution_mode() {
             "{provider} launched despite an unsupported effort"
         );
     }
-    let codex_args = fs::read_to_string(root.join("codex.argv")).unwrap();
-    assert!(
-        codex_args.contains("--cd\n") && !codex_args.contains(&root.to_string_lossy().to_string()),
-        "Codex screenshot reviewer received the task clone as its workspace: {codex_args}"
-    );
     fs::remove_dir_all(root).unwrap();
 }
 
 #[cfg(not(unix))]
 #[test]
-fn all_six_providers_normalize_results_for_every_execution_mode() {}
+fn supported_providers_normalize_results_and_managed_hook_providers_stay_blocked() {}
 
 fn execute(
     provider: &str,

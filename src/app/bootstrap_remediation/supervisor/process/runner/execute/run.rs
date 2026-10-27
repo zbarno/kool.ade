@@ -14,6 +14,15 @@ impl NativeCommandRunner for SystemCommandRunner {
         invocation: TrustedInvocation,
         cancellation: &Cancellation,
     ) -> Result<ProcessOutput, ProcessRunError> {
+        match invocation.program {
+            program::TrustedProgram::ClaudeCodeInstall => {
+                return super::super::super::claude_code_install::run(invocation, cancellation);
+            }
+            program::TrustedProgram::ClaudeCodeDownload => {
+                return super::super::super::claude_download::run(invocation, cancellation);
+            }
+            _ => {}
+        }
         if invocation.program.is_internal() {
             #[cfg(target_os = "linux")]
             return match invocation.program() {
@@ -37,6 +46,15 @@ impl NativeCommandRunner for SystemCommandRunner {
         elevation: ElevationReceipt,
         cancellation: &Cancellation,
     ) -> Result<ProcessOutput, ProcessRunError> {
+        if matches!(
+            invocation.program,
+            program::TrustedProgram::ClaudeCodeInstall
+                | program::TrustedProgram::ClaudeCodeDownload
+        ) {
+            return Err(ProcessRunError::not_started(
+                ProcessRunFailure::FailedBeforeLaunch,
+            ));
+        }
         if !matches!(elevation.matches_invocation(&invocation), Ok(true)) {
             return Err(ProcessRunError::not_started(
                 ProcessRunFailure::FailedBeforeLaunch,

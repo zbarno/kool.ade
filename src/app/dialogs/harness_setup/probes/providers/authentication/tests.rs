@@ -1,47 +1,36 @@
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 
-/// Production boundary: supervised Pi CLI auth-check argv/output mapping. A pure parser
-/// test cannot prove the CLI's documented command is used; only a synthetic executable and
-/// temporary files are required, with one short child process per status.
+/// Production boundary: the Pi authentication probe must not start its credential resolver.
+/// Pi can execute a user-defined command while resolving `auth.json`; a fake executable and
+/// marker prove this path makes no child process call. No external services are needed.
 #[test]
-fn pi_auth_check_maps_documented_statuses_without_exposing_credentials() {
-    for (body, expected) in [
-        (
-            "printf '{\"status\":\"ready\"}'; exit 0",
-            ReadinessState::Ready,
-        ),
-        (
-            "printf '{\"status\":\"not_ready\"}'; exit 1",
-            ReadinessState::Unavailable,
-        ),
-        (
-            "printf '{\"status\":\"invalid\"}'; exit 2",
-            ReadinessState::Unavailable,
-        ),
-        ("printf 'unknown response'", ReadinessState::Unknown),
-    ] {
-        let root =
-            std::env::temp_dir().join(format!("koolade-pi-auth-check-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&root).unwrap();
-        let binary = root.join("pi");
-        std::fs::write(&binary, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+fn pi_authentication_probe_does_not_start_a_potential_host_command() {
+    let root = std::env::temp_dir().join(format!("koolade-pi-auth-probe-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let marker = root.join("auth-probe-started");
+    let binary = root.join("pi");
+    std::fs::write(
+        &binary,
+        format!("#!/bin/sh\nprintf started > '{}'\n", marker.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        assert_eq!(
-            pi_authentication(&binary, Some("synthetic-provider")),
-            expected
-        );
+    assert_eq!(
+        pi_authentication(&binary, Some("synthetic-provider")),
+        ReadinessState::Unknown
+    );
+    assert!(!marker.exists());
 
-        std::fs::remove_dir_all(root).unwrap();
-    }
+    std::fs::remove_dir_all(root).unwrap();
 }
 
-/// Production boundary: successful Pi binary discovery, auth preflight, result conversion, and
-/// persisted selection. Parser-only coverage cannot prove these layers agree; a fake CLI and
-/// temporary home are the only dependencies, with a small bounded subprocess setup.
+/// Production boundary: Pi discovery, local credential resolution, result conversion, and
+/// persisted readiness. Parser-only coverage cannot prove local credentials stay unverified;
+/// a fake CLI and temporary home are the only dependencies, with a bounded subprocess setup.
 #[test]
-fn pi_confirmed_authentication_is_selectable() {
+fn pi_local_credentials_and_models_do_not_prove_account_access() {
     let root = std::env::temp_dir().join(format!(
         "koolade-pi-authenticated-provider-{}",
         uuid::Uuid::new_v4()
@@ -73,7 +62,8 @@ fn pi_confirmed_authentication_is_selectable() {
         binary.as_os_str(),
     );
     let report = super::super::discover_provider("pi", true);
-    assert_eq!(report.authentication, ReadinessState::Ready);
+    assert_eq!(report.authentication, ReadinessState::Unknown);
+    assert!(!report.model_catalog_fresh);
     let mut settings = crate::persistence::harness_settings::HarnessSettings::default();
     super::super::super::super::discovery::apply_probe_results(
         &mut settings,
@@ -82,10 +72,22 @@ fn pi_confirmed_authentication_is_selectable() {
         1,
     );
     let detected = &settings.discovered["pi"];
-    assert!(detected.ready);
-    assert_eq!(settings.default_harness.as_deref(), Some("pi"));
+    assert!(!detected.ready);
+    assert_eq!(settings.default_harness, None);
+    assert_eq!(
+        detected
+            .capability_snapshot
+            .as_ref()
+            .unwrap()
+            .authentication,
+        ReadinessState::Unknown
+    );
+    assert_eq!(
+        detected.model_catalog_status(),
+        crate::harness::discovery::ModelCatalogStatus::Stale
+    );
     assert!(
-        super::super::super::super::has_current_provider_capabilities(
+        !super::super::super::super::has_current_provider_capabilities(
             "pi",
             detected,
             crate::persistence::harness_settings::current_unix_ms()

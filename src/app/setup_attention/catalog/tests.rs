@@ -8,6 +8,10 @@ use crate::harness::discovery::{
     ExecutionCapability, ModelCatalogStatus, ProbeResult, ProbeStatus,
 };
 
+mod images;
+mod provider_chooser;
+mod providers;
+
 fn docker(state: DockerEnvironmentState, engine_ready: bool) -> DockerEnvironmentStatus {
     DockerEnvironmentStatus {
         state,
@@ -55,9 +59,9 @@ fn assess_with_images(
     smoke_verified_profiles: std::collections::BTreeSet<RuntimeProfile>,
     checked_at_unix_ms: u64,
 ) -> MachineSnapshotV1 {
-    assess_for_scan_with_inputs(
+    assess_for_scan_with_inputs_and_bootstrap_provider(
         &[],
-        None,
+        ProviderChoices::default(),
         docker,
         HostKind::Linux,
         checked_at_unix_ms,
@@ -88,6 +92,12 @@ fn rootful_docker_does_not_hide_authenticated_cli_or_invent_image_error() {
             .any(|finding| finding.id == "setup:docker:rootless")
     );
     assert!(
+        snapshot
+            .findings
+            .iter()
+            .any(|finding| finding.id == "setup:cli:codex:capability")
+    );
+    assert!(
         !snapshot
             .findings
             .iter()
@@ -104,15 +114,20 @@ fn missing_image_is_only_a_finding_after_healthy_engine_probe() {
         HostKind::Linux,
         2,
     );
-    assert_eq!(snapshot.findings.len(), 1);
-    assert_eq!(
-        snapshot.findings[0].id,
-        format!(
-            "setup:images:general:amd64:{}",
-            docker(DockerEnvironmentState::MissingApprovedImage, true)
-                .engine_identity_fingerprint()
-                .unwrap()
-        )
+    assert!(snapshot.findings.iter().any(|finding| {
+        finding.id
+            == format!(
+                "setup:images:general:amd64:{}",
+                docker(DockerEnvironmentState::MissingApprovedImage, true)
+                    .engine_identity_fingerprint()
+                    .unwrap()
+            )
+    }));
+    assert!(
+        snapshot
+            .findings
+            .iter()
+            .any(|finding| finding.id == "setup:cli:codex:capability")
     );
 }
 
@@ -122,7 +137,12 @@ fn another_profile_does_not_hide_a_missing_general_image() {
     let rust = lock.select(RuntimeProfile::Rust, "amd64").unwrap();
     let mut engine = docker(DockerEnvironmentState::Ready, true);
     engine.available_images.push(rust.reference);
-    let snapshot = assess(&[], None, &engine, HostKind::Linux, 3);
+    let snapshot = assess_with_images(
+        &engine,
+        [RuntimeProfile::Rust].into_iter().collect(),
+        [RuntimeProfile::Rust].into_iter().collect(),
+        3,
+    );
     assert!(snapshot.findings.iter().any(|finding| {
         finding.id
             == format!(
@@ -134,13 +154,13 @@ fn another_profile_does_not_hide_a_missing_general_image() {
         snapshot
             .checked_domains
             .iter()
-            .all(|domain| !domain.starts_with("images:rust:"))
+            .any(|domain| domain.starts_with("images:rust:amd64:"))
     );
     assert!(
-        snapshot
+        !snapshot
             .checked_domains
             .iter()
-            .all(|domain| !domain.starts_with("images:general:"))
+            .any(|domain| domain.starts_with("images:general:amd64:"))
     );
 }
 
@@ -222,8 +242,13 @@ fn present_general_image_still_requires_a_current_smoke_receipt() {
 
 #[test]
 fn unknown_authentication_is_distinct_from_installation_and_docker_failure() {
+    let mut codex = agent(ReadinessState::Unknown);
+    codex.model_catalog_status = ModelCatalogStatus::Unavailable;
+    codex.models.clear();
+    codex.default_model = None;
+    codex.execution_capability.safe_for_planning = ReadinessState::Unknown;
     let snapshot = assess(
-        &[agent(ReadinessState::Unknown)],
+        &[codex],
         Some("codex"),
         &docker(DockerEnvironmentState::NotInstalled, false),
         HostKind::Windows,
@@ -233,7 +258,25 @@ fn unknown_authentication_is_distinct_from_installation_and_docker_failure() {
         snapshot
             .findings
             .iter()
-            .any(|f| f.id == "setup:cli:codex:verify")
+            .any(|f| f.id == "setup:cli:codex:auth-verify")
+    );
+    assert!(
+        snapshot
+            .findings
+            .iter()
+            .any(|f| f.id == "setup:cli:codex:models")
+    );
+    assert!(
+        snapshot
+            .findings
+            .iter()
+            .any(|f| f.id == "setup:cli:codex:capability")
+    );
+    assert!(
+        !snapshot
+            .findings
+            .iter()
+            .any(|f| f.id == "setup:cli:codex:install")
     );
     assert!(
         snapshot
@@ -291,8 +334,15 @@ fn selected_agent_and_mac_desktop_both_have_independent_readiness() {
         HostKind::MacOs,
         5,
     );
-    assert_eq!(snap.findings.len(), 1);
-    assert_eq!(snap.findings[0].status, FindingStatus::Unsupported);
+    assert!(snap.findings.iter().any(|finding| {
+        finding.id == "setup:docker:desktop-transport"
+            && finding.status == FindingStatus::Unsupported
+    }));
+    assert!(
+        snap.findings
+            .iter()
+            .any(|finding| finding.id == "setup:cli:codex:capability")
+    );
 }
 
 mod validation;

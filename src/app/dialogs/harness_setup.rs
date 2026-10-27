@@ -5,8 +5,10 @@ use std::sync::mpsc::Receiver;
 use crate::harness::discovery::ProbeResult;
 
 mod bootstrap_probe;
+mod bootstrap_provider;
 mod discovery;
 mod paint;
+pub use self::paint::paint_harness_setup_page;
 mod pi_guide;
 #[cfg(test)]
 mod pi_guide_tests;
@@ -28,11 +30,15 @@ pub enum ProbeView {
     Complete,
 }
 
+/// How long an operator-feedback flash stays on screen before fading.
+const FEEDBACK_VISIBLE_FOR_MS: u64 = 8_000;
+
 #[derive(Clone)]
 pub struct DlgHarnessSetup {
     pub settings: crate::persistence::harness_settings::HarnessSettings,
     pub probe_view: ProbeView,
-    pub feedback: Option<(bool, String)>,
+    /// Last operator-feedback flash: (ok, message, set_at_unix_ms).
+    pub feedback: Option<(bool, String, u64)>,
     pub section: HarnessSettingsSection,
     pub manual_path_drafts: std::collections::BTreeMap<String, String>,
     probe_rx: Option<std::sync::Arc<std::sync::Mutex<Receiver<discovery::ProbeMessage>>>>,
@@ -68,6 +74,10 @@ pub(super) fn invalidate_discovery(
     }
 }
 
+pub(crate) fn supported_provider_id(id: &str) -> bool {
+    probes::PROVIDERS.contains(&id)
+}
+
 pub(super) fn has_current_provider_capabilities(
     id: &str,
     detected: &crate::persistence::harness_settings::DetectedHarness,
@@ -81,16 +91,7 @@ pub(super) fn has_current_model_catalog(
     detected: &crate::persistence::harness_settings::DetectedHarness,
     now_unix_ms: u64,
 ) -> bool {
-    detected.is_fresh_at(now_unix_ms)
-        && detected.model_catalog_fresh
-        && detected
-            .capability_snapshot
-            .as_ref()
-            .is_some_and(|snapshot| {
-                snapshot.provider_id == id
-                    && snapshot.validate().is_ok()
-                    && snapshot.model_catalog == crate::execution::contract::ReadinessState::Ready
-            })
+    detected.has_current_model_catalog_at(id, now_unix_ms)
 }
 
 impl DlgHarnessSetup {
@@ -99,7 +100,13 @@ impl DlgHarnessSetup {
         let mut dialog = Self {
             settings,
             probe_view: ProbeView::Pending,
-            feedback: diagnostic.map(|message| (false, message)),
+            feedback: diagnostic.map(|message| {
+                (
+                    false,
+                    message,
+                    crate::persistence::harness_settings::current_unix_ms(),
+                )
+            }),
             section: HarnessSettingsSection::Tools,
             manual_path_drafts: std::collections::BTreeMap::new(),
             probe_rx: None,
@@ -122,8 +129,15 @@ impl DlgHarnessSetup {
                 crate::persistence::harness_settings::current_unix_ms(),
             )
         }) {
+            let previous = self.settings.clone();
             self.settings.default_harness = Some(id.to_owned());
-            self.persist();
+            if !self.persist_saved() {
+                self.settings = previous;
+            }
+        } else {
+            self.set_feedback(false, format!(
+                "{id} cannot be set as the default yet: no fresh authenticated capability evidence exists. Refresh Coding tools, then select it again."
+            ));
         }
     }
 
@@ -148,6 +162,10 @@ impl DlgHarnessSetup {
                 },
             );
             self.persist();
+        } else {
+            self.set_feedback(false, format!(
+                "Route for {work_type} not changed: {harness} has no fresh authenticated capability evidence. Refresh Coding tools, then choose it again."
+            ));
         }
     }
 
@@ -161,14 +179,14 @@ impl DlgHarnessSetup {
     pub fn set_manual_path(&mut self, id: &str, value: String) {
         let value = value.trim().to_owned();
         if !probes::PROVIDERS.contains(&id) {
-            self.feedback = Some((false, format!("Unsupported provider: {id}")));
+            self.set_feedback(false, format!("Unsupported provider: {id}"));
             return;
         }
         if value.is_empty() {
-            self.feedback = Some((
+            self.set_feedback(
                 false,
                 "Enter an executable path, or choose automatic discovery.".into(),
-            ));
+            );
             return;
         }
         let path = std::path::Path::new(&value);
@@ -177,10 +195,7 @@ impl DlgHarnessSetup {
             .as_deref()
             .is_none_or(|path| !is_executable_file(path))
         {
-            self.feedback = Some((
-                false,
-                "That path is not an executable file. Choose a valid tool path or return to automatic detection.".into(),
-            ));
+            self.set_feedback(false, "That path is not an executable file. Choose a valid tool path or return to automatic detection.".into());
             return;
         }
         let value = canonical
@@ -222,39 +237,45 @@ impl DlgHarnessSetup {
         self.persist_saved();
     }
 
+    /// Machine-driven persistence (probe traffic) must not raise the
+    /// operator-facing saved banner; failures stay visible.
+    fn persist_quiet(&mut self) {
+        if let Err(error) = crate::persistence::harness_settings::save(&self.settings) {
+            self.set_feedback(false, format!("Could not save harness settings: {error}"));
+        }
+    }
+
+    fn set_feedback(&mut self, ok: bool, message: String) {
+        self.feedback = Some((
+            ok,
+            message,
+            crate::persistence::harness_settings::current_unix_ms(),
+        ));
+    }
+
+    /// Drops operator feedback that has exceeded its visibility window.
+    /// Called at the top of every paint surface so modal and settings-page
+    /// presentations age out identically.
+    pub fn drop_expired_feedback(&mut self) {
+        if let Some((_, _, since)) = &self.feedback
+            && crate::persistence::harness_settings::current_unix_ms().saturating_sub(*since)
+                >= FEEDBACK_VISIBLE_FOR_MS
+        {
+            self.feedback = None;
+        }
+    }
+
     fn persist_saved(&mut self) -> bool {
         match crate::persistence::harness_settings::save(&self.settings) {
             Ok(()) => {
-                self.feedback = Some((true, "Harness settings saved on this device.".into()));
+                self.set_feedback(true, "Harness settings saved on this device.".into());
                 true
             }
             Err(error) => {
-                self.feedback = Some((false, format!("Could not save harness settings: {error}")));
+                self.set_feedback(false, format!("Could not save harness settings: {error}"));
                 false
             }
         }
-    }
-}
-
-pub fn paint_harness_setup_page(
-    ui: &mut egui::Ui,
-    dialog: &mut DlgHarnessSetup,
-    section: HarnessSettingsSection,
-) {
-    dialog.drain_probe();
-    match section {
-        HarnessSettingsSection::Tools => paint::paint_tools(ui, dialog),
-        HarnessSettingsSection::Routing => paint::paint_work_routes(ui, dialog),
-    }
-    if let Some((ok, message)) = &dialog.feedback {
-        ui.colored_label(
-            if *ok {
-                crate::ui::theme::SUCCESS
-            } else {
-                crate::ui::theme::DANGER
-            },
-            message,
-        );
     }
 }
 

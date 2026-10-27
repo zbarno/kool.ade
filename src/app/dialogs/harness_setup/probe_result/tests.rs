@@ -76,16 +76,57 @@ fn authentication_and_optional_catalog_failures_have_stable_codes() {
     catalog.model_catalog_fresh = false;
     catalog.models.clear();
     let catalog_result = from_harness_probe(&catalog, 2, 20, 30);
-    assert_eq!(catalog_result.status, ProbeStatus::Available);
+    assert_eq!(catalog_result.status, ProbeStatus::Installed);
     assert_eq!(
         catalog_result.execution_capability.safe_for_planning,
-        ReadinessState::Ready
+        ReadinessState::Unknown
     );
     assert_eq!(
         catalog_result.model_catalog_status,
         ModelCatalogStatus::Unavailable
     );
     assert_eq!(catalog_result.failure_stage, Some(ProbeKind::Models));
+}
+
+#[test]
+fn a_fresh_empty_catalog_does_not_make_an_authenticated_provider_available() {
+    let mut empty = probe();
+    empty.models.clear();
+    empty.default_model = None;
+
+    let result = from_harness_probe(&empty, 15, 100, 5);
+
+    assert_eq!(result.status, ProbeStatus::Installed);
+    assert_eq!(
+        result.execution_capability.safe_for_planning,
+        ReadinessState::Unknown
+    );
+    assert_eq!(result.model_catalog_status, ModelCatalogStatus::Fresh);
+}
+
+#[test]
+fn claude_can_be_authenticated_but_task_execution_remains_blocked() {
+    let mut source = probe();
+    source.id = "claude".into();
+
+    let result = from_harness_probe(&source, 16, 100, 5);
+
+    assert_eq!(result.status, ProbeStatus::Installed);
+    assert_eq!(result.authentication, ReadinessState::Ready);
+    assert_eq!(
+        result.execution_capability.safe_for_planning,
+        ReadinessState::Unavailable
+    );
+    assert_eq!(
+        result.execution_capability.safe_for_implementation,
+        ReadinessState::Unavailable
+    );
+    assert!(
+        result
+            .diagnostic_message
+            .as_deref()
+            .is_some_and(|message| message.contains("organization-managed hooks"))
+    );
 }
 
 #[test]
@@ -199,6 +240,51 @@ fn internal_probe_failure_is_typed_without_claiming_the_provider_is_missing() {
         Some(ProbeDiagnosticCode::InternalProbeFailure)
     );
     assert_eq!(result.binary_path, None);
+    assert_eq!(
+        result.execution_capability.safe_for_planning,
+        ReadinessState::Unavailable
+    );
+}
+
+#[test]
+fn invalid_user_path_is_not_mislabeled_as_absent_software() {
+    let mut source = probe();
+    source.status = "pi (invalid executable path)".into();
+    source.executable = None;
+    source.ready = false;
+    source.authentication = ReadinessState::Unknown;
+    source.diagnostic = Some("The configured executable path is invalid.".into());
+
+    let result = from_harness_probe(&source, 13, 100, 5);
+
+    assert_eq!(result.status, ProbeStatus::Failed);
+    assert_eq!(result.failure_stage, Some(ProbeKind::Executable));
+    assert_eq!(
+        result.diagnostic_code,
+        Some(ProbeDiagnosticCode::ExecutableInvalid)
+    );
+    assert_eq!(
+        result.execution_capability.safe_for_planning,
+        ReadinessState::Unavailable
+    );
+}
+
+#[test]
+fn provider_profile_mismatch_is_an_unsupported_version_not_ready() {
+    let mut source = probe();
+    source.status = "codex (installed but unusable)".into();
+    source.ready = false;
+    source.diagnostic =
+        Some("Codex CLI 0.1 is unsupported for clean execution; missing options: --sandbox".into());
+
+    let result = from_harness_probe(&source, 14, 100, 5);
+
+    assert_eq!(result.status, ProbeStatus::Installed);
+    assert_eq!(result.failure_stage, Some(ProbeKind::Version));
+    assert_eq!(
+        result.diagnostic_code,
+        Some(ProbeDiagnosticCode::UnsupportedVersion)
+    );
     assert_eq!(
         result.execution_capability.safe_for_planning,
         ReadinessState::Unavailable

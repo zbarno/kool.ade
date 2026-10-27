@@ -14,7 +14,21 @@ pub(super) fn from_harness_probe(
     duration_ms: u64,
 ) -> ProbeResult {
     let catalog_error = has_catalog_error(report);
-    let (failure_stage, diagnostic_code) = if report.executable.is_none() {
+    let invalid_path = invalid_configured_path(report);
+    let unsupported_version = unsupported_version(report);
+    let execution_block =
+        crate::harness::execution_security::task_execution_block_reason(&report.id);
+    let (failure_stage, diagnostic_code) = if invalid_path {
+        (
+            Some(ProbeKind::Executable),
+            Some(ProbeDiagnosticCode::ExecutableInvalid),
+        )
+    } else if unsupported_version {
+        (
+            Some(ProbeKind::Version),
+            Some(ProbeDiagnosticCode::UnsupportedVersion),
+        )
+    } else if report.executable.is_none() {
         (
             Some(ProbeKind::Executable),
             Some(ProbeDiagnosticCode::ExecutableMissing),
@@ -39,6 +53,8 @@ pub(super) fn from_harness_probe(
             Some(ProbeKind::Models),
             Some(ProbeDiagnosticCode::ModelCatalogUnavailable),
         )
+    } else if execution_block.is_some() {
+        (Some(ProbeKind::Capability), None)
     } else if !report.ready {
         (
             Some(ProbeKind::Capability),
@@ -47,7 +63,34 @@ pub(super) fn from_harness_probe(
     } else {
         (None, None)
     };
-    let status = if report.ready && report.authentication == ReadinessState::Ready {
+    let ready = if unsupported_version || invalid_path {
+        ReadinessState::Unavailable
+    } else if report.ready && report.authentication == ReadinessState::Ready {
+        ReadinessState::Ready
+    } else if !report.ready || report.authentication == ReadinessState::Unavailable {
+        ReadinessState::Unavailable
+    } else {
+        ReadinessState::Unknown
+    };
+    let model_catalog_status = model_catalog_status(report);
+    let has_model = !report.models.is_empty() || report.default_model.is_some();
+    let context_readiness = if execution_block.is_some() {
+        ReadinessState::Unavailable
+    } else if ready == ReadinessState::Ready
+        && model_catalog_status == ModelCatalogStatus::Fresh
+        && has_model
+    {
+        ReadinessState::Ready
+    } else if ready == ReadinessState::Ready {
+        ReadinessState::Unknown
+    } else {
+        ready
+    };
+    let status = if invalid_path {
+        ProbeStatus::Failed
+    } else if unsupported_version {
+        ProbeStatus::Installed
+    } else if context_readiness == ReadinessState::Ready {
         ProbeStatus::Available
     } else if report.authentication == ReadinessState::Unavailable {
         ProbeStatus::NeedsAuthentication
@@ -56,16 +99,11 @@ pub(super) fn from_harness_probe(
     } else {
         ProbeStatus::Missing
     };
-    let ready = if report.ready && report.authentication == ReadinessState::Ready {
-        ReadinessState::Ready
-    } else if !report.ready || report.authentication == ReadinessState::Unavailable {
+    let implementation = if execution_block.is_some() {
         ReadinessState::Unavailable
-    } else {
-        ReadinessState::Unknown
-    };
-    let implementation = if report.implementation_available && ready == ReadinessState::Ready {
+    } else if report.implementation_available && context_readiness == ReadinessState::Ready {
         ReadinessState::Ready
-    } else if ready != ReadinessState::Unavailable {
+    } else if context_readiness != ReadinessState::Unavailable {
         ReadinessState::Unknown
     } else {
         ReadinessState::Unavailable
@@ -74,8 +112,8 @@ pub(super) fn from_harness_probe(
         .diagnostic
         .as_deref()
         .map(crate::error::redact_secrets)
-        .filter(|message| !message.trim().is_empty());
-    let model_catalog_status = model_catalog_status(report);
+        .filter(|message| !message.trim().is_empty())
+        .or_else(|| execution_block.map(str::to_owned));
     ProbeResult {
         schema_version: 1,
         provider_id: report.id.clone(),
@@ -89,7 +127,7 @@ pub(super) fn from_harness_probe(
         models: report.models.clone(),
         default_model: report.default_model.clone(),
         execution_capability: crate::harness::discovery::ExecutionCapability {
-            safe_for_planning: ready,
+            safe_for_planning: context_readiness,
             safe_for_implementation: implementation,
             runtime_ready: if report.implementation_available {
                 ReadinessState::Ready
@@ -151,6 +189,39 @@ fn has_catalog_error(report: &HarnessProbe) -> bool {
         let message = message.to_ascii_lowercase();
         message.contains("catalog") || message.contains("models")
     })
+}
+
+fn invalid_configured_path(report: &HarnessProbe) -> bool {
+    if report
+        .status
+        .to_ascii_lowercase()
+        .contains("invalid executable path")
+    {
+        return true;
+    }
+    report.executable.is_none()
+        && report.diagnostic.as_deref().is_some_and(|message| {
+            let message = message.to_ascii_lowercase();
+            message.contains("configured")
+                && message.contains("path")
+                && ["does not exist", "must be absolute", "not an executable"]
+                    .iter()
+                    .any(|needle| message.contains(needle))
+        })
+}
+
+fn unsupported_version(report: &HarnessProbe) -> bool {
+    let status = report.status.to_ascii_lowercase();
+    let diagnostic = report
+        .diagnostic
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    status.contains("update required")
+        || diagnostic.contains("unsupported for clean execution")
+        || diagnostic.contains("profile requires version")
+        || diagnostic.contains("missing required capabilities")
+        || diagnostic.contains("version evidence is not parseable")
 }
 
 pub(super) fn into_harness_probe(result: &ProbeResult) -> HarnessProbe {

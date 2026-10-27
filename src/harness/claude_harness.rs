@@ -7,6 +7,7 @@ use crate::error::AppError;
 
 pub const CLAUDE_BINARY_ENV: &str = "KOOLADE_CLAUDE_BIN";
 pub const CLAUDE_MODEL_ENV: &str = "KOOLADE_CLAUDE_MODEL";
+pub(crate) const UPDATE_LOCK_SETTINGS: &str = r#"{"env":{"DISABLE_UPDATES":"1"}}"#;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 const MINIMUM_VERSION: (u64, u64, u64) = (2, 1, 268);
 
@@ -26,6 +27,7 @@ pub enum ClaudeReadiness {
     Unsupported,
     Unusable,
     AuthenticationRequired,
+    AuthenticationUnverified,
     Ready,
 }
 
@@ -93,6 +95,9 @@ impl ClaudeHarness {
                     ClaudeReadiness::AuthenticationRequired => {
                         "claude (authentication required)".into()
                     }
+                    ClaudeReadiness::AuthenticationUnverified => {
+                        "claude (authentication unverified)".into()
+                    }
                     _ => "claude (unavailable)".into(),
                 },
                 version,
@@ -151,28 +156,26 @@ fn probe(path: &Path) -> Result<String, (ClaudeReadiness, String, Option<String>
     })?;
     let auth = run(path, &["auth", "status"]);
     match auth {
-        Ok((output, true))
-            if serde_json::from_str::<serde_json::Value>(&output)
+        Ok((output, success)) => {
+            let method = serde_json::from_str::<serde_json::Value>(&output)
                 .ok()
-                .and_then(|value| value["authMethod"].as_str().map(str::to_owned))
-                .is_some_and(is_supported_auth_method) =>
-        {
-            Ok(version)
+                .and_then(|value| value["authMethod"].as_str().map(str::to_owned));
+            match method.as_deref().map(auth_method_readiness) {
+                Some(ClaudeReadiness::Ready) if success => Ok(version),
+                Some(ClaudeReadiness::AuthenticationRequired) => Err((
+                    ClaudeReadiness::AuthenticationRequired,
+                    "Claude Code is installed but is not authenticated. Run `claude auth login` and retry."
+                        .into(),
+                    Some(version.to_owned()),
+                )),
+                _ => Err((
+                    ClaudeReadiness::AuthenticationUnverified,
+                    "Claude Code authentication status is unrecognized; account and model access remain unverified."
+                        .into(),
+                    Some(version.to_owned()),
+                )),
+            }
         }
-        Ok((output, _)) if serde_json::from_str::<serde_json::Value>(&output)
-            .ok()
-            .and_then(|value| value["authMethod"].as_str().map(str::to_owned))
-            .is_some_and(|method| method == "none") => Err((
-            ClaudeReadiness::AuthenticationRequired,
-            "Claude Code is installed but is not authenticated. Run `claude auth login` and retry."
-                .into(),
-            Some(version.to_owned()),
-        )),
-        Ok((_, _)) => Err((
-            ClaudeReadiness::Unusable,
-            "Claude Code auth status returned an unrecognized response.".into(),
-            Some(version.to_owned()),
-        )),
         Err(error) => Err((
             ClaudeReadiness::Unusable,
             format!("Claude Code auth status could not be checked: {error}"),
@@ -182,15 +185,18 @@ fn probe(path: &Path) -> Result<String, (ClaudeReadiness, String, Option<String>
 }
 
 fn run(binary: &Path, args: &[&str]) -> Result<(String, bool), String> {
-    let argv = std::iter::once(binary.to_string_lossy().into_owned())
-        .chain(args.iter().map(|arg| (*arg).to_owned()))
-        .collect::<Vec<_>>();
-    let output = crate::harness::discovery::run(
+    crate::harness::execution_security::ensure_claude_update_policy()
+        .map_err(|error| format!("Claude Code update policy cannot be enforced: {error:#}"))?;
+    let mut argv = vec![binary.to_string_lossy().into_owned()];
+    argv.extend(["--settings".into(), UPDATE_LOCK_SETTINGS.into()]);
+    argv.extend(args.iter().map(|arg| (*arg).to_owned()));
+    let output = crate::harness::discovery::run_with_environment(
         &argv,
         PROBE_TIMEOUT,
         crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
         crate::harness::discovery::MAX_PROBE_OUTPUT_BYTES,
         crate::harness::execution_security::CliProvider::Claude.excluded_child_environment(),
+        &[("DISABLE_UPDATES", "1")],
     )
     .map_err(|error| format!("Claude Code readiness command failed: {error}"))?;
     if output.stdout_truncated || output.stderr_truncated {
@@ -201,11 +207,22 @@ fn run(binary: &Path, args: &[&str]) -> Result<(String, bool), String> {
     Ok((format!("{stdout}\n{stderr}"), output.success))
 }
 
-fn is_supported_auth_method(method: String) -> bool {
-    matches!(
-        method.trim().to_ascii_lowercase().as_str(),
-        "claude.ai" | "console" | "oauth" | "apikey" | "api_key" | "bedrock" | "vertex"
-    )
+fn auth_method_readiness(method: &str) -> ClaudeReadiness {
+    match method.trim().to_ascii_lowercase().as_str() {
+        "none" => ClaudeReadiness::AuthenticationRequired,
+        "claude.ai"
+        | "oauth_token"
+        | "api_key"
+        | "api_key_helper"
+        | "third_party"
+        // Retain auth method spellings reported by older supported releases.
+        | "console"
+        | "oauth"
+        | "apikey"
+        | "bedrock"
+        | "vertex" => ClaudeReadiness::Ready,
+        _ => ClaudeReadiness::AuthenticationUnverified,
+    }
 }
 
 fn parse_version(text: &str) -> Option<(u64, u64, u64)> {

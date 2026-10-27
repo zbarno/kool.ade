@@ -49,15 +49,26 @@ pub(super) fn verified_capabilities(
     let requirements = provider.profile_requirements();
     let mut help = String::new();
     for command in requirements.help_commands {
-        let argv = std::iter::once(executable.to_string_lossy().into_owned())
-            .chain(command.iter().map(|part| (*part).to_owned()))
-            .collect::<Vec<_>>();
-        let output = crate::harness::discovery::run_isolated(
+        let mut argv = vec![executable.to_string_lossy().into_owned()];
+        if provider == CliProvider::Claude {
+            argv.extend([
+                "--settings".into(),
+                crate::harness::claude_harness::UPDATE_LOCK_SETTINGS.into(),
+            ]);
+        }
+        argv.extend(command.iter().map(|part| (*part).to_owned()));
+        let environment = if provider == CliProvider::Claude {
+            &[("DISABLE_UPDATES", "1")][..]
+        } else {
+            &[][..]
+        };
+        let output = crate::harness::discovery::run_isolated_with_environment(
             &argv,
             Duration::from_secs(10),
             256 * 1024,
             256 * 1024,
             provider.excluded_child_environment(),
+            environment,
         )
         .map_err(|error| {
             anyhow::anyhow!(
