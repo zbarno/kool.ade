@@ -7,8 +7,8 @@ use crate::{
 };
 
 use super::super::{
-    EvidenceState, HostKind, PrerequisiteCapability, PrerequisiteDomain, PrerequisiteSubject,
-    ProviderIdV1,
+    EvidenceCode, EvidenceOrigin, EvidenceState, HostKind, PrerequisiteCapability,
+    PrerequisiteDomain, PrerequisiteSubject, ProviderIdV1,
 };
 
 mod desktop;
@@ -22,6 +22,9 @@ fn docker(state: DockerEnvironmentState, engine_ready: bool) -> DockerEnvironmen
         engine_ready,
         message: "private /home/secret account detail must not be persisted".into(),
         desktop_vm: false,
+        desktop_transport_verified: false,
+        desktop_vm_capacity_verified: false,
+        workspace_staging_available: engine_ready,
         daemon_version: None,
         architecture: Some("amd64".into()),
         rootless: Some(false),

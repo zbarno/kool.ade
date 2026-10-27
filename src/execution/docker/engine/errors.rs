@@ -18,11 +18,17 @@ pub(super) fn daemon_storage_capacity(
     rootless: bool,
     desktop: bool,
 ) -> (Option<u64>, bool) {
+    // Docker Desktop reports a path inside its Linux VM. The controller's
+    // filesystem cannot establish free capacity for that VM, so stay unknown
+    // until a verified Desktop transport can provide VM-side capacity.
+    if desktop {
+        return (None, false);
+    }
     let Some(root) = root else {
         return (None, false);
     };
     let path = Path::new(root);
-    if !path.is_absolute() || !rootless && !desktop {
+    if !path.is_absolute() || !rootless {
         return (None, false);
     }
     let capacity = inspect_workspace_capacity(path);
@@ -79,3 +85,7 @@ pub(super) fn failure(
         retryable,
     }
 }
+
+#[cfg(test)]
+#[path = "errors/tests.rs"]
+mod tests;

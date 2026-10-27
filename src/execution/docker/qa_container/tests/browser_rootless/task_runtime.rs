@@ -13,13 +13,18 @@ mod setup;
 /// recipe and persists screenshot-backed evidence against that task revision.
 /// Unit tests cannot prove the workspace stage-out, task container, preview
 /// relay, browser interaction, and owned-resource cleanup work together.
-/// External dependencies: rootless Docker and the pinned Python and browser QA
-/// images. Setup cost: three short runtime recipes, one build snapshot, and one
-/// bounded browser scenario; CI downloads only those two locked images.
+/// External dependencies: rootless Docker and the pinned General, Python, and
+/// browser QA images. Setup cost: General and Python smoke receipts, three
+/// short runtime recipes, one build snapshot, and one bounded browser scenario;
+/// CI preloads all three locked images.
 #[test]
-#[ignore = "requires rootless Docker and the loaded Python/browser QA images"]
+#[ignore = "requires rootless Docker and the loaded General, Python, and browser QA images"]
 fn rootless_approved_task_build_test_start_receipts_feed_browser_qa_artifact() {
     let endpoint = rootless_action_endpoint();
+    let mut action_socket_environment = crate::test_support::ProcessEnvironmentGuard::new();
+    if let crate::execution::docker::engine::DockerEndpoint::Unix { path, .. } = &endpoint {
+        action_socket_environment.set("KOOLADE_TEST_ROOTLESS_ACTION_SOCKET", path.as_os_str());
+    }
     let docker = endpoint.connect().unwrap();
     let info = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -35,6 +40,11 @@ fn rootless_approved_task_build_test_start_receipts_feed_browser_qa_artifact() {
         "task-runtime QA must run on rootless Docker"
     );
     let fixture = setup::Fixture::new();
+    crate::test_support::locked_images::prepare_profile_for_home(
+        &fixture.root.path().join("operator-home"),
+        RuntimeProfile::Python,
+    )
+    .expect("browser task fixture must receive approved General and Python image receipts");
     let lock = candidate_lock();
     let service_image = lock.select(RuntimeProfile::Python, "amd64").unwrap();
     let mut request = request();

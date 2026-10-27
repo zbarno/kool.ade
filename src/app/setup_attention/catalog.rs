@@ -16,9 +16,10 @@ mod tests;
 pub use model::{
     EvidenceCode, EvidenceOrigin, EvidenceState, GitProbeV1, HostCapabilityMatrixV1, HostKind,
     ImageArchitectureV1, ImageProfileV1, LinuxDistributionV1, LinuxDistributionVersionV1,
-    LinuxRootlessMechanismV1, MachineSnapshotV1, PrerequisiteCapability, PrerequisiteDomain,
-    PrerequisiteId, PrerequisiteNodeV1, PrerequisiteSubject, ProbeEvidenceV1, ProbeObservationV1,
-    ProviderIdV1, RemediationEligibility, SupportClaim,
+    LinuxKernelVersionV1, LinuxPackageManagerV1, LinuxRootlessMechanismV1, LinuxRootlessRecipeV1,
+    MachineSnapshotV1, PrerequisiteCapability, PrerequisiteDomain, PrerequisiteId,
+    PrerequisiteNodeV1, PrerequisiteSubject, ProbeEvidenceV1, ProbeObservationV1, ProviderIdV1,
+    RemediationEligibility, SupportClaim,
 };
 pub type MachineSnapshot = MachineSnapshotV1;
 
@@ -67,5 +68,7 @@ impl Finding {
 pub use assess::assess;
 #[cfg(test)]
 pub use assess::assess_for_scan;
+#[cfg(test)]
 pub use assess::assess_for_scan_with_git;
 pub(crate) use assess::probe_git;
+pub(crate) use assess::{ImageScanState, ScanInputs, assess_for_scan_with_inputs};

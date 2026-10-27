@@ -149,6 +149,7 @@ pub(crate) fn validate_payload(payload: &RolePayloadV1) -> Result<(), String> {
                 && text(base_ref, 512)
                 && text(head_ref, 512)
         }
+        RolePayloadV1::BootstrapConversation(payload) => payload.validate().is_ok(),
     };
     if valid {
         Ok(())

@@ -1,6 +1,3 @@
-use bollard::{Docker, query_parameters::ListImagesOptions};
-use futures_util::StreamExt;
-
 use super::{
     DockerApi, EngineFuture, EngineSnapshot, daemon_storage_capacity, failure, map_api_error,
 };
@@ -8,6 +5,7 @@ use crate::execution::docker::{
     discovery::{PrerequisiteCode, PrerequisiteFailure, parse_architecture},
     images::{ImageObservation, SelectedImage},
 };
+use bollard::{Docker, query_parameters::ListImagesOptions};
 
 pub(super) struct BollardApi {
     pub(super) docker: Docker,
@@ -15,7 +13,10 @@ pub(super) struct BollardApi {
     minimum_disk_bytes: u64,
 }
 
+mod capacity;
 mod image_derivation;
+mod image_inspection;
+mod image_pull;
 mod smoke;
 
 impl BollardApi {
@@ -36,6 +37,16 @@ impl BollardApi {
         image: &SelectedImage,
         expected_fingerprint: &str,
     ) -> Result<(), PrerequisiteFailure> {
+        self.approved_engine_snapshot(image, expected_fingerprint)
+            .await
+            .map(|_| ())
+    }
+
+    pub(super) async fn approved_engine_snapshot(
+        &self,
+        image: &SelectedImage,
+        expected_fingerprint: &str,
+    ) -> Result<EngineSnapshot, PrerequisiteFailure> {
         let snapshot = DockerApi::inspect(self).await?;
         let actual =
             super::approval_fingerprint(&self.endpoint, &snapshot, image).map_err(|_| {
@@ -52,7 +63,7 @@ impl BollardApi {
                 true,
             ));
         }
-        Ok(())
+        Ok(snapshot)
     }
 }
 
@@ -130,6 +141,25 @@ impl DockerApi for BollardApi {
         })
     }
 
+    fn inspect_image<'a>(
+        &'a self,
+        image: &'a SelectedImage,
+    ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
+        Box::pin(async move { self.inspect_image_without_pull(image).await })
+    }
+
+    fn desktop_storage_capacity<'a>(
+        &'a self,
+        image: &'a SelectedImage,
+        expected_engine_fingerprint: &'a str,
+    ) -> EngineFuture<'a, Result<u64, PrerequisiteFailure>> {
+        Box::pin(async move {
+            self.desktop_storage_capacity_impl(image, expected_engine_fingerprint)
+                .await
+        })
+    }
+
+    #[cfg(test)]
     fn ensure_image<'a>(
         &'a self,
         image: &'a SelectedImage,
@@ -139,66 +169,26 @@ impl DockerApi for BollardApi {
             if let Some(expected) = expected_engine_fingerprint {
                 self.require_approved_engine(image, expected).await?;
             }
-            let result = self.docker.inspect_image(&image.reference).await;
-            if matches!(
-                &result,
-                Err(bollard::errors::Error::DockerResponseServerError {
-                    status_code: 404,
-                    ..
-                })
-            ) {
-                if let Some(expected) = expected_engine_fingerprint {
-                    self.require_approved_engine(image, expected).await?;
-                }
-                let options = bollard::query_parameters::CreateImageOptionsBuilder::default()
-                    .from_image(&image.reference)
-                    .platform(&image.platform)
-                    .build();
-                let mut stream = self.docker.create_image(Some(options), None, None);
-                while let Some(pulled) = stream.next().await {
-                    pulled.map_err(|_| failure(PrerequisiteCode::ImageUnavailable, "Trusted executor image pull failed; check Docker registry access and retry", true))?;
-                }
-            }
-            let inspect = match result {
-                Ok(inspect) => inspect,
-                Err(bollard::errors::Error::DockerResponseServerError {
-                    status_code: 404, ..
-                }) => self
-                    .docker
-                    .inspect_image(&image.reference)
-                    .await
-                    .map_err(|_| {
-                        failure(
-                            PrerequisiteCode::ImageUnavailable,
-                            "Pulled executor image could not be inspected",
-                            true,
-                        )
-                    })?,
-                Err(_) => {
-                    return Err(failure(
-                        PrerequisiteCode::DaemonStopped,
-                        "Docker disconnected while preparing a trusted executor image",
-                        true,
-                    ));
-                }
-            };
-            Ok(ImageObservation {
-                image_id: inspect.id.unwrap_or_default(),
-                repo_digests: inspect.repo_digests.unwrap_or_default(),
-                os: inspect.os.unwrap_or_default(),
-                architecture: inspect.architecture.unwrap_or_default(),
-                configured_user: inspect
-                    .config
-                    .as_ref()
-                    .and_then(|config| config.user.clone())
-                    .unwrap_or_default(),
-                labels: inspect
-                    .config
-                    .and_then(|config| config.labels)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .collect(),
-            })
+            self.inspect_image_without_pull(image).await
+        })
+    }
+
+    fn ensure_image_with_control<'a>(
+        &'a self,
+        image: &'a SelectedImage,
+        expected_engine_fingerprint: &'a str,
+        verified_capacity_bytes: Option<u64>,
+        control: &'a super::ImagePullControl,
+    ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
+        Box::pin(async move {
+            image_pull::pull_approved_image(
+                self,
+                image,
+                expected_engine_fingerprint,
+                verified_capacity_bytes,
+                control,
+            )
+            .await
         })
     }
 

@@ -1,9 +1,15 @@
-use super::{AuthorizationBindingV1, FailureCode, RemediationAttemptResultV1};
+use super::{
+    AuthorizationBindingV1, FailureCode, ImagePreparationReceiptV1, RemediationAttemptResultV1,
+};
+use crate::execution::docker::images::RuntimeProfile;
 
 /// Typed state-store mutation request. These commands only record intent and
 /// lifecycle; applying one never executes a host operation.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SetupTaskTransitionV1 {
+    RequireImageProfile {
+        profile: RuntimeProfile,
+    },
     RequestAttempt {
         task_id: String,
         operation_id: String,
@@ -21,6 +27,12 @@ pub enum SetupTaskTransitionV1 {
         task_id: String,
         operation_id: String,
         result: RemediationAttemptResultV1,
+        at_unix_ms: u64,
+    },
+    RecordImagePreparationReceipt {
+        task_id: String,
+        operation_id: String,
+        receipt: ImagePreparationReceiptV1,
         at_unix_ms: u64,
     },
     AwaitVerification {

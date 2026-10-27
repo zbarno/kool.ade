@@ -16,7 +16,7 @@ fn audit_rejects_audit_file_and_lock_symlinks_without_touching_targets() {
         append(
             &audit_path,
             Operation::PrepareLockedImage,
-            "setup:images:general:amd64",
+            &format!("setup:images:general:amd64:{}", "e".repeat(64)),
             &"a".repeat(64),
             &"b".repeat(64),
             "approved",
@@ -36,7 +36,7 @@ fn audit_rejects_audit_file_and_lock_symlinks_without_touching_targets() {
         append(
             &audit_path,
             Operation::PrepareLockedImage,
-            "setup:images:general:amd64",
+            &format!("setup:images:general:amd64:{}", "e".repeat(64)),
             &"a".repeat(64),
             &"b".repeat(64),
             "approved",
@@ -63,7 +63,7 @@ fn audit_rejects_a_symlinked_private_directory_without_changing_its_target() {
         append(
             &audit_path,
             Operation::PrepareLockedImage,
-            "setup:images:general:amd64",
+            &format!("setup:images:general:amd64:{}", "e".repeat(64)),
             &"a".repeat(64),
             &"b".repeat(64),
             "approved",
@@ -93,7 +93,7 @@ fn audit_rejects_a_symlink_in_the_state_root_path() {
         append(
             &audit_path,
             Operation::PrepareLockedImage,
-            "setup:images:general:amd64",
+            &format!("setup:images:general:amd64:{}", "e".repeat(64)),
             &"a".repeat(64),
             &"b".repeat(64),
             "approved",
@@ -113,7 +113,7 @@ fn audit_appends_bounded_redacted_receipts_atomically() {
     append(
         &path,
         Operation::PrepareLockedImage,
-        "setup:images:general:amd64",
+        &format!("setup:images:general:amd64:{}", "e".repeat(64)),
         &"a".repeat(64),
         &"b".repeat(64),
         "approved",

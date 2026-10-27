@@ -14,6 +14,17 @@ impl SetupTaskStoreV1 {
             "unsupported setup store schema"
         );
         anyhow::ensure!(self.tasks.len() <= MAX_TASKS, "oversized setup task store");
+        anyhow::ensure!(
+            self.required_image_profiles.len()
+                <= super::image_requirements::MAX_REQUIRED_IMAGE_PROFILES,
+            "too many required runtime image profiles"
+        );
+        anyhow::ensure!(
+            self.required_image_profiles
+                .iter()
+                .all(|profile| super::image_requirements::supported_profile(*profile)),
+            "runtime QA image profiles cannot be required for bootstrap"
+        );
         let mut operation_ids = std::collections::BTreeSet::new();
         let mut receipt_ids = std::collections::BTreeSet::new();
 

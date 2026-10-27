@@ -29,3 +29,6 @@ mod scoped_recovery;
 #[cfg(unix)]
 #[path = "tests/synchronization.rs"]
 mod synchronization;
+#[cfg(windows)]
+#[path = "tests/windows_capture.rs"]
+mod windows_capture;

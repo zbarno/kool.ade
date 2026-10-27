@@ -10,6 +10,7 @@ pub(super) struct TaskHome {
 pub(super) fn task_home(path: &Path) -> TaskHome {
     let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
     environment.set("KOOLADE_HOME", path);
+    prepare_general_image_for_child(path);
     TaskHome {
         _environment: environment,
     }
@@ -26,8 +27,19 @@ pub(super) fn task_home_with_path(path: &Path, prepend_path: &Path) -> TaskHome 
         "PATH",
         std::env::join_paths(paths).expect("test PATH entries should be valid"),
     );
+    prepare_general_image_for_child(path);
     TaskHome {
         _environment: environment,
+    }
+}
+
+fn prepare_general_image_for_child(home: &Path) {
+    if crate::test_support::locked_images::enabled() {
+        crate::test_support::locked_images::prepare_profile_for_home(
+            home,
+            crate::execution::docker::images::RuntimeProfile::General,
+        )
+        .expect("remote worker must receive a real approved General image receipt");
     }
 }
 

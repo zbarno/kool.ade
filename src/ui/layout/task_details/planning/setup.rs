@@ -1,5 +1,6 @@
 use super::*;
 
+mod conversation;
 mod guide;
 mod history;
 
@@ -106,6 +107,7 @@ fn details(
     paint_evidence(ui, task);
     history::paint(ui, task);
     history::technical(ui, task);
+    conversation::paint(ui, surface, task);
 
     ui.add_space(crate::ui::theme::spacing::M);
     ui.horizontal_wrapped(|ui| {
@@ -174,7 +176,7 @@ fn prerequisite_title(board: &crate::ui::planning_board::ViewModel, id: &str) ->
 }
 
 fn supports_repair(task: &crate::persistence::setup_tasks::LocalTask) -> bool {
-    is_supported_general_image(task)
+    (is_supported_general_image(task) || is_supported_linux_rootless(task))
         && task.blocked_by.is_empty()
         && matches!(
             task.state,
@@ -188,7 +190,7 @@ fn supports_repair(task: &crate::persistence::setup_tasks::LocalTask) -> bool {
 
 fn should_paint_image_preparation(task: &crate::persistence::setup_tasks::LocalTask) -> bool {
     use crate::persistence::setup_tasks::State;
-    is_supported_general_image(task)
+    (is_supported_general_image(task) || is_supported_linux_rootless(task))
         && (matches!(
             task.state,
             State::NeedsApproval | State::InProgress | State::AwaitingVerification
@@ -196,9 +198,16 @@ fn should_paint_image_preparation(task: &crate::persistence::setup_tasks::LocalT
 }
 
 fn is_supported_general_image(task: &crate::persistence::setup_tasks::LocalTask) -> bool {
-    task.id
-        .strip_prefix("setup:images:general:")
-        .is_some_and(|architecture| matches!(architecture, "amd64" | "arm64"))
+    crate::app::bootstrap_repair_policy::parse_locked_image_task_id(&task.id).is_some()
+}
+
+fn is_supported_linux_rootless(task: &crate::persistence::setup_tasks::LocalTask) -> bool {
+    matches!(
+        task.id.as_str(),
+        "setup:linux:rootless:packages"
+            | "setup:linux:rootless:subids"
+            | "setup:linux:rootless:service"
+    )
 }
 
 fn state_badge(ui: &mut egui::Ui, task: &crate::persistence::setup_tasks::LocalTask) {

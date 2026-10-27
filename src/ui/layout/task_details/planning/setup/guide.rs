@@ -1,5 +1,7 @@
 use crate::{app::setup_attention::catalog::HostKind, persistence::setup_tasks::LocalTask};
 
+mod macos;
+
 pub(super) fn plain_title(task: &LocalTask) -> String {
     match task.id.as_str() {
         "setup:docker:install" => "Set up a safe coding environment".into(),
@@ -11,8 +13,10 @@ pub(super) fn plain_title(task: &LocalTask) -> String {
         "setup:docker:endpoint" => "Choose a trusted local service".into(),
         "setup:docker:capabilities" => "Check coding task requirements".into(),
         "setup:cli:scan" => "Check for coding assistants".into(),
-        id if id.starts_with("setup:images:general:") => {
-            "Prepare the safe coding environment".into()
+        id if let Some((profile, _, _)) =
+            crate::app::bootstrap_repair_policy::parse_locked_image_task_id(id) =>
+        {
+            format!("Prepare the {profile} runtime image")
         }
         _ => task.title.clone(),
     }
@@ -117,7 +121,11 @@ pub(super) fn humanize_prerequisite(id: &str) -> String {
         "setup:cli:install" => "Choose a coding agent".into(),
         "setup:cli:scan" => "Check coding agent discovery".into(),
         _ if id.starts_with("setup:cli:") => "Finish coding agent setup".into(),
-        _ if id.starts_with("setup:images:general:") => "Prepare the pinned runtime image".into(),
+        _ if let Some((profile, _, _)) =
+            crate::app::bootstrap_repair_policy::parse_locked_image_task_id(id) =>
+        {
+            format!("Prepare the pinned {profile} runtime image")
+        }
         _ => "Complete another machine setup step".into(),
     }
 }
@@ -173,6 +181,7 @@ pub(super) fn steps(task: &LocalTask, host: HostKind) -> &'static [&'static str]
             "Choose Check again after access is corrected.",
         ],
         "setup:docker:desktop" => match host {
+            HostKind::MacOs => macos::desktop_steps(),
             HostKind::Windows => &[
                 "Open Docker Desktop and turn on its Linux container backend.",
                 "If prompted, allow the one-time WSL 2 Windows feature setup.",
@@ -183,6 +192,9 @@ pub(super) fn steps(task: &LocalTask, host: HostKind) -> &'static [&'static str]
                 "Wait until the engine is running, then choose Check again.",
             ],
         },
+        "setup:docker:disk" if host == HostKind::MacOs => macos::disk_steps(),
+        "setup:docker:limits" if host == HostKind::MacOs => macos::limits_steps(),
+        "setup:docker:endpoint" if host == HostKind::MacOs => macos::endpoint_steps(),
         "setup:docker:desktop-transport" => &[
             "This setup check does not enable coding-task execution on this platform.",
             "Use the vendor guide for setup information; wait for a release-certified platform update before running coding tasks.",
@@ -211,11 +223,22 @@ pub(super) fn help_links(task: &LocalTask, host: HostKind) -> Vec<(&'static str,
         "setup:docker:install" | "setup:docker:start" | "setup:docker:desktop"
             if host == HostKind::MacOs =>
         {
-            vec![(
-                "Docker Desktop for Mac guide",
-                "https://docs.docker.com/desktop/setup/install/mac-install/",
-            )]
+            macos::setup_links()
         }
+        "setup:docker:disk" | "setup:docker:limits" if host == HostKind::MacOs => {
+            macos::resource_links()
+        }
+        "setup:docker:endpoint" if host == HostKind::MacOs => macos::setup_links(),
+        "setup:docker:disk" | "setup:docker:limits" if host == HostKind::MacOs => vec![
+            (
+                "Docker Desktop resources and disk image settings",
+                "https://docs.docker.com/desktop/settings-and-maintenance/settings/",
+            ),
+            (
+                "Docker Desktop disk image details",
+                "https://docs.docker.com/desktop/troubleshoot-and-support/faqs/macfaqs/",
+            ),
+        ],
         "setup:docker:install" | "setup:docker:start" | "setup:docker:desktop"
             if host == HostKind::Windows =>
         {

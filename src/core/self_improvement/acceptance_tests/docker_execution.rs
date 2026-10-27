@@ -14,8 +14,9 @@ use std::{process::Command, time::Duration};
 /// Docker backend smoke test for task-clone mounting and source preservation.
 /// The production dispatch authorization hook and cancellation fence are covered
 /// by `production_dispatch_verifier_binds_approved_plan_task_source_and_revocation`.
-/// Requires Linux and CI's rootless Docker Engine; setup is one local Git source,
-/// store, clone, and command. A unit test cannot prove host-clone isolation.
+/// Requires Linux and CI's rootless Docker Engine plus the pinned General and
+/// Rust images; setup also records both image smoke receipts before the
+/// command. A unit test cannot prove host-clone isolation.
 #[test]
 fn pursued_self_improvement_executes_in_its_pinned_docker_task_clone() {
     if std::env::var("KOOLADE_DOCKER_BACKEND_INTEGRATION").as_deref() != Ok("1") {
@@ -52,6 +53,13 @@ fn pursued_self_improvement_executes_in_its_pinned_docker_task_clone() {
         "Docker E2E refuses a non-rootless or unavailable engine: {}",
         String::from_utf8_lossy(&engine.stderr)
     );
+    if crate::test_support::locked_images::enabled() {
+        crate::test_support::locked_images::prepare_profile_for_home(
+            &operator_home,
+            crate::execution::docker::images::RuntimeProfile::Rust,
+        )
+        .expect("self-improvement fixture must receive approved General and Rust image receipts");
+    }
 
     let source = temp.path().join("product-source");
     std::fs::create_dir_all(&source).unwrap();

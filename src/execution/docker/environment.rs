@@ -9,14 +9,28 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     discovery::{EngineReadiness, PrerequisiteCode, PrerequisiteFailure},
-    engine::DockerEndpoint,
+    engine::{DockerEndpoint, HostPlatform},
 };
-use probe::{endpoint_fingerprint, host_platform, probe};
+use probe::probe;
+use rootless_selection::persist_rootless_selection;
 
 const CACHE_TTL: Duration = Duration::from_secs(15);
 static CACHE: OnceLock<Mutex<Option<(Instant, DockerEnvironmentStatus)>>> = OnceLock::new();
 
+fn process_endpoint(platform: HostPlatform) -> Result<DockerEndpoint, PrerequisiteFailure> {
+    #[cfg(test)]
+    {
+        DockerEndpoint::from_process_environment_with_test_support(platform)
+    }
+    #[cfg(not(test))]
+    {
+        DockerEndpoint::from_process_environment(platform)
+    }
+}
+
+mod identity;
 mod probe;
+mod rootless_selection;
 mod staging;
 pub use probe::run_smoke_test;
 pub(crate) use staging::app_staging_root;
@@ -57,6 +71,17 @@ pub struct DockerEnvironmentStatus {
     pub engine_ready: bool,
     pub message: String,
     pub desktop_vm: bool,
+    /// The Desktop peer or pipe and its Linux Engine passed verification.
+    /// Desktop VM capacity is checked separately by `engine_ready`.
+    #[serde(default)]
+    pub desktop_transport_verified: bool,
+    /// A dedicated Linux VM probe measured current free space.
+    #[serde(default)]
+    pub desktop_vm_capacity_verified: bool,
+    /// The application-owned task staging directory is accessible and has
+    /// enough free space for the configured minimum.
+    #[serde(default)]
+    pub workspace_staging_available: bool,
     pub daemon_version: Option<String>,
     pub architecture: Option<String>,
     pub rootless: Option<bool>,
@@ -76,14 +101,19 @@ pub struct DockerEnvironmentStatus {
 
 impl DockerEnvironmentStatus {
     pub fn detect() -> Self {
+        let current_endpoint_fingerprint = Self::current_endpoint_fingerprint();
         let cache = CACHE.get_or_init(|| Mutex::new(None));
         if let Ok(cache) = cache.lock()
             && let Some((checked_at, status)) = &*cache
             && checked_at.elapsed() < CACHE_TTL
+            && status.endpoint_fingerprint == current_endpoint_fingerprint
         {
-            return status.clone();
+            let mut status = status.clone();
+            persist_rootless_selection(&mut status);
+            return status;
         }
-        let status = probe();
+        let mut status = probe();
+        persist_rootless_selection(&mut status);
         if let Ok(mut cache) = cache.lock() {
             *cache = Some((Instant::now(), status.clone()));
         }
@@ -143,6 +173,9 @@ impl DockerEnvironmentStatus {
             engine_ready: false,
             message: failure.message,
             desktop_vm: false,
+            desktop_transport_verified: false,
+            desktop_vm_capacity_verified: false,
+            workspace_staging_available: false,
             daemon_version: None,
             architecture: None,
             rootless: None,
@@ -185,6 +218,13 @@ impl DockerEnvironmentStatus {
             engine_ready: readiness.ready,
             message,
             desktop_vm: readiness.docker_desktop,
+            desktop_transport_verified: readiness.desktop_transport_verified
+                && readiness.docker_desktop
+                && readiness.linux_containers == Some(true),
+            desktop_vm_capacity_verified: readiness.desktop_vm_capacity_verified
+                && readiness.docker_desktop
+                && readiness.desktop_transport_verified,
+            workspace_staging_available: readiness.workspace_staging_available,
             daemon_version: readiness.daemon_version,
             architecture: readiness.architecture,
             rootless: readiness.rootless,
@@ -204,48 +244,17 @@ impl DockerEnvironmentStatus {
     }
 
     pub fn local_execution_ready(&self) -> bool {
-        cfg!(target_os = "linux")
+        (cfg!(target_os = "linux")
             && self.engine_ready
             && !self.desktop_vm
             && self.rootless == Some(true)
-    }
-
-    pub(crate) fn readiness_fingerprint(&self) -> String {
-        use sha2::Digest as _;
-
-        let mut available_images = self
-            .available_images
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        available_images.sort_unstable();
-        available_images.dedup();
-        let binding = (
-            self.state,
-            self.engine_ready,
-            self.desktop_vm,
-            &self.daemon_version,
-            &self.architecture,
-            self.rootless,
-            self.cpu_limits,
-            self.memory_limits,
-            self.pids_limit,
-            self.cgroups_supported,
-            available_images,
-            self.disk_available_bytes,
-            &self.daemon_identity_fingerprint,
-        );
-        let encoded = serde_json::to_vec(&binding).expect("Docker readiness facts serialize");
-        format!("{:x}", sha2::Sha256::digest(encoded))
-    }
-
-    pub(crate) fn current_endpoint_fingerprint() -> Option<String> {
-        let endpoint = DockerEndpoint::from_process_environment(host_platform()).ok()?;
-        Some(endpoint_fingerprint(
-            &endpoint,
-            std::env::var("DOCKER_CONTEXT").ok().as_deref(),
-            std::env::var("DOCKER_HOST").ok().as_deref(),
-        ))
+            && self.workspace_staging_available)
+            || (cfg!(any(target_os = "macos", target_os = "windows"))
+                && self.engine_ready
+                && self.desktop_vm
+                && self.desktop_transport_verified
+                && self.desktop_vm_capacity_verified
+                && self.workspace_staging_available)
     }
 }
 

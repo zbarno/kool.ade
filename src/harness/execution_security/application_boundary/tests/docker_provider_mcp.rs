@@ -4,8 +4,8 @@
 //! only through the real Kool.ad/e MCP server and a read-only Docker session.
 //! A unit test cannot prove the image mount, child process, IPC socket, and MCP
 //! result propagation work together. External dependency: Linux Docker Engine
-//! and the pinned general executor image. Setup is low after the image is
-//! present; the first run may need its normal image preparation step.
+//! and the pinned general executor image. The fixture grants test consent
+//! through the real approval gate and runs the isolated smoke test first.
 
 use super::super::override_test_app_binary;
 use crate::{
@@ -40,6 +40,13 @@ fn codex_reads_the_selected_repository_through_the_docker_mcp_bridge() {
     fs::create_dir_all(&root).unwrap();
     let mut environment = ProcessEnvironmentGuard::new();
     environment.set("KOOLADE_HOME", root.join("koolade-home"));
+    if crate::test_support::locked_images::enabled() {
+        crate::test_support::locked_images::prepare_profile_for_home(
+            &root.join("koolade-home"),
+            crate::execution::docker::images::RuntimeProfile::General,
+        )
+        .expect("Codex MCP fixture must receive a real approved General image receipt");
+    }
 
     let repository = root.join("repository");
     fs::create_dir(&repository).unwrap();
@@ -130,7 +137,10 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"r
         "read completed through Kool.ad/e Docker MCP"
     );
     let response: Value = serde_json::from_slice(&fs::read(result_path).unwrap()).unwrap();
-    assert_eq!(response["result"]["isError"], false);
+    assert_eq!(
+        response["result"]["isError"], false,
+        "read-only Docker MCP operation failed: {response}"
+    );
     assert!(
         response["result"]["content"][0]["text"]
             .as_str()

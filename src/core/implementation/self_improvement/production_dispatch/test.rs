@@ -9,9 +9,9 @@ use std::process::Command;
 /// session, proves an authorized command runs in the task clone, then proves run
 /// cancellation blocks the next command. A unit test cannot prove this wiring
 /// across runner dispatch, session creation, and Docker operations. External
-/// dependency: Linux rootless Docker with the pinned Rust image. Expected setup
-/// cost: one temporary Git repo, persisted planning/lifecycle records, one task
-/// clone, and two short Docker commands.
+/// dependency: Linux rootless Docker with the pinned General and Rust images.
+/// Expected setup cost: one temporary Git repo, persisted planning/lifecycle
+/// records, both image smoke receipts, one task clone, and two short commands.
 #[test]
 fn production_dispatch_verifier_binds_approved_plan_task_source_and_revocation() {
     let temp = tempfile::tempdir().unwrap();
