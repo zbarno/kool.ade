@@ -1,5 +1,5 @@
 use windows_sys::Win32::{
-    Foundation::{ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS},
+    Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS},
     System::Registry::{
         HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, REG_DWORD, REG_SZ, RRF_RT_REG_DWORD, RRF_RT_REG_SZ,
         RegCloseKey, RegGetValueW, RegOpenKeyExW,
@@ -28,7 +28,7 @@ pub(super) fn registry_string(key: &str, name: &str) -> ProbeRead<String> {
     if let Some(result) = registry_result(first) {
         return result;
     }
-    if value_type != REG_SZ || !(2..=512).contains(&byte_length) || byte_length % 2 != 0 {
+    if value_type != REG_SZ || !(2..=512).contains(&byte_length) || !byte_length.is_multiple_of(2) {
         return ProbeRead::Malformed;
     }
     let mut buffer = vec![0_u16; byte_length as usize / 2];
@@ -129,8 +129,6 @@ fn registry_key_exists(path: &str) -> ProbeRead<bool> {
         ProbeRead::Found(true)
     } else if status == ERROR_FILE_NOT_FOUND {
         ProbeRead::Found(false)
-    } else if status == ERROR_ACCESS_DENIED {
-        ProbeRead::Inaccessible
     } else {
         ProbeRead::Inaccessible
     }
@@ -141,8 +139,6 @@ fn registry_result<T>(status: u32) -> Option<ProbeRead<T>> {
         None
     } else if status == ERROR_FILE_NOT_FOUND {
         Some(ProbeRead::Missing)
-    } else if status == ERROR_ACCESS_DENIED {
-        Some(ProbeRead::Inaccessible)
     } else {
         Some(ProbeRead::Inaccessible)
     }
