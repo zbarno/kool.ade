@@ -102,7 +102,7 @@ pub(super) async fn exercise(
     );
     assert_eq!(
         response["screenshots"].as_array().unwrap().len(),
-        1,
+        2,
         "{response}"
     );
     assert!(

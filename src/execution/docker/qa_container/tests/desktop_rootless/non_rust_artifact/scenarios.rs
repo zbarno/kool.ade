@@ -215,9 +215,9 @@ pub(super) fn happy_steps() -> Vec<(QaDriverActionV1, Option<&'static str>, bool
     ]
 }
 
-/// Crash path (4 steps): launch, wait for Ready, click the fatal region C,
-/// then a trailing no-op so the premature exit is observed BETWEEN steps
-/// instead of after the loop.
+/// Crash path (4 steps): launch, wait for Ready, click the fatal region C with
+/// a screenshot checkpoint, then a trailing no-op so the premature exit is
+/// observed BETWEEN steps instead of after the loop.
 pub(super) fn crash_steps() -> Vec<(QaDriverActionV1, Option<&'static str>, bool)> {
     vec![
         (QaDriverActionV1::LaunchValidatedTarget, None, false),
@@ -233,7 +233,7 @@ pub(super) fn crash_steps() -> Vec<(QaDriverActionV1, Option<&'static str>, bool
                 y: 136,
             },
             Some("clicked"),
-            false,
+            true,
         ),
         (QaDriverActionV1::ReadAppLogs, None, false),
     ]
