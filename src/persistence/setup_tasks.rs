@@ -29,6 +29,20 @@ pub(crate) fn verify_private_acl(path: &std::path::Path) -> anyhow::Result<()> {
     storage::verify_private_acl(path)
 }
 
+#[cfg(windows)]
+pub(crate) fn verify_private_acl_handle(
+    handle: std::os::windows::io::RawHandle,
+) -> anyhow::Result<()> {
+    storage::permissions::verify_private_acl_handle(handle)
+}
+
+#[cfg(windows)]
+pub(crate) fn verify_no_untrusted_delete_rights(
+    handle: std::os::windows::io::RawHandle,
+) -> anyhow::Result<()> {
+    storage::permissions::verify_no_untrusted_delete_rights(handle)
+}
+
 pub(crate) fn machine_setup_state_dir() -> anyhow::Result<std::path::PathBuf> {
     #[cfg(test)]
     {

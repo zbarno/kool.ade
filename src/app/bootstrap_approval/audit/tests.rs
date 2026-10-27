@@ -1,5 +1,45 @@
 use super::*;
 
+#[cfg(target_os = "macos")]
+#[test]
+/// Covers the production Darwin audit-file ACL boundary using native kernel ACL APIs.
+/// It needs no external service; a native macOS test run is required to exercise the syscall path.
+fn macos_audit_removes_extended_acl_and_fails_closed_when_one_remains() {
+    use std::{ffi::CString, os::fd::AsRawFd, os::unix::fs::OpenOptionsExt};
+
+    unsafe extern "C" {
+        fn acl_from_text(text: *const libc::c_char) -> *mut std::ffi::c_void;
+        fn acl_set_fd_np(
+            fd: libc::c_int,
+            acl: *mut std::ffi::c_void,
+            kind: libc::c_int,
+        ) -> libc::c_int;
+        fn acl_free(value: *mut std::ffi::c_void) -> libc::c_int;
+    }
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("audit.json");
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .unwrap();
+    let text = CString::new("everyone allow read").unwrap();
+    let acl = unsafe { acl_from_text(text.as_ptr()) };
+    assert!(!acl.is_null());
+    assert_eq!(
+        unsafe { acl_set_fd_np(file.as_raw_fd(), acl, 0x0000_0100) },
+        0
+    );
+    unsafe { acl_free(acl) };
+
+    assert!(super::unix::verify_macos_acl_absent(&file).is_err());
+    super::unix::secure_macos_acl(&file).unwrap();
+    super::unix::verify_macos_acl_absent(&file).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn audit_rejects_audit_file_and_lock_symlinks_without_touching_targets() {
