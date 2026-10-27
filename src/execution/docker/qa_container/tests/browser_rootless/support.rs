@@ -32,6 +32,36 @@ pub(super) fn origin_escape_cases() -> &'static [(&'static str, &'static str, &'
             "http://qa-service/?defect=alternate-port",
             "request escaped preview origin: http://qa-preview:8081/",
         ),
+        (
+            "raw IPv4 portal address",
+            "http://qa-service/?defect=ip-port",
+            "request escaped preview origin: http://127.0.0.1:8080/",
+        ),
+        (
+            "raw IPv6 portal address",
+            "http://qa-service/?defect=ipv6-port",
+            "request escaped preview origin: http://[::1]:8080/",
+        ),
+        (
+            "adjacent container access",
+            "http://qa-service/?defect=adjacent",
+            "request escaped preview origin: http://qa-task:4173/__sink_hit",
+        ),
+        (
+            "DNS-rebound internal host",
+            "http://qa-service/?defect=dns-rebind",
+            "request escaped preview origin: http://rebound.internal:4173/__sink_hit",
+        ),
+        (
+            "loopback websocket portal",
+            "http://qa-service/?defect=ws-loopback",
+            "websocket escaped preview origin: ws://127.0.0.1:8080/",
+        ),
+        (
+            "external internet egress",
+            "http://qa-service/?defect=internet",
+            "request escaped preview origin: http://www.example.invalid/",
+        ),
     ]
 }
 

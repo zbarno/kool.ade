@@ -145,6 +145,7 @@ fn service_driver_requires_headless_platform_and_exact_preview_lease() {
         task_execution_id: request.execution_session_id.clone(),
         task_container_id,
         relay_container_id: relay_container_id.clone(),
+        relay_token: "0123456789abcdef".repeat(4),
         browser_container_id: None,
         task_network_id,
         relay_browser_network_id: relay_network_id.clone(),

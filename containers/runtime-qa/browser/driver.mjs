@@ -146,7 +146,8 @@ async function main() {
   let activeBefore = null;
   try {
     browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-extensions', '--renderer-process-limit=2'] });
-    context = await browser.newContext({ viewport: request.viewport, locale: request.locale ?? 'en-US', timezoneId: request.timezone ?? 'UTC', colorScheme: request.color_scheme === 'dark' ? 'dark' : 'light', acceptDownloads: false, serviceWorkers: 'block' });
+    const relayToken = process.env.QA_RELAY_TOKEN ?? '';
+    context = await browser.newContext({ viewport: request.viewport, locale: request.locale ?? 'en-US', timezoneId: request.timezone ?? 'UTC', colorScheme: request.color_scheme === 'dark' ? 'dark' : 'light', acceptDownloads: false, serviceWorkers: 'block', ...(relayToken ? { extraHTTPHeaders: { 'x-koolade-qa-relay-token': relayToken } } : {}) });
     page = await context.newPage();
     page.on('console', (message) => { if (message.type() === 'error' && consoleMessages.length < 128) consoleMessages.push(message.text().slice(0, 1024)); });
     page.on('pageerror', (error) => { if (consoleMessages.length < 128) consoleMessages.push(error.message.slice(0, 1024)); });

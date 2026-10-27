@@ -143,6 +143,7 @@ fn run_web_driver(
         task_execution_id: request.execution_session_id.clone(),
         task_container_id: "b".repeat(64),
         relay_container_id: "c".repeat(64),
+        relay_token: "0123456789abcdef".repeat(4),
         browser_container_id: None,
         task_network_id: "e".repeat(64),
         relay_browser_network_id: "f".repeat(64),

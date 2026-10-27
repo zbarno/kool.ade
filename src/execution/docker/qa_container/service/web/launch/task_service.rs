@@ -13,6 +13,7 @@ use crate::execution::{
     errors::ExecutionError,
 };
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn launch_containers(
     docker: &Docker,
     spec: &QaWebPreviewSpec<'_>,
@@ -21,6 +22,7 @@ pub(super) async fn launch_containers(
     browser_network: &str,
     task_name: &str,
     relay_name: &str,
+    relay_token: &str,
 ) -> Result<(String, String), ExecutionError> {
     let mut body = service_body(spec, task_network)?;
     let command = body
@@ -95,6 +97,7 @@ pub(super) async fn launch_containers(
         task_network,
         browser_network,
         relay_name,
+        relay_token,
         cancel,
     )
     .await?;
@@ -107,9 +110,10 @@ async fn start_preview_relay(
     task_network: &str,
     browser_network: &str,
     relay_name: &str,
+    relay_token: &str,
     cancel: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<String, ExecutionError> {
-    let body: ContainerCreateBody = relay_body(spec, task_network);
+    let body: ContainerCreateBody = relay_body(spec, task_network, relay_token);
     let relay_id = docker
         .create_container(
             Some(
