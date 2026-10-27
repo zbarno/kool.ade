@@ -9,10 +9,9 @@ use std::{
     os::unix::net::UnixStream,
 };
 
-// The Docker-backed resource broker is Unix-only. Keep the dependency lockfile
-// readers available on every platform, but do not compile its Unix cache writers
-// and adapters into the Windows desktop package.
-#[cfg(unix)]
+// The Docker-backed broker registry is Unix-only. Keep shared adapter contracts
+// and dependency lockfile readers available on every platform while excluding
+// Unix-only cache writers and Go/Pip runtime adapters from Windows builds.
 mod adapter;
 #[cfg(unix)]
 mod broker;

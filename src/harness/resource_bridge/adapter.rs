@@ -16,10 +16,12 @@ pub(super) struct PreparationContext<'a> {
     pub(super) pip_snapshot: &'a Path,
     pub(super) go_cache: &'a Path,
     pub(super) go_snapshot: &'a Path,
+    #[cfg(unix)]
     pub(super) go_operations: Option<&'a super::go::SharedPreparationOperations>,
     pub(super) downloaded_bytes: &'a AtomicUsize,
     pub(super) npm_operations: Option<&'a super::npm::SharedPreparationOperations>,
     pub(super) cargo_operations: Option<&'a super::cargo::SharedPreparationOperations>,
+    #[cfg(unix)]
     pub(super) pip_operations: Option<&'a super::pip::SharedPreparationOperations>,
     pub(super) npm_cache_gate: &'a std::sync::Mutex<()>,
     pub(super) cargo_cache_gate: &'a std::sync::Mutex<()>,
@@ -37,11 +39,16 @@ pub(super) trait DependencyAdapter: Sync {
     ) -> anyhow::Result<ResourceResponse>;
 }
 
+#[cfg(unix)]
 static NPM: super::npm::Adapter = super::npm::Adapter;
+#[cfg(unix)]
 static CARGO: super::cargo::Adapter = super::cargo::Adapter;
+#[cfg(unix)]
 static PIP: super::pip::Adapter = super::pip::Adapter;
+#[cfg(unix)]
 static GO: super::go::Adapter = super::go::Adapter;
 
+#[cfg(unix)]
 pub(super) fn for_ecosystem(ecosystem: PackageEcosystem) -> Option<&'static dyn DependencyAdapter> {
     let adapter: &'static dyn DependencyAdapter = match ecosystem {
         PackageEcosystem::Npm => &NPM,
@@ -53,7 +60,7 @@ pub(super) fn for_ecosystem(ecosystem: PackageEcosystem) -> Option<&'static dyn 
     Some(adapter)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::for_ecosystem;
     use crate::harness::PackageEcosystem;
