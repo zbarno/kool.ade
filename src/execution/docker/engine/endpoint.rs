@@ -12,7 +12,7 @@ mod context;
 #[cfg(target_os = "macos")]
 mod macos_app;
 #[cfg(windows)]
-mod named_pipe;
+pub(crate) mod named_pipe;
 #[cfg(unix)]
 mod pinned;
 #[cfg(test)]
