@@ -194,12 +194,14 @@ mod tests {
     fn spawn_not_found_reports_missing_dependencies() {
         let error = std::io::Error::from(std::io::ErrorKind::NotFound);
         let diagnostic = launch_capability_diagnostic(&error);
-        assert!(diagnostic.ends_with("missing_dependencies"));
+        assert!(diagnostic.ends_with("(target capability: missing_dependencies)"));
     }
 
     #[test]
     fn other_spawn_failures_report_start_failed() {
         let error = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
-        assert!(launch_capability_diagnostic(&error).ends_with("start_failed"));
+        assert!(
+            launch_capability_diagnostic(&error).ends_with("(target capability: start_failed)")
+        );
     }
 }
