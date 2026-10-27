@@ -96,38 +96,79 @@ impl QaPreviewRelayBindingV1 {
     }
 
     fn validate_inner(&self, require_browser: bool) -> Result<(), String> {
-        if self.schema_version != 1
-            || !is_uuid(&self.qa_run_id)
-            || !is_uuid(&self.task_uid)
-            || !is_uuid(&self.task_execution_id)
-            || !is_container_id(&self.task_container_id)
-            || !is_container_id(&self.relay_container_id)
-            || self
-                .browser_container_id
+        let clause = |condition: bool, why: &'static str| -> Result<(), String> {
+            if condition {
+                Ok(())
+            } else {
+                Err(why.to_owned())
+            }
+        };
+        clause(self.schema_version == 1, "relay schema version")?;
+        clause(is_uuid(&self.qa_run_id), "relay qa_run_id")?;
+        clause(is_uuid(&self.task_uid), "relay task_uid")?;
+        clause(is_uuid(&self.task_execution_id), "relay task_execution_id")?;
+        clause(
+            is_container_id(&self.task_container_id),
+            "relay task_container_id",
+        )?;
+        clause(
+            is_container_id(&self.relay_container_id),
+            "relay relay_container_id",
+        )?;
+        clause(
+            self.browser_container_id
                 .as_deref()
-                .is_some_and(|id| !is_container_id(id))
-            || (require_browser && self.browser_container_id.is_none())
-            || self.task_container_id == self.relay_container_id
-            || !is_relay_token(&self.relay_token)
-            || self
-                .browser_container_id
+                .is_none_or(is_container_id),
+            "relay browser_container_id",
+        )?;
+        clause(
+            !require_browser || self.browser_container_id.is_some(),
+            "relay browser_container_id",
+        )?;
+        clause(
+            self.task_container_id != self.relay_container_id,
+            "relay container identity",
+        )?;
+        clause(is_relay_token(&self.relay_token), "relay relay_token")?;
+        clause(
+            self.browser_container_id
                 .as_deref()
-                .is_some_and(|id| self.task_container_id == id || self.relay_container_id == id)
-            || !is_container_id(&self.task_network_id)
-            || !is_container_id(&self.relay_browser_network_id)
-            || self.task_network_id == self.relay_browser_network_id
-            || !(1024..=u16::MAX).contains(&self.target_preview_port)
-            || self.relay_port != 8080
-            || !is_sha256(&self.task_build_sha)
-            || !is_sha256(&self.approved_spec_hash)
-            || !valid_recipe_id(&self.startup_recipe_id)
-            || !is_sha256(&self.startup_recipe_sha256)
-            || !self.internal_networks_only
-            || self.published_ports
-            || self.recorded_at_unix_ms == 0
-        {
-            return Err("preview relay is not bound to one internal task and browser path".into());
-        }
+                .is_none_or(|id| self.task_container_id != id && self.relay_container_id != id),
+            "relay container identity",
+        )?;
+        clause(
+            is_container_id(&self.task_network_id),
+            "relay task_network_id",
+        )?;
+        clause(
+            is_container_id(&self.relay_browser_network_id),
+            "relay relay_browser_network_id",
+        )?;
+        clause(
+            self.task_network_id != self.relay_browser_network_id,
+            "relay network identity",
+        )?;
+        clause(
+            (1024..=u16::MAX).contains(&self.target_preview_port),
+            "relay target_preview_port",
+        )?;
+        clause(self.relay_port == 8080, "relay relay_port")?;
+        clause(is_sha256(&self.task_build_sha), "relay task_build_sha")?;
+        clause(
+            is_sha256(&self.approved_spec_hash),
+            "relay approved_spec_hash",
+        )?;
+        clause(
+            valid_recipe_id(&self.startup_recipe_id),
+            "relay startup_recipe_id",
+        )?;
+        clause(
+            is_sha256(&self.startup_recipe_sha256),
+            "relay startup_recipe_sha256",
+        )?;
+        clause(self.internal_networks_only, "relay internal_networks_only")?;
+        clause(!self.published_ports, "relay published_ports")?;
+        clause(self.recorded_at_unix_ms != 0, "relay recorded_at_unix_ms")?;
         let origin =
             Url::parse(&self.preview_origin).map_err(|_| "preview relay origin is invalid")?;
         if origin.scheme() != "http"

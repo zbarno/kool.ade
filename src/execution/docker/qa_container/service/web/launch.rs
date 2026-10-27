@@ -157,9 +157,11 @@ async fn start_web_preview_for_lock(
             lease
                 .validate_for(spec.request)
                 .map_err(|_| denied("Created QA lease did not validate"))?;
-            binding
-                .validate_prelaunch()
-                .map_err(|_| denied("Created QA relay binding did not validate"))?;
+            binding.validate_prelaunch().map_err(|reason| {
+                denied(&format!(
+                    "Created QA relay binding did not validate: {reason}"
+                ))
+            })?;
             Ok(QaWebPreview {
                 service_lease: lease,
                 relay_binding: binding,
