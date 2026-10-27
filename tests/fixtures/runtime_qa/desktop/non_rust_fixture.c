@@ -19,8 +19,6 @@
  * Built by tests/fixtures/runtime_qa/desktop/build.sh; never committed
  * as a binary.
  */
-#define _GNU_SOURCE
-
 #include <ctype.h>
 #include <signal.h>
 #include <stdint.h>
@@ -33,6 +31,7 @@
 
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
+#include <X11/Xutil.h>
 
 #ifdef KOOLADE_QA_ABSENT_DEP
 /* Provided only by the link-time stub for the missing-dependency variant;
@@ -55,6 +54,7 @@ typedef struct {
 static volatile sig_atomic_t g_shutdown = 0;
 static Display *g_display = NULL;
 static Atom g_net_wm_name = None;
+static Atom g_utf8_string = None;
 static char g_buffer[BUFFER_CAPACITY + 1];
 
 static void on_shutdown(int signum) {
@@ -72,7 +72,7 @@ static void log_kv(const char *msg, const char *kv) {
 }
 
 static void set_title(Display *display, Window window, const FixtureState *state) {
-    char title[sizeof(WINDOW_PREFIX) + sizeof(BUFFER_CAPACITY) * 2];
+    char title[sizeof(WINDOW_PREFIX) + sizeof("Typed:") + BUFFER_CAPACITY];
     const char *suffix = "Ready";
     switch (*state) {
         case StateClicked:
@@ -91,7 +91,7 @@ static void set_title(Display *display, Window window, const FixtureState *state
     snprintf(title, sizeof(title), "%s%s", WINDOW_PREFIX, suffix);
 store:
     XStoreName(display, window, title);
-    XChangeProperty(display, window, g_net_wm_name, XA_UTF8_STRING, 8, PropModeReplace,
+    XChangeProperty(display, window, g_net_wm_name, g_utf8_string, 8, PropModeReplace,
                     (unsigned char *)title, (int)strlen(title));
     XFlush(display);
     log_kv("renamed", NULL);
@@ -115,9 +115,9 @@ static void redraw(Window window, int width, int height, const FixtureState *sta
         XDrawRectangle(g_display, window, graphics, regions[index].x_origin,
                        regions[index].y_origin, (unsigned int)regions[index].width,
                        (unsigned int)regions[index].height);
-        XPolyText8(g_display, window, graphics, 160,
-                   regions[index].y_origin + 20, labels[index],
-                   (unsigned int)strlen(labels[index]));
+        XDrawString(g_display, window, graphics, 160,
+                    regions[index].y_origin + 20, labels[index],
+                    (int)strlen(labels[index]));
     }
     char banner[32];
     const char *banner_suffix = "Ready";
@@ -127,8 +127,8 @@ static void redraw(Window window, int width, int height, const FixtureState *sta
         banner_suffix = "Armed";
     }
     snprintf(banner, sizeof(banner), "STATE: %s", banner_suffix);
-    XPolyText8(g_display, window, graphics, 16, height - 12, banner,
-               (unsigned int)strlen(banner));
+    XDrawString(g_display, window, graphics, 16, height - 12, banner,
+                (int)strlen(banner));
 }
 
 static void handle_button(const XEvent *event, Window window, int width, int height,
@@ -183,7 +183,7 @@ static void handle_key(const XEvent *event, Window window, const FixtureState *s
     }
     Window focus_window;
     int focus_mode;
-    if (XGetInputFocus(g_display, &focus_window, &focus_mode) != SuccessReturn) {
+    if (!XGetInputFocus(g_display, &focus_window, &focus_mode)) {
         return;
     }
     if (focus_window != window) {
@@ -220,7 +220,7 @@ int main(int argc, char **argv) {
 #ifdef KOOLADE_QA_ABSENT_DEP
     (void)koolade_qa_absent_dep_marker();
 #endif
-    const struct sigaction shutdown_action = {.sa_handler = on_shutdown};
+    struct sigaction shutdown_action = {.sa_handler = on_shutdown};
     sigemptyset(&shutdown_action.sa_mask);
     sigaction(SIGTERM, &shutdown_action, NULL);
     sigaction(SIGHUP, &shutdown_action, NULL);
@@ -233,11 +233,11 @@ int main(int argc, char **argv) {
     }
     log_kv("booted", "argv=--qa-fixture");
     const int screen_index = DefaultScreen(g_display);
-    const Screen *screen = ScreenOfDisplay(g_display, screen_index);
     g_net_wm_name = XInternAtom(g_display, "_NET_WM_NAME", False);
+    g_utf8_string = XInternAtom(g_display, "UTF8_STRING", False);
     const unsigned int width = 480;
     const unsigned int height = 320;
-    const WindowAttributes attributes = {
+    XSetWindowAttributes attributes = {
         .background_pixel = BlackPixel(g_display, screen_index),
         .border_pixel = WhitePixel(g_display, screen_index),
         .event_mask = ExposureMask | ButtonPressMask | KeyPressMask |

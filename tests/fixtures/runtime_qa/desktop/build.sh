@@ -42,8 +42,9 @@ stub_objects=$(mktemp -d)
 trap 'rm -rf "$stub_objects"' EXIT INT TERM
 cc -O2 -fPIC -shared -Wl,-soname,libkoolade_qa_absent_dep.so.1 \
     -o "$stub_objects/libkoolade_qa_absent_dep.so.1" "$here/absent_dep_stub.c"
-cc $common -DKOOLADE_QA_ABSENT_DEP -L"$stub_objects" -lkoolade_qa_absent_dep \
-    -o "$outdir/koolade-qa-nonrust-missing-dep" "$here/non_rust_fixture.c" -lX11
+cc $common -DKOOLADE_QA_ABSENT_DEP \
+    -o "$outdir/koolade-qa-nonrust-missing-dep" "$here/non_rust_fixture.c" \
+    "$stub_objects/libkoolade_qa_absent_dep.so.1" -lX11
 
 # Build-time guard rails proving the dependency mechanism before CI ships
 # the fixtures to the rootless lane:
