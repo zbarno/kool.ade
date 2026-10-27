@@ -38,6 +38,16 @@ validation listed below. The platform matrix and release decision remain
 unchanged: native acceptance and independent release approval are still
 required.
 
+### Status update — 2026-10-27 12:33 UTC
+
+PR [#404](https://github.com/zbarno/kool.ade/pull/404), head
+`a236796cd5e12d9f0438cd3b164fac0c09472c72`, merged to main at
+`528133b6fa1e47e9c10861099ec6907ccbab50c3`. Its hosted check matrix passed.
+This adds Windows 11 x64 readiness implementation; native Windows acceptance
+and the Linux, macOS, security, and usability validations in this record remain
+pending. The merged code and synthetic tests do not enable Windows support or
+unblock the release.
+
 ## Candidate host matrix — snapshot as of 2026-10-27 10:09 UTC
 
 The README's Linux x86_64 experimental host status is distinct from acceptance
@@ -54,7 +64,7 @@ cells, not new support claims.
 | Linux arm64 host | Unsigned native CI package only; runtime image variants do not establish host support | Separate native rootless acceptance per distro | Unsupported; not advertised |
 | macOS Intel, Docker Desktop Linux VM | [#403](https://github.com/zbarno/kool.ade/pull/403) adds app publisher, release, architecture, and setup evidence; local Apple Silicon cross-compilation passed | Confirm current official bundle identifier and signer; signed Desktop smoke and isolated task/security run on Intel | Unverified; blocked |
 | macOS Apple silicon, Docker Desktop Linux VM | [#403](https://github.com/zbarno/kool.ade/pull/403) adds app publisher, release, physical architecture, and setup evidence | Confirm current official bundle identifier and signer; signed Desktop smoke and isolated task/security run on Apple silicon | Unverified; blocked |
-| Windows 11 x64, WSL2 and Docker Desktop | At the 10:09 snapshot, #349 probes were in progress; implementation is now in [#404](https://github.com/zbarno/kool.ade/pull/404) | Native edition/build, feature, kernel, reboot/policy, signed Desktop, task and security validation | Unverified; blocked |
+| Windows 11 x64, WSL2 and Docker Desktop | At the 10:09 snapshot, #349 probes were in progress; readiness implementation later merged in [#404](https://github.com/zbarno/kool.ade/pull/404) | Native edition/build, feature, kernel, reboot/policy, signed Desktop, task and security validation | Unverified; blocked |
 | Windows 10 x64, Windows ARM64, unlisted Linux distributions, older or unsupported macOS/Windows releases | No accepted support evidence | Separate native acceptance is required before claiming Windows 10 or ARM64 support | Unsupported or unknown |
 
 Record the exact macOS and Windows versions/builds for each native run. Docker
