@@ -1,5 +1,6 @@
 use super::*;
 
+mod conversation;
 mod guide;
 mod history;
 
@@ -106,6 +107,7 @@ fn details(
     paint_evidence(ui, task);
     history::paint(ui, task);
     history::technical(ui, task);
+    conversation::paint(ui, surface, task);
 
     ui.add_space(crate::ui::theme::spacing::M);
     ui.horizontal_wrapped(|ui| {

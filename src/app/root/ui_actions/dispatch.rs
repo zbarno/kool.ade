@@ -86,6 +86,16 @@ impl KooladeApp {
             ApplicationCommand::CancelTaskReply { key } => self.cancel_task_reply(&key),
             ApplicationCommand::RetryTaskChatSave => self.retry_task_chat_save(),
             ApplicationCommand::RetrySetupCheck => self.refresh_setup_attention(true),
+            ApplicationCommand::SendBootstrapConversationMessage { task_id } => {
+                self.send_bootstrap_conversation_message(&task_id)
+            }
+            ApplicationCommand::CancelBootstrapConversation { task_id } => {
+                self.cancel_bootstrap_conversation(&task_id)
+            }
+            ApplicationCommand::ApplyBootstrapSuggestion {
+                task_id,
+                generation,
+            } => self.apply_bootstrap_suggestion(&task_id, generation),
             ApplicationCommand::RequestSetupTaskFix { task_id } => {
                 self.request_setup_task_fix(&task_id)
             }

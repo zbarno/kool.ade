@@ -17,5 +17,15 @@ impl Surface for KooladeApp {
     plan_review::plan_review_surface_methods!();
     activity::activity_surface_methods!();
     workflow::workflow_surface_methods!();
+    fn bootstrap_conversation(
+        &mut self,
+        task_id: &str,
+    ) -> crate::ui::planning_board::BootstrapConversationView {
+        self.bootstrap_conversation.view(task_id)
+    }
+
+    fn bootstrap_conversation_draft(&mut self, task_id: &str) -> Option<&mut String> {
+        self.bootstrap_conversation.draft_mut(task_id)
+    }
     details::specification_status::specification_status_surface_methods!();
 }
