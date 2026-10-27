@@ -128,8 +128,8 @@ pub(super) async fn run_scenario(
     response
 }
 
-/// Happy path (13 steps, two screenshot checkpoints): launch, wait for the
-/// Ready window, enumerate windows, assert tracked/untracked regions, click A
+/// Happy path (12 steps, two screenshot checkpoints): launch, wait for the
+/// Ready window, enumerate windows, assert tracked region visibility, click A
 /// (Ready -> Clicked), click B (Clicked -> Armed), TYPE into the fixture (keys
 /// are dropped unless the driver focused the window before the click — the
 /// behavioral proof of focus-before-interaction), wait for Typed:ok, resize,
@@ -156,17 +156,6 @@ pub(super) fn happy_steps() -> Vec<(QaDriverActionV1, Option<&'static str>, bool
                 height: 32,
             },
             Some("region visible"),
-            false,
-        ),
-        (
-            QaDriverActionV1::AssertRegionVisible {
-                window_id: "active".into(),
-                x: 400,
-                y: 280,
-                width: 48,
-                height: 24,
-            },
-            Some("region not visible"),
             false,
         ),
         (

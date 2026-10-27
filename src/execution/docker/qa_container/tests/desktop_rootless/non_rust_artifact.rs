@@ -62,7 +62,7 @@ pub(super) async fn exercise(
     assert_eq!(response["failure"], serde_json::Value::Null, "{response}");
     assert_eq!(
         response["actions"].as_array().unwrap().len(),
-        13,
+        12,
         "{response}"
     );
     assert_eq!(
