@@ -59,13 +59,85 @@ fn windows_blockers_create_specific_setup_tasks() {
     for id in [
         "setup:windows:host-version",
         "setup:windows:wsl-policy",
-        "setup:windows:wsl-features",
         "setup:windows:reboot",
         "setup:windows:virtualization",
-        "setup:windows:wsl-kernel",
     ] {
         assert!(ids.contains(&id), "missing finding {id}");
     }
+    assert!(!ids.contains(&"setup:windows:wsl-features"));
+    assert!(!ids.contains(&"setup:windows:wsl-kernel"));
+}
+
+#[test]
+fn wsl_feature_task_gives_safe_windows_settings_steps() {
+    let evidence = [
+        evidence(Capability::HostEdition, EvidenceState::Ready),
+        evidence(Capability::WindowsWslFeature, EvidenceState::Missing),
+        evidence(Capability::WindowsVmPlatformFeature, EvidenceState::Missing),
+        evidence(Capability::WindowsWslPolicy, EvidenceState::Ready),
+    ];
+    let mut findings = Vec::new();
+    append_findings(&mut findings, HostKind::Windows, &evidence);
+    let finding = findings
+        .iter()
+        .find(|finding| finding.id == "setup:windows:wsl-features")
+        .expect("WSL feature setup task is present");
+    assert!(
+        !findings
+            .iter()
+            .any(|finding| finding.id == "setup:windows:wsl-kernel")
+    );
+    assert!(
+        finding
+            .next_step
+            .contains("Turn Windows features on or off")
+    );
+    assert!(finding.next_step.contains("Virtual Machine Platform"));
+    assert!(finding.next_step.contains("ask your administrator"));
+    assert!(finding.next_step.contains("do not change security policy"));
+}
+
+#[test]
+fn wsl_kernel_task_waits_for_host_policy_and_both_features() {
+    let evidence = [
+        evidence(Capability::HostEdition, EvidenceState::Ready),
+        evidence(Capability::WindowsWslFeature, EvidenceState::Ready),
+        evidence(Capability::WindowsVmPlatformFeature, EvidenceState::Ready),
+        evidence(Capability::WindowsWslKernel, EvidenceState::Missing),
+        evidence(Capability::WindowsReboot, EvidenceState::Ready),
+        evidence(Capability::WindowsWslPolicy, EvidenceState::Ready),
+    ];
+    let mut findings = Vec::new();
+    append_findings(&mut findings, HostKind::Windows, &evidence);
+    assert!(
+        findings
+            .iter()
+            .any(|finding| finding.id == "setup:windows:wsl-kernel")
+    );
+}
+
+#[test]
+fn wsl_kernel_task_waits_until_pending_reboot_is_cleared() {
+    let evidence = [
+        evidence(Capability::HostEdition, EvidenceState::Ready),
+        evidence(Capability::WindowsWslFeature, EvidenceState::Ready),
+        evidence(Capability::WindowsVmPlatformFeature, EvidenceState::Ready),
+        evidence(Capability::WindowsWslKernel, EvidenceState::Missing),
+        evidence(Capability::WindowsReboot, EvidenceState::Missing),
+        evidence(Capability::WindowsWslPolicy, EvidenceState::Ready),
+    ];
+    let mut findings = Vec::new();
+    append_findings(&mut findings, HostKind::Windows, &evidence);
+    assert!(
+        findings
+            .iter()
+            .any(|finding| finding.id == "setup:windows:reboot")
+    );
+    assert!(
+        !findings
+            .iter()
+            .any(|finding| finding.id == "setup:windows:wsl-kernel")
+    );
 }
 
 #[test]
