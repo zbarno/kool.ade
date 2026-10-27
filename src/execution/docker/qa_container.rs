@@ -167,6 +167,12 @@ impl QaDriverContainerSpec<'_> {
             &mut tmpfs,
             &mut env,
         )?;
+        if let Some(binding) = self
+            .relay_binding
+            .filter(|binding| !binding.relay_token.is_empty())
+        {
+            env.push(format!("QA_RELAY_TOKEN={}", binding.relay_token));
+        }
         Ok(ContainerCreateBody {
             user: Some(self.image.runtime_user.clone()),
             env: Some(env),

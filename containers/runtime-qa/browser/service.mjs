@@ -52,6 +52,7 @@ export async function runService(request) {
   const deadline = Date.now() + request.timeout_ms;
   const actions = [];
   const failedRequests = [];
+  const relayToken = process.env.QA_RELAY_TOKEN ?? '';
   let outcome = 'completed';
   let errorText = null;
   for (let index = 0; index < request.actions.length; index += 1) {
@@ -66,7 +67,10 @@ export async function runService(request) {
       if (remaining <= 0) fail('service QA run timed out');
       const response = await fetch(url, {
         method: action.method,
-        headers: action.json_body == null ? {} : { 'content-type': 'application/json' },
+        headers: {
+          ...(action.json_body == null ? {} : { 'content-type': 'application/json' }),
+          ...(relayToken ? { 'x-koolade-qa-relay-token': relayToken } : {}),
+        },
         body: action.json_body ?? undefined,
         redirect: 'manual',
         signal: AbortSignal.timeout(Math.min(ACTION_TIMEOUT_MS, remaining)),

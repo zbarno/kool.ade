@@ -42,6 +42,41 @@ pub(super) async fn assert_origin_escape_cases(
         cancel,
     )
     .await?;
+    assert_sink_hits_zero(
+        docker,
+        &preview.relay_binding.relay_container_id,
+        &browser_image.runtime_user,
+    )
+    .await
+    .map_err(|error| format!("origin-escape sink audit failed: {error}"))?;
+    Ok(())
+}
+
+/// Zero-contact evidence for the escape attempts above: the hostile sink
+/// plant in the adjacent task service counts contacts per sentinel tag, and
+/// the tags used by the escape cases must remain at zero. Reading the
+/// counters from inside the relay container also proves the sink path is
+/// reachable for an adjacent sandbox member, so zero is positive containment
+/// evidence rather than a vacuous pass.
+/// Rootless Docker boundary: a unit test cannot prove that no proxied
+/// connection ever reached the neighbour. Cost: two read-only execs in the
+/// already-running relay container.
+pub(super) async fn assert_sink_hits_zero(
+    docker: &bollard::Docker,
+    relay_container_id: &str,
+    relay_runtime_user: &str,
+) -> Result<(), String> {
+    for tag in ["adjacent", "rebind"] {
+        let hits =
+            super::probe::sink_hit_count(docker, relay_container_id, relay_runtime_user, tag)
+                .await
+                .map_err(|error| format!("{tag} sink counter could not be audited: {error}"))?;
+        if hits != 0 {
+            return Err(format!(
+                "{tag} hostile sink was contacted {hits} times despite the browser origin policy"
+            ));
+        }
+    }
     Ok(())
 }
 

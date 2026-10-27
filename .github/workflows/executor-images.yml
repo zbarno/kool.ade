@@ -389,7 +389,7 @@ jobs:
           cache-workspace-crates: true
       - name: Test browser API path validation
         if: matrix.profile == 'browser_qa'
-        run: node --test containers/runtime-qa/browser/service.test.mjs
+        run: node --test containers/runtime-qa/browser/service.test.mjs containers/runtime-qa/browser/relay.test.mjs
       - name: Build rootless candidate and retain image evidence
         env:
           PROFILE: ${{ matrix.profile }}
