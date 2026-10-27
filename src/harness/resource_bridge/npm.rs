@@ -16,6 +16,7 @@ mod test_support;
 #[cfg(test)]
 mod tests;
 
+#[cfg(unix)]
 pub(super) use adapter::Adapter;
 pub(super) use preparation::SharedPreparationOperations;
 use preparation::prepare_with_registry;
