@@ -14,6 +14,9 @@ use windows_sys::Win32::{
     },
 };
 
+mod ancestors;
+pub(super) use ancestors::verify_no_untrusted_delete_rights;
+
 pub(super) fn verify_private_acl(
     descriptor: PSECURITY_DESCRIPTOR,
     owner: PSID,
@@ -219,7 +222,7 @@ pub(super) fn verify_private_acl(
     Ok(())
 }
 
-fn verify_sid(sid: PSID, sid_bytes: &[u8], description: &str) -> anyhow::Result<()> {
+pub(super) fn verify_sid(sid: PSID, sid_bytes: &[u8], description: &str) -> anyhow::Result<()> {
     let subauthority_count_offset = offset_of!(SID, SubAuthorityCount);
     let subauthority_offset = offset_of!(SID, SubAuthority);
     anyhow::ensure!(
