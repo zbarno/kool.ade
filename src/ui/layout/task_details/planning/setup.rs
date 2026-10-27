@@ -183,6 +183,7 @@ fn supports_repair(
     provider_install_supported: bool,
 ) -> bool {
     (is_supported_general_image(task)
+        || is_supported_linux_rootless(task)
         || (is_claude_install_task(task) && provider_install_supported))
         && task.blocked_by.is_empty()
         && matches!(
@@ -223,7 +224,7 @@ fn should_paint_claude_install(
 
 fn should_paint_image_preparation(task: &crate::persistence::setup_tasks::LocalTask) -> bool {
     use crate::persistence::setup_tasks::State;
-    is_supported_general_image(task)
+    (is_supported_general_image(task) || is_supported_linux_rootless(task))
         && (matches!(
             task.state,
             State::NeedsApproval | State::InProgress | State::AwaitingVerification
@@ -232,6 +233,15 @@ fn should_paint_image_preparation(task: &crate::persistence::setup_tasks::LocalT
 
 fn is_supported_general_image(task: &crate::persistence::setup_tasks::LocalTask) -> bool {
     crate::app::bootstrap_repair_policy::parse_locked_image_task_id(&task.id).is_some()
+}
+
+fn is_supported_linux_rootless(task: &crate::persistence::setup_tasks::LocalTask) -> bool {
+    matches!(
+        task.id.as_str(),
+        "setup:linux:rootless:packages"
+            | "setup:linux:rootless:subids"
+            | "setup:linux:rootless:service"
+    )
 }
 
 fn state_badge(ui: &mut egui::Ui, task: &crate::persistence::setup_tasks::LocalTask) {

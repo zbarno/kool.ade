@@ -58,11 +58,7 @@ pub(super) fn findings(
                         &explanation,
                         "Review and approve the pinned image preparation and isolation smoke test. If the exact digest is already present, no download is needed.",
                     ),
-                    [
-                        dependencies::docker_engine(),
-                        dependencies::docker_rootless(),
-                        dependencies::docker_capabilities(),
-                    ],
+                    image_prerequisites(profile),
                 ));
             }
             Err(_) => findings.push(dependencies::requires(
@@ -74,11 +70,7 @@ pub(super) fn findings(
                     ),
                     "Refresh the application image metadata before preparing a runtime image.",
                 ),
-                [
-                    dependencies::docker_engine(),
-                    dependencies::docker_rootless(),
-                    dependencies::docker_capabilities(),
-                ],
+                image_prerequisites(profile),
             )),
         }
     }
@@ -131,4 +123,29 @@ fn trusted_image_engine(
 
 fn task_id(profile: &str, architecture: &str, engine_identity: &str) -> String {
     format!("setup:images:{profile}:{architecture}:{engine_identity}")
+}
+
+fn image_prerequisites(profile: RuntimeProfile) -> Vec<String> {
+    let mut prerequisites = vec![dependencies::docker_engine()];
+    if profile != RuntimeProfile::General {
+        prerequisites.push(dependencies::docker_rootless());
+    }
+    prerequisites.push(dependencies::docker_capabilities());
+    prerequisites
+}
+
+pub(super) fn general_smoke_verified(docker: &DockerEnvironmentStatus, architecture: &str) -> bool {
+    let Some(image) = ImageLock::bundled()
+        .ok()
+        .and_then(|lock| lock.select(RuntimeProfile::General, architecture).ok())
+    else {
+        return false;
+    };
+    let endpoint_identity = DockerEnvironmentStatus::current_endpoint_identity_fingerprint();
+    crate::persistence::linux_rootless_smoke_receipt::matches_current(
+        endpoint_identity.as_deref(),
+        docker.daemon_identity_fingerprint.as_deref(),
+        docker.daemon_version.as_deref(),
+        Some(&image),
+    )
 }

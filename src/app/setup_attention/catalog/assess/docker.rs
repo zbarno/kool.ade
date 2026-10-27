@@ -1,11 +1,18 @@
+use crate::app::setup_attention::catalog::HostKind;
 use crate::execution::docker::environment::{
     DockerEnvironmentState as State, DockerEnvironmentStatus,
 };
 
 use super::super::Finding;
 
-pub(super) fn finding(docker: &DockerEnvironmentStatus) -> Option<Finding> {
+pub(super) fn finding(docker: &DockerEnvironmentStatus, host: HostKind) -> Option<Finding> {
     Some(match docker.state {
+        State::NotInstalled if host == HostKind::Linux => Finding::action(
+            "setup:docker:rootless",
+            "Configure secure Docker",
+            "No Docker Engine is installed for this native Linux account.",
+            "Use the supported rootless Docker setup tasks for this distribution, then verify the current user's socket and approved-image smoke test.",
+        ),
         State::NotInstalled => Finding::action(
             "setup:docker:install",
             "Install a safe container runtime",

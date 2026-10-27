@@ -3,12 +3,15 @@ use serde::{Deserialize, Serialize};
 use super::{
     evidence::{EvidenceState, PrerequisiteNodeV1, ProbeEvidenceV1, ProbeObservationV1},
     identifiers::{
-        HostKind, ImageArchitectureV1, PrerequisiteCapability, PrerequisiteDomain, ProviderIdV1,
+        HostKind, ImageArchitectureV1, ImageProfileV1, PrerequisiteCapability, PrerequisiteDomain,
+        PrerequisiteSubject, ProviderIdV1,
     },
 };
 use crate::app::setup_attention::catalog::Finding;
 
 mod claims;
+#[cfg(test)]
+mod validation_tests;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -130,12 +133,87 @@ impl MachineSnapshotV1 {
                     PrerequisiteDomain::Docker,
                     PrerequisiteCapability::DockerEndpoint,
                     Some(ProbeObservationV1::DockerEngineIdentity { .. }),
+                ) | (
+                    PrerequisiteDomain::Host,
+                    PrerequisiteCapability::LinuxRootlessRecipe,
+                    Some(ProbeObservationV1::LinuxRootlessRecipe { .. }),
+                ) | (
+                    PrerequisiteDomain::Host,
+                    PrerequisiteCapability::LinuxKernel,
+                    Some(ProbeObservationV1::LinuxKernel { .. }),
+                ) | (
+                    PrerequisiteDomain::Host,
+                    PrerequisiteCapability::LinuxUserNamespaces,
+                    Some(ProbeObservationV1::LinuxUserNamespaces { .. }),
+                ) | (
+                    PrerequisiteDomain::Host,
+                    PrerequisiteCapability::LinuxSubuid | PrerequisiteCapability::LinuxSubgid,
+                    Some(ProbeObservationV1::LinuxSubordinateIds { .. }),
+                ) | (
+                    PrerequisiteDomain::Host,
+                    PrerequisiteCapability::LinuxRootlessHelpers,
+                    Some(ProbeObservationV1::LinuxRootlessHelpers { .. }),
+                ) | (
+                    PrerequisiteDomain::Host,
+                    PrerequisiteCapability::LinuxCgroups,
+                    Some(ProbeObservationV1::LinuxCgroups { .. }),
+                ) | (
+                    PrerequisiteDomain::Host,
+                    PrerequisiteCapability::LinuxServiceManager,
+                    Some(ProbeObservationV1::LinuxServiceManager { .. }),
+                ) | (
+                    PrerequisiteDomain::Host,
+                    PrerequisiteCapability::LinuxPackageManager,
+                    Some(ProbeObservationV1::LinuxPackageManager { .. }),
+                ) | (
+                    PrerequisiteDomain::Docker,
+                    PrerequisiteCapability::DockerRootlessSmoke,
+                    Some(ProbeObservationV1::DockerRootlessSmoke { .. }),
                 ) | (_, _, None)
             );
             anyhow::ensure!(
                 observation_matches,
                 "probe observation does not match its prerequisite"
             );
+            if item.prerequisite.capability == PrerequisiteCapability::DockerRootlessSmoke {
+                let Some(ProbeObservationV1::DockerRootlessSmoke {
+                    endpoint_fingerprint,
+                    daemon_fingerprint,
+                    daemon_version,
+                    image_reference,
+                    image_digest,
+                    image_platform,
+                    completed_at_unix_ms,
+                }) = &item.observation
+                else {
+                    anyhow::bail!("rootless smoke evidence lacks its typed receipt");
+                };
+                anyhow::ensure!(
+                    item.prerequisite.domain == PrerequisiteDomain::Docker
+                        && item.state == EvidenceState::Ready
+                        && item.code == super::evidence::EvidenceCode::ApprovedImageSmokeSucceeded
+                        && item.origin == super::evidence::EvidenceOrigin::ApprovedImageSmokeTest
+                        && item.source_generation.is_none()
+                        && valid_sha256(endpoint_fingerprint)
+                        && valid_sha256(daemon_fingerprint)
+                        && !daemon_version.is_empty()
+                        && daemon_version.len() <= 128
+                        && !daemon_version.bytes().any(|byte| byte.is_ascii_control())
+                        && image_reference.len() <= 512
+                        && !image_reference.is_empty()
+                        && !image_reference.bytes().any(|byte| byte.is_ascii_control())
+                        && image_digest
+                            .strip_prefix("sha256:")
+                            .is_some_and(valid_sha256)
+                        && rootless_smoke_subject_matches(
+                            &item.prerequisite.subject,
+                            image_platform,
+                        )
+                        && *completed_at_unix_ms > 0
+                        && *completed_at_unix_ms <= self.checked_at_unix_ms,
+                    "rootless smoke evidence contains an invalid receipt"
+                );
+            }
         }
         let nodes = self
             .prerequisite_graph
@@ -187,4 +265,27 @@ impl MachineSnapshotV1 {
         }
         Ok(())
     }
+}
+
+fn rootless_smoke_subject_matches(subject: &PrerequisiteSubject, image_platform: &str) -> bool {
+    matches!(
+        (subject, image_platform),
+        (
+            PrerequisiteSubject::Image {
+                profile: ImageProfileV1::General,
+                architecture: ImageArchitectureV1::Amd64,
+            },
+            "linux/amd64",
+        ) | (
+            PrerequisiteSubject::Image {
+                profile: ImageProfileV1::General,
+                architecture: ImageArchitectureV1::Arm64,
+            },
+            "linux/arm64",
+        )
+    )
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }

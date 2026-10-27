@@ -9,8 +9,8 @@ use crate::{
             ClaudeCodeReadinessVerifier, ClaudeInstallProgress, RemediationPlan,
             RemediationRequest,
             supervisor::{
-                Cancellation, ClaudeCodeOperationRegistry, NoNativeElevation, RemediationResult,
-                RemediationSupervisor, SystemCommandRunner,
+                Cancellation, ClaudeCodeOperationRegistry, LinuxReadinessVerifier,
+                NoNativeElevation, RemediationResult, RemediationSupervisor, SystemCommandRunner,
             },
         },
         bootstrap_repair_policy::{Host, Operation, Proposal},
@@ -169,6 +169,7 @@ impl ClaudeInstallController {
         let (send, receive) = mpsc::channel();
         let (progress_send, progress_receive) = mpsc::channel();
         let registry = ClaudeCodeOperationRegistry::new(progress_send.clone());
+        let preconditions = LinuxReadinessVerifier;
         let verifier = ClaudeCodeReadinessVerifier::new(progress_send);
         let plan = review.plan;
         let cancellation = Arc::new(Cancellation::new());
@@ -180,6 +181,7 @@ impl ClaudeInstallController {
                     approved,
                     &plan,
                     &registry,
+                    &preconditions,
                     &SystemCommandRunner,
                     &NoNativeElevation,
                     &verifier,

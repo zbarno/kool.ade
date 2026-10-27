@@ -55,6 +55,10 @@ impl ApprovalGate {
     ) -> anyhow::Result<AuthorizationBindingV1> {
         request.plan.validate()?;
         current_identity.validate()?;
+        anyhow::ensure!(
+            request.consented == request.plan.required_consents,
+            "required machine repair consent was not granted"
+        );
         let plan_digest = request.plan.digest()?;
         let host_digest = request.identity.digest()?;
         anyhow::ensure!(

@@ -188,6 +188,15 @@ pub(crate) fn desktop_docker_evidence(task_id: &str, evidence_domain: &str) -> b
 }
 
 pub(crate) fn expected_evidence_domain(id: &str) -> Option<String> {
+    let rootless_domain = match id {
+        "setup:linux:rootless:packages" => Some("host:linux:rootless_helpers"),
+        "setup:linux:rootless:subids" => Some("host:linux:subordinate_ids"),
+        "setup:linux:rootless:service" | "setup:docker:rootless" => Some("docker:rootless-smoke"),
+        _ => None,
+    };
+    if let Some(domain) = rootless_domain {
+        return Some(domain.to_owned());
+    }
     match id.split(':').collect::<Vec<_>>().as_slice() {
         ["setup", "legacy", "docker"] => Some("docker".to_owned()),
         ["setup", "cli", "install"] => Some("cli:install".to_owned()),

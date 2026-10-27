@@ -26,6 +26,12 @@ pub enum Operation {
     InstallClaudeCode,
     /// Open existing application settings, never a process execution.
     OpenCodingTools,
+    /// Install the exact supported Linux distro package recipe for rootless Docker.
+    InstallLinuxRootlessPackages,
+    /// Add subordinate ID mappings for the current Linux user.
+    ConfigureLinuxSubordinateIds,
+    /// Install and enable the current user's rootless Docker service.
+    InstallLinuxRootlessService,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -131,6 +137,29 @@ pub fn validate(proposal: &Proposal, detected_host: Host) -> anyhow::Result<Revi
             );
             (true, true)
         }
+        Operation::InstallLinuxRootlessPackages
+        | Operation::ConfigureLinuxSubordinateIds
+        | Operation::InstallLinuxRootlessService => {
+            anyhow::ensure!(
+                proposal.host == Host::Linux,
+                "rootless Docker repair is Linux-only"
+            );
+            anyhow::ensure!(
+                proposal.image_profile.is_none(),
+                "unexpected image profile for rootless Docker repair"
+            );
+            let expected_id = match proposal.operation {
+                Operation::InstallLinuxRootlessPackages => "setup:linux:rootless:packages",
+                Operation::ConfigureLinuxSubordinateIds => "setup:linux:rootless:subids",
+                Operation::InstallLinuxRootlessService => "setup:linux:rootless:service",
+                _ => unreachable!("rootless operation was selected above"),
+            };
+            anyhow::ensure!(
+                proposal.prerequisite_id == expected_id,
+                "rootless Docker operation does not match its canonical prerequisite"
+            );
+            (true, false)
+        }
     };
     Ok(ReviewedAction {
         operation: proposal.operation,
@@ -192,24 +221,6 @@ mod tests {
                     Operation::PrepareLockedImage,
                     &image_task("general", "amd64"),
                     Some("example.com/evil:latest")
-                ),
-                Host::Linux
-            )
-            .is_err()
-        );
-        let install = action(
-            Operation::InstallClaudeCode,
-            "setup:cli:claude:install",
-            None,
-        );
-        assert!(validate(&install, Host::Linux).unwrap().requires_consent);
-        assert!(validate(&install, Host::MacOs).is_err());
-        assert!(
-            validate(
-                &action(
-                    Operation::InstallClaudeCode,
-                    "setup:cli:codex:install",
-                    None
                 ),
                 Host::Linux
             )

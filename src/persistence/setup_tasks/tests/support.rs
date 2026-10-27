@@ -1,6 +1,8 @@
 use crate::app::setup_attention::catalog::{
-    EvidenceState, Finding, FindingStatus, HostCapabilityMatrixV1, HostKind, ImageArchitectureV1,
-    MachineSnapshot, SCHEMA_VERSION, SupportClaim,
+    EvidenceCode, EvidenceOrigin, EvidenceState, Finding, FindingStatus, HostCapabilityMatrixV1,
+    HostKind, ImageArchitectureV1, ImageProfileV1, MachineSnapshot, PrerequisiteCapability,
+    PrerequisiteDomain, PrerequisiteId, PrerequisiteSubject, ProbeEvidenceV1, ProbeObservationV1,
+    SCHEMA_VERSION, SupportClaim,
 };
 
 use super::super::{SetupTaskStateV1, SetupTaskStoreV1};
@@ -61,6 +63,42 @@ pub fn snapshot(
             })
             .map(str::to_owned)
             .collect(),
+    }
+}
+
+pub fn rootless_smoke_fact(scan_generation: u64, completed_at_unix_ms: u64) -> ProbeEvidenceV1 {
+    let image = crate::execution::docker::images::ImageLock::bundled()
+        .unwrap()
+        .select(
+            crate::execution::docker::images::RuntimeProfile::General,
+            "amd64",
+        )
+        .unwrap();
+    ProbeEvidenceV1 {
+        prerequisite: PrerequisiteId {
+            domain: PrerequisiteDomain::Docker,
+            platform: HostKind::Linux,
+            capability: PrerequisiteCapability::DockerRootlessSmoke,
+            subject: PrerequisiteSubject::Image {
+                profile: ImageProfileV1::General,
+                architecture: ImageArchitectureV1::Amd64,
+            },
+        },
+        state: EvidenceState::Ready,
+        code: EvidenceCode::ApprovedImageSmokeSucceeded,
+        origin: EvidenceOrigin::ApprovedImageSmokeTest,
+        scan_generation,
+        source_generation: None,
+        observed_at_unix_ms: completed_at_unix_ms,
+        observation: Some(ProbeObservationV1::DockerRootlessSmoke {
+            endpoint_fingerprint: "a".repeat(64),
+            daemon_fingerprint: "b".repeat(64),
+            daemon_version: "29.0.0".into(),
+            image_reference: image.reference,
+            image_digest: image.digest,
+            image_platform: image.platform,
+            completed_at_unix_ms,
+        }),
     }
 }
 

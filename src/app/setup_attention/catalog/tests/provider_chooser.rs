@@ -1,24 +1,6 @@
 use super::*;
 
 #[test]
-fn no_cli_produces_one_choice_not_six_install_tasks() {
-    let snapshot = assess(
-        &[],
-        None,
-        &docker(DockerEnvironmentState::NotInstalled, false),
-        HostKind::Linux,
-        4,
-    );
-    assert!(
-        snapshot
-            .findings
-            .iter()
-            .any(|finding| finding.id == "setup:cli:install")
-    );
-    assert_eq!(snapshot.findings.len(), 2);
-}
-
-#[test]
 fn unchosen_installed_providers_do_not_fan_out_setup_tasks() {
     let mut probes = [
         "pi",

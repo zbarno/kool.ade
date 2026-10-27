@@ -82,6 +82,11 @@ pub(super) fn ready_claim(
             Origin::DockerDiscovery,
             Code::DockerReady,
         ) | (
+            Domain::Docker,
+            Capability::DockerRootlessSmoke,
+            Origin::ApprovedImageSmokeTest,
+            Code::ApprovedImageSmokeSucceeded,
+        ) | (
             Domain::Image,
             Capability::ApprovedImage,
             Origin::ImageInventory,

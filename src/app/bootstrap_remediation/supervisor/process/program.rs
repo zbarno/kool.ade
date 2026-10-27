@@ -8,5 +8,9 @@ mod tests;
 pub(crate) use artifact::{PublisherSignatureVerifier, VerifiedArtifact, verify_plan_artifact};
 pub(crate) use catalog::TrustedProgram;
 #[cfg(target_os = "linux")]
-pub(crate) use invocation::{ClaudeReleaseAsset, InternalInvocation};
-pub(crate) use invocation::{TrustedArgument, TrustedInvocation};
+pub(crate) use invocation::ClaudeReleaseAsset;
+pub(crate) use invocation::{
+    DNF_MAX_STAGED_RPMS, DnfPackageNames, DnfStageId, HashBoundDnfRpm, InternalInvocation,
+    StagedRpm, TrustedArgument, TrustedEnvironment, TrustedInvocation, VerifiedDnfRpm,
+    parse_installed_package_names,
+};

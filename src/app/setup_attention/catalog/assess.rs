@@ -9,6 +9,7 @@ use super::{
 mod checked_domains;
 mod docker;
 mod inputs;
+mod linux_rootless;
 mod provider_tasks;
 pub(crate) use inputs::{ImageScanState, ScanInputs};
 #[cfg(test)]
@@ -16,7 +17,6 @@ mod test_support;
 
 #[cfg(test)]
 pub use test_support::{assess, assess_for_scan, assess_for_scan_with_git};
-
 /// Pure, deterministic interpretation. Missing image findings require
 /// engine_ready; a rootful or unqueryable engine is NOT an image failure.
 #[cfg(test)]
@@ -52,10 +52,7 @@ pub(crate) fn assess_for_scan_with_inputs_and_bootstrap_provider(
     scan_generation: u64,
     inputs: ScanInputs,
 ) -> MachineSnapshotV1 {
-    let ScanInputs {
-        git_probe,
-        images: image_state,
-    } = inputs;
+    let ScanInputs { git_probe, images } = inputs;
     let mut findings = Vec::new();
     let verified: Vec<_> = probes
         .iter()
@@ -107,10 +104,11 @@ pub(crate) fn assess_for_scan_with_inputs_and_bootstrap_provider(
         ));
     }
 
-    if let Some(finding) = docker::finding(docker) {
+    if let Some(finding) = docker::finding(docker, host) {
         findings.push(finding);
     }
 
+    let image_state = linux_rootless::effective_image_scan_state(&images, docker, host);
     findings.extend(images::findings(
         docker,
         host,
@@ -149,6 +147,13 @@ pub(crate) fn assess_for_scan_with_inputs_and_bootstrap_provider(
         scan_generation,
         checked_at_unix_ms,
         git_probe,
+    );
+    linux_rootless::append_findings(
+        &mut findings,
+        host,
+        scan_generation,
+        &capability_matrix,
+        &probe_evidence,
     );
     match git_probe.executable_state {
         EvidenceState::Missing => findings.push(Finding::action(
@@ -190,6 +195,20 @@ pub(crate) fn assess_for_scan_with_inputs_and_bootstrap_provider(
     }
     findings.sort_by(|left, right| left.id.cmp(&right.id));
     findings.dedup_by(|left, right| left.id == right.id);
+    let mut checked_domains = checked_domains::collect(checked_domains::Inputs {
+        probes,
+        scan_generation,
+        verified: &verified,
+        setup_provider: provider_choices.guided_setup,
+        selected_agent: provider_choices.default_agent,
+        docker,
+        host,
+        git_probe: &git_probe,
+        image_state: &image_state,
+    });
+    if linux_rootless::smoke_verified(host, scan_generation, &probe_evidence) {
+        checked_domains.push("docker:rootless-smoke".into());
+    }
     let snapshot = MachineSnapshotV1 {
         schema_version: SCHEMA_VERSION,
         scan_generation,
@@ -213,17 +232,7 @@ pub(crate) fn assess_for_scan_with_inputs_and_bootstrap_provider(
         probe_evidence,
         prerequisite_graph,
         findings,
-        checked_domains: checked_domains::collect(checked_domains::Inputs {
-            probes,
-            scan_generation,
-            verified: &verified,
-            setup_provider: provider_choices.guided_setup,
-            selected_agent: provider_choices.default_agent,
-            docker,
-            host,
-            git_probe: &git_probe,
-            image_state: &image_state,
-        }),
+        checked_domains,
     };
     debug_assert!(
         snapshot.validate().is_ok(),

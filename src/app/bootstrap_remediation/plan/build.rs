@@ -5,6 +5,7 @@ use crate::app::bootstrap_remediation::request::{OperationParameters, Remediatio
 use crate::execution::docker::images::{ImageLock, RuntimeProfile};
 use sha2::{Digest, Sha256};
 
+mod rootless;
 mod validation;
 
 impl RemediationPlan {
@@ -40,13 +41,16 @@ impl RemediationPlan {
             ),
             install_target: None,
             effects: Vec::new(),
+            package_changes: Vec::new(),
             file_changes: Vec::new(),
             service_changes: Vec::new(),
+            precondition_probe_ids: Vec::new(),
             artifact_source: None,
             artifact_trust: None,
             privilege: PrivilegeLevel::CurrentUser,
             rollback: RollbackGuidance::NoMutation,
             verification_probe_ids: vec![validation::probe_for(&request.prerequisite_id)],
+            required_consents: Vec::new(),
             requires_consent: false,
             #[cfg(test)]
             test_override: false,
@@ -123,6 +127,18 @@ impl RemediationPlan {
                 plan.verification_probe_ids = vec!["cli:claude:install".into()];
                 plan.requires_consent = true;
             }
+            (
+                Operation::InstallLinuxRootlessPackages,
+                OperationParameters::InstallLinuxRootlessPackages { recipe },
+            ) => rootless::install_packages(&mut plan, *recipe)?,
+            (
+                Operation::ConfigureLinuxSubordinateIds,
+                OperationParameters::ConfigureLinuxSubordinateIds { recipe },
+            ) => rootless::configure_subordinate_ids(&mut plan, *recipe)?,
+            (
+                Operation::InstallLinuxRootlessService,
+                OperationParameters::InstallLinuxRootlessService { recipe },
+            ) => rootless::install_service(&mut plan, *recipe)?,
             _ => anyhow::bail!("remediation plan does not match its typed request"),
         }
         Ok(plan)

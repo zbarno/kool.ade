@@ -16,9 +16,10 @@ mod tests;
 pub use model::{
     EvidenceCode, EvidenceOrigin, EvidenceState, GitProbeV1, HostCapabilityMatrixV1, HostKind,
     ImageArchitectureV1, ImageProfileV1, LinuxDistributionV1, LinuxDistributionVersionV1,
-    LinuxRootlessMechanismV1, MachineSnapshotV1, PrerequisiteCapability, PrerequisiteDomain,
-    PrerequisiteId, PrerequisiteNodeV1, PrerequisiteSubject, ProbeEvidenceV1, ProbeObservationV1,
-    ProviderIdV1, RemediationEligibility, SupportClaim,
+    LinuxKernelVersionV1, LinuxPackageManagerV1, LinuxRootlessMechanismV1, LinuxRootlessRecipeV1,
+    MachineSnapshotV1, PrerequisiteCapability, PrerequisiteDomain, PrerequisiteId,
+    PrerequisiteNodeV1, PrerequisiteSubject, ProbeEvidenceV1, ProbeObservationV1, ProviderIdV1,
+    RemediationEligibility, SupportClaim,
 };
 pub type MachineSnapshot = MachineSnapshotV1;
 

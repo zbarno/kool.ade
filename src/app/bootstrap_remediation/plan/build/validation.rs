@@ -1,6 +1,7 @@
 use super::super::*;
 use crate::app::bootstrap_remediation::request::OperationParameters;
 use crate::app::bootstrap_repair_policy::parse_locked_image_task_id;
+use crate::app::setup_attention::catalog::LinuxRootlessRecipeV1;
 
 pub(super) fn validate_artifact_policy(plan: &RemediationPlan) -> anyhow::Result<()> {
     anyhow::ensure!(
@@ -89,6 +90,10 @@ pub(super) fn probe_for(prerequisite_id: &str) -> String {
 }
 
 pub(super) fn parameters_from_plan(plan: &RemediationPlan) -> anyhow::Result<OperationParameters> {
+    let rootless_recipe = || {
+        LinuxRootlessRecipeV1::from_os_version(&plan.os_version)
+            .ok_or_else(|| anyhow::anyhow!("plan host has no exact rootless recipe"))
+    };
     match plan.operation {
         Operation::RecheckPrerequisites | Operation::OpenCodingTools => {
             Ok(OperationParameters::None)
@@ -107,6 +112,21 @@ pub(super) fn parameters_from_plan(plan: &RemediationPlan) -> anyhow::Result<Ope
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("Claude install target is missing"))?,
         }),
+        Operation::InstallLinuxRootlessPackages => {
+            Ok(OperationParameters::InstallLinuxRootlessPackages {
+                recipe: rootless_recipe()?,
+            })
+        }
+        Operation::ConfigureLinuxSubordinateIds => {
+            Ok(OperationParameters::ConfigureLinuxSubordinateIds {
+                recipe: rootless_recipe()?,
+            })
+        }
+        Operation::InstallLinuxRootlessService => {
+            Ok(OperationParameters::InstallLinuxRootlessService {
+                recipe: rootless_recipe()?,
+            })
+        }
     }
 }
 

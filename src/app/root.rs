@@ -66,10 +66,8 @@ mod task_target;
 pub(crate) mod test_runtime_qa;
 mod tick;
 mod ui_actions;
-mod window_options;
 mod workspace;
 use task_batch::has_current_task_batch;
-pub use window_options::options;
 
 /// Root of the koolade app.
 pub struct KooladeApp {
@@ -127,6 +125,7 @@ pub struct KooladeApp {
     setup_refresh_pending: Option<bool>,
     setup_image_preparation: super::bootstrap_image_prepare::Controller,
     claude_install: super::bootstrap_remediation::ClaudeInstallController,
+    setup_remediation: super::bootstrap_remediation::Controller,
     bootstrap_conversation: bootstrap_conversation::Controller,
     #[cfg(test)]
     attention_fixture: std::collections::BTreeMap<String, crate::core::attention::Brief>,
@@ -250,6 +249,20 @@ enum Dialog {
     Mcp(DlgMcp),
     #[cfg(test)]
     Browse(DlgBrowse),
+}
+
+/// Native window options for [`eframe::run_native`]. The minimum stays below
+/// the compact-layout breakpoint so the stacked workspace is reachable on
+/// smaller displays.
+pub fn options() -> eframe::NativeOptions {
+    let vp = egui::ViewportBuilder::default()
+        .with_inner_size([1480.0, 900.0])
+        .with_min_inner_size([360.0, 480.0])
+        .with_icon(application_icon());
+    eframe::NativeOptions {
+        viewport: vp,
+        ..Default::default()
+    }
 }
 
 fn application_icon() -> egui::IconData {

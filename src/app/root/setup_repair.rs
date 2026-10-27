@@ -10,7 +10,12 @@ impl KooladeApp {
         if let Some(store) = self.claude_install.take_store_update() {
             published |= self.apply_setup_task_store(store);
         }
+        if let Some(store) = self.setup_remediation.take_store_update() {
+            published |= self.apply_setup_task_store(store);
+        }
         self.setup_image_preparation
+            .acknowledge_authorization_published(published, &self.machine_setup_tasks);
+        self.setup_remediation
             .acknowledge_authorization_published(published, &self.machine_setup_tasks);
     }
 
@@ -51,6 +56,14 @@ impl KooladeApp {
                 );
                 return;
             }
+            if self.setup_image_preparation.is_busy()
+                || self.setup_remediation.is_busy()
+                || claude_install_busy(self)
+            {
+                self.toasts
+                    .warning("Finish the current machine repair before starting another one.");
+                return;
+            }
             match self.claude_install.request_review(task_id) {
                 Ok(()) => self.publish_setup_task_store_update(),
                 Err(error) => self.toasts.warning(format!(
@@ -59,7 +72,7 @@ impl KooladeApp {
             }
             return;
         }
-        if !can_prepare_image(task) {
+        if !can_prepare(task) {
             self.toasts.warning(if task.blocked_by.is_empty() {
                 "A guided repair is not available for this setup task yet."
             } else {
@@ -67,7 +80,19 @@ impl KooladeApp {
             });
             return;
         }
-        self.setup_image_preparation.request_review(task_id);
+        if self.setup_image_preparation.is_busy()
+            || self.setup_remediation.is_busy()
+            || claude_install_busy(self)
+        {
+            self.toasts
+                .warning("Finish the current machine repair before starting another one.");
+            return;
+        }
+        if supported_image_task(task) {
+            self.setup_image_preparation.request_review(task_id);
+        } else {
+            self.setup_remediation.request_review(task_id);
+        }
     }
 
     pub(super) fn approve_setup_task_fix(&mut self, task_id: &str) {
@@ -75,21 +100,38 @@ impl KooladeApp {
             .machine_setup_tasks
             .iter()
             .find(|task| task.id == task_id)
-            .is_some_and(can_approve_image_fix);
+            .is_some_and(can_approve);
         if !still_ready {
-            self.setup_image_preparation.cancel_review();
+            if is_rootless_task(task_id) {
+                self.setup_remediation.cancel_review();
+            } else if task_id == "setup:cli:claude:install" {
+                let _ = self.claude_install.cancel_review();
+                self.publish_setup_task_store_update();
+            } else {
+                self.setup_image_preparation.cancel_review();
+            }
             self.toasts.warning(
                 "This setup task changed while the repair was under review. Check again before approving it.",
             );
             return;
         }
-        let Some(request) = self.setup_image_preparation.take_approval(task_id) else {
-            self.toasts
-                .warning("The repair approval expired. Review it again before continuing.");
-            self.setup_image_preparation.cancel_review();
-            return;
-        };
-        self.setup_image_preparation.approve(request);
+        if is_rootless_task(task_id) {
+            let Some(request) = self.setup_remediation.take_approval(task_id) else {
+                self.toasts
+                    .warning("The repair approval expired. Review it again before continuing.");
+                self.setup_remediation.cancel_review();
+                return;
+            };
+            self.setup_remediation.approve(request);
+        } else {
+            let Some(request) = self.setup_image_preparation.take_approval(task_id) else {
+                self.toasts
+                    .warning("The repair approval expired. Review it again before continuing.");
+                self.setup_image_preparation.cancel_review();
+                return;
+            };
+            self.setup_image_preparation.approve(request);
+        }
     }
 }
 
@@ -110,8 +152,16 @@ fn can_prepare_claude_install(task: &LocalTask) -> bool {
         )
 }
 
-fn can_prepare_image(task: &LocalTask) -> bool {
-    supported_image_task(task)
+fn claude_install_busy(app: &KooladeApp) -> bool {
+    matches!(
+        app.claude_install.status(),
+        crate::app::bootstrap_remediation::ClaudeInstallStatus::NeedsApproval
+            | crate::app::bootstrap_remediation::ClaudeInstallStatus::Running
+    )
+}
+
+fn can_prepare(task: &LocalTask) -> bool {
+    (supported_image_task(task) || is_rootless_task(&task.id))
         && task.blocked_by.is_empty()
         && matches!(
             task.state,
@@ -123,10 +173,21 @@ fn can_prepare_image(task: &LocalTask) -> bool {
         )
 }
 
-fn can_approve_image_fix(task: &LocalTask) -> bool {
-    supported_image_task(task) && task.blocked_by.is_empty() && task.state == State::NeedsApproval
+fn can_approve(task: &LocalTask) -> bool {
+    (supported_image_task(task) || is_rootless_task(&task.id))
+        && task.blocked_by.is_empty()
+        && task.state == State::NeedsApproval
 }
 
 fn supported_image_task(task: &LocalTask) -> bool {
     crate::app::bootstrap_repair_policy::parse_locked_image_task_id(&task.id).is_some()
+}
+
+fn is_rootless_task(task_id: &str) -> bool {
+    matches!(
+        task_id,
+        "setup:linux:rootless:packages"
+            | "setup:linux:rootless:subids"
+            | "setup:linux:rootless:service"
+    )
 }

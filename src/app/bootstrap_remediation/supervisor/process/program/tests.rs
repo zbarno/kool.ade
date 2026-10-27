@@ -13,6 +13,10 @@ use crate::app::{
     bootstrap_remediation::request::RemediationRequest,
     bootstrap_repair_policy::{Host, Operation, Proposal},
 };
+
+#[cfg(target_os = "linux")]
+#[path = "tests/dnf.rs"]
+mod dnf;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
@@ -116,6 +120,70 @@ fn artifact_verification_requires_exact_digest_and_publisher_signature() {
     }
     let wrong_digest_plan = vendor_plan("b".repeat(64));
     assert!(verify_plan_artifact(&wrong_digest_plan, &path, &SignatureVerifier(true)).is_err());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn docker_repository_files_use_only_pinned_exclusive_dd_invocations() {
+    use crate::app::bootstrap_remediation::trusted_assets::{
+        DOCKER_APT_KEY, DOCKER_APT_KEY_SHA256, DOCKER_APT_SOURCES, DOCKER_APT_SOURCES_SHA256,
+    };
+    use std::time::Duration;
+
+    let key = VerifiedArtifact::from_bundled_bytes(
+        "bundled://docker-key-test",
+        DOCKER_APT_KEY,
+        DOCKER_APT_KEY_SHA256,
+    )
+    .unwrap();
+    let key_invocation = TrustedInvocation::new(
+        Host::Linux,
+        TrustedProgram::Dd,
+        vec![
+            TrustedArgument::DockerAptKeyDdInput(key),
+            TrustedArgument::DdDockerAptKeyOutput,
+            TrustedArgument::DdOutputExclusive,
+            TrustedArgument::DdSync,
+            TrustedArgument::DdStatusNone,
+        ],
+        Duration::from_secs(20),
+    )
+    .unwrap();
+    assert_eq!(
+        key_invocation.arguments_for_test()[1..],
+        [
+            "of=/etc/apt/keyrings/docker.asc",
+            "oflag=excl",
+            "conv=fsync",
+            "status=none",
+        ]
+    );
+    key_invocation
+        .arguments
+        .iter()
+        .for_each(|argument| argument.validate().unwrap());
+
+    let source = VerifiedArtifact::from_bundled_bytes(
+        "bundled://docker-source-test",
+        DOCKER_APT_SOURCES,
+        DOCKER_APT_SOURCES_SHA256,
+    )
+    .unwrap();
+    assert!(
+        TrustedInvocation::new(
+            Host::Linux,
+            TrustedProgram::Dd,
+            vec![
+                TrustedArgument::DockerAptSourcesDdInput(source),
+                TrustedArgument::DdDockerAptKeyOutput,
+                TrustedArgument::DdOutputExclusive,
+                TrustedArgument::DdSync,
+                TrustedArgument::DdStatusNone,
+            ],
+            Duration::from_secs(20),
+        )
+        .is_err()
+    );
 }
 
 // Production boundary: macOS artifact execution stays disabled until an

@@ -7,6 +7,7 @@ use super::failure;
 const API_TIMEOUT_SECONDS: u64 = 5;
 
 mod connection;
+mod context;
 #[cfg(unix)]
 mod pinned;
 #[cfg(test)]
@@ -45,14 +46,51 @@ impl DockerEndpoint {
         )
     }
 
+    #[cfg(test)]
+    pub(crate) fn from_process_environment_with_test_support(
+        platform: HostPlatform,
+    ) -> Result<Self, PrerequisiteFailure> {
+        if let Some(endpoint) = Self::test_support_endpoint_from_process_environment(platform) {
+            return Ok(endpoint);
+        }
+        Self::from_process_environment(platform)
+    }
+
     pub fn from_environment(
         docker_host: Option<&str>,
         docker_context: Option<&str>,
-        runtime_dir: Option<&Path>,
+        _runtime_dir: Option<&Path>,
         home_dir: Option<&Path>,
         uid: Option<u32>,
         platform: HostPlatform,
     ) -> Result<Self, PrerequisiteFailure> {
+        let context_config_dir = context::docker_config_dir(home_dir);
+        Self::from_environment_with_config(
+            docker_host,
+            docker_context,
+            home_dir,
+            uid,
+            platform,
+            context_config_dir.as_deref(),
+        )
+    }
+
+    pub(crate) fn from_environment_with_config(
+        docker_host: Option<&str>,
+        docker_context: Option<&str>,
+        home_dir: Option<&Path>,
+        uid: Option<u32>,
+        platform: HostPlatform,
+        context_config_dir: Option<&Path>,
+    ) -> Result<Self, PrerequisiteFailure> {
+        if platform == HostPlatform::Linux {
+            return context::linux_rootless_endpoint(
+                docker_host,
+                docker_context,
+                uid,
+                context_config_dir,
+            );
+        }
         if let Some(context) = docker_context.filter(|value| !value.trim().is_empty()) {
             if context == "desktop-linux" {
                 return Self::desktop_endpoint(home_dir, platform);
@@ -69,27 +107,7 @@ impl DockerEndpoint {
             return Self::parse_local_host_for_uid(host, home_dir, uid);
         }
         match platform {
-            HostPlatform::Linux => {
-                // `XDG_RUNTIME_DIR` is process environment, so don't let an
-                // injected value redirect the privileged Docker API client to
-                // an arbitrary socket. The supported native rootless location
-                // is the current user's runtime directory only.
-                let uid_path = uid.map(|uid| PathBuf::from(format!("/run/user/{uid}/docker.sock")));
-                let runtime_path = runtime_dir
-                    .zip(uid_path.as_deref())
-                    .filter(|(runtime, expected)| *runtime == expected.parent().unwrap_or(expected))
-                    .map(|(runtime, _)| runtime.join("docker.sock"));
-                let user_path = runtime_path.or(uid_path);
-                let rootful_path = PathBuf::from("/var/run/docker.sock");
-                let chosen = match user_path {
-                    Some(path) if path.exists() || !rootful_path.exists() => path,
-                    _ => rootful_path,
-                };
-                Ok(Self::Unix {
-                    path: chosen,
-                    desktop: false,
-                })
-            }
+            HostPlatform::Linux => unreachable!("Linux endpoint was resolved above"),
             HostPlatform::MacOs => Self::desktop_endpoint(home_dir, platform),
             HostPlatform::Windows => Ok(Self::NamedPipe {
                 path: r"\\.\pipe\docker_engine".into(),
@@ -127,13 +145,21 @@ impl DockerEndpoint {
 
     pub fn parse_local_host(
         host: &str,
-        home_dir: Option<&Path>,
+        _home_dir: Option<&Path>,
     ) -> Result<Self, PrerequisiteFailure> {
         #[cfg(target_os = "linux")]
-        let uid = Some(unsafe { libc::geteuid() });
+        {
+            context::linux_rootless_endpoint(
+                Some(host),
+                None,
+                Some(unsafe { libc::geteuid() }),
+                None,
+            )
+        }
         #[cfg(not(target_os = "linux"))]
-        let uid = None;
-        Self::parse_local_host_for_uid(host, home_dir, uid)
+        {
+            Self::parse_local_host_for_uid(host, _home_dir, None)
+        }
     }
 
     fn parse_local_host_for_uid(
@@ -214,7 +240,23 @@ impl DockerEndpoint {
     pub fn supports_application_execution(&self) -> bool {
         #[cfg(target_os = "linux")]
         {
-            matches!(self, Self::Unix { desktop: false, .. })
+            let current_uid = unsafe { libc::geteuid() };
+            current_uid != 0
+                && matches!(
+                    self,
+                    Self::Unix { path, desktop: false }
+                        if path == &PathBuf::from(format!("/run/user/{current_uid}/docker.sock"))
+                            || {
+                                #[cfg(test)]
+                                {
+                                    test_support::isolated_rootless_socket(path)
+                                }
+                                #[cfg(not(test))]
+                                {
+                                    false
+                                }
+                            }
+                )
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -224,7 +266,7 @@ impl DockerEndpoint {
 }
 
 #[cfg(unix)]
-mod socket;
+pub(crate) mod socket;
 
 #[cfg(all(test, unix))]
 mod tests {
