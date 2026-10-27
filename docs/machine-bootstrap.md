@@ -191,6 +191,20 @@ releases. Windows edition, WSL2 kernel, reboot, and policy state also remain
 unprobed. These facts and native host acceptance remain open under #348 and
 #349. Synthetic platform fixtures validate classification; they do not
 establish support on those hosts.
+On Windows 11 x64, the read-only host probe reports edition/build/architecture, WSL and
+Virtual Machine Platform feature states, WSL kernel version, pending restart
+markers, the WSL policy setting, and whether virtualization is available to
+Windows. It uses signed tools from the Windows system directory and does not
+change host settings. Readiness results produce operator-guided setup tasks;
+Kool.ad/e does not enable Windows features, change pipe ACLs or policy, restart
+Windows, or change firmware settings. Docker Desktop trust and native task
+execution remain unverified until Windows end-to-end validation passes.
+Windows 10 and ARM64 hosts remain unsupported until their separate native
+end-to-end acceptance evidence is completed.
+macOS and Windows native execution remains blocked pending native Docker
+Desktop staging, security, and runtime validation. Synthetic platform
+fixtures validate classification; they do not establish support on those
+hosts.
 
 This readiness layer does not install packages, configure services, pull images
 without explicit approval, or execute model-provided shell commands. A supported

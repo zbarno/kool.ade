@@ -1,7 +1,7 @@
 #[cfg(windows)]
 mod acl;
 #[cfg(windows)]
-mod image;
+pub(crate) mod image;
 
 use std::future::Future;
 use std::io;

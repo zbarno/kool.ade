@@ -19,7 +19,8 @@ pub use model::{
     LinuxKernelVersionV1, LinuxPackageManagerV1, LinuxRootlessMechanismV1, LinuxRootlessRecipeV1,
     MachineSnapshotV1, PrerequisiteCapability, PrerequisiteDomain, PrerequisiteId,
     PrerequisiteNodeV1, PrerequisiteSubject, ProbeEvidenceV1, ProbeObservationV1, ProviderIdV1,
-    RemediationEligibility, SupportClaim,
+    RemediationEligibility, SupportClaim, WindowsEditionV1, WindowsKernelVersionV1,
+    WindowsProductV1,
 };
 pub type MachineSnapshot = MachineSnapshotV1;
 
