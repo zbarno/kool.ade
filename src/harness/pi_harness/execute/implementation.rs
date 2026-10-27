@@ -43,7 +43,7 @@ impl AiHarness for PiHarness {
         let version = PiHarness::check_binary(&exe)?;
         let planning_reads = boundary.access() == ToolAccess::ReadOnly;
         let profile =
-            clean_profile::prepare(boundary.working_directory(), model).map_err(|error| {
+            clean_profile::prepare(boundary.working_directory(), model, &exe).map_err(|error| {
                 AppError::Other(format!(
                     "Cannot prepare isolated Pi configuration: {error:#}"
                 ))

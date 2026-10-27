@@ -8,6 +8,7 @@ use serde_json::{Map, Value, json};
 
 const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
 
+#[derive(Debug)]
 pub(super) struct CleanPiProfile {
     pub agent_directory: PathBuf,
     pub session_directory: PathBuf,
@@ -19,15 +20,17 @@ pub(super) struct CleanPiProfile {
 pub(super) fn prepare(
     controller_directory: &Path,
     model_override: Option<&str>,
+    pi_executable: &Path,
 ) -> anyhow::Result<CleanPiProfile> {
     let source = configured_agent_directory()?;
-    prepare_from(&source, controller_directory, model_override)
+    prepare_from(&source, controller_directory, model_override, pi_executable)
 }
 
 fn prepare_from(
     source: &Path,
     controller_directory: &Path,
     model_override: Option<&str>,
+    pi_executable: &Path,
 ) -> anyhow::Result<CleanPiProfile> {
     let metadata = fs::symlink_metadata(source)?;
     anyhow::ensure!(
@@ -62,6 +65,7 @@ fn prepare_from(
     create_private_directory(&session_directory)?;
     let package_directory = controller_directory.join("pi-packages");
     create_private_directory(&package_directory)?;
+    link_builtin_package_assets(&package_directory, pi_executable)?;
     let clean_settings = json!({
         "defaultProvider": provider,
         "defaultModel": selected_model,
@@ -194,6 +198,97 @@ fn write_json(path: &Path, value: &Value) -> anyhow::Result<()> {
     use std::io::Write;
     options.open(path)?.write_all(&bytes)?;
     Ok(())
+}
+
+/// Newer Pi builds serve built-in assets (interactive themes, docs, version
+/// metadata) from the `PI_PACKAGE_DIR` root; a quarantined `pi-packages`
+/// directory lacks them and Pi aborts before task start. Bridge the asset
+/// entries of the package that owns the launched executable — `dist`,
+/// `docs`, `package.json` — so the clean profile still screens every
+/// configuration, authentication, extension, and session surface.
+fn link_builtin_package_assets(
+    package_directory: &Path,
+    pi_executable: &Path,
+) -> anyhow::Result<()> {
+    let root = find_pi_package_root(pi_executable).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Cannot locate the Pi package owning {}; the isolated Pi session needs its              built-in assets. Ensure pi was installed from its npm package layout, or              point the pinned binary at the packaged executable.",
+            pi_executable.display()
+        )
+    })?;
+    // The geometric walk can be fooled by a coincidental `dist` directory; the
+    // identity check rules out bridging a foreign package's assets.
+    let raw_metadata = std::fs::read(root.join("package.json")).map_err(|error| {
+        anyhow::anyhow!(
+            "Cannot read the Pi package metadata in {} ({error})",
+            root.display()
+        )
+    })?;
+    anyhow::ensure!(
+        raw_metadata.len() <= 256 * 1024,
+        "Pi package metadata in {} exceeds the size bound",
+        root.display()
+    );
+    let metadata: Value = serde_json::from_slice(&raw_metadata).map_err(|error| {
+        anyhow::anyhow!(
+            "Pi package metadata in {} is not valid JSON ({error})",
+            root.display()
+        )
+    })?;
+    anyhow::ensure!(
+        metadata.get("name").and_then(Value::as_str) == Some("@earendil-works/pi-coding-agent"),
+        "The Pi package in {} failed the identity check (unexpected package name)",
+        root.display()
+    );
+    for entry in ["dist", "docs", "package.json"] {
+        let from = root.join(entry);
+        match std::fs::symlink_metadata(&from) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => anyhow::bail!(
+                "Cannot inspect {} ({error}); the Pi package appears damaged",
+                from.display()
+            ),
+        }
+        let to = package_directory.join(entry);
+        if to.symlink_metadata().is_ok() {
+            continue;
+        }
+        #[cfg(unix)]
+        let link_result = std::os::unix::fs::symlink(&from, &to);
+        #[cfg(not(unix))]
+        let link_result = std::os::windows::fs::symlink_file(&from, &to)
+            .and_then(|()| Ok(()))
+            .or_else(|_| std::os::windows::fs::symlink_dir(&from, &to));
+        if let Err(link_error) = link_result {
+            anyhow::ensure!(
+                entry == "package.json" && from.is_file(),
+                "{entry}: cannot bridge built-in assets ({link_error}); symbolic link                  support is required for isolated Pi sessions"
+            );
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
+/// Mirrors Pi's own package-root walk: the nearest ancestor directory named
+/// `dist` whose parent carries `package.json` marks the package root.
+fn find_pi_package_root(pi_executable: &Path) -> Option<PathBuf> {
+    let mut dir = pi_executable.parent()?.to_path_buf();
+    for _ in 0..8 {
+        if dir.ends_with("dist")
+            && dir
+                .parent()
+                .is_some_and(|parent| parent.join("package.json").exists())
+        {
+            return dir.parent().map(Path::to_path_buf);
+        }
+        let Some(parent) = dir.parent() else {
+            break;
+        };
+        dir = parent.to_path_buf();
+    }
+    None
 }
 
 #[cfg(test)]

@@ -245,3 +245,34 @@ fn engine_inventory_exposes_only_exact_locked_image_references() {
 
     assert_eq!(available, vec![approved]);
 }
+
+#[test]
+fn engine_inventory_accepts_daemon_elided_default_registry_digests() {
+    let lock = ImageLock::bundled().unwrap();
+    let approved = lock.select(RuntimeProfile::General, "amd64").unwrap();
+    // Newer engine generations report repository digests without the
+    // default-registry prefix (`debian@sha256:…` rather than
+    // `docker.io/library/debian@sha256:…`); the inventory scan must still
+    // credit them against the canonical locked reference.
+    let approved_reference = approved.reference;
+    let elided = approved_reference
+        .strip_prefix("docker.io/library/")
+        .unwrap_or(&approved_reference)
+        .to_owned();
+    // Mixed observation: elided plus full forms collapse onto one credit.
+    assert_eq!(
+        approved_available_images(&lock, &[elided.clone(), approved_reference.clone()]),
+        vec![approved_reference.clone()]
+    );
+    // Negative: an elided spelling whose digest half differs is refused.
+    let (name, algo_hex) = elided.split_once("sha256:").unwrap();
+    let mut hex = algo_hex.chars().collect::<Vec<char>>();
+    hex[0] = if hex[0] == 'a' { 'b' } else { 'a' };
+    let corrupt = format!("{name}sha256:{}", hex.iter().collect::<String>());
+    assert!(approved_available_images(&lock, &[corrupt]).is_empty());
+    // Isolated positive: the elided spelling alone earns the credit.
+    assert_eq!(
+        approved_available_images(&lock, &[elided]),
+        vec![approved_reference]
+    );
+}

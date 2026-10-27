@@ -64,11 +64,33 @@ fn source_config() -> Fixture {
     fixture
 }
 
+/// Materialize a miniature, layout-realistic Pi package inside the fixture:
+/// `<root>/package.json` + `<root>/dist/bundle/cli.js` (the shape Pi's own
+/// package-root walk keys on).
+fn fake_pi_executable(controller: &Fixture) -> PathBuf {
+    let root = controller.0.join("pi-package");
+    fs::create_dir_all(root.join("dist").join("bundle")).unwrap();
+    fs::write(
+        root.join("package.json"),
+        br#"{"name":"@earendil-works/pi-coding-agent"}"#,
+    )
+    .unwrap();
+    let executable = root.join("dist").join("bundle").join("cli.js");
+    fs::write(&executable, b"// stub\n").unwrap();
+    executable
+}
+
 #[test]
 fn stages_only_the_selected_model_provider_and_authentication() {
     let source = source_config();
     let controller = Fixture::new();
-    let profile = prepare_from(&source.0, &controller.0, Some("model-2")).unwrap();
+    let profile = prepare_from(
+        &source.0,
+        &controller.0,
+        Some("model-2"),
+        &fake_pi_executable(&controller),
+    )
+    .unwrap();
 
     assert_eq!(profile.provider, "provider-a");
     assert_eq!(profile.model, "model-2");
@@ -111,7 +133,13 @@ fn staged_pi_credentials_and_configuration_are_private() {
 
     let source = source_config();
     let controller = Fixture::new();
-    let profile = prepare_from(&source.0, &controller.0, None).unwrap();
+    let profile = prepare_from(
+        &source.0,
+        &controller.0,
+        None,
+        &fake_pi_executable(&controller),
+    )
+    .unwrap();
     assert_eq!(
         profile
             .agent_directory
@@ -149,5 +177,49 @@ fn symlinked_user_configuration_is_rejected() {
     fs::remove_file(source.0.join("auth.json")).unwrap();
     symlink(&outside, source.0.join("auth.json")).unwrap();
 
-    assert!(prepare_from(&source.0, &controller.0, None).is_err());
+    assert!(
+        prepare_from(
+            &source.0,
+            &controller.0,
+            None,
+            &fake_pi_executable(&controller)
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn bridges_builtin_assets_of_the_owning_pi_package() {
+    let source = source_config();
+    let controller = Fixture::new();
+    let executable = fake_pi_executable(&controller);
+    let profile = prepare_from(&source.0, &controller.0, None, &executable).unwrap();
+
+    let linked_dist = profile.package_directory.join("dist");
+    assert!(linked_dist.is_symlink());
+    // The bridge must point at the owning package's real `dist`.
+    assert_eq!(
+        fs::read_link(&linked_dist).unwrap(),
+        controller.0.join("pi-package").join("dist")
+    );
+    assert!(linked_dist.join("bundle/cli.js").exists());
+    assert!(profile.package_directory.join("package.json").exists());
+    // The asset bridge must not expose configuration or credential surfaces.
+    assert!(!profile.package_directory.join("settings.json").exists());
+    assert!(!profile.package_directory.join("auth.json").exists());
+    assert!(!profile.package_directory.join("models.json").exists());
+}
+
+#[test]
+fn refuses_launch_when_no_pi_package_can_be_located() {
+    let source = source_config();
+    let controller = Fixture::new();
+    fs::create_dir_all(controller.0.join("loose-bin")).unwrap();
+    let orphan = controller.0.join("loose-bin").join("pi");
+    fs::write(&orphan, b"#!/usr/bin/env node\n").unwrap();
+    let error = prepare_from(&source.0, &controller.0, None, &orphan).unwrap_err();
+    assert!(
+        error.to_string().contains("Cannot locate the Pi package"),
+        "unexpected refusal reason: {error}"
+    );
 }
