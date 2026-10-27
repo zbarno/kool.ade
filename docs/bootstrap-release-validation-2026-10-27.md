@@ -26,16 +26,19 @@ The general image lock also includes Rust, Node, Python, and Go variants for
 
 ### Status update — 2026-10-27 11:24 UTC
 
-PR [#403](https://github.com/zbarno/kool.ade/pull/403) has merged. Windows
-readiness implementation is in ready-for-review PR
-[#404](https://github.com/zbarno/kool.ade/pull/404); its hosted checks are
-running. On its rebased head, the local format, 3,406-test Nextest suite (8
-skipped), doc tests, strict Clippy, and Windows x64 GNU library cross-check
-passed. These checks do not replace native Windows 11 x64 validation listed
-below. The platform matrix and release decision remain unchanged: native
-acceptance and independent release approval are still required.
+PR [#403](https://github.com/zbarno/kool.ade/pull/403) merged at
+`8928689bd1116ccab617564b4001e2373ccc5be9`. Windows readiness implementation
+is in ready-for-review PR [#404](https://github.com/zbarno/kool.ade/pull/404).
+For this update, main is `244bb22538dd2e677cd58f31e5aa77ef8029a227` and the
+#404 head is `a236796cd5e12d9f0438cd3b164fac0c09472c72`. On that exact #404
+head, local format, 3,406-test Nextest (8 skipped), doc tests, strict Clippy,
+and Windows x64 GNU library cross-check passed. Hosted checks were running at
+the time of this update. These checks do not replace native Windows 11 x64
+validation listed below. The platform matrix and release decision remain
+unchanged: native acceptance and independent release approval are still
+required.
 
-## Candidate host matrix
+## Candidate host matrix — snapshot as of 2026-10-27 10:09 UTC
 
 The README's Linux x86_64 experimental host status is distinct from acceptance
 of the specific rootless bootstrap recipes below. These are #351 validation
@@ -51,7 +54,7 @@ cells, not new support claims.
 | Linux arm64 host | Unsigned native CI package only; runtime image variants do not establish host support | Separate native rootless acceptance per distro | Unsupported; not advertised |
 | macOS Intel, Docker Desktop Linux VM | [#403](https://github.com/zbarno/kool.ade/pull/403) adds app publisher, release, architecture, and setup evidence; local Apple Silicon cross-compilation passed | Confirm current official bundle identifier and signer; signed Desktop smoke and isolated task/security run on Intel | Unverified; blocked |
 | macOS Apple silicon, Docker Desktop Linux VM | [#403](https://github.com/zbarno/kool.ade/pull/403) adds app publisher, release, physical architecture, and setup evidence | Confirm current official bundle identifier and signer; signed Desktop smoke and isolated task/security run on Apple silicon | Unverified; blocked |
-| Windows 11 x64, WSL2 and Docker Desktop | [#349](https://github.com/zbarno/kool.ade/issues/349) typed probes are in progress | Native edition/build, feature, kernel, reboot/policy, signed Desktop, task and security validation | Unverified; blocked |
+| Windows 11 x64, WSL2 and Docker Desktop | At the 10:09 snapshot, #349 probes were in progress; implementation is now in [#404](https://github.com/zbarno/kool.ade/pull/404) | Native edition/build, feature, kernel, reboot/policy, signed Desktop, task and security validation | Unverified; blocked |
 | Windows 10 x64, Windows ARM64, unlisted Linux distributions, older or unsupported macOS/Windows releases | No accepted support evidence | Separate native acceptance is required before claiming Windows 10 or ARM64 support | Unsupported or unknown |
 
 Record the exact macOS and Windows versions/builds for each native run. Docker
