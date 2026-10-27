@@ -9,9 +9,11 @@ use crate::app::setup_attention::catalog::{
 use super::super::MachineSnapshotV1;
 
 mod linux_probes;
+mod windows_probes;
 
 pub(super) fn validate_capability_matrix(snapshot: &MachineSnapshotV1) -> anyhow::Result<()> {
     linux_probes::validate(snapshot)?;
+    windows_probes::validate(snapshot)?;
     let matrix = &snapshot.capability_matrix;
     validate_host_fact(snapshot, Capability::HostFamily, EvidenceState::Ready)?;
     let architecture_state = match matrix.observed_host_architecture {

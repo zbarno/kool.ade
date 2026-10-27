@@ -30,6 +30,7 @@ pub(super) struct HostFacts {
     linux_service_manager: State,
     linux_package_manager: State,
     linux_probe: probe::LinuxProbeFacts,
+    windows: probe::WindowsFacts,
     linux_rootless_mechanism: Option<RootlessMechanism>,
     windows_wsl2: State,
     virtualization: State,
@@ -51,6 +52,11 @@ pub(super) fn probe(host: HostKind, docker: &DockerEnvironmentStatus) -> HostFac
     #[cfg(not(target_os = "macos"))]
     let macos_release = None;
     let distribution = linux_probe.distribution;
+    let windows = if host == HostKind::Windows {
+        probe::collect_windows()
+    } else {
+        probe::WindowsFacts::not_applicable()
+    };
     let linux_distribution_id = distribution.map(|(id, _)| id);
     let linux_distribution_version = distribution.and_then(|(_, version)| version);
     HostFacts {
@@ -82,15 +88,18 @@ pub(super) fn probe(host: HostKind, docker: &DockerEnvironmentStatus) -> HostFac
         linux_rootless_mechanism: rootless_mechanism(host, linux_probe.service_manager.state),
         linux_probe,
         windows_wsl2: if host == HostKind::Windows {
+            windows.wsl2_state()
+        } else {
+            State::NotApplicable
+        },
+        virtualization: if host == HostKind::Windows {
+            windows.virtualization.state
+        } else if host == HostKind::MacOs {
             State::Unknown
         } else {
             State::NotApplicable
         },
-        virtualization: if matches!(host, HostKind::MacOs | HostKind::Windows) {
-            State::Unknown
-        } else {
-            State::NotApplicable
-        },
+        windows,
         docker_desktop_vm_trust: if !desktop {
             State::NotApplicable
         } else if matches!(host, HostKind::MacOs | HostKind::Windows)
@@ -128,7 +137,9 @@ pub(super) fn push(
         State::Ready,
         Code::RuntimeTargetDetected,
     ));
-    let host_edition = if host == HostKind::Linux {
+    let host_edition = if host == HostKind::Windows {
+        (facts.windows.host.state, facts.windows.host.code)
+    } else if host == HostKind::Linux {
         (State::NotApplicable, Code::HostEditionNotProbed)
     } else if host == HostKind::MacOs && facts.macos_release.is_some() {
         (State::Ready, Code::MacOsReleaseDetected)
@@ -140,6 +151,9 @@ pub(super) fn push(
         edition.observation = Some(Observation::MacOsVersion {
             version: version.clone(),
         });
+    }
+    if host == HostKind::Windows {
+        edition.observation = facts.windows.host.observation.clone();
     }
     result.push(edition);
     let arch = host_architecture(host);
@@ -160,7 +174,6 @@ pub(super) fn push(
     for (capability, applicable) in [
         (Capability::LinuxDistribution, facts.linux_distribution),
         (Capability::Wsl2, facts.windows_wsl2),
-        (Capability::Virtualization, facts.virtualization),
     ] {
         let (state, code) = match capability {
             Capability::LinuxDistribution => (
@@ -171,9 +184,7 @@ pub(super) fn push(
                     Code::HostCapabilityNotProbed
                 },
             ),
-            Capability::Wsl2 | Capability::Virtualization => {
-                (applicable, Code::HostCapabilityNotProbed)
-            }
+            Capability::Wsl2 => (applicable, Code::HostCapabilityNotProbed),
             _ => (State::Unknown, Code::HostCapabilityNotProbed),
         };
         let mut item = add(capability, state, code);
@@ -186,6 +197,37 @@ pub(super) fn push(
         result.push(item);
     }
     probe::push_evidence(result, host, generation, now, &facts.linux_probe);
+    for (capability, probe_fact) in [
+        (Capability::WindowsWslFeature, &facts.windows.wsl_feature),
+        (
+            Capability::WindowsVmPlatformFeature,
+            &facts.windows.vm_platform_feature,
+        ),
+        (Capability::WindowsWslKernel, &facts.windows.wsl_kernel),
+        (Capability::WindowsReboot, &facts.windows.reboot),
+        (Capability::WindowsWslPolicy, &facts.windows.policy),
+    ] {
+        let mut item = add(capability, probe_fact.state, probe_fact.code);
+        item.observation = probe_fact.observation.clone();
+        result.push(item);
+    }
+    let (virtualization_state, virtualization_code, virtualization_observation) =
+        if host == HostKind::Windows {
+            (
+                facts.windows.virtualization.state,
+                facts.windows.virtualization.code,
+                facts.windows.virtualization.observation.clone(),
+            )
+        } else {
+            (facts.virtualization, Code::HostCapabilityNotProbed, None)
+        };
+    let mut virtualization = add(
+        Capability::Virtualization,
+        virtualization_state,
+        virtualization_code,
+    );
+    virtualization.observation = virtualization_observation;
+    result.push(virtualization);
     result.push(add(
         Capability::DockerDesktopTrust,
         facts.docker_desktop_vm_trust,
