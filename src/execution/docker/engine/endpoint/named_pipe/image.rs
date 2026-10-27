@@ -15,7 +15,7 @@ use windows_sys::Win32::System::Threading::{
 const DOCKER_BACKEND_IMAGE: &str = "com.docker.backend.exe";
 const DOCKER_PUBLISHER: &str = "Docker Inc.";
 
-mod signature;
+pub(crate) mod signature;
 
 pub(super) struct VerifiedServerProcess {
     _process: ProcessHandle,

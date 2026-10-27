@@ -39,6 +39,35 @@ pub struct LinuxKernelVersionV1 {
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum WindowsEditionV1 {
+    Home,
+    Pro,
+    Enterprise,
+    Education,
+    Server,
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WindowsProductV1 {
+    Windows10,
+    Windows11,
+    Server,
+    Unsupported,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct WindowsKernelVersionV1 {
+    pub major: u16,
+    pub minor: u16,
+    pub patch: u16,
+    pub build: Option<u16>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum LinuxPackageManagerV1 {
     AptGet,
     Dnf,
@@ -123,6 +152,11 @@ pub enum PrerequisiteCapability {
     LinuxPackageManager,
     Wsl2,
     Virtualization,
+    WindowsWslFeature,
+    WindowsVmPlatformFeature,
+    WindowsWslKernel,
+    WindowsReboot,
+    WindowsWslPolicy,
     DockerEngine,
     DockerEndpoint,
     DockerRootless,
