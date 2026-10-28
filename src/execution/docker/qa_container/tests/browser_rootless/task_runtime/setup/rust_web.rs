@@ -37,6 +37,10 @@ use std::{env, io::{Read, Write}, net::{TcpListener, TcpStream}};
 
 const PAGE: &str = include_str!("index.html");
 
+fn page() -> &'static str {
+    PAGE
+}
+
 fn main() {
     let host = env::var("HOST").unwrap_or_else(|_| "0.0.0.0".into());
     let port = env::var("PORT").unwrap_or_else(|_| "4173".into());
