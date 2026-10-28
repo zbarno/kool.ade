@@ -70,6 +70,9 @@ pub(super) fn run(fixture: Fixture, dependency_request_id: String) {
                 .stage_dependency_cache_for_request(&dependency_request_id, snapshot.clone())
                 .unwrap();
         }
+        build_test_session
+            .record_prepared_dependency_ids(&dependencies)
+            .unwrap();
 
         let build = executor
             .execute(
@@ -93,6 +96,9 @@ pub(super) fn run(fixture: Fixture, dependency_request_id: String) {
                 .stage_dependency_cache_for_request(&dependency_request_id, snapshot.clone())
                 .unwrap();
         }
+        start_session
+            .record_prepared_dependency_ids(&dependencies)
+            .unwrap();
         let start = executor
             .execute(&start_session, &target.target_id, RuntimeOperation::Start)
             .unwrap()
