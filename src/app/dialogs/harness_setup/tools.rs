@@ -44,6 +44,14 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
         ui.label("No supported coding tools were detected.");
         return;
     }
+    // Exactly one actionable provider narrows the default choice to a
+    // single click, so that row earns a visible marker. The predicate is
+    // the same canonical one the router's task-detail notice uses.
+    let now_ms = crate::persistence::harness_settings::current_unix_ms();
+    let ready_count = entries
+        .iter()
+        .filter(|(id, harness)| harness.is_currently_actionable(id, now_ms))
+        .count();
     let selected_id = egui::Id::new("koolade_settings_selected_tool");
     let mut selected = ui
         .ctx()
@@ -58,6 +66,10 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
         })
         .or_else(|| entries.first().map(|(id, _)| id.clone()));
     if ui.available_width() < 580.0 {
+        // Narrow picker branch: the suggested-default marker is wide-grid
+        // only, deliberately. Below 580 px the row collapses to the combo
+        // box + details stack and the marker gains no reach; operators on
+        // such windows lean on the details-pane status instead.
         egui::ComboBox::from_id_salt("coding_tool_picker")
             .selected_text(selected.as_deref().unwrap_or("Select a tool"))
             .width(ui.available_width())
@@ -99,6 +111,9 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
                         );
                         if status != "Available" {
                             ui.label(theme::metadata_text(status));
+                        }
+                        if ready_count == 1 && harness.is_currently_actionable(id, now_ms) {
+                            ui.colored_label(theme::SUCCESS, "Ready \u{2014} suggested default");
                         }
                     }
                 },

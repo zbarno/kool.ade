@@ -1,9 +1,11 @@
+mod cli_notice;
 mod role_router;
 mod route_readiness;
 mod routing;
 mod wrappers;
 #[cfg(test)]
 use crate::harness::AiHarness;
+pub(crate) use cli_notice::cli_routing_notice;
 pub(crate) use role_router::role_for_work_category;
 use route_readiness::has_current_authenticated_snapshot;
 #[cfg(test)]
