@@ -247,6 +247,7 @@ fn test_failure_diagnostic(
         .filter(|line| {
             let line = line.to_ascii_lowercase();
             line.contains("error:")
+                || line.contains("error[")
                 || line.contains("panicked")
                 || line.contains("assertion failed")
                 || line.contains("failed")
