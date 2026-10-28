@@ -246,7 +246,11 @@ fn test_failure_diagnostic(
         .flat_map(|chunk| chunk.lines())
         .filter(|line| {
             let line = line.to_ascii_lowercase();
-            line.contains("error:")
+            line.starts_with("--- fail:")
+                || line.starts_with("fail\t")
+                || line.starts_with("go:")
+                || line.contains("brokered go module cache")
+                || line.contains("error:")
                 || line.contains("error[")
                 || line.contains("panicked")
                 || line.contains("assertion failed")
@@ -263,7 +267,7 @@ fn test_failure_diagnostic(
         .map(crate::runtime_qa::diagnostic_redaction::sanitized_reason)
         .collect::<Vec<_>>();
     if diagnostics.is_empty() {
-        "no bounded Cargo error lines were recorded".into()
+        "no bounded compiler or test error lines were recorded".into()
     } else {
         diagnostics.join(" | ")
     }
