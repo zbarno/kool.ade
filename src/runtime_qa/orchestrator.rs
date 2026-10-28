@@ -208,6 +208,8 @@ impl<'a> RuntimeQaOrchestrator<'a> {
                 apply_review_verdict(request, scenarios, &mut evidence, &mut result, verdict)
             });
             if reviewed.is_err() {
+                #[cfg(test)]
+                let review_error = reviewed.as_ref().err().cloned();
                 result = candidate;
                 result.outcome = QaOutcome::InfrastructureBlocked;
                 for requirement in &mut result.coverage.requirements {
@@ -219,7 +221,27 @@ impl<'a> RuntimeQaOrchestrator<'a> {
                     .iter()
                     .map(|coverage| format!("{}:{:?}", coverage.requirement_id, coverage.status))
                     .collect();
+                #[cfg(test)]
+                evidence.logs.truncate(254);
+                #[cfg(not(test))]
                 evidence.logs.truncate(255);
+                #[cfg(test)]
+                if let Some(error) = review_error {
+                    let bounded_error = error
+                        .chars()
+                        .map(|character| {
+                            if character.is_control() {
+                                ' '
+                            } else {
+                                character
+                            }
+                        })
+                        .take(256)
+                        .collect::<String>();
+                    evidence.logs.push(format!(
+                        "test-only reviewer failure detail: {bounded_error}"
+                    ));
+                }
                 evidence.logs.push(
                     "independent runtime QA review could not be completed; result is infrastructure blocked".into(),
                 );

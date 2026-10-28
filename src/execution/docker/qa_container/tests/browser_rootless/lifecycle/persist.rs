@@ -153,18 +153,18 @@ pub(crate) fn review_expected_outcome_and_persist(
         )
         .expect("the live rootless service evidence is reviewable and persistable");
     let case_statuses: Vec<_> = result.cases.iter().map(|case| case.status).collect();
+    let persisted = store
+        .load_run_with_screenshots(&request.qa_run_id)
+        .expect("the complete browser report and screenshot bytes are durable");
     assert_eq!(
         result.outcome, expected_outcome,
-        "reviewed rootless QA result had unexpected case statuses: {case_statuses:?}"
+        "reviewed rootless QA result had unexpected case statuses: {case_statuses:?}; logs: {:?}",
+        persisted.evidence.logs
     );
     assert!(
         receipt.is_some(),
         "reviewed terminal QA outcome must produce a gate receipt"
     );
-
-    let persisted = store
-        .load_run_with_screenshots(&request.qa_run_id)
-        .expect("the complete browser report and screenshot bytes are durable");
     assert_eq!(persisted.request, *request);
     assert_eq!(persisted.scenarios, vec![scenario]);
     assert_eq!(persisted.result, result);
