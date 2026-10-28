@@ -81,9 +81,10 @@ pub(crate) fn run(
     assert_eq!(
         test_receipt.state,
         crate::project_runtime::RuntimeReceiptState::Passed,
-        "runtime Test did not pass (exit_code={:?}, reviewed_source_match={})",
+        "runtime Test did not pass (exit_code={:?}, reviewed_source_match={}); diagnostic: {}",
         test_receipt.exit_code,
         test_receipt.source_sha == fixture.workspace.source_sha,
+        test_failure_diagnostic(&fixture, &test_receipt),
     );
     let start_session_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let start_session = super::runtime_session(&fixture, &lock, service_profile, &start_session_id);
@@ -208,4 +209,55 @@ pub(crate) fn run(
             super::super::qa::ExpectedBrowserOutcome::Pass
         },
     );
+}
+
+fn test_failure_diagnostic(
+    fixture: &Fixture,
+    receipt: &crate::project_runtime::RuntimeReceiptV1,
+) -> String {
+    let Some(execution_id) = receipt.log_reference.as_deref() else {
+        return "execution output is unavailable".into();
+    };
+    let Ok(cursor) = crate::persistence::execution_records::journal_cursor(
+        &fixture.workspace.task_id,
+        execution_id,
+    ) else {
+        return "execution output is unavailable".into();
+    };
+    let Ok(page) = crate::execution::contract::EventPageRequestV1::new(
+        cursor.saturating_sub(128),
+        128,
+    ) else {
+        return "execution output page is invalid".into();
+    };
+    let Ok(events) = crate::persistence::execution_records::load_events(
+        &fixture.workspace.task_id,
+        execution_id,
+        page,
+    ) else {
+        return "execution output is unavailable".into();
+    };
+    let diagnostics = events
+        .iter()
+        .filter_map(|event| match &event.event {
+            crate::execution::contract::ExecutionEventKindV1::Stderr { chunk } => Some(chunk),
+            _ => None,
+        })
+        .flat_map(|chunk| chunk.lines())
+        .filter(|line| {
+            let line = line.to_ascii_lowercase();
+            line.contains("error:")
+                || line.contains("panicked")
+                || line.contains("assertion failed")
+                || line.contains("failed")
+        })
+        .rev()
+        .take(3)
+        .map(crate::runtime_qa::diagnostic_redaction::sanitized_reason)
+        .collect::<Vec<_>>();
+    if diagnostics.is_empty() {
+        "no bounded Cargo error lines were recorded".into()
+    } else {
+        diagnostics.join(" | ")
+    }
 }
