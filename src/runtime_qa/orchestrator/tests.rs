@@ -19,6 +19,12 @@ use super::*;
 use sha2::Digest as _;
 use support::{FakeDriver, fixture, reviewer_prompt, reviewer_prompt_for_role};
 
+/// Production boundary: a successful fake driver run without the independent
+/// reviewer must persist an `Incomplete` result and leave the lifecycle gate
+/// receipt absent. A validator unit check cannot prove the orchestrator/store
+/// handoff keeps an unreviewed report ineligible. Uses a temporary file store
+/// and in-process driver; no Docker, SSH, network, or credentials; low setup
+/// cost.
 #[test]
 fn unreviewed_run_persists_evidence_without_a_gate_receipt() {
     let (request, mut scenarios, lease) = fixture();
@@ -53,7 +59,12 @@ fn unreviewed_run_persists_evidence_without_a_gate_receipt() {
     assert_eq!(result.outcome, QaOutcome::Incomplete);
     assert!(receipt.is_none());
     assert_eq!(driver.calls, 1);
-    assert_eq!(store.load_run(&request.qa_run_id).unwrap().3, result);
+    let persisted = store.load_run(&request.qa_run_id).unwrap();
+    assert_eq!(persisted.3, result);
+    persisted
+        .3
+        .validate(&request, &scenarios, &persisted.2)
+        .unwrap();
     let persisted = store.load_run_with_screenshots(&request.qa_run_id).unwrap();
     assert_eq!(
         persisted.evidence.screenshots[0].redaction_masks,
