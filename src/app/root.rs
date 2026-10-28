@@ -162,6 +162,11 @@ pub(crate) fn role_for_work_category(
     harness_selection::role_for_work_category(category)
 }
 
+/// Actionable task-detail nudge for unsatisfiable CLI routing (see
+/// [`crate::app::root::harness_selection`]). Re-exported so the UI layer
+/// can raise the nudge without reaching into a private module.
+pub(crate) use harness_selection::cli_routing_notice;
+
 pub(crate) fn configured_harness_for_project_task(
     override_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
     work_type: Option<&str>,

@@ -48,6 +48,12 @@ pub struct DlgHarnessSetup {
     scan_results: Vec<HarnessProbe>,
     pub(super) probe_results: std::collections::BTreeMap<String, ProbeResult>,
     pub(super) running_providers: std::collections::BTreeSet<String>,
+    /// True until the dialog's first painted frame has attempted a scan.
+    /// Construction itself must never start a sweep: re-created dialogs used
+    /// to chain cancel-and-restart faster than any probe could finish. The
+    /// first scan arms lazily on the first paint (see
+    /// `discovery::ensure_first_scan`) and still obeys the global cooldown.
+    first_scan_pending: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -97,7 +103,7 @@ pub(super) fn has_current_model_catalog(
 impl DlgHarnessSetup {
     pub fn new() -> Self {
         let (settings, diagnostic) = crate::persistence::harness_settings::load();
-        let mut dialog = Self {
+        Self {
             settings,
             probe_view: ProbeView::Pending,
             feedback: diagnostic.map(|message| {
@@ -116,9 +122,11 @@ impl DlgHarnessSetup {
             scan_results: Vec::new(),
             probe_results: Default::default(),
             running_providers: Default::default(),
-        };
-        dialog.refresh();
-        dialog
+            // The first scan is armed from the first painted frame, not from
+            // the constructor, so a churning dialog lifecycle can no longer
+            // mint back-to-back sweep generations before one probe lands.
+            first_scan_pending: true,
+        }
     }
 
     pub fn select_default(&mut self, id: &str) {

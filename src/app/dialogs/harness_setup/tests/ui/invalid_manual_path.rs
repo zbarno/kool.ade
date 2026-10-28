@@ -46,6 +46,7 @@ fn invalid_manual_path_shows_status_and_auto_detect_reset() {
         scan_results: Vec::new(),
         probe_results: Default::default(),
         running_providers: Default::default(),
+        first_scan_pending: false,
     };
     let context = egui::Context::default();
     let mut output = context.run_ui(

@@ -3,6 +3,7 @@ use crate::ui::theme;
 use egui::RichText;
 
 pub fn paint_harness_setup_card(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) -> (bool, bool) {
+    dialog.ensure_first_scan();
     dialog.drain_probe();
     dialog.drop_expired_feedback();
     ui.horizontal(|ui| {
@@ -65,6 +66,8 @@ pub fn paint_harness_setup_page(
     dialog: &mut DlgHarnessSetup,
     section: HarnessSettingsSection,
 ) {
+    dialog.ensure_first_scan();
+    dialog.drain_probe();
     dialog.drop_expired_feedback();
     match section {
         HarnessSettingsSection::Tools => paint_tools(ui, dialog),

@@ -142,6 +142,41 @@ impl DetectedHarness {
         })
     }
 
+    /// Whether this provider is actionable for planning work RIGHT NOW: fresh
+    /// discovery, a current validated capability snapshot with ready
+    /// authentication, a current model catalogue with a verified default
+    /// model, an runnable planning-analyst (or context-only) role, and no
+    /// sign-in or application-boundary block.
+    /// Canonical compound predicate shared by the Coding tools dialog and the
+    /// task-detail routing notice, so both surfaces agree on “this provider
+    /// can take work” instead of maintaining parallel copies.
+    pub fn is_currently_actionable(&self, provider_id: &str, now_unix_ms: u64) -> bool {
+        if self.configuration_required {
+            return false;
+        }
+        if crate::harness::execution_security::task_execution_block_reason(provider_id).is_some() {
+            return false;
+        }
+        if !self.has_current_authenticated_capability(provider_id, now_unix_ms) {
+            return false;
+        }
+        if !self.has_current_model_catalog_at(provider_id, now_unix_ms)
+            || !self.has_any_verified_model_at(provider_id, now_unix_ms)
+        {
+            return false;
+        }
+        if self
+            .verified_default_model_at(provider_id, now_unix_ms)
+            .is_none()
+        {
+            return false;
+        }
+        self.supports_role_at(
+            crate::execution::contract::HarnessRole::PlanningAnalyst,
+            now_unix_ms,
+        ) || self.supports_context_only_planning_at(now_unix_ms)
+    }
+
     pub fn model_catalog_status(&self) -> crate::harness::discovery::ModelCatalogStatus {
         use crate::harness::discovery::ModelCatalogStatus;
 

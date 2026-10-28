@@ -17,6 +17,7 @@ impl DlgHarnessSetup {
             probe_results: Default::default(),
             running_providers: Default::default(),
             runtime_available: None,
+            first_scan_pending: false,
         }
     }
 }

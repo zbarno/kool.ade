@@ -1,4 +1,5 @@
 use super::*;
+mod cli_notice;
 mod decision;
 mod work;
 
@@ -20,6 +21,7 @@ pub(super) fn paint_panes(
     height: f32,
     details: PlanningDetails<'_>,
 ) {
+    cli_notice::paint(ui);
     if ui.available_width() >= 1000.0 {
         ui.columns(2, |panes| {
             egui::ScrollArea::vertical()

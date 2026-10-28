@@ -57,34 +57,41 @@ fn provider_panic_becomes_a_provider_local_internal_failure() {
 
 #[test]
 fn repeated_scan_start_cancels_the_prior_generation_and_resets_current_progress() {
-    let mut dialog = super::super::super::DlgHarnessSetup {
-        settings: Default::default(),
-        probe_view: super::super::super::ProbeView::Complete,
-        feedback: None,
-        section: Default::default(),
-        manual_path_drafts: Default::default(),
-        probe_rx: None,
-        scan_generation: 0,
-        scan_cancel: None,
-        runtime_available: Some(true),
-        scan_results: vec![synthetic_probe("pi", true)],
-        probe_results: Default::default(),
-        running_providers: std::collections::BTreeSet::from(["pi".into()]),
-    };
+    // Zero-width window: this test exercises the cancel-and-reset mechanics
+    // of a deliberate back-to-back rescan, which production only admits
+    // outside the cooldown; refresh_click.rs pins the production-window
+    // decline behaviour separately.
+    super::super::cooldown::with_window(0, || {
+        let mut dialog = super::super::super::DlgHarnessSetup {
+            settings: Default::default(),
+            probe_view: super::super::super::ProbeView::Complete,
+            feedback: None,
+            section: Default::default(),
+            manual_path_drafts: Default::default(),
+            probe_rx: None,
+            scan_generation: 0,
+            scan_cancel: None,
+            runtime_available: Some(true),
+            scan_results: vec![synthetic_probe("pi", true)],
+            probe_results: Default::default(),
+            running_providers: std::collections::BTreeSet::from(["pi".into()]),
+            first_scan_pending: false,
+        };
 
-    let (first_generation, first_cancel) = super::begin_scan_state(&mut dialog);
-    let (second_generation, second_cancel) = super::begin_scan_state(&mut dialog);
+        let (first_generation, first_cancel) = super::begin_scan_state(&mut dialog);
+        let (second_generation, second_cancel) = super::begin_scan_state(&mut dialog);
 
-    assert!(second_generation > first_generation);
-    assert!(first_cancel.load(Ordering::Acquire));
-    assert!(!second_cancel.load(Ordering::Acquire));
-    assert_eq!(dialog.scan_generation, second_generation);
-    assert_eq!(dialog.probe_view, super::super::super::ProbeView::Pending);
-    assert!(dialog.runtime_available.is_none());
-    assert!(dialog.scan_results.is_empty());
-    assert!(dialog.probe_results.is_empty());
-    assert!(dialog.running_providers.is_empty());
-    second_cancel.store(true, Ordering::Release);
+        assert!(second_generation > first_generation);
+        assert!(first_cancel.load(Ordering::Acquire));
+        assert!(!second_cancel.load(Ordering::Acquire));
+        assert_eq!(dialog.scan_generation, second_generation);
+        assert_eq!(dialog.probe_view, super::super::super::ProbeView::Pending);
+        assert!(dialog.runtime_available.is_none());
+        assert!(dialog.scan_results.is_empty());
+        assert!(dialog.probe_results.is_empty());
+        assert!(dialog.running_providers.is_empty());
+        second_cancel.store(true, Ordering::Release);
+    });
 }
 
 #[test]

@@ -37,9 +37,22 @@ fn run_provider_probe(
 }
 
 impl DlgHarnessSetup {
+    /// Re-probe a single provider after the user repairs or replaces its
+    /// binary. Subject to the same global scan window as full refreshes.
     pub fn retry_provider(&mut self, id: &str) {
         if !PROVIDERS.contains(&id) {
             self.set_feedback(false, format!("Unsupported provider: {id}"));
+            return;
+        }
+        if let super::ScanWindow::Declined { remaining_seconds } =
+            super::acquire_scan_window(super::cooldown::effective_now_ms())
+        {
+            self.set_feedback(
+                false,
+                format!(
+                    "A discovery sweep is still underway; retry {id} in about {remaining_seconds}s."
+                ),
+            );
             return;
         }
         if let Some(cancel) = &self.scan_cancel {
@@ -122,11 +135,33 @@ impl DlgHarnessSetup {
     }
 
     pub fn refresh(&mut self) {
+        // One global scan window keeps re-entrant refreshes (fast button
+        // taps, repeated dialog construction, automated re-checks) from
+        // cancelling sweeps before they can finish. A declined refresh is
+        // not an error: the previous sweep owns the window and its results
+        // are still the freshest evidence we have, so the dialog simply
+        // explains the wait instead of spinning on "checking…".
+        if let super::ScanWindow::Declined { remaining_seconds } =
+            super::acquire_scan_window(super::cooldown::effective_now_ms())
+        {
+            self.set_feedback(
+                false,
+                format!(
+                    "Discovery was just started; try again in about {remaining_seconds}s. The newest completed results stay available meanwhile."
+                ),
+            );
+            return;
+        }
+        self.launch_full_scan();
+    }
+
+    /// Shared sweep launcher. Only reachable after the global scan window
+    /// has been acquired for this caller.
+    pub(crate) fn launch_full_scan(&mut self) {
         let (tx, rx) = mpsc::channel();
         let (generation, cancelled) = begin_scan_state(self);
         super::super::invalidate_discovery(&mut self.settings, None);
         self.persist_quiet();
-        self.feedback = None;
         self.probe_rx = Some(Arc::new(Mutex::new(rx)));
         launch_scan_workers(generation, tx, cancelled);
     }
