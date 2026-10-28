@@ -191,10 +191,9 @@ pub(super) fn create_fixture(required_dependencies: Vec<String>, kind: FixtureKi
             }
             .into(),
         ],
-        port_needs: match kind.app_surface() {
-            AppSurface::Web | AppSurface::HeadlessService => vec![4173],
-            _ => Vec::new(),
-        },
+        // User approval binds the proposed target before persistence derives
+        // runtime port requirements from its readiness configuration.
+        port_needs: Vec::new(),
         environment_policy_ref: if kind.app_surface()
             == crate::project_runtime::AppSurface::LinuxDesktop
         {
