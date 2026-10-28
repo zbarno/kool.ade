@@ -52,6 +52,9 @@ pub(crate) fn run(
             .stage_dependency_cache_for_request(&cache.request_id, cache.snapshot.clone())
             .unwrap();
     }
+    build_test_session
+        .record_prepared_dependency_ids(&expected_dependencies)
+        .unwrap();
     assert_eq!(
         build_test_session.prepared_dependency_ids(),
         expected_dependencies
@@ -82,6 +85,9 @@ pub(crate) fn run(
             .stage_dependency_cache_for_request(&cache.request_id, cache.snapshot.clone())
             .unwrap();
     }
+    start_session
+        .record_prepared_dependency_ids(&expected_dependencies)
+        .unwrap();
     let start_receipt = executor
         .execute(
             &start_session,

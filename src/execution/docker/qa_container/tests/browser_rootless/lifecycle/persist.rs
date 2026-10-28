@@ -152,8 +152,7 @@ pub(crate) fn review_expected_outcome_and_persist(
         .expect("the complete browser report and screenshot bytes are durable");
     assert_eq!(
         result.outcome, expected_outcome,
-        "reviewed rootless QA result had unexpected case statuses: {case_statuses:?}; logs: {:?}",
-        persisted.evidence.logs
+        "reviewed rootless QA result had unexpected case statuses: {case_statuses:?}"
     );
     assert!(
         receipt.is_some(),
