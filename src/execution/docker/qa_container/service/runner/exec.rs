@@ -155,8 +155,15 @@ pub(crate) async fn start_detached_exec(
                 }),
             )
             .await
-            .map_err(|_| denied("Approved QA service command could not start"))?
-        {
+            .map_err(|error| {
+                #[cfg(test)]
+                eprintln!(
+                    "test-only QA service exec start diagnostic: {}",
+                    crate::runtime_qa::diagnostic_redaction::sanitized_reason(&error.to_string())
+                );
+                let _ = error;
+                denied("Approved QA service command could not start")
+            })? {
             StartExecResults::Detached => Ok(()),
             StartExecResults::Attached { .. } => {
                 Err(denied("Approved QA service command did not detach"))
