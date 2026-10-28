@@ -138,7 +138,7 @@ async fn run_async(
         validate_browser_driver_network(docker, request, &binding, &container_id)
             .await
             .map_err(|error| error.message)?;
-        let output = run_created_driver(
+        let output = run_created_driver_with_status(
             docker,
             &container_id,
             Duration::from_secs(120),
@@ -147,6 +147,18 @@ async fn run_async(
         )
         .await
         .map_err(|error| error.message)?;
+        match expected_browser_outcome {
+            super::ExpectedBrowserOutcome::Pass if output.exit_code != 0 => {
+                return Err(format!(
+                    "passing browser QA driver exited with status {}",
+                    output.exit_code
+                ));
+            }
+            super::ExpectedBrowserOutcome::Fail if output.exit_code == 0 => {
+                return Err("failing browser assertion exited with a successful status".into());
+            }
+            _ => {}
+        }
         parse_browser_output(&output.stdout, request, scenario)
     }
     .await;
