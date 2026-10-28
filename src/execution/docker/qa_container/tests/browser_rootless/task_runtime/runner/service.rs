@@ -239,7 +239,8 @@ fn test_failure_diagnostic(
     let diagnostics = events
         .iter()
         .filter_map(|event| match &event.event {
-            crate::execution::contract::ExecutionEventKindV1::Stderr { chunk } => Some(chunk),
+            crate::execution::contract::ExecutionEventKindV1::Stdout { chunk }
+            | crate::execution::contract::ExecutionEventKindV1::Stderr { chunk } => Some(chunk),
             _ => None,
         })
         .flat_map(|chunk| chunk.lines())
@@ -249,9 +250,15 @@ fn test_failure_diagnostic(
                 || line.contains("panicked")
                 || line.contains("assertion failed")
                 || line.contains("failed")
+                || line.contains("could not compile")
+                || line.contains("expected")
+                || line.contains("found")
         })
         .rev()
-        .take(3)
+        .take(8)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
         .map(crate::runtime_qa::diagnostic_redaction::sanitized_reason)
         .collect::<Vec<_>>();
     if diagnostics.is_empty() {
