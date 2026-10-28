@@ -54,6 +54,7 @@ fn rediscover_button_double_click_cancels_the_first_scan_generation() {
         scan_results: Vec::new(),
         probe_results: Default::default(),
         running_providers: Default::default(),
+        first_scan_pending: false,
     };
     let context = egui::Context::default();
     let frame = |dialog: &mut DlgHarnessSetup, events| {
@@ -103,34 +104,171 @@ fn rediscover_button_double_click_cancels_the_first_scan_generation() {
     };
 
     let center = button_center(&frame(&mut dialog, vec![]));
-    crate::persistence::harness_settings::with_settings_path(settings_path, || {
-        crate::app::dialogs::harness_setup::discovery::test_hooks::with_worker_launch_stub(|| {
-            click(&mut dialog, center);
-            let first_generation = dialog.scan_generation;
-            let first_cancel = dialog.scan_cancel.as_ref().unwrap().clone();
-            assert_cached_discovery_is_persisted();
-            click(&mut dialog, center);
+    // Zero-width window: this test pins the classic cancel-and-supplant
+    // mechanics for a deliberate back-to-back rediscover; the companion
+    // test below pins the production-window decline.
+    crate::app::dialogs::harness_setup::discovery::cooldown::with_window(0, || {
+        crate::persistence::harness_settings::with_settings_path(settings_path, || {
+            crate::app::dialogs::harness_setup::discovery::test_hooks::with_worker_launch_stub(
+                || {
+                    click(&mut dialog, center);
+                    let first_generation = dialog.scan_generation;
+                    let first_cancel = dialog.scan_cancel.as_ref().unwrap().clone();
+                    assert_cached_discovery_is_persisted();
+                    click(&mut dialog, center);
 
-            assert!(dialog.scan_generation > first_generation);
-            assert!(first_cancel.load(std::sync::atomic::Ordering::Acquire));
-            assert_eq!(dialog.probe_view, ProbeView::Pending);
-            assert!(dialog.probe_rx.is_some());
-            assert!(dialog.probe_results.is_empty());
-            assert!(dialog.scan_results.is_empty());
-            assert!(
-                dialog
-                    .scan_cancel
-                    .as_ref()
-                    .is_some_and(|cancel| !cancel.load(std::sync::atomic::Ordering::Acquire))
-            );
-            assert_cached_discovery_is_persisted();
-            assert_eq!(
+                    assert!(dialog.scan_generation > first_generation);
+                    assert!(first_cancel.load(std::sync::atomic::Ordering::Acquire));
+                    assert_eq!(dialog.probe_view, ProbeView::Pending);
+                    assert!(dialog.probe_rx.is_some());
+                    assert!(dialog.probe_results.is_empty());
+                    assert!(dialog.scan_results.is_empty());
+                    assert!(
+                        dialog.scan_cancel.as_ref().is_some_and(
+                            |cancel| !cancel.load(std::sync::atomic::Ordering::Acquire)
+                        )
+                    );
+                    assert_cached_discovery_is_persisted();
+                    assert_eq!(
                 crate::app::dialogs::harness_setup::discovery::test_hooks::launched_generations(),
                 vec![first_generation, dialog.scan_generation]
+            );
+                },
             );
         });
     });
     std::fs::remove_dir_all(state_dir).unwrap();
+}
+
+/// Production boundary: the real Rediscover click path under the shipped
+/// cooldown. A second click inside the window must not mint a new generation
+/// or cancel the sweep in flight; the dialog explains the wait instead. Stub
+/// is worker-launch only, so no host CLI, Docker, or network dependency; cost
+/// is two egui frames plus two settings reads.
+#[test]
+fn double_click_inside_the_production_cooldown_declines_the_second_start() {
+    let state_dir = std::env::temp_dir().join(format!(
+        "koolade-discovery-cooldown-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&state_dir).unwrap();
+    let settings_path = state_dir.join("harness-settings.json");
+    let mut capability_snapshot = super::codex_catalog_snapshot();
+    capability_snapshot.provider_id = "pi".into();
+    let mut initial_settings = HarnessSettings {
+        schema_version: 3,
+        default_harness: Some("pi".into()),
+        ..HarnessSettings::default()
+    };
+    initial_settings.discovered.insert(
+        "pi".into(),
+        crate::persistence::harness_settings::DetectedHarness {
+            status: "available".into(),
+            version: Some("1.2.3".into()),
+            executable: Some("/synthetic/pi".into()),
+            diagnostic: None,
+            ready: true,
+            models: vec!["synthetic-model".into()],
+            default_model: Some("synthetic-model".into()),
+            model_catalog_fresh: true,
+            configuration_required: false,
+            implementation_available: true,
+            capability_snapshot: Some(capability_snapshot),
+            checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
+        },
+    );
+    crate::persistence::harness_settings::with_settings_path(settings_path.clone(), || {
+        crate::persistence::harness_settings::save(&initial_settings).unwrap();
+    });
+    let mut dialog = DlgHarnessSetup {
+        settings: initial_settings,
+        probe_view: ProbeView::Complete,
+        feedback: None,
+        section: HarnessSettingsSection::Tools,
+        manual_path_drafts: Default::default(),
+        probe_rx: None,
+        scan_generation: 0,
+        scan_cancel: None,
+        runtime_available: None,
+        scan_results: Vec::new(),
+        probe_results: Default::default(),
+        running_providers: Default::default(),
+        first_scan_pending: false,
+    };
+    let context = egui::Context::default();
+    let frame = |dialog: &mut DlgHarnessSetup, events| {
+        let mut output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(500.0, 100.0),
+                )),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                crate::app::dialogs::harness_setup::tools::paint_rediscover_button(ui, dialog);
+            },
+        );
+        output.textures_delta.clear();
+        output
+    };
+    let center = output_shapes_center(&frame(&mut dialog, vec![]));
+    let click = |dialog: &mut DlgHarnessSetup, center: egui::Pos2| {
+        for pressed in [true, false] {
+            let _ = frame(
+                dialog,
+                vec![
+                    egui::Event::PointerMoved(center),
+                    egui::Event::PointerButton {
+                        pos: center,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: Default::default(),
+                    },
+                ],
+            );
+        }
+    };
+    crate::persistence::harness_settings::with_settings_path(settings_path, || {
+        crate::app::dialogs::harness_setup::discovery::test_hooks::with_worker_launch_stub(|| {
+            // Clean slate so the first click is admitted under any test runner
+            // (the cooldown timestamp is process-global).
+            crate::app::dialogs::harness_setup::discovery::cooldown::testing_seed_last_scan_start(
+                0,
+            );
+            click(&mut dialog, center);
+            let first_generation = dialog.scan_generation;
+            assert_ne!(first_generation, 0, "first click must start a scan");
+            click(&mut dialog, center);
+            assert_eq!(dialog.scan_generation, first_generation);
+            let (_, message, _) = dialog
+                .feedback
+                .expect("declined refresh must explain itself");
+            assert!(
+                message.contains("try again in about"),
+                "unexpected decline message: {message}"
+            );
+            assert_eq!(
+                crate::app::dialogs::harness_setup::discovery::test_hooks::launched_generations(),
+                vec![first_generation]
+            );
+        });
+    });
+    std::fs::remove_dir_all(state_dir).unwrap();
+}
+
+fn output_shapes_center(output: &egui::FullOutput) -> egui::Pos2 {
+    output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text() == "Rediscover tools" => {
+                Some(text.pos + text.galley.mesh_bounds.center().to_vec2())
+            }
+            _ => None,
+        })
+        .expect("Rediscover tools button is visible")
 }
 
 fn assert_cached_discovery_is_persisted() {

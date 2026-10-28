@@ -26,6 +26,7 @@ fn failed_refresh_keeps_last_known_catalog_as_stale_and_not_selectable() {
         scan_results: Vec::new(),
         probe_results: Default::default(),
         running_providers: Default::default(),
+        first_scan_pending: false,
     };
     let mut failed_refresh = report(true);
     failed_refresh.models.clear();
@@ -71,6 +72,7 @@ fn unavailable_catalog_without_previous_models_stays_unavailable() {
         scan_results: Vec::new(),
         probe_results: Default::default(),
         running_providers: Default::default(),
+        first_scan_pending: false,
     };
     let mut failed = report(true);
     failed.models.clear();

@@ -4,6 +4,8 @@ use super::probe_result::into_harness_probe;
 use super::{DlgHarnessSetup, ProbeView};
 use crate::harness::discovery::ProbeResult;
 
+pub(super) mod cooldown;
+use cooldown::{ScanWindow, acquire_scan_window};
 mod results;
 pub(super) use results::apply_probe_results;
 #[cfg(test)]
@@ -41,6 +43,49 @@ impl DlgHarnessSetup {
         self.probe_rx = None;
         self.running_providers.clear();
         self.probe_view = ProbeView::Complete;
+    }
+
+    /// Arm this dialog's first-ever scan on the first painted frame.
+    ///
+    /// Freshness, not eagerness, decides: if the persisted discovery records
+    /// already carry evidence younger than the shared freshness horizon the
+    /// cached view is served as-is (close/reopen does not burn another
+    /// sweep) and the flag is consumed silently. Otherwise a scan is
+    /// attempted through the global cooldown, re-trying on each painted
+    /// frame until the compare-and-swap admits it; a declined attempt keeps
+    /// the flag pending. Later frames never re-arm once consumed.
+    ///
+    /// Known trade-off: if a provider vanishes while its record is still
+    /// younger than the horizon, the cached row stays visible for at most
+    /// that horizon; the explicit Rediscover button bypasses the freshness
+    /// gate (it only honours the scan-window cooldown), so an operator can
+    /// force the correction immediately.
+    pub fn ensure_first_scan(&mut self) {
+        if !self.first_scan_pending {
+            return;
+        }
+        if self.has_recent_discovery_evidence() {
+            self.first_scan_pending = false;
+            return;
+        }
+        if matches!(
+            acquire_scan_window(cooldown::effective_now_ms()),
+            ScanWindow::Accepted
+        ) {
+            self.first_scan_pending = false;
+            self.launch_full_scan();
+        }
+    }
+
+    /// Whether any persisted provider record is younger than the shared
+    /// discovery freshness horizon. Delegates to the canonical predicate so
+    /// the dialog and the routing badges cannot drift apart about freshness.
+    fn has_recent_discovery_evidence(&self) -> bool {
+        let now = cooldown::effective_now_ms();
+        self.settings
+            .discovered
+            .values()
+            .any(|entry| entry.is_fresh_at(now))
     }
 
     pub fn drain_probe(&mut self) {

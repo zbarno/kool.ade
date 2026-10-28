@@ -61,6 +61,7 @@ fn bare_dialog(settings: HarnessSettings) -> DlgHarnessSetup {
         scan_results: Vec::new(),
         probe_results: Default::default(),
         running_providers: Default::default(),
+        first_scan_pending: false,
     }
 }
 

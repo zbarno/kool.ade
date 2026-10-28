@@ -98,6 +98,7 @@ fn runtime_and_provider_messages_can_arrive_in_either_order() {
             scan_results: Vec::new(),
             probe_results: Default::default(),
             running_providers: Default::default(),
+            first_scan_pending: false,
         };
         let runtime = super::super::discovery::ProbeMessage::Runtime {
             generation: 21,
@@ -147,6 +148,7 @@ fn late_probe_from_previous_generation_cannot_replace_saved_result() {
         scan_results: Vec::new(),
         probe_results: Default::default(),
         running_providers: Default::default(),
+        first_scan_pending: false,
     };
     let mut stale = report(false);
     stale.executable = Some("/stale/old-pi".into());
@@ -197,6 +199,7 @@ fn internal_probe_failure_keeps_the_last_record_stale_and_unusable() {
         scan_results: Vec::new(),
         probe_results: Default::default(),
         running_providers: Default::default(),
+        first_scan_pending: false,
     };
     let failure = super::super::probe_result::internal_failure_result("pi", 22, 100, 8);
 
@@ -238,6 +241,7 @@ fn closing_discovery_cancels_the_active_provider_scan() {
         scan_results: Vec::new(),
         probe_results: Default::default(),
         running_providers: Default::default(),
+        first_scan_pending: false,
     };
     dialog.cancel_discovery();
     assert!(cancel.load(std::sync::atomic::Ordering::Acquire));
@@ -278,6 +282,8 @@ fn missing_provider_setup_is_recorded_separately_from_a_missing_executable() {
 
 #[path = "discovery/fallback.rs"]
 mod fallback;
+#[path = "discovery/first_scan.rs"]
+mod first_scan;
 #[path = "discovery/model_catalog.rs"]
 mod model_catalog;
 #[path = "discovery/progress.rs"]

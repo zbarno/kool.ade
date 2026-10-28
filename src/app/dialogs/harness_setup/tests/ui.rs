@@ -2,6 +2,7 @@ use super::*;
 
 mod close_reopen;
 mod invalid_manual_path;
+mod page_drain;
 mod refresh_click;
 mod retry_provider;
 
@@ -24,6 +25,7 @@ fn coding_settings_sections_open_on_tools_and_expose_routing_categories() {
         scan_results: Vec::new(),
         probe_results: Default::default(),
         running_providers: Default::default(),
+        first_scan_pending: false,
     };
     let ctx = egui::Context::default();
     let frame = |ctx: &egui::Context, dialog: &mut DlgHarnessSetup, events| {
@@ -147,6 +149,7 @@ fn codex_settings_show_models_when_the_docker_execution_session_is_unavailable()
         scan_results: Vec::new(),
         probe_results: Default::default(),
         running_providers: Default::default(),
+        first_scan_pending: false,
     };
     let ctx = egui::Context::default();
     let mut output = ctx.run_ui(
