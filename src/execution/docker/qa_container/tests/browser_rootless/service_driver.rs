@@ -122,7 +122,17 @@ pub(super) async fn run(
                 bounded_driver_output(&output.stdout, &output.stderr)
             ));
         }
-        parse_browser_output(&output.stdout, &service_request, &service_scenario)
+        let mut output = parse_browser_output(&output.stdout, &service_request, &service_scenario)?;
+        for action in &mut output.actions {
+            action.scenario_id = scenario.id.clone();
+        }
+        for screenshot in &mut output.screenshots {
+            screenshot.scenario_id = scenario.id.clone();
+        }
+        for assertion in &mut output.assertions {
+            assertion.scenario_ids = vec![scenario.id.clone()];
+        }
+        Ok(output)
     }
     .await;
     cleanup_driver_container(docker, &driver_id)
