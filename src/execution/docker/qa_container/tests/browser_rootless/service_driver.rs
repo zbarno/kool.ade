@@ -39,6 +39,19 @@ pub(super) async fn run(
         "The approved API request is saved by the preview service",
         false,
     )];
+    if request.test_data_fixture_ref.as_deref() == Some("go-headless-api-v1") {
+        service_scenario.steps.push(step(
+            QaDriverActionV1::ApiRequest {
+                method: QaHttpMethodV1::Get,
+                path: "/runner-protection".into(),
+                json_body: None,
+                expected_status: 200,
+                expected_body_contains: Some("\"protected\":true".into()),
+            },
+            "The same-UID fixture process cannot read or truncate its sealed readiness runner",
+            false,
+        ));
+    }
     service_scenario.expected_results = vec!["The save endpoint reports a successful save.".into()];
     service_scenario.visual_expectations.clear();
     service_request.validate()?;
