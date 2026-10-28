@@ -46,18 +46,7 @@ async fn run_async(
 ) {
     request.validate().unwrap();
     scenario.validate(request).unwrap();
-    let cache_store = crate::execution::DependencyCacheSnapshotStore::new(
-        crate::persistence::state_root().join("runtime-qa-dependency-caches"),
-    );
-    let dependency_caches = request
-        .dependency_cache_refs
-        .iter()
-        .map(|dependency| {
-            cache_store
-                .get(&dependency.dependency_request_id, &dependency.cache_ref)
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
+    let dependency_caches = super::dependency_caches_for_image(request, service_image);
     let mut resources = resources();
     resources.process_count = 128;
     let (_cancel_sender, mut cancel) = tokio::sync::watch::channel(false);

@@ -16,18 +16,7 @@ pub(super) fn run(
     readiness_path: &str,
     expected_browser_outcome: super::ExpectedBrowserOutcome,
 ) {
-    let cache_store = crate::execution::DependencyCacheSnapshotStore::new(
-        crate::persistence::state_root().join("runtime-qa-dependency-caches"),
-    );
-    let dependency_caches = request
-        .dependency_cache_refs
-        .iter()
-        .map(|dependency| {
-            cache_store
-                .get(&dependency.dependency_request_id, &dependency.cache_ref)
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
+    let dependency_caches = super::dependency_caches_for_image(request, service_image);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

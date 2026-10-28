@@ -12,6 +12,67 @@ pub(super) enum ExpectedBrowserOutcome {
     Fail,
 }
 
+fn dependency_caches_for_image(
+    request: &crate::runtime_qa::QaRunRequestV1,
+    service_image: &crate::execution::docker::images::SelectedImage,
+) -> Vec<crate::harness::resource_bridge::CacheSnapshot> {
+    let cache_store = crate::execution::DependencyCacheSnapshotStore::new(
+        crate::persistence::state_root().join("runtime-qa-dependency-caches"),
+    );
+    let mut requested = request
+        .dependency_cache_refs
+        .iter()
+        .filter(|dependency| {
+            crate::execution::docker::discovery::parse_architecture(
+                &dependency.cache_ref.target_arch,
+            ) == service_image.platform.strip_prefix("linux/")
+        })
+        .map(|dependency| dependency.cache_ref.clone())
+        .collect::<Vec<_>>();
+    requested.sort();
+    let snapshots = request
+        .dependency_cache_refs
+        .iter()
+        .filter(|dependency| {
+            crate::execution::docker::discovery::parse_architecture(
+                &dependency.cache_ref.target_arch,
+            ) == service_image.platform.strip_prefix("linux/")
+        })
+        .map(|dependency| {
+            cache_store
+                .get(&dependency.dependency_request_id, &dependency.cache_ref)
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let mut transferred = snapshots
+        .iter()
+        .map(|snapshot| snapshot.cache_ref.clone())
+        .collect::<Vec<_>>();
+    transferred.sort();
+    assert_eq!(transferred, requested);
+    let mut requested_dependency_ids = request
+        .dependency_cache_refs
+        .iter()
+        .map(|dependency| dependency.dependency_request_id.clone())
+        .collect::<Vec<_>>();
+    requested_dependency_ids.sort();
+    requested_dependency_ids.dedup();
+    let mut transferred_dependency_ids = request
+        .dependency_cache_refs
+        .iter()
+        .filter(|dependency| {
+            crate::execution::docker::discovery::parse_architecture(
+                &dependency.cache_ref.target_arch,
+            ) == service_image.platform.strip_prefix("linux/")
+        })
+        .map(|dependency| dependency.dependency_request_id.clone())
+        .collect::<Vec<_>>();
+    transferred_dependency_ids.sort();
+    transferred_dependency_ids.dedup();
+    assert_eq!(transferred_dependency_ids, requested_dependency_ids);
+    snapshots
+}
+
 pub(super) fn scenario(request: &crate::runtime_qa::QaRunRequestV1) -> QaScenarioV1 {
     if request.relevant_platforms.as_slice() == [crate::runtime_qa::QaPlatform::HeadlessService] {
         let mut steps = vec![step(
