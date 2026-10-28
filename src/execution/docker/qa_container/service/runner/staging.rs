@@ -17,14 +17,7 @@ pub(crate) async fn upload_snapshots(
     }
     let deadline = tokio::time::Instant::now() + timeout;
     for upload in uploads {
-        if !matches!(
-            upload.target.as_str(),
-            "/workspace"
-                | "/run/koolade-runtime-qa"
-                | "/home/executor/.npm"
-                | "/home/executor/.cargo"
-        ) || upload.archive.is_empty()
-        {
+        if !approved_upload_target(&upload.target) || upload.archive.is_empty() {
             return Err(denied("QA upload target or archive is invalid"));
         }
         let target = upload.target.as_str();
@@ -65,6 +58,18 @@ pub(crate) async fn upload_snapshots(
     Ok(())
 }
 
+fn approved_upload_target(target: &str) -> bool {
+    matches!(
+        target,
+        "/workspace"
+            | "/run/koolade-runtime-qa"
+            | "/home/executor/.npm"
+            | "/home/executor/.cargo"
+            | "/home/executor/.cache/koolade/pip"
+            | "/home/executor/go"
+    )
+}
+
 async fn run_staging_command(
     docker: &bollard::Docker,
     container_id: &str,
@@ -80,5 +85,27 @@ async fn run_staging_command(
             Err(denied("QA artifact staging was cancelled"))
         }
         result = run_attached_exec(docker, container_id, command, Some(archive), 1024) => result,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::approved_upload_target;
+
+    #[test]
+    fn qa_upload_targets_are_limited_to_approved_artifact_and_dependency_cache_paths() {
+        for target in [
+            "/workspace",
+            "/run/koolade-runtime-qa",
+            "/home/executor/.npm",
+            "/home/executor/.cargo",
+            "/home/executor/.cache/koolade/pip",
+            "/home/executor/go",
+        ] {
+            assert!(approved_upload_target(target), "{target}");
+        }
+        for target in ["/", "/home/executor", "/home/executor/.cache", "/tmp"] {
+            assert!(!approved_upload_target(target), "{target}");
+        }
     }
 }
