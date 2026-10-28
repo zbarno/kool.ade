@@ -78,6 +78,13 @@ pub(crate) fn run(
         )
         .unwrap()
         .remove(0);
+    assert_eq!(
+        test_receipt.state,
+        crate::project_runtime::RuntimeReceiptState::Passed,
+        "runtime Test did not pass (exit_code={:?}, reviewed_source_match={})",
+        test_receipt.exit_code,
+        test_receipt.source_sha == fixture.workspace.source_sha,
+    );
     let start_session_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let start_session = super::runtime_session(&fixture, &lock, service_profile, &start_session_id);
     if let Some(cache) = &fixture.dependency_cache {
