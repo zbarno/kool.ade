@@ -30,3 +30,17 @@ fn runtime_qa_request_can_bind_architecture_specific_cache_alternatives() {
     request.dependency_cache_refs[1].cache_ref.target_arch = "x86_64".into();
     assert!(request.validate().is_err());
 }
+
+#[test]
+fn runtime_qa_request_accepts_namespaced_dependency_request_ids() {
+    let mut request = request();
+    request.planning_item_uid = Some(request.parent_task_uid.clone());
+    let mut dependency = cache_ref(&request.parent_task_uid, "amd64", 'a');
+    dependency.dependency_request_id = format!("dependency-{}", uuid::Uuid::new_v4());
+    request.dependency_cache_refs = vec![dependency];
+
+    assert!(request.validate().is_ok());
+
+    request.dependency_cache_refs[0].dependency_request_id = "dependency-invalid".into();
+    assert!(request.validate().is_err());
+}

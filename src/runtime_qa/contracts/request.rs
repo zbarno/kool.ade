@@ -137,8 +137,10 @@ impl QaRunRequestV1 {
         let mut dependency_arch_ids =
             std::collections::BTreeMap::<&str, std::collections::BTreeSet<&str>>::new();
         for dependency in &self.dependency_cache_refs {
-            crate::execution::contract::validate_identifier(&dependency.dependency_request_id)
-                .map_err(|_| "runtime QA dependency request identity is invalid")?;
+            crate::execution::contract::validate_dependency_request_id(
+                &dependency.dependency_request_id,
+            )
+            .map_err(|_| "runtime QA dependency request identity is invalid")?;
             dependency
                 .cache_ref
                 .validate()
