@@ -85,12 +85,6 @@ pub(crate) fn review_expected_outcome_and_persist(
                 tested_evidence_ids: screenshots
                     .iter()
                     .map(|screenshot| screenshot.id.clone())
-                    .chain(
-                        evidence
-                            .actions
-                            .iter()
-                            .flat_map(|action| action.evidence_ids.iter().cloned()),
-                    )
                     .collect(),
                 unexamined_areas: vec![],
                 pass: observed_pass,
