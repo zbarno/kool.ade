@@ -4,6 +4,14 @@ use crate::project_runtime::{AppTargetV1, ProjectCapabilityManifestV1};
 
 mod go_runner;
 
+#[cfg(test)]
+pub(super) fn qa_go_start_script(
+    start: &crate::project_runtime::ExecutionRecipeV1,
+    probe: &crate::project_runtime::ReadinessProbeV1,
+) -> anyhow::Result<String> {
+    go_runner::start_script(start, probe)
+}
+
 pub(super) fn start_script(
     manifest: &ProjectCapabilityManifestV1,
     target: &AppTargetV1,

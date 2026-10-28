@@ -4,6 +4,14 @@ mod artifacts;
 use artifacts::{ReceiptData, build_artifacts, failed_start, receipt};
 mod readiness;
 use readiness::start_script;
+
+#[cfg(test)]
+pub(crate) fn qa_go_start_script(
+    start: &crate::project_runtime::ExecutionRecipeV1,
+    probe: &crate::project_runtime::ReadinessProbeV1,
+) -> anyhow::Result<String> {
+    readiness::qa_go_start_script(start, probe)
+}
 #[cfg(test)]
 use readiness::{readiness_command, readiness_setup_command};
 mod receipts;

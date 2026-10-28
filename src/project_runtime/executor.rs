@@ -13,6 +13,9 @@ mod provenance;
 mod recipe_command;
 mod start;
 
+#[cfg(test)]
+pub(crate) use start::qa_go_start_script;
+
 use artifacts::{artifact_capture_paths, receipt_artifact_hashes};
 use outputs::{source_input_paths, source_output_paths, validate_source_output_approvals};
 use recipe_command::validate_recipe_command_for_operation;
