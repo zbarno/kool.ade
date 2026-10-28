@@ -224,10 +224,9 @@ fn test_failure_diagnostic(
     ) else {
         return "execution output is unavailable".into();
     };
-    let Ok(page) = crate::execution::contract::EventPageRequestV1::new(
-        cursor.saturating_sub(128),
-        128,
-    ) else {
+    let Ok(page) =
+        crate::execution::contract::EventPageRequestV1::new(cursor.saturating_sub(128), 128)
+    else {
         return "execution output page is invalid".into();
     };
     let Ok(events) = crate::persistence::execution_records::load_events(
