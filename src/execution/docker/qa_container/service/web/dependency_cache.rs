@@ -76,7 +76,10 @@ pub(super) fn service_tmpfs(
         ),
         (
             "/workspace".into(),
-            format!("rw,nosuid,nodev,size={},uid={uid},gid={gid}", mount_size,),
+            format!(
+                "rw,nosuid,nodev,exec,size={},uid={uid},gid={gid}",
+                mount_size,
+            ),
         ),
     ]);
     if spec.dependency_caches.is_empty() {
