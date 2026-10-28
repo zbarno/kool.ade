@@ -136,10 +136,11 @@ pub(crate) fn run(
     match build_test_profile {
         RuntimeProfile::Python => {
             assert!(build_receipt.artifact_hashes.contains_key("dist/app.py"));
-            assert!(
+            assert_eq!(
                 build_receipt
                     .artifact_hashes
-                    .contains_key("dist/index.html")
+                    .contains_key("dist/index.html"),
+                fixture.has_index_html
             );
         }
         RuntimeProfile::Rust => assert!(

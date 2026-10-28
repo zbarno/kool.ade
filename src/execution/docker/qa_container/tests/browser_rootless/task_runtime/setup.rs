@@ -108,6 +108,7 @@ pub(super) struct Fixture {
     pub dependency_cache: Option<prepared_cache::SeededCache>,
     pub readiness_path: String,
     pub expect_browser_failure: bool,
+    pub has_index_html: bool,
     _approval_cleanup: crate::persistence::runtime_target_approvals::WorkspaceCleanup,
     _home: crate::test_support::KooladeHomeGuard,
     pub root: tempfile::TempDir,

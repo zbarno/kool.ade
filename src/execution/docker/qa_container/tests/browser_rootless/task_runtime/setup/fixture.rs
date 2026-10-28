@@ -288,6 +288,10 @@ pub(super) fn create_fixture(required_dependencies: Vec<String>, kind: FixtureKi
         dependency_cache,
         readiness_path,
         expect_browser_failure: kind == FixtureKind::FalselyHealthyPythonWeb,
+        has_index_html: matches!(
+            kind,
+            FixtureKind::PythonWeb | FixtureKind::FalselyHealthyPythonWeb
+        ),
         _approval_cleanup: approval_cleanup,
         _home: home,
     }
