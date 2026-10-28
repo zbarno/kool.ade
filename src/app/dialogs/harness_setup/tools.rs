@@ -118,20 +118,36 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
             data.insert_temp(selected_id, selected);
         }
     });
-    if dialog.settings.default_harness.as_ref().is_some_and(|id| {
-        !dialog.settings.discovered.get(id).is_some_and(|harness| {
-            details::availability_label(
-                id,
-                harness,
-                crate::persistence::harness_settings::current_unix_ms(),
-                false,
-            ) == "Available"
-        })
-    }) {
-        ui.colored_label(
-            theme::DANGER,
-            "Your saved default is not verified for context-only planning. Refresh Coding tools and resolve its sign-in, model, or Planning capability blocker. Repository reads still need Docker.",
+    if let Some(default_id) = dialog.settings.default_harness.as_ref()
+        && !dialog
+            .settings
+            .discovered
+            .get(default_id)
+            .is_some_and(|harness| {
+                details::availability_label(
+                    default_id,
+                    harness,
+                    crate::persistence::harness_settings::current_unix_ms(),
+                    false,
+                ) == "Available"
+            })
+    {
+        let mut message =
+            format!("Your saved default {default_id} is not verified for context-only planning.");
+        if let Some(blocker) = dialog
+            .settings
+            .discovered
+            .get(default_id)
+            .and_then(|harness| harness.diagnostic.as_deref())
+            .filter(|detail| !detail.trim().is_empty())
+        {
+            message.push(' ');
+            message.push_str(blocker);
+        }
+        message.push_str(
+            " Refresh Coding tools and resolve the blocker. Repository reads still need Docker.",
         );
+        ui.colored_label(theme::DANGER, message);
     }
     paint_rediscover_button(ui, dialog);
 }
