@@ -64,11 +64,14 @@ def action(name: str, **values: object) -> dict:
     return {"action": name, **values}
 
 
-def execute(image: str, network: str, value: dict, directory: Path) -> tuple[int, dict]:
+def execute(
+    image: str, network: str, value: dict, directory: Path, *, extra_hosts: tuple[str, ...] = ()
+) -> tuple[int, dict]:
     path = directory / f"{value['qa_run_id']}.json"
     path.write_text(json.dumps(value), encoding="utf-8")
+    host_args = [argument for host in extra_hosts for argument in ("--add-host", host)]
     result = docker(
-        "run", "--rm", "--network", network, "--read-only", "--cap-drop", "ALL",
+        "run", "--rm", "--network", network, *host_args, "--read-only", "--cap-drop", "ALL",
         "--security-opt", "no-new-privileges", "--pids-limit", "128", "--memory", "1g",
         "--cpus", "2", "--tmpfs", "/tmp:rw,nosuid,nodev,noexec,size=64m",
         "--tmpfs", "/run:rw,nosuid,nodev,noexec,size=1m",
@@ -165,6 +168,10 @@ def main() -> None:
             "--entrypoint", "node", image, RELAY,
         )
         docker("network", "connect", "--alias", "qa-preview", browser_network, relay)
+        relay_inspect = json.loads(docker("inspect", relay).stdout)[0]
+        relay_browser_ip = relay_inspect["NetworkSettings"]["Networks"][browser_network]["IPAddress"]
+        if not relay_browser_ip:
+            raise RuntimeError("isolated preview relay has no browser-network address")
         inspected = json.loads(docker("inspect", task).stdout)[0]
         task_ip = next(iter(inspected["NetworkSettings"]["Networks"].values()))["IPAddress"]
         deadline = time.monotonic() + 60
@@ -279,6 +286,21 @@ function send(host,port){return new Promise((resolve,reject)=>{const s=dgram.cre
                 assert code == 1 and report["outcome"] == "failed", report
                 assert expected in report["policy_violation"], report
 
+            # Production boundary: Chromium request routing must reject a
+            # hostile name even when test DNS points it at the private relay.
+            # A URL validator unit test cannot prove a live page request is
+            # blocked. This uses the rootless browser image and the ephemeral
+            # task, relay, and browser networks created by this fixture.
+            rebinding = request([action("browser_open", url="http://qa-service/?defect=dns-rebinding")])
+            code, report = execute(
+                image,
+                browser_network,
+                rebinding,
+                directory,
+                extra_hosts=(f"dns-rebind.invalid:{relay_browser_ip}",),
+            )
+            assert code == 1 and "dns-rebind.invalid" in report["policy_violation"], report
+
             for blocked_url in (
                 "javascript:alert(1)",
                 "file:///etc/passwd",
@@ -296,7 +318,7 @@ function send(host,port){return new Promise((resolve,reject)=>{const s=dgram.cre
         docker("rm", "--force", task, check=False)
         docker("network", "rm", browser_network, check=False)
         docker("network", "rm", task_network, check=False)
-    print("browser/API QA fixture passed: relay evidence, origin policy, and rootless host/private TCP, UDP, and WebRTC escape probes")
+    print("browser/API QA fixture passed: relay evidence, origin/DNS-rebinding policy, and rootless host/private TCP, UDP, and WebRTC escape probes")
 
 
 if __name__ == "__main__":
