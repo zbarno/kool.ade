@@ -1,8 +1,8 @@
 use crate::harness::{
     AiHarness, ExecutionMode, HarnessOutcome, PlanningRequest, ReviewExecutionIdentity,
     prompt_catalog::{
-        CoverageStatus, CoverageV1, PromptRole, ReviewOutcomeV1, ReviewVerdictV1,
-        validate_prompt_manifest,
+        CoverageStatus, CoverageV1, FindingKind, FindingScopeV1, PromptRole, ReviewFindingActionV1,
+        ReviewFindingV1, ReviewOutcomeV1, ReviewVerdictV1, Severity, validate_prompt_manifest,
     },
 };
 
@@ -18,6 +18,7 @@ pub(super) struct RuntimeQaReviewHarness {
     evidence_ids: Vec<String>,
     screenshot_ids: Vec<String>,
     pass: bool,
+    findings: Vec<ReviewFindingV1>,
     invocations: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
@@ -50,6 +51,36 @@ impl RuntimeQaReviewHarness {
             .iter()
             .map(|screenshot| screenshot.id.clone())
             .collect();
+        let findings = candidate
+            .findings
+            .iter()
+            .map(|finding| ReviewFindingV1 {
+                id: finding.finding_uid.clone(),
+                requirement: finding.requirement_uids[0].clone(),
+                severity: match finding.severity {
+                    crate::runtime_qa::QaFindingSeverity::Critical => Severity::Critical,
+                    crate::runtime_qa::QaFindingSeverity::High => Severity::High,
+                    crate::runtime_qa::QaFindingSeverity::Medium => Severity::Medium,
+                    crate::runtime_qa::QaFindingSeverity::Low => Severity::Low,
+                    crate::runtime_qa::QaFindingSeverity::Informational => Severity::Informational,
+                },
+                kind: FindingKind::Correctness,
+                scope: Some(FindingScopeV1::Blocking),
+                location: finding.scenario_uid.clone(),
+                location_detail: None,
+                evidence: finding
+                    .screenshot_ids
+                    .iter()
+                    .chain(finding.trace_ids.iter())
+                    .cloned()
+                    .collect(),
+                repro: Some(finding.reproducible_steps.join("; ")),
+                proposed_correction: finding.smallest_fix.clone(),
+                rationale: finding.actual.clone(),
+                affected_requirement_ids: finding.requirement_uids.clone(),
+                suggested_action: Some(ReviewFindingActionV1::Repair),
+            })
+            .collect();
         (
             Self {
                 subject_hash: crate::runtime_qa::qa_review_subject_sha256(
@@ -71,6 +102,7 @@ impl RuntimeQaReviewHarness {
                     })
                     && evidence.browser_console.is_empty()
                     && evidence.failed_requests.is_empty(),
+                findings,
                 invocations: std::sync::Arc::clone(&invocations),
             },
             invocations,
@@ -173,7 +205,7 @@ impl RuntimeQaReviewHarness {
                     evidence: self.evidence_ids.clone(),
                 })
                 .collect(),
-            findings: Vec::new(),
+            findings: self.findings.clone(),
             untested: Vec::new(),
         })
         .expect("fixture review verdict serializes")
