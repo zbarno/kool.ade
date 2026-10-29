@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     path::Path,
     sync::{Arc, atomic::AtomicBool, mpsc},
     time::Duration,
@@ -119,17 +120,7 @@ pub(super) fn execute(inputs: ReviewInputs<'_>) -> Result<ReviewVerdictV1, Strin
     let output = harness
         .execute_review(&plan, &identity)
         .map_err(|error| error.detail())?;
-    let evidence_ids = evidence
-        .screenshots
-        .iter()
-        .map(|shot| shot.id.clone())
-        .chain(
-            evidence
-                .actions
-                .iter()
-                .map(|action| action.index.to_string()),
-        )
-        .collect();
+    let evidence_ids = reviewer_evidence_ids(&evidence.screenshots, &evidence.actions);
     let context = crate::harness::prompt_catalog::OutputValidationContext {
         expected_subject_hash: Some(&subject_sha),
         evidence_ids,
@@ -197,6 +188,22 @@ fn screenshot_review(
         screenshots: images,
         inspected_screenshot_ids: Arc::default(),
     }))
+}
+
+fn reviewer_evidence_ids(
+    screenshots: &[crate::runtime_qa::QaScreenshotV1],
+    actions: &[crate::runtime_qa::QaActionEvidenceV1],
+) -> HashSet<String> {
+    screenshots
+        .iter()
+        .map(|screenshot| screenshot.id.clone())
+        .chain(actions.iter().map(|action| action.index.to_string()))
+        .chain(
+            actions
+                .iter()
+                .flat_map(|action| action.evidence_ids.iter().cloned()),
+        )
+        .collect()
 }
 
 fn role_input(
