@@ -82,3 +82,49 @@ fn qa_request_validation_accepts_sha1_git_oid_with_sha256_review_subject() {
     invalid_review_subject.review_subject_sha256 = "d".repeat(40);
     assert!(invalid_review_subject.validate().is_err());
 }
+
+#[test]
+fn headless_reviewer_context_accepts_action_evidence_references() {
+    let actions = [crate::runtime_qa::QaActionEvidenceV1 {
+        index: 0,
+        scenario_id: "scenario-1".into(),
+        command: "api_request".into(),
+        args_redacted: std::collections::BTreeMap::new(),
+        pre_state: None,
+        post_state: Some("HTTP 200".into()),
+        evidence_ids: vec!["api-response-1".into()],
+        occurred_at_unix_ms: 1,
+    }];
+    let hash = "a".repeat(64);
+    let context = crate::harness::prompt_catalog::OutputValidationContext {
+        expected_subject_hash: Some(&hash),
+        evidence_ids: super::reviewer_evidence_ids(&[], &actions)
+            .into_iter()
+            .collect(),
+        required_requirements: vec!["REQ-1".into()],
+        ..Default::default()
+    };
+    let output = serde_json::json!({
+        "subject_hash": hash,
+        "examined_files": [],
+        "tested_evidence_ids": [],
+        "unexamined_areas": [],
+        "pass": true,
+        "outcome": "pass",
+        "coverage": [{
+            "requirement": "REQ-1",
+            "status": "pass",
+            "evidence": ["0", "api-response-1"]
+        }],
+        "findings": [],
+        "untested": []
+    })
+    .to_string();
+
+    crate::harness::prompt_catalog::validate_output_with_context(
+        crate::harness::prompt_catalog::PromptRole::RuntimeQaReviewerV3,
+        &output,
+        &context,
+    )
+    .expect("reviewer citations may reference observed headless action evidence");
+}
