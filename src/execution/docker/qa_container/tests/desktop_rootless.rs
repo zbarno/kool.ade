@@ -166,11 +166,19 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
     )
     .await
     .unwrap();
+    let image_env = docker
+        .inspect_image(&selected.reference)
+        .await
+        .unwrap()
+        .config
+        .and_then(|config| config.env)
+        .unwrap_or_default();
     assert_desktop_container_isolated(
         &docker,
         &container_id,
         selected.runtime_user.as_str(),
         &expected_env,
+        &image_env,
     )
     .await;
     let output = run_created_driver_with_status(
@@ -233,6 +241,7 @@ async fn assert_desktop_container_isolated(
     container_id: &str,
     runtime_user: &str,
     expected_env: &[String],
+    image_env: &[String],
 ) {
     let inspect = docker.inspect_container(container_id, None).await.unwrap();
     let host = inspect
@@ -264,11 +273,14 @@ async fn assert_desktop_container_isolated(
         .config
         .expect("Docker reports applied container config");
     assert_eq!(config.user.as_deref(), Some(runtime_user));
-    assert_eq!(config.env.as_deref(), Some(expected_env));
+    let mut allowed_env = expected_env.to_vec();
+    allowed_env.extend_from_slice(image_env);
+    allowed_env.sort();
+    let mut actual_env = config.env.unwrap_or_default();
+    actual_env.sort();
+    assert_eq!(actual_env, allowed_env);
     assert!(
-        config
-            .env
-            .unwrap_or_default()
+        allowed_env
             .iter()
             .all(|entry| !entry.starts_with("QA_RELAY_TOKEN="))
     );
