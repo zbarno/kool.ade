@@ -66,6 +66,11 @@ pub(super) fn create_sibling_pair(
         code_dest != plan_dest,
         "code and planning repository names must differ"
     );
+    // Classify BOTH destinations before mutating anything: an occupied
+    // planning destination must not leave a freshly created code repository
+    // behind (symmetric with the code-side refusal).
+    classify_destination(&code_dest, "code repository")?;
+    classify_destination(&plan_dest, "planning repository")?;
 
     let code = prepare_code_repository(&spec.title, &code_dest)?;
     prepare_planning_repository(spec, &parent, &plan_dest)?;
@@ -73,15 +78,24 @@ pub(super) fn create_sibling_pair(
     register_pair_code_repository(manager, &workspace, &code)
 }
 
-fn prepare_code_repository(title: &str, code_dest: &Path) -> anyhow::Result<PathBuf> {
-    let existing = is_git_repository_root(code_dest);
-    if code_dest.exists() && !existing {
-        anyhow::bail!(
-            "{} already exists and is not a Git repository root",
-            code_dest.display()
-        );
+fn classify_destination(destination: &Path, kind: &str) -> anyhow::Result<()> {
+    if !destination.exists() || is_git_repository_root(destination) {
+        return Ok(());
     }
-    if !existing {
+    anyhow::bail!(
+        "{kind} destination {} already exists and is not a Git repository root; remove it or choose a different name",
+        destination.display()
+    )
+}
+
+fn prepare_code_repository(title: &str, code_dest: &Path) -> anyhow::Result<PathBuf> {
+    if is_git_repository_root(code_dest) {
+        // Existing repository: resume only when it is unmistakably ours.
+        match code_repository_proof(code_dest, title)? {
+            CodeRepositoryProof::Unborn => ground_initial_commit(code_dest, title)?,
+            CodeRepositoryProof::Grounded => {}
+        }
+    } else {
         let name = code_dest
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("code repository path is not valid UTF-8"))?;
@@ -101,29 +115,119 @@ fn prepare_code_repository(title: &str, code_dest: &Path) -> anyhow::Result<Path
             let _ = fs::remove_dir_all(code_dest);
             anyhow::anyhow!("code repository could not be initialized at {name}: {error}")
         })?;
-    }
-    if !git::has_commit(code_dest)? {
-        let readme = format!("# {title}\n\nCode repository maintained by Kool.ad/e.\n");
-        let write_outcome = fs::write(code_dest.join("README.md"), readme);
-        if let Err(write_error) = write_outcome {
-            let _ = fs::remove_dir_all(code_dest);
-            anyhow::bail!(
-                "code repository initial README could not be written (the unfinished repository was removed): {write_error}"
-            );
-        }
-        let commit_outcome = crate::core::gitops::commit(
-            code_dest,
-            &format!("Kool.ad/e: initialize {title} code repository"),
-            &["README.md".to_owned()],
-        );
-        if let Err(commit_error) = commit_outcome {
-            let _ = fs::remove_dir_all(code_dest);
-            anyhow::bail!(
-                "code repository initial commit failed (the unfinished repository was removed): {commit_error}"
-            );
-        }
+        ground_initial_commit(code_dest, title)?;
     }
     Ok(code_dest.to_path_buf())
+}
+
+/// Provenance proof for reusing a repository found at the code destination:
+/// anything Kool.ad/e did not demonstrably create is refused rather than
+/// adopted, so a foreign (even clean) repository can never be silently
+/// enrolled as the project's root code checkout.
+#[derive(Debug, PartialEq, Eq)]
+enum CodeRepositoryProof {
+    /// No commits at all: either our own fresh init or an operator's empty
+    /// repository — installing the grounding commit destroys nothing.
+    Unborn,
+    /// Exactly the grounding commit tracking exactly README.md with a clean
+    /// tree: an earlier interrupted run of THIS creation, safe to resume.
+    Grounded,
+}
+
+fn ground_commit_message(title: &str) -> String {
+    format!("Kool.ad/e: initialize {title} code repository")
+}
+
+fn ground_initial_commit(code_dest: &Path, title: &str) -> anyhow::Result<()> {
+    let readme = format!("# {title}\n\nCode repository maintained by Kool.ad/e.\n");
+    let readme_path = code_dest.join("README.md");
+    fs::write(&readme_path, readme).map_err(|error| {
+        anyhow::anyhow!("code repository placeholder README could not be written: {error}")
+    })?;
+    let commit = crate::core::gitops::commit(
+        code_dest,
+        &ground_commit_message(title),
+        &["README.md".to_owned()],
+    )
+    .map(|_| ());
+    commit.map_err(|error| {
+        // Restore the found state (unborn, no placeholder) so a retry
+        // starts from the same shape.
+        let _ = fs::remove_file(&readme_path);
+        anyhow::anyhow!("code repository initial commit failed: {error}")
+    })
+}
+
+fn code_repository_proof(code_dest: &Path, title: &str) -> anyhow::Result<CodeRepositoryProof> {
+    let count_raw = git::output(Some(code_dest), &["rev-list", "--count", "HEAD"])
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "{} could not be inspected by Git: {error}",
+                code_dest.display()
+            )
+        })?
+        .stdout;
+    let count = std::str::from_utf8(&count_raw)
+        .ok()
+        .and_then(|text| text.trim().parse::<u32>().ok())
+        .unwrap_or(u32::MAX);
+    match count {
+        0 => {
+            let porcelain = git::output(Some(code_dest), &["status", "--porcelain"])
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "{} could not be inspected by Git: {error}",
+                        code_dest.display()
+                    )
+                })?
+                .stdout;
+            let loose: Vec<String> = std::str::from_utf8(&porcelain)
+                .unwrap_or_default()
+                .lines()
+                .map(|line| line.trim().to_owned())
+                .filter(|line| !line.is_empty())
+                .collect();
+            let only_leftover_readme = loose == vec!["?? README.md".to_owned()];
+            if loose.is_empty() || only_leftover_readme {
+                return Ok(CodeRepositoryProof::Unborn);
+            }
+            refuse_foreign_code_repository(code_dest)
+        }
+        1 => {
+            let subject = git::output(Some(code_dest), &["log", "-1", "--pretty=%s"])
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "{} could not be inspected by Git: {error}",
+                        code_dest.display()
+                    )
+                })?
+                .stdout;
+            let tracked = git::output(Some(code_dest), &["ls-files"])
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "{} could not be inspected by Git: {error}",
+                        code_dest.display()
+                    )
+                })?
+                .stdout;
+            let subject_is_ours = std::str::from_utf8(&subject)
+                .is_ok_and(|text| text.trim() == ground_commit_message(title));
+            let tracked_is_readme =
+                std::str::from_utf8(&tracked).is_ok_and(|text| text.lines().eq(["README.md"]));
+            if subject_is_ours && tracked_is_readme && git::status_paths(code_dest)?.is_empty() {
+                return Ok(CodeRepositoryProof::Grounded);
+            }
+            refuse_foreign_code_repository(code_dest)
+        }
+        _ => refuse_foreign_code_repository(code_dest),
+    }
+}
+
+fn refuse_foreign_code_repository(code_dest: &Path) -> anyhow::Result<CodeRepositoryProof> {
+    anyhow::bail!(
+        "{} already exists as a Git repository Kool.ad/e did not create for this project; move it aside, or use a different project name",
+        code_dest.display()
+    )
 }
 
 fn prepare_planning_repository(
@@ -132,16 +236,15 @@ fn prepare_planning_repository(
     plan_dest: &Path,
 ) -> anyhow::Result<()> {
     if is_git_repository_root(plan_dest) {
-        let manifest = WorkspaceManifest::read(plan_dest).map_err(|error| {
+        WorkspaceManifest::read(plan_dest).map_err(|error| {
             anyhow::anyhow!(
                 "{} is a Git repository but its planning manifest is unreadable: {error}",
                 plan_dest.display()
             )
         })?;
-        let _ = manifest;
         anyhow::ensure!(
             git::status_paths(plan_dest)?.is_empty(),
-            "{} must be clean before it can be reused as the planning repository",
+            "{} must be clean before it can be reused as the planning repository; commit or discard the pending planning changes first",
             plan_dest.display()
         );
         return Ok(());

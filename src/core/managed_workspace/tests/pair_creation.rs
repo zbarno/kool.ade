@@ -46,9 +46,25 @@ fn create_sibling_pair_materializes_and_registers_both_repositories() {
     assert_eq!(mapped.path, code.canonicalize().unwrap());
 
     assert_eq!(branch_of(&code), "main");
+    assert_eq!(
+        rev_count(&code),
+        1,
+        "the code repository carries exactly one grounding commit"
+    );
     assert!(
         code.join("README.md").is_file(),
         "placeholder README grounds the initial commit"
+    );
+    assert!(
+        std::fs::read_to_string(code.join("README.md"))
+            .unwrap()
+            .starts_with("# Demo widget backend"),
+        "the grounding README carries the project title"
+    );
+    let code_status = super::support::git_ok(Some(&code), &["status", "--porcelain"]);
+    assert!(
+        code_status.stdout.is_empty(),
+        "code repository is committed clean"
     );
     assert_eq!(
         branch_of(&planning),
@@ -118,6 +134,104 @@ fn occupied_non_repo_destination_is_rejected_without_side_effects() {
         manager.list_local().unwrap().is_empty(),
         "no workspace association may record the failed attempt"
     );
+}
+
+#[test]
+fn occupied_planning_destination_leaves_no_half_pair_behind() {
+    let temp = TestDirectory::new("pair-plan-occupied");
+    fs::create_dir_all(temp.path.join("workspaces")).unwrap();
+    fs::write(
+        temp.path.join("workspaces/widget.packet"),
+        "someone's notes",
+    )
+    .unwrap();
+    let manager = temp.manager("operator");
+
+    let error = manager
+        .create_sibling_pair(&spec_in(&temp))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("already exists and is not a Git repository root"),
+        "actual: {error}"
+    );
+    assert!(
+        !temp.path.join("workspaces/widget").exists(),
+        "the code repository must not exist when the planning destination is refused"
+    );
+    assert!(manager.list_local().unwrap().is_empty());
+    assert_eq!(
+        fs::read_to_string(temp.path.join("workspaces/widget.packet")).unwrap(),
+        "someone's notes",
+        "the occupying file must survive untouched"
+    );
+}
+
+#[test]
+fn foreign_repository_at_code_destination_is_refused_not_adopted() {
+    let temp = TestDirectory::new("pair-foreign");
+    fs::create_dir_all(temp.path.join("workspaces/widget")).unwrap();
+    let code = temp.path.join("workspaces/widget");
+    fs::write(code.join("NOTES.txt"), "precious operator work\n").unwrap();
+    super::support::git_ok(
+        Some(&code),
+        &["init", "--quiet", "--initial-branch=main", "."],
+    );
+    super::support::git_ok(Some(&code), &["add", "-A"]);
+    super::support::git_ok(
+        Some(&code),
+        &[
+            "-c",
+            "user.name=Fixture Operator",
+            "-c",
+            "user.email=fixture@example.com",
+            "commit",
+            "-q",
+            "-m",
+            "my own baseline",
+        ],
+    );
+    let manager = temp.manager("operator");
+
+    let error = manager
+        .create_sibling_pair(&spec_in(&temp))
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("did not create for this project"),
+        "foreign repositories must be refused, not silently adopted (actual: {error})"
+    );
+    assert!(manager.list_local().unwrap().is_empty());
+    assert_eq!(
+        fs::read_to_string(code.join("NOTES.txt")).unwrap(),
+        "precious operator work\n",
+        "foreign repository content must survive untouched"
+    );
+    assert!(
+        !temp.path.join("workspaces/widget.packet").exists(),
+        "no planning counterpart may appear beside a refused code repository"
+    );
+}
+
+#[test]
+fn explicit_planning_repository_name_is_honored_and_resumable() {
+    let temp = TestDirectory::new("pair-named-plan");
+    fs::create_dir_all(temp.path.join("workspaces")).unwrap();
+    let mut spec = spec_in(&temp);
+    spec.planning_repo_name = "bay-of-packets".to_owned();
+    spec.parent_dir = temp.path.join("workspaces");
+    let manager = temp.manager("operator");
+
+    manager.create_sibling_pair(&spec).unwrap();
+    let planning = temp.path.join("workspaces/bay-of-packets");
+    assert!(planning.join("manifest.json").is_file());
+    assert!(
+        !temp.path.join("workspaces/widget.packet").exists(),
+        "the explicit name replaces the conventional sibling"
+    );
+    let before = rev_count(&planning);
+    manager.create_sibling_pair(&spec).unwrap();
+    assert_eq!(rev_count(&planning), before);
 }
 
 #[test]

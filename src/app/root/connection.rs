@@ -288,29 +288,37 @@ impl KooladeApp {
         spec.planning_repo_name = planning_repo_name;
         spec.parent_dir = std::path::PathBuf::from(parent_raw);
         self.wiz_error = None;
-        self.finish_connect(welcome::attempt_create_project(&spec));
+        match welcome::attempt_create_project(&spec) {
+            Ok(project) => self.finish_connect(Ok(project)),
+            // Surface creation failures in the wizard's OWN banner instead
+            // of the legacy connect card's error line.
+            Err(error) => self.wiz_error = Some(error.to_string()),
+        }
     }
 
     /// Maps an operator-facing project title onto a safe repository folder
     /// name: words separated by hyphens, lower-cased, ASCII letters/digits
     /// only, forced to start with a letter so the pair validator accepts it.
-    fn project_title_to_folder_name(title: &str) -> String {
-        let mut name = String::new();
-        for word in title.split_whitespace() {
-            if !name.is_empty() {
-                name.push('-');
-            }
-            for character in word.chars() {
-                if character.is_ascii_alphanumeric() {
-                    name.push(character.to_ascii_lowercase());
-                }
+    pub(super) fn project_title_to_folder_name(title: &str) -> String {
+        // Tokenize on runs of ASCII alphanumerics; every other character
+        // acts as a separator, so "2.0" becomes "2-0" rather than "20".
+        let mut segments: Vec<String> = Vec::new();
+        let mut current = String::new();
+        for character in title.chars() {
+            if character.is_ascii_alphanumeric() {
+                current.push(character.to_ascii_lowercase());
+            } else if !current.is_empty() {
+                segments.push(std::mem::take(&mut current));
             }
         }
-        let name = name.trim_matches('-').to_owned();
-        if name.is_empty() || !name.starts_with(|c: char| c.is_ascii_alphabetic()) {
-            format!("project-{name}")
-        } else {
-            name
+        if !current.is_empty() {
+            segments.push(current);
+        }
+        let name = segments.join("-");
+        match name.as_str() {
+            "" => "project".to_owned(),
+            _ if !name.starts_with(|c: char| c.is_ascii_alphabetic()) => format!("project-{name}"),
+            _ => name,
         }
     }
 
@@ -402,5 +410,32 @@ impl KooladeApp {
                 self.conn_error = Some(Self::conn_banner(&e));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod title_slug_tests {
+    use super::KooladeApp;
+
+    #[test]
+    fn folder_name_slugging_edges() {
+        assert_eq!(
+            KooladeApp::project_title_to_folder_name("Acme Portal"),
+            "acme-portal"
+        );
+        assert_eq!(
+            KooladeApp::project_title_to_folder_name("Uber Cool 2.0 Draft"),
+            "uber-cool-2-0-draft"
+        );
+        // Pure punctuation degrades to the stable fallback, never a bare
+        // dash or an empty segment.
+        assert_eq!(
+            KooladeApp::project_title_to_folder_name("!!! ???"),
+            "project"
+        );
+        assert_eq!(
+            KooladeApp::project_title_to_folder_name("42 Ways"),
+            "project-42-ways"
+        );
     }
 }

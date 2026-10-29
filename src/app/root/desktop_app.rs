@@ -94,6 +94,21 @@ impl KooladeApp {
                                 "Planning repository name (leave empty for <code folder>.packet)",
                             ),
                         );
+                        if !self.wiz_project_name.trim().is_empty() {
+                            let preview_code =
+                                Self::project_title_to_folder_name(
+                                    self.wiz_project_name.trim(),
+                                );
+                            let packed = self.wiz_packet_name.trim().to_string();
+                            let preview_plan = if packed.is_empty() {
+                                format!("{preview_code}.packet")
+                            } else {
+                                packed
+                            };
+                            ui.label(crate::ui::theme::helper_text(format!(
+                                "Creates \"{preview_code}\" and \"{preview_plan}\" side by side in the chosen folder."
+                            )));
+                        }
                         ui.horizontal_centered(|ui| {
                             if ui
                                 .add_enabled(

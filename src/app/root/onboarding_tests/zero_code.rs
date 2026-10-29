@@ -117,6 +117,14 @@ fn welcome_ui_creates_plans_joins_and_reopens_one_zero_code_workspace() {
     let _ = std::fs::remove_dir_all(base);
 }
 
+// Production boundary: welcome wizard UI → application connect path → core
+// managed-workspace sibling-pair creation (no in-test shortcuts). Invariants
+// asserted: the operator's typed project name drives TWO sibling repositories
+// (code + planning) under the chosen parent; the connected board is rooted at
+// the freshly created CHECKOUT; exactly one code repository (id "root") is
+// registered; the planning sibling carries managed-workspace scaffolding.
+// Expected setup cost: in-process egui drive plus several local Git
+// operations against a temp tree; no network, no Docker, no SSH.
 #[test]
 fn welcome_ui_wizard_creates_a_connected_sibling_pair() {
     let _shield =
