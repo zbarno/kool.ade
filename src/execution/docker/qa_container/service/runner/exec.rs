@@ -18,7 +18,14 @@ pub(super) async fn run_driver_exec(
     max_output_bytes: usize,
     cancel: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<DriverContainerOutput, ExecutionError> {
-    let output = run_attached_exec(docker, container_id, command, None, max_output_bytes);
+    let output = run_attached_exec(
+        docker,
+        container_id,
+        command,
+        None,
+        executor_runtime_user(),
+        max_output_bytes,
+    );
     let deadline = tokio::time::Instant::now() + timeout;
     tokio::select! {
         _ = tokio::time::sleep_until(deadline) => Err(denied("QA driver exceeded its approved timeout")),
@@ -35,6 +42,7 @@ pub(super) async fn run_attached_exec(
     container_id: &str,
     command: Vec<String>,
     input_bytes: Option<&[u8]>,
+    user: String,
     max_output_bytes: usize,
 ) -> Result<DriverContainerOutput, ExecutionError> {
     let exec = docker
@@ -45,7 +53,7 @@ pub(super) async fn run_attached_exec(
                 attach_stdout: Some(true),
                 attach_stderr: Some(true),
                 cmd: Some(command),
-                user: Some(executor_runtime_user()),
+                user: Some(user),
                 privileged: Some(false),
                 ..Default::default()
             },

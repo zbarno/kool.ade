@@ -133,6 +133,12 @@ async fn run_async(
         .await
         .map_err(|error| error.message)?;
         driver_id = Some(container_id.clone());
+        assert_runtime_user_cannot_change_workspace_permissions(
+            docker,
+            &container_id,
+            &browser_image.runtime_user,
+        )
+        .await?;
         let mut binding = preview.relay_binding.clone();
         binding.browser_container_id = Some(container_id.clone());
         validate_browser_driver_network(docker, request, &binding, &container_id)
@@ -206,4 +212,64 @@ async fn run_async(
         evidence_root.to_path_buf(),
         expected_outcome,
     );
+}
+
+async fn assert_runtime_user_cannot_change_workspace_permissions(
+    docker: &bollard::Docker,
+    container_id: &str,
+    runtime_user: &str,
+) -> Result<(), String> {
+    // Only the rootless container can prove the executor UID mapping and
+    // ownership fence; body/permission unit tests cannot prove chmod is denied.
+    use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
+    use futures_util::TryStreamExt;
+
+    let result = tokio::time::timeout(Duration::from_secs(10), async {
+        let exec = docker
+            .create_exec(
+                container_id,
+                CreateExecOptions::<String> {
+                    attach_stdout: Some(true),
+                    attach_stderr: Some(true),
+                    cmd: Some(vec!["chmod".into(), "u+w".into(), "/workspace".into()]),
+                    user: Some(runtime_user.into()),
+                    privileged: Some(false),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(|_| "QA workspace permission check could not be created")?;
+        let StartExecResults::Attached { mut output, .. } = docker
+            .start_exec(
+                &exec.id,
+                Some(StartExecOptions {
+                    detach: false,
+                    tty: false,
+                    output_capacity: Some(1024),
+                }),
+            )
+            .await
+            .map_err(|_| "QA workspace permission check could not start")?
+        else {
+            return Err("QA workspace permission check did not attach");
+        };
+        while output
+            .try_next()
+            .await
+            .map_err(|_| "QA workspace permission check output could not be read")?
+            .is_some()
+        {}
+        let status = docker
+            .inspect_exec(&exec.id)
+            .await
+            .map_err(|_| "QA workspace permission check result could not be read")?;
+        Ok::<_, &'static str>(status.exit_code)
+    })
+    .await
+    .map_err(|_| "QA workspace permission check exceeded its time bound")??;
+    match result {
+        Some(0) => Err("QA runtime user unexpectedly changed workspace permissions".into()),
+        Some(_) => Ok(()),
+        None => Err("QA workspace permission check ended without an exit status".into()),
+    }
 }

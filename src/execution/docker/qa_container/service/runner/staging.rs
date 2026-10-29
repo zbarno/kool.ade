@@ -25,6 +25,7 @@ pub(crate) async fn upload_snapshots(
             docker,
             container_id,
             vec!["mkdir".into(), "-p".into(), target.into()],
+            staging_user(target),
             &[],
             deadline,
             cancel,
@@ -46,6 +47,7 @@ pub(crate) async fn upload_snapshots(
                 "-C".into(),
                 target.into(),
             ],
+            staging_user(target),
             &upload.archive,
             deadline,
             cancel,
@@ -80,6 +82,28 @@ pub(crate) async fn upload_snapshots(
             return Err(denied(message));
         }
     }
+    if uploads.iter().any(|upload| upload.target == "/workspace") {
+        let locked = run_staging_command(
+            docker,
+            container_id,
+            vec![
+                "chmod".into(),
+                "-R".into(),
+                "a-w".into(),
+                "/workspace".into(),
+            ],
+            "0:0".into(),
+            &[],
+            deadline,
+            cancel,
+        )
+        .await?;
+        if locked.exit_code != 0 {
+            return Err(denied(
+                "QA workspace artifact permissions could not be restored after staging",
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -95,10 +119,23 @@ fn approved_upload_target(target: &str) -> bool {
     )
 }
 
+fn staging_user(target: &str) -> String {
+    if target == "/workspace" {
+        "0:0".into()
+    } else {
+        format!(
+            "{}:{}",
+            crate::execution::docker::images::EXECUTOR_UID,
+            crate::execution::docker::images::EXECUTOR_GID
+        )
+    }
+}
+
 async fn run_staging_command(
     docker: &bollard::Docker,
     container_id: &str,
     command: Vec<String>,
+    user: String,
     archive: &[u8],
     deadline: tokio::time::Instant,
     cancel: &mut tokio::sync::watch::Receiver<bool>,
@@ -109,13 +146,13 @@ async fn run_staging_command(
             let _ = changed;
             Err(denied("QA artifact staging was cancelled"))
         }
-        result = run_attached_exec(docker, container_id, command, Some(archive), 1024) => result,
+        result = run_attached_exec(docker, container_id, command, Some(archive), user, 1024) => result,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::approved_upload_target;
+    use super::{approved_upload_target, staging_user};
 
     #[test]
     fn qa_upload_targets_are_limited_to_approved_artifact_and_dependency_cache_paths() {
@@ -132,5 +169,18 @@ mod tests {
         for target in ["/", "/home/executor", "/home/executor/.cache", "/tmp"] {
             assert!(!approved_upload_target(target), "{target}");
         }
+    }
+
+    #[test]
+    fn only_workspace_staging_uses_the_container_root_identity() {
+        assert_eq!(staging_user("/workspace"), "0:0");
+        assert_eq!(
+            staging_user("/home/executor/.npm"),
+            format!(
+                "{}:{}",
+                crate::execution::docker::images::EXECUTOR_UID,
+                crate::execution::docker::images::EXECUTOR_GID
+            )
+        );
     }
 }

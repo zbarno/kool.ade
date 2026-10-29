@@ -121,7 +121,10 @@ pub fn snapshot_selected_files(
             let mut header = tar::Header::new_gnu();
             header.set_entry_type(tar::EntryType::Directory);
             header.set_size(0);
-            header.set_mode(0o555);
+            // Some executor images use BusyBox tar, which applies a directory's
+            // final mode before extracting its children. Keep the staged
+            // archive writable, then the container staging boundary locks it.
+            header.set_mode(0o755);
             header.set_cksum();
             tar.append_data(&mut header, name, std::io::empty())
                 .map_err(|_| denied("Runtime QA directory snapshot cannot be encoded"))?;
@@ -176,4 +179,27 @@ fn executable(metadata: &fs::Metadata) -> bool {
 #[cfg(not(unix))]
 fn executable(_: &fs::Metadata) -> bool {
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::snapshot_selected_files;
+    use sha2::{Digest, Sha256};
+    use std::fs;
+
+    #[test]
+    fn selected_artifact_archive_keeps_parent_directories_writable_for_extraction() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("dist")).unwrap();
+        fs::write(root.path().join("dist/index.html"), "fixture").unwrap();
+        let hash = format!("{:x}", Sha256::digest(b"fixture"));
+        let expected = std::collections::BTreeMap::from([("dist/index.html".into(), hash)]);
+        let (upload, _) =
+            snapshot_selected_files(root.path(), &["dist/index.html".into()], &expected, 1024)
+                .unwrap();
+        let mut archive = tar::Archive::new(upload.archive.as_slice());
+        let directory = archive.entries().unwrap().next().unwrap().unwrap();
+        assert!(directory.header().entry_type().is_dir());
+        assert_eq!(directory.header().mode().unwrap() & 0o777, 0o755);
+    }
 }

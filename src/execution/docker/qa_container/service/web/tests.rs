@@ -170,9 +170,10 @@ fn web_preview_uses_the_locked_recipe_runtime_image_instead_of_a_node_only_contr
     validate_spec(&spec).unwrap();
     let body = service_body(&spec, &"f".repeat(64)).unwrap();
     assert_eq!(body.image.as_deref(), Some(image.reference.as_str()));
+    assert_eq!(body.user.as_deref(), Some(image.runtime_user.as_str()));
     assert!(
         body.host_config.as_ref().unwrap().tmpfs.as_ref().unwrap()["/workspace"]
-            .contains("uid=10001,gid=10001")
+            .contains("uid=0,gid=0,mode=0755")
     );
     let workspace_mount = &body.host_config.as_ref().unwrap().tmpfs.as_ref().unwrap()["/workspace"];
     assert!(workspace_mount.split(',').any(|option| option == "exec"));

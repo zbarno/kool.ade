@@ -120,13 +120,18 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
     let mut body = spec.create_body_with_lock(&lock).unwrap();
     let host_config = body.host_config.as_ref().unwrap();
     assert_eq!(host_config.readonly_rootfs, Some(true));
+    assert_eq!(body.user.as_deref(), Some(selected.runtime_user.as_str()));
     let tmpfs = host_config.tmpfs.as_ref().unwrap();
     for path in ["/tmp", "/run", "/home/executor", "/workspace"] {
         let options = tmpfs
             .get(path)
             .unwrap_or_else(|| panic!("missing tmpfs mount {path}"));
         assert!(options.starts_with("rw,"), "{path} must be writable tmpfs");
-        assert!(options.contains("uid=10001,gid=10001"));
+        if path == "/workspace" {
+            assert!(options.contains("uid=0,gid=0,mode=0755"));
+        } else {
+            assert!(options.contains("uid=10001,gid=10001"));
+        }
     }
     assert!(tmpfs.contains_key("/home/executor/.npm"));
     let tmpfs_budget = tmpfs

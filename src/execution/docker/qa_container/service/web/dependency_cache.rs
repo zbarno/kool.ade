@@ -77,7 +77,7 @@ pub(super) fn service_tmpfs(
         (
             "/workspace".into(),
             format!(
-                "rw,nosuid,nodev,exec,size={},uid={uid},gid={gid}",
+                "rw,nosuid,nodev,exec,size={},uid=0,gid=0,mode=0755",
                 mount_size,
             ),
         ),
