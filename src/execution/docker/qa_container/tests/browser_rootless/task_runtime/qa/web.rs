@@ -121,6 +121,7 @@ async fn run_async(
         let body = spec
             .create_body_with_lock(lock)
             .map_err(|error| error.message)?;
+        let expected_env = body.env.clone().unwrap_or_default();
         let container_id = create_driver_container(
             docker,
             &format!("koolade-qa-{}", request.qa_run_id),
@@ -133,6 +134,14 @@ async fn run_async(
         .await
         .map_err(|error| error.message)?;
         driver_id = Some(container_id.clone());
+        super::super::super::identity::assert_no_host_browser_identity(
+            docker,
+            &container_id,
+            &preview.relay_binding.relay_token,
+            &expected_env,
+            &browser_image.reference,
+        )
+        .await?;
         assert_runtime_user_cannot_change_workspace_permissions(
             docker,
             &container_id,

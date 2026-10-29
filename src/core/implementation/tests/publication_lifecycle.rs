@@ -15,12 +15,19 @@ mod evolve;
 /// invariant is that an unknown provider outcome stays PrPending and recovery
 /// opens the same PR once. Unit tests cannot prove this durable cross-module
 /// handoff. Plan/review/QA/spec receipts remain synthetic at this boundary.
-/// Uses a temporary task clone, local SSH remote, fake `gh`, and headless app
-/// fixture; no external network, Docker, model, or browser. Setup cost is a
-/// temporary repository, lifecycle store, and a few provider-fixture processes.
+/// Uses a Python-only source tree without Cargo or npm manifests, a temporary
+/// task clone, local SSH remote, fake `gh`, and headless app fixture; no external
+/// network, Docker, model, or browser. This verifies publication remains a Git
+/// and provider operation independent of the project's build system. Setup
+/// cost is a temporary repository, lifecycle store, and provider-fixture processes.
 #[test]
 fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_pr() {
-    let sandbox = Sandbox::new();
+    let sandbox = Sandbox::new_with_initial_files(&[(
+        "src/server.py",
+        "def status():\n    return 'ready'\n",
+    )]);
+    assert!(!sandbox.repo.join("Cargo.toml").exists());
+    assert!(!sandbox.repo.join("package.json").exists());
     let product_pr_url = "https://github.com/zbarno/kool.ade/pull/999999";
     let gh_script = fs::read_to_string(&sandbox.gh).unwrap();
     let product_gh_script =
@@ -36,6 +43,8 @@ fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_
             false,
         )
         .unwrap();
+    assert!(!state.task_repository.join("Cargo.toml").exists());
+    assert!(!state.task_repository.join("package.json").exists());
 
     // Represent a separately completed child commit in the integrated parent
     // branch. The lifecycle review fixture is bound to this final head.
