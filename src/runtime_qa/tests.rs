@@ -192,6 +192,18 @@ fn desktop_capability_fails_closed_without_private_display_and_rejects_host_acce
 }
 
 #[test]
+fn desktop_capability_fails_closed_without_llvmpipe_renderer() {
+    let mut probe = desktop_probe();
+    probe.llvmpipe_ready = false;
+
+    assert!(matches!(
+        probe.assess().unwrap(),
+        LinuxDesktopCapabilityV1::Unsupported { missing, .. }
+            if missing.iter().any(|item| item == "Mesa llvmpipe software renderer")
+    ));
+}
+
+#[test]
 fn desktop_actions_are_limited_to_current_windows_and_display_geometry() {
     let window_id = "window-1".to_owned();
     let session = LinuxDesktopSessionV1 {
