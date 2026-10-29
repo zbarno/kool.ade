@@ -26,6 +26,8 @@ mod cleanup;
 mod concurrency;
 #[path = "browser_rootless/defects.rs"]
 mod defects;
+#[path = "browser_rootless/identity.rs"]
+mod identity;
 #[path = "browser_rootless/lifecycle.rs"]
 mod lifecycle;
 #[path = "browser_rootless/probe.rs"]
