@@ -38,6 +38,12 @@ impl RuntimeQaReviewHarness {
                     .iter()
                     .map(|action| action.index.to_string()),
             )
+            .chain(
+                evidence
+                    .actions
+                    .iter()
+                    .flat_map(|action| action.evidence_ids.iter().cloned()),
+            )
             .collect();
         let screenshot_ids = evidence
             .screenshots
