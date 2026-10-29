@@ -1,38 +1,40 @@
 # Runtime QA release evidence
 
-## Current main workflow status (2026-10-29)
+## Current main workflow status (2026-10-29, 23:44 UTC)
 
 Evidence is anchored to current `main` commit
-[`4478e22`](https://github.com/zbarno/kool.ade/commit/4478e22de5c606186119aa0eb3c2dbd0bf972cae).
-The quality workflow [40949757846](https://github.com/zbarno/kool.ade/actions/runs/40949757846)
-passed after a retry of the rootless Docker recovery job. The native package
-workflow [40949758572](https://github.com/zbarno/kool.ade/actions/runs/40949758572)
+[`4221812`](https://github.com/zbarno/kool.ade/commit/422181299a53a40efc400ed2d384093153be8207).
+The exact-main quality workflow [40970644144](https://github.com/zbarno/kool.ade/actions/runs/40970644144)
+passed after retrying the isolated Docker daemon recovery job, which failed
+because the daemon did not answer its health request. The native package
+workflow [40970644069](https://github.com/zbarno/kool.ade/actions/runs/40970644069)
 passed Linux x86_64, Linux arm64, Windows x64, Apple Silicon macOS, and Intel
 macOS packages. The trusted-image workflow
-[40949758383](https://github.com/zbarno/kool.ade/actions/runs/40949758383)
-passed on retry after attempt 1 lost Docker Engine health during the desktop
-candidate test. Browser and desktop candidate verification passed; publication
-and published-image smokes were skipped because both QA profiles remain
-disabled. These implementation checks do not provide a complete release matrix
-or authorize enabling the profiles.
+[40970644164](https://github.com/zbarno/kool.ade/actions/runs/40970644164)
+is still in progress at this update. Its desktop candidate job failed during
+rootless Docker engine health recovery, while the browser candidate job is
+still running. These
+results do not count as a passing exact-main trusted-image run. Both QA profiles
+remain disabled, so publication and published-image smokes are skipped. This
+implementation evidence does not provide a complete release matrix or
+authorize enabling the profiles.
 
-## Unmerged candidate PR checks (2026-10-29)
+## Merged candidate PR checks (2026-10-29)
 
-The following hosted results passed on PR heads after the `4478e22` main
-snapshot. They add useful candidate evidence but are not main-branch release
-evidence until the PRs merge:
+These hosted results passed on PR heads before merge. They provide candidate
+implementation evidence; exact-main evidence is listed separately above:
 
 | PR head | Quality | Trusted image | Native packages | Scope |
 | --- | --- | --- | --- | --- |
 | [#424 `1b19f33`](https://github.com/zbarno/kool.ade/pull/424/commits/1b19f333a896b461eee03a290365515c212aa217) | [40949815265](https://github.com/zbarno/kool.ade/actions/runs/40949815265) | [40949815276](https://github.com/zbarno/kool.ade/actions/runs/40949815276) | [40949815652](https://github.com/zbarno/kool.ade/actions/runs/40949815652) | Browser credential-bearing relay URL is rejected before Chromium starts. |
 | [#426 `3364ca7`](https://github.com/zbarno/kool.ade/pull/426/commits/3364ca7fcdaee9483c093aed7d89589d9d29103e) | [40953781074](https://github.com/zbarno/kool.ade/actions/runs/40953781074) | [40953780987](https://github.com/zbarno/kool.ade/actions/runs/40953780987) | [40953780979](https://github.com/zbarno/kool.ade/actions/runs/40953780979) | Rootless desktop cancellation reports cancellation and removes its owned container. |
-| [#425 `eed66e1`](https://github.com/zbarno/kool.ade/pull/425/commits/eed66e13b3bc576b5a0d594685529aba02cadd15) | [40958564467](https://github.com/zbarno/kool.ade/actions/runs/40958564467) | [40958564504](https://github.com/zbarno/kool.ade/actions/runs/40958564504) | [40958564350](https://github.com/zbarno/kool.ade/actions/runs/40958564350) | Refreshes this evidence page; all five native package targets passed. |
 
-For all three PRs, the quality, trusted-image, and native-package workflows
-passed. Trusted-image publication and published-image smokes were skipped
-because both profiles remain disabled. The PRs still require review and the
-main-only matrix above remains the authoritative release baseline. After these
-changes merge, refresh the exact-main evidence and re-evaluate each release row.
+PRs #424 and #426 are merged. PR #425 merged as current main `4221812`; its
+head contains documentation only, so its PR-head checks are not listed as new
+runtime candidate proof. Trusted-image publication and published-image smokes
+remain skipped because both profiles are disabled. The main-only matrix above
+remains the authoritative release baseline; the PR results do not certify
+release readiness.
 
 ## Previous exact-main matrix (2026-10-27)
 
