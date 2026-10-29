@@ -30,7 +30,7 @@ pub(super) async fn assert_origin_escape_cases(
         .await
         .map_err(|error| format!("{case_name} was not blocked: {error}"))?;
     }
-    assert_non_http_navigation_schemes_denied(
+    assert_invalid_browser_inputs_denied(
         docker,
         request,
         browser_image,
@@ -80,16 +80,17 @@ pub(super) async fn assert_sink_hits_zero(
     Ok(())
 }
 
-/// Rootless Docker integration boundary: send a deliberately malformed driver
-/// request around the controller's scenario validator and prove the pinned
-/// driver rejects non-HTTP schemes before Chromium starts. The invariant is
-/// that bypassing app-side validation cannot let `file:` or `javascript:`
-/// navigation execute. A unit test cannot prove the built driver's runtime
-/// policy. This needs a rootless Docker daemon, the candidate browser image,
-/// and the existing preview/service fixture; setup cost is one extra short-lived
-/// driver container per scheme in the existing rootless integration run.
+/// Rootless Docker integration boundary: send deliberately malformed driver
+/// requests around the controller's scenario validator and prove the pinned
+/// driver rejects unsafe schemes and credential-bearing relay URLs before
+/// Chromium starts. The invariant is that bypassing app-side validation cannot
+/// open local files, execute `javascript:`, or send URL credentials to the task
+/// preview. A unit test cannot prove the built driver's runtime policy. This
+/// needs a rootless Docker daemon, the candidate browser image, and the existing
+/// preview/service fixture; setup cost is one extra short-lived driver
+/// container per invalid request in the existing rootless integration run.
 #[allow(clippy::too_many_arguments)]
-async fn assert_non_http_navigation_schemes_denied(
+async fn assert_invalid_browser_inputs_denied(
     docker: &bollard::Docker,
     request: &crate::runtime_qa::QaRunRequestV1,
     browser_image: &crate::execution::docker::images::SelectedImage,
@@ -103,6 +104,10 @@ async fn assert_non_http_navigation_schemes_denied(
     for (case_name, unsafe_url) in [
         ("file navigation", "file:///etc/passwd"),
         ("javascript navigation", "javascript:alert(1)"),
+        (
+            "credential-bearing relay URL",
+            "http://qa-user:synthetic-secret@qa-preview:8080/",
+        ),
     ] {
         let scenario = QaScenarioV1 {
             schema_version: 1,
@@ -116,7 +121,7 @@ async fn assert_non_http_navigation_schemes_denied(
                 "unsafe navigation is rejected",
                 false,
             )],
-            expected_results: vec!["The browser driver rejects unsafe schemes.".into()],
+            expected_results: vec!["The browser driver rejects invalid navigation inputs.".into()],
             negative_paths: vec![case_name.into()],
             visual_expectations: Vec::new(),
             redaction_regions: Vec::new(),
