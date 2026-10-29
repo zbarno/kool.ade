@@ -50,6 +50,7 @@ pub(super) async fn run(context: PrimaryDriverContext<'_>) -> Result<PrimaryDriv
     let body = spec
         .create_body_with_lock(context.lock)
         .map_err(|error| error.message)?;
+    let expected_env = body.env.clone().unwrap_or_default();
     let name = format!("koolade-qa-{}", context.request.qa_run_id);
     let driver_id = create_driver_container(
         context.docker,
@@ -65,6 +66,14 @@ pub(super) async fn run(context: PrimaryDriverContext<'_>) -> Result<PrimaryDriv
     let result = async {
         let mut relay_binding = context.preview.relay_binding.clone();
         relay_binding.browser_container_id = Some(driver_id.clone());
+        super::super::identity::assert_no_host_browser_identity(
+            context.docker,
+            &driver_id,
+            &relay_binding.relay_token,
+            &expected_env,
+            &context.browser_image.reference,
+        )
+        .await?;
         validate_browser_driver_network(
             context.docker,
             context.request,
