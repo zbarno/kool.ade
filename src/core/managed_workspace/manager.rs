@@ -10,6 +10,7 @@ use crate::{
 };
 
 use super::{association::WorkspaceAssociation, creation, git, manifest::WorkspaceManifest};
+use anyhow::Context;
 
 mod listing;
 mod operations;
@@ -156,7 +157,8 @@ impl WorkspaceManager {
             store.root == planning_repo,
             "planning store root differs from the associated checkout"
         );
-        let repositories = ProjectManifest::load(&store)?;
+        let repositories = ProjectManifest::load(&store)
+            .context("planning project repository manifest could not be loaded")?;
         repositories.validate()?;
         for checkout in &association.code_checkouts {
             anyhow::ensure!(

@@ -86,7 +86,14 @@ impl ProjectManifest {
                     }],
                 });
             }
-            Err(e) => return Err(e.into()),
+            Err(error) => {
+                // Keep the offending path and OS cause visible: this used to
+                // surface as a bare "No such file or directory" with no clue
+                // which planning artifact was involved.
+                return Err(anyhow::anyhow!(
+                    "project repository manifest could not be read: {error:?}"
+                ));
+            }
         };
         let mut value: Self = serde_json::from_str(&contents)?;
         value.normalize_display_names()?;
