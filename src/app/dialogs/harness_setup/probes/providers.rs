@@ -54,22 +54,23 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
             };
             let (configured_provider, models, default_model, catalog_diagnostic) =
                 pi_model_catalog();
-            // Pi's configured and bundled catalogs can be cached or loaded offline; a local
-            // model entry does not prove that the selected account can use it.
-            let model_catalog_fresh = false;
+            let assessment = authentication::evaluate_pi_authentication(
+                pi.binary.as_deref(),
+                configured_provider.as_deref(),
+            );
+            // A local catalog entry does not by itself prove account access; the live
+            // readiness check above does, for the provider it covers. Until that check
+            // passes this cycle, the catalog stays unfresh.
+            let model_catalog_fresh = assessment.live_provider_verified;
             let diagnostic = [
                 (!pi_diagnostic.is_empty()).then_some(pi_diagnostic),
                 catalog_diagnostic,
+                assessment.diagnostic,
             ]
             .into_iter()
             .flatten()
             .collect::<Vec<_>>();
-            let authentication = pi
-                .binary
-                .as_deref()
-                .map_or(ReadinessState::Unknown, |binary| {
-                    authentication::pi_authentication(binary, configured_provider.as_deref())
-                });
+            let authentication = assessment.state;
             let ready = pi.ok;
             HarnessProbe {
                 id: id.into(),
@@ -84,7 +85,8 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                 models,
                 default_model,
                 model_catalog_fresh,
-                configuration_required: pi.configuration_required,
+                configuration_required: pi.configuration_required
+                    || assessment.configuration_required,
                 authentication,
                 implementation_available: ready && runtime_available,
                 status,

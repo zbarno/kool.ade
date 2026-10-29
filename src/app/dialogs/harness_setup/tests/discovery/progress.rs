@@ -24,6 +24,7 @@ fn pending_scan_keeps_completed_provider_results_visible() {
             probe_result::from_harness_probe(&report, 1, 1_800, 57),
         )]),
         running_providers: std::collections::BTreeSet::from(["codex".into()]),
+        first_scan_pending: false,
     };
     let ctx = egui::Context::default();
     let mut output = ctx.run_ui(

@@ -37,13 +37,22 @@ fn pi_configured_model_output_cannot_persist_secret_text() {
     environment.set("KOOLADE_HOME", root.join("isolated-state").as_os_str());
 
     let report = discover_provider("pi", true);
-    assert_eq!(report.authentication, ReadinessState::Unknown);
+    // The live auth check verifies the provider account, but the bounds layer
+    // still quarantines model text shaped like credentials; the ready path must
+    // carry the quarantine verdict, not the raw text, and forfeit freshness.
+    assert_eq!(report.authentication, ReadinessState::Ready);
+    assert!(!report.model_catalog_fresh);
     assert!(report.models.is_empty());
     assert!(report.default_model.is_none());
-    assert!(!report.model_catalog_fresh);
     assert!(!report.status.contains("synthetic-secret"));
+    assert!(
+        report
+            .diagnostic
+            .iter()
+            .all(|detail| !detail.contains("synthetic-secret"))
+    );
     let settings_path = root.join("state/harness-settings.json");
-    crate::persistence::harness_settings::with_settings_path(settings_path, || {
+    crate::persistence::harness_settings::with_settings_path(settings_path.clone(), || {
         let mut settings = crate::persistence::harness_settings::HarnessSettings::default();
         super::super::super::discovery::apply_probe_results(&mut settings, &[report], None, 1);
         crate::persistence::harness_settings::save(&settings).unwrap();
@@ -53,6 +62,11 @@ fn pi_configured_model_output_cannot_persist_secret_text() {
         assert!(detected.default_model.is_none());
         assert!(!detected.model_catalog_fresh);
         assert!(!detected.status.contains("synthetic-secret"));
+        let raw = std::fs::read_to_string(settings_path).expect("durable settings file readable");
+        assert!(
+            !raw.contains("synthetic-secret"),
+            "secret text escaped into durable state"
+        );
     });
     std::fs::remove_dir_all(root).unwrap();
 }

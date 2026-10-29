@@ -45,6 +45,7 @@ fn runtime_probe_refreshes_all_retained_snapshots_but_stale_messages_are_ignored
             ),
         ]),
         running_providers: Default::default(),
+        first_scan_pending: false,
     };
 
     dialog.apply_probe_message(super::super::super::discovery::ProbeMessage::Runtime {

@@ -1,10 +1,12 @@
 use super::*;
 
-/// Production boundary: full discovery keeps the last provider results visible, while closing the
-/// dialog cancels only the live generation. Reopening starts a fresh generation without dropping
-/// the cached capability. Uses the real settings file and dialog constructor with only worker
-/// launch stubbed; no host provider, Docker, or network dependency. Setup cost is two short settings
-/// transactions.
+/// Production boundary: construction never starts a sweep (the thrash that
+/// pinned the dialog on "checking…"), the first painted frame arms one only
+/// when persisted evidence is stale, close cancels the live generation, and
+/// reopening serves the cached capability without dropping it. Uses the real
+/// settings file and dialog constructor with only worker launch stubbed; no
+/// host provider, Docker, or network dependency. Setup cost is two short
+/// settings transactions.
 #[test]
 fn closing_and_reopening_keeps_cached_discovery_until_a_new_result_arrives() {
     let root = std::env::temp_dir().join(format!(
@@ -33,39 +35,58 @@ fn closing_and_reopening_keeps_cached_discovery_until_a_new_result_arrives() {
             configuration_required: false,
             implementation_available: true,
             capability_snapshot: Some(snapshot),
-            checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
+            checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms()
+                .saturating_sub(crate::persistence::harness_settings::DISCOVERY_FRESHNESS_MS + 1),
         },
     );
 
     crate::persistence::harness_settings::with_settings_path(settings_path.clone(), || {
         crate::persistence::harness_settings::save(&settings).unwrap();
         crate::app::dialogs::harness_setup::discovery::test_hooks::with_worker_launch_stub(|| {
-            let mut dialog = DlgHarnessSetup::new();
-            assert!(
-                crate::app::dialogs::harness_setup::has_current_provider_capabilities(
-                    "pi",
-                    &dialog.settings.discovered["pi"],
-                    crate::persistence::harness_settings::current_unix_ms()
-                )
-            );
-            let first_generation = dialog.scan_generation;
-            let cancel = dialog.scan_cancel.as_ref().unwrap().clone();
-            dialog.cancel_discovery();
-            assert!(cancel.load(std::sync::atomic::Ordering::Acquire));
-            assert!(dialog.scan_cancel.is_none());
+            // Zero-width window: both first-paint arms below must be admitted
+            // back-to-back; production-window admission is pinned by the
+            // cooldown unit tests and refresh_click's decline test.
+            crate::app::dialogs::harness_setup::discovery::cooldown::with_window(0, || {
+                let mut dialog = DlgHarnessSetup::new();
+                assert!(
+                    dialog.settings.discovered["pi"]
+                        .capability_snapshot
+                        .is_some(),
+                    "cached capability must survive the reload"
+                );
+                // Regression guard: construction must not mint a generation.
+                assert_eq!(dialog.scan_generation, 0);
+                assert!(dialog.scan_cancel.is_none());
 
-            let reopened = DlgHarnessSetup::new();
-            assert_eq!(reopened.probe_view, ProbeView::Pending);
-            assert!(reopened.scan_generation > dialog.scan_generation);
-            assert!(
-                reopened.settings.discovered["pi"]
-                    .capability_snapshot
-                    .is_some()
-            );
-            assert_eq!(
-                crate::app::dialogs::harness_setup::discovery::test_hooks::launched_generations(),
-                vec![first_generation, reopened.scan_generation]
-            );
+                dialog.ensure_first_scan();
+                let first_generation = dialog.scan_generation;
+                assert_ne!(
+                    first_generation, 0,
+                    "stale evidence must arm a first-paint scan"
+                );
+                let cancel = dialog.scan_cancel.as_ref().unwrap().clone();
+                dialog.cancel_discovery();
+                assert!(cancel.load(std::sync::atomic::Ordering::Acquire));
+                assert!(dialog.scan_cancel.is_none());
+
+                let mut reopened = DlgHarnessSetup::new();
+                assert_eq!(reopened.probe_view, ProbeView::Pending);
+                assert_eq!(
+                    reopened.scan_generation, 0,
+                    "reopen must not scan at construction"
+                );
+                reopened.ensure_first_scan();
+                assert!(
+                    reopened.settings.discovered["pi"]
+                        .capability_snapshot
+                        .is_some()
+                );
+                assert_eq!(
+                    crate::app::dialogs::harness_setup::discovery::test_hooks::launched_generations(
+                    ),
+                    vec![first_generation, reopened.scan_generation]
+                );
+            });
         });
         let persisted = crate::persistence::harness_settings::load().0;
         assert!(persisted.discovered["pi"].checked_at_unix_ms > 0);

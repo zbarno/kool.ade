@@ -128,9 +128,9 @@ fn prepare_from(
 }
 
 fn configured_agent_directory() -> anyhow::Result<PathBuf> {
-    let path = std::env::var_os("PI_CODING_AGENT_DIR")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".pi/agent")))
+    // Share the probe/profile-directory resolver so the seeded profile and
+    // the readiness probe provably inspect the same Pi profile source.
+    let path = crate::harness::pi_provider_settings::agent_directory()
         .ok_or_else(|| anyhow::anyhow!("Pi configuration directory is unavailable"))?;
     anyhow::ensure!(
         path.is_absolute(),

@@ -1,6 +1,15 @@
 //! Read configured Pi model identifiers for the provider settings screen.
 use std::{io::Read, path::PathBuf};
 
+/// Resolve the Pi agent (profile) directory exactly once per process context:
+/// `PI_CODING_AGENT_DIR` when set, otherwise `$HOME/.pi/agent`. Every Pi reader
+/// (model catalog, readiness probe, turn seeding) must agree on this source.
+pub(crate) fn agent_directory() -> Option<PathBuf> {
+    std::env::var_os("PI_CODING_AGENT_DIR")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".pi/agent")))
+}
+
 pub(crate) fn configured_model_catalog() -> anyhow::Result<(Vec<String>, Option<String>)> {
     let (_, models, default_model) = configured_provider_catalog()?;
     Ok((models, default_model))
@@ -8,9 +17,7 @@ pub(crate) fn configured_model_catalog() -> anyhow::Result<(Vec<String>, Option<
 
 pub(crate) fn configured_provider_catalog() -> anyhow::Result<(String, Vec<String>, Option<String>)>
 {
-    let agent = std::env::var_os("PI_CODING_AGENT_DIR")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".pi/agent")))
+    let agent = agent_directory()
         .ok_or_else(|| anyhow::anyhow!("Cannot find Pi home for model discovery"))?;
     let settings: serde_json::Value = read_json(&agent.join("settings.json"))?;
     let models: serde_json::Value = read_json(&agent.join("models.json"))?;
