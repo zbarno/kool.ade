@@ -276,6 +276,7 @@ async fn assert_desktop_container_isolated(
     let mut allowed_env = expected_env.to_vec();
     allowed_env.extend_from_slice(image_env);
     allowed_env.sort();
+    allowed_env.dedup();
     let mut actual_env = config.env.unwrap_or_default();
     actual_env.sort();
     assert_eq!(actual_env, allowed_env);
