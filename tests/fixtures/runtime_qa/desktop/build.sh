@@ -36,7 +36,8 @@ fi
 
 common="-O2 -Wall -Wextra -Werror -std=c11 -s -D_GNU_SOURCE"
 
-cc $common -o "$outdir/koolade-qa-nonrust-fixture" "$here/non_rust_fixture.c" -lX11
+cc $common -o "$outdir/koolade-qa-nonrust-fixture" \
+    "$here/non_rust_fixture.c" "$here/action_probe.c" -lX11
 
 stub_objects=$(mktemp -d)
 trap 'rm -rf "$stub_objects"' EXIT INT TERM
@@ -44,6 +45,7 @@ cc -O2 -fPIC -shared -Wl,-soname,libkoolade_qa_absent_dep.so.1 \
     -o "$stub_objects/libkoolade_qa_absent_dep.so.1" "$here/absent_dep_stub.c"
 cc $common -DKOOLADE_QA_ABSENT_DEP \
     -o "$outdir/koolade-qa-nonrust-missing-dep" "$here/non_rust_fixture.c" \
+    "$here/action_probe.c" \
     "$stub_objects/libkoolade_qa_absent_dep.so.1" -lX11
 
 # Build-time guard rails proving the dependency mechanism before CI ships

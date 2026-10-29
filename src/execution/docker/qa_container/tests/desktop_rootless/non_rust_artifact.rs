@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::BTreeSet, path::Path};
 
 use crate::{
     execution::{
@@ -13,9 +13,12 @@ use crate::{
 // approved-artifact flow (hash receipt, tmpfs staging, descendant-ownership
 // filtering) as the Rust reference fixture, and its diagnostics must keep the
 // target-capability vocabulary when the artifact cannot start (missing loader
-// dependency) or crash mid-scenario.
+// dependency) or crash mid-scenario. The happy path also sends double-click,
+// drag, key chord, and scroll input through the actual rootless Xvfb boundary;
+// each target state change is observed before the next action.
 // Unit tests cannot prove Docker upload/staging, Xvfb pointer/keyboard
-// delivery, crash observation, and cleanup work together for a foreign ABI
+// delivery for double-click, drag, key-chord, and scroll, crash observation,
+// and cleanup work together for a foreign ABI
 // artifact; the focus-before-click proof rides on the fixture dropping keys
 // unless the driver focused its window first (no window manager in the image).
 // External dependency: rootless Docker with the just-loaded desktop candidate
@@ -62,7 +65,7 @@ pub(super) async fn exercise(
     assert_eq!(response["failure"], serde_json::Value::Null, "{response}");
     assert_eq!(
         response["actions"].as_array().unwrap().len(),
-        12,
+        21,
         "{response}"
     );
     assert_eq!(
@@ -71,13 +74,31 @@ pub(super) async fn exercise(
         "{response}"
     );
     let assertions = response["assertions"].as_array().unwrap();
-    assert!(assertions.len() >= 10, "{response}");
+    assert_eq!(assertions.len(), 20, "{response}");
     assert!(
         assertions
             .iter()
             .all(|assertion| assertion["status"] == "passed"),
         "{response}"
     );
+    let commands = response["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|action| action["command"].as_str())
+        .collect::<BTreeSet<_>>();
+    for command in [
+        "double_click",
+        "drag",
+        "focus_window",
+        "key_chord",
+        "scroll",
+    ] {
+        assert!(
+            commands.contains(command),
+            "missing {command} evidence: {response}"
+        );
+    }
 
     let response = scenarios::run_scenario(
         docker,
