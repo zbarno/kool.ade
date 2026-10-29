@@ -8,7 +8,10 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 mod managed;
-pub use managed::{attempt_create_workspace, attempt_join_workspace, attempt_open_workspace};
+pub use managed::{
+    attempt_create_project, attempt_create_workspace, attempt_join_workspace,
+    attempt_open_workspace,
+};
 /// Normalize user-typed paths (`~` expansion), then load the managed
 /// planning repository or the checkout's associated workspace. A code
 /// checkout with no planning association cannot connect: Kool.ad/e keeps

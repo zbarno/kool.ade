@@ -256,6 +256,64 @@ impl KooladeApp {
         self.finish_connect(welcome::attempt_open_workspace(id));
     }
 
+    /// Wizard "new project" track: builds the sibling-pair spec from the
+    /// wizard fields (deriving `<name>.packet` when the planning name was
+    /// left empty), opens the parent picker first if no folder was chosen
+    /// yet, and finishes through the regular connect pipeline.
+    pub(super) fn submit_create_project(&mut self) {
+        if self.clone_job.is_some() {
+            return;
+        }
+        let title = self.wiz_project_name.trim();
+        if title.is_empty() {
+            self.wiz_error = Some("Enter a project name to start a new project.".into());
+            return;
+        }
+        let packet = self.wiz_packet_name.trim();
+        let code_name = Self::project_title_to_folder_name(title);
+        let planning_repo_name = if packet.is_empty() {
+            format!("{code_name}.packet")
+        } else {
+            packet.to_string()
+        };
+        let parent_raw = self.wiz_parent_path.trim();
+        if parent_raw.is_empty() {
+            // No folder chosen yet: raise the picker NOW (the frame-level
+            // target refresh happens before this handler runs).
+            self.conn_browse_target = BrowseTarget::WizardParent;
+            self.pick_folder_for_active_target();
+            return;
+        }
+        let mut spec = crate::core::managed_workspace::SiblingPairSpec::new(title, code_name);
+        spec.planning_repo_name = planning_repo_name;
+        spec.parent_dir = std::path::PathBuf::from(parent_raw);
+        self.wiz_error = None;
+        self.finish_connect(welcome::attempt_create_project(&spec));
+    }
+
+    /// Maps an operator-facing project title onto a safe repository folder
+    /// name: words separated by hyphens, lower-cased, ASCII letters/digits
+    /// only, forced to start with a letter so the pair validator accepts it.
+    fn project_title_to_folder_name(title: &str) -> String {
+        let mut name = String::new();
+        for word in title.split_whitespace() {
+            if !name.is_empty() {
+                name.push('-');
+            }
+            for character in word.chars() {
+                if character.is_ascii_alphanumeric() {
+                    name.push(character.to_ascii_lowercase());
+                }
+            }
+        }
+        let name = name.trim_matches('-').to_owned();
+        if name.is_empty() || !name.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            format!("project-{name}")
+        } else {
+            name
+        }
+    }
+
     /// Native folder picker serving BOTH welcome cards. The seed follows the
     /// owning field's own directory (or its nearest surviving ancestor) so
     /// the chooser opens where the operator last pointed. Cancelling leaves
@@ -266,6 +324,7 @@ impl KooladeApp {
         let seed = match target {
             BrowseTarget::CodeRepo => self.conn_path.trim().to_string(),
             BrowseTarget::PlanningRepo => self.conn_join_remote.trim().to_string(),
+            BrowseTarget::WizardParent => self.wiz_parent_path.trim().to_string(),
         };
         let current = std::path::PathBuf::from(&seed);
         let start = if current.is_dir() {
@@ -280,6 +339,7 @@ impl KooladeApp {
         let title = match target {
             BrowseTarget::CodeRepo => "Choose a workspace folder",
             BrowseTarget::PlanningRepo => "Choose a planning repository",
+            BrowseTarget::WizardParent => "Choose the folder for the new project",
         };
         let mut picker = rfd::FileDialog::new().set_title(title);
         if let Some(start) = start {
@@ -303,6 +363,7 @@ impl KooladeApp {
         match target {
             BrowseTarget::CodeRepo => self.conn_path = path,
             BrowseTarget::PlanningRepo => self.conn_join_remote = path,
+            BrowseTarget::WizardParent => self.wiz_parent_path = path,
         }
     }
 

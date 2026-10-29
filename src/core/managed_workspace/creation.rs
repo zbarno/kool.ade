@@ -13,7 +13,7 @@ use super::{
     manifest::WorkspaceManifest,
 };
 
-mod initialize;
+pub(super) mod initialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg(test)]
@@ -245,7 +245,7 @@ fn remove_journal(manager: &WorkspaceManager, id: uuid::Uuid) -> anyhow::Result<
     Ok(())
 }
 
-fn validate_title(title: &str) -> anyhow::Result<()> {
+pub(super) fn validate_title(title: &str) -> anyhow::Result<()> {
     let title = title.trim();
     anyhow::ensure!(!title.is_empty(), "workspace title must not be empty");
     anyhow::ensure!(

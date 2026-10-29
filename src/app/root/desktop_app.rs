@@ -42,6 +42,7 @@ impl KooladeApp {
                 let create_workspace_slot = std::cell::RefCell::new(false);
                 let join_workspace_slot = std::cell::RefCell::new(false);
                 let open_local_workspace_slot = std::cell::RefCell::new(false);
+                let wiz_create_slot = std::cell::RefCell::new(false);
                 let harness_setup_slot = std::cell::RefCell::new(false);
                 let local_workspaces =
                     crate::core::managed_workspace::WorkspaceManager::from_state_root()
@@ -80,6 +81,59 @@ impl KooladeApp {
                     });
                     ui.add_space(10.0);
                     ui.vertical_centered(|ui| {
+                        ui.label("Start a new project (creates the code + planning repositories)");
+                        let field_width = ui.available_width().min(340.0);
+                        ui.add_sized(
+                            egui::vec2(field_width, 34.0),
+                            egui::TextEdit::singleline(&mut self.wiz_project_name)
+                                .hint_text("Sample: Acme Portal (a code folder is named for it)"),
+                        );
+                        ui.add_sized(
+                            egui::vec2(field_width, 34.0),
+                            egui::TextEdit::singleline(&mut self.wiz_packet_name).hint_text(
+                                "Planning repository name (leave empty for <code folder>.packet)",
+                            ),
+                        );
+                        ui.horizontal_centered(|ui| {
+                            if ui
+                                .add_enabled(
+                                    !clone_busy,
+                                    egui::Button::new("Choose parent folder…"),
+                                )
+                                .clicked()
+                            {
+                                self.conn_browse_target = BrowseTarget::WizardParent;
+                                *browse_slot.borrow_mut() = true;
+                            }
+                        });
+                        if self.wiz_parent_path.trim().is_empty() {
+                            ui.label(crate::ui::theme::helper_text(
+                                "(parent folder not chosen yet)",
+                            ));
+                        } else {
+                            ui.label(egui::WidgetText::from(
+                                egui::RichText::new(&self.wiz_parent_path).weak(),
+                            ));
+                        }
+                        if ui
+                            .add_enabled(!clone_busy, egui::Button::new("Create and connect"))
+                            .clicked()
+                        {
+                            *wiz_create_slot.borrow_mut() = true;
+                        }
+                        if let Some(error) = self.wiz_error.as_deref() {
+                            ui.label(egui::WidgetText::from(
+                                egui::RichText::new(error).color(crate::ui::theme::DANGER),
+                            ));
+                        }
+                        ui.add_space(12.0);
+                        ui.separator();
+                        ui.add_space(8.0);
+                        ui.label(egui::RichText::new("Advanced connection options").strong());
+                        ui.label(crate::ui::theme::helper_text(
+                            "Create, join, or open managed workspaces individually.",
+                        ));
+                        ui.add_space(6.0);
                         ui.label("Create a workspace with its own local planning repository");
                         let field_width = ui.available_width().min(340.0);
                         ui.add_sized(
@@ -205,6 +259,8 @@ impl KooladeApp {
                     self.submit_create_workspace();
                 } else if *join_workspace_slot.borrow() {
                     self.submit_join_workspace();
+                } else if *wiz_create_slot.borrow() {
+                    self.submit_create_project();
                 } else if *open_local_workspace_slot.borrow() {
                     self.submit_open_local_workspace();
                 } else if *browse_slot.borrow() {

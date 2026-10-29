@@ -80,6 +80,17 @@ impl WorkspaceManager {
         creation::create(self, title, None)
     }
 
+    /// Materializes a new project as two ordinary sibling Git repositories
+    /// (``Parent/<code>`` and ``Parent/<planning>``), seeds the planning
+    /// repository, associates it as a managed workspace, and registers the
+    /// code checkout. Retrying reuses whatever already exists.
+    pub fn create_sibling_pair(
+        &self,
+        spec: &super::SiblingPairSpec,
+    ) -> anyhow::Result<ManagedWorkspace> {
+        super::pair::create_sibling_pair(self, spec)
+    }
+
     #[cfg(test)]
     pub(super) fn create_with_failure(
         &self,

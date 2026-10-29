@@ -116,3 +116,62 @@ fn welcome_ui_creates_plans_joins_and_reopens_one_zero_code_workspace() {
     drop(app);
     let _ = std::fs::remove_dir_all(base);
 }
+
+#[test]
+fn welcome_ui_wizard_creates_a_connected_sibling_pair() {
+    let _shield =
+        crate::core::gitops::test_support::shield_with_synthetic_identity("wizard-onboarding-ui");
+    let base = std::env::temp_dir().join(format!(
+        "koolade_wizard_ui_{}_{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = base.join("operator");
+    std::fs::create_dir_all(&home).unwrap();
+    let mut state_home = StateHome::new();
+    state_home.set(&home);
+    let parent = base.join("projects");
+    std::fs::create_dir_all(&parent).unwrap();
+
+    let ctx = egui::Context::default();
+    let mut app = KooladeApp::default();
+    type_into(&mut app, &ctx, "Sample: Acme Portal", "Acme Portal");
+    app.wiz_parent_path = parent.to_string_lossy().into_owned();
+    click(&mut app, &ctx, "Create and connect");
+
+    let Screen::Connected(project) = &app.screen else {
+        let visible = visible_text(&frame(&mut app, &ctx, Vec::new()));
+        panic!(
+            "wizard create-and-connect should land on a planning board; wiz_error: {:?}; conn_error: {:?}; visible: {visible:?}",
+            app.wiz_error, app.conn_error
+        )
+    };
+    let code = parent.join("acme-portal");
+    let planning = parent.join("acme-portal.packet");
+    assert!(
+        code.is_dir(),
+        "code sibling missing under the chosen parent"
+    );
+    assert!(
+        planning.is_dir(),
+        "planning sibling (.packet) missing under the chosen parent"
+    );
+    assert!(
+        planning.join("manifest.json").is_file(),
+        "planning sibling carries the managed workspace manifest"
+    );
+    assert_eq!(
+        project.state.repo_root.canonicalize().unwrap(),
+        code.canonicalize().unwrap(),
+        "the connected surface is rooted at the code checkout"
+    );
+    assert_eq!(
+        project.state.repositories.repositories.len(),
+        1,
+        "exactly the paired code repository is registered"
+    );
+    let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
+    assert_eq!(manager.list_local().unwrap().len(), 1);
+    drop(app);
+    let _ = std::fs::remove_dir_all(base);
+}

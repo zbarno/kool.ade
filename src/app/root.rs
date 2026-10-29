@@ -109,6 +109,14 @@ pub struct KooladeApp {
     /// card (`conn_join_remote`) when the join row's Browse… button raised
     /// the picker. Refreshed per welcome frame; see `BrowseTarget`.
     conn_browse_target: BrowseTarget,
+    /// Wizard "start a new project" track (per-launch state only):
+    /// project name, editable planning-repository name (suggests
+    /// `<name>.packet` when empty), chosen parent folder, and the last
+    /// failure surfaced verbatim.
+    wiz_project_name: String,
+    wiz_packet_name: String,
+    wiz_parent_path: String,
+    wiz_error: Option<String>,
     /// Test-only seam: when `Some`, [`Self::begin_clone`] hands the worker
     /// THIS computation instead of the real `welcome::perform_clone`, so
     /// dispatch can be proven hermetically (no network, no real git
@@ -243,6 +251,9 @@ struct DisplayRefresh {
 pub(super) enum BrowseTarget {
     CodeRepo,
     PlanningRepo,
+    /// Parent folder picker for the "new project" wizard track: chooses the
+    /// directory that will hold the new sibling code + planning pair.
+    WizardParent,
 }
 
 struct CloneJob {

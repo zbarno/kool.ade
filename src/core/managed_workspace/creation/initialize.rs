@@ -49,7 +49,7 @@ const COLLECTION_DIRECTORIES: &[&str] = &[
     "state/tasks",
 ];
 
-pub(super) fn populate_and_commit(
+pub(in crate::core::managed_workspace) fn populate_and_commit(
     planning_repo: &Path,
     workspace_id: uuid::Uuid,
     title: &str,
@@ -261,7 +261,7 @@ fn allowed_directory(path: &str) -> bool {
         || path.starts_with("planning/product/")
 }
 
-pub(super) fn sync_tree(root: &Path) -> io::Result<()> {
+pub(in crate::core::managed_workspace) fn sync_tree(root: &Path) -> io::Result<()> {
     sync_directory_tree(root)
 }
 
