@@ -123,6 +123,41 @@ fn approved_recipe_policy_serializes_stage_in_and_stage_out_allowlists_separatel
 }
 
 #[test]
+fn recipe_policy_and_request_reject_the_same_protected_environment_prefixes() {
+    for key in ["AWS_REGION", "SSH_AUTH_SOCK", "SSH_AGENT_PID"] {
+        let policy = ExecutionPolicyV1::for_approved_recipe(
+            budget(1024 * 1024 * 1024, 2000),
+            "apps/web".into(),
+            "user-approval:decision-1".into(),
+            "cargo".into(),
+            vec!["test".into()],
+            ".".into(),
+            BTreeSet::from([key.into()]),
+        );
+        assert!(policy.is_err(), "execution policy accepted {key}");
+
+        let mut request = request();
+        request.environment_allowlist = BTreeSet::from([key.into()]);
+        let error = request.validate_at(1).unwrap_err().to_string();
+        assert!(
+            error.contains("credential environment variables"),
+            "{error}"
+        );
+    }
+
+    let policy = ExecutionPolicyV1::for_approved_recipe(
+        budget(1024 * 1024 * 1024, 2000),
+        "apps/web".into(),
+        "user-approval:decision-1".into(),
+        "cargo".into(),
+        vec!["test".into()],
+        ".".into(),
+        BTreeSet::from(["APP_MODE".into()]),
+    );
+    assert!(policy.is_ok());
+}
+
+#[test]
 fn artifact_collection_policy_rejects_unbounded_or_unsafe_paths() {
     let base = ExecutionPolicyV1::for_mode(
         ExecutionModeV1::Verification,

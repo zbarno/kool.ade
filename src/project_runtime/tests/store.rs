@@ -1,6 +1,8 @@
 use super::super::*;
 use crate::artifacts::planning_store::{PlanningStore, StoreError};
 
+#[path = "store/compatibility.rs"]
+mod compatibility;
 #[path = "store/receipt_records.rs"]
 mod receipt_records;
 

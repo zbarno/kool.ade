@@ -101,6 +101,8 @@ pub(super) fn dependency(
     let ecosystem = match ecosystem.to_ascii_lowercase().as_str() {
         "npm" => crate::execution::contract::DependencyCacheEcosystemV1::Npm,
         "cargo" => crate::execution::contract::DependencyCacheEcosystemV1::Cargo,
+        "pip" => crate::execution::contract::DependencyCacheEcosystemV1::Pip,
+        "go" => crate::execution::contract::DependencyCacheEcosystemV1::Go,
         _ => return Ok((summary, true)),
     };
     let project_id = config

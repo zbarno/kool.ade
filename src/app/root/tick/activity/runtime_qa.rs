@@ -12,7 +12,10 @@ pub(crate) mod test_support;
 mod worker;
 
 #[cfg(test)]
-pub(crate) use worker::{RootlessDesktopDispatch, prepare_rootless_desktop_dispatch};
+pub(crate) use worker::{
+    RootlessDesktopDispatch, RootlessTaskQaDispatch, prepare_rootless_desktop_dispatch,
+    prepare_rootless_task_qa_dispatch,
+};
 
 /// Reconciles durable QA requests on every project tick. Missing trusted
 /// runtime assets become persisted blockers; this path never invents test

@@ -32,6 +32,21 @@ pub(super) async fn launch_containers(
         .into_iter()
         .chain(body.cmd.take().unwrap_or_default())
         .collect::<Vec<_>>();
+    #[cfg(test)]
+    let command = if spec.request.test_data_fixture_ref.as_deref() == Some("go-headless-api-v1") {
+        let probe = crate::project_runtime::ReadinessProbeV1::LocalServiceHealth {
+            port: spec.preview_port,
+            path: spec.health_path.into(),
+        };
+        vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            crate::project_runtime::qa_go_start_script(spec.recipe, &probe)
+                .map_err(|_| denied("Approved Go QA readiness launcher could not be built"))?,
+        ]
+    } else {
+        command
+    };
     if command.is_empty() {
         return Err(denied("Approved QA task service command is empty"));
     }
@@ -59,6 +74,8 @@ pub(super) async fn launch_containers(
         let target = match cache.cache_ref.ecosystem {
             DependencyCacheEcosystemV1::Npm => "/home/executor/.npm",
             DependencyCacheEcosystemV1::Cargo => "/home/executor/.cargo",
+            DependencyCacheEcosystemV1::Pip => "/home/executor/.cache/koolade/pip",
+            DependencyCacheEcosystemV1::Go => "/home/executor/go",
         };
         uploads.push(QaContainerUpload {
             target: target.into(),

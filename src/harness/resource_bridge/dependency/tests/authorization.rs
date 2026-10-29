@@ -2,6 +2,9 @@ use super::super::{policy::decision_allowed, triage::triage, validation::valid_p
 use super::{lockfile_identity, npm_add};
 use crate::harness::{DependencyDecision, DependencyKind, DependencyNeed, PackageEcosystem};
 
+#[path = "authorization/pip.rs"]
+mod pip;
+
 #[test]
 fn manager_can_auto_authorize_a_well_formed_public_npm_addition() {
     let need = npm_add(

@@ -3,6 +3,24 @@ use serde::{Deserialize, Serialize};
 const MAX_ARGS: usize = 128;
 const MAX_ARG_BYTES: usize = 4096;
 const MAX_TIMEOUT_SECS: u64 = 1200;
+const PROTECTED_ENVIRONMENT_KEYS: &[&str] = &[
+    "HOME",
+    "PATH",
+    "SHELL",
+    "DOCKER_HOST",
+    "SSH_AUTH_SOCK",
+    "LD_PRELOAD",
+];
+const PROTECTED_ENVIRONMENT_MARKERS: &[&str] = &[
+    "TOKEN",
+    "SECRET",
+    "PASSWORD",
+    "PRIVATE_KEY",
+    "CREDENTIAL",
+    "SSH_",
+    "AWS_",
+    "GITHUB_",
+];
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -27,7 +45,7 @@ pub struct ExecutionRecipeV1 {
     pub recipe_id: String,
     pub source: RecipeSource,
     pub working_directory_relative: String,
-    /// A logical tool name resolved by the selected, approved executor image.
+    /// A logical tool name, or a target-relative executable path for Start.
     pub executable_id: String,
     pub argv: Vec<String>,
     pub allowed_env_keys: Vec<String>,
@@ -57,10 +75,9 @@ impl ExecutionRecipeV1 {
         }
         validate_relative_path(&self.working_directory_relative)?;
         if !valid_executable_id(&self.executable_id) {
-            return Err("recipe executable must be a logical tool identifier".into());
+            return Err("recipe executable must be a logical tool ID or safe relative path".into());
         }
-        if self.argv.is_empty()
-            || self.argv.len() > MAX_ARGS
+        if self.argv.len() > MAX_ARGS
             || self.argv.iter().any(|arg| {
                 arg.len() > MAX_ARG_BYTES || arg.contains('\0') || arg == "-c" || arg == "/c"
             })
@@ -75,7 +92,9 @@ impl ExecutionRecipeV1 {
         }
         for key in &self.allowed_env_keys {
             if !valid_env_key(key) {
-                return Err("recipe environment allowlist contains a protected key".into());
+                return Err(
+                    "recipe environment allowlist contains an invalid or protected key".into(),
+                );
             }
         }
         for path in self
@@ -113,7 +132,39 @@ pub(super) fn valid_id(value: &str) -> bool {
 }
 
 pub(super) fn valid_executable_id(value: &str) -> bool {
-    valid_id(value) && !value.contains('/') && !matches!(value, "sh" | "bash" | "cmd" | "pwsh")
+    is_logical_tool_id(value) || is_target_relative_executable_path(value)
+}
+
+pub(crate) fn is_logical_tool_id(value: &str) -> bool {
+    valid_id(value) && !value.contains('/') && !is_interpreter(value)
+}
+
+pub(crate) fn is_target_relative_executable_path(value: &str) -> bool {
+    if value.is_empty()
+        || value.len() > 1024
+        || !value.contains('/')
+        || value.contains('\\')
+        || value.chars().any(char::is_control)
+        || is_interpreter(value.rsplit('/').next().unwrap_or_default())
+    {
+        return false;
+    }
+    let path = std::path::Path::new(value);
+    !path.is_absolute()
+        && value
+            .split('/')
+            .all(|part| !matches!(part, "" | "." | ".." | ".git"))
+        && path.components().all(|component| {
+            matches!(component, std::path::Component::Normal(part)
+                if !part.is_empty() && part != ".git")
+        })
+}
+
+fn is_interpreter(value: &str) -> bool {
+    matches!(
+        value,
+        "sh" | "bash" | "dash" | "cmd" | "pwsh" | "powershell"
+    )
 }
 
 pub(crate) fn validate_relative_path(value: &str) -> Result<(), String> {
@@ -186,62 +237,37 @@ pub(crate) fn validate_custom_artifact_paths(paths: &[String]) -> Result<(), &'s
     Ok(())
 }
 
+pub(crate) fn validate_custom_target_artifact_paths(
+    has_build_recipe: bool,
+    paths: &[String],
+) -> Result<(), &'static str> {
+    if has_build_recipe {
+        validate_custom_artifact_paths(paths)
+    } else if paths.is_empty() {
+        Ok(())
+    } else {
+        Err("custom target artifact paths require a Build recipe")
+    }
+}
+
 fn valid_env_key(key: &str) -> bool {
-    let upper = key.to_ascii_uppercase();
     !key.is_empty()
         && key.len() <= 128
+        && !key.as_bytes()[0].is_ascii_digit()
         && key
             .bytes()
             .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
-        && ![
-            "HOME",
-            "PATH",
-            "SHELL",
-            "DOCKER_HOST",
-            "SSH_AUTH_SOCK",
-            "LD_PRELOAD",
-        ]
-        .contains(&upper.as_str())
-        && !["TOKEN", "SECRET", "PASSWORD", "PRIVATE_KEY", "CREDENTIAL"]
+        && !is_protected_environment_key(key)
+}
+
+pub(crate) fn is_protected_environment_key(key: &str) -> bool {
+    let upper = key.to_ascii_uppercase();
+    PROTECTED_ENVIRONMENT_KEYS.contains(&upper.as_str())
+        || PROTECTED_ENVIRONMENT_MARKERS
             .iter()
             .any(|marker| upper.contains(marker))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        normalize_custom_target_root, validate_custom_artifact_paths, validate_custom_target_root,
-    };
-
-    #[test]
-    fn custom_target_root_accepts_repository_root_and_safe_relative_paths() {
-        assert!(validate_custom_target_root(".").is_ok());
-        assert!(validate_custom_target_root("./").is_ok());
-        assert!(validate_custom_target_root("apps/site").is_ok());
-        assert_eq!(normalize_custom_target_root("./").unwrap(), ".");
-        assert_eq!(
-            normalize_custom_target_root("./apps/site").unwrap(),
-            "apps/site"
-        );
-    }
-
-    #[test]
-    fn custom_target_root_rejects_absolute_and_traversal_paths() {
-        assert!(validate_custom_target_root("/workspace/app").is_err());
-        assert!(validate_custom_target_root("../outside").is_err());
-        assert!(validate_custom_target_root("apps/../../outside").is_err());
-        assert!(validate_custom_target_root("apps\\\\site").is_err());
-        assert!(validate_custom_target_root("apps/\nsite").is_err());
-    }
-
-    #[test]
-    fn custom_artifact_paths_reject_curdir_and_duplicates() {
-        assert!(validate_custom_artifact_paths(&["dist/index.html".into()]).is_ok());
-        assert!(validate_custom_artifact_paths(&["./dist/index.html".into()]).is_err());
-        assert!(
-            validate_custom_artifact_paths(&["dist/index.html".into(), "dist/index.html".into()])
-                .is_err()
-        );
-        assert!(validate_custom_artifact_paths(&["dist/\tindex.html".into()]).is_err());
-    }
-}
+#[path = "recipe/tests.rs"]
+mod tests;

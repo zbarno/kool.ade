@@ -5,7 +5,7 @@ use crate::{
     execution::{
         contract::ResourceBudgetV1,
         docker::{
-            images::{ImageLock, RuntimeProfile, SelectedImage},
+            images::{ImageLock, SelectedImage, task_runtime_profile_order},
             qa_container::{QaArtifactMount, QaContainerUpload},
         },
         session::ExecutionSession,
@@ -15,6 +15,9 @@ use crate::{
         RuntimeQaStore,
     },
 };
+
+mod desktop;
+use desktop::desktop_artifact_executable;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_service(
@@ -41,25 +44,20 @@ pub(super) fn run_service(
         )
     })?;
     let image_lock = ImageLock::bundled().map_err(|error| error.message)?;
-    let required_tools = std::iter::once(prepared.startup_recipe.executable_id.clone())
+    let required_tools = std::iter::once(prepared.startup_recipe.executable_id.as_str())
         .chain(
             prepared
                 .startup_recipe
                 .prerequisite_tool_ids
                 .iter()
-                .cloned(),
+                .map(String::as_str),
         )
+        .filter(|tool| crate::project_runtime::is_logical_tool_id(tool))
+        .map(str::to_owned)
         .collect::<Vec<_>>();
     let service_image = image_lock
         .select_with_tools(
-            &[
-                RuntimeProfile::Node,
-                RuntimeProfile::Rust,
-                RuntimeProfile::Python,
-                RuntimeProfile::Go,
-                RuntimeProfile::General,
-                RuntimeProfile::BrowserQa,
-            ],
+            task_runtime_profile_order(&required_tools),
             &architecture,
             &required_tools,
         )
@@ -221,23 +219,11 @@ pub(super) fn desktop_target(
             "desktop start recipe and ProcessAlive executable identity do not match".into(),
         );
     }
-    let matching = prepared
-        .artifact_paths
-        .iter()
-        .filter(|path| {
-            std::path::Path::new(path)
-                .file_name()
-                .and_then(|name| name.to_str())
-                == Some(executable_id.as_str())
-        })
-        .collect::<Vec<_>>();
-    if matching.len() != 1 {
-        return Err(
-            "desktop start executable is not uniquely named in the receipt-approved artifact set"
-                .into(),
-        );
-    }
-    let executable = format!("/workspace/{}", matching[0]);
+    let executable = desktop_artifact_executable(
+        &prepared.startup_recipe.working_directory_relative,
+        executable_id,
+        &prepared.artifact_paths,
+    )?;
     let working_directory = if prepared.startup_recipe.working_directory_relative == "." {
         "/workspace".into()
     } else {

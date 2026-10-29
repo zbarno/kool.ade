@@ -7,6 +7,8 @@
 mod approved;
 #[path = "custom_target_execution/backend.rs"]
 mod backend;
+#[path = "custom_target_execution/build_failure.rs"]
+mod build_failure;
 #[path = "custom_target_execution/forged_shared.rs"]
 mod forged_shared;
 #[path = "custom_target_execution/mixed_target.rs"]

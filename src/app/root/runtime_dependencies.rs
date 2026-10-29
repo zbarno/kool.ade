@@ -3,13 +3,13 @@ use crate::{
     execution::{DependencyCacheSnapshotStore, contract::DependencyCacheRefV1},
     harness::{DependencyRequest, DependencyRequestStatus, LiveProgress},
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone)]
 pub(in crate::app::root) struct PreparedBrokerDependency {
     pub(in crate::app::root) request_id: String,
     pub(in crate::app::root) label: String,
-    pub(in crate::app::root) cache_ref: DependencyCacheRefV1,
+    pub(in crate::app::root) cache_refs: Vec<DependencyCacheRefV1>,
 }
 
 /// Returns only same-task broker preparations whose retained cache snapshot
@@ -25,8 +25,7 @@ pub(in crate::app::root) fn prepared_broker_dependencies(
     let mut selected = BTreeMap::new();
     for request in &progress.dependency_requests {
         if !matches!(request.status, DependencyRequestStatus::Prepared)
-            || !(request.task_id == task.task_uid
-                || task.planning_item_uid.as_deref() == Some(request.task_id.as_str()))
+            || task.planning_item_uid.as_deref() != Some(request.task_id.as_str())
         {
             continue;
         }
@@ -38,20 +37,35 @@ pub(in crate::app::root) fn prepared_broker_dependencies(
         let Some(lockfile_identity) = request.need.lockfile_identity.as_deref() else {
             continue;
         };
-        for cache_ref in &preparation.cache_refs {
-            if valid_cache_ref(request, task, project_id, lockfile_identity, cache_ref) {
-                selected.insert(
-                    request.id.clone(),
-                    PreparedBrokerDependency {
-                        request_id: request.id.clone(),
-                        label: dependency_label(request),
-                        cache_ref: cache_ref.clone(),
-                    },
-                );
-            }
+        let cache_refs =
+            distinct_arch_cache_refs(preparation.cache_refs.iter().rev().filter(|cache_ref| {
+                valid_cache_ref(request, task, project_id, lockfile_identity, cache_ref)
+            }));
+        if !cache_refs.is_empty() {
+            selected.insert(
+                request.id.clone(),
+                PreparedBrokerDependency {
+                    request_id: request.id.clone(),
+                    label: dependency_label(request),
+                    cache_refs,
+                },
+            );
         }
     }
     selected.into_values().collect()
+}
+
+fn distinct_arch_cache_refs<'a>(
+    cache_refs: impl Iterator<Item = &'a DependencyCacheRefV1>,
+) -> Vec<DependencyCacheRefV1> {
+    let mut architectures = BTreeSet::new();
+    cache_refs
+        .filter(|cache_ref| {
+            crate::execution::docker::discovery::parse_architecture(&cache_ref.target_arch)
+                .is_some_and(|architecture| architectures.insert(architecture))
+        })
+        .cloned()
+        .collect()
 }
 
 fn valid_cache_ref(
@@ -67,6 +81,12 @@ fn valid_cache_ref(
         }
         crate::harness::PackageEcosystem::Cargo => {
             crate::execution::contract::DependencyCacheEcosystemV1::Cargo
+        }
+        crate::harness::PackageEcosystem::Pip => {
+            crate::execution::contract::DependencyCacheEcosystemV1::Pip
+        }
+        crate::harness::PackageEcosystem::Go => {
+            crate::execution::contract::DependencyCacheEcosystemV1::Go
         }
         _ => return false,
     };
@@ -87,6 +107,7 @@ fn dependency_label(request: &DependencyRequest) -> String {
         crate::harness::PackageEcosystem::Cargo => "Cargo",
         crate::harness::PackageEcosystem::Nuget => "NuGet",
         crate::harness::PackageEcosystem::Pip => "pip",
+        crate::harness::PackageEcosystem::Go => "Go modules",
         crate::harness::PackageEcosystem::Uv => "uv",
         crate::harness::PackageEcosystem::Poetry => "Poetry",
         crate::harness::PackageEcosystem::System => "system",
@@ -155,12 +176,77 @@ pub(in crate::app::root) fn prepared_dependencies_for_ticket(
     );
     candidates
         .into_iter()
-        .filter(|candidate| {
-            store
-                .get(&candidate.request_id, &candidate.cache_ref)
-                .is_ok()
+        .filter_map(|mut candidate| {
+            candidate
+                .cache_refs
+                .retain(|cache_ref| store.get(&candidate.request_id, cache_ref).is_ok());
+            (!candidate.cache_refs.is_empty()).then_some(candidate)
         })
         .collect()
+}
+
+/// Load only selected, intact cache snapshots from the task's prepared broker
+/// inventory. The target stores opaque request IDs, never package names or
+/// paths supplied by a recipe.
+pub(in crate::app::root) fn prepared_dependency_cache_refs_for_ticket(
+    project: &crate::app::session::Project,
+    ticket: &str,
+    required_ids: &[String],
+) -> Result<Vec<(String, DependencyCacheRefV1)>, String> {
+    if required_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let prepared = prepared_dependencies_for_ticket(project, ticket);
+    let prepared_ids = prepared
+        .iter()
+        .map(|dependency| dependency.request_id.clone())
+        .collect::<Vec<_>>();
+    let selected_ids = validate_selected_dependency_ids(required_ids, &prepared_ids)?;
+    let mut cache_refs = Vec::new();
+    for request_id in selected_ids {
+        let dependency = prepared
+            .iter()
+            .find(|dependency| dependency.request_id == request_id)
+            .ok_or_else(|| "selected target dependency is no longer prepared".to_owned())?;
+        if dependency.cache_refs.is_empty() {
+            return Err("selected target dependency cache is unavailable".into());
+        }
+        cache_refs.extend(
+            dependency
+                .cache_refs
+                .iter()
+                .cloned()
+                .map(|cache_ref| (request_id.clone(), cache_ref)),
+        );
+    }
+    Ok(cache_refs)
+}
+
+pub(in crate::app::root) fn validate_selected_dependency_ids(
+    required: &[String],
+    prepared: &[String],
+) -> Result<Vec<String>, String> {
+    let selected = required
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let available = prepared
+        .iter()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    if required
+        .iter()
+        .chain(prepared.iter())
+        .any(|id| crate::execution::contract::validate_dependency_request_id(id).is_err())
+        || selected.len() != required.len()
+        || selected.len() > 128
+        || selected.iter().any(|id| !available.contains(id.as_str()))
+    {
+        return Err(
+            "runtime target dependency is not a valid, intact, prepared broker request".into(),
+        );
+    }
+    Ok(selected.into_iter().collect())
 }
 
 #[cfg(test)]

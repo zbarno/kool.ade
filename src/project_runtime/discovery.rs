@@ -45,6 +45,7 @@ pub fn discover_manifest(
         }
         confidence = confidence.max(item.confidence);
         evidence_refs.push(item.evidence_path.clone());
+        evidence_refs.extend(item.supporting_evidence_paths.iter().cloned());
         let path = Path::new(&item.evidence_path);
         let project_relative_root = path
             .parent()

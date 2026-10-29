@@ -1,4 +1,7 @@
-use std::sync::Mutex;
+use std::sync::{
+    Mutex,
+    atomic::{AtomicI32, Ordering},
+};
 
 use crate::execution::{
     backend::{
@@ -13,6 +16,7 @@ use crate::execution::{
 #[derive(Default)]
 pub(super) struct CapturingDockerBackend {
     request: Mutex<Option<ExecutionRequestV1>>,
+    exit_code: AtomicI32,
 }
 
 impl CapturingDockerBackend {
@@ -26,6 +30,10 @@ impl CapturingDockerBackend {
 
     pub fn has_request(&self) -> bool {
         self.request.lock().expect("request lock").is_some()
+    }
+
+    pub fn set_exit_code(&self, exit_code: i32) {
+        self.exit_code.store(exit_code, Ordering::Relaxed);
     }
 }
 
@@ -90,13 +98,18 @@ impl ExecutionBackend for CapturingDockerBackend {
         handle: &'a ExecutionHandleV1,
         page: EventPageRequestV1,
     ) -> BackendFuture<'a, Vec<ExecutionEventV1>> {
+        let terminal_state = if self.exit_code.load(Ordering::Relaxed) == 0 {
+            ExecutionLifecycleV1::Succeeded
+        } else {
+            ExecutionLifecycleV1::Failed
+        };
         Box::pin(async move {
             Ok([
                 ExecutionLifecycleV1::Queued,
                 ExecutionLifecycleV1::Preparing,
                 ExecutionLifecycleV1::Running,
                 ExecutionLifecycleV1::Collecting,
-                ExecutionLifecycleV1::Succeeded,
+                terminal_state,
             ]
             .into_iter()
             .enumerate()
@@ -121,11 +134,12 @@ impl ExecutionBackend for CapturingDockerBackend {
         &'a self,
         handle: &'a ExecutionHandleV1,
     ) -> BackendFuture<'a, ExecutionResultV1> {
+        let exit_code = self.exit_code.load(Ordering::Relaxed);
         Box::pin(async move {
             Ok(ExecutionResultV1 {
                 schema_version: 1,
                 execution_id: handle.execution_id.clone(),
-                exit_code: Some(0),
+                exit_code: Some(exit_code),
                 signal: None,
                 timed_out: false,
                 cancelled: false,

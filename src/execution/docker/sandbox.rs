@@ -6,6 +6,7 @@ use crate::execution::errors::{ExecutionError, ExecutionErrorKind};
 
 pub(crate) mod staging;
 pub(crate) use staging::WorkspaceSnapshot;
+mod environment;
 mod private_files;
 mod workspace_identity;
 

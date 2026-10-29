@@ -41,9 +41,14 @@ pub(super) fn required_tools(
                 std::iter::once(recipe.executable_id.as_str())
                     .chain(recipe.prerequisite_tool_ids.iter().map(String::as_str))
             })
+            .filter(|tool| crate::project_runtime::is_logical_tool_id(tool))
             .map(str::to_owned)
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect(),
     ))
 }
+
+#[cfg(test)]
+#[path = "tools/tests.rs"]
+mod tests;

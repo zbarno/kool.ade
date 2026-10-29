@@ -15,7 +15,7 @@ pub const IMAGE_LOCK: &str = include_str!("../../../containers/images.lock.json"
 pub const EXECUTOR_UID: u32 = 10_001;
 pub const EXECUTOR_GID: u32 = 10_001;
 const PINNED_RUST_TOOLCHAIN: &str = "1.98.1";
-const PINNED_PYTHON_RUNTIME: &str = "3.14.7";
+pub(crate) const PINNED_PYTHON_RUNTIME: &str = "3.14.7";
 const PINNED_GO_RUNTIME: &str = "1.26.8";
 const TRUSTED_BROWSER_QA_REPOSITORY: &str = "ghcr.io/zbarno/koolade-runtime-qa-browser";
 const TRUSTED_DESKTOP_QA_REPOSITORY: &str = "ghcr.io/zbarno/koolade-runtime-qa-desktop";
@@ -33,6 +33,31 @@ pub enum RuntimeProfile {
     Go,
     BrowserQa,
     DesktopQa,
+}
+
+pub(crate) fn task_runtime_profile_order(required_tools: &[String]) -> &'static [RuntimeProfile] {
+    const GENERIC_FIRST: &[RuntimeProfile] = &[
+        RuntimeProfile::General,
+        RuntimeProfile::Node,
+        RuntimeProfile::Rust,
+        RuntimeProfile::Python,
+        RuntimeProfile::Go,
+        RuntimeProfile::BrowserQa,
+    ];
+    const TOOL_FIRST: &[RuntimeProfile] = &[
+        RuntimeProfile::Node,
+        RuntimeProfile::Rust,
+        RuntimeProfile::Python,
+        RuntimeProfile::Go,
+        RuntimeProfile::General,
+        RuntimeProfile::BrowserQa,
+    ];
+
+    if required_tools.is_empty() {
+        GENERIC_FIRST
+    } else {
+        TOOL_FIRST
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -77,6 +102,16 @@ pub struct SelectedImage {
     pub digest: String,
     pub runtime_user: String,
     pub tool_versions: BTreeMap<String, String>,
+}
+
+impl SelectedImage {
+    /// Check a logical command against the image's canonical capability keys.
+    /// Some images publish the common `python` capability while exposing both
+    /// `python` and `python3` command names.
+    pub fn provides_tool(&self, tool: &str) -> bool {
+        self.tool_versions.contains_key(tool)
+            || (tool == "python3" && self.tool_versions.contains_key("python"))
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -220,10 +255,7 @@ impl ImageLock {
             let Ok(image) = self.select(*profile, daemon_arch) else {
                 continue;
             };
-            if required_tools
-                .iter()
-                .all(|tool| image.tool_versions.contains_key(tool))
-            {
+            if required_tools.iter().all(|tool| image.provides_tool(tool)) {
                 return Ok(image);
             }
         }
@@ -234,6 +266,10 @@ impl ImageLock {
         ))
     }
 }
+
+#[cfg(test)]
+#[path = "images/tests.rs"]
+mod tests;
 
 pub fn is_digest(value: &str) -> bool {
     value

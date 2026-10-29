@@ -16,8 +16,12 @@ use crate::execution::{
     policy::ExecutionPolicyV1,
 };
 
+#[path = "tests/cargo_cache.rs"]
+mod cargo_cache;
 #[path = "tests/derived_image.rs"]
 mod derived_image;
+#[path = "tests/pip_environment.rs"]
+mod pip_environment;
 #[path = "tests/private_files.rs"]
 mod private_files_tests;
 
@@ -164,7 +168,13 @@ fn container_mounts_only_the_git_metadata_and_bounded_private_tmpfs() {
             .keys()
             .map(String::as_str)
             .collect::<BTreeSet<_>>(),
-        BTreeSet::from(["/home/executor", "/run", "/tmp", "/workspace"])
+        BTreeSet::from([
+            "/home/executor",
+            "/run",
+            "/run/koolade-runtime-qa",
+            "/tmp",
+            "/workspace",
+        ])
     );
 }
 
@@ -227,26 +237,6 @@ fn writable_workspace_uses_bounded_tmpfs_and_keeps_git_read_only() {
     }));
 }
 
-#[test]
-fn rust_container_uses_the_staged_cargo_cache() {
-    let fixture = Fixture::new();
-    let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();
-    let image = ImageLock::bundled()
-        .unwrap()
-        .select(RuntimeProfile::Rust, "amd64")
-        .unwrap();
-    let mut request = request(ExecutionModeV1::Implementation);
-    request.image_digest = image.digest.clone();
-    let body = create_body(&request, &workspace, &identity(), &image).unwrap();
-
-    assert!(
-        body.env
-            .unwrap()
-            .iter()
-            .any(|value| value == "CARGO_HOME=/home/executor/.cargo")
-    );
-}
-
 #[cfg(unix)]
 #[test]
 fn symlinked_git_metadata_is_refused() {
@@ -299,4 +289,6 @@ fn go_verification_uses_executable_temporary_binaries_without_relaxing_tmp() {
     let mounts = body.host_config.unwrap().tmpfs.unwrap();
     assert!(mounts["/tmp"].contains("noexec"));
     assert!(!mounts["/workspace"].contains("noexec"));
+    assert!(mounts["/run/koolade-runtime-qa"].contains("exec"));
+    assert!(mounts["/run/koolade-runtime-qa"].contains("uid=10001,gid=10001,mode=0700"));
 }

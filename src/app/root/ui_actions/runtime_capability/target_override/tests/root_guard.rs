@@ -12,8 +12,12 @@ fn controller_rejects_traversal_root_before_loading_task_state() {
         "missing-task",
         AppSurface::Web,
         "../outside",
+        "",
         "dist/index.html",
-        &crate::ui::task_detail::RuntimeRecipeInput::default(),
+        &crate::ui::task_detail::RuntimeRecipeInput {
+            executable_id: "cargo".into(),
+            ..Default::default()
+        },
         &crate::ui::task_detail::RuntimeRecipeInput::default(),
         &crate::ui::task_detail::RuntimeRecipeInput::default(),
         &[],
@@ -37,8 +41,12 @@ fn controller_rejects_noncanonical_or_duplicate_artifacts_before_task_lookup() {
         "missing-task",
         AppSurface::Web,
         "./",
+        "",
         "./dist/index.html\ndist/index.html",
-        &crate::ui::task_detail::RuntimeRecipeInput::default(),
+        &crate::ui::task_detail::RuntimeRecipeInput {
+            executable_id: "cargo".into(),
+            ..Default::default()
+        },
         &crate::ui::task_detail::RuntimeRecipeInput::default(),
         &crate::ui::task_detail::RuntimeRecipeInput::default(),
         &[],
@@ -62,6 +70,7 @@ fn controller_rejects_control_characters_in_artifacts_before_task_lookup() {
         "missing-task",
         AppSurface::Web,
         ".",
+        "",
         "dist/\tindex.html",
         &crate::ui::task_detail::RuntimeRecipeInput::default(),
         &crate::ui::task_detail::RuntimeRecipeInput::default(),

@@ -115,8 +115,7 @@ impl ExecutionPolicyV1 {
             "approved recipe executable is invalid"
         );
         anyhow::ensure!(
-            !argv.is_empty()
-                && argv.len() <= 128
+            argv.len() <= 128
                 && argv
                     .iter()
                     .all(|arg| arg.len() <= 4096 && !arg.contains('\0')),

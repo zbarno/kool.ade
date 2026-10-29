@@ -1,10 +1,12 @@
 //! Local socket lifecycle and request coordination for mediated resources.
 mod cache_locks;
+mod cache_setup;
 mod client;
 mod concurrency;
 mod context;
 mod dependency_flow;
 mod factory;
+mod guards;
 mod lifecycle;
 mod remote;
 mod server;
@@ -13,13 +15,16 @@ mod test_support;
 
 #[cfg(test)]
 pub(super) use test_support::{
-    start_with_state_root_and_cargo_operations_for_target, start_with_state_root_and_npm_operations,
+    start_with_state_root_and_cargo_operations_for_target,
+    start_with_state_root_and_npm_operations, start_with_state_root_and_pip_operations,
 };
 
-use super::{cargo, npm, set_private_dir, set_private_file};
+use super::{set_private_dir, set_private_file};
 use crate::harness::DependencyRequest;
+use cache_setup::BrokerCaches;
 use concurrency::{acquire_request_slot, reap_finished_requests};
 use context::BrokerContext;
+use guards::{InFlightRequest, TemporaryDirectoryGuard};
 use std::{
     fs, io,
     os::unix::net::UnixListener,
@@ -36,8 +41,14 @@ pub(crate) struct ResourceBridge {
     socket: PathBuf,
     task_id: Option<String>,
     cache_dir: PathBuf,
+    #[cfg(test)]
     npm_cache: PathBuf,
+    #[cfg(test)]
     cargo_cache: PathBuf,
+    #[cfg(test)]
+    pip_cache: PathBuf,
+    #[cfg(test)]
+    go_cache: PathBuf,
     pending_attention: Arc<Mutex<Option<String>>>,
     pending_dependency: Arc<Mutex<Vec<DependencyRequest>>>,
     progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
@@ -47,24 +58,6 @@ pub(crate) struct ResourceBridge {
     worker: Option<thread::JoinHandle<()>>,
     requests: Arc<Mutex<Vec<thread::JoinHandle<()>>>>,
     temp: PathBuf,
-}
-
-struct InFlightRequest(Arc<AtomicUsize>);
-
-struct TemporaryDirectoryGuard(Option<PathBuf>);
-
-impl Drop for TemporaryDirectoryGuard {
-    fn drop(&mut self) {
-        if let Some(path) = self.0.take() {
-            let _ = fs::remove_dir_all(path);
-        }
-    }
-}
-
-impl Drop for InFlightRequest {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::Release);
-    }
 }
 
 impl ResourceBridge {
@@ -86,6 +79,8 @@ impl ResourceBridge {
             None,
             None,
             None,
+            None,
+            None,
         )
     }
 
@@ -100,6 +95,8 @@ impl ResourceBridge {
         state_root: &Path,
         npm_operations: Option<Arc<super::npm::SharedPreparationOperations>>,
         cargo_operations: Option<Arc<super::cargo::SharedPreparationOperations>>,
+        pip_operations: Option<Arc<super::pip::SharedPreparationOperations>>,
+        go_operations: Option<Arc<super::go::SharedPreparationOperations>>,
         before_authorized: Option<Arc<dyn Fn() + Send + Sync>>,
     ) -> anyhow::Result<Self> {
         let worktree = worktree.canonicalize()?;
@@ -131,22 +128,12 @@ impl ResourceBridge {
             uuid::Uuid::new_v4()
         ));
         fs::create_dir(&temp)?;
-        let mut temp_guard = TemporaryDirectoryGuard(Some(temp.clone()));
+        let mut temp_guard = TemporaryDirectoryGuard::new(temp.clone());
         set_private_dir(&temp)?;
         let cache_dir = temp.join("files");
         fs::create_dir(&cache_dir)?;
         set_private_dir(&cache_dir)?;
-        let npm_cache = npm::persistent_cache_at(state_root, &worktree)?;
-        let npm_cache_gate = cache_locks::gate_for(&npm_cache)?;
-        let npm_snapshot = temp.join("npm-index-snapshots");
-        {
-            let _guard = npm_cache_gate
-                .lock()
-                .map_err(|_| anyhow::anyhow!("npm cache coordination lock is unavailable"))?;
-            npm::publish_index_snapshot(&npm_cache, &npm_snapshot)?;
-        }
-        let cargo_cache = cargo::persistent_cache_at(state_root)?;
-        let cargo_cache_gate = cache_locks::gate_for(&cargo_cache)?;
+        let caches = BrokerCaches::create(&temp, state_root, &worktree)?;
         let socket = temp.join("resource.sock");
         let listener = UnixListener::bind(&socket)?;
         set_private_file(&socket)?;
@@ -171,14 +158,22 @@ impl ResourceBridge {
         let thread_in_flight_requests = in_flight_requests.clone();
         let thread_downloaded_bytes = downloaded_bytes.clone();
         let thread_resource_dir = cache_dir.clone();
-        let thread_npm_cache = npm_cache.clone();
-        let thread_npm_snapshot = npm_snapshot.clone();
-        let thread_npm_cache_gate = npm_cache_gate.clone();
+        let thread_npm_cache = caches.npm.clone();
+        let thread_npm_snapshot = caches.npm_snapshot.clone();
+        let thread_npm_cache_gate = caches.npm_gate.clone();
         let thread_npm_operations = npm_operations;
         let thread_cargo_operations = cargo_operations;
+        let thread_pip_operations = pip_operations;
+        let thread_go_operations = go_operations;
         let thread_before_authorized = before_authorized;
-        let thread_cargo_cache = cargo_cache.clone();
-        let thread_cargo_cache_gate = cargo_cache_gate.clone();
+        let thread_cargo_cache = caches.cargo.clone();
+        let thread_cargo_cache_gate = caches.cargo_gate.clone();
+        let thread_pip_cache = caches.pip.clone();
+        let thread_pip_snapshot = caches.pip_snapshot.clone();
+        let thread_pip_cache_gate = caches.pip_gate.clone();
+        let thread_go_cache = caches.go.clone();
+        let thread_go_snapshot = caches.go_snapshot.clone();
+        let thread_go_cache_gate = caches.go_gate.clone();
         let thread_worktree = worktree.clone();
         let thread_dependency_root = dependency_root.clone();
         let thread_dependency_relative_root = dependency_relative_root.clone();
@@ -216,11 +211,19 @@ impl ResourceBridge {
                         let npm_cache_gate = thread_npm_cache_gate.clone();
                         let npm_operations = thread_npm_operations.clone();
                         let cargo_operations = thread_cargo_operations.clone();
+                        let pip_operations = thread_pip_operations.clone();
+                        let go_operations = thread_go_operations.clone();
                         let before_authorized = thread_before_authorized.clone();
                         let cargo_cache = thread_cargo_cache.clone();
                         let cargo_cache_gate = thread_cargo_cache_gate.clone();
+                        let pip_cache = thread_pip_cache.clone();
+                        let pip_snapshot = thread_pip_snapshot.clone();
+                        let pip_cache_gate = thread_pip_cache_gate.clone();
+                        let go_cache = thread_go_cache.clone();
+                        let go_snapshot = thread_go_snapshot.clone();
+                        let go_cache_gate = thread_go_cache_gate.clone();
                         let request_worker = thread::spawn(move || {
-                            let _in_flight = InFlightRequest(in_flight_requests);
+                            let _in_flight = InFlightRequest::start(in_flight_requests);
                             let context = BrokerContext {
                                 worktree: &worktree,
                                 dependency_root: &dependency_root,
@@ -231,8 +234,14 @@ impl ResourceBridge {
                                 npm_cache: &npm_cache,
                                 npm_snapshot: &npm_snapshot,
                                 cargo_cache: &cargo_cache,
+                                pip_cache: &pip_cache,
+                                pip_snapshot: &pip_snapshot,
+                                go_cache: &go_cache,
+                                go_snapshot: &go_snapshot,
                                 npm_operations: npm_operations.as_deref(),
                                 cargo_operations: cargo_operations.as_deref(),
+                                pip_operations: pip_operations.as_deref(),
+                                go_operations: go_operations.as_deref(),
                                 attention: &attention,
                                 dependency: &dependency,
                                 task_id: task_id.as_deref(),
@@ -245,6 +254,8 @@ impl ResourceBridge {
                                 before_authorized: before_authorized.as_deref(),
                                 npm_cache_gate: &npm_cache_gate,
                                 cargo_cache_gate: &cargo_cache_gate,
+                                pip_cache_gate: &pip_cache_gate,
+                                go_cache_gate: &go_cache_gate,
                             };
                             let _ = server::serve(client, &context);
                         });
@@ -263,8 +274,14 @@ impl ResourceBridge {
             socket,
             task_id: task_id.map(str::to_owned),
             cache_dir,
-            npm_cache,
-            cargo_cache,
+            #[cfg(test)]
+            npm_cache: caches.npm,
+            #[cfg(test)]
+            cargo_cache: caches.cargo,
+            #[cfg(test)]
+            pip_cache: caches.pip,
+            #[cfg(test)]
+            go_cache: caches.go,
             pending_attention: attention,
             pending_dependency,
             progress,
@@ -275,7 +292,7 @@ impl ResourceBridge {
             requests: thread_requests,
             temp,
         };
-        temp_guard.0.take();
+        temp_guard.disarm();
         Ok(bridge)
     }
 }

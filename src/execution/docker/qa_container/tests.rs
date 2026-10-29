@@ -4,6 +4,11 @@ use super::*;
 mod browser_rootless;
 #[path = "tests/desktop_rootless.rs"]
 mod desktop_rootless;
+
+#[path = "tests/artifact_permissions.rs"]
+mod artifact_permissions;
+#[path = "tests/cache_architecture.rs"]
+mod cache_architecture;
 #[path = "tests/driver_policy.rs"]
 mod driver_policy;
 
@@ -252,6 +257,7 @@ fn desktop_driver_requires_the_exact_integrity_checked_dependency_cache_set() {
         &mut env,
     )
     .unwrap();
+    assert!(tmpfs["/workspace"].contains("uid=0,gid=0,mode=0755"));
     assert!(tmpfs.contains_key("/home/executor/.npm"));
     assert!(
         tmpfs["/workspace"]

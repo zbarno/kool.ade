@@ -1,7 +1,17 @@
+use std::collections::BTreeSet;
+
 use crate::{
     app::session::Project,
-    project_runtime::{AppSurface, ProjectRuntimeStore},
+    project_runtime::{AppSurface, ProjectCapabilityManifestV1, ProjectRuntimeStore},
+    project_runtime_capability::{
+        ApprovedCapabilityInventory, CapabilityGap, assess_manifest_target,
+    },
     ui::task_detail::{RuntimeCapabilityView, RuntimeTargetChoice},
+};
+
+mod toolchain_profiles;
+use toolchain_profiles::{
+    LockedCapabilities, incompatible_recipe_toolchain_profiles, locked_capabilities,
 };
 
 pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapabilityView> {
@@ -61,6 +71,19 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
                 },
             )
             .collect();
+    let available_dependency_ids = view
+        .prepared_dependencies
+        .iter()
+        .map(|dependency| dependency.request_id.clone())
+        .collect::<BTreeSet<_>>();
+    let approved_inventory = locked_capabilities();
+    let receipts = match store.receipts_for_task(&identity.uid) {
+        Ok(receipts) => receipts,
+        Err(error) => {
+            view.message = Some(format!("Runtime build status could not be read: {error}"));
+            Vec::new()
+        }
+    };
     view.targets = manifest
         .candidate_targets
         .iter()
@@ -90,7 +113,16 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
             {
                 "UnauthorizedRecipe".into()
             } else {
-                format!("{:?}", target.capability_state)
+                format!(
+                    "{:?}",
+                    crate::project_runtime_capability::observed_build_capability_state(
+                        target,
+                        &identity.uid,
+                        &manifest.source_sha,
+                        &receipts,
+                    )
+                    .unwrap_or_else(|| target.capability_state.clone())
+                )
             },
             recipes: [
                 target
@@ -109,6 +141,19 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeCapab
             .collect::<Vec<_>>()
             .join(" · "),
             required_dependencies: target.required_dependencies.clone(),
+            diagnostics: match &approved_inventory {
+                Ok(capabilities) => capability_diagnostics(
+                    &manifest,
+                    &target.target_id,
+                    &identity.uid,
+                    capabilities,
+                    &available_dependency_ids,
+                )
+                .unwrap_or_else(|error| vec![error]),
+                Err(error) => vec![format!(
+                    "Approved runtime image capabilities could not be loaded ({error}); review the locked toolchain and driver inventory."
+                )],
+            },
             qa_applicability: surface_applicability(target.app_surface),
         })
         .collect();
@@ -143,82 +188,36 @@ fn surface_applicability(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn target_language_uses_only_manifest_evidence_in_the_target_root() {
-        let evidence = vec![
-            "apps/web/package.json".to_owned(),
-            "services/api/go.mod".to_owned(),
-            "Cargo.toml".to_owned(),
-            "apps/unknown/project.yaml".to_owned(),
-        ];
-
-        assert_eq!(
-            target_language(
-                &crate::project_runtime::target_id_for_evidence_path("apps/web/package.json"),
-                &evidence,
-            )
-            .as_deref(),
-            Some("JavaScript")
-        );
-        assert_eq!(
-            target_language(
-                &crate::project_runtime::target_id_for_evidence_path("services/api/go.mod"),
-                &evidence,
-            )
-            .as_deref(),
-            Some("Go")
-        );
-        assert_eq!(
-            target_language(
-                &crate::project_runtime::target_id_for_evidence_path("Cargo.toml"),
-                &evidence,
-            )
-            .as_deref(),
-            Some("Rust")
-        );
-        assert_eq!(target_language("unknown-target", &evidence), None);
-    }
-
-    #[test]
-    fn target_language_does_not_confuse_same_root_polyglot_candidates() {
-        let evidence = vec!["Cargo.toml".to_owned(), "package.json".to_owned()];
-        let rust_target = crate::project_runtime::target_id_for_evidence_path("Cargo.toml");
-        let node_target = crate::project_runtime::target_id_for_evidence_path("package.json");
-
-        assert_ne!(rust_target, node_target);
-        assert_eq!(
-            target_language(&rust_target, &evidence).as_deref(),
-            Some("Rust")
-        );
-        assert_eq!(
-            target_language(&node_target, &evidence).as_deref(),
-            Some("JavaScript")
-        );
-    }
-
-    #[test]
-    fn surface_applicability_keeps_service_and_unsupported_targets_out_of_visual_qa() {
-        use crate::project_runtime_capability::QaApplicability;
-
-        assert_eq!(
-            surface_applicability(AppSurface::Web),
-            QaApplicability::Visual
-        );
-        assert_eq!(
-            surface_applicability(AppSurface::LinuxDesktop),
-            QaApplicability::Visual
-        );
-        assert_eq!(
-            surface_applicability(AppSurface::HeadlessService),
-            QaApplicability::ServiceEvidence
-        );
-        assert_eq!(
-            surface_applicability(AppSurface::UnsupportedTarget),
-            QaApplicability::Unsupported
-        );
-    }
+fn capability_diagnostics(
+    manifest: &ProjectCapabilityManifestV1,
+    target_id: &str,
+    task_id: &str,
+    capabilities: &LockedCapabilities,
+    available_dependency_ids: &BTreeSet<String>,
+) -> Result<Vec<String>, String> {
+    let inventory = ApprovedCapabilityInventory {
+        manifest,
+        available_tool_ids: &capabilities.tool_ids,
+        available_dependency_ids,
+        available_driver_ids: &capabilities.driver_ids,
+    };
+    let assessment = assess_manifest_target(manifest, target_id, task_id, &inventory)
+        .map_err(|error| format!("Runtime capability assessment failed: {error}"))?;
+    let mut diagnostics = assessment
+        .report
+        .gaps
+        .iter()
+        .map(CapabilityGap::remediation)
+        .collect::<Vec<_>>();
+    diagnostics.extend(incompatible_recipe_toolchain_profiles(
+        manifest,
+        target_id,
+        &capabilities.tool_ids,
+        &capabilities.profile_tool_ids,
+    ));
+    Ok(diagnostics)
 }
+
+#[cfg(test)]
+#[path = "runtime_capability/tests.rs"]
+mod tests;

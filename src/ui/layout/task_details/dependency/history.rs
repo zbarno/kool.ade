@@ -109,6 +109,7 @@ fn ecosystem_label(ecosystem: crate::harness::PackageEcosystem) -> &'static str 
         Ecosystem::Cargo => "Cargo",
         Ecosystem::Nuget => "NuGet",
         Ecosystem::Pip => "pip",
+        Ecosystem::Go => "Go modules",
         Ecosystem::Uv => "uv",
         Ecosystem::Poetry => "Poetry",
         Ecosystem::System => "System package manager",

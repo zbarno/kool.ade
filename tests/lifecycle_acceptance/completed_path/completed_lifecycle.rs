@@ -1,16 +1,24 @@
 use super::*;
+use sha2::{Digest, Sha256};
 
 #[path = "pr_work.rs"]
 mod pr_work;
 
-/// Production boundary: persisted QA evidence and reviewer receipt stay bound to
-/// the task revision through restart, repair, and one-time spec reconciliation.
-/// Unit tests cannot prove cross-store recovery. Temporary in-process stores need
-/// no Docker/model API; rootless candidate-image runs cover real UI interactions.
+/// Production boundary: a Python-only source workspace can traverse task review,
+/// persisted QA evidence, spec reconciliation and PR work creation without a
+/// language-specific build system. Unit tests cannot prove cross-store recovery.
+/// Deterministic in-process adapters need no Docker/model API; rootless
+/// candidate-image runs cover real UI interactions.
 
 #[test]
 fn qa_finding_repairs_new_code_repasses_and_reconciles_once_to_pr_work_item() {
     let temp = tempfile::tempdir().unwrap();
+    let source_root = temp.path().join("src");
+    std::fs::create_dir_all(&source_root).unwrap();
+    let initial_source = b"def status():\n    return 'needs-repair'\n";
+    std::fs::write(source_root.join("server.py"), initial_source).unwrap();
+    assert!(!temp.path().join("Cargo.toml").exists());
+    assert!(!temp.path().join("package.json").exists());
     let store = PlanningStore::new(uuid::Uuid::new_v4(), temp.path(), StoreMode::ManagedLocal);
     let lifecycle = LifecycleStore::new(&store);
     bootstrap_product(&store);
@@ -59,7 +67,7 @@ fn qa_finding_repairs_new_code_repasses_and_reconciles_once_to_pr_work_item() {
     task_record = lifecycle
         .apply_task_event(&task_uid, task_record.revision, &id(), TaskEvent::Start)
         .unwrap();
-    let implementation_hash = "d".repeat(64);
+    let implementation_hash = format!("{:x}", Sha256::digest(initial_source));
     task_record = lifecycle
         .apply_task_event(
             &task_uid,
@@ -164,7 +172,9 @@ fn qa_finding_repairs_new_code_repasses_and_reconciles_once_to_pr_work_item() {
     assert!(task_record.runtime_qa.is_none());
     assert!(task_record.code_review.is_none());
     assert!(task_record.qa_execution.is_none());
-    let repaired_hash = "0".repeat(64);
+    let repaired_source = b"def status():\n    return 'ok'\n";
+    std::fs::write(source_root.join("server.py"), repaired_source).unwrap();
+    let repaired_hash = format!("{:x}", Sha256::digest(repaired_source));
     task_record = lifecycle
         .apply_task_event(
             &task_uid,

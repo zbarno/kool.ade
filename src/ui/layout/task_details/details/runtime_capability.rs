@@ -1,5 +1,6 @@
 use crate::ui::{Surface, task_detail};
 
+mod empty_state;
 mod recipe_adapter;
 mod target_override;
 
@@ -50,11 +51,11 @@ pub(super) fn paint(
             });
         }
         let Some(revision) = runtime.manifest_revision else {
+            empty_state::paint_not_assessed(ui);
             return;
         };
         target_override::paint(ui, surface, ticket, revision, &runtime.prepared_dependencies);
-        if runtime.targets.is_empty() {
-            ui.label("No targets are recorded for this task.");
+        if empty_state::paint_static_review_only_if_empty(ui, &runtime.targets) {
             return;
         }
         let current = runtime
@@ -110,6 +111,15 @@ pub(super) fn paint(
                 }
             };
             ui.label(egui::RichText::new(applicability).small());
+            if !target.diagnostics.is_empty() {
+                ui.label(egui::RichText::new("Capability gaps and suggested next steps").strong());
+                ui.label(egui::RichText::new(
+                    "These suggestions do not grant recipe approval or prove runtime readiness.",
+                ).small().weak());
+                for diagnostic in &target.diagnostics {
+                    ui.label(format!("• {diagnostic}"));
+                }
+            }
             ui.label(if target.recipes.is_empty() {
                 "No approved build, test, or start recipes.".into()
             } else {
@@ -269,3 +279,7 @@ pub(in crate::ui::layout::task_details) fn seed_custom_target_repository_root_dr
 ) {
     target_override::seed_test_repository_root_draft(context, ticket, app_surface);
 }
+
+#[cfg(test)]
+#[path = "runtime_capability/tests.rs"]
+mod tests;

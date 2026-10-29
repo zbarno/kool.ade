@@ -84,6 +84,14 @@ impl TargetCapabilityView for crate::project_runtime::AppTargetV1 {
     fn supported_driver_ids(&self) -> &[String] {
         &self.supported_driver_ids
     }
+
+    fn surface_driver_id(&self) -> Option<&str> {
+        match self.app_surface {
+            AppSurface::Web => Some("web-driver"),
+            AppSurface::LinuxDesktop => Some("linux-desktop-driver"),
+            AppSurface::HeadlessService | AppSurface::UnsupportedTarget => None,
+        }
+    }
 }
 
 /// Resolves a task's explicit target; it never guesses from language or picks a

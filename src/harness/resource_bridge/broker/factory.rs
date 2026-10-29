@@ -24,6 +24,8 @@ impl ResourceBridge {
             None,
             None,
             None,
+            None,
+            None,
         )
     }
 
@@ -43,6 +45,8 @@ impl ResourceBridge {
             progress,
             cancel,
             &crate::persistence::state_root(),
+            None,
+            None,
             None,
             None,
             None,

@@ -6,12 +6,31 @@ pub(in crate::harness::resource_bridge) fn test_preparation_operations(
     archive: PathBuf,
     registry_url: String,
 ) -> std::sync::Arc<SharedPreparationOperations> {
+    test_preparation_operations_inner(archive, None, registry_url)
+}
+
+pub(in crate::harness::resource_bridge) fn test_fixture_preparation_operations(
+    archive: PathBuf,
+    archive_url: String,
+    registry_url: String,
+) -> std::sync::Arc<SharedPreparationOperations> {
+    test_preparation_operations_inner(archive, Some(archive_url), registry_url)
+}
+
+fn test_preparation_operations_inner(
+    archive: PathBuf,
+    expected_archive_url: Option<String>,
+    registry_url: String,
+) -> std::sync::Arc<SharedPreparationOperations> {
     let retrieve = std::sync::Arc::new(
         move |response_dir: &Path,
-              _url: &str,
+              url: &str,
               _purpose: &str,
               _remaining: u64,
               _registry: Option<&url::Url>| {
+            if let Some(expected) = &expected_archive_url {
+                anyhow::ensure!(url == expected, "Synthetic npm archive URL changed");
+            }
             let target = response_dir.join("synthetic-npm-package.tgz");
             std::fs::copy(&archive, &target)?;
             let bytes = usize::try_from(std::fs::metadata(&target)?.len())?;

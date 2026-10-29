@@ -1,5 +1,10 @@
 use crate::harness::DependencyKind;
 
+mod go;
+mod pip;
+pub(crate) use go::safe_go_restore_command;
+pub(crate) use pip::safe_pip_restore_command;
+
 pub(crate) fn safe_cargo_restore_command(command: &str) -> bool {
     if command
         .chars()

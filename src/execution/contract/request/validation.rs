@@ -32,20 +32,8 @@ pub(super) fn validate_environment_names(names: &BTreeSet<String>) -> anyhow::Re
                 && !name.as_bytes()[0].is_ascii_digit(),
             "environment allowlist contains an invalid variable name"
         );
-        let upper = name.to_ascii_uppercase();
         anyhow::ensure!(
-            ![
-                "TOKEN",
-                "SECRET",
-                "PASSWORD",
-                "PRIVATE_KEY",
-                "CREDENTIAL",
-                "SSH_",
-                "AWS_",
-                "GITHUB_"
-            ]
-            .iter()
-            .any(|sensitive| upper.contains(sensitive)),
+            !crate::project_runtime::is_protected_environment_key(name),
             "credential environment variables cannot be granted to an execution"
         );
     }

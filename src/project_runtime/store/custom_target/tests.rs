@@ -187,12 +187,14 @@ fn repository_root_alias_passes_root_guard_before_manifest_lookup() {
         .unwrap_err()
         .to_string();
     assert!(invalid_artifact_error.contains("artifact paths"));
+    let mut test_only_target = target;
+    test_only_target.artifact_spec_ref = None;
     let error = store
         .add_user_target_with_readiness_and_save(
-            target,
+            test_only_target,
             Vec::new(),
             None,
-            vec!["dist/index.html".into()],
+            Vec::new(),
             crate::core::lifecycle::GateReceipt {
                 receipt_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
                 subject_uid: "task-root".into(),

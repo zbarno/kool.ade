@@ -10,10 +10,15 @@ use crate::{
 mod artifacts;
 mod outputs;
 mod provenance;
+mod recipe_command;
 mod start;
+
+#[cfg(test)]
+pub(crate) use start::qa_go_start_script;
 
 use artifacts::{artifact_capture_paths, receipt_artifact_hashes};
 use outputs::{source_input_paths, source_output_paths, validate_source_output_approvals};
+use recipe_command::validate_recipe_command_for_operation;
 
 /// Resolves only persisted, approved target recipes and records their observed outcome.
 pub struct ProjectRuntimeExecutor<'store, 'planning> {
@@ -32,6 +37,10 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
         operation: RuntimeOperation,
     ) -> anyhow::Result<Vec<RuntimeReceiptV1>> {
         let (manifest, target) = self.validate_candidate(session, target_id, operation)?;
+        require_prepared_dependencies(
+            &target.required_dependencies,
+            &session.prepared_dependency_ids(),
+        )?;
         validate_source_output_approvals(self.store, &manifest, &target, operation)?;
         if operation == RuntimeOperation::Start {
             return start::execute(self.store, session, &manifest, &target);
@@ -53,6 +62,7 @@ impl<'store, 'planning> ProjectRuntimeExecutor<'store, 'planning> {
                 .chain(manifest.user_overrides.iter())
                 .find(|recipe| recipe.recipe_id == recipe_id.as_str())
                 .ok_or_else(|| anyhow::anyhow!("runtime target recipe is missing"))?;
+            validate_recipe_command_for_operation(operation, recipe)?;
             let capture_paths = artifact_capture_paths(&manifest, &target, recipe, operation)?;
             let mut recipe = recipe.clone();
             recipe.working_directory_relative = join_workspace_path(
@@ -245,6 +255,20 @@ fn next_receipt_timestamp(store: &ProjectRuntimeStore<'_>, task_id: &str) -> any
         .max()
         .unwrap_or_default();
     Ok(next_timestamp(now_unix_ms(), latest))
+}
+
+fn require_prepared_dependencies(required: &[String], prepared: &[String]) -> anyhow::Result<()> {
+    let prepared = prepared
+        .iter()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    anyhow::ensure!(
+        required
+            .iter()
+            .all(|dependency| prepared.contains(dependency.as_str())),
+        "runtime target is missing a selected, prepared dependency broker request"
+    );
+    Ok(())
 }
 
 fn next_timestamp(now: u64, latest: u64) -> u64 {

@@ -39,6 +39,19 @@ pub(super) async fn run(
         "The approved API request is saved by the preview service",
         false,
     )];
+    if request.test_data_fixture_ref.as_deref() == Some("go-headless-api-v1") {
+        service_scenario.steps.push(step(
+            QaDriverActionV1::ApiRequest {
+                method: QaHttpMethodV1::Get,
+                path: "/runner-protection".into(),
+                json_body: None,
+                expected_status: 200,
+                expected_body_contains: Some("\"protected\":true".into()),
+            },
+            "The same-UID fixture process cannot read or truncate its sealed readiness runner",
+            false,
+        ));
+    }
     service_scenario.expected_results = vec!["The save endpoint reports a successful save.".into()];
     service_scenario.visual_expectations.clear();
     service_request.validate()?;
@@ -109,7 +122,17 @@ pub(super) async fn run(
                 bounded_driver_output(&output.stdout, &output.stderr)
             ));
         }
-        parse_browser_output(&output.stdout, &service_request, &service_scenario)
+        let mut output = parse_browser_output(&output.stdout, &service_request, &service_scenario)?;
+        for action in &mut output.actions {
+            action.scenario_id = scenario.id.clone();
+        }
+        for screenshot in &mut output.screenshots {
+            screenshot.scenario_id = scenario.id.clone();
+        }
+        for assertion in &mut output.assertions {
+            assertion.scenario_ids = vec![scenario.id.clone()];
+        }
+        Ok(output)
     }
     .await;
     cleanup_driver_container(docker, &driver_id)

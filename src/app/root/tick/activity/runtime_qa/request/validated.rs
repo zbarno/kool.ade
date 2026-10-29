@@ -94,19 +94,7 @@ pub(super) fn from_reviewed_task(inputs: ReviewedTaskInputs<'_>) -> Result<QaRun
         }
     };
     let review = task.code_review.as_ref().expect("validated above");
-    let cache_refs = if platform == QaPlatform::Web {
-        dependency_cache_refs
-            .iter()
-            .map(
-                |(dependency_request_id, cache_ref)| QaDependencyCacheRefV1 {
-                    dependency_request_id: dependency_request_id.clone(),
-                    cache_ref: cache_ref.clone(),
-                },
-            )
-            .collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
+    let cache_refs = qa_dependency_cache_refs(dependency_cache_refs);
     let cache_identity = format!(
         "{:x}",
         sha2::Sha256::digest(
@@ -176,3 +164,21 @@ pub(super) fn from_reviewed_task(inputs: ReviewedTaskInputs<'_>) -> Result<QaRun
     request.validate()?;
     Ok(request)
 }
+
+fn qa_dependency_cache_refs(
+    dependency_cache_refs: &[(String, crate::execution::contract::DependencyCacheRefV1)],
+) -> Vec<QaDependencyCacheRefV1> {
+    dependency_cache_refs
+        .iter()
+        .map(
+            |(dependency_request_id, cache_ref)| QaDependencyCacheRefV1 {
+                dependency_request_id: dependency_request_id.clone(),
+                cache_ref: cache_ref.clone(),
+            },
+        )
+        .collect()
+}
+
+#[cfg(test)]
+#[path = "validated/tests.rs"]
+mod tests;
