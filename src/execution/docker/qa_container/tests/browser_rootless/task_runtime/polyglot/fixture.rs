@@ -102,6 +102,21 @@ impl Fixture {
             .find(|target| target.project_relative_root == "apps/web")
             .expect("discovered TypeScript target");
         node_target.required_dependencies = vec![dependency_cache.request_id.clone()];
+        node_target.artifact_spec_ref = Some("polyglot-node-artifacts".into());
+        let python_target = manifest
+            .candidate_targets
+            .iter_mut()
+            .find(|target| target.project_relative_root == "services/api")
+            .expect("discovered Python target");
+        python_target.artifact_spec_ref = Some("polyglot-python-artifacts".into());
+        manifest.artifact_specs.insert(
+            "polyglot-node-artifacts".into(),
+            vec!["dist/server.ts".into(), "dist/index.html".into()],
+        );
+        manifest.artifact_specs.insert(
+            "polyglot-python-artifacts".into(),
+            vec!["dist/app.py".into(), "dist/index.html".into()],
+        );
         runtime
             .save_manifest(&manifest, manifest.revision)
             .expect("bind the selected Node cache request to its target");
