@@ -19,6 +19,35 @@ pub(crate) use run::{
 mod reviewer;
 mod run;
 #[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn execute_review_for_rootless_test(
+    harness: &dyn crate::harness::AiHarness,
+    request: &crate::runtime_qa::QaRunRequestV1,
+    scenarios: &[QaScenarioV1],
+    evidence: &crate::runtime_qa::QaEvidenceManifestV1,
+    candidate: &crate::runtime_qa::QaResultV1,
+    screenshots: &[crate::runtime_qa::QaScreenshotArtifactV1],
+    workspace: &crate::execution::contract::WorkspaceRef,
+    task_clone: &Path,
+    reviewer_run: &str,
+    reviewer_session: &str,
+    cancelled: Arc<AtomicBool>,
+) -> Result<crate::harness::prompt_catalog::ReviewVerdictV1, String> {
+    reviewer::execute(reviewer::ReviewInputs {
+        harness,
+        request,
+        scenarios,
+        evidence,
+        candidate,
+        screenshots,
+        workspace,
+        task_clone,
+        reviewer_run,
+        reviewer_session,
+        cancelled,
+    })
+}
+#[cfg(test)]
 #[path = "worker/tests.rs"]
 mod tests;
 
