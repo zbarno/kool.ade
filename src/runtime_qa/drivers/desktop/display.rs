@@ -1,4 +1,5 @@
 use std::{
+    path::Path,
     process::{Child, Command, Stdio},
     thread,
     time::{Duration, Instant},
@@ -14,6 +15,7 @@ use x11rb::{
 
 mod ownership;
 mod visibility;
+mod xvfb;
 
 pub(super) const DISPLAY_NAME: &str = ":99";
 pub(super) const DISPLAY_WIDTH: u16 = 1440;
@@ -40,12 +42,9 @@ pub(super) struct WindowInfo {
 
 impl DesktopDisplay {
     pub(super) fn start() -> Result<Self, String> {
-        let metadata = std::fs::symlink_metadata("/usr/bin/Xvfb")
-            .map_err(|_| "pinned QA image does not provide Xvfb".to_owned())?;
-        if !metadata.is_file() || metadata.file_type().is_symlink() {
-            return Err("pinned QA image Xvfb executable is unsafe".into());
-        }
-        let mut server = Command::new("/usr/bin/Xvfb")
+        let xvfb_path = Path::new("/usr/bin/Xvfb");
+        xvfb::require(xvfb_path)?;
+        let mut server = Command::new(xvfb_path)
             .args([
                 DISPLAY_NAME,
                 "-screen",
