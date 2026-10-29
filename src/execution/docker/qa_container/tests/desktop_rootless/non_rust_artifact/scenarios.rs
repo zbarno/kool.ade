@@ -13,7 +13,19 @@ use crate::{
 
 #[path = "scenarios/actions.rs"]
 mod actions;
+#[path = "scenarios/cancellation.rs"]
+pub(super) mod cancellation;
 pub(super) use actions::happy_steps;
+
+pub(super) async fn exercise_cancellation(
+    docker: &bollard::Docker,
+    image: &SelectedImage,
+    lock: &ImageLock,
+    resources: &ResourceBudgetV1,
+    executable: &Path,
+) {
+    cancellation::exercise(docker, image, lock, resources, executable).await;
+}
 
 pub(super) fn require_approved_executable(path: &Path) {
     let metadata = std::fs::symlink_metadata(path).unwrap();
