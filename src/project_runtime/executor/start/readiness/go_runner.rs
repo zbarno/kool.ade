@@ -39,7 +39,7 @@ pub(super) fn build_command(
     );
     let arguments = arguments.join(" ");
     Ok(format!(
-        "set -u\ncd '.' || exit 70\nprobe_dir='/workspace/.koolade-runtime-qa-'$$\nmkdir \"$probe_dir\" || exit 72\nprintf '%s' {} > \"$probe_dir/runner.go\" || exit 72\nif ! (cd /tmp && GO111MODULE=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off GOTMPDIR=/workspace 'go' 'build' '-trimpath' '-o' \"$probe_dir/runner\" \"$probe_dir/runner.go\"); then printf '%s\\n' 'approved Go readiness runner build failed' >&2; exit 72; fi\nexec \"$probe_dir/runner\" {arguments}\n",
+        "set -u\ncd '.' || exit 70\numask 077\nprobe_dir='/tmp/koolade-runtime-qa-'$$\nmkdir \"$probe_dir\" || exit 72\nprintf '%s' {} > \"$probe_dir/runner.go\" || exit 72\nif ! (cd /tmp && GO111MODULE=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off GOTMPDIR=/tmp 'go' 'build' '-trimpath' '-o' \"$probe_dir/runner\" \"$probe_dir/runner.go\"); then printf '%s\\n' 'approved Go readiness runner build failed' >&2; exit 72; fi\nexec \"$probe_dir/runner\" {arguments}\n",
         shell_quote(RUNNER_SOURCE),
     ))
 }
