@@ -1,7 +1,8 @@
-//! Explicit owner for shared planning artifacts.
+//! Explicit owner for planning artifacts.
 //!
-//! Legacy projects keep their existing `.koolade-packet` files in place. A
-//! managed planning repository can use the same API with its own root.
+//! A [`PlanningStore`] is always the standalone Git repository that holds a
+//! project's planning state. Planning state never lives inside a code
+//! checkout. See `docs/planning-repository-v1.md`.
 use std::{
     fmt, io,
     path::{Path, PathBuf},
@@ -23,11 +24,25 @@ pub use root::PlanningRoot;
 
 pub(crate) type RecordChangePlan = (Vec<(String, Vec<u8>)>, Vec<RecordRevisionCheck>, bool);
 
+/// Local-only slots: private state (MCP operator config, implementation
+/// journal, time ledger) that must never enter the shared planning-store
+/// sync. Defined ONCE so the store I/O fence and the transaction fence
+/// cannot drift apart.
+pub(crate) fn is_local_only(relative: &Path) -> bool {
+    relative == Path::new("config/mcp.json")
+        || relative.starts_with("implementation")
+        || relative == Path::new("state/time-ledger.log")
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoreMode {
-    LegacyEmbedded,
     ManagedLocal,
     ManagedShared,
+    /// Temporary migration-reader mode: points INTO a legacy
+    /// `.koolade-packet/` directory inside a source checkout. Only the
+    /// explicit managed-workspace migration flow may construct stores this
+    /// way; connected projects never run in this mode.
+    LegacyPacketSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,13 +136,15 @@ impl PlanningStore {
         }
     }
 
-    /// Compatibility mapping. Opening a legacy project never copies or moves
-    /// its existing artifacts.
+    /// Migration-exception constructor: opens the legacy
+    /// `.koolade-packet/` directory of a source checkout being migrated into
+    /// a managed workspace. Outside the explicit migration flow, checkouts
+    /// do not hold planning state and this constructor must not be used.
     pub fn legacy_embedded(project_id: uuid::Uuid, repository: &Path) -> Self {
         Self::new(
             project_id,
-            repository.join(crate::artifacts::layout::canonical::ROOT),
-            StoreMode::LegacyEmbedded,
+            repository.join(crate::artifacts::layout::store::ROOT),
+            StoreMode::LegacyPacketSource,
         )
     }
 
@@ -135,12 +152,12 @@ impl PlanningStore {
         PlanningLayout::for_store(self)
     }
 
-    /// Git root for checkpointing planning writes. In embedded mode this is
-    /// the code checkout for compatibility; managed stores commit at their
-    /// own root.
+    /// Git root for checkpointing planning writes. Stores commit at their
+    /// own repository root; the migration reader resolves to the source
+    /// checkout for compatibility with pre-migration checkpoints.
     pub fn git_root(&self) -> PathBuf {
         match self.mode {
-            StoreMode::LegacyEmbedded => self.root.parent().unwrap_or(&self.root).to_path_buf(),
+            StoreMode::LegacyPacketSource => self.root.parent().unwrap_or(&self.root).to_path_buf(),
             StoreMode::ManagedLocal | StoreMode::ManagedShared => self.root.clone(),
         }
     }
@@ -149,8 +166,8 @@ impl PlanningStore {
     /// repository.
     pub fn git_path(&self, relative: &str) -> String {
         match self.mode {
-            StoreMode::LegacyEmbedded => {
-                format!("{}/{relative}", crate::artifacts::layout::canonical::ROOT)
+            StoreMode::LegacyPacketSource => {
+                format!("{}/{}", crate::artifacts::layout::store::ROOT, relative)
             }
             StoreMode::ManagedLocal | StoreMode::ManagedShared => relative.to_owned(),
         }

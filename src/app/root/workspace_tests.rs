@@ -14,5 +14,7 @@ mod clone_card;
 mod clone_dispatch;
 #[path = "workspace_tests/clone_ticket_recovery.rs"]
 mod clone_ticket_recovery;
+#[path = "workspace_tests/join_browse.rs"]
+mod join_browse;
 #[path = "workspace_tests/seat_derivation.rs"]
 mod seat_derivation;

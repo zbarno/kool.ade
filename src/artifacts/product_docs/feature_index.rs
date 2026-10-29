@@ -70,15 +70,13 @@ pub fn next_feature_id<R: PlanningRoot + ?Sized>(repo: &R) -> String {
         }
     }
     let store = repo.planning_store();
-    let git_root = repo
-        .code_repository_root()
-        .unwrap_or_else(|| layout.root().to_path_buf());
-    let history_path = if store.mode == crate::artifacts::planning_store::StoreMode::LegacyEmbedded
-    {
-        crate::artifacts::layout::canonical::CHANGES
-    } else {
-        crate::artifacts::planning_store::paths::CHANGES
-    };
+    let git_root = store.git_root();
+    let history_path =
+        if store.mode == crate::artifacts::planning_store::StoreMode::LegacyPacketSource {
+            crate::artifacts::layout::store::CHANGES
+        } else {
+            crate::artifacts::planning_store::paths::CHANGES
+        };
     if let Ok(output) = std::process::Command::new("git")
         .args([
             "log",

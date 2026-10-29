@@ -12,7 +12,9 @@ pub(super) fn paint(ui: &mut egui::Ui, path: &mut String) {
     if !manifest_path.is_file() {
         return;
     }
-    let Ok(manifest) = ProjectManifest::load(&root) else {
+    let store =
+        crate::artifacts::planning_store::PlanningStore::legacy_embedded(uuid::Uuid::nil(), &root);
+    let Ok(manifest) = ProjectManifest::load(&store) else {
         return;
     };
     let labels = display_labels(&manifest.repositories);

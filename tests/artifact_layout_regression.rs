@@ -4,7 +4,7 @@ use std::{fs, path::Path};
 
 use koolade::{
     artifacts::{
-        layout::canonical,
+        layout::store as canonical,
         planning_store::{PlanningStore, StoreMode},
     },
     core::planning_work,
@@ -101,7 +101,14 @@ fn planning_work_save_creates_the_canonical_state_directory() {
         "Keep this record durable.".into(),
         "Waiting".into(),
     );
-    planning_work::save(&root, std::slice::from_ref(&work)).unwrap();
+    planning_work::save(
+        &koolade::artifacts::planning_store::PlanningStore::legacy_embedded(
+            uuid::Uuid::nil(),
+            &root,
+        ),
+        std::slice::from_ref(&work),
+    )
+    .unwrap();
     assert!(
         root.join(canonical::STATE)
             .join("work")

@@ -48,7 +48,7 @@ pub(crate) fn collect_branch_artifacts(
                 "--full-tree",
                 source_ref,
                 "--",
-                crate::artifacts::layout::canonical::ROOT,
+                crate::artifacts::layout::store::ROOT,
             ],
         )?;
         for entry in tree
@@ -70,13 +70,13 @@ pub(crate) fn collect_branch_artifacts(
             anyhow::ensure!(
                 mode != "120000",
                 "branch {source_ref} contains a symbolic link under {}",
-                crate::artifacts::layout::canonical::ROOT
+                crate::artifacts::layout::store::ROOT
             );
             if object_type != "blob" || path.is_empty() {
                 continue;
             }
             let path = std::str::from_utf8(path)?;
-            let prefix = format!("{}/", crate::artifacts::layout::canonical::ROOT);
+            let prefix = format!("{}/", crate::artifacts::layout::store::ROOT);
             let relative = path
                 .strip_prefix(&prefix)
                 .ok_or_else(|| anyhow::anyhow!("unexpected planning path in Git tree"))?;

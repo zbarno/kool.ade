@@ -14,7 +14,7 @@ pub(super) fn content(
     {
         return "Task story unavailable; rely on the saved report only.".into();
     }
-    if planning_store.mode != crate::artifacts::planning_store::StoreMode::LegacyEmbedded
+    if planning_store.mode != crate::artifacts::planning_store::StoreMode::LegacyPacketSource
         && let Some(path) = planning_store
             .layout()
             .canonical_path(ticket)

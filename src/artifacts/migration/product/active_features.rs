@@ -1,18 +1,13 @@
 use std::fs;
 
-use crate::artifacts::planning_store::{PlanningLayout, PlanningStore, StoreMode};
+use crate::artifacts::planning_store::{PlanningLayout, PlanningStore};
 
 pub(super) fn append_active_features(
     store: &PlanningStore,
     layout: &PlanningLayout,
     index: &mut String,
 ) -> anyhow::Result<()> {
-    let legacy_features = layout.legacy_features_root();
-    let changes = if store.mode == StoreMode::LegacyEmbedded && legacy_features.is_dir() {
-        legacy_features
-    } else {
-        layout.changes_root()
-    };
+    let changes = layout.changes_root();
     let mut features = Vec::new();
     if changes.is_dir() {
         for entry in fs::read_dir(changes)? {

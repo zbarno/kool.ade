@@ -47,7 +47,7 @@ impl KooladeApp {
             repositories,
             sync: project.planning_sync.clone(),
             sync_running: self.planning_sync_job.is_some(),
-            migration_available: project.state.planning_store.mode == StoreMode::LegacyEmbedded,
+            migration_available: project.state.planning_store.mode == StoreMode::LegacyPacketSource,
         })
     }
 
@@ -55,7 +55,7 @@ impl KooladeApp {
         let Screen::Connected(project) = &mut self.screen else {
             return Err("Connect a workspace before configuring its planning remote.".into());
         };
-        if project.state.planning_store.mode == StoreMode::LegacyEmbedded {
+        if project.state.planning_store.mode == StoreMode::LegacyPacketSource {
             return Err("Migrate this legacy project before configuring a planning remote.".into());
         }
         let id = project.state.planning_store.project_id;
@@ -78,7 +78,7 @@ impl KooladeApp {
         let Screen::Connected(project) = &self.screen else {
             return Err("Connect a legacy project before previewing migration.".into());
         };
-        if project.state.planning_store.mode != StoreMode::LegacyEmbedded {
+        if project.state.planning_store.mode != StoreMode::LegacyPacketSource {
             return Err("This workspace already uses a managed planning repository.".into());
         }
         crate::core::managed_workspace::WorkspaceManager::from_state_root()
@@ -93,7 +93,7 @@ impl KooladeApp {
         let Screen::Connected(project) = &self.screen else {
             return Err("Connect a legacy project before migrating it.".into());
         };
-        if project.state.planning_store.mode != StoreMode::LegacyEmbedded {
+        if project.state.planning_store.mode != StoreMode::LegacyPacketSource {
             return Err("This workspace already uses a managed planning repository.".into());
         }
         if project.active_turn.is_some() || !project.active_implementations.is_empty() {

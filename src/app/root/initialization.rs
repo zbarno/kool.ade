@@ -51,6 +51,7 @@ impl Default for KooladeApp {
             planning_sync_job: None,
             conn_join_remote: String::new(),
             conn_workspace_id: None,
+            conn_browse_target: BrowseTarget::CodeRepo,
             clone_computation_override: None,
             cached_user: CurrentUser::new("", Vec::new()),
             attention: Default::default(),

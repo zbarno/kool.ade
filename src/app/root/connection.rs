@@ -256,6 +256,56 @@ impl KooladeApp {
         self.finish_connect(welcome::attempt_open_workspace(id));
     }
 
+    /// Native folder picker serving BOTH welcome cards. The seed follows the
+    /// owning field's own directory (or its nearest surviving ancestor) so
+    /// the chooser opens where the operator last pointed. Cancelling leaves
+    /// the field untouched; selecting a folder only FILLS the field —
+    /// submitting remains the single connect authority.
+    pub(super) fn pick_folder_for_active_target(&mut self) {
+        let target = self.conn_browse_target;
+        let seed = match target {
+            BrowseTarget::CodeRepo => self.conn_path.trim().to_string(),
+            BrowseTarget::PlanningRepo => self.conn_join_remote.trim().to_string(),
+        };
+        let current = std::path::PathBuf::from(&seed);
+        let start = if current.is_dir() {
+            Some(current.clone())
+        } else {
+            current
+                .parent()
+                .filter(|parent| parent.is_dir())
+                .map(std::path::Path::to_path_buf)
+        }
+        .or_else(|| std::env::current_dir().ok());
+        let title = match target {
+            BrowseTarget::CodeRepo => "Choose a workspace folder",
+            BrowseTarget::PlanningRepo => "Choose a planning repository",
+        };
+        let mut picker = rfd::FileDialog::new().set_title(title);
+        if let Some(start) = start {
+            picker = picker.set_directory(start);
+        }
+        self.apply_folder_pick(target, picker.pick_folder());
+    }
+
+    /// Field-write half of the folder picker, separated from the OS dialog
+    /// so selection routing is testable without spawning a native picker.
+    pub(in crate::app) fn apply_folder_pick(
+        &mut self,
+        target: BrowseTarget,
+        picked: Option<std::path::PathBuf>,
+    ) {
+        let Some(path) = picked else {
+            return;
+        };
+        let path = path.canonicalize().unwrap_or(path);
+        let path = path.to_string_lossy().into_owned();
+        match target {
+            BrowseTarget::CodeRepo => self.conn_path = path,
+            BrowseTarget::PlanningRepo => self.conn_join_remote = path,
+        }
+    }
+
     pub(super) fn finish_connect(
         &mut self,
         result: Result<session::Project, crate::error::AppError>,
@@ -284,6 +334,10 @@ impl KooladeApp {
                 self.toasts.success(format!("Connected to {title}"));
             }
             Err(e) => {
+                // A refused connection (typically a missing planning
+                // repository) still warrants showing local environment
+                // readiness so setup can proceed.
+                self.refresh_setup_attention(false);
                 self.conn_error = Some(Self::conn_banner(&e));
             }
         }

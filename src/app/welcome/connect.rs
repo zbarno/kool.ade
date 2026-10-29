@@ -3,15 +3,25 @@ use crate::artifacts::planning_store::{PlanningStore, StoreMode};
 use crate::core::gitops;
 use crate::core::state::PlannerState;
 use crate::error::AppError;
-use crate::persistence::{chat_store, project_slug};
+use crate::persistence::chat_store;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
 mod managed;
 pub use managed::{attempt_create_workspace, attempt_join_workspace, attempt_open_workspace};
-/// Normalize user-typed paths (`~` expansion), then load-or-bootstrap.
+/// Normalize user-typed paths (`~` expansion), then load the managed
+/// planning repository or the checkout's associated workspace. A code
+/// checkout with no planning association cannot connect: Kool.ad/e keeps
+/// planning state in a separate Git repository, so the operator must create
+/// or join a workspace first.
 pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
     let canonical = canonical_repository(raw)?;
+    if !gitops::is_work_tree(&canonical) {
+        return Err(AppError::InvalidRepo {
+            path: canonical.to_string_lossy().into_owned(),
+            detail: "no .git directory found \u{2014} Kool.ad/e plans inside a git working tree. Initialize one first (git init) or choose a different folder.".into(),
+        });
+    }
     if managed::is_managed_repository(&canonical)? {
         return managed::join_workspace_path(&canonical);
     }
@@ -26,23 +36,20 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
     {
         return connect_canonical(canonical, workspace.store);
     }
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), &canonical);
-    connect_canonical(canonical, store)
+    Err(missing_planning_repository(canonical))
 }
 
-/// Connect a code checkout to an explicitly selected planning store. Managed
-/// stores keep planning files in their own Git repository; private project
-/// state remains tied to the code checkout.
+fn missing_planning_repository(checkout: PathBuf) -> AppError {
+    AppError::InvalidRepo {
+        path: checkout.to_string_lossy().into_owned(),
+        detail: "no planning repository is associated with this checkout. Kool.ad/e keeps planning state in a separate Git repository: create a workspace (or join an existing one) and register this checkout as a code repository.".into(),
+    }
+}
+
+/// Connect a code checkout to an explicitly selected managed planning store.
+/// Private project state remains tied to the code checkout.
 pub fn attempt_connect_with_store(raw: &str, store: PlanningStore) -> Result<Project, AppError> {
     let canonical = canonical_repository(raw)?;
-    if store.mode == StoreMode::LegacyEmbedded
-        && store.root != canonical.join(crate::artifacts::layout::canonical::ROOT)
-    {
-        return Err(AppError::InvalidRepo {
-            path: canonical.to_string_lossy().into_owned(),
-            detail: "legacy planning stores must remain inside the connected code checkout".into(),
-        });
-    }
     connect_canonical(canonical, store)
 }
 
@@ -66,17 +73,13 @@ fn canonical_repository(raw: &str) -> Result<PathBuf, AppError> {
         });
     }
     // A folder picker can select a subfolder inside a checkout. Normalize it
-    // to the worktree root before managed detection so legacy bootstrap never
-    // creates planning files under a nested directory in a managed repo.
+    // to the worktree root before managed detection so connections resolve
+    // against the checkout root.
     Ok(crate::core::managed_workspace::repository_root(&canonical).unwrap_or(canonical))
 }
 
 fn connect_canonical(canonical: PathBuf, store: PlanningStore) -> Result<Project, AppError> {
-    let local_key = if store.mode != StoreMode::LegacyEmbedded && !store.project_id.is_nil() {
-        store.project_id.hyphenated().to_string()
-    } else {
-        project_slug(&canonical)
-    };
+    let local_key = store.project_id.hyphenated().to_string();
     connect_canonical_with_key(canonical, store, local_key)
 }
 
@@ -92,21 +95,9 @@ fn connect_canonical_with_key(
         });
     }
 
-    if store.mode == StoreMode::LegacyEmbedded {
-        store
-            .recover()
-            .map_err(|e| AppError::Other(format!("planning store recovery failed: {e}")))?;
-        crate::artifacts::transaction::recover(&canonical)
-            .map_err(|e| AppError::Other(format!("planning transaction recovery failed: {e:#}")))?;
-        crate::artifacts::migration::run(&canonical).map_err(|e| AppError::Artifact {
-            path: canonical.to_string_lossy().into_owned(),
-            detail: format!("project artifact migration failed: {e:#}"),
-        })?;
-    } else {
-        store
-            .recover()
-            .map_err(|e| AppError::Other(format!("planning store recovery failed: {e}")))?;
-    }
+    store
+        .recover()
+        .map_err(|e| AppError::Other(format!("planning store recovery failed: {e}")))?;
     let mut state =
         PlannerState::load_with_store(&canonical, &store).map_err(|e| AppError::Artifact {
             path: canonical.to_string_lossy().into_owned(),
@@ -200,39 +191,31 @@ fn connect_canonical_with_key(
     } else {
         None
     };
-    let (managed_workspace, planning_sync, planning_remote_url) =
-        if state.planning_store.mode == StoreMode::LegacyEmbedded {
-            (
-                None,
-                crate::core::planning_sync::PlanningSyncStatus::local(),
-                None,
-            )
-        } else {
-            let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
-            let managed = manager.open(state.planning_store.project_id);
-            let status = manager
-                .planning_sync_status(state.planning_store.project_id)
-                .unwrap_or_else(|error| crate::core::planning_sync::PlanningSyncStatus {
-                    mode: if state.planning_store.mode == StoreMode::ManagedShared {
-                        crate::core::planning_sync::PlanningSyncMode::Shared
-                    } else {
-                        crate::core::planning_sync::PlanningSyncMode::Local
-                    },
-                    state: crate::core::planning_sync::PlanningSyncState::IncompatibleSchema,
-                    canonical_ref: None,
-                    confirmed_commit: None,
-                    confirmed_at_ms: None,
-                    pending_operations: 0,
-                    pending: Vec::new(),
-                    conflicts: Vec::new(),
-                    detail: Some(error.to_string()),
-                });
-            let managed = managed.ok();
-            let remote = managed
-                .as_ref()
-                .and_then(|workspace| manager.planning_remote_url(workspace.id).ok().flatten());
-            (managed, status, remote)
-        };
+    let (managed_workspace, planning_sync, planning_remote_url) = {
+        let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
+        let status = manager
+            .planning_sync_status(state.planning_store.project_id)
+            .unwrap_or_else(|error| crate::core::planning_sync::PlanningSyncStatus {
+                mode: if state.planning_store.mode == StoreMode::ManagedShared {
+                    crate::core::planning_sync::PlanningSyncMode::Shared
+                } else {
+                    crate::core::planning_sync::PlanningSyncMode::Local
+                },
+                state: crate::core::planning_sync::PlanningSyncState::IncompatibleSchema,
+                canonical_ref: None,
+                confirmed_commit: None,
+                confirmed_at_ms: None,
+                pending_operations: 0,
+                pending: Vec::new(),
+                conflicts: Vec::new(),
+                detail: Some(error.to_string()),
+            });
+        let managed = manager.open(state.planning_store.project_id).ok();
+        let remote = managed
+            .as_ref()
+            .and_then(|workspace| manager.planning_remote_url(workspace.id).ok().flatten());
+        (managed, status, remote)
+    };
     let mut project = Project {
         specification_trace_navigation: None,
         task_chats: Default::default(),

@@ -30,6 +30,12 @@ impl KooladeApp {
 
         match &mut self.screen {
             Screen::Welcome => {
+                // Folder-picker selections belong to the card that RAISED the
+                // picker: the code-repository card by default. The
+                // planning-repository card's Browse… button flips
+                // `conn_browse_target` in the same frame before the consumer
+                // below dispatches, so this reset cannot shadow it.
+                self.conn_browse_target = BrowseTarget::CodeRepo;
                 let slot = std::cell::RefCell::new(false);
                 let browse_slot = std::cell::RefCell::new(false);
                 let clone_slot = std::cell::RefCell::new(false);
@@ -96,12 +102,26 @@ impl KooladeApp {
                             egui::TextEdit::singleline(&mut self.conn_join_remote)
                                 .hint_text("Planning Git remote URL or local checkout path"),
                         );
-                        if ui
-                            .add_enabled(!clone_busy, egui::Button::new("Join workspace"))
-                            .clicked()
-                        {
-                            *join_workspace_slot.borrow_mut() = true;
-                        }
+                        ui.horizontal_centered(|ui| {
+                            ui.spacing_mut().item_spacing.x = 8.0;
+                            let browse = ui
+                                .add_enabled(!clone_busy, egui::Button::new("Browse…"))
+                                .clicked();
+                            if browse {
+                                // The SAME picker the code-repository card
+                                // uses, aimed at the planning-repository
+                                // field: teams can point at a shared
+                                // planning checkout anywhere on disk.
+                                self.conn_browse_target = BrowseTarget::PlanningRepo;
+                                *browse_slot.borrow_mut() = true;
+                            }
+                            if ui
+                                .add_enabled(!clone_busy, egui::Button::new("Join workspace"))
+                                .clicked()
+                            {
+                                *join_workspace_slot.borrow_mut() = true;
+                            }
+                        });
                         ui.add_space(12.0);
                         ui.separator();
                         ui.add_space(8.0);
@@ -188,29 +208,9 @@ impl KooladeApp {
                 } else if *open_local_workspace_slot.borrow() {
                     self.submit_open_local_workspace();
                 } else if *browse_slot.borrow() {
-                    // Start the native folder chooser at the current field's
-                    // directory, or its parent when the field is a file path.
-                    let current = std::path::PathBuf::from(self.conn_path.trim());
-                    let start = if current.is_dir() {
-                        Some(current.clone())
-                    } else {
-                        current
-                            .parent()
-                            .filter(|parent| parent.is_dir())
-                            .map(std::path::Path::to_path_buf)
-                    }
-                    .or_else(|| std::env::current_dir().ok());
-                    let mut picker = rfd::FileDialog::new().set_title("Choose a workspace folder");
-                    if let Some(start) = start {
-                        picker = picker.set_directory(start);
-                    }
-                    // Cancel leaves the field untouched. Selecting a folder
-                    // only fills the field; Open workspace remains the
-                    // single place that attempts a connection.
-                    if let Some(path) = picker.pick_folder() {
-                        let path = path.canonicalize().unwrap_or(path);
-                        self.conn_path = path.to_string_lossy().into_owned();
-                    }
+                    // One picker serves both welcome cards; the active
+                    // target decides which field receives the selection.
+                    self.pick_folder_for_active_target();
                 }
                 if *harness_setup_slot.borrow() {
                     self.dialog = Some(Dialog::HarnessSetup(app_dialogs::DlgHarnessSetup::new()));

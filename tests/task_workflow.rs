@@ -60,8 +60,13 @@ impl AiHarness for FixtureHarness {
                         .contains("In progress — 1 of 2")
                 );
                 let state = PlannerState::load(&req.repo_root).unwrap();
-                let docs =
-                    koolade::artifacts::task_docs::load_latest(&req.repo_root, &state.workflow);
+                let docs = {
+                    let store = koolade::artifacts::planning_store::PlanningStore::legacy_embedded(
+                        uuid::Uuid::nil(),
+                        &req.repo_root,
+                    );
+                    koolade::artifacts::task_docs::load_latest(&store, &state.workflow)
+                };
                 assert!(
                     docs.iter()
                         .any(|d| d.path.ends_with("001-persist-named-search-filters.md")),
@@ -266,7 +271,10 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
                 std::fs::write(&first, &edited).unwrap();
                 assert!(
                     koolade::artifacts::task_docs::save_progress(
-                        &root,
+                        &koolade::artifacts::planning_store::PlanningStore::legacy_embedded(
+                            uuid::Uuid::nil(),
+                            root,
+                        ),
                         manifest["run"].as_str().unwrap(),
                         &batch,
                         2

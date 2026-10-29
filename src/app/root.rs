@@ -104,6 +104,11 @@ pub struct KooladeApp {
     >,
     conn_join_remote: String,
     conn_workspace_id: Option<uuid::Uuid>,
+    /// Which welcome card the native folder picker should fill: the code
+    /// repository card (`conn_path`) by default, or the planning repository
+    /// card (`conn_join_remote`) when the join row's Browse… button raised
+    /// the picker. Refreshed per welcome frame; see `BrowseTarget`.
+    conn_browse_target: BrowseTarget,
     /// Test-only seam: when `Some`, [`Self::begin_clone`] hands the worker
     /// THIS computation instead of the real `welcome::perform_clone`, so
     /// dispatch can be proven hermetically (no network, no real git
@@ -229,6 +234,17 @@ struct DisplayRefresh {
 /// One in-flight GitHub clone launched from the connect card. The worker
 /// owns the FETCH only; validation, bootstrap and hydration still belong
 /// to the single connect authority ([`KooladeApp::submit_connect`]).
+/// Which welcome card a native folder-picker selection should fill. The
+/// code-repository card and the planning-repository card share one picker;
+/// this records which field owns the incoming selection. Reset to `CodeRepo`
+/// at the start of every welcome frame; the join row's Browse… flips it to
+/// `PlanningRepo` in the same frame before the picker result lands.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum BrowseTarget {
+    CodeRepo,
+    PlanningRepo,
+}
+
 struct CloneJob {
     /// Badge text for the card's status line: "github.com/{owner}/{repo}".
     url_display: String,

@@ -1,14 +1,18 @@
-//! Load/save/remove/checkpoint lifecycle for Koolade's MCP config (F-18,
-//! D-16). The planner never interprets or receives the full file: context
-//! includes configured server names only, withholding commands and secrets.
+//! Load/save/remove lifecycle for Koolade's MCP config (F-18, D-16).
+//! The planner never interprets or receives the full file: context includes
+//! configured server names only, withholding commands and secrets.
+//!
+//! The file lives in the workspace's operator-local state directory, OUTSIDE
+//! every Git repository: MCP commands routinely carry credentials, so they
+//! are never committed to code or shared planning repositories.
 //! Validation remains syntactic (JSON well-formedness probe only) and
 //! structural (blank ⇔ unconfigured).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use crate::artifacts::{MCP_CONFIG_FILE, atomic_write, repo_artifact};
-use crate::core::gitops;
 use crate::error::AppError;
+
+pub const MCP_FILE_NAME: &str = "mcp.json";
 
 /// Dedicated checkpoint subject for a Write save (NFR-9: short imperative;
 /// parallels the existing "settings: update stakeholders and identity").
@@ -30,8 +34,8 @@ pub struct McpLoadState {
 
 /// Inspect the on-disk file without touching git. Reads are lossy-tolerant:
 /// any IO failure degrades to `read_error`, never panics and never blocks.
-pub fn load_state(root: &Path) -> McpLoadState {
-    let path = repo_artifact(root, MCP_CONFIG_FILE);
+pub fn load_state(local_config_dir: &Path) -> McpLoadState {
+    let path = local_config_dir.join(MCP_FILE_NAME);
     let present = path.is_file();
     let mut content = None;
     let mut read_error = None;
@@ -102,14 +106,12 @@ pub struct McpApplyReceipt {
     pub malformed: Option<String>,
 }
 
-/// Execute a Save against `root`: classify, then either no-op, atomic-write
-/// + checkpoint, or remove + checkpoint. Disk effects ALWAYS precede the
-///   git effect, so a checkpoint failure never strands an un-written change
-///   — and never swallows: the `AppError` propagates to the dialog.
-pub fn apply_save(root: &Path, buffer: &str) -> Result<McpApplyReceipt, AppError> {
-    // Writer section: config write + checkpoint shares the planning index.
+/// Execute a Save against the operator-local config directory: classify,
+/// then either no-op, atomic-write, or remove. The file is never committed
+/// anywhere, so a save has no git effect and `short_sha` is always `None`.
+pub fn apply_save(local_config_dir: &Path, buffer: &str) -> Result<McpApplyReceipt, AppError> {
     let _guard = crate::core::writer_gate::acquire();
-    let st = load_state(root);
+    let st = load_state(local_config_dir);
     let op = classify(st.present, st.content.as_deref(), buffer);
     match op {
         McpSaveOp::Unchanged => Ok(McpApplyReceipt {
@@ -120,38 +122,44 @@ pub fn apply_save(root: &Path, buffer: &str) -> Result<McpApplyReceipt, AppError
         McpSaveOp::Write => {
             // Computed for the receipt, never fatal (D-16: warn, don't block).
             let malformed = probe_json(buffer).err();
-            let path = repo_artifact(root, MCP_CONFIG_FILE);
-            atomic_write(&path, buffer).map_err(|e| AppError::Io {
-                op: "write .koolade-packet/config/mcp.json".to_string(),
+            let prepared = prepare_dir(local_config_dir).map_err(|e| AppError::Io {
+                op: "write mcp.json".to_string(),
                 detail: e.to_string(),
             })?;
-            let sha = gitops::commit(root, UPDATE_SUBJECT, &[MCP_CONFIG_FILE.to_string()])?;
+            crate::artifacts::atomic_write(&prepared, buffer).map_err(|e| AppError::Io {
+                op: "write mcp.json".to_string(),
+                detail: e.to_string(),
+            })?;
             Ok(McpApplyReceipt {
                 op,
-                short_sha: Some(short_sha(&sha)),
+                short_sha: None,
                 malformed,
             })
         }
         McpSaveOp::Clear => {
-            let path = repo_artifact(root, MCP_CONFIG_FILE);
-            std::fs::remove_file(&path).map_err(|e| AppError::Io {
-                op: "remove .koolade-packet/config/mcp.json".to_string(),
-                detail: e.to_string(),
-            })?;
-            let sha = gitops::commit(root, CLEAR_SUBJECT, &[MCP_CONFIG_FILE.to_string()])?;
+            let path = local_config_dir.join(MCP_FILE_NAME);
+            match std::fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => {
+                    return Err(AppError::Io {
+                        op: "remove mcp.json".to_string(),
+                        detail: e.to_string(),
+                    });
+                }
+            }
             Ok(McpApplyReceipt {
                 op,
-                short_sha: Some(short_sha(&sha)),
+                short_sha: None,
                 malformed: None,
             })
         }
     }
 }
 
-/// First 7 chars of a git short SHA (git may yield fewer digits on young
-/// histories; callers treat the result as an opaque label).
-fn short_sha(sha: &str) -> String {
-    sha.chars().take(7).collect()
+fn prepare_dir(dir: &Path) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(dir)?;
+    Ok(dir.join(MCP_FILE_NAME))
 }
 
 #[cfg(test)]

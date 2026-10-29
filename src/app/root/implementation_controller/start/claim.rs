@@ -46,7 +46,7 @@ pub(super) fn prepare(
     let scope = match planning_store.mode {
         StoreMode::ManagedShared => ClaimScope::SharedRequired,
         StoreMode::ManagedLocal => ClaimScope::LocalOnly,
-        StoreMode::LegacyEmbedded => ClaimScope::SharedOptional,
+        StoreMode::LegacyPacketSource => ClaimScope::SharedOptional,
     };
     Ok(ClaimRequest::new(
         planning_store.git_root(),

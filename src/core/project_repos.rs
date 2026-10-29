@@ -11,7 +11,7 @@ mod save;
 pub use names::{display_labels, normalize_display_name};
 pub use save::{save_display_names, save_display_names_expected};
 
-pub const PROJECT_FILE: &str = crate::artifacts::layout::canonical::PROJECT_MANIFEST;
+pub const PROJECT_FILE: &str = crate::artifacts::layout::store::PROJECT_MANIFEST;
 pub const MAX_PROJECT_MANIFEST_BYTES: usize = 1024 * 1024;
 
 /// Derive the portable identity used for repository and evidence references in
@@ -219,21 +219,26 @@ fn is_remote_helper(remote: &str) -> bool {
 
 pub fn map_local_checkout(planning_root: &Path, id: &str, checkout: &Path) -> anyhow::Result<()> {
     let root = planning_root.canonicalize()?;
-    let manifest = ProjectManifest::load(&root)?;
-    let expected = manifest
-        .repositories
-        .iter()
-        .find(|r| r.id == id)
-        .ok_or_else(|| anyhow::anyhow!("Unknown repository ID {id}"))?;
+    let expected =
+        if crate::core::managed_workspace::WorkspaceManifest::is_managed_repository(&root)? {
+            let workspace = crate::core::managed_workspace::WorkspaceManifest::read(&root)?;
+            return crate::core::managed_workspace::WorkspaceManager::from_state_root()
+                .map_checkout(workspace.workspace_id, id, &checkout.canonicalize()?);
+        } else {
+            let manifest = ProjectManifest::load(
+                &crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+                    uuid::Uuid::nil(),
+                    &root,
+                ),
+            )?;
+            manifest
+                .repositories
+                .iter()
+                .find(|r| r.id == id)
+                .ok_or_else(|| anyhow::anyhow!("Unknown repository ID {id}"))?
+                .clone()
+        };
     let checkout = checkout.canonicalize()?;
-    if crate::core::managed_workspace::WorkspaceManifest::is_managed_repository(&root)? {
-        let workspace = crate::core::managed_workspace::WorkspaceManifest::read(&root)?;
-        return crate::core::managed_workspace::WorkspaceManager::from_state_root().map_checkout(
-            workspace.workspace_id,
-            id,
-            &checkout,
-        );
-    }
     anyhow::ensure!(
         expected.remote.is_empty()
             || git_remote(&checkout).as_deref() == Some(expected.remote.as_str()),

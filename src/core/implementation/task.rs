@@ -126,7 +126,7 @@ pub(crate) fn scoped_product_context_with_store(
     };
     let relative = parent.join("contract.json");
     let relative = relative
-        .strip_prefix(crate::artifacts::layout::canonical::ROOT)
+        .strip_prefix(crate::artifacts::layout::store::ROOT)
         .unwrap_or(&relative);
     let bytes = match planning_store.read(relative) {
         Ok(bytes) => bytes,

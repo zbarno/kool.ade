@@ -21,7 +21,7 @@ fn stale_plan_choice_invalidates_a_feature_batch_contract() {
         serde_json::to_vec(&snapshot).unwrap(),
     )
     .unwrap();
-    let directory = format!("{}/F7-plan-a", crate::artifacts::layout::canonical::TASKS);
+    let directory = format!("{}/F7-plan-a", crate::artifacts::layout::store::TASKS);
     assert!(super::batch_contract_matches_feature(
         &root, &directory, "F7", plan_a
     ));
@@ -93,7 +93,7 @@ fn legacy_batch_without_snapshot_remains_current_for_compatibility() {
         .task_batch("legacy")
         .unwrap();
     std::fs::create_dir_all(&batch).unwrap();
-    let directory = format!("{}/legacy", crate::artifacts::layout::canonical::TASKS);
+    let directory = format!("{}/legacy", crate::artifacts::layout::store::TASKS);
     assert!(super::batch_contract_matches_feature(
         &root,
         &directory,

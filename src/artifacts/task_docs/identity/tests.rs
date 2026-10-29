@@ -103,7 +103,7 @@ fn legacy_store_resolves_store_relative_batch_directory() {
         uuid::Uuid::new_v4()
     ));
     let directory = root
-        .join(crate::artifacts::layout::canonical::ROOT)
+        .join(crate::artifacts::layout::store::ROOT)
         .join("planning/tasks/shared-batch");
     std::fs::create_dir_all(&directory).unwrap();
     std::fs::write(directory.join("README.md"), "# Shared batch\n").unwrap();

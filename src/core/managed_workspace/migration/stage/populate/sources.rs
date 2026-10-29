@@ -112,7 +112,7 @@ pub(super) fn read_sources(
         };
         let commit = verification::git_text(&path, &["rev-parse", "HEAD"])?;
         let git_ref = verification::active_ref(&path)?;
-        let planning_root = path.join(crate::artifacts::layout::canonical::ROOT);
+        let planning_root = path.join(crate::artifacts::layout::store::ROOT);
         let has_planning_root = match fs::symlink_metadata(&planning_root) {
             Ok(metadata) => {
                 anyhow::ensure!(

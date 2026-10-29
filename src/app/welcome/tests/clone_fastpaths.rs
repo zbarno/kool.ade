@@ -53,65 +53,43 @@ fn perform_clone_healthy_existing_tree_fast_paths_without_retouching() {
 }
 
 #[test]
-fn perform_clone_plain_repo_connects_identically_to_a_typed_path() {
-    // AC5'S identity clause made observable: the SAME planning-less
-    // tree, reached once THROUGH the clone and once by hand-typing
-    // the source's path, completes with side-effect parity — both
-    // bootstrap the scaffold and checkpoint it in both paths, both
-    // hydrate chat. The clone feeds EXACTLY today's connect path
-    // because it literally is that call.
+fn perform_clone_plain_repo_meets_the_same_planning_setup_gate_as_a_typed_path() {
+    // Identity clause under the enforced model: the SAME planning-less
+    // tree, reached once THROUGH the clone and once by hand-typing the
+    // source's path, is refused with the same actionable planning-setup
+    // guidance — the clone feeds EXACTLY today's connect path because it
+    // literally is that call.
     let _sb = EnvSandbox::enter("plain", false);
     let src = local_source_repo("plain-src"); // planning-less
-    let src_title = src.file_name().unwrap().to_str().unwrap().to_string();
 
     // Clone leg first, while `src` is still pristine.
     let dest =
         perform_clone(src.to_str().unwrap(), "sw-plain").expect("offline local-source clone lands");
     assert!(gitops::is_work_tree(&dest));
-    let proj_clone = attempt_connect(dest.to_str().unwrap())
-        .unwrap_or_else(|e| panic!("cloned planning-less repo must connect: {e:?}"));
 
-    // Typed leg: the operator opens the SAME source by hand.
-    let proj_typed = attempt_connect(src.to_str().unwrap())
-        .unwrap_or_else(|e| panic!("typed planning-less repo must connect identically: {e:?}"));
-
-    assert_eq!(proj_clone.state.title, "sw-plain");
-    assert_eq!(
-        proj_typed.state.title, src_title,
-        "titles follow the dir names"
-    );
-    for (root, what) in [(dest.as_path(), "clone leg"), (src.as_path(), "typed leg")] {
+    // Identity clause under the enforced model: the SAME planning-less
+    // tree, reached once through the clone and once by hand-typing the
+    // source's path, meets the same planning-setup gate — neither leg
+    // may silently adopt embedded state or bootstrap scaffolds.
+    for (path, what) in [(dest.as_path(), "clone leg"), (src.as_path(), "typed leg")] {
+        match attempt_connect(path.to_str().unwrap()) {
+            Ok(project) => panic!(
+                "{what}: planning-less checkout must not connect ({:?})",
+                project.state.title
+            ),
+            Err(err) => {
+                let msg = format!("{} | {}", err.headline(), err.detail());
+                assert!(
+                    msg.contains("planning repository"),
+                    "{what}: actionable planning-setup guidance (got: {msg})"
+                );
+            }
+        }
         assert!(
-            root.join(crate::artifacts::product_docs::INDEX).exists(),
-            "{what}: product modules landed"
-        );
-        assert!(
-            !root.join("planning/specification.md").exists(),
-            "{what}: cold bootstrap does not create a legacy spec"
-        );
-        assert!(
-            !root.join(crate::artifacts::OPEN_ITEMS_FILE).exists(),
-            "{what}: an empty queue uses no monolithic file"
-        );
-        assert!(
-            root.join(crate::artifacts::CONFIG_FILE).exists(),
-            "{what}: config bootstrapped"
+            !path.join(".koolade-packet").exists(),
+            "{what}: the refusal must not plant any state"
         );
     }
-    assert!(
-        proj_clone
-            .chat
-            .last()
-            .is_some_and(|m| m.text.contains("Connected to")),
-        "clone leg hydrated the welcome line"
-    );
-    assert!(
-        proj_typed
-            .chat
-            .last()
-            .is_some_and(|m| m.text.contains("Connected to")),
-        "typed leg hydrated the same welcome line"
-    );
     let _ = std::fs::remove_dir_all(&src);
 }
 

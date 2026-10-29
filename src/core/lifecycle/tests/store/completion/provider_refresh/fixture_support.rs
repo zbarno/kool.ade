@@ -66,7 +66,7 @@ impl Drop for RestoreEnvironmentVariable {
 pub(super) fn bind_task_to_ticket(root: &Path, task_uid: &str, planning_item_uid: &str) {
     let record_path = format!("state/lifecycle_tasks/{task_uid}.json");
     let path = root
-        .join(crate::artifacts::layout::canonical::ROOT)
+        .join(crate::artifacts::layout::store::ROOT)
         .join(&record_path);
     let mut wrapper: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     wrapper["record"]["planning_item_uid"] = planning_item_uid.into();

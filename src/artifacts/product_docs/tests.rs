@@ -142,7 +142,7 @@ fn migration_preserves_historical_tasks_and_open_board_items() {
     let task_path = root.join("planning/tasks/legacy-batch/001-legacy.md");
     let canonical_task = root.join(format!(
         "{}/legacy-batch/001-legacy.md",
-        crate::artifacts::layout::canonical::TASKS
+        crate::artifacts::layout::store::TASKS
     ));
     std::fs::write(&task_path, task).unwrap();
     let item = OpenItem::new(
@@ -155,7 +155,7 @@ fn migration_preserves_historical_tasks_and_open_board_items() {
         "Requires a product decision.".into(),
     );
     let items_path = root.join("planning/open-items.md");
-    let canonical_items = root.join(crate::artifacts::layout::canonical::OPEN_ITEMS);
+    let canonical_items = root.join(crate::artifacts::layout::store::OPEN_ITEMS);
     let items = crate::artifacts::items_io::serialize(std::slice::from_ref(&item));
     std::fs::write(&items_path, &items).unwrap();
     migrate(&root, &legacy).unwrap();

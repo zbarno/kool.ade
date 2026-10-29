@@ -30,6 +30,26 @@ pub(crate) fn bootstrap_product_with_store_expected(
     expected_revision: &str,
 ) -> anyhow::Result<(Vec<String>, String)> {
     let generated = product::bootstrap_files_with_store(repo, store, Some(title))?;
+    commit_generated(store, generated, expected_revision)
+}
+
+/// Test-support bootstrap that lets the generator derive the product title
+/// from the seed specification instead of taking an explicit title.
+#[cfg(test)]
+pub(crate) fn bootstrap_product_from_seed(
+    repo: &Path,
+    store: &crate::artifacts::planning_store::PlanningStore,
+) -> anyhow::Result<Vec<String>> {
+    let expected_revision = store.revision()?;
+    let generated = product::bootstrap_files_with_store(repo, store, None)?;
+    commit_generated(store, generated, &expected_revision).map(|(paths, _)| paths)
+}
+
+fn commit_generated(
+    store: &crate::artifacts::planning_store::PlanningStore,
+    generated: Vec<product::Generated>,
+    expected_revision: &str,
+) -> anyhow::Result<(Vec<String>, String)> {
     let mut changes = Vec::with_capacity(generated.len());
     for file in generated {
         let relative = file
