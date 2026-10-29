@@ -55,6 +55,8 @@ impl Default for KooladeApp {
             wiz_project_name: String::new(),
             wiz_packet_name: String::new(),
             wiz_parent_path: String::new(),
+            wiz_use_existing_code: false,
+            wiz_existing_code_path: String::new(),
             wiz_error: None,
             clone_computation_override: None,
             cached_user: CurrentUser::new("", Vec::new()),

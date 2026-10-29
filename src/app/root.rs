@@ -116,6 +116,11 @@ pub struct KooladeApp {
     wiz_project_name: String,
     wiz_packet_name: String,
     wiz_parent_path: String,
+    /// Existing-code track: the operator supplies a folder that already
+    /// contains an initialized Git repository; only the planning sibling is
+    /// created next to it.
+    wiz_use_existing_code: bool,
+    wiz_existing_code_path: String,
     wiz_error: Option<String>,
     /// Test-only seam: when `Some`, [`Self::begin_clone`] hands the worker
     /// THIS computation instead of the real `welcome::perform_clone`, so
@@ -254,6 +259,9 @@ pub(super) enum BrowseTarget {
     /// Parent folder picker for the "new project" wizard track: chooses the
     /// directory that will hold the new sibling code + planning pair.
     WizardParent,
+    /// Folder picker for the wizard's existing-code track: the chosen folder
+    /// must BE the code repository root (the planning sibling lands beside it).
+    WizardExistingCode,
 }
 
 struct CloneJob {

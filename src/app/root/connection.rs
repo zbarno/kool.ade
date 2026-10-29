@@ -264,29 +264,36 @@ impl KooladeApp {
         if self.clone_job.is_some() {
             return;
         }
-        let title = self.wiz_project_name.trim();
+        let title = self.wiz_project_name.trim().to_string();
         if title.is_empty() {
             self.wiz_error = Some("Enter a project name to start a new project.".into());
             return;
         }
-        let packet = self.wiz_packet_name.trim();
-        let code_name = Self::project_title_to_folder_name(title);
-        let planning_repo_name = if packet.is_empty() {
-            format!("{code_name}.packet")
+        let packet = self.wiz_packet_name.trim().to_string();
+        let spec = if self.wiz_use_existing_code {
+            match self.existing_code_spec(&title, &packet) {
+                Some(spec) => spec,
+                None => return, // picker raised or banner shown
+            }
         } else {
-            packet.to_string()
+            let code_name = Self::project_title_to_folder_name(&title);
+            let parent_raw = self.wiz_parent_path.trim();
+            if parent_raw.is_empty() {
+                // No folder chosen yet: raise the picker NOW (the frame-level
+                // target refresh happens before this handler runs).
+                self.conn_browse_target = BrowseTarget::WizardParent;
+                self.pick_folder_for_active_target();
+                return;
+            }
+            let mut spec = crate::core::managed_workspace::SiblingPairSpec::new(title, code_name);
+            spec.planning_repo_name = if packet.is_empty() {
+                format!("{}.packet", spec.code_repo_name)
+            } else {
+                packet.to_string()
+            };
+            spec.parent_dir = std::path::PathBuf::from(parent_raw);
+            spec
         };
-        let parent_raw = self.wiz_parent_path.trim();
-        if parent_raw.is_empty() {
-            // No folder chosen yet: raise the picker NOW (the frame-level
-            // target refresh happens before this handler runs).
-            self.conn_browse_target = BrowseTarget::WizardParent;
-            self.pick_folder_for_active_target();
-            return;
-        }
-        let mut spec = crate::core::managed_workspace::SiblingPairSpec::new(title, code_name);
-        spec.planning_repo_name = planning_repo_name;
-        spec.parent_dir = std::path::PathBuf::from(parent_raw);
         self.wiz_error = None;
         match welcome::attempt_create_project(&spec) {
             Ok(project) => self.finish_connect(Ok(project)),
@@ -294,6 +301,48 @@ impl KooladeApp {
             // of the legacy connect card's error line.
             Err(error) => self.wiz_error = Some(error.to_string()),
         }
+    }
+
+    /// Spec for the wizard's existing-code track: the chosen folder must BE
+    /// the code repository root (any history; the core re-validates), and the
+    /// planning sibling is created beside it. Returns None after raising the
+    /// picker or banner when the operator still owes an input.
+    fn existing_code_spec(
+        &mut self,
+        title: &str,
+        packet: &str,
+    ) -> Option<crate::core::managed_workspace::SiblingPairSpec> {
+        let code_raw = self.wiz_existing_code_path.trim();
+        if code_raw.is_empty() {
+            self.conn_browse_target = BrowseTarget::WizardExistingCode;
+            self.pick_folder_for_active_target();
+            return None;
+        }
+        let code_path = std::path::Path::new(code_raw);
+        let code_name = code_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("")
+            .to_owned();
+        if code_name.is_empty() {
+            self.wiz_error = Some(
+                "Choose the folder that IS the existing code repository, not its parent.".into(),
+            );
+            return None;
+        }
+        let parent = code_path
+            .parent()
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(|| std::path::PathBuf::from("/"));
+        let mut spec = crate::core::managed_workspace::SiblingPairSpec::new(title, code_name);
+        spec.code_already_exists = true;
+        spec.planning_repo_name = if packet.is_empty() {
+            format!("{}.packet", spec.code_repo_name)
+        } else {
+            packet.to_string()
+        };
+        spec.parent_dir = parent;
+        Some(spec)
     }
 
     /// Maps an operator-facing project title onto a safe repository folder
@@ -333,6 +382,7 @@ impl KooladeApp {
             BrowseTarget::CodeRepo => self.conn_path.trim().to_string(),
             BrowseTarget::PlanningRepo => self.conn_join_remote.trim().to_string(),
             BrowseTarget::WizardParent => self.wiz_parent_path.trim().to_string(),
+            BrowseTarget::WizardExistingCode => self.wiz_existing_code_path.trim().to_string(),
         };
         let current = std::path::PathBuf::from(&seed);
         let start = if current.is_dir() {
@@ -348,6 +398,7 @@ impl KooladeApp {
             BrowseTarget::CodeRepo => "Choose a workspace folder",
             BrowseTarget::PlanningRepo => "Choose a planning repository",
             BrowseTarget::WizardParent => "Choose the folder for the new project",
+            BrowseTarget::WizardExistingCode => "Choose the existing code repository folder",
         };
         let mut picker = rfd::FileDialog::new().set_title(title);
         if let Some(start) = start {
@@ -372,6 +423,7 @@ impl KooladeApp {
             BrowseTarget::CodeRepo => self.conn_path = path,
             BrowseTarget::PlanningRepo => self.conn_join_remote = path,
             BrowseTarget::WizardParent => self.wiz_parent_path = path,
+            BrowseTarget::WizardExistingCode => self.wiz_existing_code_path = path,
         }
     }
 

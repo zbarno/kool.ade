@@ -252,3 +252,94 @@ fn hostile_repository_names_are_rejected_before_touching_disk() {
         "validation must happen before any disk mutation"
     );
 }
+
+#[test]
+fn existing_code_repository_is_paired_untouched() {
+    let temp = TestDirectory::new("pair-ext");
+    let code = temp.path.join("workspaces/ext-app");
+    fs::create_dir_all(&code).unwrap();
+    fs::write(code.join("src.txt"), "operator's code\n").unwrap();
+    super::support::git_ok(
+        Some(&code),
+        &["init", "--quiet", "--initial-branch=main", "."],
+    );
+    super::support::git_ok(Some(&code), &["add", "-A"]);
+    super::support::git_ok(
+        Some(&code),
+        &[
+            "-c",
+            "user.name=Fixture Operator",
+            "-c",
+            "user.email=fixture@example.com",
+            "commit",
+            "-q",
+            "-m",
+            "their commit one",
+        ],
+    );
+    fs::write(code.join("more.txt"), "more\n").unwrap();
+    super::support::git_ok(Some(&code), &["add", "-A"]);
+    super::support::git_ok(
+        Some(&code),
+        &[
+            "-c",
+            "user.name=Fixture Operator",
+            "-c",
+            "user.email=fixture@example.com",
+            "commit",
+            "-q",
+            "-m",
+            "their commit two",
+        ],
+    );
+
+    let mut spec = spec_in(&temp);
+    spec.code_repo_name = "ext-app".to_owned();
+    spec.planning_repo_name = "ext-app.packet".to_owned();
+    spec.code_already_exists = true;
+    let manager = temp.manager("operator");
+    let workspace = manager.create_sibling_pair(&spec).unwrap();
+
+    assert_eq!(
+        rev_count(&code),
+        2,
+        "the operator's history must survive intact"
+    );
+    let subject = super::support::git_ok(Some(&code), &["log", "-1", "--pretty=%s"]);
+    assert_eq!(
+        String::from_utf8_lossy(&subject.stdout).trim(),
+        "their commit two"
+    );
+    assert_eq!(
+        fs::read_to_string(code.join("src.txt")).unwrap(),
+        "operator's code\n"
+    );
+    let planning = temp.path.join("workspaces/ext-app.packet");
+    assert!(planning.join("manifest.json").is_file());
+    let reopened = manager.open(workspace.id).unwrap();
+    let mapped = reopened
+        .association
+        .code_checkouts
+        .iter()
+        .find(|mapping| mapping.repository_id == "root")
+        .expect("root checkout registered");
+    assert_eq!(mapped.path, code.canonicalize().unwrap());
+}
+
+#[test]
+fn existing_flag_requires_a_real_repository_root() {
+    let temp = TestDirectory::new("pair-ext-invalid");
+    let plain = temp.path.join("workspaces/plain-old");
+    fs::create_dir_all(&plain).unwrap();
+    let mut spec = spec_in(&temp);
+    spec.code_repo_name = "plain-old".to_owned();
+    spec.code_already_exists = true;
+    let manager = temp.manager("operator");
+    let error = manager.create_sibling_pair(&spec).unwrap_err().to_string();
+    assert!(
+        error.contains("is not a Git repository root"),
+        "actual: {error}"
+    );
+    assert!(manager.list_local().unwrap().is_empty());
+    assert!(!temp.path.join("workspaces/plain-old.packet").exists());
+}

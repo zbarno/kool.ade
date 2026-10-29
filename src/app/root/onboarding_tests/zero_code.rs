@@ -183,3 +183,113 @@ fn welcome_ui_wizard_creates_a_connected_sibling_pair() {
     drop(app);
     let _ = std::fs::remove_dir_all(base);
 }
+
+// Production boundary: welcome wizard UI (existing-code track) → application
+// connect path → core sibling-pair creation over an ALREADY INITIALIZED code
+// repository. Invariants asserted: the operator's repository history and
+// files survive byte-for-byte (no init, no commits, no README); a planning
+// sibling is created BESIDE the existing folder; the connected board is
+// rooted at the existing checkout with exactly one registered repository.
+// Expected setup cost: in-process egui drive plus local Git ops on a temp
+// tree; no network, no Docker, no SSH.
+#[test]
+fn welcome_ui_wizard_pairs_an_existing_code_repository() {
+    let _shield =
+        crate::core::gitops::test_support::shield_with_synthetic_identity("wizard-existing-ui");
+    let base = std::env::temp_dir().join(format!(
+        "koolade_wizard_existing_ui_{}_{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = base.join("operator");
+    std::fs::create_dir_all(&home).unwrap();
+    let mut state_home = StateHome::new();
+    state_home.set(&home);
+    let parent = base.join("repos");
+    std::fs::create_dir_all(&parent).unwrap();
+
+    // The operator's pre-existing repository: two unrelated commits.
+    let code = parent.join("ext-portal");
+    std::fs::create_dir_all(&code).unwrap();
+    std::fs::write(code.join("notes.txt"), "operator baseline\n").unwrap();
+    let git_here = |args: &[&str]| -> std::process::Output {
+        let output = std::process::Command::new("git")
+            .current_dir(&code)
+            .args(args)
+            .output()
+            .expect("spawn git");
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output
+    };
+    git_here(&["init", "-q", "--initial-branch=main", "."]);
+    git_here(&["add", "-A"]);
+    git_here(&[
+        "-c",
+        "user.name=Wiz Fixture",
+        "-c",
+        "user.email=w@example.test",
+        "commit",
+        "-q",
+        "-m",
+        "operator commit one",
+    ]);
+    std::fs::write(code.join("more.txt"), "more\n").unwrap();
+    git_here(&["add", "-A"]);
+    git_here(&[
+        "-c",
+        "user.name=Wiz Fixture",
+        "-c",
+        "user.email=w@example.test",
+        "commit",
+        "-q",
+        "-m",
+        "operator commit two",
+    ]);
+
+    let ctx = egui::Context::default();
+    let mut app = KooladeApp::default();
+    type_into(&mut app, &ctx, "Sample: Acme Portal", "Existing Portal");
+    // Drive the wizard's existing-code track through its real state.
+    app.wiz_use_existing_code = true;
+    app.wiz_existing_code_path = code.to_string_lossy().into_owned();
+    click(&mut app, &ctx, "Create and connect");
+
+    let Screen::Connected(project) = &app.screen else {
+        let visible = visible_text(&frame(&mut app, &ctx, Vec::new()));
+        panic!(
+            "existing-code create-and-connect should land on a planning board; wiz_error: {:?}; conn_error: {:?}; visible: {visible:?}",
+            app.wiz_error, app.conn_error
+        )
+    };
+    let planning = parent.join("ext-portal.packet");
+    assert!(
+        planning.join("manifest.json").is_file(),
+        "the planning sibling is created beside the existing repository"
+    );
+    let count_out = git_here(&["rev-list", "--count", "HEAD"]);
+    let count = String::from_utf8_lossy(&count_out.stdout).into_owned();
+    assert_eq!(
+        count.trim(),
+        "2",
+        "the operator's history is untouched by pairing"
+    );
+    assert_eq!(
+        std::fs::read_to_string(code.join("notes.txt")).unwrap(),
+        "operator baseline\n",
+        "existing files are never rewritten"
+    );
+    assert_eq!(
+        project.state.repo_root.canonicalize().unwrap(),
+        code.canonicalize().unwrap(),
+        "the connected surface is rooted at the EXISTING checkout"
+    );
+    assert_eq!(project.state.repositories.repositories.len(), 1);
+    let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
+    assert_eq!(manager.list_local().unwrap().len(), 1);
+    drop(app);
+    let _ = std::fs::remove_dir_all(base);
+}

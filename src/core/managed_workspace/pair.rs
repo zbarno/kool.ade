@@ -31,6 +31,10 @@ pub struct SiblingPairSpec {
     pub code_repo_name: String,
     pub planning_repo_name: String,
     pub parent_dir: PathBuf,
+    /// When true the code destination must already be an initialized Git
+    /// repository (ANY contents — the operator explicitly chose it) and is
+    /// paired untouched instead of created.
+    pub code_already_exists: bool,
 }
 
 impl SiblingPairSpec {
@@ -43,6 +47,7 @@ impl SiblingPairSpec {
             planning_repo_name: format!("{}.packet", code_repo_name),
             code_repo_name,
             parent_dir: PathBuf::new(),
+            code_already_exists: false,
         }
     }
 }
@@ -72,7 +77,7 @@ pub(super) fn create_sibling_pair(
     classify_destination(&code_dest, "code repository")?;
     classify_destination(&plan_dest, "planning repository")?;
 
-    let code = prepare_code_repository(&spec.title, &code_dest)?;
+    let code = prepare_code_repository(&spec.title, &code_dest, spec.code_already_exists)?;
     prepare_planning_repository(spec, &parent, &plan_dest)?;
     let workspace = manager.join(&plan_dest)?;
     register_pair_code_repository(manager, &workspace, &code)
@@ -88,7 +93,23 @@ fn classify_destination(destination: &Path, kind: &str) -> anyhow::Result<()> {
     )
 }
 
-fn prepare_code_repository(title: &str, code_dest: &Path) -> anyhow::Result<PathBuf> {
+fn prepare_code_repository(
+    title: &str,
+    code_dest: &Path,
+    existing: bool,
+) -> anyhow::Result<PathBuf> {
+    if existing {
+        // Explicit adoption: the operator pointed at THEIR repository. Any
+        // history is accepted (this is not the silent-adoption path, which
+        // applies only when a fresh creation collides with existing content),
+        // and nothing inside it is mutated.
+        anyhow::ensure!(
+            is_git_repository_root(code_dest),
+            "{} is not a Git repository root; choose a folder containing an initialized Git repository",
+            code_dest.display()
+        );
+        return Ok(code_dest.to_path_buf());
+    }
     if is_git_repository_root(code_dest) {
         // Existing repository: resume only when it is unmistakably ours.
         match code_repository_proof(code_dest, title)? {

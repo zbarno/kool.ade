@@ -94,7 +94,59 @@ impl KooladeApp {
                                 "Planning repository name (leave empty for <code folder>.packet)",
                             ),
                         );
-                        if !self.wiz_project_name.trim().is_empty() {
+                        ui.horizontal_centered(|ui| {
+                            ui.checkbox(
+                                &mut self.wiz_use_existing_code,
+                                "Already have a code repository?",
+                            );
+                        });
+                        if self.wiz_use_existing_code {
+                            ui.add_sized(
+                                egui::vec2(field_width, 34.0),
+                                egui::TextEdit::singleline(&mut self.wiz_existing_code_path)
+                                    .hint_text("Folder that IS the existing code repository"),
+                            );
+                            ui.horizontal_centered(|ui| {
+                                if ui
+                                    .add_enabled(
+                                        !clone_busy,
+                                        egui::Button::new("Choose code folder…"),
+                                    )
+                                    .clicked()
+                                {
+                                    self.conn_browse_target =
+                                        BrowseTarget::WizardExistingCode;
+                                    *browse_slot.borrow_mut() = true;
+                                }
+                            });
+                            if self.wiz_existing_code_path.trim().is_empty() {
+                                ui.label(crate::ui::theme::helper_text(
+                                    "(code folder not chosen yet)",
+                                ));
+                            } else {
+                                ui.label(egui::WidgetText::from(
+                                    egui::RichText::new(&self.wiz_existing_code_path).weak(),
+                                ));
+                            }
+                            if !self.wiz_project_name.trim().is_empty() {
+                                let code_base = std::path::Path::new(
+                                    self.wiz_existing_code_path.trim(),
+                                )
+                                .file_name()
+                                .and_then(|name| name.to_str())
+                                .map(str::to_owned)
+                                .unwrap_or_else(|| "<code folder>".to_owned());
+                                let packed = self.wiz_packet_name.trim().to_string();
+                                let preview_plan = if packed.is_empty() {
+                                    format!("{code_base}.packet")
+                                } else {
+                                    packed
+                                };
+                                ui.label(crate::ui::theme::helper_text(format!(
+                                    "Adds \"{preview_plan}\" beside the existing code repository; the repository itself is not modified."
+                                )));
+                            }
+                        } else if !self.wiz_project_name.trim().is_empty() {
                             let preview_code =
                                 Self::project_title_to_folder_name(
                                     self.wiz_project_name.trim(),
@@ -109,26 +161,28 @@ impl KooladeApp {
                                 "Creates \"{preview_code}\" and \"{preview_plan}\" side by side in the chosen folder."
                             )));
                         }
-                        ui.horizontal_centered(|ui| {
-                            if ui
-                                .add_enabled(
-                                    !clone_busy,
-                                    egui::Button::new("Choose parent folder…"),
-                                )
-                                .clicked()
-                            {
-                                self.conn_browse_target = BrowseTarget::WizardParent;
-                                *browse_slot.borrow_mut() = true;
+                        if !self.wiz_use_existing_code {
+                            ui.horizontal_centered(|ui| {
+                                if ui
+                                    .add_enabled(
+                                        !clone_busy,
+                                        egui::Button::new("Choose parent folder…"),
+                                    )
+                                    .clicked()
+                                {
+                                    self.conn_browse_target = BrowseTarget::WizardParent;
+                                    *browse_slot.borrow_mut() = true;
+                                }
+                            });
+                            if self.wiz_parent_path.trim().is_empty() {
+                                ui.label(crate::ui::theme::helper_text(
+                                    "(parent folder not chosen yet)",
+                                ));
+                            } else {
+                                ui.label(egui::WidgetText::from(
+                                    egui::RichText::new(&self.wiz_parent_path).weak(),
+                                ));
                             }
-                        });
-                        if self.wiz_parent_path.trim().is_empty() {
-                            ui.label(crate::ui::theme::helper_text(
-                                "(parent folder not chosen yet)",
-                            ));
-                        } else {
-                            ui.label(egui::WidgetText::from(
-                                egui::RichText::new(&self.wiz_parent_path).weak(),
-                            ));
                         }
                         if ui
                             .add_enabled(!clone_busy, egui::Button::new("Create and connect"))
