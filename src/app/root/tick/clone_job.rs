@@ -12,11 +12,13 @@ impl KooladeApp {
                     Err(_) => {
                         self.conn_error =
                             Some("The clone worker stopped unexpectedly. Try again.".into());
+                        self.mirror_clone_failure_if_intent_pending();
                     }
                     Ok(Err(e)) => {
                         // Failed clone: `conn_github` is PRESERVED so the
                         // operator can correct and retry; no connect runs.
                         self.conn_error = Some(Self::conn_banner(&e));
+                        self.mirror_clone_failure_if_intent_pending();
                     }
                     Ok(Ok(dest)) => {
                         // Defensive: no navigation exists out of Welcome
@@ -67,12 +69,30 @@ impl KooladeApp {
                             // Legacy completion: nothing pairs, connect.
                             self.conn_path = dest.to_string_lossy().into_owned();
                             self.submit_connect();
+                        } else {
+                            // Forward insurance: no navigation out of
+                            // Welcome exists while a job runs, but a
+                            // lingering pairing intent must never attach to
+                            // a later clone.
+                            self.pending_clone_pairing = None;
                         }
                     }
                 }
             } else {
                 self.clone_job = Some(job);
             }
+        }
+    }
+
+    /// Wizard-launched clones carry a pending pairing intent; surface worker
+    /// failures on the wizard itself so the diagnosis is not visible only in
+    /// the classic card's banner beneath.
+    fn mirror_clone_failure_if_intent_pending(&mut self) {
+        if self.pending_clone_pairing.is_some() {
+            let detail = self.conn_error.clone().unwrap_or_default();
+            self.wiz_error(format!(
+                "The clone did not complete:\n{detail}\nYour inputs are kept — fix the issue and press \u{201c}Set up and connect\u{201d} again."
+            ));
         }
     }
 }

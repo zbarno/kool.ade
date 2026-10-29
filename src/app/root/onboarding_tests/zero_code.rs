@@ -320,3 +320,222 @@ fn welcome_ui_wizard_pairs_an_existing_code_repository() {
     drop(app);
     let _ = std::fs::remove_dir_all(base);
 }
+
+// Production boundary: welcome wizard CLONE track → deferred pairing
+// hand-off crossing UI commit → background worker thread → tick drain →
+// sibling-pair creation → connect. Unit tests cannot prove the intent
+// survives the real JoinHandle round trip and pairs BEFORE any connect;
+// only driving this path end-to-end can. The hermetic
+// `clone_computation_override` seam stands in for the network fetch and
+// hands back a locally initialized repository that plays the role of the
+// completed clone. Invariants asserted: exactly one planning sibling
+// `<repo>.packet` is created beside the clone before the board connects;
+// the board roots at the clone destination; exactly one code repository
+// registers; the pairing intent is consumed, leaving none dangling.
+// Expected setup cost: in-process egui drive plus a few local Git ops in a
+// temp tree; no network, no Docker, no SSH.
+#[test]
+fn welcome_ui_wizard_clone_completion_pairs_before_connecting() {
+    use std::sync::{Arc, Mutex};
+    let _shield =
+        crate::core::gitops::test_support::shield_with_synthetic_identity("wizard-clone-ui");
+    let base = std::env::temp_dir().join(format!(
+        "koolade_wiz_clone_{}_{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = base.join("operator");
+    std::fs::create_dir_all(&home).unwrap();
+    let mut state_home = StateHome::new();
+    state_home.set(&home);
+    let downloads = base.join("downloads");
+    std::fs::create_dir_all(&downloads).unwrap();
+    // The stand-in "completed clone": a folder named for the repo segment,
+    // holding an initialized repository.
+    let dest = downloads.join("payroll-service");
+    std::fs::create_dir_all(&dest).unwrap();
+    std::fs::write(dest.join("service.toml"), "[server]\n").unwrap();
+    let git_here = |args: &[&str]| -> std::process::Output {
+        let output = std::process::Command::new("git")
+            .current_dir(&dest)
+            .args(args)
+            .output()
+            .expect("spawn git");
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output
+    };
+    git_here(&["init", "-q", "--initial-branch=main", "."]);
+    git_here(&["add", "-A"]);
+    git_here(&[
+        "-c",
+        "user.name=Wiz Fixture",
+        "-c",
+        "user.email=w@example.test",
+        "commit",
+        "-q",
+        "-m",
+        "landed clone commit",
+    ]);
+
+    let captured: Arc<Mutex<(String, String)>> = Arc::new(Mutex::default());
+    let cap2 = captured.clone();
+    let dest_seam = dest.clone();
+    let ctx = egui::Context::default();
+    let mut app = KooladeApp {
+        clone_computation_override: Some(Arc::new(move |source: String, repo: String| {
+            *cap2.lock().unwrap() = (source, repo);
+            Ok(dest_seam.clone())
+        })),
+        ..Default::default()
+    };
+
+    app.wizard_open(crate::app::root::WelcomeEntry::CloneRepository);
+    type_into(
+        &mut app,
+        &ctx,
+        "Example: https://github.com/zorgco/payroll-service",
+        "https://github.com/ZorgCo/PayrollService",
+    );
+    app.wizard_continue();
+    app.wizard_commit();
+    assert!(
+        app.clone_job.is_some(),
+        "commit spawns the clone worker (conn_error: {:?})",
+        app.conn_error
+    );
+    assert!(
+        app.pending_clone_pairing.is_some(),
+        "the pairing intent rides alongside the worker"
+    );
+
+    // Let the worker settle through the production tick path.
+    for _ in 0..500 {
+        if app.clone_job.is_none() {
+            break;
+        }
+        app.tick(0.016, &ctx);
+    }
+    let Screen::Connected(project) = &app.screen else {
+        let wiz_err = app.wiz.as_ref().and_then(|d| d.error.clone());
+        panic!(
+            "paired clone should connect the board; wiz_error: {wiz_err:?}; conn_error: {:?}",
+            app.conn_error
+        );
+    };
+    let planning = downloads.join("payroll-service.packet");
+    assert!(
+        planning.join("manifest.json").is_file(),
+        "the planning sibling was created beside the clone BEFORE connecting"
+    );
+    assert_eq!(
+        project.state.repo_root.canonicalize().unwrap(),
+        dest.canonicalize().unwrap(),
+        "the connected board roots at the clone destination"
+    );
+    assert_eq!(
+        project.state.repositories.repositories.len(),
+        1,
+        "exactly one code repository is registered"
+    );
+    assert!(
+        app.pending_clone_pairing.is_none(),
+        "the intent was consumed"
+    );
+    assert!(app.wiz.is_none(), "a successful connect retires the wizard");
+    let (source, repo) = captured.lock().unwrap().clone();
+    assert_eq!(
+        source, "https://github.com/ZorgCo/PayrollService.git",
+        "the worker receives the canonical rebuilt url (raw paste never reaches git argv), got {source}"
+    );
+    assert_eq!(
+        repo, "PayrollService",
+        "repo segment case preserved, got {repo}"
+    );
+    let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
+    assert_eq!(manager.list_local().unwrap().len(), 1);
+    drop(app);
+    let _ = std::fs::remove_dir_all(base);
+}
+
+// Companion of the deferral test: when the worker FAILS, the wizard keeps
+// the operator on the panel WITH the diagnosis surfaced on the wizard
+// itself (not hidden in the classic card banner), keeps the intent armed
+// for a corrected retry, and no planning sibling appears.
+#[test]
+fn welcome_ui_wizard_clone_worker_failure_surfaces_on_the_wizard() {
+    use std::sync::Arc;
+    let _shield =
+        crate::core::gitops::test_support::shield_with_synthetic_identity("wizard-clonefail-ui");
+    let base = std::env::temp_dir().join(format!(
+        "koolade_wiz_clonefail_{}_{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = base.join("operator");
+    std::fs::create_dir_all(&home).unwrap();
+    let mut state_home = StateHome::new();
+    state_home.set(&home);
+    let downloads = base.join("downloads");
+    std::fs::create_dir_all(&downloads).unwrap();
+
+    // The seam panics: a stand-in for a killed/unstable fetch.
+    let ctx = egui::Context::default();
+    let mut app = KooladeApp {
+        clone_computation_override: Some(Arc::new(
+            |_source: String,
+             _repo: String|
+             -> std::result::Result<std::path::PathBuf, crate::error::AppError> {
+                panic!("simulated unstable fetch")
+            },
+        )),
+        ..Default::default()
+    };
+
+    app.wizard_open(crate::app::root::WelcomeEntry::CloneRepository);
+    type_into(
+        &mut app,
+        &ctx,
+        "Example: https://github.com/zorgco/payroll-service",
+        "https://github.com/ZorgCo/Fragile",
+    );
+    app.wizard_continue();
+    app.wizard_commit();
+    assert!(app.clone_job.is_some(), "commit spawns the clone worker");
+
+    for _ in 0..500 {
+        if app.clone_job.is_none() {
+            break;
+        }
+        app.tick(0.016, &ctx);
+    }
+    assert!(app.clone_job.is_none(), "the dead worker is settled");
+    assert!(
+        app.pending_clone_pairing.is_some(),
+        "the intent stays armed so a corrected retry pairs on completion"
+    );
+    let wiz = app.wiz.as_ref().expect("the wizard STAYS OPEN on failure");
+    let message = wiz.error.as_deref().unwrap_or("<none>");
+    assert!(
+        message.starts_with("The clone did not complete:"),
+        "the wizard panel carries the failure, got: {message}"
+    );
+    assert!(
+        wiz.error
+            .as_deref()
+            .unwrap_or("")
+            .contains("stopped unexpectedly"),
+        "the worker diagnosis is mirrored verbatim: {message}"
+    );
+    assert_eq!(wiz.step, 0, "back on the inputs step for the fix");
+    assert!(matches!(app.screen, Screen::Welcome), "no phantom connect");
+    assert!(
+        !downloads.join("fragile.packet").exists() && !downloads.join("Fragile.packet").exists(),
+        "no planning sibling materializes from a dead clone"
+    );
+    drop(app);
+    let _ = std::fs::remove_dir_all(base);
+}

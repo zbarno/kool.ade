@@ -414,10 +414,7 @@ impl WelcomeWizard {
                     format!(
                         "Downloads the repository into “{shown}” (that folder must not exist yet)."
                     ),
-                    format!(
-                        "Creates the planning repository “{}.packet” beside the clone.",
-                        name
-                    ),
+                    format!("Creates the planning repository “{packet}” beside the clone."),
                     "Registers the clone as a code repository of that planning repository."
                         .to_string(),
                     "Opens the planning board for this project.".to_string(),
