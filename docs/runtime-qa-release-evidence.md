@@ -3,19 +3,18 @@
 ## Current main workflow status (2026-10-29)
 
 Evidence is anchored to current `main` commit
-[`66c1aff`](https://github.com/zbarno/kool.ade/commit/66c1affede9314fd14f0c42b4c5c0ed024795a19).
-The quality workflow [40935486316](https://github.com/zbarno/kool.ade/actions/runs/40935486316)
-passed. The trusted-image workflow
-[40935486545](https://github.com/zbarno/kool.ade/actions/runs/40935486545)
-passed on attempt 2 after attempt 1's browser candidate failed while starting a
-rootless test container with `ImageUnavailable`. The browser candidate retry
-passed, and the desktop candidate passed on the first attempt. Publication and
-published-image smokes were skipped because both QA profiles remain disabled.
-Native package workflow
-[40935486314](https://github.com/zbarno/kool.ade/actions/runs/40935486314)
+[`4478e22`](https://github.com/zbarno/kool.ade/commit/4478e22de5c606186119aa0eb3c2dbd0bf972cae).
+The quality workflow [40949757846](https://github.com/zbarno/kool.ade/actions/runs/40949757846)
+passed after a retry of the rootless Docker recovery job. The native package
+workflow [40949758572](https://github.com/zbarno/kool.ade/actions/runs/40949758572)
 passed Linux x86_64, Linux arm64, Windows x64, Apple Silicon macOS, and Intel
-macOS packages. These successful implementation checks do not provide a
-complete release matrix or authorize enabling the profiles.
+macOS packages. The trusted-image workflow
+[40949758383](https://github.com/zbarno/kool.ade/actions/runs/40949758383)
+passed on retry after attempt 1 lost Docker Engine health during the desktop
+candidate test. Browser and desktop candidate verification passed; publication
+and published-image smokes were skipped because both QA profiles remain
+disabled. These implementation checks do not provide a complete release matrix
+or authorize enabling the profiles.
 
 ## Previous exact-main matrix (2026-10-27)
 
