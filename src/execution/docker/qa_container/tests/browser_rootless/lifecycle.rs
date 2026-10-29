@@ -15,10 +15,13 @@ pub(super) use persist::review_expected_outcome_and_persist;
 /// Unit tests cannot prove that screenshots and interactions from the pinned
 /// browser image survive this boundary. External dependency: rootless Docker
 /// and the candidate browser image. Setup: one short fixture run.
-/// The persistence helper uses a deterministic reviewer test double; this path
-/// does not prove separate AI reviewer execution or semantic reviewer quality.
-/// Its output adapter replays the result from the preceding Docker driver run,
-/// not a second container-driver implementation.
+/// The report handoff invokes the production RuntimeQa reviewer dispatch with a
+/// deterministic, independent-harness adapter. The adapter verifies the frozen
+/// task/spec/source binding, fresh run/session identity, read-only role, and
+/// screenshot bytes delivered to review. It simulates screenshot inspection
+/// audit after hash and PNG validation; the rootless test does not launch a
+/// provider process or prove model judgment quality. The output adapter replays
+/// the preceding Docker driver result, not a second container implementation.
 pub(super) fn review_and_persist(
     request: &QaRunRequestV1,
     scenario: QaScenarioV1,
