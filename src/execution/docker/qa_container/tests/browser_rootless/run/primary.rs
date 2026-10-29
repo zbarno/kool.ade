@@ -65,6 +65,12 @@ pub(super) async fn run(context: PrimaryDriverContext<'_>) -> Result<PrimaryDriv
     let result = async {
         let mut relay_binding = context.preview.relay_binding.clone();
         relay_binding.browser_container_id = Some(driver_id.clone());
+        super::super::identity::assert_no_host_browser_identity(
+            context.docker,
+            &driver_id,
+            &relay_binding.relay_token,
+        )
+        .await?;
         validate_browser_driver_network(
             context.docker,
             context.request,
