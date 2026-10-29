@@ -11,6 +11,10 @@ use crate::{
     runtime_qa::{QaDriverActionV1, QaScenarioStepV1, QaScenarioV1},
 };
 
+#[path = "scenarios/actions.rs"]
+mod actions;
+pub(super) use actions::happy_steps;
+
 pub(super) fn require_approved_executable(path: &Path) {
     let metadata = std::fs::symlink_metadata(path).unwrap();
     assert!(metadata.is_file() && !metadata.file_type().is_symlink());
@@ -130,93 +134,6 @@ pub(super) async fn run_scenario(
     response
 }
 
-/// Happy path (12 steps, two screenshot checkpoints): launch, wait for the
-/// Ready window, enumerate windows, assert tracked region visibility, click A
-/// (Ready -> Clicked), click B (Clicked -> Armed), TYPE into the fixture (keys
-/// are dropped unless the driver focused the window before the click — the
-/// behavioral proof of focus-before-interaction), wait for Typed:ok, resize,
-/// read logs, close.
-pub(super) fn happy_steps() -> Vec<(QaDriverActionV1, Option<&'static str>, bool)> {
-    vec![
-        (QaDriverActionV1::LaunchValidatedTarget, None, false),
-        (
-            QaDriverActionV1::WaitForWindow,
-            Some("koolade nonrust qa: ready"),
-            true,
-        ),
-        (
-            QaDriverActionV1::ListWindows,
-            Some("koolade nonrust qa"),
-            false,
-        ),
-        (
-            QaDriverActionV1::AssertRegionVisible {
-                window_id: "active".into(),
-                x: 80,
-                y: 20,
-                width: 60,
-                height: 32,
-            },
-            Some("region visible"),
-            false,
-        ),
-        (
-            QaDriverActionV1::Click {
-                window_id: "active".into(),
-                x: 100,
-                y: 36,
-            },
-            Some("clicked"),
-            false,
-        ),
-        (
-            QaDriverActionV1::WaitForWindow,
-            Some("koolade nonrust qa: clicked"),
-            false,
-        ),
-        (
-            QaDriverActionV1::Click {
-                window_id: "active".into(),
-                x: 100,
-                y: 88,
-            },
-            Some("clicked"),
-            false,
-        ),
-        (
-            QaDriverActionV1::TypeText { text: "ok".into() },
-            Some("typed 2 characters"),
-            false,
-        ),
-        (
-            QaDriverActionV1::WaitForWindow,
-            Some("koolade nonrust qa: typed:ok"),
-            true,
-        ),
-        (
-            QaDriverActionV1::ResizeWindow {
-                window_id: "active".into(),
-                width: 640,
-                height: 400,
-            },
-            Some("resized"),
-            false,
-        ),
-        (
-            QaDriverActionV1::ReadAppLogs,
-            Some("application logs requested"),
-            false,
-        ),
-        (
-            QaDriverActionV1::CloseWindow {
-                window_id: "active".into(),
-            },
-            Some("closed"),
-            false,
-        ),
-    ]
-}
-
 /// Crash path (4 steps): launch, wait for Ready, click the fatal region C with
 /// a screenshot checkpoint, then a trailing no-op so the premature exit is
 /// observed BETWEEN steps instead of after the loop.
@@ -241,7 +158,7 @@ pub(super) fn crash_steps() -> Vec<(QaDriverActionV1, Option<&'static str>, bool
     ]
 }
 
-fn step(
+pub(super) fn step(
     driver_action: QaDriverActionV1,
     expected_state: Option<&str>,
     screenshot_checkpoint: bool,

@@ -12,6 +12,8 @@
  *     driver must focus the window before interacting, or the keys are
  *     dropped and the Typed:ok expectation can never be met);
  *   - ConfigureNotify tracks driver-initiated resizes;
+ *   - double-click, drag, Ctrl+A, and scroll actions update the window title
+ *     through a separately compiled event probe;
  *   - structured log lines on stdout;
  *   - clean SIGTERM/SIGHUP shutdown;
  *   - click region C (approx 100,136): simulated fatal abort (exit 1)
@@ -32,6 +34,8 @@
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+
+#include "action_probe.h"
 
 #ifdef KOOLADE_QA_ABSENT_DEP
 /* Provided only by the link-time stub for the missing-dependency variant;
@@ -240,8 +244,8 @@ int main(int argc, char **argv) {
     XSetWindowAttributes attributes = {
         .background_pixel = BlackPixel(g_display, screen_index),
         .border_pixel = WhitePixel(g_display, screen_index),
-        .event_mask = ExposureMask | ButtonPressMask | KeyPressMask |
-                      StructureNotifyMask,
+        .event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask |
+                      PointerMotionMask | KeyPressMask | StructureNotifyMask,
     };
     const Window window =
         XCreateWindow(g_display, RootWindow(g_display, screen_index), 0, 0, width, height,
@@ -318,14 +322,25 @@ int main(int argc, char **argv) {
                         break;
                     case ButtonPress:
                         if (event.xbutton.window == window) {
-                            handle_button(&event, window, width_observed, height_observed,
-                                          &state, graphics);
+                            if (!qa_action_probe_event(g_display, window, g_net_wm_name,
+                                                       g_utf8_string, &event)) {
+                                handle_button(&event, window, width_observed, height_observed,
+                                              &state, graphics);
+                            }
                         }
+                        break;
+                    case MotionNotify:
+                    case ButtonRelease:
+                        (void)qa_action_probe_event(g_display, window, g_net_wm_name,
+                                                    g_utf8_string, &event);
                         break;
                     case KeyPress:
                         if (event.xkey.window == window) {
-                            handle_key(&event, window, &state, width_observed,
-                                       height_observed, graphics);
+                            if (!qa_action_probe_event(g_display, window, g_net_wm_name,
+                                                       g_utf8_string, &event)) {
+                                handle_key(&event, window, &state, width_observed,
+                                           height_observed, graphics);
+                            }
                         }
                         break;
                     default:
