@@ -1,6 +1,22 @@
 # Runtime QA release evidence
 
-## Refreshed exact-main matrix (2026-10-27)
+## Current main workflow status (2026-10-29)
+
+Evidence is anchored to current `main` commit
+[`66c1aff`](https://github.com/zbarno/kool.ade/commit/66c1affede9314fd14f0c42b4c5c0ed024795a19).
+The quality workflow [40935486316](https://github.com/zbarno/kool.ade/actions/runs/40935486316)
+passed. The trusted-image workflow
+[40935486545](https://github.com/zbarno/kool.ade/actions/runs/40935486545)
+is on attempt 2 after attempt 1's browser candidate failed while starting a
+rootless test container with `ImageUnavailable`; its browser candidate retry is
+still running. The desktop candidate passed, while publication and published
+image smokes were skipped because both QA profiles remain disabled. Native
+package workflow [40935486314](https://github.com/zbarno/kool.ade/actions/runs/40935486314)
+has passed Linux x86_64, Linux arm64, Windows x64, and Apple Silicon macOS
+packages; Intel macOS is still running. These in-progress workflows do not yet
+provide a complete current-main release matrix.
+
+## Previous exact-main matrix (2026-10-27)
 
 Evidence is pinned to exact `main` commit
 [`2e58d2b`](https://github.com/zbarno/kool.ade/commit/2e58d2b75139b164903c5a09858b384fbfa991d9).
@@ -86,10 +102,13 @@ using any candidate digest as current release evidence.
 
 ## Acceptance rule
 
-Do not enable either QA image profile, describe Runtime QA as shipped, close
-issues #166, #167, #168, #169, #171, or #173 until every
-applicable row has a passing, reviewable artifact for the supported platform
-matrix. Candidate delivery and passing candidate suites are not release approval.
-For each update, record the exact commit, workflow run or manual smoke artifact,
-image digest, fixture/scenario, and observed failure result. A passing source
-test or candidate-image smoke only changes the row it directly covers.
+Do not enable either QA image profile or describe Runtime QA as shipped until
+every applicable release row has a passing, reviewable artifact for the
+supported platform matrix and release approval is recorded. Candidate delivery
+and passing candidate suites are not release approval. Close implementation
+issues #166, #167, #168, #169, and #173 once their own technical acceptance is
+complete; deferred human prelaunch review does not keep a technically complete
+issue open. Keep #171 open while technical release acceptance remains. For each
+update, record the exact commit, workflow run or manual smoke artifact, image
+digest, fixture/scenario, and observed failure result. A passing source test or
+candidate-image smoke only changes the row it directly covers.
