@@ -23,7 +23,7 @@ pub(crate) use recipe::{
     normalize_custom_target_root, validate_custom_artifact_paths,
     validate_custom_target_artifact_paths, validate_custom_target_root,
 };
-pub(crate) use source::verify_source_checkout;
+pub(crate) use source::{verify_source_checkout, verify_source_checkout_scoped};
 pub use store::ProjectRuntimeStore;
 pub use target::{
     AppSurface, AppTargetV1, ProjectCapabilityManifestV1, ReadinessProbeV1, RuntimeOperation,
