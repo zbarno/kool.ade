@@ -91,7 +91,7 @@ pub(super) fn execute(
     let authorization_ref = session.verify_local_recipe_approval(
         store,
         &target.target_id,
-        recipe,
+        &scoped_start_recipe(target, recipe)?,
         Some(&target.project_relative_root),
     )?;
     let timeout = Duration::from_secs(recipe.timeout_seconds.min(MAX_START_SECONDS));
@@ -173,6 +173,27 @@ pub(super) fn execute(
         return Err(error.into());
     }
     Ok(vec![receipt])
+}
+
+fn scoped_start_recipe(
+    target: &super::super::AppTargetV1,
+    recipe: &crate::project_runtime::ExecutionRecipeV1,
+) -> anyhow::Result<crate::project_runtime::ExecutionRecipeV1> {
+    let root = &target.project_relative_root;
+    let mut scoped = recipe.clone();
+    scoped.working_directory_relative =
+        super::join_workspace_path(root, &recipe.working_directory_relative)?;
+    scoped.allowed_output_paths = recipe
+        .allowed_output_paths
+        .iter()
+        .map(|path| super::join_workspace_path(root, path))
+        .collect::<anyhow::Result<_>>()?;
+    scoped.expected_artifacts = recipe
+        .expected_artifacts
+        .iter()
+        .map(|path| super::join_workspace_path(root, path))
+        .collect::<anyhow::Result<_>>()?;
+    Ok(scoped)
 }
 
 fn validate_start_executable_artifact(
