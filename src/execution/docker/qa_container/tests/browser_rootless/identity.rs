@@ -1,16 +1,25 @@
 /// Rootless Docker boundary: inspect the live browser driver and ensure it
 /// has no host mounts, published ports, or provider/browser-account secrets.
 /// The only credential is the exact run-scoped relay token; its home is fresh
-/// tmpfs. A container-config unit test cannot prove the launched container
-/// retained that isolation. Requires the existing rootless browser fixture
-/// and candidate image; adds one inspect call and no new container.
+/// tmpfs. The assertion runs on both the fixture route and selected-task
+/// Build/Start/browser path. A container-config unit test cannot prove the
+/// launched container retained that isolation. Requires the existing rootless
+/// browser fixture and candidate image; inspects the image and existing
+/// container without creating another container.
 pub(super) async fn assert_no_host_browser_identity(
     docker: &bollard::Docker,
     container_id: &str,
     relay_token: &str,
     expected_env: &[String],
-    image_env: &[String],
+    image_reference: &str,
 ) -> Result<(), String> {
+    let image_env = docker
+        .inspect_image(image_reference)
+        .await
+        .map_err(|_| "locked browser QA image could not be inspected".to_owned())?
+        .config
+        .and_then(|config| config.env)
+        .unwrap_or_default();
     let container = docker
         .inspect_container(container_id, None)
         .await
@@ -25,7 +34,7 @@ pub(super) async fn assert_no_host_browser_identity(
         .ok_or_else(|| "browser QA host config is missing".to_owned())?;
     let env = config.env.as_deref().unwrap_or_default();
     let mut allowed_env = expected_env.to_vec();
-    allowed_env.extend_from_slice(image_env);
+    allowed_env.extend_from_slice(&image_env);
     allowed_env.sort();
     allowed_env.dedup();
     let mut actual_env = env.to_vec();
