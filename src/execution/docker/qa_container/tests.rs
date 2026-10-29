@@ -5,6 +5,8 @@ mod browser_rootless;
 #[path = "tests/desktop_rootless.rs"]
 mod desktop_rootless;
 
+#[path = "tests/artifact_permissions.rs"]
+mod artifact_permissions;
 #[path = "tests/cache_architecture.rs"]
 mod cache_architecture;
 #[path = "tests/driver_policy.rs"]

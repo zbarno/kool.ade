@@ -92,7 +92,9 @@ impl QaArtifactMount {
                 } else {
                     header.set_entry_type(tar::EntryType::Directory);
                     header.set_size(0);
-                    header.set_mode(0o555);
+                    // Extraction needs writable directories; the staging
+                    // boundary removes write bits after the archive is unpacked.
+                    header.set_mode(0o755);
                     header.set_cksum();
                     tar.append_data(&mut header, &entry.name, std::io::empty())
                         .map_err(|_| denied("Runtime QA artifact snapshot could not be encoded"))?;
