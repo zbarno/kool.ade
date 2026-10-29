@@ -50,6 +50,15 @@ pub(super) async fn run(context: PrimaryDriverContext<'_>) -> Result<PrimaryDriv
     let body = spec
         .create_body_with_lock(context.lock)
         .map_err(|error| error.message)?;
+    let expected_env = body.env.clone().unwrap_or_default();
+    let image_env = context
+        .docker
+        .inspect_image(&context.browser_image.reference)
+        .await
+        .map_err(|_| "locked browser QA image could not be inspected".to_owned())?
+        .config
+        .and_then(|config| config.env)
+        .unwrap_or_default();
     let name = format!("koolade-qa-{}", context.request.qa_run_id);
     let driver_id = create_driver_container(
         context.docker,
@@ -69,6 +78,8 @@ pub(super) async fn run(context: PrimaryDriverContext<'_>) -> Result<PrimaryDriv
             context.docker,
             &driver_id,
             &relay_binding.relay_token,
+            &expected_env,
+            &image_env,
         )
         .await?;
         validate_browser_driver_network(

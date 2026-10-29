@@ -8,6 +8,8 @@ pub(super) async fn assert_no_host_browser_identity(
     docker: &bollard::Docker,
     container_id: &str,
     relay_token: &str,
+    expected_env: &[String],
+    image_env: &[String],
 ) -> Result<(), String> {
     let container = docker
         .inspect_container(container_id, None)
@@ -22,17 +24,26 @@ pub(super) async fn assert_no_host_browser_identity(
         .as_ref()
         .ok_or_else(|| "browser QA host config is missing".to_owned())?;
     let env = config.env.as_deref().unwrap_or_default();
+    let mut allowed_env = expected_env.to_vec();
+    allowed_env.extend_from_slice(image_env);
+    allowed_env.sort();
+    allowed_env.dedup();
+    let mut actual_env = env.to_vec();
+    actual_env.sort();
+    actual_env.dedup();
     let relay_entries = env
         .iter()
         .filter(|entry| entry.starts_with("QA_RELAY_TOKEN="))
         .collect::<Vec<_>>();
-    if !env.iter().any(|entry| entry == "HOME=/tmp")
+    let home_entries = env
+        .iter()
+        .filter(|entry| entry.starts_with("HOME="))
+        .collect::<Vec<_>>();
+    if actual_env != allowed_env
+        || home_entries.len() != 1
+        || home_entries[0].as_str() != "HOME=/tmp"
         || relay_entries.len() != 1
         || relay_entries[0] != &format!("QA_RELAY_TOKEN={relay_token}")
-        || env
-            .iter()
-            .filter_map(|entry| entry.split_once('=').map(|pair| pair.0))
-            .any(|name| name != "QA_RELAY_TOKEN" && contains_credential_marker(name))
     {
         return Err("browser QA received ambient or unexpected credential environment".into());
     }
@@ -48,35 +59,11 @@ pub(super) async fn assert_no_host_browser_identity(
             .port_bindings
             .as_ref()
             .is_some_and(|ports| !ports.is_empty())
-        || mounts.iter().any(|mount| {
-            mount.typ.as_deref() == Some("bind")
-                || mount.typ.as_deref() == Some("npipe")
-                || (mount.typ.as_deref() == Some("tmpfs")
-                    && mount
-                        .source
-                        .as_deref()
-                        .is_some_and(|source| !source.is_empty()))
-        })
+        || mounts
+            .iter()
+            .any(|mount| mount.typ.as_deref() != Some("tmpfs"))
     {
         return Err("browser QA can access host identity, storage, or published ports".into());
     }
     Ok(())
-}
-
-fn contains_credential_marker(name: &str) -> bool {
-    let name = name.to_ascii_uppercase();
-    name.starts_with("AWS_")
-        || name.starts_with("AZURE_")
-        || name.starts_with("GITHUB_")
-        || name.starts_with("GH_")
-        || name.starts_with("CODEX_")
-        || name.starts_with("CLAUDE_")
-        || name.starts_with("OPENAI_")
-        || name.starts_with("ANTHROPIC_")
-        || name == "SSH_AUTH_SOCK"
-        || name.contains("TOKEN")
-        || name.contains("SECRET")
-        || name.contains("PASSWORD")
-        || name.contains("COOKIE")
-        || name.contains("CREDENTIAL")
 }
