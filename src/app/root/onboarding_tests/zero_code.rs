@@ -506,11 +506,18 @@ fn welcome_ui_wizard_clone_worker_failure_surfaces_on_the_wizard() {
     app.wizard_commit();
     assert!(app.clone_job.is_some(), "commit spawns the clone worker");
 
-    for _ in 0..500 {
+    // The worker is a REAL thread that panics; under heavy parallel-test
+    // contention it may starve for wall time. Tick patiently (breaking as
+    // soon as the job settles) while steadily yielding real time so the
+    // panic is guaranteed a scheduling slot. Common cost stays trivial.
+    for round in 0..20_000 {
         if app.clone_job.is_none() {
             break;
         }
         app.tick(0.016, &ctx);
+        if round % 50 == 49 {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
     }
     assert!(app.clone_job.is_none(), "the dead worker is settled");
     assert!(

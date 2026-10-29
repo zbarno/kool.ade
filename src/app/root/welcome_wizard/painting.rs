@@ -8,17 +8,17 @@ use egui::{RichText, Ui, WidgetText};
 use super::super::{KooladeApp, WelcomeEntry, WelcomeWizard, WizField};
 use super::{PrimaryBus, WizAction};
 
+/// The primary card is permanently the three journey doors. An ACTIVE
+/// wizard no longer replaces this canvas — it floats above it as a modal
+/// dialog ([`paint_wizard_modal`]), so the welcome screen stays visible
+/// (and interaction-locked) beneath the dialog.
 pub(crate) fn paint_primary_card(
     ui: &mut Ui,
-    app: &mut KooladeApp,
+    _app: &mut KooladeApp,
     bus: &PrimaryBus,
-    cloning: Option<(&str, &str)>,
+    _cloning: Option<(&str, &str)>,
 ) {
-    if let Some(wiz) = app.wiz.as_mut() {
-        paint_wizard_panel(ui, wiz, bus, cloning);
-    } else {
-        paint_doors(ui, bus);
-    }
+    paint_doors(ui, bus);
 }
 
 fn paint_doors(ui: &mut Ui, bus: &PrimaryBus) {
@@ -241,4 +241,47 @@ fn action_row(ui: &mut Ui, bus: &PrimaryBus, busy: bool, primary: WizAction, pri
             bus.action.replace(Some(WizAction::Close));
         }
     });
+}
+/// Renders the active wizard as a modal dialog over the whole welcome
+/// canvas. The shared modal machinery ([`crate::ui::overlays::show_modal`])
+/// supplies the backdrop, input blocking, drag-to-move, close glyph, and
+/// `Esc` handling; this adapter feeds in the two-step wizard panel and
+/// mirrors the card-era deferred-cell bus. Closing through the modal
+/// (chrome or `Esc`) retires the wizard.
+pub(crate) fn paint_wizard_modal(ui: &mut Ui, app: &mut KooladeApp, cloning: Option<(&str, &str)>) {
+    if app.wiz.is_none() {
+        return;
+    }
+    let title = app
+        .wiz
+        .as_ref()
+        .expect("checked above")
+        .entry
+        .title()
+        .to_string();
+    let door_req = std::cell::Cell::new(None::<WelcomeEntry>);
+    let action_req = std::cell::Cell::new(None::<WizAction>);
+    let browse_req = std::cell::Cell::new(None::<WizField>);
+    let bus = PrimaryBus {
+        door: &door_req,
+        action: &action_req,
+        browse: &browse_req,
+    };
+    let closed = crate::ui::overlays::show_modal(ui, true, &title, 560.0, |ui| {
+        if let Some(wiz) = app.wiz.as_mut() {
+            paint_wizard_panel(ui, wiz, &bus, cloning);
+        }
+    });
+    if let Some(entry) = door_req.take() {
+        app.wizard_open(entry);
+    }
+    if let Some(action) = action_req.take() {
+        app.wizard_actuate(action);
+    }
+    if let Some(which) = browse_req.take() {
+        app.browse_wizard_field(which);
+    }
+    if closed {
+        app.wizard_close();
+    }
 }

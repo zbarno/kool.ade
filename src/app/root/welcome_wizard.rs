@@ -62,13 +62,14 @@ impl KooladeApp {
     /// Step 1 → step 2 gate: collects the entry's required input or shows
     /// exactly what is still owed.
     pub(super) fn wizard_continue(&mut self) {
-        let (entry, code_path, url, name, parent) = match self.wiz.as_ref() {
+        let (entry, code_path, url, name, parent, plan) = match self.wiz.as_ref() {
             Some(wiz) => (
                 wiz.entry,
                 wiz.code_path.trim().to_string(),
                 wiz.url.trim().to_string(),
                 wiz.effective_project_name(),
                 wiz.parent.trim().to_string(),
+                wiz.packet_name.trim().to_string(),
             ),
             None => return,
         };
@@ -110,8 +111,20 @@ impl KooladeApp {
                     self.wiz_error("Paste the repository URL (GitHub, Glab, HTTPS or SSH).");
                     return;
                 }
-                if let Err(detail) = crate::app::welcome::parse_github_url(&url) {
-                    self.wiz_error(format!("That URL doesn't look cloneable\n{detail}"));
+                let segment = match crate::app::welcome::parse_github_url(&url) {
+                    Ok(target) => target.repo,
+                    Err(detail) => {
+                        self.wiz_error(format!("That URL doesn't look cloneable\n{detail}"));
+                        return;
+                    }
+                };
+                let candidate = if plan.is_empty() {
+                    format!("{segment}.packet")
+                } else {
+                    plan
+                };
+                if let Some(problem) = naming_problem(&candidate) {
+                    self.wiz_error(problem);
                     return;
                 }
             }
@@ -122,6 +135,15 @@ impl KooladeApp {
                 }
                 if parent.is_empty() {
                     self.browse_wizard_field(WizField::Parent);
+                    return;
+                }
+                let candidate = if plan.is_empty() {
+                    format!("{name}.packet")
+                } else {
+                    plan
+                };
+                if let Some(problem) = naming_problem(&candidate) {
+                    self.wiz_error(problem);
                     return;
                 }
             }
@@ -304,6 +326,16 @@ impl KooladeApp {
 /// Paints the primary welcome card contents: the ACTIVE wizard when one is
 /// open, else the three-journey landing. Actions travel back through the
 /// `bus`; text fields edit the draft in place.
+/// Input-boundary guard: refuse planning repository names that the
+/// production `repository_name_allowed` rule would reject, BEFORE the
+/// operator spends a review step (and, in the deferred track, an entire
+/// clone) on a doomed name.
+fn naming_problem(name: &str) -> Option<String> {
+    let unacceptable =
+        name.is_empty() || !crate::core::managed_workspace::repository_name_allowed(name);
+    unacceptable.then(|| {"\"{name}\" is unusable as a planning repository name: letters, digits, dots, underscores, and dashes only, and no leading dot. Adjust the planning repository name before continuing.".to_string()})
+}
+
 pub(super) mod painting;
 
-pub(super) use painting::paint_primary_card;
+pub(super) use painting::{paint_primary_card, paint_wizard_modal};

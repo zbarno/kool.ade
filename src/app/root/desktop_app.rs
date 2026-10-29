@@ -55,6 +55,13 @@ impl KooladeApp {
                     .clone_job
                     .as_ref()
                     .map(|j| (j.url_display.clone(), j.repo.clone()));
+                // Copy for the modal overlay (the tuple below is moved into
+                // `paint_more_connections`).
+                // Owned copy for the modal overlay (drawn AFTER
+                // `paint_more_connections` has moved `cloning`).
+                let cloning_arg = cloning
+                    .as_ref()
+                    .map(|(url_display, repo)| (url_display.to_string(), repo.to_string()));
                 egui::CentralPanel::default().show(ui, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         if ui.available_width() >= 1200.0 {
@@ -126,6 +133,15 @@ impl KooladeApp {
                             });
                         }
                     });
+                    if self.wiz.is_some() {
+                        crate::app::root::welcome_wizard::paint_wizard_modal(
+                            ui,
+                            self,
+                            cloning_arg
+                                .as_ref()
+                                .map(|(url_display, repo)| (url_display.as_str(), repo.as_str())),
+                        );
+                    }
                 });
                 if *slot.borrow() {
                     self.submit_connect();

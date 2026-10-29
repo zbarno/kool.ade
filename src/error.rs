@@ -162,7 +162,15 @@ impl AppError {
 
 impl std::fmt::Display for AppError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} — {}", self.headline(), self.detail())
+        // `Other` carries its text in BOTH slots, so echoing the detail
+        // after the headline doubles the whole message on screen.
+        let headline = self.headline();
+        let detail = self.detail();
+        if detail.is_empty() || detail == headline {
+            write!(f, "{headline}")
+        } else {
+            write!(f, "{headline} — {detail}")
+        }
     }
 }
 
