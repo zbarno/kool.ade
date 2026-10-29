@@ -66,6 +66,7 @@ mod task_target;
 pub(crate) mod test_runtime_qa;
 mod tick;
 mod ui_actions;
+mod welcome_wizard;
 mod workspace;
 use task_batch::has_current_task_batch;
 
@@ -109,19 +110,12 @@ pub struct KooladeApp {
     /// card (`conn_join_remote`) when the join row's Browse… button raised
     /// the picker. Refreshed per welcome frame; see `BrowseTarget`.
     conn_browse_target: BrowseTarget,
-    /// Wizard "start a new project" track (per-launch state only):
-    /// project name, editable planning-repository name (suggests
-    /// `<name>.packet` when empty), chosen parent folder, and the last
-    /// failure surfaced verbatim.
-    wiz_project_name: String,
-    wiz_packet_name: String,
-    wiz_parent_path: String,
-    /// Existing-code track: the operator supplies a folder that already
-    /// contains an initialized Git repository; only the planning sibling is
-    /// created next to it.
-    wiz_use_existing_code: bool,
-    wiz_existing_code_path: String,
-    wiz_error: Option<String>,
+    /// Active welcome wizard (per-launch state; a closed draft is gone).
+    /// Side effects occur only when the CONFIRM step commits.
+    wiz: Option<WelcomeWizard>,
+    /// Set by the wizard's CloneRepository commit while the shared clone
+    /// worker runs; consumed by [`Self::poll_clone_job`].
+    pending_clone_pairing: Option<PendingClonePairing>,
     /// Test-only seam: when `Some`, [`Self::begin_clone`] hands the worker
     /// THIS computation instead of the real `welcome::perform_clone`, so
     /// dispatch can be proven hermetically (no network, no real git
@@ -256,12 +250,205 @@ struct DisplayRefresh {
 pub(super) enum BrowseTarget {
     CodeRepo,
     PlanningRepo,
-    /// Parent folder picker for the "new project" wizard track: chooses the
-    /// directory that will hold the new sibling code + planning pair.
-    WizardParent,
-    /// Folder picker for the wizard's existing-code track: the chosen folder
-    /// must BE the code repository root (the planning sibling lands beside it).
-    WizardExistingCode,
+    /// Wizard draft field filled by the native folder picker.
+    Wizard(WizField),
+}
+
+/// The three first-party journey starters offered on the welcome landing.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum WelcomeEntry {
+    /// The code repository already exists locally; Kool.ad/e only adds the
+    /// planning sibling and registers the checkout.
+    ExistingCode,
+    /// The code repository must be downloaded first; Kool.ad/e clones it
+    /// under a chosen destination, then pairs the planning sibling.
+    CloneRepository,
+    /// Nothing exists yet; both repositories are created from scratch.
+    BlankProject,
+}
+
+impl WelcomeEntry {
+    pub(super) fn title(self) -> &'static str {
+        match self {
+            Self::ExistingCode => "Set up planning for your code",
+            Self::CloneRepository => "Clone a code repository and set up planning",
+            Self::BlankProject => "Create a brand-new project",
+        }
+    }
+}
+
+/// Which wizard field the native folder picker should fill.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum WizField {
+    /// ExistingCode entry: the folder that IS the code repository root.
+    CodePath,
+    /// BlankProject entry: the parent folder for the fresh sibling pair.
+    Parent,
+}
+
+/// Draft state for ONE active welcome wizard. Closing a draft discards it;
+/// nothing touches the disk until the confirm step commits.
+pub(super) struct WelcomeWizard {
+    entry: WelcomeEntry,
+    /// 0 = gather inputs, 1 = confirm the planned side effects.
+    step: u8,
+    project_name: String,
+    /// Empty means "use the suggested <code folder>.packet name".
+    packet_name: String,
+    /// ExistingCode: the code repository folder itself.
+    code_path: String,
+    /// CloneRepository: the repository URL to download (cloned into
+    /// `~/kool-ade-workspaces/<repo>` by the shared clone engine).
+    url: String,
+    /// BlankProject: parent folder for the fresh pair.
+    parent: String,
+    error: Option<String>,
+}
+
+impl WelcomeWizard {
+    pub(super) fn new(entry: WelcomeEntry) -> Self {
+        Self {
+            entry,
+            step: 0,
+            project_name: String::new(),
+            packet_name: String::new(),
+            code_path: String::new(),
+            url: String::new(),
+            parent: String::new(),
+            error: None,
+        }
+    }
+
+    /// Absolute destination the clone engine will use for CloneRepository.
+    pub(super) fn clone_destination(&self) -> Option<std::path::PathBuf> {
+        let home = std::env::var_os("HOME")?;
+        let name = self.code_folder_name();
+        if name.is_empty() {
+            return None;
+        }
+        Some(crate::app::welcome::github::clone_destination(
+            &name,
+            &std::path::PathBuf::from(home),
+        ))
+    }
+
+    /// Effective project name: the typed title, else derived from the code
+    /// source (folder basename for existing code, repository segment for a
+    /// URL). Titles are cosmetic; the derived value only fills the field.
+    pub(super) fn effective_project_name(&self) -> String {
+        let trimmed = self.project_name.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+        let basename = match self.entry {
+            WelcomeEntry::ExistingCode => self.code_path.trim(),
+            WelcomeEntry::CloneRepository => self.url.trim(),
+            WelcomeEntry::BlankProject => "", // blank projects need an authored title
+        };
+        std::path::Path::new(basename)
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .unwrap_or("")
+            .to_owned()
+    }
+
+    /// Code folder name where the code repository WILL LIVE after the commit:
+    /// the chosen folder as-is (existing), `<dest>/<repo>` (clone), or the
+    /// slugged title (blank).
+    pub(super) fn code_folder_name(&self) -> String {
+        match self.entry {
+            WelcomeEntry::ExistingCode => std::path::Path::new(self.code_path.trim())
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("")
+                .to_owned(),
+            WelcomeEntry::CloneRepository => {
+                let raw = self.url.trim();
+                std::path::Path::new(raw)
+                    .file_stem()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("")
+                    .to_owned()
+            }
+            WelcomeEntry::BlankProject => {
+                crate::app::root::KooladeApp::project_title_to_folder_name(
+                    self.effective_project_name().as_str(),
+                )
+            }
+        }
+    }
+
+    /// Planning repository name actually used on the confirm step.
+    pub(super) fn effective_packet_name(&self) -> String {
+        let typed = self.packet_name.trim();
+        if !typed.is_empty() {
+            return typed.to_string();
+        }
+        format!("{}.packet", self.code_folder_name())
+    }
+
+    /// Human-readable bullet list of EXACTLY what the commit writes to disk;
+    /// rendered on the confirm step so the operator consents to the real plan.
+    pub(super) fn disk_plan_lines(&self) -> Vec<String> {
+        let packet = self.effective_packet_name();
+        match self.entry {
+            WelcomeEntry::ExistingCode => {
+                let code = self.code_path.trim();
+                vec![
+                    format!(
+                        "Leaves the code repository at “{code}” completely untouched (history, files, remotes)."
+                    ),
+                    format!("Creates the planning repository “{}” beside it.", packet),
+                    "Registers the code folder as a code repository of that planning repository."
+                        .to_string(),
+                    "Opens the planning board for this project.".to_string(),
+                ]
+            }
+            WelcomeEntry::CloneRepository => {
+                let name = self.code_folder_name();
+                let shown = match self.clone_destination() {
+                    Some(dest) => dest.display().to_string(),
+                    None => format!("$HOME/kool-ade-workspaces/{name}"),
+                };
+                vec![
+                    format!(
+                        "Downloads the repository into “{shown}” (that folder must not exist yet)."
+                    ),
+                    format!(
+                        "Creates the planning repository “{}.packet” beside the clone.",
+                        name
+                    ),
+                    "Registers the clone as a code repository of that planning repository."
+                        .to_string(),
+                    "Opens the planning board for this project.".to_string(),
+                ]
+            }
+            WelcomeEntry::BlankProject => {
+                let name = self.code_folder_name();
+                let parent = self.parent.trim();
+                vec![
+                    format!(
+                        "Creates a fresh code repository “{parent}/{name}” (one placeholder README commit)."
+                    ),
+                    format!(
+                        "Creates the planning repository “{parent}/{packet}” beside it.",
+                        packet = self.effective_packet_name()
+                    ),
+                    "Registers the code repository in the planning repository.".to_string(),
+                    "Opens the planning board for this project.".to_string(),
+                ]
+            }
+        }
+    }
+}
+
+/// The pending clone→pair intent handed to the clone worker's completion hook.
+/// Consumed on BOTH clone outcomes; discarded if the wizard is abandoned.
+pub(super) struct PendingClonePairing {
+    /// Cosmetic title for the planning workspace; may be empty (derived).
+    pub(super) project_name: String,
+    /// Empty means the suggested `<repo>.packet`.
+    pub(super) packet_name: String,
 }
 
 struct CloneJob {

@@ -2,7 +2,7 @@
 //! bootstrap planning artifacts if absent, and hydrate the ~/.koolade chat.
 
 mod connect;
-mod github;
+pub(crate) mod github;
 mod repository_picker;
 mod screen;
 

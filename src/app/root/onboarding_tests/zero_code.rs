@@ -102,7 +102,10 @@ fn welcome_ui_creates_plans_joins_and_reopens_one_zero_code_workspace() {
     app.conn_workspace_id = Some(workspace_id);
     click(&mut app, &ctx, "Open local workspace");
     let Screen::Connected(reopened) = &app.screen else {
-        panic!("Open local workspace should reopen the joined planning board")
+        panic!(
+            "Open local workspace should reopen the joined planning board; conn_error: {:?}",
+            app.conn_error
+        )
     };
     assert_eq!(reopened.state.planning_store.project_id, workspace_id);
     assert_eq!(
@@ -143,15 +146,27 @@ fn welcome_ui_wizard_creates_a_connected_sibling_pair() {
 
     let ctx = egui::Context::default();
     let mut app = KooladeApp::default();
-    type_into(&mut app, &ctx, "Sample: Acme Portal", "Acme Portal");
-    app.wiz_parent_path = parent.to_string_lossy().into_owned();
-    click(&mut app, &ctx, "Create and connect");
+    // Land on the door, enter the BLANK PROJECT wizard, and fill step 1.
+    app.wizard_open(crate::app::root::WelcomeEntry::BlankProject);
+    type_into(
+        &mut app,
+        &ctx,
+        "Shown on the board and stamped on the planning repository",
+        "Acme Portal",
+    );
+    app.wiz_apply_field(
+        crate::app::root::WizField::Parent,
+        parent.to_string_lossy().into_owned(),
+    );
+    app.wizard_continue();
+    app.wizard_commit();
 
     let Screen::Connected(project) = &app.screen else {
+        let wiz_err = app.wiz.as_ref().and_then(|draft| draft.error.clone());
         let visible = visible_text(&frame(&mut app, &ctx, Vec::new()));
         panic!(
-            "wizard create-and-connect should land on a planning board; wiz_error: {:?}; conn_error: {:?}; visible: {visible:?}",
-            app.wiz_error, app.conn_error
+            "wizard create-and-connect should land on a planning board; wiz_error: {wiz_err:?}; conn_error: {:?}; visible: {visible:?}",
+            app.conn_error
         )
     };
     let code = parent.join("acme-portal");
@@ -252,17 +267,29 @@ fn welcome_ui_wizard_pairs_an_existing_code_repository() {
 
     let ctx = egui::Context::default();
     let mut app = KooladeApp::default();
-    type_into(&mut app, &ctx, "Sample: Acme Portal", "Existing Portal");
-    // Drive the wizard's existing-code track through its real state.
-    app.wiz_use_existing_code = true;
-    app.wiz_existing_code_path = code.to_string_lossy().into_owned();
-    click(&mut app, &ctx, "Create and connect");
+    // Land on the door, enter the EXISTING CODE wizard, and fill step 1:
+    // the project name types into the LIVE panel; the folder arrives the
+    // way the picker delivers it (wiz_apply_field).
+    app.wizard_open(crate::app::root::WelcomeEntry::ExistingCode);
+    type_into(
+        &mut app,
+        &ctx,
+        "Shown on the board and stamped on the planning repository",
+        "Existing Portal",
+    );
+    app.wiz_apply_field(
+        crate::app::root::WizField::CodePath,
+        code.to_string_lossy().into_owned(),
+    );
+    app.wizard_continue();
+    app.wizard_commit();
 
     let Screen::Connected(project) = &app.screen else {
+        let wiz_err = app.wiz.as_ref().and_then(|draft| draft.error.clone());
         let visible = visible_text(&frame(&mut app, &ctx, Vec::new()));
         panic!(
-            "existing-code create-and-connect should land on a planning board; wiz_error: {:?}; conn_error: {:?}; visible: {visible:?}",
-            app.wiz_error, app.conn_error
+            "existing-code create-and-connect should land on a planning board; wiz_error: {wiz_err:?}; conn_error: {:?}; visible: {visible:?}",
+            app.conn_error
         )
     };
     let planning = parent.join("ext-portal.packet");

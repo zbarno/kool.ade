@@ -42,7 +42,6 @@ impl KooladeApp {
                 let create_workspace_slot = std::cell::RefCell::new(false);
                 let join_workspace_slot = std::cell::RefCell::new(false);
                 let open_local_workspace_slot = std::cell::RefCell::new(false);
-                let wiz_create_slot = std::cell::RefCell::new(false);
                 let harness_setup_slot = std::cell::RefCell::new(false);
                 let local_workspaces =
                     crate::core::managed_workspace::WorkspaceManager::from_state_root()
@@ -55,246 +54,35 @@ impl KooladeApp {
                 let cloning = self
                     .clone_job
                     .as_ref()
-                    .map(|j| (j.url_display.as_str(), j.repo.as_str()));
-                let clone_busy = cloning.is_some();
-                let mut paint_workspace_actions = |ui: &mut egui::Ui| {
-                    let top_space = ((ui.available_height() - 730.0) * 0.5).max(16.0);
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(top_space);
-                        crate::ui::theme::card_frame()
-                            .corner_radius(14)
-                            .stroke(egui::Stroke::new(1.0, crate::ui::theme::BORDER_STRONG))
-                            .inner_margin(24)
-                            .show(ui, |ui| {
-                                *slot.borrow_mut() = welcome::paint(
-                                    ui,
-                                    &mut self.conn_path,
-                                    &mut self.conn_github,
-                                    self.conn_error.as_deref(),
-                                    &mut browse_slot.borrow_mut(),
-                                    &mut clone_slot.borrow_mut(),
-                                    cloning,
-                                    None,
-                                    None,
-                                );
-                            });
-                    });
-                    ui.add_space(10.0);
-                    ui.vertical_centered(|ui| {
-                        ui.label("Start a new project (creates the code + planning repositories)");
-                        let field_width = ui.available_width().min(340.0);
-                        ui.add_sized(
-                            egui::vec2(field_width, 34.0),
-                            egui::TextEdit::singleline(&mut self.wiz_project_name)
-                                .hint_text("Sample: Acme Portal (a code folder is named for it)"),
-                        );
-                        ui.add_sized(
-                            egui::vec2(field_width, 34.0),
-                            egui::TextEdit::singleline(&mut self.wiz_packet_name).hint_text(
-                                "Planning repository name (leave empty for <code folder>.packet)",
-                            ),
-                        );
-                        ui.horizontal_centered(|ui| {
-                            ui.checkbox(
-                                &mut self.wiz_use_existing_code,
-                                "Already have a code repository?",
-                            );
-                        });
-                        if self.wiz_use_existing_code {
-                            ui.add_sized(
-                                egui::vec2(field_width, 34.0),
-                                egui::TextEdit::singleline(&mut self.wiz_existing_code_path)
-                                    .hint_text("Folder that IS the existing code repository"),
-                            );
-                            ui.horizontal_centered(|ui| {
-                                if ui
-                                    .add_enabled(
-                                        !clone_busy,
-                                        egui::Button::new("Choose code folder…"),
-                                    )
-                                    .clicked()
-                                {
-                                    self.conn_browse_target =
-                                        BrowseTarget::WizardExistingCode;
-                                    *browse_slot.borrow_mut() = true;
-                                }
-                            });
-                            if self.wiz_existing_code_path.trim().is_empty() {
-                                ui.label(crate::ui::theme::helper_text(
-                                    "(code folder not chosen yet)",
-                                ));
-                            } else {
-                                ui.label(egui::WidgetText::from(
-                                    egui::RichText::new(&self.wiz_existing_code_path).weak(),
-                                ));
-                            }
-                            if !self.wiz_project_name.trim().is_empty() {
-                                let code_base = std::path::Path::new(
-                                    self.wiz_existing_code_path.trim(),
-                                )
-                                .file_name()
-                                .and_then(|name| name.to_str())
-                                .map(str::to_owned)
-                                .unwrap_or_else(|| "<code folder>".to_owned());
-                                let packed = self.wiz_packet_name.trim().to_string();
-                                let preview_plan = if packed.is_empty() {
-                                    format!("{code_base}.packet")
-                                } else {
-                                    packed
-                                };
-                                ui.label(crate::ui::theme::helper_text(format!(
-                                    "Adds \"{preview_plan}\" beside the existing code repository; the repository itself is not modified."
-                                )));
-                            }
-                        } else if !self.wiz_project_name.trim().is_empty() {
-                            let preview_code =
-                                Self::project_title_to_folder_name(
-                                    self.wiz_project_name.trim(),
-                                );
-                            let packed = self.wiz_packet_name.trim().to_string();
-                            let preview_plan = if packed.is_empty() {
-                                format!("{preview_code}.packet")
-                            } else {
-                                packed
-                            };
-                            ui.label(crate::ui::theme::helper_text(format!(
-                                "Creates \"{preview_code}\" and \"{preview_plan}\" side by side in the chosen folder."
-                            )));
-                        }
-                        if !self.wiz_use_existing_code {
-                            ui.horizontal_centered(|ui| {
-                                if ui
-                                    .add_enabled(
-                                        !clone_busy,
-                                        egui::Button::new("Choose parent folder…"),
-                                    )
-                                    .clicked()
-                                {
-                                    self.conn_browse_target = BrowseTarget::WizardParent;
-                                    *browse_slot.borrow_mut() = true;
-                                }
-                            });
-                            if self.wiz_parent_path.trim().is_empty() {
-                                ui.label(crate::ui::theme::helper_text(
-                                    "(parent folder not chosen yet)",
-                                ));
-                            } else {
-                                ui.label(egui::WidgetText::from(
-                                    egui::RichText::new(&self.wiz_parent_path).weak(),
-                                ));
-                            }
-                        }
-                        if ui
-                            .add_enabled(!clone_busy, egui::Button::new("Create and connect"))
-                            .clicked()
-                        {
-                            *wiz_create_slot.borrow_mut() = true;
-                        }
-                        if let Some(error) = self.wiz_error.as_deref() {
-                            ui.label(egui::WidgetText::from(
-                                egui::RichText::new(error).color(crate::ui::theme::DANGER),
-                            ));
-                        }
-                        ui.add_space(12.0);
-                        ui.separator();
-                        ui.add_space(8.0);
-                        ui.label(egui::RichText::new("Advanced connection options").strong());
-                        ui.label(crate::ui::theme::helper_text(
-                            "Create, join, or open managed workspaces individually.",
-                        ));
-                        ui.add_space(6.0);
-                        ui.label("Create a workspace with its own local planning repository");
-                        let field_width = ui.available_width().min(340.0);
-                        ui.add_sized(
-                            egui::vec2(field_width, 34.0),
-                            egui::TextEdit::singleline(&mut self.conn_create_title)
-                                .hint_text("Project name"),
-                        );
-                        if ui
-                            .add_enabled(!clone_busy, egui::Button::new("Create workspace"))
-                            .clicked()
-                        {
-                            *create_workspace_slot.borrow_mut() = true;
-                        }
-                        ui.add_space(12.0);
-                        ui.separator();
-                        ui.add_space(8.0);
-                        ui.label("Join an existing shared workspace");
-                        ui.add_sized(
-                            egui::vec2(field_width, 34.0),
-                            egui::TextEdit::singleline(&mut self.conn_join_remote)
-                                .hint_text("Planning Git remote URL or local checkout path"),
-                        );
-                        ui.horizontal_centered(|ui| {
-                            ui.spacing_mut().item_spacing.x = 8.0;
-                            let browse = ui
-                                .add_enabled(!clone_busy, egui::Button::new("Browse…"))
-                                .clicked();
-                            if browse {
-                                // The SAME picker the code-repository card
-                                // uses, aimed at the planning-repository
-                                // field: teams can point at a shared
-                                // planning checkout anywhere on disk.
-                                self.conn_browse_target = BrowseTarget::PlanningRepo;
-                                *browse_slot.borrow_mut() = true;
-                            }
-                            if ui
-                                .add_enabled(!clone_busy, egui::Button::new("Join workspace"))
-                                .clicked()
-                            {
-                                *join_workspace_slot.borrow_mut() = true;
-                            }
-                        });
-                        ui.add_space(12.0);
-                        ui.separator();
-                        ui.add_space(8.0);
-                        ui.label("Open an existing local workspace");
-                        if local_workspaces.is_empty() {
-                            ui.label(crate::ui::theme::helper_text(
-                                "No local workspace is registered yet.",
-                            ));
-                        } else {
-                            egui::ComboBox::from_id_salt("welcome_local_workspace")
-                                .selected_text(
-                                    self.conn_workspace_id
-                                        .and_then(|id| {
-                                            local_workspaces
-                                                .iter()
-                                                .find(|workspace| workspace.id == id)
-                                        })
-                                        .map(|workspace| {
-                                            format!("{} · {}", workspace.title, workspace.id)
-                                        })
-                                        .unwrap_or_else(|| "Choose a workspace".into()),
-                                )
-                                .width(field_width)
-                                .show_ui(ui, |ui| {
-                                    for workspace in &local_workspaces {
-                                        ui.selectable_value(
-                                            &mut self.conn_workspace_id,
-                                            Some(workspace.id),
-                                            format!("{} · {}", workspace.title, workspace.id),
-                                        );
-                                    }
-                                });
-                            if ui
-                                .add_enabled(!clone_busy, egui::Button::new("Open local workspace"))
-                                .clicked()
-                            {
-                                *open_local_workspace_slot.borrow_mut() = true;
-                            }
-                        }
-                        ui.add_space(6.0);
-                        if ui.link("Configure coding tools…").clicked() {
-                            *harness_setup_slot.borrow_mut() = true;
-                        }
-                    });
-                };
+                    .map(|j| (j.url_display.clone(), j.repo.clone()));
                 egui::CentralPanel::default().show(ui, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         if ui.available_width() >= 1200.0 {
                             ui.columns(2, |columns| {
-                                paint_workspace_actions(&mut columns[0]);
+                                {
+                                    let top_space =
+                                        ((columns[0].available_height() - 730.0) * 0.5).max(16.0);
+                                    paint_welcome_primary(
+                                        &mut columns[0],
+                                        self,
+                                        top_space,
+                                        cloning.as_ref().map(|(a, b)| (a.as_str(), b.as_str())),
+                                    );
+                                    columns[0].add_space(10.0);
+                                }
+                                paint_more_connections(
+                                    &mut columns[0],
+                                    self,
+                                    &browse_slot,
+                                    &clone_slot,
+                                    &slot,
+                                    &create_workspace_slot,
+                                    &join_workspace_slot,
+                                    &open_local_workspace_slot,
+                                    &harness_setup_slot,
+                                    &local_workspaces,
+                                    cloning,
+                                );
                                 columns[1].vertical_centered(|ui| {
                                     welcome_setup_action =
                                         crate::ui::layout::paint_welcome_setup_board(
@@ -307,7 +95,26 @@ impl KooladeApp {
                                 });
                             });
                         } else {
-                            paint_workspace_actions(ui);
+                            paint_welcome_primary(
+                                ui,
+                                self,
+                                ((ui.available_height() - 730.0) * 0.5).max(16.0),
+                                cloning.as_ref().map(|(a, b)| (a.as_str(), b.as_str())),
+                            );
+                            ui.add_space(10.0);
+                            paint_more_connections(
+                                ui,
+                                self,
+                                &browse_slot,
+                                &clone_slot,
+                                &slot,
+                                &create_workspace_slot,
+                                &join_workspace_slot,
+                                &open_local_workspace_slot,
+                                &harness_setup_slot,
+                                &local_workspaces,
+                                cloning,
+                            );
                             ui.vertical_centered(|ui| {
                                 welcome_setup_action = crate::ui::layout::paint_welcome_setup_board(
                                     ui,
@@ -328,8 +135,6 @@ impl KooladeApp {
                     self.submit_create_workspace();
                 } else if *join_workspace_slot.borrow() {
                     self.submit_join_workspace();
-                } else if *wiz_create_slot.borrow() {
-                    self.submit_create_project();
                 } else if *open_local_workspace_slot.borrow() {
                     self.submit_open_local_workspace();
                 } else if *browse_slot.borrow() {
@@ -411,4 +216,161 @@ impl KooladeApp {
             self.render_dialog(ui, dialog);
         }
     }
+}
+
+/// "More connection options" column: the classic welcome card plus
+/// workspace administration. A free function (not a closure) so the
+/// welcome layout can compose it without closure-capture fights.
+#[allow(clippy::too_many_arguments)]
+fn paint_more_connections(
+    ui: &mut egui::Ui,
+    app: &mut crate::app::root::KooladeApp,
+    browse_slot: &std::cell::RefCell<bool>,
+    clone_slot: &std::cell::RefCell<bool>,
+    slot: &std::cell::RefCell<bool>,
+    create_workspace_slot: &std::cell::RefCell<bool>,
+    join_workspace_slot: &std::cell::RefCell<bool>,
+    open_local_workspace_slot: &std::cell::RefCell<bool>,
+    harness_setup_slot: &std::cell::RefCell<bool>,
+    local_workspaces: &[crate::core::managed_workspace::LocalWorkspaceSummary],
+    cloning: Option<(String, String)>,
+) {
+    let clone_busy = cloning.is_some();
+    let cloning_refs = cloning.as_ref().map(|(a, b)| (a.as_str(), b.as_str()));
+    ui.vertical_centered(|ui| {
+        ui.label(egui::RichText::new("More connection options").strong());
+        ui.label(crate::ui::theme::helper_text(
+            "Classic connect, cloning, joins, and workspace administration.",
+        ));
+        ui.add_space(6.0);
+        *slot.borrow_mut() = welcome::paint(
+            ui,
+            &mut app.conn_path,
+            &mut app.conn_github,
+            app.conn_error.as_deref(),
+            &mut browse_slot.borrow_mut(),
+            &mut clone_slot.borrow_mut(),
+            cloning_refs,
+            None,
+            None,
+        );
+        ui.add_space(12.0);
+        ui.separator();
+        ui.add_space(8.0);
+        ui.label("Create a workspace with its own local planning repository");
+        let field_width = ui.available_width().min(340.0);
+        ui.add_sized(
+            egui::vec2(field_width, 34.0),
+            egui::TextEdit::singleline(&mut app.conn_create_title).hint_text("Project name"),
+        );
+        if ui
+            .add_enabled(!clone_busy, egui::Button::new("Create workspace"))
+            .clicked()
+        {
+            *create_workspace_slot.borrow_mut() = true;
+        }
+        ui.add_space(12.0);
+        ui.separator();
+        ui.add_space(8.0);
+        ui.label("Join an existing shared workspace");
+        ui.add_sized(
+            egui::vec2(field_width, 34.0),
+            egui::TextEdit::singleline(&mut app.conn_join_remote)
+                .hint_text("Planning Git remote URL or local checkout path"),
+        );
+        ui.horizontal_centered(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            let browse = ui
+                .add_enabled(!clone_busy, egui::Button::new("Browse…"))
+                .clicked();
+            if browse {
+                // The SAME picker the code-repository card
+                // uses, aimed at the planning-repository
+                // field: teams can point at a shared
+                // planning checkout anywhere on disk.
+                app.conn_browse_target = BrowseTarget::PlanningRepo;
+                *browse_slot.borrow_mut() = true;
+            }
+            if ui
+                .add_enabled(!clone_busy, egui::Button::new("Join workspace"))
+                .clicked()
+            {
+                *join_workspace_slot.borrow_mut() = true;
+            }
+        });
+        ui.add_space(12.0);
+        ui.separator();
+        ui.add_space(8.0);
+        ui.label("Open an existing local workspace");
+        if local_workspaces.is_empty() {
+            ui.label(crate::ui::theme::helper_text(
+                "No local workspace is registered yet.",
+            ));
+        } else {
+            egui::ComboBox::from_id_salt("welcome_local_workspace")
+                .selected_text(
+                    app.conn_workspace_id
+                        .and_then(|id| local_workspaces.iter().find(|workspace| workspace.id == id))
+                        .map(|workspace| format!("{} · {}", workspace.title, workspace.id))
+                        .unwrap_or_else(|| "Choose a workspace".into()),
+                )
+                .width(field_width)
+                .show_ui(ui, |ui| {
+                    for workspace in local_workspaces {
+                        ui.selectable_value(
+                            &mut app.conn_workspace_id,
+                            Some(workspace.id),
+                            format!("{} · {}", workspace.title, workspace.id),
+                        );
+                    }
+                });
+            if ui
+                .add_enabled(!clone_busy, egui::Button::new("Open local workspace"))
+                .clicked()
+            {
+                *open_local_workspace_slot.borrow_mut() = true;
+            }
+        }
+        ui.add_space(6.0);
+        if ui.link("Configure coding tools…").clicked() {
+            *harness_setup_slot.borrow_mut() = true;
+        }
+    });
+}
+/// The primary welcome card (journey doors, or the active wizard), shared
+/// by both layout breakpoints.
+fn paint_welcome_primary(
+    ui: &mut egui::Ui,
+    app: &mut crate::app::root::KooladeApp,
+    top_space: f32,
+    cloning: Option<(&str, &str)>,
+) {
+    ui.vertical_centered(|ui| {
+        ui.add_space(top_space);
+        crate::ui::theme::card_frame()
+            .corner_radius(14)
+            .stroke(egui::Stroke::new(1.0, crate::ui::theme::BORDER_STRONG))
+            .inner_margin(24)
+            .show(ui, |ui| {
+                let door_req = std::cell::Cell::new(None);
+                let wiz_action =
+                    std::cell::Cell::new(None::<crate::app::root::welcome_wizard::WizAction>);
+                let browse_req = std::cell::Cell::new(None);
+                let bus = crate::app::root::welcome_wizard::PrimaryBus {
+                    door: &door_req,
+                    action: &wiz_action,
+                    browse: &browse_req,
+                };
+                crate::app::root::welcome_wizard::paint_primary_card(ui, app, &bus, cloning);
+                if let Some(entry) = door_req.take() {
+                    app.wizard_open(entry);
+                }
+                if let Some(action) = wiz_action.take() {
+                    app.wizard_actuate(action);
+                }
+                if let Some(which) = browse_req.take() {
+                    app.browse_wizard_field(which);
+                }
+            });
+    });
 }

@@ -24,6 +24,47 @@ impl KooladeApp {
                         // only mean something odd — discard silently.
                         if matches!(self.screen, Screen::Welcome) {
                             self.conn_error = None;
+                            // Wizard-launched clones carry a pairing
+                            // intent: add the planning sibling NOW,
+                            // before anything connects.
+                            if let Some(intent) = self.pending_clone_pairing.take() {
+                                let code_name = dest
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or("repository")
+                                    .to_string();
+                                let planning = if intent.packet_name.trim().is_empty() {
+                                    format!("{code_name}.packet")
+                                } else {
+                                    intent.packet_name.trim().to_string()
+                                };
+                                let project = if intent.project_name.trim().is_empty() {
+                                    code_name.clone()
+                                } else {
+                                    intent.project_name
+                                };
+                                let mut spec = crate::core::managed_workspace::SiblingPairSpec::new(
+                                    project, code_name,
+                                );
+                                spec.code_already_exists = true;
+                                spec.planning_repo_name = planning;
+                                spec.parent_dir = dest
+                                    .parent()
+                                    .map(std::path::Path::to_path_buf)
+                                    .unwrap_or_default();
+                                match crate::app::welcome::attempt_create_project(&spec) {
+                                    Ok(project) => self.finish_connect(Ok(project)),
+                                    // The code clone succeeded; never
+                                    // half-connect a checkout with no
+                                    // planning peer.
+                                    Err(err) => self.wiz_error(format!(
+                                        "Clone finished at {} but the planning pair failed:\n{err}",
+                                        dest.display(),
+                                    )),
+                                }
+                                return;
+                            }
+                            // Legacy completion: nothing pairs, connect.
                             self.conn_path = dest.to_string_lossy().into_owned();
                             self.submit_connect();
                         }
