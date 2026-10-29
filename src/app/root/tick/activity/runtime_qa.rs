@@ -12,6 +12,36 @@ pub(crate) mod test_support;
 mod worker;
 
 #[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn execute_rootless_runtime_qa_review(
+    harness: &dyn crate::harness::AiHarness,
+    request: &crate::runtime_qa::QaRunRequestV1,
+    scenarios: &[crate::runtime_qa::QaScenarioV1],
+    evidence: &crate::runtime_qa::QaEvidenceManifestV1,
+    candidate: &crate::runtime_qa::QaResultV1,
+    screenshots: &[crate::runtime_qa::QaScreenshotArtifactV1],
+    workspace: &crate::execution::contract::WorkspaceRef,
+    task_clone: &std::path::Path,
+    reviewer_run: &str,
+    reviewer_session: &str,
+    cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> Result<crate::harness::prompt_catalog::ReviewVerdictV1, String> {
+    worker::execute_review_for_rootless_test(
+        harness,
+        request,
+        scenarios,
+        evidence,
+        candidate,
+        screenshots,
+        workspace,
+        task_clone,
+        reviewer_run,
+        reviewer_session,
+        cancelled,
+    )
+}
+
+#[cfg(test)]
 pub(crate) use worker::{
     RootlessDesktopDispatch, RootlessTaskQaDispatch, prepare_rootless_desktop_dispatch,
     prepare_rootless_task_qa_dispatch,

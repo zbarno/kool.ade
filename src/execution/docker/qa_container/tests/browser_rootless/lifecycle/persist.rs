@@ -1,6 +1,8 @@
 use super::{RootlessServiceOutput, reviewer_prompt};
+#[path = "persist/reviewer_fixture.rs"]
+mod reviewer_fixture;
 use crate::{
-    harness::prompt_catalog::{CoverageStatus, CoverageV1, ReviewOutcomeV1, ReviewVerdictV1},
+    execution::contract::WorkspaceRef,
     runtime_qa::{
         QaAssertionStatus, QaDriverOutputV1, QaEvidenceManifestV1, QaOutcome, QaPlatform,
         QaResultV1, QaRunRequestV1, QaScenarioV1, QaTargetAuthorization, QaTaskServiceLeaseV1,
@@ -33,6 +35,12 @@ pub(crate) fn review_expected_outcome_and_persist(
         &reviewer_execution_id,
         &reviewer_session_id,
     );
+    let reviewer_workspace = tempfile::tempdir().unwrap();
+    let workspace = WorkspaceRef {
+        project_id: request.feature_uid.clone(),
+        task_id: request.parent_task_uid.clone(),
+        source_sha: request.code_head_sha.clone(),
+    };
 
     let mut driver = RootlessServiceOutput(Some(output), platform);
     let mut reviewer =
@@ -65,8 +73,6 @@ pub(crate) fn review_expected_outcome_and_persist(
                 && evidence_matches_platform
                 && evidence.browser_console.is_empty()
                 && evidence.failed_requests.is_empty();
-            let observed_pass =
-                expected_outcome == QaOutcome::Pass && has_expected_evidence && clean_runtime;
             assert!(
                 has_expected_evidence && clean_runtime,
                 "runtime QA fixture did not observe the expected platform result: expected={expected_outcome:?}, candidate={:?}, actions={}, assertions={:?}, screenshots={}, browser_console={:?}, failed_requests={:?}",
@@ -77,53 +83,27 @@ pub(crate) fn review_expected_outcome_and_persist(
                 evidence.browser_console,
                 evidence.failed_requests
             );
-            Ok(ReviewVerdictV1 {
-                subject_hash: crate::runtime_qa::qa_review_subject_sha256(
-                    request, candidate, evidence,
-                )?,
-                examined_files: vec![],
-                tested_evidence_ids: screenshots
-                    .iter()
-                    .map(|screenshot| screenshot.id.clone())
-                    .collect(),
-                unexamined_areas: vec![],
-                pass: observed_pass,
-                outcome: Some(if observed_pass {
-                    ReviewOutcomeV1::Pass
-                } else {
-                    ReviewOutcomeV1::BlockingFindings
-                }),
-                coverage: request
-                    .requirement_ids
-                    .iter()
-                    .map(|requirement| CoverageV1 {
-                        requirement: requirement.clone(),
-                        status: if observed_pass {
-                            CoverageStatus::Pass
-                        } else {
-                            CoverageStatus::Fail
-                        },
-                        evidence: screenshots
-                            .iter()
-                            .map(|screenshot| screenshot.id.clone())
-                            .chain(
-                                evidence
-                                    .actions
-                                    .iter()
-                                    .map(|action| action.index.to_string()),
-                            )
-                            .chain(
-                                evidence
-                                    .actions
-                                    .iter()
-                                    .flat_map(|action| action.evidence_ids.iter().cloned()),
-                            )
-                            .collect(),
-                    })
-                    .collect(),
-                findings: vec![],
-                untested: vec![],
-            })
+            let (harness, invocation_count) =
+                reviewer_fixture::RuntimeQaReviewHarness::new(request, candidate, evidence);
+            let result = crate::app::root::test_runtime_qa::execute_rootless_runtime_qa_review(
+                &harness,
+                request,
+                std::slice::from_ref(&scenario),
+                evidence,
+                candidate,
+                screenshots,
+                &workspace,
+                reviewer_workspace.path(),
+                &reviewer_execution_id,
+                &reviewer_session_id,
+                std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            );
+            assert_eq!(
+                invocation_count.load(std::sync::atomic::Ordering::SeqCst),
+                1,
+                "rootless evidence must pass through one independent reviewer invocation"
+            );
+            result
         };
 
     let store = RuntimeQaStore::new(store_root);
