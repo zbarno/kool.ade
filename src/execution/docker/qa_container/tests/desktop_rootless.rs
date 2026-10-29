@@ -37,7 +37,7 @@ pub(super) fn candidate_desktop_lock() -> ImageLock {
 // test cannot prove Docker's applied host configuration or upload/start/log/
 // cleanup behavior. External dependency: Docker with the desktop candidate
 // loaded (rootless in CI). Setup: candidate image build, a small synthetic
-// cache snapshot, and one short Xvfb smoke run.
+// cache snapshot, compiled desktop fixtures, and several short Xvfb driver runs.
 #[tokio::test]
 #[ignore = "requires rootless Docker and a locally loaded desktop QA candidate"]
 async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() {

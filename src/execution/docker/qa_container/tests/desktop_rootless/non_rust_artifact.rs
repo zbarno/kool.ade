@@ -18,12 +18,12 @@ use crate::{
 // each target state change is observed before the next action.
 // Unit tests cannot prove Docker upload/staging, Xvfb pointer/keyboard
 // delivery for double-click, drag, key-chord, and scroll, crash observation,
-// and cleanup work together for a foreign ABI
+// active driver cancellation, and cleanup work together for a foreign ABI
 // artifact; the focus-before-click proof rides on the fixture dropping keys
 // unless the driver focused its window first (no window manager in the image).
 // External dependency: rootless Docker with the just-loaded desktop candidate
 // and the separately compiled C/Xlib fixtures. Setup cost: one `cc` build of
-// the two fixtures (headers: libx11-dev) plus three short Xvfb container runs.
+// the two fixtures (headers: libx11-dev) plus four short Xvfb container runs.
 pub(super) async fn exercise(
     docker: &bollard::Docker,
     image: &SelectedImage,
@@ -169,6 +169,8 @@ pub(super) async fn exercise(
             "{response}"
         );
     }
+
+    scenarios::exercise_cancellation(docker, image, lock, resources, fixture_path).await;
 }
 
 #[path = "non_rust_artifact/scenarios.rs"]
