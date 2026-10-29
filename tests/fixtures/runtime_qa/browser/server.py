@@ -43,6 +43,7 @@ if(params.get('defect')==='metadata') fetch('http://169.254.169.254/latest/meta-
 if(params.get('defect')==='iframe') { const frame=document.createElement('iframe'); frame.src='http://169.254.169.254/latest/meta-data/'; document.body.append(frame); }
 if(params.get('defect')==='localhost') fetch('http://127.0.0.1:4173/').catch(()=>{});
 if(params.get('defect')==='alternate-port') fetch('http://qa-preview:8081/').catch(()=>{});
+if(params.get('defect')==='dns-rebinding') fetch('http://dns-rebind.invalid:8080/').catch(()=>{});
 if(params.get('defect')==='websocket') { const socket=new WebSocket('ws://example.com/socket'); socket.onerror=()=>{}; }
 if(params.get('defect')==='ws-loopback') { const socket=new WebSocket('ws://127.0.0.1:8080/'); socket.onerror=()=>{}; }
 if(params.get('defect')==='ip-port') fetch('http://127.0.0.1:8080/').catch(()=>{});
