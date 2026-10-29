@@ -54,7 +54,22 @@ pub(crate) async fn upload_snapshots(
         if staged.exit_code != 0 {
             let stderr = String::from_utf8_lossy(&staged.stderr);
             let message = if stderr.contains("Permission denied") {
-                "QA artifact snapshot staging was denied by target permissions"
+                match target {
+                    "/workspace" => {
+                        "QA workspace artifact staging was denied by target permissions"
+                    }
+                    "/home/executor/.npm" => {
+                        "QA npm cache staging was denied by target permissions"
+                    }
+                    "/home/executor/.cargo" => {
+                        "QA Cargo cache staging was denied by target permissions"
+                    }
+                    "/home/executor/.cache/koolade/pip" => {
+                        "QA Python cache staging was denied by target permissions"
+                    }
+                    "/home/executor/go" => "QA Go cache staging was denied by target permissions",
+                    _ => "QA runtime request staging was denied by target permissions",
+                }
             } else if stderr.contains("No such file or directory") {
                 "QA artifact snapshot staging could not find an archive path"
             } else if stderr.contains("not found") {
