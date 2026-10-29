@@ -7,14 +7,15 @@ Evidence is anchored to current `main` commit
 The quality workflow [40935486316](https://github.com/zbarno/kool.ade/actions/runs/40935486316)
 passed. The trusted-image workflow
 [40935486545](https://github.com/zbarno/kool.ade/actions/runs/40935486545)
-is on attempt 2 after attempt 1's browser candidate failed while starting a
-rootless test container with `ImageUnavailable`; its browser candidate retry is
-still running. The desktop candidate passed, while publication and published
-image smokes were skipped because both QA profiles remain disabled. Native
-package workflow [40935486314](https://github.com/zbarno/kool.ade/actions/runs/40935486314)
-has passed Linux x86_64, Linux arm64, Windows x64, and Apple Silicon macOS
-packages; Intel macOS is still running. These in-progress workflows do not yet
-provide a complete current-main release matrix.
+passed on attempt 2 after attempt 1's browser candidate failed while starting a
+rootless test container with `ImageUnavailable`. The browser candidate retry
+passed, and the desktop candidate passed on the first attempt. Publication and
+published-image smokes were skipped because both QA profiles remain disabled.
+Native package workflow
+[40935486314](https://github.com/zbarno/kool.ade/actions/runs/40935486314)
+passed Linux x86_64, Linux arm64, Windows x64, Apple Silicon macOS, and Intel
+macOS packages. These successful implementation checks do not provide a
+complete release matrix or authorize enabling the profiles.
 
 ## Previous exact-main matrix (2026-10-27)
 
