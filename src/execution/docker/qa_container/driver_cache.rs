@@ -137,10 +137,7 @@ pub(super) fn configure_desktop_cache_mounts(
         format!("rw,nosuid,nodev,noexec,size={base_mount_size},uid={uid},gid={gid},mode=0755"),
     );
     if tmpfs.contains_key("/workspace") {
-        tmpfs.insert(
-            "/workspace".into(),
-            format!("rw,nosuid,nodev,exec,size={base_mount_size},uid={uid},gid={gid},mode=0755"),
-        );
+        tmpfs.insert("/workspace".into(), workspace_tmpfs_mount(base_mount_size));
     }
     for (ecosystem, mount_size) in cache_sizes {
         let mount = format!("rw,nosuid,nodev,noexec,size={mount_size},uid={uid},gid={gid}");
@@ -188,6 +185,10 @@ pub(super) fn configure_desktop_cache_mounts(
     Ok(())
 }
 
+fn workspace_tmpfs_mount(size: u64) -> String {
+    format!("rw,nosuid,nodev,exec,size={size},uid=0,gid=0,mode=0755")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,5 +205,13 @@ mod tests {
             .sum::<u64>();
 
         assert_eq!(allocated, 4 * CACHE_TMPFS_PAGE_BYTES);
+    }
+
+    #[test]
+    fn desktop_workspace_tmpfs_is_root_owned_for_read_only_artifact_staging() {
+        assert_eq!(
+            workspace_tmpfs_mount(4096),
+            "rw,nosuid,nodev,exec,size=4096,uid=0,gid=0,mode=0755"
+        );
     }
 }

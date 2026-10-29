@@ -255,6 +255,7 @@ fn desktop_driver_requires_the_exact_integrity_checked_dependency_cache_set() {
         &mut env,
     )
     .unwrap();
+    assert!(tmpfs["/workspace"].contains("uid=0,gid=0,mode=0755"));
     assert!(tmpfs.contains_key("/home/executor/.npm"));
     assert!(
         tmpfs["/workspace"]
