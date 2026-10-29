@@ -52,7 +52,17 @@ pub(crate) async fn upload_snapshots(
         )
         .await?;
         if staged.exit_code != 0 {
-            return Err(denied("QA artifact snapshot could not be staged"));
+            let stderr = String::from_utf8_lossy(&staged.stderr);
+            let message = if stderr.contains("Permission denied") {
+                "QA artifact snapshot staging was denied by target permissions"
+            } else if stderr.contains("No such file or directory") {
+                "QA artifact snapshot staging could not find an archive path"
+            } else if stderr.contains("not found") {
+                "QA artifact snapshot staging utility is unavailable"
+            } else {
+                "QA artifact snapshot could not be staged"
+            };
+            return Err(denied(message));
         }
     }
     Ok(())
