@@ -168,7 +168,13 @@ fn container_mounts_only_the_git_metadata_and_bounded_private_tmpfs() {
             .keys()
             .map(String::as_str)
             .collect::<BTreeSet<_>>(),
-        BTreeSet::from(["/home/executor", "/run", "/tmp", "/workspace"])
+        BTreeSet::from([
+            "/home/executor",
+            "/run",
+            "/run/koolade-runtime-qa",
+            "/tmp",
+            "/workspace",
+        ])
     );
 }
 
@@ -283,4 +289,6 @@ fn go_verification_uses_executable_temporary_binaries_without_relaxing_tmp() {
     let mounts = body.host_config.unwrap().tmpfs.unwrap();
     assert!(mounts["/tmp"].contains("noexec"));
     assert!(!mounts["/workspace"].contains("noexec"));
+    assert!(mounts["/run/koolade-runtime-qa"].contains("exec"));
+    assert!(mounts["/run/koolade-runtime-qa"].contains("uid=10001,gid=10001,mode=0700"));
 }

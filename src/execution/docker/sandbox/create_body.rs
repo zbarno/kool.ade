@@ -98,7 +98,7 @@ pub(crate) fn create_body_with_private_files(
             true,
         )?);
     }
-    let temporary_bytes = request.resource_budget.temporary_disk_bytes / 4;
+    let temporary_bytes = request.resource_budget.temporary_disk_bytes / 5;
     let mut tmpfs = HashMap::new();
     // The staged snapshot is materialized after container start. Planning mode
     // is sealed before any user command runs, while the image rootfs and .git
@@ -121,6 +121,10 @@ pub(crate) fn create_body_with_private_files(
             format!("rw,nosuid,nodev,noexec,size={temporary_bytes}"),
         );
     }
+    tmpfs.insert(
+        "/run/koolade-runtime-qa".into(),
+        format!("rw,nosuid,nodev,exec,size={temporary_bytes},uid=10001,gid=10001,mode=0700"),
+    );
     let environment = super::environment::variables(request, image);
     // `/workspace/.git` is protected by a nested read-only mount, never by command filtering.
     Ok(ContainerCreateBody {

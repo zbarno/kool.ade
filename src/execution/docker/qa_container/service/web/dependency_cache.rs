@@ -56,7 +56,7 @@ pub(super) fn service_tmpfs(
             DependencyCacheEcosystemV1::Go => has_go = true,
         }
     }
-    let mount_count = 2 + [has_npm, has_cargo, has_pip, has_go]
+    let mount_count = 3 + [has_npm, has_cargo, has_pip, has_go]
         .into_iter()
         .filter(|enabled| *enabled)
         .count();
@@ -78,6 +78,13 @@ pub(super) fn service_tmpfs(
             "/workspace".into(),
             format!(
                 "rw,nosuid,nodev,exec,size={},uid=0,gid=0,mode=0755",
+                mount_size,
+            ),
+        ),
+        (
+            "/run/koolade-runtime-qa".into(),
+            format!(
+                "rw,nosuid,nodev,exec,size={},uid={uid},gid={gid},mode=0700",
                 mount_size,
             ),
         ),

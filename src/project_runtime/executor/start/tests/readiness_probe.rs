@@ -58,9 +58,9 @@ fn go_http_readiness_builds_an_app_owned_stdlib_probe_before_start() {
     assert!(setup.contains("syscall.Syscall6(syscall.SYS_PRCTL, prSetDumpable"));
     assert!(setup.contains("PR_GET_DUMPABLE"));
     assert!(script.contains("exec \"$probe_dir/runner\""));
-    assert!(script.contains("probe_dir='/tmp/koolade-runtime-qa-'$$"));
+    assert!(script.contains("probe_dir='/run/koolade-runtime-qa/runner-'$$"));
     assert!(script.contains("umask 077"));
-    assert!(script.contains("GOTMPDIR=/tmp"));
+    assert!(script.contains("GOTMPDIR=/run/koolade-runtime-qa"));
     assert!(!script.contains("/workspace/.koolade-runtime-qa-"));
     assert!(script.contains("syscall.Exec(\"/proc/self/fd/\""));
     assert!(script.contains("syscall.Wait4(process.Pid"));

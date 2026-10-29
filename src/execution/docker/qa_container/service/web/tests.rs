@@ -178,6 +178,10 @@ fn web_preview_uses_the_locked_recipe_runtime_image_instead_of_a_node_only_contr
     let workspace_mount = &body.host_config.as_ref().unwrap().tmpfs.as_ref().unwrap()["/workspace"];
     assert!(workspace_mount.split(',').any(|option| option == "exec"));
     assert!(!workspace_mount.split(',').any(|option| option == "noexec"));
+    let runtime_mount =
+        &body.host_config.as_ref().unwrap().tmpfs.as_ref().unwrap()["/run/koolade-runtime-qa"];
+    assert!(runtime_mount.split(',').any(|option| option == "exec"));
+    assert!(runtime_mount.contains("uid=10001,gid=10001,mode=0700"));
     assert_eq!(
         body.entrypoint.as_deref(),
         Some(["python3".to_owned()].as_slice())
