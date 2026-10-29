@@ -296,6 +296,56 @@ jobs:
               '.profiles[$profile][] | select(.platform == $platform) | .tool_versions' containers/images.lock.json)" \
             '{profile:$profile,platform:$platform,digest:$digest,base_image:$base_image,source_revision:$source_revision,build_recipe_sha256:$recipe,tool_versions:$tools}' \
             > "$RUNNER_TEMP/executor-image.json"
+      # Production boundary: the Go readiness runner must build for the selected
+      # executor architecture, seal its own executable, survive /tmp noexec,
+      # protect its same-UID supervisor, launch discrete argv, and detect a
+      # live localhost service. Unit tests cannot prove the kernel memfd and
+      # procfs behavior inside the actual candidate image. This needs rootless
+      # Docker and the candidate Go image; setup cost is two small offline builds.
+      - name: Exercise the app-owned Go readiness runner in the candidate image
+        if: matrix.profile == 'go'
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --pids-limit 64 --memory 1g \
+            --tmpfs /workspace:rw,nosuid,nodev,exec,size=128m,uid=10001,gid=10001 \
+            --tmpfs /home/executor:rw,nosuid,nodev,noexec,size=128m,uid=10001,gid=10001 \
+            --tmpfs /tmp:rw,nosuid,nodev,noexec,size=16m \
+            --env HOME=/home/executor --env GOTMPDIR=/workspace \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/src/project_runtime/executor/start/readiness/go_runner.go,dst=/opt/koolade-go-readiness-runner.go,readonly" \
+            --interactive --entrypoint /bin/sh koolade-executor:candidate -eu -s <<'SMOKE'
+          set -eux
+          test "$(id -u):$(id -g)" = "10001:10001"
+          gofmt_diff="$(gofmt -d /opt/koolade-go-readiness-runner.go)"
+          if [ -n "$gofmt_diff" ]; then
+            printf '%s\n' "$gofmt_diff" >&2
+            exit 1
+          fi
+          cat > /workspace/readiness-service.go <<'GO'
+          package main
+          import (
+            "net/http"
+            "os"
+          )
+          func main() {
+            if len(os.Args) != 2 || os.Args[1] != "approved-sentinel" {
+              os.Exit(2)
+            }
+            http.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+            _ = http.ListenAndServe("127.0.0.1:18080", nil)
+          }
+          GO
+          GO111MODULE=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off GOTMPDIR=/workspace \
+            go build -trimpath -o /workspace/readiness-service /workspace/readiness-service.go
+          mkdir /workspace/.koolade-readiness-smoke
+          cp /opt/koolade-go-readiness-runner.go /workspace/.koolade-readiness-smoke/runner.go
+          GO111MODULE=off GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off GOTMPDIR=/workspace \
+            go build -trimpath -o /workspace/.koolade-readiness-smoke/runner \
+            /workspace/.koolade-readiness-smoke/runner.go
+          /workspace/.koolade-readiness-smoke/runner \
+            /workspace/.koolade-readiness-smoke /workspace /workspace/readiness-service \
+            18080 /health 204 approved-sentinel
+          SMOKE
       - name: Download pinned Syft for candidate SBOM
         id: syft
         uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610
@@ -400,7 +450,7 @@ jobs:
         if: matrix.profile == 'desktop_qa'
         env:
           IMAGE_RECORD: ${{ runner.temp }}/executor-image-candidate-desktop_qa-amd64/executor-image.json
-          KOOLADE_QA_DESKTOP_FIXTURE_EXECUTABLE: ${{ runner.temp }}/koolade-qa-desktop-fixture
+          KOOLADE_QA_DESKTOP_FIXTURE_EXECUTABLE: ${{ runner.temp }}/koolade-qa-desktop
           KOOLADE_QA_REQUIRE_TASK_ARTIFACT: "1"
           KOOLADE_QA_REQUIRE_ROOTLESS: "1"
           KOOLADE_QA_REQUIRE_EGUI: "1"
@@ -414,6 +464,42 @@ jobs:
           cargo +1.98.1 test --locked --lib \
             execution::docker::qa_container::tests::desktop_rootless::rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate \
             -- --ignored --exact
+      - name: Exercise source-built Rust desktop task through locked QA driver
+        if: matrix.profile == 'desktop_qa'
+        env:
+          IMAGE_RECORD: ${{ runner.temp }}/executor-image-candidate-desktop_qa-amd64/executor-image.json
+          KOOLADE_TEST_APPROVE_LOCKED_IMAGES: "1"
+        run: |
+          set -euo pipefail
+          export KOOLADE_QA_DESKTOP_IMAGE=koolade-runtime-qa:desktop_qa-candidate
+          export KOOLADE_QA_DESKTOP_DIGEST="$(jq -er '.digest' "$IMAGE_RECORD")"
+          rust_image="$(jq -er '.profiles.rust[] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
+          [[ "$rust_image" =~ @sha256:[0-9a-f]{64}$ ]]
+          docker pull --platform linux/amd64 "$rust_image"
+          test_name=execution::docker::qa_container::tests::browser_rootless::task_runtime::rootless_approved_rust_desktop_app_uses_locked_desktop_driver
+          cargo +1.98.1 test --locked --lib "$test_name" -- --ignored --exact --list | grep -Fx "$test_name: test"
+          cargo +1.98.1 test --locked --lib "$test_name" -- --ignored --exact
+      - name: Compile framework-neutral packaged Linux desktop fixture
+        if: matrix.profile == 'desktop_qa'
+        run: |
+          set -euo pipefail
+          cc --version
+          cc -std=c11 -O2 -Wall -Wextra -Werror \
+            tests/fixtures/runtime_qa/packaged_linux_desktop.c \
+            -ldl -o "$RUNNER_TEMP/koolade-qa-packaged-linux-desktop"
+          test -x "$RUNNER_TEMP/koolade-qa-packaged-linux-desktop"
+      - name: Exercise packaged framework-neutral Linux app through production desktop dispatch
+        if: matrix.profile == 'desktop_qa'
+        env:
+          IMAGE_RECORD: ${{ runner.temp }}/executor-image-candidate-desktop_qa-amd64/executor-image.json
+          KOOLADE_QA_PACKAGED_DESKTOP_EXECUTABLE: ${{ runner.temp }}/koolade-qa-packaged-linux-desktop
+        run: |
+          set -euo pipefail
+          export KOOLADE_QA_DESKTOP_IMAGE=koolade-runtime-qa:desktop_qa-candidate
+          export KOOLADE_QA_DESKTOP_DIGEST="$(jq -er '.digest' "$IMAGE_RECORD")"
+          test_name=execution::docker::qa_container::tests::desktop_rootless::packaged_linux::rootless_packaged_framework_neutral_linux_app_uses_production_dispatch
+          cargo +1.98.1 test --locked --lib "$test_name" -- --ignored --exact --list | grep -Fx "$test_name: test"
+          cargo +1.98.1 test --locked --lib "$test_name" -- --ignored --exact
       - name: Exercise app-owned Python preview, browser run, evidence, and cleanup
         if: matrix.profile == 'browser_qa'
         env:
@@ -429,6 +515,15 @@ jobs:
           python_image="$(jq -er '.profiles.python[] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
           [[ "$python_image" =~ @sha256:[0-9a-f]{64}$ ]]
           docker pull --platform linux/amd64 "$python_image"
+          rust_image="$(jq -er '.profiles.rust[] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
+          [[ "$rust_image" =~ @sha256:[0-9a-f]{64}$ ]]
+          docker pull --platform linux/amd64 "$rust_image"
+          go_image="$(jq -er '.profiles.go[] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
+          [[ "$go_image" =~ @sha256:[0-9a-f]{64}$ ]]
+          docker pull --platform linux/amd64 "$go_image"
+          node_image="$(jq -er '.profiles.node[] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
+          [[ "$node_image" =~ @sha256:[0-9a-f]{64}$ ]]
+          docker pull --platform linux/amd64 "$node_image"
           general_image="$(jq -er '.profiles.general[] | select(.platform == "linux/amd64") | .reference' containers/images.lock.json)"
           [[ "$general_image" =~ @sha256:[0-9a-f]{64}$ ]]
           docker pull --platform linux/amd64 "$general_image"
@@ -439,6 +534,24 @@ jobs:
           task_runtime_test=execution::docker::qa_container::tests::browser_rootless::task_runtime::rootless_approved_task_build_test_start_receipts_feed_browser_qa_artifact
           cargo +1.98.1 test --locked --lib "$task_runtime_test" -- --ignored --exact --list | grep -Fx "$task_runtime_test: test"
           cargo +1.98.1 test --locked --lib "$task_runtime_test" -- --ignored --exact
+          rust_task_runtime_test=execution::docker::qa_container::tests::browser_rootless::task_runtime::rootless_approved_rust_web_binary_uses_the_same_browser_driver
+          cargo +1.98.1 test --locked --lib "$rust_task_runtime_test" -- --ignored --exact --list | grep -Fx "$rust_task_runtime_test: test"
+          cargo +1.98.1 test --locked --lib "$rust_task_runtime_test" -- --ignored --exact
+          go_task_runtime_test=execution::docker::qa_container::tests::browser_rootless::task_runtime::rootless_approved_go_headless_service_uses_headless_driver
+          cargo +1.98.1 test --locked --lib "$go_task_runtime_test" -- --ignored --exact --list | grep -Fx "$go_task_runtime_test: test"
+          cargo +1.98.1 test --locked --lib "$go_task_runtime_test" -- --ignored --exact
+          python_headless_task_runtime_test=execution::docker::qa_container::tests::browser_rootless::task_runtime::rootless_approved_python_headless_service_uses_headless_driver
+          cargo +1.98.1 test --locked --lib "$python_headless_task_runtime_test" -- --ignored --exact --list | grep -Fx "$python_headless_task_runtime_test: test"
+          cargo +1.98.1 test --locked --lib "$python_headless_task_runtime_test" -- --ignored --exact
+          false_healthy_web_test=execution::docker::qa_container::tests::browser_rootless::task_runtime::rootless_healthy_web_readiness_does_not_mask_failed_browser_assertion
+          cargo +1.98.1 test --locked --lib "$false_healthy_web_test" -- --ignored --exact --list | grep -Fx "$false_healthy_web_test: test"
+          cargo +1.98.1 test --locked --lib "$false_healthy_web_test" -- --ignored --exact
+          typescript_task_runtime_test=execution::docker::qa_container::tests::browser_rootless::task_runtime::rootless_approved_typescript_web_target_uses_the_same_browser_driver
+          cargo +1.98.1 test --locked --lib "$typescript_task_runtime_test" -- --ignored --exact --list | grep -Fx "$typescript_task_runtime_test: test"
+          cargo +1.98.1 test --locked --lib "$typescript_task_runtime_test" -- --ignored --exact
+          polyglot_task_runtime_test=execution::docker::qa_container::tests::browser_rootless::task_runtime::polyglot::rootless_polyglot_targets_run_approved_recipes_with_exact_receipts
+          cargo +1.98.1 test --locked --lib "$polyglot_task_runtime_test" -- --ignored --exact --list | grep -Fx "$polyglot_task_runtime_test: test"
+          cargo +1.98.1 test --locked --lib "$polyglot_task_runtime_test" -- --ignored --exact
       - name: Verify candidate record and report its immutable digest
         env:
           PROFILE: ${{ matrix.profile }}

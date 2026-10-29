@@ -228,6 +228,10 @@ impl ExecutionSession {
                 "Dependency cache snapshot is outside the execution session scope",
             ));
         }
+        validate_session_snapshot_arch(
+            self.cache_target_arch().as_deref(),
+            &reference.target_arch,
+        )?;
         let retained_snapshot = snapshot.clone();
         self.runtime.block_on(self.backend.stage_dependency_cache(
             crate::execution::backend::DependencyCacheSnapshot { snapshot },
@@ -248,6 +252,18 @@ impl ExecutionSession {
         }
         Ok(())
     }
+}
+
+fn validate_session_snapshot_arch(
+    session_arch: Option<&str>,
+    snapshot_arch: &str,
+) -> Result<(), ExecutionError> {
+    if session_arch != Some(snapshot_arch) {
+        return Err(policy_error(
+            "Dependency cache snapshot targets a different execution image architecture",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_retry_snapshot_scope(

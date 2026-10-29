@@ -1,0 +1,3 @@
+name: sample_android_app
+flutter:
+  uses-material-design: true

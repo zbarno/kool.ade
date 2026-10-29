@@ -67,6 +67,12 @@ pub(crate) fn start(
         })
         .map(|document| document.path.clone())
         .ok_or("runtime recipe task document disappeared")?;
+    let selected_dependency_cache_refs =
+        crate::app::root::runtime_dependencies::prepared_dependency_cache_refs_for_ticket(
+            project,
+            &ticket,
+            &required_dependencies,
+        )?;
     let mut claim_time = store
         .receipts_for_task(&workspace.task_id)
         .map_err(|error| error.to_string())?
@@ -145,7 +151,7 @@ pub(crate) fn start(
                         project_relative_root: &project_relative_root,
                         target_id: &target_id,
                         required_tools: &required_tools,
-                        required_dependencies: &required_dependencies,
+                        selected_dependency_cache_refs: &selected_dependency_cache_refs,
                         limits,
                         cancel: worker_cancel.clone(),
                         progress: progress_sender,

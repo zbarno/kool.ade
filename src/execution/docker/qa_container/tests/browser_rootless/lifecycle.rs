@@ -1,24 +1,24 @@
 use crate::{
-    harness::prompt_catalog::{
-        CoverageStatus, CoverageV1, PromptRole, ReviewOutcomeV1, ReviewVerdictV1, RoleInputV1,
-        RolePayloadV1, render,
-    },
+    harness::prompt_catalog::{PromptRole, RoleInputV1, RolePayloadV1, render},
     runtime_qa::{
-        QaDriverOutputV1, QaEvidenceManifestV1, QaOutcome, QaPlatform, QaResultV1, QaRunRequestV1,
-        QaScenarioDriver, QaScenarioV1, QaTargetAuthorization, QaTaskServiceLeaseV1,
-        RuntimeQaOrchestrator, RuntimeQaStore,
+        QaDriverOutputV1, QaOutcome, QaPlatform, QaRunRequestV1, QaScenarioDriver, QaScenarioV1,
+        QaTargetAuthorization, QaTaskServiceLeaseV1,
     },
 };
 
-/// Production boundary: actual rootless Docker browser evidence enters the
+#[path = "lifecycle/persist.rs"]
+mod persist;
+pub(super) use persist::review_expected_outcome_and_persist;
+
+/// Production boundary: actual rootless Docker web or service evidence enters the
 /// reviewed-report orchestration path and is durably stored with its receipt.
 /// Unit tests cannot prove that screenshots and interactions from the pinned
 /// browser image survive this boundary. External dependency: rootless Docker
 /// and the candidate browser image. Setup: one short fixture run.
-/// The reviewer closure below is a deterministic test double; this test does
-/// not prove separate AI reviewer execution or semantic reviewer quality. The
-/// browser output adapter replays the result captured by the preceding Docker
-/// driver run; it is not a second container-driver implementation.
+/// The persistence helper uses a deterministic reviewer test double; this path
+/// does not prove separate AI reviewer execution or semantic reviewer quality.
+/// Its output adapter replays the result from the preceding Docker driver run,
+/// not a second container-driver implementation.
 pub(super) fn review_and_persist(
     request: &QaRunRequestV1,
     scenario: QaScenarioV1,
@@ -26,108 +26,13 @@ pub(super) fn review_and_persist(
     output: QaDriverOutputV1,
     store_root: impl Into<std::path::PathBuf>,
 ) {
-    let reviewer_execution_id = uuid::Uuid::new_v4().hyphenated().to_string();
-    let reviewer_session_id = uuid::Uuid::new_v4().hyphenated().to_string();
-    let prompt = reviewer_prompt(
+    review_expected_outcome_and_persist(
         request,
-        &scenario,
-        &reviewer_execution_id,
-        &reviewer_session_id,
-    );
-
-    let mut driver = RootlessBrowserOutput(Some(output));
-    let mut reviewer =
-        |evidence: &QaEvidenceManifestV1,
-         candidate: &QaResultV1,
-         screenshots: &[crate::runtime_qa::QaScreenshotArtifactV1]| {
-            let observed_pass = candidate.outcome == QaOutcome::Pass
-                && !evidence.actions.is_empty()
-                && !evidence.screenshots.is_empty()
-                && evidence.browser_console.is_empty()
-                && evidence.failed_requests.is_empty();
-            assert!(
-                observed_pass,
-                "runtime QA fixture expected clean browser evidence: candidate={:?}, actions={}, screenshots={}, browser_console={:?}, failed_requests={:?}",
-                candidate.outcome,
-                evidence.actions.len(),
-                evidence.screenshots.len(),
-                evidence.browser_console,
-                evidence.failed_requests
-            );
-            Ok(ReviewVerdictV1 {
-                subject_hash: crate::runtime_qa::qa_review_subject_sha256(
-                    request, candidate, evidence,
-                )?,
-                examined_files: vec![],
-                tested_evidence_ids: screenshots
-                    .iter()
-                    .map(|screenshot| screenshot.id.clone())
-                    .collect(),
-                unexamined_areas: vec![],
-                pass: observed_pass,
-                outcome: Some(if observed_pass {
-                    ReviewOutcomeV1::Pass
-                } else {
-                    ReviewOutcomeV1::BlockingFindings
-                }),
-                coverage: request
-                    .requirement_ids
-                    .iter()
-                    .map(|requirement| CoverageV1 {
-                        requirement: requirement.clone(),
-                        status: if observed_pass {
-                            CoverageStatus::Pass
-                        } else {
-                            CoverageStatus::Fail
-                        },
-                        evidence: screenshots
-                            .iter()
-                            .map(|screenshot| screenshot.id.clone())
-                            .chain(
-                                evidence
-                                    .actions
-                                    .iter()
-                                    .map(|action| action.index.to_string()),
-                            )
-                            .collect(),
-                    })
-                    .collect(),
-                findings: vec![],
-                untested: vec![],
-            })
-        };
-
-    let store = RuntimeQaStore::new(store_root);
-    let (result, receipt) = RuntimeQaOrchestrator::new(&store)
-        .execute_reviewed(
-            crate::runtime_qa::QaExecutionContext {
-                request,
-                scenarios: std::slice::from_ref(&scenario),
-                authorization: QaTargetAuthorization::Web(lease),
-                driver: &mut driver,
-                reviewer_execution_id: &reviewer_execution_id,
-                reviewer_session_id: &reviewer_session_id,
-                prompt,
-            },
-            &mut reviewer,
-        )
-        .expect("the live browser evidence is reviewable and persistable");
-    assert_eq!(result.outcome, QaOutcome::Pass);
-    assert!(
-        receipt.is_some(),
-        "reviewed pass must produce a gate receipt"
-    );
-
-    let persisted = store
-        .load_run_with_screenshots(&request.qa_run_id)
-        .expect("the complete browser report and screenshot bytes are durable");
-    assert_eq!(persisted.request, *request);
-    assert_eq!(persisted.scenarios, vec![scenario]);
-    assert_eq!(persisted.result, result);
-    assert!(!persisted.screenshots.is_empty());
-    assert_eq!(
-        store.load_gate_receipt(&request.qa_run_id).unwrap(),
-        receipt.expect("reviewed pass produced a gate receipt")
+        scenario,
+        lease,
+        output,
+        store_root,
+        QaOutcome::Pass,
     );
 }
 
@@ -173,11 +78,11 @@ fn reviewer_prompt(
     .manifest
 }
 
-struct RootlessBrowserOutput(Option<QaDriverOutputV1>);
+struct RootlessServiceOutput(Option<QaDriverOutputV1>, QaPlatform);
 
-impl QaScenarioDriver for RootlessBrowserOutput {
+impl QaScenarioDriver for RootlessServiceOutput {
     fn platform(&self) -> QaPlatform {
-        QaPlatform::Web
+        self.1
     }
 
     fn run_scenario(

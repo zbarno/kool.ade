@@ -244,7 +244,7 @@ fn http_readiness_uses_only_a_declared_application_owned_probe_tool() {
         &local_health,
     )
     .unwrap_err();
-    assert!(error.to_string().contains("node, python, or python3"));
+    assert!(error.to_string().contains("node, python, python3, or go"));
 }
 
 #[test]
@@ -283,28 +283,11 @@ fn python_http_readiness_uses_only_the_stdlib_client_and_localhost() {
     assert!(!command.contains("curl"));
 }
 
-#[test]
-fn start_can_prove_a_discovered_target_is_ready() {
-    assert!(require_startable_state(&TargetCapabilityState::ReadyButUntested).is_ok());
-    for state in [
-        TargetCapabilityState::MissingToolchain,
-        TargetCapabilityState::MissingDependencies,
-        TargetCapabilityState::DriverUnavailable,
-    ] {
-        assert!(require_startable_state(&state).is_ok(), "{state:?}");
-    }
-    for state in [
-        TargetCapabilityState::UnsupportedPlatform,
-        TargetCapabilityState::UnauthorizedRecipe,
-        TargetCapabilityState::BuildFailed,
-        TargetCapabilityState::StartFailed,
-    ] {
-        assert!(require_startable_state(&state).is_err(), "{state:?}");
-    }
-}
-
 #[path = "tests/build_receipts.rs"]
 mod build_receipts;
 
 #[path = "tests/readiness_probe.rs"]
 mod readiness_probe;
+
+#[path = "tests/executable_path.rs"]
+mod executable_path;

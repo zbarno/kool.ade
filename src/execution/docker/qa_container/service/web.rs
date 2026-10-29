@@ -50,11 +50,14 @@ pub(super) fn validate_spec(spec: &QaWebPreviewSpec<'_>) -> Result<(), Execution
                 | crate::execution::docker::images::RuntimeProfile::BrowserQa
         );
     let mut required_tools = std::iter::once(spec.recipe.executable_id.as_str())
-        .chain(spec.recipe.prerequisite_tool_ids.iter().map(String::as_str));
-    let image_has_recipe_tools =
-        required_tools.all(|tool| spec.service_image.tool_versions.contains_key(tool));
+        .chain(spec.recipe.prerequisite_tool_ids.iter().map(String::as_str))
+        .filter(|tool| crate::project_runtime::is_logical_tool_id(tool));
+    let image_has_recipe_tools = required_tools.all(|tool| spec.service_image.provides_tool(tool));
     if !images_valid
-        || spec.request.relevant_platforms.as_slice() != [crate::runtime_qa::QaPlatform::Web]
+        || !matches!(
+            spec.request.relevant_platforms.as_slice(),
+            [crate::runtime_qa::QaPlatform::Web] | [crate::runtime_qa::QaPlatform::HeadlessService]
+        )
         || spec.request.startup_recipe_ref != spec.recipe.recipe_id
         || spec.request.startup_recipe_sha256 != recipe_hash
         || !image_has_recipe_tools

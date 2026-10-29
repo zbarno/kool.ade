@@ -65,6 +65,8 @@ fn is_lockfile(path: &str, ecosystem: PackageEcosystem) -> bool {
             Some("package-lock.json" | "npm-shrinkwrap.json")
         ),
         PackageEcosystem::Cargo => path == "Cargo.lock",
+        PackageEcosystem::Pip => path == "requirements.txt",
+        PackageEcosystem::Go => path == "go.sum",
         _ => false,
     }
 }
@@ -74,11 +76,20 @@ pub(super) fn is_target_lockfile(
     ecosystem: PackageEcosystem,
     dependency_relative_root: &str,
 ) -> bool {
-    if ecosystem == PackageEcosystem::Cargo {
+    if matches!(
+        ecosystem,
+        PackageEcosystem::Cargo | PackageEcosystem::Pip | PackageEcosystem::Go
+    ) {
+        let filename = match ecosystem {
+            PackageEcosystem::Cargo => "Cargo.lock",
+            PackageEcosystem::Pip => "requirements.txt",
+            PackageEcosystem::Go => "go.sum",
+            _ => unreachable!(),
+        };
         return if dependency_relative_root == "." {
-            path == "Cargo.lock"
+            path == filename
         } else {
-            format!("{dependency_relative_root}/Cargo.lock") == path
+            format!("{dependency_relative_root}/{filename}") == path
         };
     }
     under_dependency_root(path, dependency_relative_root) && is_lockfile(path, ecosystem)

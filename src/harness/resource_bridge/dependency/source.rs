@@ -30,9 +30,9 @@ pub(super) fn approved_source(need: &DependencyNeed) -> bool {
         }
         PackageEcosystem::Cargo => &["index.crates.io", "static.crates.io"],
         PackageEcosystem::Nuget => &["api.nuget.org", "globalcdn.nuget.org"],
-        PackageEcosystem::Pip | PackageEcosystem::Uv | PackageEcosystem::Poetry => {
-            &["pypi.org", "files.pythonhosted.org"]
-        }
+        PackageEcosystem::Pip => &["pypi.org"],
+        PackageEcosystem::Go => &["proxy.golang.org"],
+        PackageEcosystem::Uv | PackageEcosystem::Poetry => &["pypi.org", "files.pythonhosted.org"],
         PackageEcosystem::System | PackageEcosystem::Other => return false,
     };
     let Ok(url) = url::Url::parse(source) else {
@@ -55,6 +55,7 @@ pub(super) fn default_source(ecosystem: PackageEcosystem) -> Option<&'static str
         }
         PackageEcosystem::Cargo => Some("https://index.crates.io"),
         PackageEcosystem::Nuget => Some("https://api.nuget.org"),
+        PackageEcosystem::Go => Some("https://proxy.golang.org"),
         PackageEcosystem::Pip | PackageEcosystem::Uv | PackageEcosystem::Poetry => {
             Some("https://pypi.org")
         }
@@ -125,4 +126,46 @@ fn parse_npm_registry_root(source: &str) -> Option<Url> {
         return None;
     }
     Some(url)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{approved_source, default_source};
+    use crate::harness::{DependencyKind, DependencyNeed, PackageEcosystem};
+
+    fn pip_need(source: Option<&str>) -> DependencyNeed {
+        DependencyNeed {
+            ecosystem: PackageEcosystem::Pip,
+            package: None,
+            version: None,
+            source: source.map(str::to_owned),
+            command: "python3 -m pip install --require-hashes --no-deps -r requirements.txt".into(),
+            reason: "Restore the locked Python runtime packages".into(),
+            kind: DependencyKind::ExistingRestore,
+            lockfile_identity: None,
+            introduced_packages: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn pip_registry_source_is_the_public_pypi_origin_only() {
+        assert_eq!(
+            default_source(PackageEcosystem::Pip),
+            Some("https://pypi.org")
+        );
+        assert!(approved_source(&pip_need(None)));
+        assert!(approved_source(&pip_need(Some("https://pypi.org/"))));
+        for source in [
+            "https://files.pythonhosted.org/",
+            "https://pypi.org/simple",
+            "http://pypi.org/",
+            "https://pypi.org/?index=other",
+            "https://pypi.org.attacker.example/",
+        ] {
+            assert!(
+                !approved_source(&pip_need(Some(source))),
+                "accepted unsafe Pip index {source}"
+            );
+        }
+    }
 }

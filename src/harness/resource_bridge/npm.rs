@@ -16,12 +16,16 @@ mod test_support;
 #[cfg(test)]
 mod tests;
 
+#[cfg(unix)]
 pub(super) use adapter::Adapter;
 pub(super) use preparation::SharedPreparationOperations;
 use preparation::prepare_with_registry;
 use preparation::{PreparationOperations, PreparationRequest, prepare_with_registry_and_ops};
 #[cfg(test)]
-pub(super) use test_support::{test_addition_preparation_operations, test_preparation_operations};
+pub(super) use test_support::{
+    test_addition_preparation_operations, test_fixture_preparation_operations,
+    test_preparation_operations,
+};
 
 const MAX_LOCKED_PACKAGES: usize = lockfile::MAX_LOCKED_PACKAGES;
 

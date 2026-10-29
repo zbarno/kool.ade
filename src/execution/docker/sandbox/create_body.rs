@@ -4,7 +4,7 @@ use bollard::models::{ContainerCreateBody, HostConfig};
 
 use super::super::{
     backend::PreparedDerivedImage,
-    images::{ImageLock, RuntimeProfile, SelectedImage},
+    images::{ImageLock, SelectedImage},
 };
 use super::{
     EXECUTION_LABEL, LEASE_LABEL, OWNER_LABEL, POLICY_LABEL, PRIVATE_FILES_TARGET, SandboxIdentity,
@@ -98,7 +98,7 @@ pub(crate) fn create_body_with_private_files(
             true,
         )?);
     }
-    let temporary_bytes = request.resource_budget.temporary_disk_bytes / 4;
+    let temporary_bytes = request.resource_budget.temporary_disk_bytes / 5;
     let mut tmpfs = HashMap::new();
     // The staged snapshot is materialized after container start. Planning mode
     // is sealed before any user command runs, while the image rootfs and .git
@@ -121,22 +121,11 @@ pub(crate) fn create_body_with_private_files(
             format!("rw,nosuid,nodev,noexec,size={temporary_bytes}"),
         );
     }
-    let mut environment = vec![
-        "HOME=/home/executor".into(),
-        "CI=true".into(),
-        "LANG=C".into(),
-        "TZ=UTC".into(),
-    ];
-    if image.profile == RuntimeProfile::Rust {
-        // The approved Rust image sets CARGO_HOME to /usr/local/cargo. Broker
-        // snapshots are staged under the executor's private home instead.
-        environment.push("CARGO_HOME=/home/executor/.cargo".into());
-    }
-    if image.profile == RuntimeProfile::Go {
-        // /tmp intentionally stays noexec. Go creates temporary test and run
-        // binaries here and removes them when the command finishes.
-        environment.push("GOTMPDIR=/workspace".into());
-    }
+    tmpfs.insert(
+        "/run/koolade-runtime-qa".into(),
+        format!("rw,nosuid,nodev,exec,size={temporary_bytes},uid=10001,gid=10001,mode=0700"),
+    );
+    let environment = super::environment::variables(request, image);
     // `/workspace/.git` is protected by a nested read-only mount, never by command filtering.
     Ok(ContainerCreateBody {
         user: Some("10001:10001".into()),
@@ -152,8 +141,7 @@ pub(crate) fn create_body_with_private_files(
         entrypoint: Some(vec![
             "/bin/sh".into(),
             "-c".into(),
-            "mkdir -p /home/executor/.npm /home/executor/.cargo && while :; do sleep 3600; done"
-                .into(),
+            "mkdir -p /home/executor/.npm /home/executor/.cargo /home/executor/.cache/koolade/pip/wheels /home/executor/go && while :; do sleep 3600; done".into(),
             format!("koolade-keeper-{}", request.execution_id),
         ]),
         labels: Some(labels),

@@ -155,7 +155,7 @@ impl QaDriverContainerSpec<'_> {
             let execution_option = workspace_execution_option(self.driver);
             tmpfs.insert(
                 "/workspace".into(),
-                format!("rw,nosuid,nodev,{execution_option},size={temporary_bytes},uid=10001,gid=10001,mode=0755"),
+                format!("rw,nosuid,nodev,{execution_option},size={temporary_bytes},uid=0,gid=0,mode=0755"),
             );
         }
         let mut env = vec!["HOME=/tmp".into(), "CI=true".into(), "LANG=C.UTF-8".into()];

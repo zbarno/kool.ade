@@ -10,8 +10,6 @@ use sha2::Digest as _;
 
 use super::super::request::PreparedRequest;
 use super::reviewer;
-#[cfg(test)]
-use crate::runtime_qa::QaValidatedTargetV1;
 use crate::{
     execution::{
         contract::{ExecutionModeV1, ResourceBudgetV1},
@@ -28,6 +26,14 @@ use crate::{
 };
 
 mod execution;
+#[cfg(test)]
+mod rootless_dispatch;
+
+#[cfg(test)]
+pub(crate) use rootless_dispatch::{
+    RootlessDesktopDispatch, RootlessTaskQaDispatch, prepare_rootless_desktop_dispatch,
+    prepare_rootless_task_qa_dispatch,
+};
 
 fn prepare_dispatch_artifacts(
     prepared: &PreparedRequest,
@@ -82,32 +88,6 @@ fn prepare_dispatch_artifacts(
     Ok((request, artifact_upload))
 }
 
-#[cfg(test)]
-pub(crate) struct RootlessDesktopDispatch {
-    pub request: QaRunRequestV1,
-    pub target: QaValidatedTargetV1,
-    pub artifact_upload: QaContainerUpload,
-    pub artifact_mount: QaArtifactMount,
-}
-
-#[cfg(test)]
-pub(crate) fn prepare_rootless_desktop_dispatch(
-    project: &crate::app::session::Project,
-    task: &crate::core::lifecycle::TaskRecord,
-) -> Result<RootlessDesktopDispatch, String> {
-    let prepared = super::super::request::prepare(project, task)?;
-    let (request, artifact_upload) = prepare_dispatch_artifacts(&prepared)?;
-    let target = execution::desktop_target(&prepared, &request)?;
-    let artifact_mount = QaArtifactMount::inspect(&prepared.task_clone, "/workspace")
-        .map_err(|error| error.message)?;
-    Ok(RootlessDesktopDispatch {
-        request,
-        target,
-        artifact_upload,
-        artifact_mount,
-    })
-}
-
 pub(super) fn run(
     prepared: PreparedRequest,
     scenarios: Vec<QaScenarioV1>,
@@ -147,12 +127,23 @@ pub(super) fn run(
         crate::persistence::state_root().join("runtime-qa-dependency-caches"),
     );
     let mut dependency_caches = Vec::new();
+    let requested_dependency_ids = request
+        .dependency_cache_refs
+        .iter()
+        .map(|dependency| dependency.dependency_request_id.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut selected_dependency_ids = std::collections::BTreeSet::new();
     for dependency in &request.dependency_cache_refs {
-        if dependency.cache_ref.target_arch != architecture {
-            return Err(format!(
-                "prepared dependency cache for request `{}` targets a different architecture",
-                dependency.dependency_request_id
-            ));
+        if crate::execution::docker::discovery::parse_architecture(
+            &dependency.cache_ref.target_arch,
+        ) != Some(architecture.as_str())
+        {
+            continue;
+        }
+        if !selected_dependency_ids.insert(dependency.dependency_request_id.as_str()) {
+            return Err(
+                "multiple prepared dependency caches match the selected QA architecture".into(),
+            );
         }
         let snapshot = dependency_cache_store
             .get(&dependency.dependency_request_id, &dependency.cache_ref)
@@ -163,6 +154,12 @@ pub(super) fn run(
                 )
             })?;
         dependency_caches.push(snapshot);
+    }
+    if selected_dependency_ids != requested_dependency_ids {
+        return Err(
+            "a prepared dependency cache is unavailable for the selected QA image architecture"
+                .into(),
+        );
     }
     let lock = ImageLock::bundled().map_err(|error| error.message)?;
     let qa_image = lock

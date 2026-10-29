@@ -1,6 +1,9 @@
 use super::super::*;
 use std::path::Path;
 
+#[path = "discovery/unsupported.rs"]
+mod unsupported;
+
 struct Fixture(std::path::PathBuf);
 
 impl Fixture {
@@ -173,6 +176,11 @@ fn checked_in_runtime_matrix_fixtures_discover_deterministically_without_toolcha
     assert!(polyglot.candidate_targets.iter().any(|target| {
         target.project_relative_root == "services/api" && target.app_surface == AppSurface::Web
     }));
+    assert!(
+        polyglot
+            .evidence_refs
+            .contains(&"apps/web/src/index.html".to_owned())
+    );
 }
 
 #[test]

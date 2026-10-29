@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, path::PathBuf};
 use super::{WorkspaceSnapshot, archive, capture, capture_scoped, failure};
 use crate::{
     execution::{docker::sandbox::ValidatedWorkspace, errors::ExecutionError},
-    project_runtime::verify_source_checkout,
+    project_runtime::verify_source_checkout_scoped,
 };
 
 pub(crate) fn capture_reviewed(
@@ -14,7 +14,7 @@ pub(crate) fn capture_reviewed(
     budget: u64,
     read_only: bool,
 ) -> Result<WorkspaceSnapshot, ExecutionError> {
-    verify_reviewed_checkout(workspace, expected_sha, allowed_source_inputs)?;
+    verify_reviewed_checkout(workspace, expected_sha, allowed_source_inputs, scope)?;
     let snapshot = if let Some(root_relative) = scope {
         capture_scoped(workspace, root_relative, budget)?
     } else {
@@ -26,7 +26,7 @@ pub(crate) fn capture_reviewed(
         expected_sha,
         allowed_source_inputs,
     )?;
-    verify_reviewed_checkout(workspace, expected_sha, allowed_source_inputs)?;
+    verify_reviewed_checkout(workspace, expected_sha, allowed_source_inputs, scope)?;
     Ok(snapshot)
 }
 
@@ -34,9 +34,10 @@ fn verify_reviewed_checkout(
     workspace: &ValidatedWorkspace,
     expected_sha: &str,
     allowed_source_inputs: &[String],
+    scope: Option<&str>,
 ) -> Result<(), ExecutionError> {
     workspace.revalidate()?;
-    verify_source_checkout(workspace.root(), expected_sha, allowed_source_inputs)
+    verify_source_checkout_scoped(workspace.root(), expected_sha, allowed_source_inputs, scope)
         .map_err(|_| failure("Reviewed task source changed before execution staging"))
 }
 

@@ -94,5 +94,5 @@ fn production_dispatch_uses_reviewed_task_target_and_build_receipts() {
         dispatch.target.executable,
         "/workspace/dist/approved-desktop-app"
     );
-    assert_eq!(dispatch.target.arguments, ["--qa-fixture".to_owned()]);
+    assert_eq!(dispatch.target.arguments, ["--fixture-window".to_owned()]);
 }

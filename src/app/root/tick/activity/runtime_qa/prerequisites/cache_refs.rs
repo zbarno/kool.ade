@@ -32,6 +32,12 @@ pub(in crate::app::root::tick::activity::runtime_qa) fn selected_broker_cache_re
                 .required_dependencies
                 .contains(&dependency.request_id)
         })
-        .map(|dependency| (dependency.request_id, dependency.cache_ref))
+        .flat_map(|dependency| {
+            let request_id = dependency.request_id;
+            dependency
+                .cache_refs
+                .into_iter()
+                .map(move |cache_ref| (request_id.clone(), cache_ref))
+        })
         .collect()
 }

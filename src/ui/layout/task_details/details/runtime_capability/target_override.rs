@@ -7,6 +7,7 @@ use crate::{
 struct Draft {
     surface: AppSurface,
     root: String,
+    fixture_ref: String,
     artifact_paths: String,
     build: task_detail::RuntimeRecipeInput,
     test: task_detail::RuntimeRecipeInput,
@@ -21,6 +22,7 @@ impl Default for Draft {
         Self {
             surface: AppSurface::Web,
             root: ".".into(),
+            fixture_ref: String::new(),
             artifact_paths: String::new(),
             build: Default::default(),
             test: Default::default(),
@@ -75,13 +77,18 @@ fn paint_with_dispatch(
                 ui.label("App root relative to repository");
                 ui.text_edit_singleline(&mut draft.root);
             });
+            ui.horizontal(|ui| {
+                ui.label("Runtime QA fixture reference (optional)");
+                ui.text_edit_singleline(&mut draft.fixture_ref);
+            });
+            ui.label("Choose which environment variable names each recipe may read.");
             let repository_root_error =
                 crate::project_runtime::validate_custom_target_root(draft.root.trim()).err();
             if let Some(message) = repository_root_error {
                 ui.colored_label(egui::Color32::LIGHT_RED, message);
             }
             recipe_fields(ui, "Build recipe", &mut draft.build);
-            ui.label("Build artifact paths relative to the app root, one per line");
+            ui.label("Build artifact paths relative to the app root, one per line (leave empty for Test-only targets)");
             ui.text_edit_multiline(&mut draft.artifact_paths);
             recipe_fields(ui, "Test recipe", &mut draft.test);
             recipe_fields(ui, "Start recipe", &mut draft.start);
@@ -116,18 +123,13 @@ fn paint_with_dispatch(
                     ui.text_edit_singleline(&mut draft.readiness_path);
                 });
             }
-            ui.label(
-            "Arguments are separate argv items, one per line. Shell evaluation is not supported.",
-        );
+            ui.label("Arguments are optional separate argv items, one per line. Shell evaluation is not supported.");
+            ui.label("Start can use an executable path relative to the app root, such as dist/my-app.");
             let has_recipe = [&draft.build, &draft.test, &draft.start]
                 .iter()
-                .any(|recipe| {
-                    !recipe.executable_id.trim().is_empty() && !recipe.argv_lines.trim().is_empty()
-                });
-            let has_build = !draft.build.executable_id.trim().is_empty()
-                && !draft.build.argv_lines.trim().is_empty();
-            let has_start = !draft.start.executable_id.trim().is_empty()
-                && !draft.start.argv_lines.trim().is_empty();
+                .any(|recipe| !recipe.executable_id.trim().is_empty());
+            let has_build = !draft.build.executable_id.trim().is_empty();
+            let has_start = !draft.start.executable_id.trim().is_empty();
             if has_start && !has_build {
                 ui.label("Start requires a Build recipe so its outputs can be verified.");
             }
@@ -135,13 +137,18 @@ fn paint_with_dispatch(
                 .artifact_paths
                 .lines()
                 .all(|line| line.trim().is_empty());
+            let artifact_configuration_valid = if has_build {
+                has_artifacts
+            } else {
+                !has_artifacts
+            };
             if ui
                 .add_enabled(
                     !draft.root.trim().is_empty()
                         && repository_root_error.is_none()
                         && has_recipe
                         && (!has_start || has_build)
-                        && has_artifacts,
+                        && artifact_configuration_valid,
                     egui::Button::new("Approve and save custom target"),
                 )
                 .clicked()
@@ -151,10 +158,11 @@ fn paint_with_dispatch(
                         ticket: ticket.to_owned(),
                         app_surface: draft.surface,
                         project_relative_root: draft.root.trim().to_owned(),
+                        fixture_ref: draft.fixture_ref.trim().to_owned(),
                         artifact_paths: draft.artifact_paths.clone(),
                         build: draft.build.clone(),
                         test: draft.test.clone(),
-                        start: draft.start.clone(),
+                        start: Box::new(draft.start.clone()),
                         required_dependencies: draft.required_dependencies.clone(),
                         approval_proof:
                             crate::ui::layout::RuntimeTargetApprovalProof::from_user_approval_click(
@@ -182,13 +190,33 @@ pub(super) fn seed_test_repository_root_draft(
         build: task_detail::RuntimeRecipeInput {
             executable_id: "node".into(),
             argv_lines: "build.js\n--release".into(),
+            allowed_env_keys_lines: "APP_BUILD_MODE".into(),
         },
         start: task_detail::RuntimeRecipeInput {
             executable_id: "node".into(),
             argv_lines: "server.js".into(),
+            allowed_env_keys_lines: "APP_RUNTIME_MODE".into(),
         },
+        fixture_ref: "fixture-web-smoke".into(),
         readiness_port: "8080".into(),
         readiness_path: "/health".into(),
+        ..Draft::default()
+    };
+    context.data_mut(|data| {
+        data.insert_temp(egui::Id::new(("runtime_target_draft", ticket)), draft);
+    });
+}
+
+#[cfg(test)]
+pub(super) fn seed_test_only_target_draft(context: &egui::Context, ticket: &str) {
+    let draft = Draft {
+        surface: AppSurface::HeadlessService,
+        root: "./".into(),
+        test: task_detail::RuntimeRecipeInput {
+            executable_id: "python".into(),
+            argv_lines: "-m\nunittest".into(),
+            ..Default::default()
+        },
         ..Draft::default()
     };
     context.data_mut(|data| {
@@ -199,11 +227,13 @@ pub(super) fn seed_test_repository_root_draft(
 fn recipe_fields(ui: &mut egui::Ui, label: &str, recipe: &mut task_detail::RuntimeRecipeInput) {
     ui.collapsing(label, |ui| {
         ui.horizontal(|ui| {
-            ui.label("Executable ID");
+            ui.label("Executable ID or path");
             ui.text_edit_singleline(&mut recipe.executable_id);
         });
         ui.label("Arguments, one per line");
         ui.text_edit_multiline(&mut recipe.argv_lines);
+        ui.label("Allowed environment variable names, one per line");
+        ui.text_edit_multiline(&mut recipe.allowed_env_keys_lines);
     });
 }
 

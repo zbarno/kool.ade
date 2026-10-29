@@ -6,7 +6,7 @@ mod task_service;
 use super::{network_request, now_ms, remove_owned_network, validate_spec};
 use crate::{
     execution::{
-        docker::images::{ImageLock, RuntimeProfile},
+        docker::images::{ImageLock, RuntimeProfile, task_runtime_profile_order},
         errors::ExecutionError,
     },
     runtime_qa::{QaPreviewRelayBindingV1, QaTaskServiceLeaseV1},
@@ -47,8 +47,10 @@ async fn start_web_preview_for_lock(
         .platform
         .strip_prefix("linux/")
         .unwrap_or_default();
-    let required_tools = std::iter::once(spec.recipe.executable_id.clone())
-        .chain(spec.recipe.prerequisite_tool_ids.iter().cloned())
+    let required_tools = std::iter::once(spec.recipe.executable_id.as_str())
+        .chain(spec.recipe.prerequisite_tool_ids.iter().map(String::as_str))
+        .filter(|tool| crate::project_runtime::is_logical_tool_id(tool))
+        .map(str::to_owned)
         .collect::<Vec<_>>();
     if lock
         .select(RuntimeProfile::BrowserQa, architecture)
@@ -56,14 +58,7 @@ async fn start_web_preview_for_lock(
         != *spec.browser_image
         || lock
             .select_with_tools(
-                &[
-                    RuntimeProfile::Node,
-                    RuntimeProfile::Rust,
-                    RuntimeProfile::Python,
-                    RuntimeProfile::Go,
-                    RuntimeProfile::General,
-                    RuntimeProfile::BrowserQa,
-                ],
+                task_runtime_profile_order(&required_tools),
                 architecture,
                 &required_tools,
             )

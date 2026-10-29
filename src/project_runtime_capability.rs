@@ -4,6 +4,8 @@ use std::collections::BTreeSet;
 
 mod adapter;
 pub use adapter::{ApprovedCapabilityInventory, ManifestTargetAssessment, assess_manifest_target};
+mod build_receipts;
+pub use build_receipts::observed_build_capability_state;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum QaApplicability {
@@ -64,6 +66,9 @@ pub trait TargetCapabilityView {
     fn has_readiness_probe(&self) -> bool;
     fn required_dependency_ids(&self) -> &[String];
     fn supported_driver_ids(&self) -> &[String];
+    fn surface_driver_id(&self) -> Option<&str> {
+        None
+    }
 }
 
 pub struct RecipeCapabilityView<'a> {
@@ -124,20 +129,26 @@ pub fn assess_target<T: TargetCapabilityView, I: CapabilityInventory>(
     );
 
     let selected_driver_id = if visual {
-        target
-            .supported_driver_ids()
-            .iter()
-            .find(|id| inventory.driver_available(id))
-            .cloned()
+        if let Some(driver_id) = target.surface_driver_id() {
+            inventory
+                .driver_available(driver_id)
+                .then(|| driver_id.to_owned())
+        } else {
+            target
+                .supported_driver_ids()
+                .iter()
+                .find(|id| inventory.driver_available(id))
+                .cloned()
+        }
     } else {
         None
     };
     if visual && selected_driver_id.is_none() {
         gaps.push(CapabilityGap::MissingDriver(
             target
-                .supported_driver_ids()
-                .first()
-                .cloned()
+                .surface_driver_id()
+                .map(str::to_owned)
+                .or_else(|| target.supported_driver_ids().first().cloned())
                 .unwrap_or_else(|| "compatible visual driver".into()),
         ));
     }

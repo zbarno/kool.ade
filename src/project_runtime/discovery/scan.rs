@@ -2,6 +2,8 @@ use std::{collections::VecDeque, path::Path};
 
 use super::super::AppSurface;
 
+mod path_support;
+
 const MAX_DEPTH: usize = 6;
 const MAX_ENTRIES: usize = 10_000;
 const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
@@ -21,6 +23,7 @@ pub struct DiscoveryEvidence {
     pub language: String,
     pub framework: Option<String>,
     pub evidence_path: String,
+    pub supporting_evidence_paths: Vec<String>,
     pub candidate_surface: AppSurface,
     pub confidence: u8,
 }
@@ -76,10 +79,30 @@ pub fn detect_candidate_targets(root: &Path) -> Result<Vec<DiscoveryEvidence>, S
                     .map_err(|_| "project metadata escaped its root".to_owned())?
                     .to_string_lossy()
                     .replace('\\', "/");
+                let supporting_evidence_paths = if name == "package.json"
+                    && surface == AppSurface::Web
+                    && entry.path().parent().is_some_and(|root| {
+                        path_support::has_regular_relative_file(root, &["src", "index.html"])
+                    }) {
+                    let target_root = Path::new(&relative)
+                        .parent()
+                        .filter(|parent| !parent.as_os_str().is_empty())
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_default();
+                    vec![
+                        target_root
+                            .join("src/index.html")
+                            .to_string_lossy()
+                            .replace('\\', "/"),
+                    ]
+                } else {
+                    Vec::new()
+                };
                 evidence.push(DiscoveryEvidence {
                     language: language.into(),
                     framework: framework.map(str::to_owned),
                     evidence_path: relative,
+                    supporting_evidence_paths,
                     candidate_surface: surface,
                     confidence,
                 });
@@ -113,10 +136,13 @@ fn classify(
         }
         "package.json" => {
             let text = read_config(path)?;
-            if ["next", "vite", "react", "vue", "angular", "svelte"]
+            let framework_marker = ["next", "vite", "react", "vue", "angular", "svelte"]
                 .iter()
-                .any(|marker| text.contains(marker))
-            {
+                .any(|marker| text.contains(marker));
+            let html_entrypoint = path.parent().is_some_and(|root| {
+                path_support::has_regular_relative_file(root, &["src", "index.html"])
+            });
+            if framework_marker || html_entrypoint {
                 Some((
                     "JavaScript",
                     Some("Node.js web candidate"),

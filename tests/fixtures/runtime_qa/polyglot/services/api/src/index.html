@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><title>Polyglot runtime fixture</title></head>
+  <body>
+    <label for="message">Message</label>
+    <input id="message" type="text">
+    <button id="save" type="button">Save</button>
+    <p data-testid="status" role="status"></p>
+    <script type="module">
+      const message = document.querySelector("#message");
+      const status = document.querySelector('[data-testid="status"]');
+      document.querySelector("#save").addEventListener("click", async () => {
+        const response = await fetch("/save", { method: "POST", body: message.value });
+        const savedMessage = await response.text();
+        status.textContent = response.ok && savedMessage === "Saved" ? "Saved" : savedMessage;
+      });
+    </script>
+  </body>
+</html>

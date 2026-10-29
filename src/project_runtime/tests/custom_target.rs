@@ -2,6 +2,9 @@ use super::super::*;
 use crate::artifacts::planning_store::PlanningStore;
 use crate::core::lifecycle::{GateActor, GateDecision, GateReceipt};
 
+#[path = "custom_target/test_only.rs"]
+mod test_only;
+
 #[test]
 fn custom_target_recipes_and_readiness_persist_as_untested_user_approved_state() {
     let root = std::env::temp_dir().join(format!("koolade-custom-target-{}", uuid::Uuid::new_v4()));

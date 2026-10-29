@@ -1,1 +1,1 @@
-{"name":"fixture-polyglot-web","private":true,"dependencies":{"svelte":"*","vite":"*"}}
+{"name":"fixture-polyglot-web","version":"1.0.0","private":true,"type":"module","dependencies":{"koolade-runtime-qa-cache-probe":"1.0.0"}}

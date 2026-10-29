@@ -5,6 +5,7 @@ use crate::harness::{
 mod addition;
 mod cargo;
 mod npm_malicious;
+mod pip;
 mod remote;
 mod support;
 

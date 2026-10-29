@@ -7,6 +7,11 @@ pub(super) fn matches_request(spec: &QaWebPreviewSpec<'_>) -> bool {
         .request
         .dependency_cache_refs
         .iter()
+        .filter(|dependency| {
+            crate::execution::docker::discovery::parse_architecture(
+                &dependency.cache_ref.target_arch,
+            ) == spec.service_image.platform.strip_prefix("linux/")
+        })
         .map(|dependency| dependency.cache_ref.clone())
         .collect::<Vec<_>>();
     let mut transferred_refs = spec
@@ -28,12 +33,9 @@ pub(super) fn matches_request(spec: &QaWebPreviewSpec<'_>) -> bool {
                 .manifest
                 .validate_ref(&snapshot.cache_ref, &snapshot.archive)
                 .is_ok()
-                && snapshot.cache_ref.target_arch
-                    == spec
-                        .browser_image
-                        .platform
-                        .strip_prefix("linux/")
-                        .unwrap_or_default()
+                && crate::execution::docker::discovery::parse_architecture(
+                    &snapshot.cache_ref.target_arch,
+                ) == spec.service_image.platform.strip_prefix("linux/")
         })
 }
 
@@ -44,13 +46,17 @@ pub(super) fn service_tmpfs(
     let (uid, gid) = runtime_uid_gid(&spec.service_image.runtime_user)?;
     let mut has_npm = false;
     let mut has_cargo = false;
+    let mut has_pip = false;
+    let mut has_go = false;
     for cache in spec.dependency_caches {
         match cache.cache_ref.ecosystem {
             DependencyCacheEcosystemV1::Npm => has_npm = true,
             DependencyCacheEcosystemV1::Cargo => has_cargo = true,
+            DependencyCacheEcosystemV1::Pip => has_pip = true,
+            DependencyCacheEcosystemV1::Go => has_go = true,
         }
     }
-    let mount_count = 2 + [has_npm, has_cargo]
+    let mount_count = 3 + [has_npm, has_cargo, has_pip, has_go]
         .into_iter()
         .filter(|enabled| *enabled)
         .count();
@@ -70,7 +76,17 @@ pub(super) fn service_tmpfs(
         ),
         (
             "/workspace".into(),
-            format!("rw,nosuid,nodev,size={},uid={uid},gid={gid}", mount_size,),
+            format!(
+                "rw,nosuid,nodev,exec,size={},uid=0,gid=0,mode=0755",
+                mount_size,
+            ),
+        ),
+        (
+            "/run/koolade-runtime-qa".into(),
+            format!(
+                "rw,nosuid,nodev,exec,size={},uid={uid},gid={gid},mode=0700",
+                mount_size,
+            ),
         ),
     ]);
     if spec.dependency_caches.is_empty() {
@@ -88,10 +104,37 @@ pub(super) fn service_tmpfs(
         ]);
     }
     if has_cargo {
-        tmpfs.insert("/home/executor/.cargo".into(), cache_mount);
+        tmpfs.insert("/home/executor/.cargo".into(), cache_mount.clone());
         env.extend([
             "CARGO_HOME=/home/executor/.cargo".into(),
             "CARGO_NET_OFFLINE=true".into(),
+        ]);
+    }
+    if has_pip {
+        tmpfs.insert(
+            "/home/executor/.cache/koolade/pip".into(),
+            cache_mount.clone(),
+        );
+        env.extend([
+            "PIP_CONFIG_FILE=/dev/null".into(),
+            "PIP_NO_INDEX=1".into(),
+            "PIP_FIND_LINKS=/home/executor/.cache/koolade/pip/wheels".into(),
+        ]);
+    }
+    if has_go {
+        tmpfs.insert("/home/executor/go".into(), cache_mount);
+        env.extend([
+            "GOPATH=/home/executor/go".into(),
+            "GOMODCACHE=/home/executor/go/pkg/mod".into(),
+            "GOPROXY=off".into(),
+            "GOSUMDB=off".into(),
+            "GOTOOLCHAIN=local".into(),
+            "GOENV=off".into(),
+            "GOWORK=off".into(),
+            "GOPRIVATE=".into(),
+            "GONOPROXY=".into(),
+            "GONOSUMDB=".into(),
+            "GOINSECURE=".into(),
         ]);
     }
     Ok(tmpfs)

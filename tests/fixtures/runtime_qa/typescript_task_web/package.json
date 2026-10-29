@@ -1,0 +1,9 @@
+{
+  "name": "runtime-qa-typescript-task-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "koolade-runtime-qa-cache-probe": "1.0.0"
+  }
+}

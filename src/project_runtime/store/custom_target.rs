@@ -3,9 +3,11 @@ use crate::core::lifecycle::GateReceipt;
 use crate::ui::layout::RuntimeTargetApprovalProof;
 
 use super::ProjectRuntimeStore;
+mod artifacts;
 use crate::project_runtime::{
     AppTargetV1, ExecutionRecipeV1, ProjectCapabilityManifestV1, add_user_target_override,
 };
+use artifacts::validate_artifact_spec;
 
 mod approval;
 mod provenance;
@@ -55,25 +57,16 @@ impl<'a> ProjectRuntimeStore<'a> {
             target.project_relative_root.trim(),
         )
         .map_err(|error| StoreError::MalformedState(error.into()))?;
-        if target.artifact_spec_ref.is_none()
-            || crate::project_runtime::validate_custom_artifact_paths(&artifact_paths).is_err()
-        {
-            return Err(StoreError::MalformedState(
-                "custom targets require 1 to 128 safe repository-relative artifact paths".into(),
-            ));
-        }
+        validate_artifact_spec(&target, &artifact_paths)?;
         let next_revision = expected_manifest_revision.checked_add(1).ok_or_else(|| {
             StoreError::MalformedState("project runtime manifest revision is exhausted".into())
         })?;
         validate_readiness(&target, &recipes, readiness.as_ref())
             .map_err(StoreError::MalformedState)?;
-        let origin_sha256 = digest_custom_target_origin(
-            &target,
-            &recipes,
-            readiness.as_ref(),
-            Some(&artifact_paths),
-        )
-        .map_err(StoreError::MalformedState)?;
+        let artifact_spec = target.artifact_spec_ref.as_ref().map(|_| &artifact_paths);
+        let origin_sha256 =
+            digest_custom_target_origin(&target, &recipes, readiness.as_ref(), artifact_spec)
+                .map_err(StoreError::MalformedState)?;
         let target_id = target.target_id.clone();
         let approval_ref = format!("user-approval:{}", approval.receipt_uid);
         let mut manifest = self.load_manifest()?.ok_or_else(|| {
@@ -86,13 +79,14 @@ impl<'a> ProjectRuntimeStore<'a> {
             &target,
             &recipes,
             readiness.as_ref(),
-            Some(&artifact_paths),
+            artifact_spec,
         )
         .map_err(StoreError::MalformedState)?;
-        manifest.artifact_specs.insert(
-            target.artifact_spec_ref.clone().expect("validated above"),
-            artifact_paths.clone(),
-        );
+        if let Some(artifact_spec_ref) = target.artifact_spec_ref.as_ref() {
+            manifest
+                .artifact_specs
+                .insert(artifact_spec_ref.clone(), artifact_paths.clone());
+        }
         add_user_target_override(
             &mut manifest,
             target.clone(),

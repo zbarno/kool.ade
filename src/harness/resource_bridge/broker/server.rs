@@ -145,6 +145,12 @@ fn prepare_cache_snapshot(
         crate::harness::PackageEcosystem::Cargo => {
             crate::execution::contract::DependencyCacheEcosystemV1::Cargo
         }
+        crate::harness::PackageEcosystem::Pip => {
+            crate::execution::contract::DependencyCacheEcosystemV1::Pip
+        }
+        crate::harness::PackageEcosystem::Go => {
+            crate::execution::contract::DependencyCacheEcosystemV1::Go
+        }
         _ => anyhow::bail!("dependency ecosystem has no verified cache adapter"),
     };
     anyhow::ensure!(
@@ -159,11 +165,27 @@ fn prepare_cache_snapshot(
         )
     });
     let root = match ecosystem {
-        crate::execution::contract::DependencyCacheEcosystemV1::Npm => context.npm_cache,
-        crate::execution::contract::DependencyCacheEcosystemV1::Cargo => context.cargo_cache,
+        crate::execution::contract::DependencyCacheEcosystemV1::Npm => {
+            context.npm_cache.to_path_buf()
+        }
+        crate::execution::contract::DependencyCacheEcosystemV1::Cargo => {
+            context.cargo_cache.to_path_buf()
+        }
+        crate::execution::contract::DependencyCacheEcosystemV1::Pip => {
+            crate::harness::resource_bridge::pip::snapshot_root(
+                context.pip_cache,
+                &resolved_integrity,
+            )?
+        }
+        crate::execution::contract::DependencyCacheEcosystemV1::Go => {
+            crate::harness::resource_bridge::go::snapshot_root(
+                context.go_cache,
+                &resolved_integrity,
+            )?
+        }
     };
     let snapshot = super::super::cache_snapshot::CacheSnapshot::capture(
-        root,
+        &root,
         task_id,
         ecosystem,
         &request.project_id,

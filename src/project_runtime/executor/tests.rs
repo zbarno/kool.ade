@@ -10,6 +10,12 @@ use crate::{
     },
 };
 
+#[path = "tests/dependencies.rs"]
+mod dependencies;
+
+#[path = "tests/paths.rs"]
+mod paths;
+
 #[path = "tests/custom_target_execution.rs"]
 mod custom_target_execution;
 

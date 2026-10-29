@@ -33,6 +33,13 @@ fn retry_snapshot_requires_the_authorized_worker_and_architecture() {
 }
 
 #[test]
+fn session_cache_staging_requires_the_selected_image_architecture() {
+    assert!(validate_session_snapshot_arch(Some("amd64"), "amd64").is_ok());
+    assert!(validate_session_snapshot_arch(Some("arm64"), "amd64").is_err());
+    assert!(validate_session_snapshot_arch(None, "amd64").is_err());
+}
+
+#[test]
 fn dependency_request_ids_require_the_canonical_prefix_and_uuid() {
     use crate::execution::contract::validate_dependency_request_id as validate;
 

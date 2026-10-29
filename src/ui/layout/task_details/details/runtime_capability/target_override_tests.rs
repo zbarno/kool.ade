@@ -24,6 +24,16 @@ fn rendered_prepared_dependency_selection_reaches_target_command() {
         &mut output,
         "Add a custom application target",
     );
+    assert!(text_position(&output, "Runtime QA fixture reference (optional)").is_some());
+    click_text(
+        &context,
+        ticket,
+        &choices,
+        &mut command,
+        &mut output,
+        "Build recipe",
+    );
+    assert!(text_position(&output, "Allowed environment variable names, one per line").is_some());
     click_text(
         &context,
         ticket,
@@ -51,12 +61,58 @@ fn rendered_prepared_dependency_selection_reaches_target_command() {
 
     let Some(crate::ui::ApplicationCommand::TaskDetail(task_detail::Command::AddRuntimeTarget {
         required_dependencies,
+        fixture_ref,
+        build,
+        start,
         ..
     })) = command
     else {
         panic!("the rendered approval button emits AddRuntimeTarget");
     };
     assert_eq!(required_dependencies, [request_id]);
+    assert_eq!(fixture_ref, "fixture-web-smoke");
+    assert_eq!(build.allowed_env_keys_lines, "APP_BUILD_MODE");
+    assert_eq!(start.allowed_env_keys_lines, "APP_RUNTIME_MODE");
+}
+
+#[test]
+fn rendered_test_only_target_emits_empty_artifact_spec() {
+    let context = egui::Context::default();
+    let ticket = "fixture-test-only-task";
+    seed_test_only_target_draft(&context, ticket);
+    let mut command = None;
+    let mut output = frame(&context, ticket, &[], &mut command, Vec::new());
+    click_text(
+        &context,
+        ticket,
+        &[],
+        &mut command,
+        &mut output,
+        "Add a custom application target",
+    );
+    click_text(
+        &context,
+        ticket,
+        &[],
+        &mut command,
+        &mut output,
+        "Approve and save custom target",
+    );
+
+    let Some(crate::ui::ApplicationCommand::TaskDetail(task_detail::Command::AddRuntimeTarget {
+        artifact_paths,
+        build,
+        test,
+        start,
+        ..
+    })) = command
+    else {
+        panic!("Test-only custom targets can be approved without Build artifacts");
+    };
+    assert!(artifact_paths.trim().is_empty());
+    assert!(build.executable_id.trim().is_empty());
+    assert_eq!(test.executable_id, "python");
+    assert!(start.executable_id.trim().is_empty());
 }
 
 fn click_text(

@@ -36,6 +36,12 @@ impl ResourceBridge {
             crate::harness::PackageEcosystem::Cargo => {
                 crate::execution::contract::DependencyCacheEcosystemV1::Cargo
             }
+            crate::harness::PackageEcosystem::Pip => {
+                crate::execution::contract::DependencyCacheEcosystemV1::Pip
+            }
+            crate::harness::PackageEcosystem::Go => {
+                crate::execution::contract::DependencyCacheEcosystemV1::Go
+            }
             _ => anyhow::bail!("dependency ecosystem has no verified cache adapter"),
         };
         anyhow::ensure!(
@@ -124,6 +130,7 @@ impl ResourceBridge {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn cache_snapshot(
         &self,
         task_id: &str,
@@ -141,11 +148,25 @@ impl ResourceBridge {
             anyhow::bail!("cache snapshot task does not match its broker session");
         }
         let root = match ecosystem {
-            crate::execution::contract::DependencyCacheEcosystemV1::Npm => &self.npm_cache,
-            crate::execution::contract::DependencyCacheEcosystemV1::Cargo => &self.cargo_cache,
+            crate::execution::contract::DependencyCacheEcosystemV1::Npm => self.npm_cache.clone(),
+            crate::execution::contract::DependencyCacheEcosystemV1::Cargo => {
+                self.cargo_cache.clone()
+            }
+            crate::execution::contract::DependencyCacheEcosystemV1::Pip => {
+                crate::harness::resource_bridge::pip::snapshot_root(
+                    &self.pip_cache,
+                    resolved_integrity,
+                )?
+            }
+            crate::execution::contract::DependencyCacheEcosystemV1::Go => {
+                crate::harness::resource_bridge::go::snapshot_root(
+                    &self.go_cache,
+                    resolved_integrity,
+                )?
+            }
         };
         super::super::cache_snapshot::CacheSnapshot::capture(
-            root,
+            &root,
             task_id,
             ecosystem,
             project_id,
@@ -194,6 +215,8 @@ impl ResourceBridge {
             progress,
             cancel,
             &crate::persistence::state_root(),
+            None,
+            None,
             None,
             None,
             Some(hook),

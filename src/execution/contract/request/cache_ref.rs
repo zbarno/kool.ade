@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 pub enum DependencyCacheEcosystemV1 {
     Npm,
     Cargo,
+    Pip,
+    Go,
 }
 
 /// Opaque authorization for an immutable broker-verified cache snapshot.

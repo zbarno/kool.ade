@@ -71,6 +71,26 @@ impl TargetProcess {
                 .env("CARGO_HOME", "/home/executor/.cargo")
                 .env("CARGO_NET_OFFLINE", "true");
         }
+        if ecosystems.contains(&DependencyCacheEcosystemV1::Pip) {
+            command
+                .env("PIP_CONFIG_FILE", "/dev/null")
+                .env("PIP_NO_INDEX", "1")
+                .env("PIP_FIND_LINKS", "/home/executor/.cache/koolade/pip/wheels");
+        }
+        if ecosystems.contains(&DependencyCacheEcosystemV1::Go) {
+            command
+                .env("GOPATH", "/home/executor/go")
+                .env("GOMODCACHE", "/home/executor/go/pkg/mod")
+                .env("GOPROXY", "off")
+                .env("GOSUMDB", "off")
+                .env("GOTOOLCHAIN", "local")
+                .env("GOENV", "off")
+                .env("GOWORK", "off")
+                .env("GOPRIVATE", "")
+                .env("GONOPROXY", "")
+                .env("GONOSUMDB", "")
+                .env("GOINSECURE", "");
+        }
         command
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

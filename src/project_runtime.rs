@@ -15,11 +15,15 @@ pub use discovery::{
     detect_candidate_targets, discover_manifest,
 };
 pub use executor::ProjectRuntimeExecutor;
+#[cfg(test)]
+pub(crate) use executor::qa_go_start_script;
 pub use recipe::{ExecutionRecipeV1, NetworkRequirement, RecipeSource};
 pub(crate) use recipe::{
-    normalize_custom_target_root, validate_custom_artifact_paths, validate_custom_target_root,
+    is_logical_tool_id, is_protected_environment_key, is_target_relative_executable_path,
+    normalize_custom_target_root, validate_custom_artifact_paths,
+    validate_custom_target_artifact_paths, validate_custom_target_root,
 };
-pub(crate) use source::verify_source_checkout;
+pub(crate) use source::{verify_source_checkout, verify_source_checkout_scoped};
 pub use store::ProjectRuntimeStore;
 pub use target::{
     AppSurface, AppTargetV1, ProjectCapabilityManifestV1, ReadinessProbeV1, RuntimeOperation,

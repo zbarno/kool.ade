@@ -45,7 +45,7 @@ fn manifest(
         artifact_spec_ref: None,
         fixture_ref: None,
         required_dependencies: vec![],
-        supported_driver_ids: vec!["browser".into()],
+        supported_driver_ids: vec![],
         port_needs: vec![8080],
         environment_policy_ref: "runtime-default".into(),
         capability_state: TargetCapabilityState::Ready,
@@ -89,7 +89,7 @@ fn persisted_targets_resolve_by_surface_for_python_and_typescript() {
     let typescript = manifest("TypeScript", "Next.js", &workspace, &task);
     let tools = ["node".to_owned()].into();
     let dependencies = BTreeSet::new();
-    let drivers = ["browser".to_owned()].into();
+    let drivers = ["web-driver".to_owned()].into();
     let inventory = ApprovedCapabilityInventory {
         manifest: &python,
         available_tool_ids: &tools,
@@ -103,10 +103,49 @@ fn persisted_targets_resolve_by_surface_for_python_and_typescript() {
     };
     let ts = assess_manifest_target(&typescript, "Next.js", &task, &ts_inventory).unwrap();
     assert_eq!(py.report.selected_driver_id, ts.report.selected_driver_id);
+    assert_eq!(py.report.selected_driver_id.as_deref(), Some("web-driver"));
     assert_eq!(py.report.qa_applicability, QaApplicability::Visual);
     assert_eq!(ts.report.qa_applicability, QaApplicability::Visual);
     assert_eq!(py.capability_state, TargetCapabilityState::Ready);
     assert_eq!(ts.capability_state, TargetCapabilityState::Ready);
+}
+
+#[test]
+fn app_surface_infers_driver_when_legacy_target_has_no_driver_ids() {
+    let task = uuid::Uuid::new_v4().to_string();
+    let manifest = manifest(
+        "TypeScript",
+        "Next.js",
+        &uuid::Uuid::new_v4().to_string(),
+        &task,
+    );
+    assert!(
+        manifest.candidate_targets[0]
+            .supported_driver_ids
+            .is_empty()
+    );
+    let tools = ["node".to_owned()].into();
+    let drivers = ["web-driver".to_owned()].into();
+    let inventory = ApprovedCapabilityInventory {
+        manifest: &manifest,
+        available_tool_ids: &tools,
+        available_dependency_ids: &BTreeSet::new(),
+        available_driver_ids: &drivers,
+    };
+
+    let assessment = assess_manifest_target(&manifest, "Next.js", &task, &inventory).unwrap();
+
+    assert_eq!(
+        assessment.report.selected_driver_id.as_deref(),
+        Some("web-driver")
+    );
+    assert!(
+        !assessment
+            .report
+            .gaps
+            .iter()
+            .any(|gap| matches!(gap, CapabilityGap::MissingDriver(_)))
+    );
 }
 
 #[test]
