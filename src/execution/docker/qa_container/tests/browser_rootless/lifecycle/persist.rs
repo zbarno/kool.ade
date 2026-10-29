@@ -130,9 +130,16 @@ pub(crate) fn review_expected_outcome_and_persist(
     let persisted = store
         .load_run_with_screenshots(&request.qa_run_id)
         .expect("the complete browser report and screenshot bytes are durable");
+    let review_failure = persisted
+        .evidence
+        .logs
+        .iter()
+        .find(|line| line.starts_with("test-only reviewer failure detail: "))
+        .map(String::as_str)
+        .unwrap_or("no test-only reviewer failure detail recorded");
     assert_eq!(
         result.outcome, expected_outcome,
-        "reviewed rootless QA result had unexpected case statuses: {case_statuses:?}"
+        "reviewed rootless QA result had unexpected case statuses: {case_statuses:?}; reviewer detail: {review_failure}"
     );
     assert!(
         receipt.is_some(),
