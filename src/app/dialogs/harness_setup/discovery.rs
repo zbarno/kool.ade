@@ -77,15 +77,33 @@ impl DlgHarnessSetup {
         }
     }
 
-    /// Whether any persisted provider record is younger than the shared
-    /// discovery freshness horizon. Delegates to the canonical predicate so
-    /// the dialog and the routing badges cannot drift apart about freshness.
+    /// Whether every known or configured provider has recent persisted
+    /// evidence. An unrelated fresh provider must not suppress refresh of a
+    /// stale route, or the router will continue to reject work after the
+    /// operator follows the refresh guidance.
     fn has_recent_discovery_evidence(&self) -> bool {
         let now = cooldown::effective_now_ms();
-        self.settings
-            .discovered
+        let mut routed = self
+            .settings
+            .work_routes
             .values()
-            .any(|entry| entry.is_fresh_at(now))
+            .map(|route| route.harness.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        routed.extend(self.settings.discovered.keys().map(String::as_str));
+        if let Some(default) = self.settings.default_harness.as_deref().or_else(|| {
+            (std::env::var(crate::harness::CODEX_HARNESS_ENV).as_deref() == Ok("codex"))
+                .then_some("codex")
+        }) {
+            routed.insert(default);
+        }
+
+        !routed.is_empty()
+            && routed.into_iter().all(|provider| {
+                self.settings
+                    .discovered
+                    .get(provider)
+                    .is_some_and(|entry| entry.is_fresh_at(now))
+            })
     }
 
     pub fn drain_probe(&mut self) {
