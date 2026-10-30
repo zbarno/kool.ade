@@ -14,8 +14,9 @@ candidate verification passed. Both QA profiles remain disabled, so
 publication and published-image smokes are skipped. These implementation
 checks do not provide a complete release matrix or authorize enabling the
 profiles. The rootless desktop orphan-recovery addition in open PR #429 is not
-included in this exact-main evidence; its hosted candidate checks remain
-pending.
+included in this exact-main evidence. Its hosted candidate checks passed on
+PR head `05df0a2b`; PR #429 remains open awaiting review. Open PR-head checks
+are tracked separately below and do not change this exact-main baseline.
 
 ## Merged candidate PR checks (2026-10-29)
 
@@ -33,6 +34,20 @@ runtime candidate proof. Trusted-image publication and published-image smokes
 remain skipped because both profiles are disabled. The main-only matrix above
 remains the authoritative release baseline; the PR results do not certify
 release readiness.
+
+## Open PR candidate checks (2026-10-30)
+
+These hosted checks passed on open PR heads. They are not merged-main release
+evidence and do not enable either QA profile:
+
+| PR head | Quality | Trusted image | Native packages | CodeQL | Scope and remaining status |
+| --- | --- | --- | --- | --- | --- |
+| [#428 `e38045f`](https://github.com/zbarno/kool.ade/pull/428/commits/e38045fdfabf62cebc700ba0f664e77976f71c37) | [40996437069, attempt 2](https://github.com/zbarno/kool.ade/actions/runs/40996437069) | [40996437000, attempt 3](https://github.com/zbarno/kool.ade/actions/runs/40996437000) | [40996436983](https://github.com/zbarno/kool.ade/actions/runs/40996436983), all five targets | [40996433198](https://github.com/zbarno/kool.ade/actions/runs/40996433198) | Evidence refresh and rootless browser/desktop cloud-metadata denial probes passed. PR awaits review; three technical #171 acceptance criteria remain open. |
+| [#429 `05df0a2`](https://github.com/zbarno/kool.ade/pull/429/commits/05df0a2b1c255c59ba5a29e5ed30be2d95d9bf27) | [40991463207](https://github.com/zbarno/kool.ade/actions/runs/40991463207) | [40991463145, attempt 3](https://github.com/zbarno/kool.ade/actions/runs/40991463145) | [40991463137](https://github.com/zbarno/kool.ade/actions/runs/40991463137), all five targets | [40991457397](https://github.com/zbarno/kool.ade/actions/runs/40991457397) | Rootless desktop orphan recovery and candidate validation passed. PR awaits review; #167 closes after merge. |
+
+Both PRs have requested reviews. Their successful checks remain candidate evidence
+until the PRs merge; deferred human prelaunch review does not block issue closure
+after technical acceptance is met.
 
 ## Previous exact-main matrix (2026-10-27)
 
