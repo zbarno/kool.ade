@@ -22,6 +22,22 @@ impl KooladeApp {
         }
     }
 
+    pub(super) fn start_existing_project_inspection(&mut self, request: &ExistingProject) {
+        if self.onboarding_inspection.is_some() {
+            return;
+        }
+        self.onboarding_project_kind = None;
+        self.conn_error = None;
+        let folder = request.folder.clone();
+        let repository_id = request.repository_id.clone();
+        self.onboarding_inspection = Some(std::thread::spawn(move || {
+            let result = WorkspaceManager::from_state_root()
+                .inspect_existing_project(&folder)
+                .map_err(|error| format!("{error:#}"));
+            (repository_id, folder, result)
+        }));
+    }
+
     pub(super) fn paint_existing_project(&mut self, ui: &mut egui::Ui, next: &mut Option<Step>) {
         if self.onboarding_creation.is_some() {
             ui.spinner();
@@ -107,14 +123,7 @@ impl KooladeApp {
             && self.onboarding_inspection.is_none()
             && self.conn_error.is_none()
         {
-            let folder = request.folder.clone();
-            let repository_id = request.repository_id.clone();
-            self.onboarding_inspection = Some(std::thread::spawn(move || {
-                let result = WorkspaceManager::from_state_root()
-                    .inspect_existing_project(&folder)
-                    .map_err(|error| format!("{error:#}"));
-                (repository_id, folder, result)
-            }));
+            self.start_existing_project_inspection(&request);
         }
         let checking = self.onboarding_inspection.is_some();
         ui.label(format!("Project: {}", request.title));
@@ -126,16 +135,7 @@ impl KooladeApp {
         } else if self.onboarding_project_kind.is_none()
             && ui.button("Check folder again").clicked()
         {
-            self.onboarding_project_kind = None;
-            self.conn_error = None;
-            let folder = request.folder.clone();
-            let repository_id = request.repository_id.clone();
-            self.onboarding_inspection = Some(std::thread::spawn(move || {
-                let result = WorkspaceManager::from_state_root()
-                    .inspect_existing_project(&folder)
-                    .map_err(|error| format!("{error:#}"));
-                (repository_id, folder, result)
-            }));
+            self.start_existing_project_inspection(&request);
         }
         ui.label("Choose the planning repository for this code folder.");
         ui.label("For example, pair kool.ade with its sibling kool.ade.packet.");

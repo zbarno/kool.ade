@@ -12,6 +12,19 @@ impl KooladeApp {
         id: uuid::Uuid,
         interview: Option<(String, String)>,
     ) {
+        self.begin_onboarding_open_with_policy(id, interview, false);
+    }
+
+    pub(super) fn begin_existing_onboarding_open(&mut self, id: uuid::Uuid) {
+        self.begin_onboarding_open_with_policy(id, None, true);
+    }
+
+    fn begin_onboarding_open_with_policy(
+        &mut self,
+        id: uuid::Uuid,
+        interview: Option<(String, String)>,
+        continue_without_saved_setup: bool,
+    ) {
         if self.onboarding_open.is_some() {
             return;
         }
@@ -24,7 +37,14 @@ impl KooladeApp {
             });
         }
         self.onboarding.save();
-        if self.onboarding.error.is_some() {
+        let may_continue_unsaved = continue_without_saved_setup
+            && self.onboarding.step == welcome::onboarding::Step::ExistingProject
+            && self
+                .onboarding
+                .existing
+                .as_ref()
+                .is_some_and(|request| !request.create_workspace);
+        if self.onboarding.error.is_some() && !may_continue_unsaved {
             self.conn_error = Some("Setup progress could not be saved. Restore access to application storage before opening this request.".into());
             return;
         }

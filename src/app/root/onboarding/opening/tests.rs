@@ -19,6 +19,58 @@ fn failed_session_save_does_not_start_workspace_loader() {
 }
 
 #[test]
+fn explicit_existing_project_open_can_continue_with_unsaved_navigation_state() {
+    let temp = tempfile::tempdir().unwrap();
+    let _state_home = crate::test_support::KooladeHomeGuard::set(temp.path());
+    let mut app = KooladeApp::default();
+    app.onboarding.step = welcome::onboarding::Step::ExistingProject;
+    app.onboarding.existing = Some(crate::core::managed_workspace::ExistingProject {
+        folder: temp.path().join("code"),
+        planning_repo: Some(temp.path().join("planning")),
+        workspace_id: uuid::Uuid::new_v4(),
+        repository_id: "synthetic-code".into(),
+        title: "Synthetic project".into(),
+        create_workspace: false,
+    });
+    app.onboarding.error = Some("saved progress is unavailable".into());
+    let id = uuid::Uuid::new_v4();
+
+    app.begin_existing_onboarding_open(id);
+
+    assert!(app.onboarding_open.is_some());
+    assert_eq!(app.onboarding.opening_workspace_id, Some(id));
+    let job = app.onboarding_open.take().unwrap();
+    let _ = job.result.join().unwrap();
+}
+
+#[test]
+fn unsaved_navigation_state_does_not_bypass_new_workspace_creation_guard() {
+    let temp = tempfile::tempdir().unwrap();
+    let _state_home = crate::test_support::KooladeHomeGuard::set(temp.path());
+    let mut app = KooladeApp::default();
+    app.onboarding.step = welcome::onboarding::Step::ExistingProject;
+    app.onboarding.existing = Some(crate::core::managed_workspace::ExistingProject {
+        folder: temp.path().join("code"),
+        planning_repo: None,
+        workspace_id: uuid::Uuid::new_v4(),
+        repository_id: "synthetic-code".into(),
+        title: "Synthetic project".into(),
+        create_workspace: true,
+    });
+    app.onboarding.error = Some("saved progress is unavailable".into());
+
+    app.begin_existing_onboarding_open(uuid::Uuid::new_v4());
+
+    assert!(app.onboarding_open.is_none());
+    assert!(
+        app.conn_error
+            .as_deref()
+            .unwrap()
+            .contains("could not be saved")
+    );
+}
+
+#[test]
 fn stale_loader_result_cannot_open_another_request() {
     // Controller result fence only: no disk, Git or provider calls are needed.
     let mut app = KooladeApp::default();

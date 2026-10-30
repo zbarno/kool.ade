@@ -72,3 +72,170 @@ fn existing_project_places_a_clear_open_action_within_narrow_screen() {
         button.1
     );
 }
+
+#[test]
+fn existing_project_can_open_when_setup_progress_cannot_be_saved() {
+    use super::super::support::StateHome;
+
+    // The open button is an explicit approval for this existing folder. A
+    // damaged navigation-state file must not strand the user on a disabled
+    // action; the durable workspace attachment remains the source of truth.
+    let root = tempfile::tempdir().unwrap();
+    let mut state_home = StateHome::new();
+    state_home.set(root.path());
+    let mut app = KooladeApp::default();
+    app.onboarding.step = Step::ExistingProject;
+    app.onboarding.existing = Some(ExistingProject {
+        folder: root.path().join("synthetic-code"),
+        planning_repo: Some(root.path().join("synthetic-planning")),
+        workspace_id: uuid::Uuid::new_v4(),
+        repository_id: "synthetic-code".into(),
+        title: "Synthetic project".into(),
+        create_workspace: false,
+    });
+    app.onboarding_project_kind = Some(ExistingProjectKind::Tracked);
+    app.onboarding.error = Some("saved progress is unavailable".into());
+    let ctx = egui::Context::default();
+    paint(&mut app, &ctx, vec![]);
+    let output = paint(&mut app, &ctx, vec![]);
+    let position = output
+        .shapes
+        .iter()
+        .find_map(|shape| {
+            let egui::Shape::Text(text) = &shape.shape else {
+                return None;
+            };
+            (text.galley.text() == "Connect and open project")
+                .then(|| text.pos + text.galley.mesh_bounds.center().to_vec2())
+        })
+        .expect("selected code and planning folders show an open action");
+    for pressed in [true, false] {
+        paint(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+    }
+    let worker = app
+        .onboarding_creation
+        .take()
+        .expect("the explicit open action remains enabled");
+    let _ = worker.join().unwrap();
+}
+
+#[test]
+fn failed_folder_check_can_be_retried_from_the_pinned_action() {
+    use super::super::support::StateHome;
+
+    let root = tempfile::tempdir().unwrap();
+    let mut state_home = StateHome::new();
+    state_home.set(root.path());
+    let mut app = KooladeApp::default();
+    app.onboarding.step = Step::ExistingProject;
+    app.onboarding.existing = Some(ExistingProject {
+        folder: root.path().join("synthetic-code"),
+        planning_repo: Some(root.path().join("synthetic-planning")),
+        workspace_id: uuid::Uuid::new_v4(),
+        repository_id: "synthetic-code".into(),
+        title: "Synthetic project".into(),
+        create_workspace: false,
+    });
+    app.conn_error = Some("folder check failed".into());
+    let ctx = egui::Context::default();
+    paint(&mut app, &ctx, vec![]);
+    let output = paint(&mut app, &ctx, vec![]);
+    let position = output
+        .shapes
+        .iter()
+        .find_map(|shape| {
+            let egui::Shape::Text(text) = &shape.shape else {
+                return None;
+            };
+            (text.galley.text() == "Try code folder check again")
+                .then(|| text.pos + text.galley.mesh_bounds.center().to_vec2())
+        })
+        .expect("failed inspection exposes a pinned retry action");
+    for pressed in [true, false] {
+        paint(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+    }
+    let worker = app.onboarding_inspection.take();
+    assert!(
+        worker.is_some() || app.conn_error.as_deref() != Some("folder check failed"),
+        "retry action either starts inspection or reports its result"
+    );
+    if let Some(worker) = worker {
+        app.apply_onboarding_inspection(worker.join().unwrap());
+    }
+    assert_ne!(app.conn_error.as_deref(), Some("folder check failed"));
+}
+
+#[test]
+fn new_planning_workspace_stays_blocked_when_setup_state_cannot_be_saved() {
+    use super::super::support::StateHome;
+
+    let root = tempfile::tempdir().unwrap();
+    let mut state_home = StateHome::new();
+    state_home.set(root.path());
+    let mut app = KooladeApp::default();
+    app.onboarding.step = Step::ExistingProject;
+    app.onboarding.existing = Some(ExistingProject {
+        folder: root.path().join("synthetic-code"),
+        planning_repo: None,
+        workspace_id: uuid::Uuid::new_v4(),
+        repository_id: "synthetic-code".into(),
+        title: "Synthetic project".into(),
+        create_workspace: true,
+    });
+    app.onboarding_project_kind = Some(ExistingProjectKind::Tracked);
+    app.onboarding.error = Some("saved progress is unavailable".into());
+    let ctx = egui::Context::default();
+    paint(&mut app, &ctx, vec![]);
+    let output = paint(&mut app, &ctx, vec![]);
+    let position = output
+        .shapes
+        .iter()
+        .find_map(|shape| {
+            let egui::Shape::Text(text) = &shape.shape else {
+                return None;
+            };
+            (text.galley.text() == "Connect and open project")
+                .then(|| text.pos + text.galley.mesh_bounds.center().to_vec2())
+        })
+        .expect("new workspace action remains visible with an explanation");
+    for pressed in [true, false] {
+        paint(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+    }
+    assert!(app.onboarding_creation.is_none());
+}

@@ -2,6 +2,8 @@ use crate::app::{root::KooladeApp, welcome::onboarding::Step};
 
 #[path = "wizard/existing_project_action.rs"]
 mod existing_project_action;
+#[path = "wizard/existing_project_unsaved.rs"]
+mod existing_project_unsaved;
 
 fn paint(app: &mut KooladeApp, ctx: &egui::Context, events: Vec<egui::Event>) -> egui::FullOutput {
     let mut output = ctx.run_ui(

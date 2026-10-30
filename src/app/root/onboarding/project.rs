@@ -210,6 +210,16 @@ impl KooladeApp {
         self.onboarding_recovery.invalidate();
         match result {
             Ok(id) => {
+                if self.onboarding.step == Step::ExistingProject
+                    && self
+                        .onboarding
+                        .existing
+                        .as_ref()
+                        .is_some_and(|request| !request.create_workspace)
+                {
+                    self.begin_existing_onboarding_open(id);
+                    return;
+                }
                 let interview = if self.onboarding.step == Step::ReviewProject {
                     self.onboarding.creation.as_ref().map(|request| {
                         (
