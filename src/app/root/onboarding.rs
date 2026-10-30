@@ -1,5 +1,6 @@
 use super::*;
 mod existing;
+mod existing_action;
 mod launcher;
 mod opening;
 pub(super) use launcher::Launcher;
@@ -62,6 +63,14 @@ impl KooladeApp {
         }
         let mut next = None;
         let mut configure = false;
+        if self.onboarding.step == Step::ExistingProject
+            && self.onboarding.existing.is_some()
+            && self.onboarding_creation.is_none()
+        {
+            egui::Panel::bottom("existing_project_open_action")
+                .resizable(false)
+                .show(ui, |ui| self.paint_existing_project_action(ui));
+        }
         let selection_id = egui::Id::new("koolade_welcome_setup_selection");
         let mut selection = ui
             .ctx()

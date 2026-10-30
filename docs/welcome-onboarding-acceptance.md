@@ -24,7 +24,10 @@ Technical details and existing direct connection controls live under Advanced.
    checkout detects a valid sibling `<code>.packet` repository, or lets the
    operator browse directly to an existing planning folder or choose a listed
    workspace. The code folder is inspected automatically; the selected planning
-   repository is joined by its manifest identity. Existing folders preserve Git
+   repository is joined by its manifest identity. A prominent “Connect and open
+   project” button stays pinned at the bottom while the locations above scroll.
+   It connects the selected folders and opens the workspace.
+   Existing folders preserve Git
    state; non-Git folders require initialization consent. New projects require
    a name and intent, with separate code and planning locations shown before
    writes.

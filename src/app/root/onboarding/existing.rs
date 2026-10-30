@@ -25,7 +25,7 @@ impl KooladeApp {
     pub(super) fn paint_existing_project(&mut self, ui: &mut egui::Ui, next: &mut Option<Step>) {
         if self.onboarding_creation.is_some() {
             ui.spinner();
-            ui.label("Connecting your project and planning history…");
+            ui.label("Connecting and opening your project…");
             ui.ctx().request_repaint_after(Duration::from_millis(100));
             return;
         }
@@ -224,55 +224,22 @@ impl KooladeApp {
             self.onboarding.existing = Some(request.clone());
             self.onboarding.go(Step::ExistingProject);
         }
-        let planning_path = if request.create_workspace {
-            Some(WorkspaceManager::from_state_root().planning_repo_path(request.workspace_id))
-        } else {
-            request.planning_repo.clone().or_else(|| {
-                self.onboarding_launcher
-                    .available
-                    .iter()
-                    .find(|item| item.id == request.workspace_id)
-                    .map(|item| item.planning_repo.clone())
-            })
-        };
+        let planning_path = self.onboarding_existing_planning_path(&request);
         if let Some(path) = &planning_path {
             ui.label(format!("Planning history: {}", path.display()));
         } else {
             ui.label("Choose an available planning workspace before connecting.");
         }
-        self.onboarding_recovery.paint(
-            ui,
-            crate::core::managed_workspace::RecoveryRequest::Existing(request.clone()),
-        );
         if let Some(kind) = self.onboarding_project_kind {
             let needs_init = kind == ExistingProjectKind::NeedsHistory;
             ui.label(if needs_init {
                 "This folder is not tracking changes yet. Approval initializes Git here and connects a separate planning workspace. Existing files will not be committed, moved or deleted."
             } else { "Your branch, history, staged files and working changes stay intact. Only planning records and the local connection are saved." });
-            let label = if needs_init {
-                "Approve history setup and connect"
-            } else {
-                "Approve connection"
-            };
-            if ui
-                .add_enabled(
-                    self.onboarding.error.is_none() && !checking && planning_path.is_some(),
-                    egui::Button::new(label),
-                )
-                .clicked()
-            {
-                self.onboarding_creation = Some(std::thread::spawn(move || {
-                    WorkspaceManager::from_state_root()
-                        .attach_existing_project_with_planning_repo(
-                            &request,
-                            request.planning_repo.as_deref(),
-                            needs_init,
-                        )
-                        .map(|workspace| workspace.id)
-                        .map_err(|error| format!("{error:#}"))
-                }));
-            }
         }
+        self.onboarding_recovery.paint(
+            ui,
+            crate::core::managed_workspace::RecoveryRequest::Existing(request.clone()),
+        );
         if ui.button("Back").clicked() {
             *next = Some(Step::Projects);
         }
