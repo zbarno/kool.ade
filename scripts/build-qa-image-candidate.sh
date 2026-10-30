@@ -73,6 +73,7 @@ async function denied(host, port) {
 try { await dns.lookup("example.com"); throw new Error("unexpected DNS resolution"); }
 catch (error) { if (error.message === "unexpected DNS resolution") throw error; }
 await denied("1.1.1.1", 80);
+await denied("169.254.169.254", 80);
 await denied("172.17.0.1", 2375);
 await denied("127.0.0.1", 2375);
 const browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-background-networking", "--disable-extensions", "--renderer-process-limit=2"] });
@@ -219,6 +220,7 @@ PY
           try { await dns.lookup("example.com"); throw new Error("unexpected DNS resolution"); }
           catch (error) { if (error.message === "unexpected DNS resolution") throw error; }
           await denied("1.1.1.1", 80);
+          await denied("169.254.169.254", 80);
           await denied("172.17.0.1", 2375);
           await denied("127.0.0.1", 2375);
         })().catch(error => { console.error(error); process.exit(1); });
