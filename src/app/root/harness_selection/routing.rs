@@ -143,7 +143,7 @@ pub(super) fn routed_harness<'a>(
         detected.is_some_and(|entry| has_current_authenticated_snapshot(harness_id, entry, now));
     if !discovery_fresh {
         return Box::new(UnavailableHarness::guidance(format!(
-            "Discovery for {harness_id} is stale. Refresh Coding tools before starting this task; no fallback will run it."
+            "Discovery for {harness_id} is stale. Refresh Coding tools before retrying; no fallback will run this request."
         )));
     }
     if !detected.is_some_and(|entry| entry.ready) {

@@ -11,6 +11,25 @@ fn ssh_public_key_rejection_is_an_authentication_failure() {
 }
 
 #[test]
+fn safe_git_commands_keep_the_operators_global_credential_helper() {
+    let temp = test_dir();
+    std::fs::create_dir_all(&temp).unwrap();
+    let global_config = temp.join("gitconfig");
+    std::fs::write(&global_config, "[credential]\n\thelper = manager\n").unwrap();
+
+    let result = super::super::safe_command(None)
+        .env("GIT_CONFIG_GLOBAL", &global_config)
+        .env_remove("GIT_CONFIG_SYSTEM")
+        .args(["config", "--global", "--get", "credential.helper"])
+        .output()
+        .unwrap();
+
+    assert!(result.status.success());
+    assert_eq!(String::from_utf8_lossy(&result.stdout).trim(), "manager");
+    std::fs::remove_dir_all(temp).unwrap();
+}
+
+#[test]
 fn rejects_local_git_settings_that_can_execute_or_redirect_commands() {
     let temp = test_dir();
     init_repo(&temp);
