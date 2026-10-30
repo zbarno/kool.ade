@@ -16,7 +16,35 @@ fn application_creation_is_separate_and_retry_keeps_identities_and_user_files() 
         intent: "Track planting dates".into(),
         code_directory: temp.path.canonicalize().unwrap().join("garden"),
     };
+    let recovery = crate::core::managed_workspace::RecoveryRequest::New(request.clone());
+    let before = manager.inspect_setup_recovery(&recovery);
+    assert!(before.iter().filter(|item| item.label == "App folder").all(|item| item.presence == crate::core::managed_workspace::ArtifactPresence::NotFound));
+    assert!(
+        !request.code_directory.exists(),
+        "inspection must not create folders"
+    );
     let workspace = manager.create_application(&request).unwrap();
+    let head_before_inspection =
+        git_ok(Some(&workspace.planning_repo), &["rev-parse", "HEAD"]).stdout;
+    let inventory = manager.inspect_setup_recovery(&recovery);
+    for label in [
+        "App folder",
+        "App history entry",
+        "Planning folder",
+        "Saved app connection",
+        "Saved initial idea",
+    ] {
+        assert!(
+            inventory.iter().any(|item| item.label == label
+                && item.presence == crate::core::managed_workspace::ArtifactPresence::Found),
+            "{label}"
+        );
+    }
+    assert_eq!(
+        head_before_inspection,
+        git_ok(Some(&workspace.planning_repo), &["rev-parse", "HEAD"]).stdout
+    );
+
     assert_eq!(workspace.manifest.title.as_deref(), Some("Garden notes"));
     assert_ne!(workspace.planning_repo, request.code_directory);
     assert_eq!(workspace.repositories.repositories.len(), 1);

@@ -10,7 +10,15 @@ fn missing_workspace_does_not_hide_healthy_entries_and_reconnect_preserves_ident
     let manager = temp.manager("operator");
     let first = manager.create("First").unwrap();
     let second = manager.create("Second").unwrap();
-    manager.record_successful_open(first.id).unwrap();
+    manager.queue_successful_open(first.id).unwrap();
+    drop(manager);
+    let manager = temp.manager("operator");
+    let temporarily_away = temp.path.join("temporarily-away");
+    std::fs::rename(&first.planning_repo, &temporarily_away).unwrap();
+    assert!(manager.flush_pending_opens().is_err());
+    assert!(manager.last_opened_dates().unwrap().contains_key(&first.id));
+    std::fs::rename(&temporarily_away, &first.planning_repo).unwrap();
+    manager.flush_pending_opens().unwrap();
     let moved = temp.path.join("moved");
     std::fs::rename(&first.planning_repo, &moved).unwrap();
     let listing = manager.list_launcher().unwrap();

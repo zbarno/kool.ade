@@ -1,38 +1,60 @@
 # Runtime QA release evidence
 
-## Current main workflow status (2026-10-29)
+## Current main workflow status (2026-10-30, 09:56 UTC)
 
 Evidence is anchored to current `main` commit
-[`4478e22`](https://github.com/zbarno/kool.ade/commit/4478e22de5c606186119aa0eb3c2dbd0bf972cae).
-The quality workflow [40949757846](https://github.com/zbarno/kool.ade/actions/runs/40949757846)
-passed after a retry of the rootless Docker recovery job. The native package
-workflow [40949758572](https://github.com/zbarno/kool.ade/actions/runs/40949758572)
-passed Linux x86_64, Linux arm64, Windows x64, Apple Silicon macOS, and Intel
-macOS packages. The trusted-image workflow
-[40949758383](https://github.com/zbarno/kool.ade/actions/runs/40949758383)
-passed on retry after attempt 1 lost Docker Engine health during the desktop
-candidate test. Browser and desktop candidate verification passed; publication
-and published-image smokes were skipped because both QA profiles remain
-disabled. These implementation checks do not provide a complete release matrix
-or authorize enabling the profiles.
+[`c8623fb6`](https://github.com/zbarno/kool.ade/commit/c8623fb6cfdacbe7288b510f12155ffd29904f24),
+which merged PR #429. The exact-main quality workflow
+[41020392113](https://github.com/zbarno/kool.ade/actions/runs/41020392113),
+native package workflow
+[41020392061](https://github.com/zbarno/kool.ade/actions/runs/41020392061),
+and CodeQL workflow [41020392222](https://github.com/zbarno/kool.ade/actions/runs/41020392222)
+passed. The native workflow built Linux x86_64, Linux arm64, Windows x64,
+Apple Silicon macOS, and Intel macOS packages.
 
-## Unmerged candidate PR checks (2026-10-29)
+Trusted-image workflow [41020392017](https://github.com/zbarno/kool.ade/actions/runs/41020392017)
+passed failed-job-only attempt 5. The candidate verification passed for browser
+and desktop; the desktop app-owned upload/run test, Rust task test, and packaged
+Linux fixture all completed successfully. Attempts 2 and 3 had desktop tests
+exceed the approved QA-driver timeout after 134 seconds (`PolicyDenied`), while
+attempt 4 passed the app-owned test and then hit a Docker health disconnect in
+the later Rust test. Attempt 1's browser and desktop jobs failed before
+assertions with the same health error. Both QA profiles remain disabled; this
+implementation evidence does not authorize enabling them or certify the
+complete release matrix.
 
-The following hosted results passed on PR heads after the `4478e22` main
-snapshot. They add useful candidate evidence but are not main-branch release
-evidence until the PRs merge:
+## Merged candidate PR checks (2026-10-30)
+
+These hosted results passed on PR heads before merge. They provide candidate
+implementation evidence; exact-main evidence is listed separately above:
 
 | PR head | Quality | Trusted image | Native packages | Scope |
 | --- | --- | --- | --- | --- |
 | [#424 `1b19f33`](https://github.com/zbarno/kool.ade/pull/424/commits/1b19f333a896b461eee03a290365515c212aa217) | [40949815265](https://github.com/zbarno/kool.ade/actions/runs/40949815265) | [40949815276](https://github.com/zbarno/kool.ade/actions/runs/40949815276) | [40949815652](https://github.com/zbarno/kool.ade/actions/runs/40949815652) | Browser credential-bearing relay URL is rejected before Chromium starts. |
 | [#426 `3364ca7`](https://github.com/zbarno/kool.ade/pull/426/commits/3364ca7fcdaee9483c093aed7d89589d9d29103e) | [40953781074](https://github.com/zbarno/kool.ade/actions/runs/40953781074) | [40953780987](https://github.com/zbarno/kool.ade/actions/runs/40953780987) | [40953780979](https://github.com/zbarno/kool.ade/actions/runs/40953780979) | Rootless desktop cancellation reports cancellation and removes its owned container. |
-| [#425 `eed66e1`](https://github.com/zbarno/kool.ade/pull/425/commits/eed66e13b3bc576b5a0d594685529aba02cadd15) | [40958564467](https://github.com/zbarno/kool.ade/actions/runs/40958564467) | [40958564504](https://github.com/zbarno/kool.ade/actions/runs/40958564504) | [40958564350](https://github.com/zbarno/kool.ade/actions/runs/40958564350) | Refreshes this evidence page; all five native package targets passed. |
+| [#429 `05df0a2`](https://github.com/zbarno/kool.ade/pull/429/commits/05df0a2b1c255c59ba5a29e5ed30be2d95d9bf27) | [40991463207](https://github.com/zbarno/kool.ade/actions/runs/40991463207) | [40991463145, attempt 3](https://github.com/zbarno/kool.ade/actions/runs/40991463145) | [40991463137](https://github.com/zbarno/kool.ade/actions/runs/40991463137) | Rootless desktop orphan recovery and candidate validation passed; merged as `c8623fb6`. |
 
-For all three PRs, the quality, trusted-image, and native-package workflows
-passed. Trusted-image publication and published-image smokes were skipped
-because both profiles remain disabled. The PRs still require review and the
-main-only matrix above remains the authoritative release baseline. After these
-changes merge, refresh the exact-main evidence and re-evaluate each release row.
+PRs #424, #425, #426, and #429 are merged. PR #425's head contains
+documentation only, so its PR-head checks are not listed as new runtime
+candidate proof. PR #429's checks are candidate evidence; the exact-main run
+above remains authoritative after merge. Trusted-image publication and
+published-image smokes are skipped on `main` while both QA profiles are
+disabled. These checks do not certify release readiness.
+
+## Open PR candidate checks (2026-10-30)
+
+These hosted checks are for open PR heads. They are not merged-main release
+evidence and do not enable either QA profile:
+
+| PR head | Quality | Trusted image | Native packages | CodeQL | Scope and remaining status |
+| --- | --- | --- | --- | --- | --- |
+| [#428 `8f3bb07`](https://github.com/zbarno/kool.ade/commit/8f3bb07f41c32241359a6b52f401096dfe9dbcd5) | [41059042295](https://github.com/zbarno/kool.ade/actions/runs/41059042295) passed | [41059042298](https://github.com/zbarno/kool.ade/actions/runs/41059042298) passed: browser and desktop candidates, published-image smokes, and digest verification | [41059042355](https://github.com/zbarno/kool.ade/actions/runs/41059042355) passed | [41059036492](https://github.com/zbarno/kool.ade/actions/runs/41059036492) passed | Adds rootless host-HOME, Docker/display/service socket, environment, and `noexec` executable-denial probes. The 300-second desktop transport watchdog keeps the driver's approved per-run timeout authoritative. Earlier browser Docker health disconnects on `15ca529` did not recur. Merged as `713afd27`; technical #171 criteria remain open. |
+
+PR #428 merged as `713afd27`. Its candidate quality, CodeQL, native package,
+browser and desktop rootless, and published-image checks passed. Exact-main checks
+on the merge commit are running. Three technical #171 acceptance items remain
+open. Deferred human prelaunch review does not block issue closure after technical
+acceptance is met.
 
 ## Previous exact-main matrix (2026-10-27)
 

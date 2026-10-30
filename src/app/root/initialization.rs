@@ -42,6 +42,25 @@ impl Default for KooladeApp {
                     crate::persistence::state_root().join("onboarding.json")
                 }
             }),
+            onboarding_launcher: Default::default(),
+            onboarding_open: None,
+            onboarding_recovery: Default::default(),
+            launch_history_jobs: {
+                #[cfg(not(test))]
+                {
+                    let manager =
+                        crate::core::managed_workspace::WorkspaceManager::from_state_root();
+                    vec![std::thread::spawn(move || {
+                        manager
+                            .flush_pending_opens()
+                            .map_err(|error| error.to_string())
+                    })]
+                }
+                #[cfg(test)]
+                {
+                    Vec::new()
+                }
+            },
             onboarding_creation: None,
             onboarding_inspection: None,
             onboarding_project_kind: None,

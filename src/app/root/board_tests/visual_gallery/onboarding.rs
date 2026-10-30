@@ -5,7 +5,7 @@ use crate::app::welcome::onboarding::Step;
 #[ignore = "GPU onboarding review; requires isolated KOOLADE_HOME and KOOLADE_UI_REVIEW_DIR"]
 fn render_onboarding_review_gallery() {
     // Production painters, pointer events and GPU output, with synthetic state.
-    // No workers/provider/network/OS repair are invoked. A state-only test cannot
+    // Only read-only launcher workers run; no provider/network/OS repair. A state-only test cannot
     // prove visible layout; this does not replace a native novice walkthrough.
     let dir = std::path::PathBuf::from(std::env::var("KOOLADE_UI_REVIEW_DIR").unwrap());
     assert!(std::env::var_os("KOOLADE_HOME").is_some());

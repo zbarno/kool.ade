@@ -7,6 +7,11 @@ and whether the participant has prior terminal, Git, Docker or coding-tool
 experience. Use synthetic project names and ideas. Never publish personal
 paths, account details, credentials or transcripts containing private data.
 
+Planned operator walkthrough: Pop!_OS with COSMIC. The participant reports
+comfort with the terminal. Distribution version and outcomes are still pending;
+the operator explicitly waived the observed novice-session requirement for this
+PR on 2026-10-30. Their manual walkthrough remains the acceptance check.
+
 ## Preparation
 
 Use a disposable user profile with no saved application setup or projects.
@@ -46,7 +51,7 @@ and narrow screenshots using synthetic data. Avoid recording provider login
 screens or private diagnostics. Link each actionable finding to its fix and
 repeat the affected task on the corrected candidate.
 
-A developer walkthrough verifies real behavior but does not automatically
-satisfy the issue's observed novice requirement. Record participant experience
-honestly. Automated fixtures do not substitute for this session. Platform
-claims remain limited to the hosts actually tested.
+Record participant experience honestly. The operator waived the separate novice
+session; this walkthrough must not be described as novice validation. Automated
+fixtures do not substitute for the manual session. Platform claims remain
+limited to the hosts actually tested.

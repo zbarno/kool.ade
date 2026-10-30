@@ -40,9 +40,7 @@ impl KooladeApp {
             }
         }
         ui.heading("Use a project on this computer");
-        if let Some(error) = &self.conn_error {
-            ui.label(error);
-        }
+        presentation::problem(ui, self.conn_error.as_deref());
         let checking = self.onboarding_inspection.is_some();
         if ui
             .add_enabled(!checking, egui::Button::new("Choose project folder…"))
@@ -82,7 +80,7 @@ impl KooladeApp {
             }
         }
         let Some(mut request) = self.onboarding.existing.clone() else {
-            if ui.link("Back").clicked() {
+            if ui.button("Back").clicked() {
                 *next = Some(Step::Projects);
             }
             return;
@@ -126,10 +124,11 @@ impl KooladeApp {
             request.workspace_id = uuid::Uuid::new_v4();
         }
         if !request.create_workspace {
-            let workspaces = WorkspaceManager::from_state_root()
-                .list_launcher()
-                .map(|listing| listing.available)
-                .unwrap_or_default();
+            let workspaces = self.onboarding_launcher.available.clone();
+            if self.onboarding_launcher.checking() {
+                ui.spinner();
+                ui.label("Loading planning workspaces…");
+            }
             egui::ComboBox::from_id_salt("attach_planning_workspace")
                 .selected_text(
                     workspaces
@@ -157,22 +156,21 @@ impl KooladeApp {
         let planning_path = if request.create_workspace {
             Some(WorkspaceManager::from_state_root().planning_repo_path(request.workspace_id))
         } else {
-            WorkspaceManager::from_state_root()
-                .list_launcher()
-                .map(|listing| listing.available)
-                .ok()
-                .and_then(|items| {
-                    items
-                        .into_iter()
-                        .find(|item| item.id == request.workspace_id)
-                        .map(|item| item.planning_repo)
-                })
+            self.onboarding_launcher
+                .available
+                .iter()
+                .find(|item| item.id == request.workspace_id)
+                .map(|item| item.planning_repo.clone())
         };
         if let Some(path) = &planning_path {
             ui.label(format!("Planning history: {}", path.display()));
         } else {
             ui.label("Choose an available planning workspace before connecting.");
         }
+        self.onboarding_recovery.paint(
+            ui,
+            crate::core::managed_workspace::RecoveryRequest::Existing(request.clone()),
+        );
         if let Some(kind) = self.onboarding_project_kind {
             let needs_init = kind == ExistingProjectKind::NeedsHistory;
             ui.label(if needs_init {
@@ -198,7 +196,7 @@ impl KooladeApp {
                 }));
             }
         }
-        if ui.link("Back").clicked() {
+        if ui.button("Back").clicked() {
             *next = Some(Step::Projects);
         }
     }

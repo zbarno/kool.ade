@@ -1,5 +1,6 @@
 use super::*;
 mod location;
+mod review;
 use crate::core::managed_workspace::{ApplicationCreation, WorkspaceManager};
 
 impl KooladeApp {
@@ -11,9 +12,7 @@ impl KooladeApp {
             ui.ctx().request_repaint_after(Duration::from_millis(100));
             return;
         }
-        if let Some(error) = &self.conn_error {
-            ui.label(error);
-        }
+        presentation::problem(ui, self.conn_error.as_deref());
         match self.onboarding.step {
             Step::Projects => {
                 ui.heading("What would you like to do?");
@@ -39,6 +38,12 @@ impl KooladeApp {
                             .parent()
                             .map(|path| path.to_string_lossy().into_owned())
                             .unwrap_or_default();
+                        self.onboarding.project_directory_name = request
+                            .code_directory
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into_owned();
                         self.onboarding.creation = Some(request);
                         *next = Some(Step::ReviewProject);
                     }
@@ -49,62 +54,70 @@ impl KooladeApp {
                 if ui.button("Use an existing project").clicked() {
                     *next = Some(Step::ExistingProject);
                 }
-                let manager = WorkspaceManager::from_state_root();
-                match manager.list_launcher() {
-                    Ok(launcher) => {
-                        let mut workspaces = launcher.available;
-                        let _ = manager.sort_by_recent_open(&mut workspaces);
-                        if welcome::paint_recent(
-                            ui,
-                            &workspaces,
-                            &mut self.conn_workspace_id,
-                            false,
-                        ) {
-                            self.submit_open_local_workspace();
-                        }
-                        for id in launcher.unavailable {
-                            ui.push_id(id, |ui| {
-                                let (title, missing) = manager.unavailable_workspace_label(id);
-                                ui.label(title);
-                                ui.label(if missing { "Its planning folder has moved or is missing." } else { "This workspace could not be opened. Check its permissions and repository settings in Advanced options." });
-                                if missing && ui.button("Find its planning folder…").clicked()
-                                    && let Some(folder) = rfd::FileDialog::new()
-                                        .set_title("Reconnect this workspace")
-                                        .pick_folder()
-                                {
-                                    self.onboarding_creation =
-                                        Some(std::thread::spawn(move || {
-                                            WorkspaceManager::from_state_root()
-                                                .reconnect(id, &folder)
-                                                .map(|workspace| workspace.id)
-                                                .map_err(|error| format!("{error:#}"))
-                                        }));
-                                }
-                            });
-                        }
-                    }
-                    Err(_) => {
-                        ui.label("A workspace could not be found. Use Advanced options to locate its planning folder.");
-                    }
+                if let Some(id) = self.onboarding.opening_workspace_id
+                    && ui.button("Resume opening my workspace").clicked()
+                {
+                    self.begin_onboarding_open(id, None);
                 }
-                if ui.link("Review computer setup").clicked() {
+                if self.onboarding_launcher.checking() {
+                    ui.spinner();
+                    ui.label("Finding your workspaces…");
+                }
+                if welcome::paint_recent(
+                    ui,
+                    &self.onboarding_launcher.available,
+                    &mut self.conn_workspace_id,
+                    false,
+                ) && let Some(id) = self.conn_workspace_id
+                {
+                    self.onboarding.selected_entry_path =
+                        Some(welcome::onboarding::EntryPath::Recent);
+                    self.begin_onboarding_open(id, None);
+                }
+                for (id, title, missing) in self.onboarding_launcher.unavailable.clone() {
+                    ui.push_id(id, |ui| {
+                        ui.label(title);
+                        ui.label(if missing { "Its planning folder has moved or is missing." } else { "This workspace could not be opened. Review its settings in Advanced options." });
+                        if missing && ui.button("Find its planning folder…").clicked()
+                            && let Some(folder) = rfd::FileDialog::new().set_title("Reconnect this workspace").pick_folder() {
+                            self.onboarding_creation = Some(std::thread::spawn(move || {
+                                WorkspaceManager::from_state_root().reconnect(id, &folder)
+                                    .map(|workspace| workspace.id).map_err(|error| format!("{error:#}"))
+                            }));
+                        }
+                    });
+                }
+                if self.onboarding_launcher.history_unavailable {
+                    ui.label("Recent ordering is unavailable. Your workspaces are shown by name.");
+                }
+                if self.onboarding_launcher.error.is_some() {
+                    ui.label("Workspaces could not be listed. Retry or use Advanced options to open a known location.");
+                }
+                if ui.button("Refresh workspaces").clicked() {
+                    self.onboarding_launcher.invalidate();
+                }
+                if ui.button("Review computer setup").clicked() {
                     *next = Some(Step::Readiness);
                 }
             }
             Step::NewProject => {
                 ui.heading("What do you want to make?");
-                ui.label("Project name");
-                let mut changed = ui
-                    .text_edit_singleline(&mut self.onboarding.project_name)
-                    .changed();
-                ui.label("Describe your idea");
+                let name_label = ui.label("Project name");
+                let mut changed =
+                    presentation::single_line(ui, &mut self.onboarding.project_name, name_label.id)
+                        .changed();
+                let idea_label = ui.label("Describe your idea");
                 changed |= ui
                     .text_edit_multiline(&mut self.onboarding.project_intent)
+                    .labelled_by(idea_label.id)
                     .changed();
-                ui.label("Parent folder");
-                changed |= ui
-                    .text_edit_singleline(&mut self.onboarding.project_parent)
-                    .changed();
+                let parent_label = ui.label("Parent folder");
+                changed |= presentation::single_line(
+                    ui,
+                    &mut self.onboarding.project_parent,
+                    parent_label.id,
+                )
+                .changed();
                 if ui.button("Choose folder…").clicked()
                     && let Some(folder) = rfd::FileDialog::new().pick_folder()
                 {
@@ -126,7 +139,7 @@ impl KooladeApp {
                 let ready = !self.onboarding.project_name.trim().is_empty()
                     && !self.onboarding.project_intent.trim().is_empty();
                 if ui
-                    .add_enabled(ready, egui::Button::new("Review locations"))
+                    .add_enabled(ready, presentation::primary_button("Review locations"))
                     .clicked()
                 {
                     let parent =
@@ -136,6 +149,11 @@ impl KooladeApp {
                             match location::suggest(&parent, &self.onboarding.project_name) {
                                 Ok(code_directory) => {
                                     if self.onboarding.creation.is_none() {
+                                        self.onboarding.project_directory_name = code_directory
+                                            .file_name()
+                                            .unwrap_or_default()
+                                            .to_string_lossy()
+                                            .into_owned();
                                         self.onboarding.creation = Some(ApplicationCreation {
                                             transaction_id: uuid::Uuid::new_v4(),
                                             workspace_id: uuid::Uuid::new_v4(),
@@ -155,41 +173,11 @@ impl KooladeApp {
                         }
                     }
                 }
-                if ui.link("Back").clicked() {
+                if ui.button("Back").clicked() {
                     *next = Some(Step::Projects);
                 }
             }
-            Step::ReviewProject => {
-                if let Some(request) = self.onboarding.creation.clone() {
-                    ui.heading("Review your new project");
-                    ui.label(format!("App code: {}", request.code_directory.display()));
-                    ui.label(format!(
-                        "Planning history: {}",
-                        WorkspaceManager::from_state_root()
-                            .planning_repo_path(request.workspace_id)
-                            .display()
-                    ));
-                    ui.label("Create two separate local repositories and save their connection. No package installation, remote publishing or app-file commit will run. If creation stops, files are preserved for retry.");
-                    if ui
-                        .add_enabled(
-                            self.onboarding.error.is_none(),
-                            egui::Button::new("Approve and create project"),
-                        )
-                        .clicked()
-                    {
-                        self.conn_error = None;
-                        self.onboarding_creation = Some(std::thread::spawn(move || {
-                            WorkspaceManager::from_state_root()
-                                .create_application(&request)
-                                .map(|workspace| workspace.id)
-                                .map_err(|error| format!("{error:#}"))
-                        }));
-                    }
-                }
-                if ui.link("Back").clicked() {
-                    *next = Some(Step::NewProject);
-                }
-            }
+            Step::ReviewProject => self.paint_new_project_review(ui, next),
             _ => {}
         }
     }
@@ -210,24 +198,20 @@ impl KooladeApp {
             .unwrap_or_else(|_| {
                 Err("Project creation stopped. Review the request and retry.".into())
             });
+        self.onboarding_recovery.invalidate();
         match result {
             Ok(id) => {
-                self.finish_connect(welcome::attempt_open_workspace(id));
-                if matches!(self.screen, Screen::Connected(_)) {
-                    if self.onboarding.step == Step::ReviewProject
-                        && let Some(request) = &self.onboarding.creation
-                    {
-                        let intent = request.intent.clone();
-                        let key = format!("task:{}", request.transaction_id.hyphenated());
-                        self.start_turn_for_work(
-                            &intent,
-                            crate::core::workflow::TurnPurpose::Interview,
-                            None,
-                            Some(key),
-                        );
-                    }
-                    self.onboarding.go(Step::Projects);
-                }
+                let interview = if self.onboarding.step == Step::ReviewProject {
+                    self.onboarding.creation.as_ref().map(|request| {
+                        (
+                            request.intent.clone(),
+                            format!("task:{}", request.transaction_id.hyphenated()),
+                        )
+                    })
+                } else {
+                    None
+                };
+                self.begin_onboarding_open(id, interview);
             }
             Err(error) => self.conn_error = Some(error),
         }

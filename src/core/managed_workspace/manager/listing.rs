@@ -9,6 +9,20 @@ pub struct WorkspaceLauncher {
 }
 
 impl WorkspaceManager {
+    /// Lightweight launcher routing only. No repository or Git inspection.
+    pub fn has_local_associations(&self) -> bool {
+        fs::read_dir(self.home.join("projects")).is_ok_and(|entries| {
+            entries.flatten().any(|entry| {
+                entry.file_type().is_ok_and(|kind| kind.is_dir())
+                    && entry
+                        .file_name()
+                        .to_str()
+                        .and_then(|name| uuid::Uuid::parse_str(name).ok())
+                        .is_some_and(|id| self.association_path(id).is_file())
+            })
+        })
+    }
+
     /// Return locally associated workspaces without creating or migrating data.
     pub fn list_local(&self) -> anyhow::Result<Vec<LocalWorkspaceSummary>> {
         let launcher = self.list_launcher()?;

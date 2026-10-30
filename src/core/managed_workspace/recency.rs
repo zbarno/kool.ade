@@ -4,6 +4,7 @@ use std::{collections::BTreeMap, fs, io::ErrorKind};
 use serde::{Deserialize, Serialize};
 
 use super::{LocalWorkspaceSummary, WorkspaceManager};
+mod pending;
 
 #[derive(Serialize, Deserialize)]
 struct History {
@@ -46,6 +47,15 @@ impl WorkspaceManager {
     /// Call only after the app has successfully connected. Listing and probing
     /// workspaces must not change launch order.
     pub fn record_successful_open(&self, id: uuid::Uuid) -> anyhow::Result<()> {
+        self.record_successful_open_at(id, chrono::Utc::now())
+    }
+
+    /// Preserve the connection time when background writers finish out of order.
+    pub fn record_successful_open_at(
+        &self,
+        id: uuid::Uuid,
+        opened_at: chrono::DateTime<chrono::Utc>,
+    ) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.association_path(id).is_file(),
             "workspace is not associated"
@@ -83,7 +93,17 @@ impl WorkspaceManager {
             }
             Err(error) => return Err(error),
         };
-        history.opened.insert(id, chrono::Utc::now());
+        history
+            .opened
+            .entry(id)
+            .and_modify(|date| *date = (*date).max(opened_at))
+            .or_insert(opened_at);
+        // The successful connection time remains useful even if the repository
+        // moved before optional relocation evidence could be collected.
+        crate::artifacts::atomic_write(
+            &self.home.join("workspace-recency.json"),
+            &serde_json::to_string_pretty(&history)?,
+        )?;
         if let Ok(association) = super::WorkspaceAssociation::read(&self.association_path(id), id) {
             let _repository_lock =
                 crate::core::gitops::lock_repository(&association.planning_repo_path)?;

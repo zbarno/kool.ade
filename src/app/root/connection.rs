@@ -277,12 +277,16 @@ impl KooladeApp {
                 project.remember_chat(vec![session::welcome_message(&project.state.title)]);
                 self.conn_error = None;
                 let title = project.state.title.clone();
-                if let Some(workspace) = &project.managed_workspace
-                    && let Err(error) =
-                        crate::core::managed_workspace::WorkspaceManager::from_state_root()
-                            .record_successful_open(workspace.id)
-                {
-                    eprintln!("Could not save workspace launch history: {error}");
+                if let Some(workspace) = &project.managed_workspace {
+                    let id = workspace.id;
+                    let manager =
+                        crate::core::managed_workspace::WorkspaceManager::from_state_root();
+                    match manager.queue_successful_open(id) {
+                        Ok(()) => self.launch_history_jobs.push(std::thread::spawn(move || {
+                            manager.flush_pending_opens().map_err(|error| error.to_string())
+                        })),
+                        Err(_) => self.toasts.warning("Could not save recent workspace history. Check access to application storage."),
+                    }
                 }
                 self.screen = Screen::Connected(Box::new(project));
                 // Success: forget the pasted URL (per-launch state only).

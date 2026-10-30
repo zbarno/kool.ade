@@ -20,10 +20,29 @@ impl App for KooladeApp {
 
 impl KooladeApp {
     pub(super) fn paint_screen(&mut self, ui: &mut egui::Ui) {
+        let mut pending = Vec::new();
+        for job in self.launch_history_jobs.drain(..) {
+            if job.is_finished() {
+                if !matches!(job.join(), Ok(Ok(()))) {
+                    self.toasts
+                        .warning("Could not save recent workspace history.");
+                }
+                self.onboarding_launcher.invalidate();
+            } else {
+                pending.push(job);
+            }
+        }
+        self.launch_history_jobs = pending;
+        if !self.launch_history_jobs.is_empty() {
+            ui.ctx().request_repaint_after(Duration::from_millis(100));
+        }
         crate::ui::theme::apply(ui.ctx());
         let welcome_screen = matches!(&self.screen, Screen::Welcome);
         if welcome_screen && self.paint_onboarding(ui) {
             return;
+        }
+        if !welcome_screen {
+            self.paint_onboarding_handoff(ui);
         }
         let selection_id = egui::Id::new("koolade_welcome_setup_selection");
         let mut welcome_selection = ui

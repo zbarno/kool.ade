@@ -12,6 +12,8 @@ mod manager;
 mod manifest;
 mod migration;
 mod recency;
+mod recovery;
+pub use recovery::{ArtifactPresence, RecoveryItem, RecoveryRequest};
 mod repositories;
 #[cfg(test)]
 mod tests;

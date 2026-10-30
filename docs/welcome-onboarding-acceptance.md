@@ -1,7 +1,7 @@
 # Man.ager-guided Welcome
 
-Implementation and acceptance ledger for #431. This document is a plan, not
-validation evidence. No acceptance criterion is currently claimed complete.
+Implementation and acceptance ledger for #431. Automated checks and independent
+review are complete for the current follow-up; manual acceptance remains pending.
 
 ## Journey
 
@@ -34,10 +34,15 @@ repair or safe planning instead of restarting onboarding.
 ## Integration contracts
 
 - The app coordinator owns asynchronous operations and generation fences; egui
-  produces intents only. Every result is matched to the session revision.
-- A versioned private session records step, entry path, sanitized inputs,
+  produces intents only. Help responses match the session revision and route;
+  folder inspections match the repository ID and exact folder; launcher results
+  match the lookup generation; workspace loading matches the saved workspace ID.
+  Recovery snapshots belong to the exact reviewed request.
+- A versioned private session records step, entry path, user-entered project inputs,
   selected route, task references, transaction identity and timestamps. Persist
-  atomically. Stored operation references never constitute renewed consent.
+  atomically. Project inputs remain private until the approved planning request
+  is saved; users must not enter secrets. Stored operation references never
+  constitute renewed consent.
 - `SetupTaskStore`, the remediation broker and capability probes remain the
   authoritative readiness and repair services.
 - `WorkspaceManager` owns creation, join, open, repository registration and
@@ -58,7 +63,7 @@ repair or safe planning instead of restarting onboarding.
 - Negative tests: no arbitrary host execution, automatic elevation, remote push,
   secret ingestion, overwrite, destructive rollback or unsafe Docker fallback.
 - Successful-open MRU ordering, stable migration order and reconnect identity.
-- Real supported Linux first-run smoke and an observed novice usability session;
+- Real supported Linux first-run smoke and the operator's manual usability session;
   document confusion and remediate actionable findings. Synthetic tests alone do
   not satisfy these requirements. macOS/Windows require their own host evidence.
 - Independent agent validation, remediation of blocking findings, all four local
@@ -72,8 +77,9 @@ why unit coverage is insufficient, external dependencies and setup cost.
 The follow-up implementation adds a pre-Docker provider choice without marking
 Manager execution ready, step-specific machine-local help, responsive progress,
 collision-aware location suggestions, and identity-fenced folder inspection.
-Validation of this revision is still pending; the published draft's results do
-not establish these changes.
+The follow-up passed formatting, all-target nextest (3,656 passed; 17 skipped),
+doc tests and Clippy with warnings denied after integration with main 52504d90.
+Independent source review found no remaining blocking regression.
 
 Reconnect validates a proposed association fully before publishing it. On Unix
 filesystems it requires the original planning and Git directory device/inode
@@ -86,6 +92,23 @@ there. This does not prove that an external actor never rewrote history inside
 the original Git directory. Recovery/import of replacement backups remains a
 separate, unimplemented flow and is not claimed as accepted here.
 
-The planned GPU gallery exercises production painters with synthetic inputs. It
-is layout evidence only; native first-run, keyboard/focus and observed usability
-acceptance remain separate requirements.
+The current GPU gallery captured 12 wide/narrow production-painter frames.
+[Selected screenshots](images/welcome-onboarding/README.md) passed independent
+visual review. Real egui tests cover clicks, Tab, Shift+Tab, Enter, Escape and
+unapplied folder edits. Native focus/resize and manual usability remain separate
+acceptance checks.
+
+The current follow-up adds background workspace loading, launch-history events
+that survive shutdown, separate readiness summaries, larger controls and a narrow
+help sheet. New-project folder names can be edited before approval; changing the
+location retains the original request and allocates new transaction identities.
+Read-only recovery snapshots list observed folders, history entries, saved
+connections and initial ideas. Existence alone never authorizes a retry.
+
+The first-turn handoff remains available after provider failure until explicitly
+dismissed. These follow-up changes have passed the local gates and synthetic visual review.
+Hosted checks and the operator walkthrough remain before final acceptance.
+
+On 2026-10-30, the operator explicitly waived the observed novice-session
+requirement for this PR and will manually test on Pop!_OS/COSMIC. The manual
+walkthrough remains pending. No novice validation is claimed.

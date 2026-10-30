@@ -23,7 +23,12 @@ impl Context {
     pub(crate) fn onboarding(session: &Onboarding, tasks: &[LocalTask]) -> Self {
         let mut tasks = tasks.to_vec();
         tasks.retain(|task| task.state != crate::persistence::setup_tasks::State::Superseded);
-        tasks.sort_by_key(|task| task.state == crate::persistence::setup_tasks::State::Verified);
+        tasks.sort_by_key(|task| {
+            (
+                session.active_setup_task_id.as_deref() != Some(task.id.as_str()),
+                task.state == crate::persistence::setup_tasks::State::Verified,
+            )
+        });
         Self::Onboarding {
             step: session.step,
             revision: session.revision,

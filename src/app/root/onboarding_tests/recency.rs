@@ -23,6 +23,9 @@ fn real_connections_record_recency_but_listing_and_failed_opens_do_not() {
     app.submit_open_local_workspace();
     assert!(matches!(&app.screen, Screen::Connected(project)
         if project.state.planning_store.project_id == second.id));
+    for job in app.launch_history_jobs.drain(..) {
+        job.join().unwrap().unwrap();
+    }
     let dates = manager.last_opened_dates().unwrap();
     assert!(dates.contains_key(&second.id));
     assert!(!dates.contains_key(&first.id));
@@ -44,6 +47,9 @@ fn real_connections_record_recency_but_listing_and_failed_opens_do_not() {
     assert!(matches!(&restarted.screen, Screen::Connected(project)
         if project.state.planning_store.project_id == second.id));
     assert_eq!(manager.list_local().unwrap().len(), 2);
+    for job in restarted.launch_history_jobs.drain(..) {
+        job.join().unwrap().unwrap();
+    }
     drop(restarted);
     drop(app);
     std::fs::remove_dir_all(base).unwrap();

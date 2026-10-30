@@ -1,9 +1,17 @@
 use super::*;
 mod existing;
+mod launcher;
+mod opening;
+pub(super) use launcher::Launcher;
+pub(super) use opening::OpenJob;
 mod help;
+mod presentation;
 mod progress;
 mod project;
+mod readiness;
+mod recovery;
 use crate::app::welcome::onboarding::Step;
+pub(super) use recovery::Recovery;
 pub(super) type InspectionResult = (
     String,
     std::path::PathBuf,
@@ -14,58 +22,89 @@ impl KooladeApp {
     /// Returns false for the existing workspace/advanced surface.
     pub(super) fn paint_onboarding(&mut self, ui: &mut egui::Ui) -> bool {
         self.poll_onboarding_creation();
+        self.poll_onboarding_open();
+        if self.onboarding_open.is_some() {
+            egui::CentralPanel::default().show(ui, |ui| {
+                ui.spinner(); ui.heading("Opening your workspace…");
+                ui.label("Loading and checking its existing history. Closing the app may interrupt loading; reopen the same workspace to resume safely.");
+            });
+            ui.ctx().request_repaint_after(Duration::from_millis(100));
+            return true;
+        }
+        if matches!(self.onboarding.step, Step::Projects | Step::ExistingProject) {
+            self.onboarding_launcher.poll(ui);
+        }
         if !matches!(self.screen, Screen::Welcome) {
             return false;
         }
-        if matches!(self.onboarding.step, Step::Advanced) {
+        if self.onboarding.step != Step::Advanced {
+            self.paint_onboarding_progress(ui);
+        } else {
+            egui::Panel::top("advanced_onboarding_help").show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("Need help? Ask Man.ager").clicked() {
+                        self.onboarding.help_open = !self.onboarding.help_open;
+                        self.onboarding.save();
+                    }
+                    if ui.button("Guided welcome").clicked() {
+                        self.onboarding.go(Step::Projects);
+                    }
+                });
+            });
+        }
+        if self.paint_onboarding_help(ui) {
+            self.render_queued_settings_dialog(ui);
+            self.toasts.show(ui.ctx());
+            return true;
+        }
+        if self.onboarding.step == Step::Advanced {
             return false;
         }
-        self.paint_onboarding_progress(ui);
-        self.paint_onboarding_help(ui);
         let mut next = None;
         let mut configure = false;
         let selection_id = egui::Id::new("koolade_welcome_setup_selection");
         let mut selection = ui
             .ctx()
-            .data_mut(|data| data.get_temp::<String>(selection_id));
+            .data_mut(|data| data.get_temp::<String>(selection_id))
+            .or_else(|| self.onboarding.active_setup_task_id.clone());
         let mut action = crate::ui::layout::WelcomeSetupAction::default();
         egui::CentralPanel::default().show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
+                presentation::configure(ui);
                 if ui.button("Need help? Ask Man.ager").clicked() {
                     self.onboarding.help_open = !self.onboarding.help_open;
-                    self.onboarding.go(self.onboarding.step);
+                    self.onboarding.save();
                 }
-                ui.add_space(24.0);
-                ui.heading("Kool.ad/e");
-                ui.label("Your idea. A clear plan. A place to start.");
-                ui.add_space(24.0);
+                ui.add_space(16.0);
+                presentation::card(ui, |ui| {
+                ui.label(egui::RichText::new("Kool.ad/e").strong().color(crate::ui::theme::TEXT_DIM));
+                ui.add_space(12.0);
                 if let Some(error) = &self.onboarding.error { ui.label(error); }
                 match self.onboarding.step {
                     Step::Start => {
-                        ui.heading("Tell Kool.ad/e what you want to make.");
+                        ui.label(crate::ui::theme::page_title("Tell Kool.ad/e what you want to make."));
                         ui.label("Man.ager will help get your computer ready and guide you into your project. You decide what changes.");
-                        if ui.button("Get started").clicked() { next = Some(Step::Manager); }
+                        if ui.add(presentation::primary_button("Get started")).clicked() { next = Some(Step::Manager); }
                     }
                     Step::Manager => {
-                        ui.label("1 of 4 · Meet your Man.ager");
                         ui.heading("Choose your AI assistant");
                         ui.label("Man.ager helps plan your project, answer questions and coordinate work. Choose which AI tool powers it. You can change this later.");
-                        if ui.button("Choose and verify my AI tool").clicked() { configure = true; }
-                        if ui.link("Continue setup").clicked() { next = Some(Step::Readiness); }
-                        if ui.link("Back").clicked() { next = Some(Step::Start); }
+                        self.paint_manager_choice_status(ui);
+                        if ui.add(presentation::primary_button("Choose and verify my AI tool")).clicked() { configure = true; }
+                        if ui.button("Continue setup").clicked() { next = Some(Step::Readiness); }
+                        if ui.button("Back").clicked() { next = Some(Step::Start); }
                     }
                     Step::Readiness => {
-                        ui.label("2 of 4 · Prepare this computer");
                         ui.heading("Let's get ready");
                         ui.label("Planning and running code have different requirements. Each repair needs your permission; choosing to continue does not enable coding execution.");
-                        if self.setup_probe.is_some() { ui.spinner(); ui.label("Checking this computer…"); }
+                        self.paint_readiness_summary(ui, &mut selection);
                         ui.collapsing("Review checks and available repairs", |ui| {
                             action = crate::ui::layout::paint_welcome_setup_board(ui,
                                 &self.machine_setup_tasks, &self.setup_attention,
                                 self.setup_probe.is_some(), &mut selection);
                         });
-                        if ui.button("Continue to my projects").clicked() { next = Some(Step::Projects); }
-                        if ui.link("Back").clicked() { next = Some(Step::Manager); }
+                        if ui.add(presentation::primary_button("Continue to my projects")).clicked() { next = Some(Step::Projects); }
+                        if ui.button("Back").clicked() { next = Some(Step::Manager); }
                     }
                     Step::ExistingProject => { self.paint_existing_project(ui, &mut next); }
                     Step::Projects | Step::NewProject | Step::ReviewProject => {
@@ -74,16 +113,16 @@ impl KooladeApp {
                     _ => {}
                 }
                 ui.add_space(24.0);
-                ui.collapsing("Need help?", |ui| {
-                    ui.label("You can explore planning before setting up code execution. Use the setup details to review a problem and ask for guidance. No repair runs just because you move to the next step.");
+                if self.onboarding_creation.is_none() && ui.button("Advanced options").clicked() { next = Some(Step::Advanced); }
                 });
-                if self.onboarding_creation.is_none() && ui.link("Advanced options").clicked() { next = Some(Step::Advanced); }
             });
         });
         if action.retry {
             self.dispatch_ui_command(crate::ui::ApplicationCommand::RetrySetupCheck);
         }
         if let Some(task_id) = action.fix_task {
+            self.onboarding.pending_operation_task_id = Some(task_id.clone());
+            self.onboarding.save();
             self.dispatch_ui_command(crate::ui::ApplicationCommand::RequestSetupTaskFix {
                 task_id,
             });
@@ -97,6 +136,10 @@ impl KooladeApp {
             ) {
                 selection = None;
             }
+        }
+        if self.onboarding.active_setup_task_id != selection {
+            self.onboarding.active_setup_task_id = selection.clone();
+            self.onboarding.save();
         }
         ui.ctx().data_mut(|data| {
             if let Some(selection) = selection {

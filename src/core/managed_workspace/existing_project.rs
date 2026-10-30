@@ -8,7 +8,7 @@ pub enum ExistingProjectKind {
     NeedsHistory,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ExistingProject {
     pub folder: PathBuf,
     pub workspace_id: uuid::Uuid,
