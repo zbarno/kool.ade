@@ -1,26 +1,30 @@
 # Runtime QA release evidence
 
-## Current snapshot (2026-10-30, 21:04 UTC)
+## Current snapshot (2026-10-30, 21:43 UTC)
 
-Current `main` is [`24291aa9`](https://github.com/zbarno/kool.ade/commit/24291aa9a7620a30615c2ef1c6c1c586cd354602).
-Its exact-main [quality](https://github.com/zbarno/kool.ade/actions/runs/41115005725),
-[CodeQL](https://github.com/zbarno/kool.ade/actions/runs/41115005003),
-[native package](https://github.com/zbarno/kool.ade/actions/runs/41115005634),
-and [trusted executor image](https://github.com/zbarno/kool.ade/actions/runs/41115005668)
-workflows completed successfully. Runtime QA profile publication remains disabled;
-passing candidate checks do not approve release or enable either profile.
+Current `main` is [`abad2af3`](https://github.com/zbarno/kool.ade/commit/abad2af35d6cd9c0334edbe731ac333e1e872f72),
+which merged PR #435. Exact-main [quality](https://github.com/zbarno/kool.ade/actions/runs/41130466227)
+and [CodeQL](https://github.com/zbarno/kool.ade/actions/runs/41130465745) passed.
+The [native package](https://github.com/zbarno/kool.ade/actions/runs/41130466222)
+and [trusted executor image](https://github.com/zbarno/kool.ade/actions/runs/41130466301)
+workflows were still running at this snapshot. Runtime QA profile publication
+remains disabled; candidate checks do not approve release or enable either profile.
 
-The two open PRs are refreshed to this exact base:
+PR [#435](https://github.com/zbarno/kool.ade/pull/435) merged as `abad2af3`.
+Its final candidate head `5f1a0aaa` passed quality, CodeQL, all five native
+package targets, rootless browser and desktop candidate verification,
+published-image smokes, and reviewed-digest verification. The exact-main
+workflows above are the post-merge checks.
 
-| PR | Head | Completed checks on current head | Review state |
-| --- | --- | --- | --- |
-| [#435](https://github.com/zbarno/kool.ade/pull/435) | [`5f1a0aaa`](https://github.com/zbarno/kool.ade/commit/5f1a0aaa9dec52da1240ac9f215d9c76617f121f) | [Quality](https://github.com/zbarno/kool.ade/actions/runs/41120949792), [CodeQL](https://github.com/zbarno/kool.ade/actions/runs/41120940337), [five native package targets](https://github.com/zbarno/kool.ade/actions/runs/41120949925), [browser and desktop rootless candidate verification, published-image smokes, and digest verification](https://github.com/zbarno/kool.ade/actions/runs/41120950002) passed. | Maintainer review requested; auto-merge is enabled with the normal merge method. |
-| [#436](https://github.com/zbarno/kool.ade/pull/436) | [`57f1d6b7`](https://github.com/zbarno/kool.ade/commit/57f1d6b77912f71512c19aa59b8ff2e9f714dde2) | [Quality](https://github.com/zbarno/kool.ade/actions/runs/41118869450), [CodeQL](https://github.com/zbarno/kool.ade/actions/runs/41118864740), [five native package targets](https://github.com/zbarno/kool.ade/actions/runs/41118869545), and [trusted-image digest verification](https://github.com/zbarno/kool.ade/actions/runs/41118869588) passed. Profile publication and published-image smokes were skipped while the profiles remain disabled. | Maintainer review requested; auto-merge is enabled with the normal merge method. |
+PR [#436](https://github.com/zbarno/kool.ade/pull/436) has been updated to
+include `abad2af3` using a normal merge commit; its refreshed hosted checks must
+complete before it can merge. Maintainer review is still required and normal
+auto-merge remains enabled.
 
-These results establish candidate and exact-main CI status only. The remaining
-technical #171 acceptance criteria are still open, and deferred human
-readiness/status/screenshot review remains a prelaunch activity that does not
-block issue closure after technical acceptance is complete.
+These results establish candidate and exact-main CI status only. Technical
+#171 acceptance criteria remain open. Deferred human readiness/status/screenshot
+review is a prelaunch activity and does not block issue closure after technical
+acceptance is complete.
 
 ## Historical exact-main snapshot (2026-10-30, 15:59 UTC)
 
