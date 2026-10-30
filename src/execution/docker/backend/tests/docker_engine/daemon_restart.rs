@@ -13,6 +13,7 @@ const OPT_IN: &str = "KOOLADE_DOCKER_DAEMON_RESTART_INTEGRATION";
 /// invariants (dirty-clone preservation, no command replay, durable journal)
 /// are unchanged.
 async fn prepare_and_start_through_boot_window(
+    state_home: &std::path::Path,
     backend: &crate::execution::docker::backend::DockerExecutionBackend,
     request: &crate::execution::contract::ExecutionRequestV1,
 ) -> (
@@ -31,6 +32,14 @@ async fn prepare_and_start_through_boot_window(
     let mut attempt = 0u32;
     loop {
         attempt += 1;
+        if attempt > 1 {
+            // A failed attempt can leave the setup-task ledger mid-transition
+            // (the image preparation request already recorded but never
+            // completed). The ledger lives in the per-test scratch state
+            // home, so retiring it here keeps every attempt honest at
+            // version 1 instead of racing the version fence.
+            let _ = std::fs::remove_file(state_home.join("machine-setup").join("tasks.json"));
+        }
         let lease = match backend
             .prepare_workspace(&request.workspace, &request.target)
             .await
@@ -97,6 +106,14 @@ async fn restarted_rootless_daemon_preserves_dirty_clone_without_command_replay(
     }
 
     let fixture = Fixture::new();
+    // Keep the shared machine-setup ledger (and everything else that honors
+    // KOOLADE_HOME) inside this fixture for the lifetime of the test: the
+    // boot-window retry retires the scratch ledger between attempts. Declared
+    // before every other guard so it is restored last.
+    let state_home = fixture.root.join("state-home");
+    std::fs::create_dir_all(&state_home).expect("create per-test state home");
+    let mut state_home_guard = crate::test_support::ProcessEnvironmentGuard::new();
+    state_home_guard.set("KOOLADE_HOME", state_home.to_string_lossy().to_string());
     let mut daemon = IsolatedRootlessDaemon::start(&fixture.root).await;
     let endpoint = daemon.endpoint().clone();
     let docker = endpoint
@@ -138,7 +155,8 @@ async fn restarted_rootless_daemon_preserves_dirty_clone_without_command_replay(
         endpoint.clone(),
         format!("koolade-exec-{}", request.execution_id),
     );
-    let (_lease, handle) = prepare_and_start_through_boot_window(&backend, &request).await;
+    let (_lease, handle) =
+        prepare_and_start_through_boot_window(&state_home, &backend, &request).await;
 
     let backend = Arc::new(backend);
     let running_backend = backend.clone();
