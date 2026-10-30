@@ -1,8 +1,34 @@
 # Runtime QA release evidence
 
-## Current main workflow status (2026-10-30, 15:59 UTC)
+## Current snapshot (2026-10-30, 21:43 UTC)
 
-Evidence is anchored to current `main` commit
+Current `main` is [`abad2af3`](https://github.com/zbarno/kool.ade/commit/abad2af35d6cd9c0334edbe731ac333e1e872f72),
+which merged PR #435. Exact-main [quality](https://github.com/zbarno/kool.ade/actions/runs/41130466227)
+and [CodeQL](https://github.com/zbarno/kool.ade/actions/runs/41130465745) passed.
+The [native package](https://github.com/zbarno/kool.ade/actions/runs/41130466222)
+and [trusted executor image](https://github.com/zbarno/kool.ade/actions/runs/41130466301)
+workflows were still running at this snapshot. Runtime QA profile publication
+remains disabled; candidate checks do not approve release or enable either profile.
+
+PR [#435](https://github.com/zbarno/kool.ade/pull/435) merged as `abad2af3`.
+Its final candidate head `5f1a0aaa` passed quality, CodeQL, all five native
+package targets, rootless browser and desktop candidate verification,
+published-image smokes, and reviewed-digest verification. The exact-main
+workflows above are the post-merge checks.
+
+PR [#436](https://github.com/zbarno/kool.ade/pull/436) has been updated to
+include `abad2af3` using a normal merge commit; its refreshed hosted checks must
+complete before it can merge. Maintainer review is still required and normal
+auto-merge remains enabled.
+
+These results establish candidate and exact-main CI status only. Technical
+#171 acceptance criteria remain open. Deferred human readiness/status/screenshot
+review is a prelaunch activity and does not block issue closure after technical
+acceptance is complete.
+
+## Historical exact-main snapshot (2026-10-30, 15:59 UTC)
+
+At that timestamp, evidence was anchored to `main` commit
 [`52504d90`](https://github.com/zbarno/kool.ade/commit/52504d90ea56913acbf79a5c8e307a70f1a85321),
 which merged PR #433. The native package workflow
 [41076371385](https://github.com/zbarno/kool.ade/actions/runs/41076371385)
@@ -18,9 +44,35 @@ The exact-main trusted executor retry
 passed on code commit `713afd27`, including browser and desktop rootless
 candidate checks, published-image smokes, and digest verification. The only
 change from that code commit to current `main` is the documentation update in
-PR #433. CodeQL passed on the corresponding PR heads before merge. Both QA
-profiles remain disabled; these results do not authorize enabling them or
-certify the complete release matrix.
+PR #433. CodeQL passed on the corresponding PR heads before merge. At that
+timestamp, the only change from the code commit to `main` was PR #433's
+documentation update. Both QA profiles remain disabled; these results do not
+authorize enabling them or certify the complete release matrix.
+
+## Status after PR #434 merge (2026-10-30, 19:41 UTC)
+
+PR #434 merged as [`24291aa9`](https://github.com/zbarno/kool.ade/commit/24291aa9a7620a30615c2ef1c6c1c586cd354602),
+advancing `main` beyond `52504d90`. Exact-main quality
+[41115005725](https://github.com/zbarno/kool.ade/actions/runs/41115005725)
+and CodeQL [41115005003](https://github.com/zbarno/kool.ade/actions/runs/41115005003)
+passed on the merge commit. Native packages
+[41115005634](https://github.com/zbarno/kool.ade/actions/runs/41115005634)
+and trusted executor images
+[41115005668](https://github.com/zbarno/kool.ade/actions/runs/41115005668)
+were still running at this snapshot. PR #434's candidate checks passed rootless
+browser and desktop verification and reviewed-image digest checks before merge.
+Profiles remain disabled, so candidate success does not authorize publication.
+
+The remaining open PRs had not yet incorporated `24291aa9`:
+
+| PR | Head and base | Check status at this snapshot |
+| --- | --- | --- |
+| #435 | [`99e148b`](https://github.com/zbarno/kool.ade/commit/99e148b94819ed4f5d3c4f2928d603a893a1c8fa) on base `b7297032` | Local fmt, nextest (3,663 passed, 17 skipped), doc tests, and Clippy passed. Hosted quality failed one test, `pursued_self_improvement_uses_current_app_plan_review_before_task_generation`, after an IO error reported a missing lifecycle-feature record; the same test passed in exact-main quality run [41115005725](https://github.com/zbarno/kool.ade/actions/runs/41115005725). Rootless browser and desktop candidate jobs and several native package jobs remained in progress. |
+| #436 | [`359a365`](https://github.com/zbarno/kool.ade/commit/359a365ad6cffceeb93299983e5fe3e17e5d2f47) on base `b7297032` | All reported quality, CodeQL, trusted-image, and native-package checks passed; profile publication and smokes were skipped because both profiles are disabled. These checks do not validate the newer `24291aa9` base. |
+
+The pre-merge checks below remain historical evidence for their listed heads.
+Three technical #171 acceptance items remain open. Deferred human prelaunch
+review does not block issue closure once technical acceptance is complete.
 
 ## Merged candidate PR checks (2026-10-30)
 
