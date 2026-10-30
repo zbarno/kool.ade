@@ -13,7 +13,11 @@ use super::{association::WorkspaceAssociation, creation, git, manifest::Workspac
 use anyhow::Context;
 
 mod listing;
+pub use listing::WorkspaceLauncher;
 mod operations;
+mod reconnect;
+mod relocation;
+pub(super) use relocation::RelocationIdentity;
 mod remote;
 mod sync;
 
@@ -122,6 +126,13 @@ impl WorkspaceManager {
         );
         let association = WorkspaceAssociation::read(&association_path, id)
             .map_err(|error| anyhow::anyhow!("workspace association is unreadable: {error}"))?;
+        Self::validate_association(id, association)
+    }
+
+    pub(super) fn validate_association(
+        id: uuid::Uuid,
+        association: WorkspaceAssociation,
+    ) -> anyhow::Result<ManagedWorkspace> {
         let planning_repo = association
             .planning_repo_path
             .canonicalize()

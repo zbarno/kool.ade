@@ -9,13 +9,26 @@ impl Controller {
         host: crate::app::setup_attention::catalog::HostKind,
         harness: Box<dyn AiHarness>,
     ) -> Result<(), String> {
-        self.ensure_loaded(&task.id);
-        if self.active.contains_key(&task.id) {
+        self.start_context(
+            &super::super::Context::Task(Box::new(task.clone())),
+            host,
+            harness,
+        )
+    }
+
+    pub(in crate::app::root::bootstrap_conversation) fn start_context(
+        &mut self,
+        context: &super::super::Context,
+        host: crate::app::setup_attention::catalog::HostKind,
+        harness: Box<dyn AiHarness>,
+    ) -> Result<(), String> {
+        self.ensure_loaded(context.id());
+        if self.active.contains_key(context.id()) {
             return Err("Wait for this setup-assistant response to finish or cancel it.".into());
         }
         let raw_text = self
             .conversations
-            .get(&task.id)
+            .get(context.id())
             .map(|conversation| conversation.draft.trim().to_owned())
             .unwrap_or_default();
         if raw_text.is_empty() {
@@ -27,7 +40,7 @@ impl Controller {
 
         let user_message = ChatMessage::new(ChatRole::User, raw_text, None);
         let messages =
-            BootstrapConversationStore::append(&task.id, std::slice::from_ref(&user_message))
+            BootstrapConversationStore::append(context.id(), std::slice::from_ref(&user_message))
                 .map_err(|_| "The setup conversation could not be saved locally.".to_owned())?;
         let persisted_user = messages
             .iter()
@@ -35,7 +48,10 @@ impl Controller {
             .cloned()
             .ok_or_else(|| "The setup message could not be stored safely.".to_owned())?;
         {
-            let conversation = self.conversations.entry(task.id.clone()).or_default();
+            let conversation = self
+                .conversations
+                .entry(context.id().to_owned())
+                .or_default();
             conversation.loaded = true;
             conversation.messages = messages.clone();
             conversation.draft.clear();
@@ -52,8 +68,8 @@ impl Controller {
             .tempdir()
             .map_err(|_| "A private setup-assistant workspace could not be prepared.".to_owned())?;
         let cancel = Arc::new(AtomicBool::new(false));
-        let request = super::super::prompt::render_request(
-            task,
+        let request = super::super::prompt::render_context_request(
+            context,
             &history,
             &persisted_user,
             host,
@@ -81,11 +97,11 @@ impl Controller {
             let _ = done_tx.send(response);
         });
         self.active.insert(
-            task.id.clone(),
+            context.id().to_owned(),
             ActiveTurn {
-                task_id: task.id.clone(),
+                task_id: context.id().to_owned(),
                 generation,
-                task_fingerprint: super::super::task_fingerprint(task, host),
+                task_fingerprint: context.fingerprint(host),
                 route,
                 request,
                 cancel,
@@ -150,13 +166,24 @@ impl Controller {
         current_task: Option<&LocalTask>,
         current_route: Option<HarnessRouteProvenance>,
     ) {
+        let context = current_task
+            .cloned()
+            .map(Box::new)
+            .map(super::super::Context::Task);
+        self.finish_context(completed, context.as_ref(), current_route);
+    }
+
+    pub(in crate::app::root::bootstrap_conversation) fn finish_context(
+        &mut self,
+        completed: CompletedTurn,
+        current_context: Option<&super::super::Context>,
+        current_route: Option<HarnessRouteProvenance>,
+    ) {
         let active = completed.active;
-        let Some(task) = current_task.filter(|task| {
-            task.id == active.task_id
-                && super::super::task_fingerprint(
-                    task,
-                    crate::app::setup_attention::catalog::HostKind::current(),
-                ) == active.task_fingerprint
+        let Some(context) = current_context.filter(|context| {
+            context.id() == active.task_id
+                && context.fingerprint(crate::app::setup_attention::catalog::HostKind::current())
+                    == active.task_fingerprint
         }) else {
             self.invalidate(&active.task_id, "Setup facts changed while the assistant was responding. Check setup again before using a suggestion.");
             return;
@@ -183,12 +210,9 @@ impl Controller {
         let suggestion = response
             .suggestion
             .as_ref()
-            .filter(|suggestion| super::super::suggest_remediation_intent(task, suggestion));
-        let assistant_message = ChatMessage::new(
-            ChatRole::Agent,
-            super::super::response_message(response.reply, task),
-            None,
-        );
+            .filter(|suggestion| context.permits(suggestion));
+        let assistant_message =
+            ChatMessage::new(ChatRole::Agent, context.reply(response.reply), None);
         match BootstrapConversationStore::append(&active.task_id, &[assistant_message]) {
             Ok(messages) => {
                 let conversation = self

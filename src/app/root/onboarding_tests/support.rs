@@ -31,6 +31,8 @@ pub(super) fn frame_at(
     events: Vec<egui::Event>,
     size: egui::Vec2,
 ) -> egui::FullOutput {
+    // These existing journey tests explicitly exercise the Advanced routes.
+    app.onboarding.step = crate::app::welcome::onboarding::Step::Advanced;
     for theme in [egui::Theme::Dark, egui::Theme::Light] {
         ctx.style_mut_of(theme, |style| style.animation_time = 0.0);
     }

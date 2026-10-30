@@ -3,6 +3,8 @@
 use super::*;
 #[path = "visual_gallery/fixtures.rs"]
 mod fixtures;
+#[path = "visual_gallery/onboarding.rs"]
+mod onboarding;
 #[path = "visual_gallery/renderer.rs"]
 mod renderer;
 

@@ -31,6 +31,7 @@ pub enum BootstrapTaskStatusV1 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BootstrapFactDomainV1 {
+    Onboarding,
     OperatingSystem,
     Provider,
     Authentication,
