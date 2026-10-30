@@ -68,7 +68,7 @@ impl PromptRole {
             Self::SpecReconciler => "spec_sync/v1",
             Self::RepairWorker => "repair/v1",
             Self::PrPreparer => "pr/v1",
-            Self::BootstrapConversation => "bootstrap_conversation/v1",
+            Self::BootstrapConversation => "bootstrap_conversation/v2",
         }
     }
 
@@ -130,7 +130,7 @@ impl PromptRole {
             Self::RepairWorker => include_str!("../../../prompts/v1/repair.system.md"),
             Self::PrPreparer => include_str!("../../../prompts/v1/pr.system.md"),
             Self::BootstrapConversation => {
-                include_str!("../../../prompts/v1/bootstrap_conversation.system.md")
+                include_str!("../../../prompts/v2/bootstrap_conversation.system.md")
             }
         }
     }
@@ -162,7 +162,7 @@ impl PromptRole {
             Self::RepairWorker => include_str!("../../../prompts/v1/repair.user.md"),
             Self::PrPreparer => include_str!("../../../prompts/v1/pr.user.md"),
             Self::BootstrapConversation => {
-                include_str!("../../../prompts/v1/bootstrap_conversation.user.md")
+                include_str!("../../../prompts/v2/bootstrap_conversation.user.md")
             }
         }
     }

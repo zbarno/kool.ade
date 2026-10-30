@@ -13,6 +13,7 @@ use std::{
     sync::{Arc, atomic::AtomicBool, mpsc},
 };
 
+#[cfg(test)]
 pub(super) fn render_request(
     task: &LocalTask,
     history: &[crate::domain::ChatMessage],
@@ -21,11 +22,29 @@ pub(super) fn render_request(
     private_working_directory: PathBuf,
     cancel: Arc<AtomicBool>,
 ) -> Result<PlanningRequest, String> {
+    render_context_request(
+        &super::Context::Task(Box::new(task.clone())),
+        history,
+        current_message,
+        host,
+        private_working_directory,
+        cancel,
+    )
+}
+
+pub(super) fn render_context_request(
+    context: &super::Context,
+    history: &[crate::domain::ChatMessage],
+    current_message: &crate::domain::ChatMessage,
+    host: crate::app::setup_attention::catalog::HostKind,
+    private_working_directory: PathBuf,
+    cancel: Arc<AtomicBool>,
+) -> Result<PlanningRequest, String> {
     let payload = BootstrapConversationPayloadV1 {
         platform: platform(host),
-        task_title: clip(&task.title, 512),
-        task_status: task_status(task.state),
-        facts: facts(task),
+        task_title: clip(context.title(), 512),
+        task_status: context.status(),
+        facts: context.facts(),
         history: recent_history(history),
         current_message: BootstrapAttributedTextV1 {
             source: BootstrapConversationSourceV1::User,
@@ -64,7 +83,7 @@ fn platform(host: crate::app::setup_attention::catalog::HostKind) -> BootstrapPl
     }
 }
 
-fn task_status(state: State) -> BootstrapTaskStatusV1 {
+pub(super) fn task_status(state: State) -> BootstrapTaskStatusV1 {
     match state {
         State::Verified => BootstrapTaskStatusV1::Verified,
         State::InProgress | State::NeedsApproval | State::AwaitingVerification => {
@@ -76,7 +95,7 @@ fn task_status(state: State) -> BootstrapTaskStatusV1 {
     }
 }
 
-fn facts(task: &LocalTask) -> Vec<BootstrapTaskFactV1> {
+pub(super) fn facts(task: &LocalTask) -> Vec<BootstrapTaskFactV1> {
     let domain = if task.id.starts_with("setup:cli:") {
         BootstrapFactDomainV1::Provider
     } else if task.id.starts_with("setup:git:") {

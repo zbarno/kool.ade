@@ -60,11 +60,11 @@ pub(in crate::core::managed_workspace) fn populate_and_commit(
         "planning staging directory is not a Git repository root"
     );
     ensure_collection_directories(&root)?;
+    let mut manifest = super::super::manifest::WorkspaceManifest::new(workspace_id);
+    manifest.title = Some(title.to_owned());
     ensure_exact_file(
         &root.join("manifest.json"),
-        &serde_json::to_vec_pretty(&super::super::manifest::WorkspaceManifest::new(
-            workspace_id,
-        ))?,
+        &serde_json::to_vec_pretty(&manifest)?,
     )?;
     ensure_gitignore(&root.join(".gitignore"))?;
     let registry_path = root.join("config/repositories.json");
