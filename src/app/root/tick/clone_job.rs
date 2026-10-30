@@ -91,7 +91,7 @@ impl KooladeApp {
         if self.pending_clone_pairing.is_some() {
             let detail = self.conn_error.clone().unwrap_or_default();
             self.wiz_error(format!(
-                "The clone did not complete:\n{detail}\nYour inputs are kept — fix the issue and press \u{201c}Set up and connect\u{201d} again."
+                "The clone did not complete:\n{detail}\nYour inputs are kept — fix the issue, press \u{201c}Continue\u{201d} to return to the confirm step, and press \u{201c}Set up and connect\u{201d} again."
             ));
         }
     }

@@ -391,3 +391,40 @@ fn validate_repo_name(name: &str, what: &str) -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+#[cfg(test)]
+mod name_rule_tests {
+    use super::{repository_name_allowed, validate_repo_name};
+
+    #[test]
+    fn exposed_rule_cannot_drift_from_validate_repo_name() {
+        let corpus: Vec<String> = vec![
+            "".into(),
+            "a".into(),
+            "zorg".into(),
+            "Demo2".into(),
+            "payroll-service".into(),
+            "demo.x_y-z".into(),
+            "a.".into(),
+            "a-b".into(),
+            "_.x".into(),
+            "1abc".into(),
+            "-abc".into(),
+            ".hidden".into(),
+            ".".into(),
+            "..".into(),
+            "a\u{2014}dash".into(),
+            "x".repeat(64),
+            "x".repeat(65),
+            "segment".repeat(10),
+        ];
+        for name in corpus {
+            let allowed = repository_name_allowed(&name);
+            let validated = validate_repo_name(&name, "corpus name").is_ok();
+            assert_eq!(
+                allowed, validated,
+                "predicate and validator disagree on {name:?}"
+            );
+        }
+    }
+}

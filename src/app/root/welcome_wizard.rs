@@ -338,7 +338,7 @@ fn naming_problem(name: &str) -> Option<String> {
         name.is_empty() || !crate::core::managed_workspace::repository_name_allowed(name);
     unacceptable.then(|| {
         format!(
-            "\"{}\" is unusable as a planning repository name: letters, digits, dots, underscores, and dashes only, and no leading dot. Adjust the planning repository name before continuing.",
+            "\"{}\" is unusable as a planning repository name: it must start with a letter, fit in 64 characters, use letters, digits, dots, underscores, and dashes only, and not start with a dot. Adjust the planning repository name before continuing.",
             name
         )
     })
