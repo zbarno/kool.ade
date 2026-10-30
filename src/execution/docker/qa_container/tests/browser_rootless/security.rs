@@ -26,15 +26,54 @@ pub(crate) fn synthetic_host_identity_root() -> TempDir {
     root
 }
 
-/// Execute file, socket, and environment probes as the locked user inside the
-/// already-running rootless QA driver. The synthetic host files and the
-/// host's real DOCKER_HOST socket must be unreachable from this container.
+fn local_x11_display_socket(display: &str) -> Option<String> {
+    let display = display.strip_prefix("unix/").unwrap_or(display);
+    let number = display.rsplit_once(':')?.1.split('.').next()?;
+    number
+        .parse::<u16>()
+        .ok()
+        .map(|number| format!("/tmp/.X11-unix/X{number}"))
+}
+
+#[cfg(unix)]
+fn host_x11_socket_probe(label: &str, path: &str) -> Option<serde_json::Value> {
+    use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    if !metadata.file_type().is_socket() {
+        return None;
+    }
+    Some(serde_json::json!({
+        "label": label,
+        "path": path,
+        "host_identity": {
+            "device": metadata.dev().to_string(),
+            "inode": metadata.ino().to_string()
+        }
+    }))
+}
+
+#[cfg(not(unix))]
+fn host_x11_socket_probe(_label: &str, _path: &str) -> Option<serde_json::Value> {
+    None
+}
+
+/// Execute file, system-write, socket, and environment probes as the locked
+/// user inside the already-running rootless QA driver. The synthetic host
+/// files and the host's real DOCKER_HOST socket must be unreachable, and a
+/// package-install marker must not be creatable in the immutable system path.
+/// The host DISPLAY socket is checked independently of the private display
+/// configured inside a desktop candidate container.
+/// The live write attempt proves effective filesystem denial beyond inspecting
+/// Docker's read-only-root setting. Dependencies: rootless Docker and the
+/// candidate browser or desktop image already used by the enclosing test.
+/// Setup cost: one extra failed file creation in that existing container.
 pub(crate) async fn assert_host_resources_denied(
     docker: &bollard::Docker,
     container_id: &str,
     runtime_user: &str,
     host_identity_root: &std::path::Path,
-    allowed_display: Option<&str>,
+    container_display: Option<&str>,
 ) -> Result<(), String> {
     let socket_path = std::env::var("DOCKER_HOST")
         .ok()
@@ -45,19 +84,17 @@ pub(crate) async fn assert_host_resources_denied(
         serde_json::json!({"label":"runner rootless Docker socket", "path":socket_path}),
         serde_json::json!({"label":"system Docker socket", "path":"/var/run/docker.sock"}),
         serde_json::json!({"label":"alternate Docker socket", "path":"/run/docker.sock"}),
-        serde_json::json!({"label":"host X11 display", "path":"/tmp/.X11-unix/X0"}),
         serde_json::json!({"label":"host D-Bus", "path":"/run/dbus/system_bus_socket"}),
     ];
-    if let Some(display) = std::env::var_os("DISPLAY").and_then(|value| value.into_string().ok())
-        && let Some(number) = display
-            .strip_prefix(':')
-            .and_then(|value| value.parse::<u16>().ok())
-        && allowed_display != Some(display.as_str())
+    if let Some(probe) = host_x11_socket_probe("host X11 display", "/tmp/.X11-unix/X0") {
+        sockets.push(probe);
+    }
+    if let Some(socket) = std::env::var_os("DISPLAY")
+        .and_then(|value| value.into_string().ok())
+        .and_then(|display| local_x11_display_socket(&display))
+        && let Some(probe) = host_x11_socket_probe("runner X11 display", &socket)
     {
-        sockets.push(serde_json::json!({
-            "label":"runner X11 display",
-            "path":format!("/tmp/.X11-unix/X{number}")
-        }));
+        sockets.push(probe);
     }
     if let Some(wayland) =
         std::env::var_os("WAYLAND_DISPLAY").and_then(|value| value.into_string().ok())
@@ -89,13 +126,16 @@ pub(crate) async fn assert_host_resources_denied(
     ] {
         environment.insert(name.into(), serde_json::Value::Null);
     }
-    if let Some(display) = allowed_display {
+    if let Some(display) = container_display {
         environment.insert("DISPLAY".into(), display.into());
     }
     let checks = serde_json::json!({
         "files": [
             {"label":"synthetic ssh key", "path": host_identity_root.join(".ssh/id_rsa")},
             {"label":"synthetic cloud credentials", "path": host_identity_root.join(".aws/credentials")}
+        ],
+        "system_files": [
+            {"label":"runtime QA system executable directory", "path":"/usr/local/bin"}
         ],
         "sockets": sockets,
         "environment": environment
@@ -115,6 +155,19 @@ const { spawnSync } = require('node:child_process');
       if (!['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR'].includes(error.code)) throw error;
     }
   }
+  for (const item of checks.system_files) {
+    const path = `${item.path}/.koolade-package-install-probe-${process.pid}`;
+    let handle;
+    try {
+      handle = await fs.open(path, 'wx', 0o600);
+      leaked.push(item.label);
+    } catch (error) {
+      if (!['EACCES', 'EPERM', 'EROFS'].includes(error.code)) throw error;
+    } finally {
+      await handle?.close();
+      if (handle) await fs.rm(path, { force: true });
+    }
+  }
   const executable = `/tmp/.koolade-noexec-probe-${process.pid}`;
   try {
     await fs.writeFile(executable, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
@@ -126,31 +179,34 @@ const { spawnSync } = require('node:child_process');
     await fs.rm(executable, { force: true });
   }
   for (const item of checks.sockets) {
-    let present = false;
-    try { await fs.stat(item.path); present = true; }
+    let metadata;
+    try { metadata = await fs.stat(item.path, { bigint: true }); }
     catch (error) {
       if (!['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR'].includes(error.code)) throw error;
+      continue;
     }
-    if (present) {
-      await new Promise((resolve, reject) => {
-        const socket = net.createConnection({ path: item.path });
-        const timer = setTimeout(() => {
-          socket.destroy();
-          reject(new Error('socket probe timed out'));
-        }, 1000);
-        socket.once('connect', () => {
-          clearTimeout(timer);
-          leaked.push(item.label);
-          socket.destroy();
-          resolve();
-        });
-        socket.once('error', error => {
-          clearTimeout(timer);
-          if (['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR', 'ECONNREFUSED'].includes(error.code)) resolve();
-          else reject(error);
-        });
+    if (item.host_identity && (
+      String(metadata.dev) !== item.host_identity.device ||
+      String(metadata.ino) !== item.host_identity.inode
+    )) continue;
+    await new Promise((resolve, reject) => {
+      const socket = net.createConnection({ path: item.path });
+      const timer = setTimeout(() => {
+        socket.destroy();
+        reject(new Error('socket probe timed out'));
+      }, 1000);
+      socket.once('connect', () => {
+        clearTimeout(timer);
+        leaked.push(item.label);
+        socket.destroy();
+        resolve();
       });
-    }
+      socket.once('error', error => {
+        clearTimeout(timer);
+        if (['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR', 'ECONNREFUSED'].includes(error.code)) resolve();
+        else reject(error);
+      });
+    });
   }
   for (const [name, expected] of Object.entries(checks.environment)) {
     const actual = process.env[name];
@@ -221,4 +277,23 @@ const { spawnSync } = require('node:child_process');
         return Err("live browser container could access a forbidden host resource".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::local_x11_display_socket;
+
+    #[test]
+    fn host_x11_display_socket_parses_local_display_variants() {
+        for (display, expected) in [
+            (":0", Some("/tmp/.X11-unix/X0")),
+            (":99.0", Some("/tmp/.X11-unix/X99")),
+            ("unix/:99.1", Some("/tmp/.X11-unix/X99")),
+            ("localhost:10.0", Some("/tmp/.X11-unix/X10")),
+            ("not-a-display", None),
+            (":bad", None),
+        ] {
+            assert_eq!(local_x11_display_socket(display).as_deref(), expected);
+        }
+    }
 }
