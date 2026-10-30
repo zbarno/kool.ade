@@ -1,10 +1,10 @@
 # Runtime QA release evidence
 
-## Current main workflow status (2026-10-30, 18:14 UTC)
+## Latest completed exact-main validation (2026-10-30, 18:14 UTC)
 
-Evidence is anchored to current `main` commit
+The latest fully validated `main` commit at this timestamp was
 [`188fa595`](https://github.com/zbarno/kool.ade/commit/188fa595c4b66e6887147e6c43cb8114b97f00bf),
-which includes merged PR #416. The exact-main quality workflow
+which includes merged PR #416. Its exact-main quality workflow
 [41092759609](https://github.com/zbarno/kool.ade/actions/runs/41092759609),
 native package workflow
 [41092759599](https://github.com/zbarno/kool.ade/actions/runs/41092759599),
@@ -17,6 +17,17 @@ workflow passed rootless browser and desktop candidate verification, including
 app-owned lifecycle tests. QA profile publication, digest promotion, and
 published-image smokes were skipped because both profiles remain disabled.
 These checks do not authorize release or enable either profile.
+
+The current `main` head has since advanced to
+[`b7297032`](https://github.com/zbarno/kool.ade/commit/b72970325bf91fc88604888eae004669bac708ba),
+which merged PR #432. Its exact-main quality
+[41106249355](https://github.com/zbarno/kool.ade/actions/runs/41106249355),
+CodeQL [41106249182](https://github.com/zbarno/kool.ade/actions/runs/41106249182),
+native package [41106249213](https://github.com/zbarno/kool.ade/actions/runs/41106249213),
+and trusted executor image
+[41106249242](https://github.com/zbarno/kool.ade/actions/runs/41106249242)
+workflows are still in progress as of 2026-10-30 18:28 UTC. Their results are
+pending; the completed `188fa595` runs above are not evidence for `b7297032`.
 
 ## Merged candidate PR checks (2026-10-30)
 
