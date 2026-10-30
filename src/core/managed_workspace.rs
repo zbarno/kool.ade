@@ -20,7 +20,8 @@ pub use association::{CodeCheckout, WorkspaceAssociation};
 #[cfg(test)]
 pub(crate) use creation::CreationFailurePoint;
 pub use manager::{
-    CodeRepositoryRegistration, LocalWorkspaceSummary, ManagedWorkspace, WorkspaceManager,
+    CodeRepositoryRegistration, LocalWorkspaceSummary, ManagedWorkspace, WorkspaceLauncher,
+    WorkspaceManager,
 };
 pub(crate) use manifest::MAX_MANIFEST_BYTES;
 pub use manifest::WorkspaceManifest;

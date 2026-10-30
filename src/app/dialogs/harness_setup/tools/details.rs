@@ -241,11 +241,24 @@ fn paint_provider_guidance(
     ui.label("Man.ager helps plan your project, answer questions and coordinate work. Your provider's account and usage charges still apply.");
     if ui.add_enabled(
         dialog.onboarding_model(id).is_some(),
-        egui::Button::new("Use as Man.ager and setup helper"),
+        egui::Button::new(if dialog.onboarding_manager_ready(id) {
+            "Use as Man.ager and setup helper"
+        } else {
+            "Choose for Man.ager; enable setup help"
+        }),
     ).on_disabled_hover_text("Check this tool again after signing in and selecting a default model. It must support verified planning help.").clicked() {
         dialog.select_onboarding_manager(id);
     }
     ui.label(theme::helper_text("This saves your Manager choice and setup helper. Repository work remains gated by the separate Manager and safe-execution checks; selecting a provider does not grant access."));
+    if dialog
+        .settings
+        .work_routes
+        .get(crate::persistence::harness_settings::MANAGER)
+        .is_some_and(|route| route.harness == id)
+        && !dialog.onboarding_manager_ready(id)
+    {
+        ui.label("Manager choice saved. Repository planning is not ready yet. Complete the separate safe-execution checks; setup help can work before Docker is ready.");
+    }
     let selected = dialog.settings.bootstrap_provider.as_deref() == Some(id);
     if ui
         .add(egui::RadioButton::new(
@@ -260,7 +273,7 @@ fn paint_provider_guidance(
         dialog.clear_bootstrap_provider();
     }
     ui.label(theme::helper_text(
-        "This selects the provider for provider-specific setup tasks only. Conversations still follow Default tool and work-type routes, with Manager authoritative. If unset, the selected Default tool provider is used for these tasks.",
+        "This selects the provider for setup tasks and tool-free setup help. Repository conversations use their separate work-type routes. Without an explicitly selected helper, setup chat stays unavailable.",
     ));
     ui.horizontal_wrapped(|ui| {
         ui.hyperlink_to("Installation guide", provider.installation_guide());

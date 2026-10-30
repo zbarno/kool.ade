@@ -83,11 +83,7 @@ pub struct KooladeApp {
     dialog: Option<Dialog>,
     toasts: ToastQueue,
     onboarding: welcome::onboarding::Onboarding,
-    onboarding_inspection: Option<
-        std::thread::JoinHandle<
-            Result<crate::core::managed_workspace::ExistingProjectKind, String>,
-        >,
-    >,
+    onboarding_inspection: Option<std::thread::JoinHandle<onboarding::InspectionResult>>,
     onboarding_project_kind: Option<crate::core::managed_workspace::ExistingProjectKind>,
     onboarding_creation: Option<std::thread::JoinHandle<Result<uuid::Uuid, String>>>,
     conn_path: String,

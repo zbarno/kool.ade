@@ -19,6 +19,8 @@ pub enum Step {
 pub struct Onboarding {
     version: u32,
     #[serde(default)]
+    pub help_open: bool,
+    #[serde(default)]
     pub existing: Option<crate::core::managed_workspace::ExistingProject>,
     #[serde(default)]
     pub previous_attachments: Vec<crate::core::managed_workspace::ExistingProject>,
@@ -52,6 +54,7 @@ impl Onboarding {
             creation: None,
             previous_creations: Vec::new(),
             version: 1,
+            help_open: false,
             step: Step::Start,
             revision: 0,
             updated_at: chrono::Utc::now(),
@@ -72,7 +75,7 @@ impl Onboarding {
                 // scoped checks rather than an imposed first-run interview.
                 if let Some(home) = path.parent()
                     && crate::core::managed_workspace::WorkspaceManager::new(home)
-                        .list_local().is_ok_and(|items| !items.is_empty())
+                        .list_launcher().is_ok_and(|items| !items.available.is_empty() || !items.unavailable.is_empty())
                 {
                     session.step = Step::Projects;
                 }

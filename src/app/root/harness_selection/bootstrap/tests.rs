@@ -5,7 +5,7 @@ use crate::execution::contract::{
 fn request() -> crate::harness::PlanningRequest {
     crate::harness::PlanningRequest {
         prompt_manifest: Some(crate::harness::prompt_catalog::PromptManifest {
-            role_version: "bootstrap_conversation/v1".into(),
+            role_version: "bootstrap_conversation/v2".into(),
             system_template_sha256: String::new(),
             policy_template_sha256: String::new(),
             user_template_sha256: String::new(),

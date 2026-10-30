@@ -73,7 +73,7 @@ fn is_bootstrap_request(request: &PlanningRequest) -> bool {
         && request
             .prompt_manifest
             .as_ref()
-            .is_some_and(|manifest| manifest.role_version == "bootstrap_conversation/v1")
+            .is_some_and(|manifest| manifest.role_version == "bootstrap_conversation/v2")
 }
 
 impl AiHarness for BootstrapHarness {

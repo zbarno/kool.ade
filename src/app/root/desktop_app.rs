@@ -42,7 +42,8 @@ impl KooladeApp {
                 let harness_setup_slot = std::cell::RefCell::new(false);
                 let local_workspaces =
                     crate::core::managed_workspace::WorkspaceManager::from_state_root()
-                        .list_local();
+                        .list_launcher()
+                        .map(|launcher| launcher.available);
                 let mut local_workspaces = local_workspaces.unwrap_or_default();
                 // A damaged personal history must not hide otherwise usable workspaces.
                 let _ = crate::core::managed_workspace::WorkspaceManager::from_state_root()

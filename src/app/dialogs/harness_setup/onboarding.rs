@@ -9,7 +9,6 @@ impl DlgHarnessSetup {
         }
         let now = harness_settings::current_unix_ms();
         let harness = self.settings.discovered.get(id)?;
-        let role = crate::app::root::role_for_work_category(MANAGER)?;
         if !harness.ready
             || crate::harness::execution_security::task_execution_block_reason(id).is_some()
             || !harness.has_current_authenticated_capability(id, now)
@@ -17,7 +16,6 @@ impl DlgHarnessSetup {
                 .capability_snapshot
                 .as_ref()
                 .is_some_and(|snapshot| snapshot.supports_context_only_help())
-            || !harness.supports_role_at(role, now)
             || harness.configuration_required
         {
             return None;
@@ -25,6 +23,16 @@ impl DlgHarnessSetup {
         harness
             .verified_default_model_at(id, now)
             .map(str::to_owned)
+    }
+
+    pub(super) fn onboarding_manager_ready(&self, id: &str) -> bool {
+        self.onboarding_model(id).is_some()
+            && self.settings.discovered.get(id).is_some_and(|harness| {
+                harness.supports_role_at(
+                    crate::execution::contract::HarnessRole::Manager,
+                    harness_settings::current_unix_ms(),
+                )
+            })
     }
 
     pub(super) fn select_onboarding_manager(&mut self, id: &str) {

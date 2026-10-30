@@ -127,3 +127,52 @@ fn prompt_history_is_bounded_and_system_notices_are_not_replayed_as_evidence() {
     let prompt = crate::harness::prompt_catalog::render(&input).unwrap();
     assert!(!prompt.user.contains("task:authenticate"));
 }
+
+#[test]
+fn onboarding_context_has_no_task_authority_and_is_revision_fenced() {
+    use crate::app::root::bootstrap_conversation::Context;
+    use crate::app::welcome::onboarding::Step;
+    use crate::harness::{BootstrapIntentOperationV1, BootstrapIntentSuggestionV1};
+    let host = crate::app::setup_attention::catalog::HostKind::Linux;
+    let context = Context::Onboarding {
+        step: Step::Manager,
+        revision: 3,
+        tasks: vec![],
+    };
+    let changed = Context::Onboarding {
+        step: Step::Readiness,
+        revision: 4,
+        tasks: vec![],
+    };
+    assert_ne!(context.fingerprint(host), changed.fingerprint(host));
+    for operation in [
+        BootstrapIntentOperationV1::OpenCodingTools,
+        BootstrapIntentOperationV1::RecheckPrerequisites,
+        BootstrapIntentOperationV1::PrepareLockedImage,
+    ] {
+        assert!(!context.permits(&BootstrapIntentSuggestionV1 {
+            operation,
+            image_profile: None
+        }));
+    }
+    let message = crate::domain::ChatMessage::new(
+        crate::domain::ChatRole::User,
+        "What happens before Docker is ready?",
+        None,
+    );
+    let request = render_context_request(
+        &context,
+        &[],
+        &message,
+        host,
+        PathBuf::from("/synthetic/private-chat"),
+        Arc::new(AtomicBool::new(false)),
+    )
+    .unwrap();
+    assert_eq!(request.mode.tool_access(), crate::harness::ToolAccess::None);
+    assert!(request.task_id.is_none());
+    assert!(request.execution_workspace.is_none());
+    assert!(request.authorization_verifier.is_none());
+    assert!(request.prompt_body.contains("onboarding"));
+    assert!(request.prompt_body.contains("not_applicable"));
+}

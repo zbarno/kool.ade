@@ -1,4 +1,5 @@
 use super::*;
+mod location;
 use crate::core::managed_workspace::{ApplicationCreation, WorkspaceManager};
 
 impl KooladeApp {
@@ -46,11 +47,12 @@ impl KooladeApp {
                     *next = Some(Step::NewProject);
                 }
                 if ui.button("Use an existing project").clicked() {
-                    *next = Some(Step::Advanced);
+                    *next = Some(Step::ExistingProject);
                 }
                 let manager = WorkspaceManager::from_state_root();
-                match manager.list_local() {
-                    Ok(mut workspaces) => {
+                match manager.list_launcher() {
+                    Ok(launcher) => {
+                        let mut workspaces = launcher.available;
                         let _ = manager.sort_by_recent_open(&mut workspaces);
                         if welcome::paint_recent(
                             ui,
@@ -59,6 +61,26 @@ impl KooladeApp {
                             false,
                         ) {
                             self.submit_open_local_workspace();
+                        }
+                        for id in launcher.unavailable {
+                            ui.push_id(id, |ui| {
+                                let (title, missing) = manager.unavailable_workspace_label(id);
+                                ui.label(title);
+                                ui.label(if missing { "Its planning folder has moved or is missing." } else { "This workspace could not be opened. Check its permissions and repository settings in Advanced options." });
+                                if missing && ui.button("Find its planning folder…").clicked()
+                                    && let Some(folder) = rfd::FileDialog::new()
+                                        .set_title("Reconnect this workspace")
+                                        .pick_folder()
+                                {
+                                    self.onboarding_creation =
+                                        Some(std::thread::spawn(move || {
+                                            WorkspaceManager::from_state_root()
+                                                .reconnect(id, &folder)
+                                                .map(|workspace| workspace.id)
+                                                .map_err(|error| format!("{error:#}"))
+                                        }));
+                                }
+                            });
                         }
                     }
                     Err(_) => {
@@ -111,34 +133,20 @@ impl KooladeApp {
                         std::path::PathBuf::from(&self.onboarding.project_parent).canonicalize();
                     match parent {
                         Ok(parent) => {
-                            let slug = self
-                                .onboarding
-                                .project_name
-                                .chars()
-                                .map(|c| {
-                                    if c.is_ascii_alphanumeric() {
-                                        c.to_ascii_lowercase()
-                                    } else {
-                                        '-'
+                            match location::suggest(&parent, &self.onboarding.project_name) {
+                                Ok(code_directory) => {
+                                    if self.onboarding.creation.is_none() {
+                                        self.onboarding.creation = Some(ApplicationCreation {
+                                            transaction_id: uuid::Uuid::new_v4(),
+                                            workspace_id: uuid::Uuid::new_v4(),
+                                            title: self.onboarding.project_name.trim().into(),
+                                            intent: self.onboarding.project_intent.trim().into(),
+                                            code_directory,
+                                        });
                                     }
-                                })
-                                .collect::<String>();
-                            let slug = slug.trim_matches('-');
-                            if slug.is_empty() {
-                                self.conn_error = Some(
-                                    "Use at least one letter or number in the project name.".into(),
-                                );
-                            } else {
-                                if self.onboarding.creation.is_none() {
-                                    self.onboarding.creation = Some(ApplicationCreation {
-                                        transaction_id: uuid::Uuid::new_v4(),
-                                        workspace_id: uuid::Uuid::new_v4(),
-                                        title: self.onboarding.project_name.trim().into(),
-                                        intent: self.onboarding.project_intent.trim().into(),
-                                        code_directory: parent.join(slug),
-                                    });
+                                    *next = Some(Step::ReviewProject);
                                 }
-                                *next = Some(Step::ReviewProject);
+                                Err(error) => self.conn_error = Some(error),
                             }
                         }
                         Err(_) => {

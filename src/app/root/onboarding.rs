@@ -1,7 +1,14 @@
 use super::*;
 mod existing;
+mod help;
+mod progress;
 mod project;
 use crate::app::welcome::onboarding::Step;
+pub(super) type InspectionResult = (
+    String,
+    std::path::PathBuf,
+    Result<crate::core::managed_workspace::ExistingProjectKind, String>,
+);
 
 impl KooladeApp {
     /// Returns false for the existing workspace/advanced surface.
@@ -13,6 +20,8 @@ impl KooladeApp {
         if matches!(self.onboarding.step, Step::Advanced) {
             return false;
         }
+        self.paint_onboarding_progress(ui);
+        self.paint_onboarding_help(ui);
         let mut next = None;
         let mut configure = false;
         let selection_id = egui::Id::new("koolade_welcome_setup_selection");
@@ -22,6 +31,10 @@ impl KooladeApp {
         let mut action = crate::ui::layout::WelcomeSetupAction::default();
         egui::CentralPanel::default().show(ui, |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
+                if ui.button("Need help? Ask Man.ager").clicked() {
+                    self.onboarding.help_open = !self.onboarding.help_open;
+                    self.onboarding.go(self.onboarding.step);
+                }
                 ui.add_space(24.0);
                 ui.heading("Kool.ad/e");
                 ui.label("Your idea. A clear plan. A place to start.");
@@ -34,7 +47,7 @@ impl KooladeApp {
                         if ui.button("Get started").clicked() { next = Some(Step::Manager); }
                     }
                     Step::Manager => {
-                        ui.label("1 of 3 · Meet your Man.ager");
+                        ui.label("1 of 4 · Meet your Man.ager");
                         ui.heading("Choose your AI assistant");
                         ui.label("Man.ager helps plan your project, answer questions and coordinate work. Choose which AI tool powers it. You can change this later.");
                         if ui.button("Choose and verify my AI tool").clicked() { configure = true; }
@@ -42,7 +55,7 @@ impl KooladeApp {
                         if ui.link("Back").clicked() { next = Some(Step::Start); }
                     }
                     Step::Readiness => {
-                        ui.label("2 of 3 · Prepare this computer");
+                        ui.label("2 of 4 · Prepare this computer");
                         ui.heading("Let's get ready");
                         ui.label("Planning and running code have different requirements. Each repair needs your permission; choosing to continue does not enable coding execution.");
                         if self.setup_probe.is_some() { ui.spinner(); ui.label("Checking this computer…"); }

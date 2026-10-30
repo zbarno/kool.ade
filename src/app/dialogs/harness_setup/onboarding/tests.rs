@@ -65,11 +65,21 @@ fn fixture() -> DlgHarnessSetup {
     DlgHarnessSetup::review_fixture(settings)
 }
 #[test]
-fn helper_only_capability_does_not_select_an_unusable_manager() {
+fn helper_choice_before_docker_does_not_grant_manager_readiness() {
     let mut dialog = fixture();
     let before = dialog.settings.clone();
     dialog.select_onboarding_manager("opencode");
-    assert_eq!(dialog.settings, before);
+    assert_eq!(dialog.settings.work_routes[MANAGER].harness, "opencode");
+    assert_eq!(
+        dialog.settings.bootstrap_provider.as_deref(),
+        Some("opencode")
+    );
+    assert!(!dialog.onboarding_manager_ready("opencode"));
+    assert_eq!(dialog.settings.discovered, before.discovered);
+    assert_eq!(
+        dialog.settings.work_routes["implementation"],
+        before.work_routes["implementation"]
+    );
 }
 #[test]
 fn stale_or_unauthenticated_provider_cannot_change_routes() {

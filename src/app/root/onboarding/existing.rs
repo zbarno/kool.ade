@@ -2,6 +2,24 @@ use super::*;
 use crate::core::managed_workspace::{ExistingProject, ExistingProjectKind, WorkspaceManager};
 
 impl KooladeApp {
+    pub(in crate::app::root) fn apply_onboarding_inspection(
+        &mut self,
+        (id, folder, result): InspectionResult,
+    ) {
+        if !self
+            .onboarding
+            .existing
+            .as_ref()
+            .is_some_and(|request| request.repository_id == id && request.folder == folder)
+        {
+            return;
+        }
+        match result {
+            Ok(kind) => self.onboarding_project_kind = Some(kind),
+            Err(error) => self.conn_error = Some(error),
+        }
+    }
+
     pub(super) fn paint_existing_project(&mut self, ui: &mut egui::Ui, next: &mut Option<Step>) {
         if self.onboarding_creation.is_some() {
             ui.spinner();
@@ -14,15 +32,11 @@ impl KooladeApp {
             .as_ref()
             .is_some_and(|job| job.is_finished())
         {
-            let result = self
-                .onboarding_inspection
-                .take()
-                .unwrap()
-                .join()
-                .unwrap_or_else(|_| Err("Project inspection stopped. Please check again.".into()));
-            match result {
-                Ok(kind) => self.onboarding_project_kind = Some(kind),
-                Err(error) => self.conn_error = Some(error),
+            match self.onboarding_inspection.take().unwrap().join() {
+                Ok(result) => self.apply_onboarding_inspection(result),
+                Err(_) => {
+                    self.conn_error = Some("Project inspection stopped. Please check again.".into())
+                }
             }
         }
         ui.heading("Use a project on this computer");
@@ -83,10 +97,12 @@ impl KooladeApp {
             self.onboarding_project_kind = None;
             self.conn_error = None;
             let folder = request.folder.clone();
+            let repository_id = request.repository_id.clone();
             self.onboarding_inspection = Some(std::thread::spawn(move || {
-                WorkspaceManager::from_state_root()
+                let result = WorkspaceManager::from_state_root()
                     .inspect_existing_project(&folder)
-                    .map_err(|error| format!("{error:#}"))
+                    .map_err(|error| format!("{error:#}"));
+                (repository_id, folder, result)
             }));
         }
         ui.label("Where should Kool.ad/e keep its plans and decisions?");
@@ -111,7 +127,8 @@ impl KooladeApp {
         }
         if !request.create_workspace {
             let workspaces = WorkspaceManager::from_state_root()
-                .list_local()
+                .list_launcher()
+                .map(|listing| listing.available)
                 .unwrap_or_default();
             egui::ComboBox::from_id_salt("attach_planning_workspace")
                 .selected_text(
@@ -141,7 +158,8 @@ impl KooladeApp {
             Some(WorkspaceManager::from_state_root().planning_repo_path(request.workspace_id))
         } else {
             WorkspaceManager::from_state_root()
-                .list_local()
+                .list_launcher()
+                .map(|listing| listing.available)
                 .ok()
                 .and_then(|items| {
                     items

@@ -66,3 +66,26 @@ repair or safe planning instead of restarting onboarding.
 
 For each added integration test, document its production boundary, invariant,
 why unit coverage is insufficient, external dependencies and setup cost.
+
+## Current review findings
+
+The follow-up implementation adds a pre-Docker provider choice without marking
+Manager execution ready, step-specific machine-local help, responsive progress,
+collision-aware location suggestions, and identity-fenced folder inspection.
+Validation of this revision is still pending; the published draft's results do
+not establish these changes.
+
+Reconnect validates a proposed association fully before publishing it. On Unix
+filesystems it requires the original planning and Git directory device/inode
+identities, workspace UUID, private relocation marker and last-opened ancestry.
+It rechecks folder identity before publication. This supports same-filesystem
+moves of the original checkout; clones, copied backups, cross-filesystem moves,
+and legacy records without identity evidence are rejected. Windows relocation
+needs a separate supported identity implementation; restore the original path
+there. This does not prove that an external actor never rewrote history inside
+the original Git directory. Recovery/import of replacement backups remains a
+separate, unimplemented flow and is not claimed as accepted here.
+
+The planned GPU gallery exercises production painters with synthetic inputs. It
+is layout evidence only; native first-run, keyboard/focus and observed usability
+acceptance remain separate requirements.

@@ -10,6 +10,8 @@ mod initialization;
 mod joining;
 #[path = "tests/manifest_environment.rs"]
 mod manifest_environment;
+#[path = "tests/reconnect.rs"]
+mod reconnect;
 #[path = "tests/recovery.rs"]
 mod recovery;
 #[path = "tests/remote_join.rs"]
