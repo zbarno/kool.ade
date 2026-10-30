@@ -143,22 +143,27 @@ impl KooladeApp {
                         );
                     }
                 });
-                if *slot.borrow() {
-                    self.submit_connect();
-                } else if *clone_slot.borrow() {
-                    self.begin_clone_from_field();
-                } else if *create_workspace_slot.borrow() {
-                    self.submit_create_workspace();
-                } else if *join_workspace_slot.borrow() {
-                    self.submit_join_workspace();
-                } else if *open_local_workspace_slot.borrow() {
-                    self.submit_open_local_workspace();
-                } else if *browse_slot.borrow() {
-                    // One picker serves both welcome cards; the active
-                    // target decides which field receives the selection.
-                    self.pick_folder_for_active_target();
+                if self.wiz.is_none() {
+                    // Veiled while the wizard modal is open (see the card-bus
+                    // guard): legacy actions must not fire from clicks the
+                    // backdrop is eating.
+                    if *slot.borrow() {
+                        self.submit_connect();
+                    } else if *clone_slot.borrow() {
+                        self.begin_clone_from_field();
+                    } else if *create_workspace_slot.borrow() {
+                        self.submit_create_workspace();
+                    } else if *join_workspace_slot.borrow() {
+                        self.submit_join_workspace();
+                    } else if *open_local_workspace_slot.borrow() {
+                        self.submit_open_local_workspace();
+                    } else if *browse_slot.borrow() {
+                        // One picker serves both welcome cards; the active
+                        // target decides which field receives the selection.
+                        self.pick_folder_for_active_target();
+                    }
                 }
-                if *harness_setup_slot.borrow() {
+                if self.wiz.is_none() && *harness_setup_slot.borrow() {
                     self.dialog = Some(Dialog::HarnessSetup(app_dialogs::DlgHarnessSetup::new()));
                 }
             }
@@ -353,8 +358,9 @@ fn paint_more_connections(
         }
     });
 }
-/// The primary welcome card (journey doors, or the active wizard), shared
-/// by both layout breakpoints.
+/// The primary welcome card — permanently the journey doors; the ACTIVE
+/// wizard renders as a modal OVER this canvas (see `paint_wizard_modal`),
+/// shared by both layout breakpoints.
 fn paint_welcome_primary(
     ui: &mut egui::Ui,
     app: &mut crate::app::root::KooladeApp,
@@ -378,6 +384,14 @@ fn paint_welcome_primary(
                     browse: &browse_req,
                 };
                 crate::app::root::welcome_wizard::paint_primary_card(ui, app, &bus, cloning);
+                if app.wiz.is_some() {
+                    // Presentation-only while the modal is open: ONE physical
+                    // click can geometrically touch a canvas control and the
+                    // modal backdrop in the same frame, and letting the canvas
+                    // actuate would double-process the gesture (reopen or
+                    // replace the wizard, then the backdrop closes it).
+                    return;
+                }
                 if let Some(entry) = door_req.take() {
                     app.wizard_open(entry);
                 }

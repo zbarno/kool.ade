@@ -159,6 +159,19 @@ fn welcome_ui_wizard_creates_a_connected_sibling_pair() {
         parent.to_string_lossy().into_owned(),
     );
     app.wizard_continue();
+    // An ordinary spaced title must ADVANCE, not trip the naming gate: the
+    // derived planning name is slugged (`acme-portal.packet`), not taken
+    // from the raw title.
+    let advanced = app.wiz.as_ref().expect("wizard survives continue");
+    assert_eq!(
+        advanced.step, 1,
+        "spaced project titles pass the naming gate"
+    );
+    assert!(
+        advanced.error.is_none(),
+        "no naming error for a spaced title: {:?}",
+        advanced.error
+    );
     app.wizard_commit();
 
     let Screen::Connected(project) = &app.screen else {
@@ -544,5 +557,215 @@ fn welcome_ui_wizard_clone_worker_failure_surfaces_on_the_wizard() {
         "no planning sibling materializes from a dead clone"
     );
     drop(app);
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// The gate is directional: a typed ILLEGAL packet name is refused at
+/// continue (before any folder work), while a legal/derived name passes.
+#[test]
+fn welcome_ui_wizard_blank_refuses_an_illegal_typed_packet_name() {
+    let _shield =
+        crate::core::gitops::test_support::shield_with_synthetic_identity("wizard-namedeny-ui");
+    let base = std::env::temp_dir().join(format!(
+        "koolade_wiz_namedeny_{}_{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = base.join("operator");
+    std::fs::create_dir_all(&home).unwrap();
+    let mut state_home = StateHome::new();
+    state_home.set(&home);
+    let parent = base.join("projects");
+    std::fs::create_dir_all(&parent).unwrap();
+
+    let ctx = egui::Context::default();
+    let mut app = KooladeApp::default();
+    app.wizard_open(crate::app::root::WelcomeEntry::BlankProject);
+    type_into(
+        &mut app,
+        &ctx,
+        "Shown on the board and stamped on the planning repository",
+        "Fine Report",
+    );
+    app.wiz_apply_field(
+        crate::app::root::WizField::Parent,
+        parent.to_string_lossy().into_owned(),
+    );
+    type_into(
+        &mut app,
+        &ctx,
+        "Leave empty for the suggested <name>.packet",
+        "fine report!.packet",
+    );
+    app.wizard_continue();
+
+    let wiz = app.wiz.as_ref().expect("the wizard stays open on refusal");
+    assert_eq!(wiz.step, 0, "refusal bounces back to the inputs step");
+    let message = wiz.error.as_deref().expect("the refusal explains itself");
+    assert!(
+        message.contains("fine report!.packet"),
+        "names the offending name: {message}"
+    );
+    assert!(
+        message.contains("unusable"),
+        "states the name is unusable: {message}"
+    );
+    drop(app);
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// Dismissal channel 1: `Esc` while the modal is open retires the wizard.
+#[test]
+fn welcome_ui_wizard_modal_esc_dismisses_it() {
+    let base = std::env::temp_dir().join(format!(
+        "koolade_wiz_modalesc_{}_{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = base.join("operator");
+    std::fs::create_dir_all(&home).unwrap();
+    let mut state_home = StateHome::new();
+    state_home.set(&home);
+
+    let ctx = egui::Context::default();
+    let mut app = KooladeApp::default();
+    app.wizard_open(crate::app::root::WelcomeEntry::ExistingCode);
+    // Two paint passes: the modal Area settles into the output shapes on
+    // the second frame in some interleavings.
+    let _ = frame(&mut app, &ctx, Vec::new());
+    let output = frame(&mut app, &ctx, Vec::new());
+    assert!(
+        visible_text(&output)
+            .iter()
+            .any(|line| line.contains("Step 1 of 2")),
+        "the modal panel is up before Esc is tried"
+    );
+    frame(
+        &mut app,
+        &ctx,
+        vec![
+            egui::Event::PointerMoved(egui::pos2(900.0, 450.0)),
+            egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: Default::default(),
+            },
+            egui::Event::Key {
+                key: egui::Key::Escape,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers: Default::default(),
+            },
+        ],
+    );
+    assert!(app.wiz.is_none(), "Esc must retire the modal wizard");
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// Dismissal channel 2: a click on the backdrop (outside the panel) retires
+/// the wizard — and, proving the input sequestration, lands on NOTHING of
+/// the canvas beneath.
+#[test]
+fn welcome_ui_wizard_modal_backdrop_click_dismisses_it() {
+    let base = std::env::temp_dir().join(format!(
+        "koolade_wiz_modalbackdrop_{}_{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = base.join("operator");
+    std::fs::create_dir_all(&home).unwrap();
+    let mut state_home = StateHome::new();
+    state_home.set(&home);
+
+    let ctx = egui::Context::default();
+    let mut app = KooladeApp::default();
+    app.wizard_open(crate::app::root::WelcomeEntry::CloneRepository);
+    // Two paint passes: the modal Area settles into the output shapes on
+    // the second frame in some interleavings.
+    let _ = frame(&mut app, &ctx, Vec::new());
+    let output = frame(&mut app, &ctx, Vec::new());
+    assert!(
+        visible_text(&output)
+            .iter()
+            .any(|line| line.contains("Step 1 of 2")),
+        "the modal panel is up before the backdrop click is tried"
+    );
+    // Far left of the centered panel: wherever the canvas control there is,
+    // the backdrop must swallow the click.
+    frame(
+        &mut app,
+        &ctx,
+        vec![
+            egui::Event::PointerMoved(egui::pos2(180.0, 880.0)),
+            egui::Event::PointerButton {
+                pos: egui::pos2(180.0, 880.0),
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+        ],
+    );
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::PointerButton {
+            pos: egui::pos2(180.0, 880.0),
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        }],
+    );
+    assert!(
+        app.wiz.is_none(),
+        "a backdrop click must retire the modal wizard"
+    );
+    assert!(
+        matches!(app.screen, Screen::Welcome),
+        "the swallowed click must not have submitted anything below"
+    );
+    let _ = std::fs::remove_dir_all(base);
+}
+
+/// Sequestration from the other side: while the modal is open, a click on a
+/// journey door beneath the backdrop must NOT start a new journey (or
+/// re-route this one).
+#[test]
+fn welcome_ui_wizard_modal_veils_the_canvas_below_while_open() {
+    let base = std::env::temp_dir().join(format!(
+        "koolade_wiz_modalveil_{}_{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let home = base.join("operator");
+    std::fs::create_dir_all(&home).unwrap();
+    let mut state_home = StateHome::new();
+    state_home.set(&home);
+
+    let ctx = egui::Context::default();
+    let mut app = KooladeApp::default();
+    app.wizard_open(crate::app::root::WelcomeEntry::CloneRepository);
+    let _ = frame(&mut app, &ctx, Vec::new());
+    frame(&mut app, &ctx, Vec::new());
+    // The blank-project door's call-to-action, painted under the backdrop:
+    // a leaking click would REPLACE the draft with the blank journey (or,
+    // worse, the backdrop close and the journey swap could fight).
+    click(&mut app, &ctx, "Create a brand-new project");
+    frame(&mut app, &ctx, Vec::new());
+    assert!(
+        matches!(app.screen, Screen::Welcome),
+        "a veiled canvas click must not navigate"
+    );
+    // The backdrop may legitimately consume the click as a dismissal; the
+    // invariant under test is that no veiled action altered the draft.
+    if let Some(wiz) = app.wiz.as_ref() {
+        assert!(
+            matches!(wiz.entry, crate::app::root::WelcomeEntry::CloneRepository),
+            "a veiled click must not switch journeys (entry still clone)"
+        );
+        assert_eq!(wiz.step, 0, "a veiled click must not disturb the draft");
+    }
     let _ = std::fs::remove_dir_all(base);
 }

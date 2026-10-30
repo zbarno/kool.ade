@@ -261,6 +261,41 @@ fn truncate(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_does_not_double_other_messages() {
+        // The operator incident: a wrap whose detail repeats the headline
+        // used to render the sentence twice.
+        let message = "new project could not be created: planning repository name may contain letters, digits, dots, underscores, and dashes only";
+        let error = AppError::Other(message.to_string());
+        let rendered = error.to_string();
+        assert_eq!(rendered, message);
+        assert_eq!(
+            rendered
+                .matches("new project could not be created:")
+                .count(),
+            1,
+            "the wrap phrase prints exactly once"
+        );
+    }
+
+    #[test]
+    fn display_keeps_distinct_detail_after_the_headline() {
+        let error = AppError::InvalidRepo {
+            path: "/srv/checkouts/demo.git".to_string(),
+            detail: "not a git repository".to_string(),
+        };
+        let rendered = error.to_string();
+        let expected_prefix = format!(
+            "Not a valid git repository: {} \u{2014}",
+            "/srv/checkouts/demo.git"
+        );
+        assert!(
+            rendered.starts_with(expected_prefix.as_str()),
+            "distinct detail stays behind the separator: {rendered}"
+        );
+    }
+
     #[test]
     fn disk_full_error_is_not_hidden_by_node_footer() {
         let error = AppError::HarnessFailed { reason: "pi exited with a failure code".into(), stderr_tail: "Error: ENOSPC: no space left on device, write\n    at emitErrorNT (node:internal/streams/destroy:170:8)\n}\nNode.js v22.23.2".into() };

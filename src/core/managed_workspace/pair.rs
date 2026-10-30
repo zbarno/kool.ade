@@ -351,11 +351,18 @@ fn is_git_repository_root(path: &Path) -> bool {
     git::repository_root(path).is_ok_and(|root| root == path)
 }
 
-/// The pure repository-segment rule behind `validate_repo_name`, exposed so
-/// UI layers can refuse unusable names at the input boundary instead of
-/// carrying them through a multi-second create flow into this check.
+/// The COMPLETE pure rule behind `validate_repo_name` — first character
+/// alphabetic, length 1 to 64, restricted charset, no leading dot or
+/// traversal name — exposed so UI layers can refuse unusable names at the
+/// input boundary instead of carrying them through a multi-second create
+/// flow into this check. Keep in sync with `validate_repo_name`.
 pub(crate) fn repository_name_allowed(name: &str) -> bool {
-    !name.starts_with('.')
+    (1..=64).contains(&name.len())
+        && name
+            .bytes()
+            .next()
+            .is_some_and(|byte: u8| byte.is_ascii_alphabetic())
+        && !name.starts_with('.')
         && name != "."
         && name != ".."
         && name.chars().all(|character| {

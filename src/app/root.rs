@@ -272,7 +272,7 @@ impl WelcomeEntry {
         match self {
             Self::ExistingCode => "Set up planning for your code",
             Self::CloneRepository => "Clone a code repository and set up planning",
-            Self::BlankProject => "Create a brand-new project",
+            Self::BlankProject => "Start a brand-new project",
         }
     }
 }

@@ -246,8 +246,13 @@ fn action_row(ui: &mut Ui, bus: &PrimaryBus, busy: bool, primary: WizAction, pri
 /// canvas. The shared modal machinery ([`crate::ui::overlays::show_modal`])
 /// supplies the backdrop, input blocking, drag-to-move, close glyph, and
 /// `Esc` handling; this adapter feeds in the two-step wizard panel and
-/// mirrors the card-era deferred-cell bus. Closing through the modal
-/// (chrome or `Esc`) retires the wizard.
+/// mirrors the card-era deferred-cell bus. Chrome close (X, `Esc`, or
+/// backdrop) retires the wizard — EXCEPT while a clone download is in
+/// flight with a pairing intent pending: the in-panel buttons are disabled
+/// for that phase for the same reason, so a stray `Esc` mid-download cannot
+/// strand the finished clone unpaired and disconnected. The clone then
+/// completes through the legacy connect path, which tells the story in the
+/// welcome banner.
 pub(crate) fn paint_wizard_modal(ui: &mut Ui, app: &mut KooladeApp, cloning: Option<(&str, &str)>) {
     if app.wiz.is_none() {
         return;
@@ -281,7 +286,10 @@ pub(crate) fn paint_wizard_modal(ui: &mut Ui, app: &mut KooladeApp, cloning: Opt
     if let Some(which) = browse_req.take() {
         app.browse_wizard_field(which);
     }
-    if closed {
+    // Chrome dismissal is a DRAFT discard: honored freely, but never while
+    // a download is in flight with its pairing intent armed (see doc).
+    let download_in_flight = app.clone_job.is_some() && app.pending_clone_pairing.is_some();
+    if closed && !download_in_flight {
         app.wizard_close();
     }
 }
