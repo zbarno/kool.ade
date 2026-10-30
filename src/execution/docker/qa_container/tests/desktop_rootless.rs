@@ -10,6 +10,9 @@ mod non_rust_artifact;
 #[cfg(target_os = "linux")]
 #[path = "desktop_rootless/packaged_linux.rs"]
 mod packaged_linux;
+#[cfg(target_os = "linux")]
+#[path = "desktop_rootless/recovery.rs"]
+mod recovery;
 
 #[cfg(target_os = "linux")]
 #[path = "desktop_rootless/task_artifact.rs"]
@@ -260,4 +263,6 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
     task_artifact::exercise(&docker, &selected, &lock, &resource_budget).await;
     #[cfg(target_os = "linux")]
     non_rust_artifact::exercise(&docker, &selected, &lock, &resource_budget).await;
+    #[cfg(target_os = "linux")]
+    recovery::exercise(&docker, &spec, &lock, &uploads).await;
 }

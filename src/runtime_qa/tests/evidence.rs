@@ -221,6 +221,8 @@ mod git_object_ids;
 mod isolation;
 #[path = "evidence/persistence.rs"]
 mod persistence;
+#[path = "evidence/quota.rs"]
+mod quota;
 #[path = "evidence/storage.rs"]
 mod storage;
 
