@@ -238,7 +238,7 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
     #[cfg(target_os = "linux")]
     non_rust_artifact::exercise(&docker, &selected, &lock, &resource_budget).await;
     #[cfg(target_os = "linux")]
-    recovery::exercise(&docker, &spec, &lock).await;
+    recovery::exercise(&docker, &spec, &lock, &uploads).await;
 }
 
 async fn assert_desktop_container_isolated(

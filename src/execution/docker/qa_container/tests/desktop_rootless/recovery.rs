@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::execution::docker::qa_container::{
-    cleanup_driver_container, create_driver_container, recover_driver_container,
+    QaContainerUpload, cleanup_driver_container, create_driver_container, recover_driver_container,
 };
 
 use super::super::super::QaDriverContainerSpec;
@@ -12,11 +12,12 @@ use crate::execution::docker::images::ImageLock;
 // match the current QA request. Unit tests cannot prove Docker inspection and
 // forced cleanup affect the live container. External dependency: rootless
 // Docker with the pinned desktop QA candidate loaded. Setup cost: two idle
-// containers using the already-built candidate, removed during this scenario.
+// containers using the candidate and existing synthetic artifact/cache uploads.
 pub(super) async fn exercise(
     docker: &bollard::Docker,
     spec: &QaDriverContainerSpec<'_>,
     lock: &ImageLock,
+    uploads: &[QaContainerUpload],
 ) {
     let name = format!("koolade-qa-{}", spec.request.qa_run_id);
     let (_cancel, mut cancel) = tokio::sync::watch::channel(false);
@@ -30,7 +31,7 @@ pub(super) async fn exercise(
         docker,
         &name,
         mislabeled,
-        &[],
+        uploads,
         Duration::from_secs(30),
         1024,
         &mut cancel,
@@ -48,7 +49,7 @@ pub(super) async fn exercise(
         docker,
         &name,
         spec.create_body_with_lock(lock).unwrap(),
-        &[],
+        uploads,
         Duration::from_secs(30),
         1024,
         &mut cancel,
