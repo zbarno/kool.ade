@@ -80,6 +80,7 @@ pub(super) async fn run(context: PrimaryDriverContext<'_>) -> Result<PrimaryDriv
             &driver_id,
             context.browser_image.runtime_user.as_str(),
             context.host_identity_root,
+            None,
         )
         .await?;
         validate_browser_driver_network(

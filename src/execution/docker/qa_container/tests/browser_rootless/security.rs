@@ -3,38 +3,102 @@ use bollard::{
     exec::{CreateExecOptions, StartExecOptions, StartExecResults},
 };
 use futures_util::TryStreamExt;
+use tempfile::TempDir;
+
+pub(crate) fn synthetic_host_identity_root() -> TempDir {
+    let home = std::path::PathBuf::from(std::env::var_os("HOME").expect("runner HOME is set"));
+    let root = tempfile::Builder::new()
+        .prefix("koolade-rootless-host-identity-")
+        .tempdir_in(home)
+        .unwrap();
+    std::fs::create_dir_all(root.path().join(".ssh")).unwrap();
+    std::fs::write(
+        root.path().join(".ssh/id_rsa"),
+        b"synthetic-host-ssh-key-must-not-be-readable-from-qa",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.path().join(".aws")).unwrap();
+    std::fs::write(
+        root.path().join(".aws/credentials"),
+        b"[default]\naws_access_key_id=synthetic-host-key\n",
+    )
+    .unwrap();
+    root
+}
 
 /// Execute file, socket, and environment probes as the locked user inside the
-/// already-running rootless browser driver. The synthetic host files and the
+/// already-running rootless QA driver. The synthetic host files and the
 /// host's real DOCKER_HOST socket must be unreachable from this container.
-pub(super) async fn assert_host_resources_denied(
+pub(crate) async fn assert_host_resources_denied(
     docker: &bollard::Docker,
     container_id: &str,
     runtime_user: &str,
     host_identity_root: &std::path::Path,
+    allowed_display: Option<&str>,
 ) -> Result<(), String> {
     let socket_path = std::env::var("DOCKER_HOST")
         .ok()
         .and_then(|endpoint| endpoint.strip_prefix("unix://").map(str::to_owned))
         .filter(|path| std::path::Path::new(path).is_absolute())
         .ok_or_else(|| "rootless QA Docker socket path is unavailable to the test".to_owned())?;
+    let mut sockets = vec![
+        serde_json::json!({"label":"runner rootless Docker socket", "path":socket_path}),
+        serde_json::json!({"label":"system Docker socket", "path":"/var/run/docker.sock"}),
+        serde_json::json!({"label":"alternate Docker socket", "path":"/run/docker.sock"}),
+        serde_json::json!({"label":"host X11 display", "path":"/tmp/.X11-unix/X0"}),
+        serde_json::json!({"label":"host D-Bus", "path":"/run/dbus/system_bus_socket"}),
+    ];
+    if let Some(display) = std::env::var_os("DISPLAY").and_then(|value| value.into_string().ok())
+        && let Some(number) = display
+            .strip_prefix(':')
+            .and_then(|value| value.parse::<u16>().ok())
+        && allowed_display != Some(display.as_str())
+    {
+        sockets.push(serde_json::json!({
+            "label":"runner X11 display",
+            "path":format!("/tmp/.X11-unix/X{number}")
+        }));
+    }
+    if let Some(wayland) =
+        std::env::var_os("WAYLAND_DISPLAY").and_then(|value| value.into_string().ok())
+    {
+        let path = if std::path::Path::new(&wayland).is_absolute() {
+            Some(wayland)
+        } else {
+            std::env::var_os("XDG_RUNTIME_DIR")
+                .map(std::path::PathBuf::from)
+                .map(|root| root.join(wayland).display().to_string())
+        };
+        if let Some(path) = path {
+            sockets.push(serde_json::json!({"label":"runner Wayland display", "path":path}));
+        }
+    }
+    let mut environment = serde_json::Map::new();
+    for name in [
+        "DOCKER_HOST",
+        "DISPLAY",
+        "WAYLAND_DISPLAY",
+        "DBUS_SESSION_BUS_ADDRESS",
+        "SSH_AUTH_SOCK",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+    ] {
+        environment.insert(name.into(), serde_json::Value::Null);
+    }
+    if let Some(display) = allowed_display {
+        environment.insert("DISPLAY".into(), display.into());
+    }
     let checks = serde_json::json!({
         "files": [
             {"label":"synthetic ssh key", "path": host_identity_root.join(".ssh/id_rsa")},
             {"label":"synthetic cloud credentials", "path": host_identity_root.join(".aws/credentials")}
         ],
-        "sockets": [
-            {"label":"runner rootless Docker socket", "path": socket_path},
-            {"label":"system Docker socket", "path":"/var/run/docker.sock"},
-            {"label":"alternate Docker socket", "path":"/run/docker.sock"},
-            {"label":"host X11 display", "path":"/tmp/.X11-unix/X0"},
-            {"label":"host D-Bus", "path":"/run/dbus/system_bus_socket"}
-        ],
-        "environment": [
-            "DOCKER_HOST", "DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS",
-            "SSH_AUTH_SOCK", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
-            "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN"
-        ]
+        "sockets": sockets,
+        "environment": environment
     });
     let checks = serde_json::to_string(&checks)
         .map_err(|_| "host-resource probe could not be encoded".to_owned())?;
@@ -77,7 +141,12 @@ const net = require('node:net');
       });
     }
   }
-  for (const name of checks.environment) if (process.env[name]) leaked.push(`environment ${name}`);
+  for (const [name, expected] of Object.entries(checks.environment)) {
+    const actual = process.env[name];
+    if (expected === null ? actual !== undefined && actual !== '' : actual !== expected) {
+      leaked.push(`environment ${name}`);
+    }
+  }
   if (leaked.length) {
     process.stderr.write(`host resources were visible: ${leaked.join(', ')}`);
     process.exitCode = 1;

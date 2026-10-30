@@ -43,7 +43,7 @@ mod run;
 #[path = "browser_rootless/scenario.rs"]
 mod scenario;
 #[path = "browser_rootless/security.rs"]
-mod security;
+pub(super) mod security;
 #[path = "browser_rootless/service_driver.rs"]
 mod service_driver;
 #[path = "browser_rootless/task_runtime.rs"]

@@ -1,5 +1,9 @@
 use super::*;
+use futures_util::FutureExt;
 
+#[cfg(target_os = "linux")]
+#[path = "desktop_rootless/isolation.rs"]
+mod isolation;
 #[cfg(target_os = "linux")]
 #[path = "desktop_rootless/non_rust_artifact.rs"]
 mod non_rust_artifact;
@@ -32,12 +36,13 @@ pub(super) fn candidate_desktop_lock() -> ImageLock {
 
 // Boundary: the app-owned Docker lifecycle must stage a bounded artifact and
 // request-bound package cache into rootless tmpfs, expose no host mounts,
-// devices, ports, capabilities, or inherited environment, run the pinned
+// devices, ports, capabilities, or inherited environment, attempt live reads
+// of host-HOME credentials and connections to host sockets, run the pinned
 // desktop interaction fixture, and remove only that owned container. A unit
 // test cannot prove Docker's applied host configuration or upload/start/log/
 // cleanup behavior. External dependency: Docker with the desktop candidate
-// loaded (rootless in CI). Setup: candidate image build, a small synthetic
-// cache snapshot, compiled desktop fixtures, and several short Xvfb driver runs.
+// loaded (rootless in CI). Setup: candidate image build, synthetic cache and
+// host-HOME canaries, compiled desktop fixtures, and short Xvfb driver runs.
 #[tokio::test]
 #[ignore = "requires rootless Docker and a locally loaded desktop QA candidate"]
 async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() {
@@ -83,6 +88,7 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
     let selected = lock.select(RuntimeProfile::DesktopQa, "amd64").unwrap();
 
     let root = tempfile::tempdir().unwrap();
+    let host_identity_root = super::browser_rootless::security::synthetic_host_identity_root();
     std::fs::create_dir(root.path().join("dist")).unwrap();
     std::fs::write(
         root.path().join("dist/snapshot.txt"),
@@ -153,6 +159,13 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
     );
     body.cmd = Some(vec!["--fixture-cache-smoke".into()]);
     let expected_env = body.env.clone().unwrap();
+    let image_env = docker
+        .inspect_image(&selected.reference)
+        .await
+        .unwrap()
+        .config
+        .and_then(|config| config.env)
+        .unwrap_or_default();
     let name = format!("koolade-qa-{}", request.qa_run_id);
     let (_cancel, mut cancel) = tokio::sync::watch::channel(false);
     let container_id = create_driver_container(
@@ -166,33 +179,45 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
     )
     .await
     .unwrap();
-    let image_env = docker
-        .inspect_image(&selected.reference)
+    let execution = std::panic::AssertUnwindSafe(async {
+        isolation::assert_desktop_container_isolated(
+            &docker,
+            &container_id,
+            selected.runtime_user.as_str(),
+            &expected_env,
+            &image_env,
+        )
+        .await;
+        super::browser_rootless::security::assert_host_resources_denied(
+            &docker,
+            &container_id,
+            selected.runtime_user.as_str(),
+            host_identity_root.path(),
+            Some(":99"),
+        )
+        .await?;
+        run_created_driver_with_status(
+            &docker,
+            &container_id,
+            Duration::from_secs(90),
+            1024 * 1024,
+            &mut cancel,
+        )
         .await
-        .unwrap()
-        .config
-        .and_then(|config| config.env)
-        .unwrap_or_default();
-    assert_desktop_container_isolated(
-        &docker,
-        &container_id,
-        selected.runtime_user.as_str(),
-        &expected_env,
-        &image_env,
-    )
+        .map_err(|error| error.message)
+    })
+    .catch_unwind()
     .await;
-    let output = run_created_driver_with_status(
-        &docker,
-        &container_id,
-        Duration::from_secs(90),
-        1024 * 1024,
-        &mut cancel,
-    )
-    .await;
+    let execution = match execution {
+        Ok(result) => result,
+        Err(_) => Err("desktop runtime or security probe panicked".to_owned()),
+    };
     let cleanup = cleanup_driver_container(&docker, &container_id).await;
-    let output = match output {
+    let output = match execution {
         Ok(output) => output,
-        Err(error) => panic!("QA driver execution failed: {error:?}; cleanup={cleanup:?}"),
+        Err(error) => {
+            panic!("QA driver execution or security probe failed: {error}; cleanup={cleanup:?}")
+        }
     };
     cleanup.unwrap();
     assert_eq!(
@@ -234,56 +259,4 @@ async fn rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate() 
     task_artifact::exercise(&docker, &selected, &lock, &resource_budget).await;
     #[cfg(target_os = "linux")]
     non_rust_artifact::exercise(&docker, &selected, &lock, &resource_budget).await;
-}
-
-async fn assert_desktop_container_isolated(
-    docker: &bollard::Docker,
-    container_id: &str,
-    runtime_user: &str,
-    expected_env: &[String],
-    image_env: &[String],
-) {
-    let inspect = docker.inspect_container(container_id, None).await.unwrap();
-    let host = inspect
-        .host_config
-        .expect("Docker reports applied host policy");
-    assert_eq!(host.privileged, Some(false));
-    assert_eq!(host.readonly_rootfs, Some(true));
-    assert_eq!(host.network_mode.as_deref(), Some("none"));
-    assert_eq!(host.ipc_mode.as_deref(), Some("private"));
-    assert!(host.pid_mode.as_deref().unwrap_or_default().is_empty());
-    assert_eq!(
-        host.cap_drop.as_deref(),
-        Some(["ALL".to_owned()].as_slice())
-    );
-    assert!(host.cap_add.unwrap_or_default().is_empty());
-    assert!(host.devices.unwrap_or_default().is_empty());
-    assert!(host.device_requests.unwrap_or_default().is_empty());
-    assert!(host.device_cgroup_rules.unwrap_or_default().is_empty());
-    assert!(host.binds.unwrap_or_default().is_empty());
-    assert!(host.mounts.unwrap_or_default().is_empty());
-    assert_ne!(host.publish_all_ports, Some(true));
-    assert!(host.port_bindings.unwrap_or_default().is_empty());
-    assert!(host.volumes_from.unwrap_or_default().is_empty());
-    assert_eq!(
-        host.security_opt.as_deref(),
-        Some(["no-new-privileges:true".to_owned()].as_slice())
-    );
-
-    let config = inspect
-        .config
-        .expect("Docker reports applied container config");
-    assert_eq!(config.user.as_deref(), Some(runtime_user));
-    let mut allowed_env = expected_env.to_vec();
-    allowed_env.extend_from_slice(image_env);
-    allowed_env.sort();
-    allowed_env.dedup();
-    let mut actual_env = config.env.unwrap_or_default();
-    actual_env.sort();
-    assert_eq!(actual_env, allowed_env);
-    assert!(
-        allowed_env
-            .iter()
-            .all(|entry| !entry.starts_with("QA_RELAY_TOKEN="))
-    );
 }

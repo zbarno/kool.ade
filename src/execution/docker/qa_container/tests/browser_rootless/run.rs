@@ -117,23 +117,7 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
     let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/runtime_qa/browser/server.py");
     let artifact_root = tempfile::tempdir().unwrap();
-    let host_home = std::path::PathBuf::from(std::env::var_os("HOME").expect("runner HOME is set"));
-    let host_identity_root = tempfile::Builder::new()
-        .prefix("koolade-rootless-host-identity-")
-        .tempdir_in(host_home)
-        .unwrap();
-    std::fs::create_dir_all(host_identity_root.path().join(".ssh")).unwrap();
-    std::fs::write(
-        host_identity_root.path().join(".ssh/id_rsa"),
-        b"synthetic-host-ssh-key-must-not-be-readable-from-qa",
-    )
-    .unwrap();
-    std::fs::create_dir_all(host_identity_root.path().join(".aws")).unwrap();
-    std::fs::write(
-        host_identity_root.path().join(".aws/credentials"),
-        b"[default]\naws_access_key_id=synthetic-host-key\n",
-    )
-    .unwrap();
+    let host_identity_root = super::security::synthetic_host_identity_root();
     std::fs::copy(fixture, artifact_root.path().join("server.py")).unwrap();
     let artifact_hash = format!(
         "{:x}",
