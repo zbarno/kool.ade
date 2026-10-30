@@ -24,13 +24,26 @@ pub(super) async fn assert_preview_exit_fails_the_active_browser_run(
         id: uuid::Uuid::new_v4().hyphenated().to_string(),
         requirement_ids: request.requirement_ids.clone(),
         preconditions: vec!["The approved Python preview is running.".into()],
-        steps: vec![step(
-            QaDriverActionV1::BrowserOpen {
-                url: "http://qa-service/?defect=preview-exit".into(),
-            },
-            "Navigation reports the preview failure instead of passing",
-            false,
-        )],
+        steps: vec![
+            step(
+                QaDriverActionV1::BrowserOpen {
+                    url: "http://qa-service/?defect=preview-exit".into(),
+                },
+                "The browser begins navigating to the task preview.",
+                false,
+            ),
+            step(
+                QaDriverActionV1::BrowserAssertText {
+                    locator: QaBrowserLocatorV1::Role {
+                        role: "heading".into(),
+                        name: "Preview fixture".into(),
+                    },
+                    expected_text: "Preview fixture".into(),
+                },
+                "The task preview fixture heading is visible.",
+                true,
+            ),
+        ],
         expected_results: vec!["The browser run records the preview process failure.".into()],
         negative_paths: vec!["The task preview process exits during navigation.".into()],
         visual_expectations: Vec::new(),
@@ -155,7 +168,10 @@ pub(super) async fn assert_preview_exit_fails_the_active_browser_run(
                 .iter()
                 .all(|assertion| assertion.status == crate::runtime_qa::QaAssertionStatus::Passed)
         {
-            return Err("browser run passed despite the task preview process exiting".into());
+            return Err(format!(
+                "preview exit produced no failed browser evidence: completed={}, failure={:?}, assertions={:?}, failed_requests={:?}",
+                report.completed, report.failure, report.assertions, report.failed_requests
+            ));
         }
         let task = docker
             .inspect_container(&preview.service_lease.task_container_id, None)
