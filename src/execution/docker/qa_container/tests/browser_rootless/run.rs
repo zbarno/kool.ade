@@ -8,16 +8,21 @@ mod primary;
 /// integrity-verified npm cache snapshot into service tmpfs, proves the service process can
 /// read the cache as its locked user, provisions its internal preview relay,
 /// runs the pinned browser and, in candidate CI, the headless service driver
-/// through the app-owned relay, rejects browser requests to metadata, host-local
-/// and off-origin destinations, and cleans only owned resources.
+/// through the app-owned relay; rejects requests to metadata, host-local and
+/// off-origin destinations; attempts to read synthetic credentials under the
+/// runner's HOME, connect to its actual Docker socket, and launch a canary from
+/// writable no-exec tmpfs in the live browser container; and cleans owned
+/// resources.
 /// Unit tests cannot prove rootless Docker extraction, preview reachability,
-/// browser/API execution, request containment, or container cleanup.
+/// browser/API execution, request containment, runtime access to host resources,
+/// or container cleanup.
 /// External dependency: rootless Docker plus a pinned browser image. Candidate
 /// CI sets `KOOLADE_QA_REQUIRE_SERVICE_DRIVER=1` so this exact path also proves
 /// API-only support on the freshly built image; compatibility smoke uses the
 /// reviewed base image and exercises only its supported browser mode. Setup
-/// cost: one candidate image build, two small synthetic caches, a second
-/// preview, two concurrent browser drivers, and cancellation/security probes.
+/// cost: one candidate image build, two small synthetic caches, one isolated
+/// host-HOME subdirectory, a second preview, two browser drivers, and
+/// cancellation/security probes.
 #[tokio::test]
 #[ignore = "requires rootless Docker and a locally loaded browser QA candidate"]
 async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clean_up() {
@@ -113,6 +118,7 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
     let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/runtime_qa/browser/server.py");
     let artifact_root = tempfile::tempdir().unwrap();
+    let host_identity_root = super::security::synthetic_host_identity_root();
     std::fs::copy(fixture, artifact_root.path().join("server.py")).unwrap();
     let artifact_hash = format!(
         "{:x}",
@@ -171,6 +177,7 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
         browser_image: &browser_image,
         lock: &lock,
         artifact_root: artifact_root.path(),
+        host_identity_root: host_identity_root.path(),
         artifact_upload: &artifact_upload,
         preview: &preview,
         resources: &resources,

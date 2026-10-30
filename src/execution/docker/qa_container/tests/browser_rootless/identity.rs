@@ -3,9 +3,8 @@
 /// The only credential is the exact run-scoped relay token; its home is fresh
 /// tmpfs. The assertion runs on both the fixture route and selected-task
 /// Build/Start/browser path. A container-config unit test cannot prove the
-/// launched container retained that isolation. Requires the existing rootless
-/// browser fixture and candidate image; inspects the image and existing
-/// container without creating another container.
+/// launched container retained that isolation. It inspects the image and
+/// existing container without creating another container.
 pub(super) async fn assert_no_host_browser_identity(
     docker: &bollard::Docker,
     container_id: &str,
