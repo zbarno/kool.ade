@@ -95,7 +95,7 @@ fn refresh_pr_with_store(
     ticket: &str,
     runner: &Runner,
 ) -> anyhow::Result<()> {
-    let migration_gate = crate::artifacts::migration::acquire_project_state_gate(state_root)?;
+    let migration_gate = crate::artifacts::locks::acquire_project_state_gate(state_root)?;
     let task_uid = ticket_identity(planning_store, ticket)?;
     let dir = state_dir_for_task(state_root, ticket, task_uid.as_deref())?;
     let lock = fs::OpenOptions::new()

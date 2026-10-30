@@ -40,7 +40,7 @@ pub fn is_textual_import_name(name: &str) -> bool {
 ///
 /// Guarantees:
 /// * destination never collides with an existing file (numeric suffixing)
-/// * `src` must lie outside both the code repository and planning store
+/// * `src` must lie outside the planning store
 /// * text sources additionally obtain a `<stem>.md` companion (identical bytes)
 pub fn import_into_repo<R: PlanningRoot + ?Sized>(
     repo_root: &R,
@@ -48,27 +48,17 @@ pub fn import_into_repo<R: PlanningRoot + ?Sized>(
 ) -> anyhow::Result<ImportedDoc> {
     let store = repo_root.planning_store();
     let expected_revision = store.revision()?;
-    let code_root = repo_root
-        .code_repository_root()
-        .unwrap_or_else(|| repo_root.planning_layout().root().to_path_buf());
-    import_into_store(&store, &code_root, src, &expected_revision).map(|(doc, _)| doc)
+    import_into_store(&store, src, &expected_revision).map(|(doc, _)| doc)
 }
 
-/// Import using the connected code checkout and planning-store roots for
-/// containment checks and an optimistic revision for the durable write.
+/// Import into the given planning store using an optimistic revision fence.
 pub fn import_into_store(
     store: &PlanningStore,
-    code_repository_root: &Path,
     src: &Path,
     expected_revision: &str,
 ) -> anyhow::Result<(ImportedDoc, String)> {
     let src = std::fs::canonicalize(src)
         .map_err(|e| anyhow::anyhow!("cannot read {}: {e}", src.display()))?;
-    let repo = std::fs::canonicalize(code_repository_root)
-        .map_err(|e| anyhow::anyhow!("cannot resolve repo: {e}"))?;
-    if src.starts_with(&repo) {
-        anyhow::bail!("the source file is already inside the repository; point at an outside path");
-    }
     match std::fs::canonicalize(&store.root) {
         Ok(planning_root) if src.starts_with(&planning_root) => {
             anyhow::bail!(

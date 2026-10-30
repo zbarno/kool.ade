@@ -92,7 +92,7 @@ fn legacy_store_root_symlinks_are_preserved_and_rejected() {
     let outside = temp.path().join("outside");
     std::fs::create_dir_all(&project).unwrap();
     std::fs::create_dir_all(&outside).unwrap();
-    let root = project.join(crate::artifacts::layout::canonical::ROOT);
+    let root = project.join(crate::artifacts::layout::store::ROOT);
     symlink(&outside, &root).unwrap();
 
     let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &project);
@@ -114,7 +114,7 @@ fn dangling_store_root_symlink_is_not_treated_as_an_empty_store() {
     let temp = TempDir::new();
     let project = temp.path().join("code");
     std::fs::create_dir_all(&project).unwrap();
-    let root = project.join(crate::artifacts::layout::canonical::ROOT);
+    let root = project.join(crate::artifacts::layout::store::ROOT);
     symlink(temp.path().join("missing-target"), &root).unwrap();
 
     let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &project);
@@ -136,7 +136,7 @@ fn compatibility_store_keeps_existing_embedded_root() {
 
     assert_eq!(
         store.root,
-        project.join(crate::artifacts::layout::canonical::ROOT)
+        project.join(crate::artifacts::layout::store::ROOT)
     );
     assert_eq!(store.read("planning/product.md").unwrap(), b"legacy bytes");
     assert_eq!(

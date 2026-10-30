@@ -69,9 +69,12 @@ fn text_position(output: &egui::FullOutput, needle: &str) -> Option<egui::Pos2> 
         })
 }
 
-pub(super) fn click(app: &mut KooladeApp, ctx: &egui::Context, label: &str) -> egui::FullOutput {
+/// Locate `needle`'s visible position, scrolling toward it until the point
+/// falls inside the stable viewport band. Shared by `click` and `type_into`
+/// so deep layout content reachable only after scrolling stays interactable.
+fn resolve_position(app: &mut KooladeApp, ctx: &egui::Context, needle: &str) -> egui::Pos2 {
     let mut output = frame(app, ctx, Vec::new());
-    let mut position = text_position(&output, label);
+    let mut position = text_position(&output, needle);
     for _ in 0..8 {
         let on_screen = position.is_some_and(|point| point.y >= 32.0 && point.y <= 868.0);
         if on_screen {
@@ -96,9 +99,9 @@ pub(super) fn click(app: &mut KooladeApp, ctx: &egui::Context, label: &str) -> e
             ],
         );
         output = frame(app, ctx, Vec::new());
-        position = text_position(&output, label);
+        position = text_position(&output, needle);
     }
-    let position = position
+    position
         .filter(|point| point.y >= 32.0 && point.y <= 868.0)
         .unwrap_or_else(|| {
             let visible = output
@@ -109,8 +112,12 @@ pub(super) fn click(app: &mut KooladeApp, ctx: &egui::Context, label: &str) -> e
                     _ => None,
                 })
                 .collect::<Vec<_>>();
-            panic!("missing UI text {label}; visible: {visible:?}")
-        });
+            panic!("missing UI text {needle}; visible: {visible:?}")
+        })
+}
+
+pub(super) fn click(app: &mut KooladeApp, ctx: &egui::Context, label: &str) -> egui::FullOutput {
+    let position = resolve_position(app, ctx, label);
     frame(
         app,
         ctx,
@@ -138,9 +145,7 @@ pub(super) fn click(app: &mut KooladeApp, ctx: &egui::Context, label: &str) -> e
 }
 
 pub(super) fn type_into(app: &mut KooladeApp, ctx: &egui::Context, placeholder: &str, value: &str) {
-    let output = frame(app, ctx, Vec::new());
-    let position = text_position(&output, placeholder)
-        .unwrap_or_else(|| panic!("missing text field placeholder {placeholder}"));
+    let position = resolve_position(app, ctx, placeholder);
     frame(
         app,
         ctx,

@@ -43,7 +43,7 @@ fn managed_bootstrap_ignores_legacy_features_until_they_are_migrated() {
     let files = bootstrap_files_with_store(&code_root, &store, None).unwrap();
     let index = files
         .iter()
-        .find(|file| file.target == canonical::PRODUCT_INDEX)
+        .find(|file| file.target == store::PRODUCT_INDEX)
         .unwrap();
     let index = std::str::from_utf8(&index.bytes).unwrap();
     let active_features = index.split("## Active features\n\n").nth(1).unwrap();

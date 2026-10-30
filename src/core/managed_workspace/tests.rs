@@ -6,6 +6,7 @@ mod initialization;
 mod joining;
 #[path = "tests/manifest_environment.rs"]
 mod manifest_environment;
+mod pair_creation;
 #[path = "tests/recovery.rs"]
 mod recovery;
 #[path = "tests/remote_join.rs"]

@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use super::{Artifact, ArtifactMapping, Kind};
 
 pub(crate) fn collect(code_root: &Path, repository_id: &str) -> anyhow::Result<Vec<Artifact>> {
-    let root = code_root.join(crate::artifacts::layout::canonical::ROOT);
+    let root = code_root.join(crate::artifacts::layout::store::ROOT);
     match fs::symlink_metadata(&root) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             anyhow::bail!("legacy planning root does not exist: {}", root.display())
@@ -61,7 +61,7 @@ pub(crate) fn collect_optional(
     code_root: &Path,
     repository_id: &str,
 ) -> anyhow::Result<Vec<Artifact>> {
-    let root = code_root.join(crate::artifacts::layout::canonical::ROOT);
+    let root = code_root.join(crate::artifacts::layout::store::ROOT);
     match fs::symlink_metadata(&root) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error.into()),

@@ -51,7 +51,7 @@ pub(super) fn from_snapshot(snapshot: &Snapshot) -> MigrationPreview {
         collisions,
         backup_path: snapshot
             .code_root
-            .join(crate::artifacts::layout::canonical::ROOT),
+            .join(crate::artifacts::layout::store::ROOT),
         exclusions,
     }
 }

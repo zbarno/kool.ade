@@ -177,6 +177,10 @@ impl AiHarness for UnavailableHarness {
         format!("{} (unavailable)", self.message)
     }
 
+    fn route_blocker(&self) -> Option<String> {
+        Some(self.error().to_string())
+    }
+
     fn check_available(&self) -> Result<String, crate::error::AppError> {
         Err(self.error())
     }

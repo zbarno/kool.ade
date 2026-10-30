@@ -69,7 +69,7 @@ fn managed_imports_write_to_the_selected_store_and_return_its_revision() {
     std::fs::write(&source, "managed evidence").unwrap();
     let expected = store.revision().unwrap();
 
-    let (doc, revision) = import_into_store(&store, &repo, &source, &expected).unwrap();
+    let (doc, revision) = import_into_store(&store, &source, &expected).unwrap();
 
     assert_eq!(doc.stored_name, "notes.txt");
     assert_eq!(
@@ -110,7 +110,7 @@ fn refuses_self_copy_from_a_separate_managed_planning_store() {
     std::fs::write(&source, "already in the planning store").unwrap();
     let expected = store.revision().unwrap();
 
-    let error = import_into_store(&store, &repo, &source, &expected).unwrap_err();
+    let error = import_into_store(&store, &source, &expected).unwrap_err();
 
     assert!(error.to_string().contains("inside the planning store"));
     assert!(!imports.join("existing-1.txt").exists());

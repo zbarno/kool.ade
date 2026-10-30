@@ -42,7 +42,6 @@ pub(super) fn safe_command(repo: Option<&Path>) -> Command {
         .env_remove("GIT_CONFIG_PARAMETERS")
         .env_remove("GIT_CONFIG_COUNT")
         .env_remove("GIT_CONFIG_SYSTEM")
-        .env_remove("GIT_CONFIG_GLOBAL")
         .env_remove("GIT_CEILING_DIRECTORIES")
         .env_remove("GIT_DISCOVERY_ACROSS_FILESYSTEM")
         .env_remove("GIT_NAMESPACE")

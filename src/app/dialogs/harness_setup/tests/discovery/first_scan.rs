@@ -66,3 +66,89 @@ fn declined_first_paint_arm_retries_once_the_window_clears() {
         });
     });
 }
+
+#[test]
+fn stale_routed_provider_refreshes_even_when_an_unrelated_provider_is_fresh() {
+    use crate::app::dialogs::harness_setup::discovery::cooldown::{with_testing_now, with_window};
+    use crate::persistence::harness_settings::{
+        DISCOVERY_FRESHNESS_MS, DOCUMENTATION, DetectedHarness, WorkRoute,
+    };
+
+    const NOW: u64 = 500_000;
+    let mut dialog = DlgHarnessSetup {
+        settings: HarnessSettings {
+            default_harness: Some("codex".into()),
+            work_routes: std::collections::BTreeMap::from([(
+                DOCUMENTATION.into(),
+                WorkRoute {
+                    harness: "pi".into(),
+                    model: None,
+                },
+            )]),
+            discovered: std::collections::BTreeMap::from([
+                (
+                    "codex".into(),
+                    DetectedHarness {
+                        status: "available".into(),
+                        ready: true,
+                        checked_at_unix_ms: NOW,
+                        ..detected("codex")
+                    },
+                ),
+                (
+                    "pi".into(),
+                    DetectedHarness {
+                        status: "available".into(),
+                        ready: true,
+                        checked_at_unix_ms: NOW.saturating_sub(DISCOVERY_FRESHNESS_MS + 1),
+                        ..detected("pi")
+                    },
+                ),
+            ]),
+            ..HarnessSettings::default()
+        },
+        probe_view: ProbeView::Pending,
+        feedback: None,
+        section: HarnessSettingsSection::Tools,
+        manual_path_drafts: Default::default(),
+        probe_rx: None,
+        scan_generation: 0,
+        scan_cancel: None,
+        runtime_available: None,
+        scan_results: Vec::new(),
+        probe_results: Default::default(),
+        running_providers: Default::default(),
+        first_scan_pending: true,
+    };
+
+    with_window(0, || {
+        with_testing_now(NOW, || {
+            crate::app::dialogs::harness_setup::discovery::test_hooks::with_worker_launch_stub(
+                || dialog.ensure_first_scan(),
+            )
+        });
+    });
+
+    assert_ne!(
+        dialog.scan_generation, 0,
+        "stale documentation route must launch discovery despite fresh default evidence"
+    );
+    assert!(!dialog.first_scan_pending);
+}
+
+fn detected(provider: &str) -> crate::persistence::harness_settings::DetectedHarness {
+    crate::persistence::harness_settings::DetectedHarness {
+        status: format!("{provider} previously discovered"),
+        version: None,
+        executable: None,
+        diagnostic: None,
+        ready: false,
+        models: Vec::new(),
+        default_model: None,
+        model_catalog_fresh: false,
+        configuration_required: false,
+        implementation_available: false,
+        capability_snapshot: None,
+        checked_at_unix_ms: 0,
+    }
+}

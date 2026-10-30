@@ -13,8 +13,12 @@ fn main() -> anyhow::Result<()> {
         .next()
         .ok_or_else(|| anyhow::anyhow!("feature ID required"))?;
     anyhow::ensure!(arguments.next().is_none(), "unexpected argument");
-    let mut workflow = koolade::artifacts::task_docs::load_workflow(&root)?;
-    let commit = koolade::core::workflow::approve_feature(&root, &mut workflow, &id)?;
+    let store = koolade::artifacts::planning_store::PlanningStore::legacy_embedded(
+        uuid::Uuid::nil(),
+        &root,
+    );
+    let mut workflow = koolade::artifacts::task_docs::load_workflow(&store)?;
+    let commit = koolade::core::workflow::approve_feature(&store, &mut workflow, &id)?;
     println!("Approved {id} at {commit}");
     Ok(())
 }

@@ -4,9 +4,10 @@ use super::*;
 /// hint straight into Save passes the well-formedness probe.
 pub const MCP_EXAMPLE_HINT: &str = "{\n  \"mcpServers\": {\n    \"example\": { \"command\": \"your-server\", \"args\": [] }\n  }\n}";
 
-/// F-18 / D-16: the in-app editor for `.koolade-packet/config/mcp.json`. Raw
-/// free-text, mono-spaced; write/remove + checkpoint is owned by
-/// `crate::artifacts::mcp_io`, which keeps this struct a dumb carrier.
+/// F-18 / D-16: the in-app editor for the operator-local `mcp.json`.
+/// Raw free-text, mono-spaced; write/remove is owned by
+/// `crate::artifacts::mcp_io`. The file lives in the workspace's local
+/// state directory — it is never committed to code or planning repos,
 pub struct DlgMcp {
     /// The editor buffer; bound to the file's live bytes on open.
     pub text: String,
@@ -25,7 +26,19 @@ pub struct DlgMcp {
 impl DlgMcp {
     /// Seed the card from the LIVE file bytes (first-run: absent → hint).
     pub fn from_project(proj: &Project) -> Self {
-        let st = crate::artifacts::mcp_io::load_state(&proj.state.repo_root);
+        let Some(dir) = proj.state.mcp_config_dir() else {
+            return Self {
+                text: String::new(),
+                hint_active: true,
+                feedback: None,
+                warning: Some(
+                    "MCP configuration is stored per managed workspace; associate this checkout with a workspace to configure servers."
+                        .into(),
+                ),
+                keep_open: true,
+            };
+        };
+        let st = crate::artifacts::mcp_io::load_state(&dir);
         let (text, hint_active, warning) = Self::dialog_fields(&st);
         Self {
             text,
@@ -56,20 +69,27 @@ impl DlgMcp {
                 String::new(),
                 false,
                 Some(format!(
-                    "Existing .koolade-packet/config/mcp.json could not be read ({err}). The field starts empty — saving will OVERWRITE the file."
+                    "Existing mcp.json could not be read ({err}). The field starts empty — saving will OVERWRITE the file."
                 )),
             )
         }
     }
 
-    /// Thin shim onto the module that owns all disk/git effects. No
+    /// Thin shim onto the module that owns all disk effects. No
     /// `PlannerState` resync is owed: mcp.json is never cached in state —
     /// the next turn's `context_build` re-reads the file fresh.
     pub fn apply(
         &mut self,
         proj: &mut Project,
     ) -> Result<crate::artifacts::mcp_io::McpApplyReceipt, AppError> {
-        crate::artifacts::mcp_io::apply_save(&proj.state.repo_root, &self.text)
+        let dir = proj
+            .state
+            .mcp_config_dir()
+            .ok_or_else(|| AppError::InvalidRepo {
+                path: "mcp.json".into(),
+                detail: "no managed workspace is associated with this checkout".into(),
+            })?;
+        crate::artifacts::mcp_io::apply_save(&dir, &self.text)
     }
 }
 
@@ -87,7 +107,7 @@ pub fn paint_mcp_card(ui: &mut egui::Ui, dlg: &mut DlgMcp) -> (bool, bool) {
     ui.add_space(3.0);
     ui.label(
         RichText::new(
-            "Stored as .koolade-packet/config/mcp.json. Kool.ad/e shows the planner server names only; commands and credentials stay hidden. The editor checks JSON syntax only; blank + Save removes the file.",
+            "Stored locally in this workspace's Kool.ad/e state directory — never committed or synchronized. Server names are shown to the planner only; commands and credentials stay hidden. The editor checks JSON syntax only; blank + Save removes the file.",
         ).weak().size(11.0),
     );
     ui.add_space(4.0);

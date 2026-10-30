@@ -85,17 +85,17 @@ fn concurrent_bootstrap_rejects_the_stale_initializer_without_overwriting() {
 
     first.bootstrap_missing().unwrap();
     let before_config =
-        std::fs::read(repo.join(crate::artifacts::layout::canonical::PROJECT_CONFIG)).unwrap();
+        std::fs::read(repo.join(crate::artifacts::layout::store::PROJECT_CONFIG)).unwrap();
     let error = stale.bootstrap_missing().unwrap_err();
 
     assert!(error.to_string().contains("planning store changed"));
     assert!(
         !repo
-            .join(crate::artifacts::layout::canonical::OPEN_ITEMS)
+            .join(crate::artifacts::layout::store::OPEN_ITEMS)
             .exists()
     );
     assert_eq!(
-        std::fs::read(repo.join(crate::artifacts::layout::canonical::PROJECT_CONFIG)).unwrap(),
+        std::fs::read(repo.join(crate::artifacts::layout::store::PROJECT_CONFIG)).unwrap(),
         before_config
     );
     let _ = std::fs::remove_dir_all(&repo);

@@ -2,7 +2,7 @@
 //! dedicated artifact slot under `.koolade-packet/`.
 //!
 //! Slot: `.koolade-packet/state/time-ledger.log`
-//! ([`crate::artifacts::layout::canonical::LEDGER`]). The file carries one
+//! ([`crate::artifacts::layout::store::LEDGER`]). The file carries one
 //! header line ([`HEADER_LINE`]) followed by interval rows, one UTF-8 line
 //! each, `:`-separated with a stable field order:
 //!
@@ -113,7 +113,7 @@ pub struct IntervalRow {
 
 /// Absolute ledger path inside a project repository root.
 pub fn ledger_path(repo_root: &Path) -> PathBuf {
-    repo_root.join(layout::canonical::LEDGER)
+    repo_root.join(layout::store::LEDGER)
 }
 
 /// Serialize one row as its canonical v1 line, newline-terminated.

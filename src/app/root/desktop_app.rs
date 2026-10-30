@@ -30,6 +30,12 @@ impl KooladeApp {
 
         match &mut self.screen {
             Screen::Welcome => {
+                // Folder-picker selections belong to the card that RAISED the
+                // picker: the code-repository card by default. The
+                // planning-repository card's Browse… button flips
+                // `conn_browse_target` in the same frame before the consumer
+                // below dispatches, so this reset cannot shadow it.
+                self.conn_browse_target = BrowseTarget::CodeRepo;
                 let slot = std::cell::RefCell::new(false);
                 let browse_slot = std::cell::RefCell::new(false);
                 let clone_slot = std::cell::RefCell::new(false);
@@ -48,110 +54,42 @@ impl KooladeApp {
                 let cloning = self
                     .clone_job
                     .as_ref()
-                    .map(|j| (j.url_display.as_str(), j.repo.as_str()));
-                let clone_busy = cloning.is_some();
-                let mut paint_workspace_actions = |ui: &mut egui::Ui| {
-                    let top_space = ((ui.available_height() - 730.0) * 0.5).max(16.0);
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(top_space);
-                        crate::ui::theme::card_frame()
-                            .corner_radius(14)
-                            .stroke(egui::Stroke::new(1.0, crate::ui::theme::BORDER_STRONG))
-                            .inner_margin(24)
-                            .show(ui, |ui| {
-                                *slot.borrow_mut() = welcome::paint(
-                                    ui,
-                                    &mut self.conn_path,
-                                    &mut self.conn_github,
-                                    self.conn_error.as_deref(),
-                                    &mut browse_slot.borrow_mut(),
-                                    &mut clone_slot.borrow_mut(),
-                                    cloning,
-                                    None,
-                                    None,
-                                );
-                            });
-                    });
-                    ui.add_space(10.0);
-                    ui.vertical_centered(|ui| {
-                        ui.label("Create a workspace with its own local planning repository");
-                        let field_width = ui.available_width().min(340.0);
-                        ui.add_sized(
-                            egui::vec2(field_width, 34.0),
-                            egui::TextEdit::singleline(&mut self.conn_create_title)
-                                .hint_text("Project name"),
-                        );
-                        if ui
-                            .add_enabled(!clone_busy, egui::Button::new("Create workspace"))
-                            .clicked()
-                        {
-                            *create_workspace_slot.borrow_mut() = true;
-                        }
-                        ui.add_space(12.0);
-                        ui.separator();
-                        ui.add_space(8.0);
-                        ui.label("Join an existing shared workspace");
-                        ui.add_sized(
-                            egui::vec2(field_width, 34.0),
-                            egui::TextEdit::singleline(&mut self.conn_join_remote)
-                                .hint_text("Planning Git remote URL or local checkout path"),
-                        );
-                        if ui
-                            .add_enabled(!clone_busy, egui::Button::new("Join workspace"))
-                            .clicked()
-                        {
-                            *join_workspace_slot.borrow_mut() = true;
-                        }
-                        ui.add_space(12.0);
-                        ui.separator();
-                        ui.add_space(8.0);
-                        ui.label("Open an existing local workspace");
-                        if local_workspaces.is_empty() {
-                            ui.label(crate::ui::theme::helper_text(
-                                "No local workspace is registered yet.",
-                            ));
-                        } else {
-                            egui::ComboBox::from_id_salt("welcome_local_workspace")
-                                .selected_text(
-                                    self.conn_workspace_id
-                                        .and_then(|id| {
-                                            local_workspaces
-                                                .iter()
-                                                .find(|workspace| workspace.id == id)
-                                        })
-                                        .map(|workspace| {
-                                            format!("{} · {}", workspace.title, workspace.id)
-                                        })
-                                        .unwrap_or_else(|| "Choose a workspace".into()),
-                                )
-                                .width(field_width)
-                                .show_ui(ui, |ui| {
-                                    for workspace in &local_workspaces {
-                                        ui.selectable_value(
-                                            &mut self.conn_workspace_id,
-                                            Some(workspace.id),
-                                            format!("{} · {}", workspace.title, workspace.id),
-                                        );
-                                    }
-                                });
-                            if ui
-                                .add_enabled(!clone_busy, egui::Button::new("Open local workspace"))
-                                .clicked()
-                            {
-                                *open_local_workspace_slot.borrow_mut() = true;
-                            }
-                        }
-                        ui.add_space(6.0);
-                        if ui.link("Configure coding tools…").clicked() {
-                            *harness_setup_slot.borrow_mut() = true;
-                        }
-                    });
-                };
+                    .map(|j| (j.url_display.clone(), j.repo.clone()));
+                // Copy for the modal overlay (the tuple below is moved into
+                // `paint_more_connections`).
+                // Owned copy for the modal overlay (drawn AFTER
+                // `paint_more_connections` has moved `cloning`).
+                let cloning_arg = cloning
+                    .as_ref()
+                    .map(|(url_display, repo)| (url_display.to_string(), repo.to_string()));
                 egui::CentralPanel::default().show(ui, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         if ui.available_width() >= 1200.0 {
                             ui.columns(2, |columns| {
-                                paint_workspace_actions(&mut columns[0]);
+                                {
+                                    let top_space =
+                                        ((columns[0].available_height() - 730.0) * 0.5).max(16.0);
+                                    paint_welcome_primary(
+                                        &mut columns[0],
+                                        self,
+                                        top_space,
+                                        cloning.as_ref().map(|(a, b)| (a.as_str(), b.as_str())),
+                                    );
+                                    columns[0].add_space(10.0);
+                                }
+                                paint_more_connections(
+                                    &mut columns[0],
+                                    self,
+                                    &browse_slot,
+                                    &clone_slot,
+                                    &slot,
+                                    &create_workspace_slot,
+                                    &join_workspace_slot,
+                                    &open_local_workspace_slot,
+                                    &harness_setup_slot,
+                                    &local_workspaces,
+                                    cloning,
+                                );
                                 columns[1].vertical_centered(|ui| {
                                     welcome_setup_action =
                                         crate::ui::layout::paint_welcome_setup_board(
@@ -164,7 +102,26 @@ impl KooladeApp {
                                 });
                             });
                         } else {
-                            paint_workspace_actions(ui);
+                            paint_welcome_primary(
+                                ui,
+                                self,
+                                ((ui.available_height() - 730.0) * 0.5).max(16.0),
+                                cloning.as_ref().map(|(a, b)| (a.as_str(), b.as_str())),
+                            );
+                            ui.add_space(10.0);
+                            paint_more_connections(
+                                ui,
+                                self,
+                                &browse_slot,
+                                &clone_slot,
+                                &slot,
+                                &create_workspace_slot,
+                                &join_workspace_slot,
+                                &open_local_workspace_slot,
+                                &harness_setup_slot,
+                                &local_workspaces,
+                                cloning,
+                            );
                             ui.vertical_centered(|ui| {
                                 welcome_setup_action = crate::ui::layout::paint_welcome_setup_board(
                                     ui,
@@ -176,43 +133,37 @@ impl KooladeApp {
                             });
                         }
                     });
+                    if self.wiz.is_some() {
+                        crate::app::root::welcome_wizard::paint_wizard_modal(
+                            ui,
+                            self,
+                            cloning_arg
+                                .as_ref()
+                                .map(|(url_display, repo)| (url_display.as_str(), repo.as_str())),
+                        );
+                    }
                 });
-                if *slot.borrow() {
-                    self.submit_connect();
-                } else if *clone_slot.borrow() {
-                    self.begin_clone_from_field();
-                } else if *create_workspace_slot.borrow() {
-                    self.submit_create_workspace();
-                } else if *join_workspace_slot.borrow() {
-                    self.submit_join_workspace();
-                } else if *open_local_workspace_slot.borrow() {
-                    self.submit_open_local_workspace();
-                } else if *browse_slot.borrow() {
-                    // Start the native folder chooser at the current field's
-                    // directory, or its parent when the field is a file path.
-                    let current = std::path::PathBuf::from(self.conn_path.trim());
-                    let start = if current.is_dir() {
-                        Some(current.clone())
-                    } else {
-                        current
-                            .parent()
-                            .filter(|parent| parent.is_dir())
-                            .map(std::path::Path::to_path_buf)
-                    }
-                    .or_else(|| std::env::current_dir().ok());
-                    let mut picker = rfd::FileDialog::new().set_title("Choose a workspace folder");
-                    if let Some(start) = start {
-                        picker = picker.set_directory(start);
-                    }
-                    // Cancel leaves the field untouched. Selecting a folder
-                    // only fills the field; Open workspace remains the
-                    // single place that attempts a connection.
-                    if let Some(path) = picker.pick_folder() {
-                        let path = path.canonicalize().unwrap_or(path);
-                        self.conn_path = path.to_string_lossy().into_owned();
+                if self.wiz.is_none() {
+                    // Veiled while the wizard modal is open (see the card-bus
+                    // guard): legacy actions must not fire from clicks the
+                    // backdrop is eating.
+                    if *slot.borrow() {
+                        self.submit_connect();
+                    } else if *clone_slot.borrow() {
+                        self.begin_clone_from_field();
+                    } else if *create_workspace_slot.borrow() {
+                        self.submit_create_workspace();
+                    } else if *join_workspace_slot.borrow() {
+                        self.submit_join_workspace();
+                    } else if *open_local_workspace_slot.borrow() {
+                        self.submit_open_local_workspace();
+                    } else if *browse_slot.borrow() {
+                        // One picker serves both welcome cards; the active
+                        // target decides which field receives the selection.
+                        self.pick_folder_for_active_target();
                     }
                 }
-                if *harness_setup_slot.borrow() {
+                if self.wiz.is_none() && *harness_setup_slot.borrow() {
                     self.dialog = Some(Dialog::HarnessSetup(app_dialogs::DlgHarnessSetup::new()));
                 }
             }
@@ -286,4 +237,170 @@ impl KooladeApp {
             self.render_dialog(ui, dialog);
         }
     }
+}
+
+/// "More connection options" column: the classic welcome card plus
+/// workspace administration. A free function (not a closure) so the
+/// welcome layout can compose it without closure-capture fights.
+#[allow(clippy::too_many_arguments)]
+fn paint_more_connections(
+    ui: &mut egui::Ui,
+    app: &mut crate::app::root::KooladeApp,
+    browse_slot: &std::cell::RefCell<bool>,
+    clone_slot: &std::cell::RefCell<bool>,
+    slot: &std::cell::RefCell<bool>,
+    create_workspace_slot: &std::cell::RefCell<bool>,
+    join_workspace_slot: &std::cell::RefCell<bool>,
+    open_local_workspace_slot: &std::cell::RefCell<bool>,
+    harness_setup_slot: &std::cell::RefCell<bool>,
+    local_workspaces: &[crate::core::managed_workspace::LocalWorkspaceSummary],
+    cloning: Option<(String, String)>,
+) {
+    let clone_busy = cloning.is_some();
+    let cloning_refs = cloning.as_ref().map(|(a, b)| (a.as_str(), b.as_str()));
+    ui.vertical_centered(|ui| {
+        ui.label(egui::RichText::new("More connection options").strong());
+        ui.label(crate::ui::theme::helper_text(
+            "Classic connect, cloning, joins, and workspace administration.",
+        ));
+        ui.add_space(6.0);
+        *slot.borrow_mut() = welcome::paint(
+            ui,
+            &mut app.conn_path,
+            &mut app.conn_github,
+            app.conn_error.as_deref(),
+            &mut browse_slot.borrow_mut(),
+            &mut clone_slot.borrow_mut(),
+            cloning_refs,
+            None,
+            None,
+        );
+        ui.add_space(12.0);
+        ui.separator();
+        ui.add_space(8.0);
+        ui.label("Create a workspace with its own local planning repository");
+        let field_width = ui.available_width().min(340.0);
+        ui.add_sized(
+            egui::vec2(field_width, 34.0),
+            egui::TextEdit::singleline(&mut app.conn_create_title).hint_text("Project name"),
+        );
+        if ui
+            .add_enabled(!clone_busy, egui::Button::new("Create workspace"))
+            .clicked()
+        {
+            *create_workspace_slot.borrow_mut() = true;
+        }
+        ui.add_space(12.0);
+        ui.separator();
+        ui.add_space(8.0);
+        ui.label("Join an existing shared workspace");
+        ui.add_sized(
+            egui::vec2(field_width, 34.0),
+            egui::TextEdit::singleline(&mut app.conn_join_remote)
+                .hint_text("Planning Git remote URL or local checkout path"),
+        );
+        ui.horizontal_centered(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            let browse = ui
+                .add_enabled(!clone_busy, egui::Button::new("Browse…"))
+                .clicked();
+            if browse {
+                // The SAME picker the code-repository card
+                // uses, aimed at the planning-repository
+                // field: teams can point at a shared
+                // planning checkout anywhere on disk.
+                app.conn_browse_target = BrowseTarget::PlanningRepo;
+                *browse_slot.borrow_mut() = true;
+            }
+            if ui
+                .add_enabled(!clone_busy, egui::Button::new("Join workspace"))
+                .clicked()
+            {
+                *join_workspace_slot.borrow_mut() = true;
+            }
+        });
+        ui.add_space(12.0);
+        ui.separator();
+        ui.add_space(8.0);
+        ui.label("Open an existing local workspace");
+        if local_workspaces.is_empty() {
+            ui.label(crate::ui::theme::helper_text(
+                "No local workspace is registered yet.",
+            ));
+        } else {
+            egui::ComboBox::from_id_salt("welcome_local_workspace")
+                .selected_text(
+                    app.conn_workspace_id
+                        .and_then(|id| local_workspaces.iter().find(|workspace| workspace.id == id))
+                        .map(|workspace| format!("{} · {}", workspace.title, workspace.id))
+                        .unwrap_or_else(|| "Choose a workspace".into()),
+                )
+                .width(field_width)
+                .show_ui(ui, |ui| {
+                    for workspace in local_workspaces {
+                        ui.selectable_value(
+                            &mut app.conn_workspace_id,
+                            Some(workspace.id),
+                            format!("{} · {}", workspace.title, workspace.id),
+                        );
+                    }
+                });
+            if ui
+                .add_enabled(!clone_busy, egui::Button::new("Open local workspace"))
+                .clicked()
+            {
+                *open_local_workspace_slot.borrow_mut() = true;
+            }
+        }
+        ui.add_space(6.0);
+        if ui.link("Configure coding tools…").clicked() {
+            *harness_setup_slot.borrow_mut() = true;
+        }
+    });
+}
+/// The primary welcome card — permanently the journey doors; the ACTIVE
+/// wizard renders as a modal OVER this canvas (see `paint_wizard_modal`),
+/// shared by both layout breakpoints.
+fn paint_welcome_primary(
+    ui: &mut egui::Ui,
+    app: &mut crate::app::root::KooladeApp,
+    top_space: f32,
+    cloning: Option<(&str, &str)>,
+) {
+    ui.vertical_centered(|ui| {
+        ui.add_space(top_space);
+        crate::ui::theme::card_frame()
+            .corner_radius(14)
+            .stroke(egui::Stroke::new(1.0, crate::ui::theme::BORDER_STRONG))
+            .inner_margin(24)
+            .show(ui, |ui| {
+                let door_req = std::cell::Cell::new(None);
+                let wiz_action =
+                    std::cell::Cell::new(None::<crate::app::root::welcome_wizard::WizAction>);
+                let browse_req = std::cell::Cell::new(None);
+                let bus = crate::app::root::welcome_wizard::PrimaryBus {
+                    door: &door_req,
+                    action: &wiz_action,
+                    browse: &browse_req,
+                };
+                crate::app::root::welcome_wizard::paint_primary_card(ui, app, &bus, cloning);
+                if app.wiz.is_some() {
+                    // Presentation-only while the modal is open: ONE physical
+                    // click can geometrically touch a canvas control and the
+                    // modal backdrop in the same frame, and letting the canvas
+                    // actuate would double-process the gesture (reopen or
+                    // replace the wizard, then the backdrop closes it).
+                    return;
+                }
+                if let Some(entry) = door_req.take() {
+                    app.wizard_open(entry);
+                }
+                if let Some(action) = wiz_action.take() {
+                    app.wizard_actuate(action);
+                }
+                if let Some(which) = browse_req.take() {
+                    app.browse_wizard_field(which);
+                }
+            });
+    });
 }

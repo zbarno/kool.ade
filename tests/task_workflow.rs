@@ -126,7 +126,10 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
                 std::fs::write(&first, &edited).unwrap();
                 assert!(
                     koolade::artifacts::task_docs::save_progress(
-                        &root,
+                        &koolade::artifacts::planning_store::PlanningStore::legacy_embedded(
+                            uuid::Uuid::nil(),
+                            root,
+                        ),
                         manifest["run"].as_str().unwrap(),
                         &batch,
                         2

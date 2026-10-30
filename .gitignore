@@ -13,3 +13,7 @@
 .koolade-packet/**/activity.json
 .koolade-packet/**/state.json
 .koolade-packet/**/*.tmp
+CPL.log
+DCT.log
+NTF.txt
+NTFE.err
