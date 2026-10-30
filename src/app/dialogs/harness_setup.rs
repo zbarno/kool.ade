@@ -7,6 +7,7 @@ use crate::harness::discovery::ProbeResult;
 mod bootstrap_probe;
 mod bootstrap_provider;
 mod discovery;
+mod onboarding;
 mod paint;
 pub use self::paint::paint_harness_setup_page;
 mod pi_guide;

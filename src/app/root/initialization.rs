@@ -32,6 +32,38 @@ impl Default for KooladeApp {
         let setup_task_state_path = setup_state_root.join("machine-setup").join("tasks.json");
 
         Self {
+            onboarding: welcome::onboarding::Onboarding::load({
+                #[cfg(test)]
+                {
+                    setup_state_root.join("onboarding.json")
+                }
+                #[cfg(not(test))]
+                {
+                    crate::persistence::state_root().join("onboarding.json")
+                }
+            }),
+            onboarding_launcher: Default::default(),
+            onboarding_open: None,
+            onboarding_recovery: Default::default(),
+            launch_history_jobs: {
+                #[cfg(not(test))]
+                {
+                    let manager =
+                        crate::core::managed_workspace::WorkspaceManager::from_state_root();
+                    vec![std::thread::spawn(move || {
+                        manager
+                            .flush_pending_opens()
+                            .map_err(|error| error.to_string())
+                    })]
+                }
+                #[cfg(test)]
+                {
+                    Vec::new()
+                }
+            },
+            onboarding_creation: None,
+            onboarding_inspection: None,
+            onboarding_project_kind: None,
             task_harness: None,
             pending_feature_generation: None,
             screen: Screen::Welcome,

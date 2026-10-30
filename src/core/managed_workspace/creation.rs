@@ -13,7 +13,9 @@ use super::{
     manifest::WorkspaceManifest,
 };
 
+mod identified;
 pub(super) mod initialize;
+pub(super) use initialize::sync_tree;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg(test)]

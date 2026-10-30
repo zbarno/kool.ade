@@ -1,12 +1,19 @@
 //! Local workspace identity and its external planning Git repository.
 
+mod application;
 mod association;
+mod existing_project;
+pub use application::ApplicationCreation;
+pub use existing_project::{ExistingProject, ExistingProjectKind};
 mod creation;
 mod git;
 mod locking;
 mod manager;
 mod manifest;
 mod migration;
+mod recency;
+mod recovery;
+pub use recovery::{ArtifactPresence, RecoveryItem, RecoveryRequest};
 mod pair;
 mod repositories;
 #[cfg(test)]
@@ -16,7 +23,8 @@ pub use association::{CodeCheckout, WorkspaceAssociation};
 #[cfg(test)]
 pub(crate) use creation::CreationFailurePoint;
 pub use manager::{
-    CodeRepositoryRegistration, LocalWorkspaceSummary, ManagedWorkspace, WorkspaceManager,
+    CodeRepositoryRegistration, LocalWorkspaceSummary, ManagedWorkspace, WorkspaceLauncher,
+    WorkspaceManager,
 };
 pub(crate) use manifest::MAX_MANIFEST_BYTES;
 pub use manifest::WorkspaceManifest;

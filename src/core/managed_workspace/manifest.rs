@@ -12,11 +12,14 @@ pub struct WorkspaceManifest {
     pub workspace_id: uuid::Uuid,
     pub kind: String,
     pub canonical_ref: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 impl WorkspaceManifest {
     pub fn new(workspace_id: uuid::Uuid) -> Self {
         Self {
+            title: None,
             schema_version: 1,
             workspace_id,
             kind: "koolade-planning".into(),
@@ -25,6 +28,14 @@ impl WorkspaceManifest {
     }
 
     pub fn validate(&self, planning_repo: &Path) -> anyhow::Result<()> {
+        if let Some(title) = &self.title {
+            anyhow::ensure!(
+                !title.trim().is_empty()
+                    && title.len() <= 512
+                    && !title.chars().any(char::is_control),
+                "invalid workspace title"
+            );
+        }
         anyhow::ensure!(
             self.schema_version == 1,
             "unsupported planning manifest schema"

@@ -178,6 +178,16 @@ impl HarnessCapabilitySnapshotV1 {
         if self.validate().is_err() || self.execution_target == ReadinessState::Ready {
             return false;
         }
+        self.supports_context_only_help()
+    }
+
+    /// Provider capability for an explicitly tool-free help request. Unlike
+    /// the no-target planning fallback, this remains useful when an execution
+    /// target exists. It grants no role or repository execution capability.
+    pub fn supports_context_only_help(&self) -> bool {
+        if self.validate().is_err() {
+            return false;
+        }
         let provider_ready = self.cli_binary == ReadinessState::Ready
             && self
                 .cli_version

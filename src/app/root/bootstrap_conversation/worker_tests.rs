@@ -32,7 +32,7 @@ impl AiHarness for FakeProvider {
         assert!(request.destination_sha.is_none());
         assert!(request.runtime_config_source.is_none());
         assert!(request.prompt_manifest.as_ref().is_some_and(|manifest| {
-            manifest.role_version == "bootstrap_conversation/v1"
+            manifest.role_version == "bootstrap_conversation/v2"
                 && manifest.privilege_profile == "no_tools; typed_suggestions_only"
         }));
         assert!(request.system_instructions.contains("You have no tools"));
