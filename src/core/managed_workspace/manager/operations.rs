@@ -1,5 +1,8 @@
 use std::{fs, path::Path};
 
+mod existing_checkout_mapping;
+mod planning_inspection;
+
 use super::super::{
     association::{CodeCheckout, WorkspaceAssociation},
     creation, git,
@@ -243,6 +246,9 @@ fn reject_conflicting_path(
     selected_path: &Path,
 ) -> anyhow::Result<()> {
     let projects = manager.home.join("projects");
+    if !projects.is_dir() {
+        return Ok(());
+    }
     for entry in fs::read_dir(&projects)? {
         let entry = entry?;
         if !entry.file_type()?.is_dir() {

@@ -29,6 +29,7 @@ pub use manager::{
 pub(crate) use manifest::MAX_MANIFEST_BYTES;
 pub use manifest::WorkspaceManifest;
 pub use migration::{MigrationConflictPreview, MigrationPreview, MigrationReport, RollbackOutcome};
+pub use pair::PAIR_CODE_REPO_ID;
 pub use pair::SiblingPairSpec;
 pub(crate) use pair::repository_name_allowed;
 

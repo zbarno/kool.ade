@@ -19,11 +19,15 @@ Technical details and existing direct connection controls live under Advanced.
 2. Prepare this computer summarizes authoritative setup tasks. Planning and
    coding readiness are separate. Repairs open existing consent and Task Details
    flows; the wizard never owns repair permissions or manufactures completion.
-3. Choose a project offers recent workspaces, an existing folder, or a new idea.
-   Recent cards use private successful-open timestamps and stable workspace IDs.
-   Existing folders preserve Git state; non-Git folders require initialization
-   consent. New projects require a name and intent, with separate code and
-   planning locations shown before writes.
+3. Choose a project leads with “Open an existing code project” and explains that
+   the workspace list below contains planning repositories. Selecting a code
+   checkout detects a valid sibling `<code>.packet` repository, or lets the
+   operator browse directly to an existing planning folder or choose a listed
+   workspace. The code folder is inspected automatically; the selected planning
+   repository is joined by its manifest identity. Existing folders preserve Git
+   state; non-Git folders require initialization consent. New projects require
+   a name and intent, with separate code and planning locations shown before
+   writes.
 4. Review and open shows the exact locations and approved operations. A durable
    transaction resumes partial creation without deleting files or duplicating
    workspace identities. The initial idea enters the normal planning interview.
@@ -77,9 +81,15 @@ why unit coverage is insufficient, external dependencies and setup cost.
 The follow-up implementation adds a pre-Docker provider choice without marking
 Manager execution ready, step-specific machine-local help, responsive progress,
 collision-aware location suggestions, and identity-fenced folder inspection.
-The follow-up passed formatting, all-target nextest (3,656 passed; 17 skipped),
+The previous follow-up passed formatting, all-target nextest (3,662 passed; 17 skipped),
 doc tests and Clippy with warnings denied after integration with main 52504d90.
 Independent source review found no remaining blocking regression.
+
+The existing-project flow was clarified after manual operator feedback: the
+workspace list is labeled as planning repositories, opening code is the primary
+action, and a valid sibling `.packet` repository is detected or can be selected
+directly. The selected checkout is validated before initialization and joined
+by its own manifest ID. Current source gates are rerunning for this update.
 
 Reconnect validates a proposed association fully before publishing it. On Unix
 filesystems it requires the original planning and Git directory device/inode

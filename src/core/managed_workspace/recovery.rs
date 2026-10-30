@@ -81,7 +81,9 @@ impl WorkspaceManager {
                 .as_ref()
                 .map(|workspace| presence(&workspace.planning_repo))
                 .unwrap_or_else(|| {
-                    if request.create_workspace {
+                    if let Some(path) = &request.planning_repo {
+                        presence(path)
+                    } else if request.create_workspace {
                         presence(&self.planning_repo_path(id))
                     } else {
                         Unavailable

@@ -15,7 +15,8 @@ impl KooladeApp {
         presentation::problem(ui, self.conn_error.as_deref());
         match self.onboarding.step {
             Step::Projects => {
-                ui.heading("What would you like to do?");
+                ui.heading("Open or create a project");
+                ui.label("Open code you already have and choose its planning repository, or start a new project.");
                 for request in self.onboarding.previous_attachments.clone() {
                     if ui
                         .button(format!("Resume connecting: {}", request.title))
@@ -48,11 +49,16 @@ impl KooladeApp {
                         *next = Some(Step::ReviewProject);
                     }
                 }
+                if ui
+                    .add(presentation::primary_button(
+                        "Open an existing code project…",
+                    ))
+                    .clicked()
+                {
+                    *next = Some(Step::ExistingProject);
+                }
                 if ui.button("Create something new").clicked() {
                     *next = Some(Step::NewProject);
-                }
-                if ui.button("Use an existing project").clicked() {
-                    *next = Some(Step::ExistingProject);
                 }
                 if let Some(id) = self.onboarding.opening_workspace_id
                     && ui.button("Resume opening my workspace").clicked()
@@ -63,6 +69,9 @@ impl KooladeApp {
                     ui.spinner();
                     ui.label("Finding your workspaces…");
                 }
+                ui.add_space(10.0);
+                ui.label(egui::RichText::new("Planning workspaces on this computer").strong());
+                ui.label("This list shows planning repositories. Use “Open an existing code project” to pair one with its code folder.");
                 if welcome::paint_recent(
                     ui,
                     &self.onboarding_launcher.available,

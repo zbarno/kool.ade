@@ -37,10 +37,13 @@ preview is unclear or differs from the requested action.
    approve history initialization; verify those files are unchanged.
 7. Open an existing Git project with an uncommitted change. Confirm that its
    branch, staged files and working changes are preserved.
-8. Open several workspaces, restart, and find the most recently opened one.
+8. Open `kool.ade` with its existing sibling `kool.ade.packet`. Confirm the
+   wizard finds or lets you choose the planning repository, opens the same
+   planning workspace, and preserves any staged and unstaged code changes.
+9. Open several workspaces, restart, and find the most recently opened one.
    Move one disposable workspace folder and try reconnecting it without
    creating a replacement workspace or losing history.
-9. Resize to a narrow window and navigate using Tab, Shift+Tab, Enter and
+10. Resize to a narrow window and navigate using Tab, Shift+Tab, Enter and
    Escape. Ask for help during setup and project selection.
 
 ## Observer record

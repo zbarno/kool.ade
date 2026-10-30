@@ -71,7 +71,7 @@ fn existing_project_button_routes_to_folder_review() {
             let egui::Shape::Text(text) = &shape.shape else {
                 return None;
             };
-            (text.galley.text() == "Use an existing project")
+            (text.galley.text() == "Open an existing code project…")
                 .then(|| text.pos + text.galley.mesh_bounds.center().to_vec2())
         })
         .unwrap();
@@ -99,6 +99,7 @@ fn folder_inspection_discards_results_for_a_different_request() {
     let mut app = KooladeApp::default();
     let request = ExistingProject {
         folder: "/synthetic/current-project".into(),
+        planning_repo: None,
         workspace_id: uuid::Uuid::new_v4(),
         repository_id: "current".into(),
         title: "Current project".into(),

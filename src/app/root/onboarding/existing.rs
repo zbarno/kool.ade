@@ -1,5 +1,7 @@
 use super::*;
-use crate::core::managed_workspace::{ExistingProject, ExistingProjectKind, WorkspaceManager};
+use crate::core::managed_workspace::{
+    ExistingProject, ExistingProjectKind, WorkspaceManager, WorkspaceManifest,
+};
 
 impl KooladeApp {
     pub(in crate::app::root) fn apply_onboarding_inspection(
@@ -39,11 +41,11 @@ impl KooladeApp {
                 }
             }
         }
-        ui.heading("Use a project on this computer");
+        ui.heading("Open your code with its planning repository");
         presentation::problem(ui, self.conn_error.as_deref());
-        let checking = self.onboarding_inspection.is_some();
+        let picker_busy = self.onboarding_inspection.is_some();
         if ui
-            .add_enabled(!checking, egui::Button::new("Choose project folder…"))
+            .add_enabled(!picker_busy, egui::Button::new("Choose project folder…"))
             .clicked()
             && let Some(folder) = rfd::FileDialog::new().pick_folder()
         {
@@ -55,6 +57,21 @@ impl KooladeApp {
                         .file_name()
                         .map(|name| name.to_string_lossy().into_owned())
                         .unwrap_or_else(|| "My project".into());
+                    let sibling_planning_repo = folder
+                        .parent()
+                        .zip(folder.file_name())
+                        .map(|(parent, name)| {
+                            parent.join(format!("{}.packet", name.to_string_lossy()))
+                        })
+                        .filter(|path| {
+                            WorkspaceManifest::is_managed_repository(path)
+                                .is_ok_and(|managed| managed)
+                        });
+                    let workspace_id = sibling_planning_repo
+                        .as_deref()
+                        .and_then(|path| WorkspaceManifest::read(path).ok())
+                        .map(|manifest| manifest.workspace_id)
+                        .unwrap_or_else(uuid::Uuid::new_v4);
                     if let Some(previous) = self.onboarding.existing.take()
                         && !self
                             .onboarding
@@ -66,10 +83,11 @@ impl KooladeApp {
                     }
                     self.onboarding.existing = Some(ExistingProject {
                         folder,
+                        planning_repo: sibling_planning_repo.clone(),
                         title,
-                        workspace_id: uuid::Uuid::new_v4(),
+                        workspace_id,
                         repository_id: format!("app-{}", uuid::Uuid::new_v4().simple()),
-                        create_workspace: true,
+                        create_workspace: sibling_planning_repo.is_none(),
                     });
                     self.onboarding.go(Step::ExistingProject);
                 }
@@ -85,13 +103,29 @@ impl KooladeApp {
             }
             return;
         };
+        if self.onboarding_project_kind.is_none()
+            && self.onboarding_inspection.is_none()
+            && self.conn_error.is_none()
+        {
+            let folder = request.folder.clone();
+            let repository_id = request.repository_id.clone();
+            self.onboarding_inspection = Some(std::thread::spawn(move || {
+                let result = WorkspaceManager::from_state_root()
+                    .inspect_existing_project(&folder)
+                    .map_err(|error| format!("{error:#}"));
+                (repository_id, folder, result)
+            }));
+        }
+        let checking = self.onboarding_inspection.is_some();
         ui.label(format!("Project: {}", request.title));
         ui.label(format!("App code: {}", request.folder.display()));
         if checking {
             ui.spinner();
             ui.label("Checking this folder without changing files…");
             ui.ctx().request_repaint_after(Duration::from_millis(100));
-        } else if ui.button("Check folder").clicked() {
+        } else if self.onboarding_project_kind.is_none()
+            && ui.button("Check folder again").clicked()
+        {
             self.onboarding_project_kind = None;
             self.conn_error = None;
             let folder = request.folder.clone();
@@ -103,25 +137,28 @@ impl KooladeApp {
                 (repository_id, folder, result)
             }));
         }
-        ui.label("Where should Kool.ad/e keep its plans and decisions?");
-        ui.label("Planning history is kept separately from application code.");
+        ui.label("Choose the planning repository for this code folder.");
+        ui.label("For example, pair kool.ade with its sibling kool.ade.packet.");
         let was_new = request.create_workspace;
         let mut changed = ui
             .radio_value(
                 &mut request.create_workspace,
                 true,
-                "Create a separate planning workspace for me",
+                "Create a new private planning workspace for this code",
             )
             .changed();
         changed |= ui
             .radio_value(
                 &mut request.create_workspace,
                 false,
-                "Use an existing planning workspace",
+                "Use an existing planning repository",
             )
             .changed();
         if !was_new && request.create_workspace {
             request.workspace_id = uuid::Uuid::new_v4();
+            request.planning_repo = None;
+        } else if was_new && !request.create_workspace {
+            request.planning_repo = None;
         }
         if !request.create_workspace {
             let workspaces = self.onboarding_launcher.available.clone();
@@ -131,23 +168,57 @@ impl KooladeApp {
             }
             egui::ComboBox::from_id_salt("attach_planning_workspace")
                 .selected_text(
-                    workspaces
-                        .iter()
-                        .find(|item| item.id == request.workspace_id)
-                        .map(|item| item.title.as_str())
-                        .unwrap_or("Choose a workspace"),
+                    request
+                        .planning_repo
+                        .as_ref()
+                        .map(|path| format!("Selected folder: {}", path.display()))
+                        .or_else(|| {
+                            workspaces
+                                .iter()
+                                .find(|item| item.id == request.workspace_id)
+                                .map(|item| item.title.clone())
+                        })
+                        .unwrap_or_else(|| "Choose a planning repository".into()),
                 )
                 .show_ui(ui, |ui| {
                     for workspace in workspaces {
-                        changed |= ui
+                        if ui
                             .selectable_value(
                                 &mut request.workspace_id,
                                 workspace.id,
                                 workspace.title,
                             )
-                            .changed();
+                            .clicked()
+                        {
+                            request.planning_repo = Some(workspace.planning_repo);
+                            changed = true;
+                        }
                     }
                 });
+            if ui.button("Choose planning repository folder…").clicked()
+                && let Some(folder) = rfd::FileDialog::new()
+                    .set_title("Choose the existing .packet planning repository")
+                    .pick_folder()
+            {
+                match folder.canonicalize() {
+                    Ok(folder) => {
+                        request.planning_repo = Some(folder);
+                        request.workspace_id = request
+                            .planning_repo
+                            .as_deref()
+                            .and_then(|path| WorkspaceManifest::read(path).ok())
+                            .map(|manifest| manifest.workspace_id)
+                            .unwrap_or_else(uuid::Uuid::new_v4);
+                        changed = true;
+                    }
+                    Err(_) => {
+                        self.conn_error = Some(
+                            "That planning folder cannot be read. Choose an accessible folder."
+                                .into(),
+                        );
+                    }
+                }
+            }
         }
         if changed {
             self.onboarding.existing = Some(request.clone());
@@ -156,11 +227,13 @@ impl KooladeApp {
         let planning_path = if request.create_workspace {
             Some(WorkspaceManager::from_state_root().planning_repo_path(request.workspace_id))
         } else {
-            self.onboarding_launcher
-                .available
-                .iter()
-                .find(|item| item.id == request.workspace_id)
-                .map(|item| item.planning_repo.clone())
+            request.planning_repo.clone().or_else(|| {
+                self.onboarding_launcher
+                    .available
+                    .iter()
+                    .find(|item| item.id == request.workspace_id)
+                    .map(|item| item.planning_repo.clone())
+            })
         };
         if let Some(path) = &planning_path {
             ui.label(format!("Planning history: {}", path.display()));
@@ -190,7 +263,11 @@ impl KooladeApp {
             {
                 self.onboarding_creation = Some(std::thread::spawn(move || {
                     WorkspaceManager::from_state_root()
-                        .attach_existing_project(&request, needs_init)
+                        .attach_existing_project_with_planning_repo(
+                            &request,
+                            request.planning_repo.as_deref(),
+                            needs_init,
+                        )
                         .map(|workspace| workspace.id)
                         .map_err(|error| format!("{error:#}"))
                 }));
