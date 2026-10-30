@@ -105,6 +105,7 @@ pub(crate) async fn assert_host_resources_denied(
     let script = r#"
 const fs = require('node:fs/promises');
 const net = require('node:net');
+const { spawnSync } = require('node:child_process');
 (async () => {
   const checks = JSON.parse(process.argv[1]);
   const leaked = [];
@@ -113,6 +114,16 @@ const net = require('node:net');
     catch (error) {
       if (!['ENOENT', 'EACCES', 'EPERM', 'ENOTDIR'].includes(error.code)) throw error;
     }
+  }
+  const executable = `/tmp/.koolade-noexec-probe-${process.pid}`;
+  try {
+    await fs.writeFile(executable, '#!/bin/sh\nexit 0\n', { mode: 0o700 });
+    const result = spawnSync(executable, [], { timeout: 1000 });
+    if (!result.error || !['EACCES', 'EPERM'].includes(result.error.code)) {
+      leaked.push('execution from writable tmpfs');
+    }
+  } finally {
+    await fs.rm(executable, { force: true });
   }
   for (const item of checks.sockets) {
     let present = false;

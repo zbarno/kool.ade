@@ -37,8 +37,9 @@ pub(super) fn candidate_desktop_lock() -> ImageLock {
 // Boundary: the app-owned Docker lifecycle must stage a bounded artifact and
 // request-bound package cache into rootless tmpfs, expose no host mounts,
 // devices, ports, capabilities, or inherited environment, attempt live reads
-// of host-HOME credentials and connections to host sockets, run the pinned
-// desktop interaction fixture, and remove only that owned container. A unit
+// of host-HOME credentials, connect to host sockets, launch a canary from
+// writable no-exec tmpfs, run the pinned desktop interaction fixture, and
+// remove only that owned container. A unit
 // test cannot prove Docker's applied host configuration or upload/start/log/
 // cleanup behavior. External dependency: Docker with the desktop candidate
 // loaded (rootless in CI). Setup: candidate image build, synthetic cache and
