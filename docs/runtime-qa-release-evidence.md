@@ -1,6 +1,6 @@
 # Runtime QA release evidence
 
-## Current main workflow status (2026-10-30, 00:02 UTC)
+## Current main workflow status (2026-10-30, 00:17 UTC)
 
 Evidence is anchored to current `main` commit
 [`4221812`](https://github.com/zbarno/kool.ade/commit/422181299a53a40efc400ed2d384093153be8207).
@@ -11,14 +11,13 @@ workflow [40970644069](https://github.com/zbarno/kool.ade/actions/runs/409706440
 passed Linux x86_64, Linux arm64, Windows x64, Apple Silicon macOS, and Intel
 macOS packages. The trusted-image workflow
 [40970644164](https://github.com/zbarno/kool.ade/actions/runs/40970644164)
-is being retried. In attempt 1, browser verification passed; the desktop
+passed on attempt 2. Browser verification passed on attempt 1. The desktop
 candidate test `rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate`
-failed when its approved QA driver exceeded the 120-second timeout. The daemon
-log also recorded GPU-device selection and network-namespace errors. Attempt 2
-is rerunning only the failed desktop job. Until it completes successfully, this
-is not a passing exact-main trusted-image run. Both QA profiles remain disabled,
-so publication and published-image smokes are skipped. This implementation
-evidence does not provide a complete release matrix or authorize enabling the
+exceeded its approved 120-second timeout on attempt 1; the daemon log also
+recorded GPU-device selection and network-namespace errors. Rerunning only the
+failed desktop job passed on attempt 2. Both QA profiles remain disabled, so
+publication and published-image smokes are skipped. These implementation
+checks do not provide a complete release matrix or authorize enabling the
 profiles.
 
 ## Merged candidate PR checks (2026-10-29)
