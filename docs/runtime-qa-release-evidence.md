@@ -1,24 +1,21 @@
 # Runtime QA release evidence
 
-## Current main workflow status (2026-10-30, 00:17 UTC)
+## Current main workflow status (2026-10-30, 01:46 UTC)
 
 Evidence is anchored to current `main` commit
-[`4221812`](https://github.com/zbarno/kool.ade/commit/422181299a53a40efc400ed2d384093153be8207).
-The exact-main quality workflow [40970644144](https://github.com/zbarno/kool.ade/actions/runs/40970644144)
-passed after retrying the isolated Docker daemon recovery job, which failed
-because the daemon did not answer its health request. The native package
-workflow [40970644069](https://github.com/zbarno/kool.ade/actions/runs/40970644069)
-passed Linux x86_64, Linux arm64, Windows x64, Apple Silicon macOS, and Intel
-macOS packages. The trusted-image workflow
-[40970644164](https://github.com/zbarno/kool.ade/actions/runs/40970644164)
-passed on attempt 2. Browser verification passed on attempt 1. The desktop
-candidate test `rootless_app_owned_qa_driver_uploads_runs_reads_and_cleans_candidate`
-exceeded its approved 120-second timeout on attempt 1; the daemon log also
-recorded GPU-device selection and network-namespace errors. Rerunning only the
-failed desktop job passed on attempt 2. Both QA profiles remain disabled, so
+[`cf1571d`](https://github.com/zbarno/kool.ade/commit/cf1571d8dacebac3d568ef39a78044c9ddd5d489).
+The exact-main quality workflow [40983009178](https://github.com/zbarno/kool.ade/actions/runs/40983009178),
+trusted-image workflow [40983008760](https://github.com/zbarno/kool.ade/actions/runs/40983008760),
+native package workflow [40983008750](https://github.com/zbarno/kool.ade/actions/runs/40983008750),
+and CodeQL workflow [40983008623](https://github.com/zbarno/kool.ade/actions/runs/40983008623)
+passed. The native workflow built Linux x86_64, Linux arm64, Windows x64,
+Apple Silicon macOS, and Intel macOS packages. Rootless browser and desktop
+candidate verification passed. Both QA profiles remain disabled, so
 publication and published-image smokes are skipped. These implementation
 checks do not provide a complete release matrix or authorize enabling the
-profiles.
+profiles. The rootless desktop orphan-recovery addition in open PR #429 is not
+included in this exact-main evidence; its hosted candidate checks remain
+pending.
 
 ## Merged candidate PR checks (2026-10-29)
 
