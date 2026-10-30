@@ -14,7 +14,7 @@ use super::{
 };
 
 mod identified;
-mod initialize;
+pub(super) mod initialize;
 pub(super) use initialize::sync_tree;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -247,7 +247,7 @@ fn remove_journal(manager: &WorkspaceManager, id: uuid::Uuid) -> anyhow::Result<
     Ok(())
 }
 
-fn validate_title(title: &str) -> anyhow::Result<()> {
+pub(super) fn validate_title(title: &str) -> anyhow::Result<()> {
     let title = title.trim();
     anyhow::ensure!(!title.is_empty(), "workspace title must not be empty");
     anyhow::ensure!(

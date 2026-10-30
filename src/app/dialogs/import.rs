@@ -32,7 +32,6 @@ impl DlgImport {
             }
             let (doc, revision) = imports_io::import_into_store(
                 &proj.state.planning_store,
-                &proj.state.repo_root,
                 src,
                 &proj.state.baseline_planning_revision,
             )

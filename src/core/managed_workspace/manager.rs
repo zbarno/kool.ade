@@ -10,6 +10,7 @@ use crate::{
 };
 
 use super::{association::WorkspaceAssociation, creation, git, manifest::WorkspaceManifest};
+use anyhow::Context;
 
 mod listing;
 pub use listing::WorkspaceLauncher;
@@ -81,6 +82,17 @@ impl WorkspaceManager {
 
     pub fn create(&self, title: &str) -> anyhow::Result<ManagedWorkspace> {
         creation::create(self, title, None)
+    }
+
+    /// Materializes a new project as two ordinary sibling Git repositories
+    /// (``Parent/<code>`` and ``Parent/<planning>``), seeds the planning
+    /// repository, associates it as a managed workspace, and registers the
+    /// code checkout. Retrying reuses whatever already exists.
+    pub fn create_sibling_pair(
+        &self,
+        spec: &super::SiblingPairSpec,
+    ) -> anyhow::Result<ManagedWorkspace> {
+        super::pair::create_sibling_pair(self, spec)
     }
 
     #[cfg(test)]
@@ -167,7 +179,8 @@ impl WorkspaceManager {
             store.root == planning_repo,
             "planning store root differs from the associated checkout"
         );
-        let repositories = ProjectManifest::load(&store)?;
+        let repositories = ProjectManifest::load(&store)
+            .context("planning project repository manifest could not be loaded")?;
         repositories.validate()?;
         for checkout in &association.code_checkouts {
             anyhow::ensure!(

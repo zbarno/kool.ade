@@ -9,13 +9,13 @@ fn feature_ids_continue_past_three_digits() {
     ));
     std::fs::create_dir_all(root.join(format!(
         "{}/CHG-1000-old",
-        crate::artifacts::layout::canonical::CHANGES
+        crate::artifacts::layout::store::CHANGES
     )))
     .unwrap();
     std::fs::write(
         root.join(format!(
             "{}/CHG-1000-old/specification.md",
-            crate::artifacts::layout::canonical::CHANGES
+            crate::artifacts::layout::store::CHANGES
         )),
         "# CHG-1000: Old\n\n**Status:** Draft\n",
     )
@@ -39,12 +39,12 @@ fn every_nonterminal_feature_is_active_concurrently() {
         ("CHG-003-done", "Implemented"),
     ] {
         std::fs::create_dir_all(
-            root.join(crate::artifacts::layout::canonical::CHANGES)
+            root.join(crate::artifacts::layout::store::CHANGES)
                 .join(directory),
         )
         .unwrap();
         std::fs::write(
-            root.join(crate::artifacts::layout::canonical::CHANGES)
+            root.join(crate::artifacts::layout::store::CHANGES)
                 .join(directory)
                 .join("specification.md"),
             format!(
@@ -77,13 +77,13 @@ fn explicit_index_edits_cannot_forge_active_feature_manifest() {
     crate::artifacts::migration::bootstrap_product(&root, "Index Demo").unwrap();
     std::fs::create_dir_all(root.join(format!(
         "{}/CHG-001-first",
-        crate::artifacts::layout::canonical::CHANGES
+        crate::artifacts::layout::store::CHANGES
     )))
     .unwrap();
     std::fs::write(
         root.join(format!(
             "{}/CHG-001-first/specification.md",
-            crate::artifacts::layout::canonical::CHANGES
+            crate::artifacts::layout::store::CHANGES
         )),
         "# CHG-001: First\n\n**Status:** Draft\n",
     )

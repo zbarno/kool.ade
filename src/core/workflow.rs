@@ -17,7 +17,7 @@ pub use outline_validation::validate_outline;
 use story_validation::validate_stories;
 pub use story_validation::{descriptive_title, story_detail_errors};
 
-pub const WORKFLOW_FILE: &str = crate::artifacts::layout::canonical::WORKFLOW;
+pub const WORKFLOW_FILE: &str = crate::artifacts::layout::store::WORKFLOW;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

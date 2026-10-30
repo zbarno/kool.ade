@@ -145,7 +145,7 @@ impl Queue {
     }
 
     pub fn load(repo: &Path) -> anyhow::Result<Self> {
-        let _gate = crate::artifacts::migration::acquire_project_state_gate(repo)?;
+        let _gate = crate::artifacts::locks::acquire_project_state_gate(repo)?;
         let path = directory(repo)?.join("koolade-queue.json");
         let queue_lock = Self::acquire(repo).ok();
         match fs::read(&path) {
@@ -168,7 +168,7 @@ impl Queue {
     }
 
     pub fn save(&mut self, repo: &Path) -> anyhow::Result<()> {
-        let _gate = crate::artifacts::migration::acquire_project_state_gate(repo)?;
+        let _gate = crate::artifacts::locks::acquire_project_state_gate(repo)?;
         let path = directory(repo)?.join("koolade-queue.json");
         let data = store::persisted(self);
         crate::artifacts::atomic_write(&path, &serde_json::to_string_pretty(&data)?)?;

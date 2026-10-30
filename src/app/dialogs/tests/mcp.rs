@@ -24,7 +24,7 @@ fn mcp_fields_absent_file_opens_empty_with_hint_active() {
 fn mcp_fields_present_file_echoes_content_byte_exact() {
     let root = std::env::temp_dir().join(format!("koolade_dlg_mcppresent_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
-    let mcp_path = crate::artifacts::repo_artifact(&root, crate::artifacts::MCP_CONFIG_FILE);
+    let mcp_path = root.join(crate::artifacts::mcp_io::MCP_FILE_NAME);
     std::fs::create_dir_all(mcp_path.parent().unwrap()).unwrap();
     let body = r#"{"k":1}"#;
     std::fs::write(mcp_path, body).unwrap();

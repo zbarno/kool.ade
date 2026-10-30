@@ -7,9 +7,7 @@ use super::SourceCheckout;
 pub(crate) fn current_artifacts(
     checkout: &SourceCheckout,
 ) -> anyhow::Result<(Vec<inventory::Artifact>, Vec<inventory::BranchArtifact>)> {
-    let planning_root = checkout
-        .path
-        .join(crate::artifacts::layout::canonical::ROOT);
+    let planning_root = checkout.path.join(crate::artifacts::layout::store::ROOT);
     let exists = match fs::symlink_metadata(&planning_root) {
         Ok(metadata) => {
             anyhow::ensure!(

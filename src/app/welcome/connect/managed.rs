@@ -70,3 +70,16 @@ pub(super) fn join_workspace_path(path: &Path) -> Result<Project, AppError> {
         workspace.id.hyphenated().to_string(),
     )
 }
+
+/// Wizard "new project" track: materializes the visible sibling pair and
+/// reconnects through the ordinary code-root gate over the fresh checkout,
+/// exercising the same managed detection a returning operator gets.
+pub fn attempt_create_project(
+    spec: &crate::core::managed_workspace::SiblingPairSpec,
+) -> Result<Project, AppError> {
+    WorkspaceManager::from_state_root()
+        .create_sibling_pair(spec)
+        .map_err(|error| AppError::Other(format!("new project could not be created: {error:#}")))?;
+    let code = spec.parent_dir.join(&spec.code_repo_name);
+    super::attempt_connect(&code.to_string_lossy())
+}

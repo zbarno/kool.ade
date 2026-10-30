@@ -61,6 +61,18 @@ pub struct PlannerState {
 }
 
 impl PlannerState {
+    /// Operator-local configuration directory for this checkout's managed
+    /// workspace. Files stored here (MCP credentials, operator prefs) live
+    /// outside every Git repository and are never synchronized or shared.
+    pub fn mcp_config_dir(&self) -> Option<PathBuf> {
+        let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
+        let workspace = manager
+            .workspace_for_checkout(&self.repo_root)
+            .ok()
+            .flatten()?;
+        Some(manager.project_dir(workspace.id))
+    }
+
     /// Read every artifact from disk into memory (strict: corrupt files are
     /// reported rather than guessed around — §16).
     pub fn load(repo: &Path) -> anyhow::Result<Self> {
@@ -109,14 +121,10 @@ impl PlannerState {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "project".into());
-        let title = if store.mode != crate::artifacts::planning_store::StoreMode::LegacyEmbedded {
-            crate::core::managed_workspace::WorkspaceManifest::read(&store.root)
-                .ok()
-                .and_then(|manifest| manifest.title)
-                .unwrap_or(fallback_title)
-        } else {
-            fallback_title
-        };
+        let title = crate::core::managed_workspace::WorkspaceManifest::read(&store.root)
+            .ok()
+            .and_then(|manifest| manifest.title)
+            .unwrap_or(fallback_title);
         let workflow = crate::artifacts::task_docs::load_workflow_unlocked(store)?;
         let active_features = crate::artifacts::product_docs::active_features(store);
         let active_feature =

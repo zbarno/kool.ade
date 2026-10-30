@@ -117,7 +117,7 @@ fn readiness_binding_survives_store_restart_and_allows_current_confirmation() {
             Screen::Connected(project) => project.state.planning_store.project_id,
             Screen::Welcome => panic!(),
         },
-        root.join(crate::artifacts::layout::canonical::ROOT),
+        root.join(crate::artifacts::layout::store::ROOT),
         crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let (readiness, _) = crate::core::planning::QuestionStore::new(&reopened)

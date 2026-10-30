@@ -126,28 +126,24 @@ fn sw_browse_choice_writes_conn_path_only_then_existing_submit_connects() {
     );
 
     // From here the flow is the PRE-EXISTING submit path, unchanged:
-    // Open/Enter on this field connects exactly like a hand-typed path.
+    // Open/Enter on this field connects exactly like a hand-typed path —
+    // which, for this planning-less fixture, means the planning-setup
+    // gate refusal, carried as a banner without touching the field.
     app.submit_connect();
     assert!(
-        matches!(app.screen, Screen::Connected(ref p) if p.state.title == "site-app"),
-        "submit_connect proceeds normally after a browse choice (err={:?})",
+        matches!(app.screen, Screen::Welcome),
+        "a planning-less checkout stops at the setup gate (err={:?})",
         app.conn_error
     );
-    assert!(app.conn_error.is_none());
-    // The connect persisted chat state under the ISOLATED per-user root,
-    // proving the full pipeline ran inside the sandbox.
-    let chatted = std::fs::read_dir(pkg_home.join("projects"))
-        .map(|d| {
-            d.filter_map(Result::ok).any(|e| {
-                std::fs::read_dir(e.path())
-                    .map(|f| f.flatten().any(|f| f.file_name() == "chat.jsonl"))
-                    .unwrap_or(false)
-            })
-        })
-        .unwrap_or(false);
+    assert_eq!(
+        app.conn_path,
+        repo_c.to_string_lossy(),
+        "a refused connect preserves the chosen path for setup"
+    );
+    let banner = app.conn_error.as_deref().unwrap_or("");
     assert!(
-        chatted,
-        "connected session persisted chat state under KOOLADE_HOME"
+        banner.contains("planning repository"),
+        "the refusal guides the operator to planning setup (got: {banner})"
     );
 
     // Reject paths (fresh app): Cancel, the close \u{2715}, and Escape all

@@ -2,8 +2,12 @@
 fn main() -> anyhow::Result<()> {
     let repo = std::path::PathBuf::from(std::env::args().nth(1).unwrap_or_else(|| ".".into()))
         .canonicalize()?;
-    let workflow = koolade::artifacts::task_docs::load_workflow(&repo)?;
-    let docs = koolade::artifacts::task_docs::load_board(&repo, &workflow);
+    let store = koolade::artifacts::planning_store::PlanningStore::legacy_embedded(
+        uuid::Uuid::nil(),
+        &repo,
+    );
+    let workflow = koolade::artifacts::task_docs::load_workflow(&store)?;
+    let docs = koolade::artifacts::task_docs::load_board(&store, &workflow);
     let states = koolade::core::implementation::load_board_states(&repo);
     let mut counts = std::collections::BTreeMap::<String, usize>::new();
     for doc in docs.iter().filter(|doc| !doc.path.ends_with("/README.md")) {

@@ -39,7 +39,7 @@ fn migration_confirmation_rejects_source_changes_after_preview() {
         .unwrap();
     let work_path = fixture
         .code
-        .join(crate::artifacts::layout::canonical::ROOT)
+        .join(crate::artifacts::layout::store::ROOT)
         .join(crate::artifacts::planning_store::paths::WORK);
     let mut changed = fs::read(&work_path).unwrap();
     changed.push(b'\n');

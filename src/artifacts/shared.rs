@@ -6,13 +6,13 @@
 
 use std::path::{Path, PathBuf};
 
-pub const CONFIG_DIR: &str = super::layout::canonical::CONFIG;
-pub const IMPORTS_DIR: &str = super::layout::canonical::IMPORTS;
-pub const MCP_CONFIG_FILE: &str = super::layout::canonical::MCP_CONFIG;
-pub const OPEN_ITEMS_FILE: &str = super::layout::canonical::OPEN_ITEMS;
-pub const PLANNING_DIR: &str = super::layout::canonical::PLANNING;
-pub const CONFIG_FILE: &str = super::layout::canonical::PROJECT_CONFIG;
-pub const SPEC_FILE: &str = super::layout::canonical::PRODUCT_INDEX;
+pub const CONFIG_DIR: &str = super::layout::store::CONFIG;
+pub const IMPORTS_DIR: &str = super::layout::store::IMPORTS;
+pub const MCP_CONFIG_FILE: &str = super::layout::store::MCP_CONFIG;
+pub const OPEN_ITEMS_FILE: &str = super::layout::store::OPEN_ITEMS;
+pub const PLANNING_DIR: &str = super::layout::store::PLANNING;
+pub const CONFIG_FILE: &str = super::layout::store::PROJECT_CONFIG;
+pub const SPEC_FILE: &str = super::layout::store::PRODUCT_INDEX;
 
 /// Absolute path for a repository-relative artifact.
 pub fn repo_artifact<R: super::planning_store::PlanningRoot + ?Sized>(

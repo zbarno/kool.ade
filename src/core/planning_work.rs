@@ -2,7 +2,7 @@
 //! produced a feature specification.
 use serde::{Deserialize, Serialize};
 
-pub const FILE: &str = crate::artifacts::layout::canonical::WORK;
+pub const FILE: &str = crate::artifacts::layout::store::WORK;
 pub const STORE_FILE: &str = crate::artifacts::planning_store::paths::WORK;
 const SCHEMA_VERSION: u32 = 3;
 

@@ -219,7 +219,7 @@ fn planner_can_add_a_project_specific_module_and_apply_it_atomically() {
     assert!(
         receipt
             .repo_relative_paths
-            .contains(&crate::artifacts::layout::canonical::PRODUCT_MANIFEST.to_owned())
+            .contains(&crate::artifacts::layout::store::PRODUCT_MANIFEST.to_owned())
     );
     assert!(
         crate::artifacts::product_docs::render_product(&dir)

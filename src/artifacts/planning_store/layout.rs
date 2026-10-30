@@ -3,7 +3,8 @@ use std::path::{Component, Path, PathBuf};
 use super::{PlanningStore, StoreMode};
 
 /// Resolved planning paths. The root is the only root owned by a planning
-/// store; legacy project paths are available only for compatibility reads.
+/// store; legacy source paths are available only to the explicit migration
+/// reader (`StoreMode::LegacyPacketSource`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlanningLayout {
     root: PathBuf,
@@ -48,16 +49,9 @@ impl PlanningLayout {
     pub(super) fn for_store(store: &PlanningStore) -> Self {
         Self {
             root: store.root.clone(),
-            legacy_repository: (store.mode == StoreMode::LegacyEmbedded)
+            legacy_repository: (store.mode == StoreMode::LegacyPacketSource)
                 .then(|| store.root.parent().map(Path::to_path_buf))
                 .flatten(),
-        }
-    }
-
-    pub(super) fn legacy_repository(repository: &Path) -> Self {
-        Self {
-            root: repository.join(crate::artifacts::layout::canonical::ROOT),
-            legacy_repository: Some(repository.to_path_buf()),
         }
     }
 
@@ -71,10 +65,6 @@ impl PlanningLayout {
         crate::artifacts::layout::ArtifactLayout::resolve_planning_root_relative(
             &self.root, relative,
         )
-    }
-
-    pub fn legacy_path(&self, relative: &str) -> Option<PathBuf> {
-        safe_path(self.legacy_repository.as_deref()?, relative)
     }
 
     pub fn manifest(&self) -> PathBuf {
@@ -263,8 +253,8 @@ impl PlanningLayout {
         self.legacy("adr")
     }
 
-    fn at(&self, relative: &str) -> PathBuf {
-        self.root.join(relative)
+    pub fn legacy_path(&self, relative: &str) -> Option<PathBuf> {
+        safe_path(self.legacy_repository.as_deref()?, relative)
     }
 
     fn legacy(&self, relative: &str) -> PathBuf {
@@ -272,6 +262,10 @@ impl PlanningLayout {
             .as_ref()
             .map(|root| root.join(relative))
             .unwrap_or_else(|| self.root.join(relative))
+    }
+
+    fn at(&self, relative: &str) -> PathBuf {
+        self.root.join(relative)
     }
 }
 

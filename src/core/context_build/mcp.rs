@@ -1,11 +1,8 @@
 use std::path::Path;
 
-pub(super) fn summary(repo: &Path) -> Option<String> {
-    let raw = std::fs::read_to_string(crate::artifacts::repo_artifact(
-        repo,
-        crate::artifacts::MCP_CONFIG_FILE,
-    ))
-    .ok()?;
+pub(super) fn summary(local_config_dir: Option<&Path>) -> Option<String> {
+    let path = local_config_dir?.join("mcp.json");
+    let raw = std::fs::read_to_string(&path).ok()?;
     if raw.trim().is_empty() {
         return None;
     }
@@ -44,14 +41,14 @@ mod tests {
     #[test]
     fn summary_exposes_server_names_but_not_secrets_or_commands() {
         let root = std::env::temp_dir().join(format!("koolade-mcp-summary-{}", std::process::id()));
-        let path = crate::artifacts::repo_artifact(&root, crate::artifacts::MCP_CONFIG_FILE);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join(crate::artifacts::mcp_io::MCP_FILE_NAME);
         std::fs::write(
             &path,
             r#"{"servers":{"catalog":{"command":"private-runner","env":{"TOKEN":"private-token"}},"search":{"command":"hidden-tool"}}}"#,
         )
         .unwrap();
-        let output = summary(&root).unwrap();
+        let output = summary(Some(&root)).unwrap();
         assert!(output.contains("catalog"));
         assert!(output.contains("search"));
         assert!(!output.contains("private-runner"));
@@ -66,10 +63,10 @@ mod tests {
             "koolade-mcp-summary-malformed-{}",
             std::process::id()
         ));
-        let path = crate::artifacts::repo_artifact(&root, crate::artifacts::MCP_CONFIG_FILE);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join(crate::artifacts::mcp_io::MCP_FILE_NAME);
         std::fs::write(&path, "private-token: not-json").unwrap();
-        let output = summary(&root).unwrap();
+        let output = summary(Some(&root)).unwrap();
         assert!(output.contains("configuration is present"));
         assert!(!output.contains("private-token"));
         let _ = std::fs::remove_dir_all(root);

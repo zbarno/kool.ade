@@ -65,7 +65,7 @@ impl KooladeApp {
             );
         };
         let store = project.state.planning_store.clone();
-        if store.mode == crate::artifacts::planning_store::StoreMode::LegacyEmbedded
+        if store.mode == crate::artifacts::planning_store::StoreMode::LegacyPacketSource
             || store.project_id.is_nil()
         {
             return Err("Code repositories can be added to managed planning workspaces.".into());

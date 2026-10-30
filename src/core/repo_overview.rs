@@ -75,7 +75,7 @@ pub fn scan_for_store(
 ) -> Overview {
     scan_inner(
         repo,
-        store.mode == crate::artifacts::planning_store::StoreMode::LegacyEmbedded,
+        store.mode == crate::artifacts::planning_store::StoreMode::LegacyPacketSource,
     )
 }
 
@@ -134,7 +134,7 @@ fn is_skipped(name: &str, include_legacy_planning: bool) -> bool {
         || (name.starts_with('.')
             && (!include_legacy_planning
                 || name
-                    != std::path::Path::new(crate::artifacts::layout::canonical::ROOT)
+                    != std::path::Path::new(crate::artifacts::layout::store::ROOT)
                         .file_name()
                         .unwrap()
                         .to_string_lossy()))

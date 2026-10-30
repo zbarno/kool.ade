@@ -13,9 +13,9 @@ mod index_stickiness;
 #[cfg(test)]
 mod tests;
 
-pub const PRODUCT_DIR: &str = crate::artifacts::layout::canonical::PRODUCT;
-pub const INDEX: &str = crate::artifacts::layout::canonical::PRODUCT_INDEX;
-pub const LEGACY_ARCHIVE: &str = crate::artifacts::layout::canonical::LEGACY_SPEC_ARCHIVE;
+pub const PRODUCT_DIR: &str = crate::artifacts::layout::store::PRODUCT;
+pub const INDEX: &str = crate::artifacts::layout::store::PRODUCT_INDEX;
+pub const LEGACY_ARCHIVE: &str = crate::artifacts::layout::store::LEGACY_SPEC_ARCHIVE;
 #[cfg(test)]
 const OLD_LEGACY_ARCHIVE: &str = crate::artifacts::layout::legacy::SPEC_ARCHIVE;
 /// Compatibility paths used only to import the old thirteen-file layout.
@@ -51,8 +51,10 @@ pub use schema::{
     render_product_with_updates, split_legacy, split_sections, validate_module,
 };
 
-/// Migration-only test helper; production migration is invoked on connect.
+/// Test-suite stand-in for the retired in-place migration: seeds product
+/// modules from the fixture's legacy specification so existing fixture
+/// corpora observe the current layout.
 #[cfg(test)]
 pub(crate) fn migrate(repo: &std::path::Path, _legacy: &str) -> anyhow::Result<Vec<String>> {
-    crate::artifacts::migration::migrate_files_for_test(repo)
+    crate::artifacts::migration::fixtures::migrate_files_for_test(repo)
 }

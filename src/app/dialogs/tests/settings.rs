@@ -243,7 +243,7 @@ fn assigning_category_owner_resolves_ownership_gap_with_a_checkpoint() {
         "This decision remains unanswered.".into(),
     );
     let open_items =
-        crate::artifacts::repo_artifact(&root, crate::artifacts::layout::canonical::OPEN_ITEMS);
+        crate::artifacts::repo_artifact(&root, crate::artifacts::layout::store::OPEN_ITEMS);
     std::fs::create_dir_all(open_items.parent().unwrap()).unwrap();
     std::fs::write(
         &open_items,

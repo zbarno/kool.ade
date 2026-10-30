@@ -60,8 +60,17 @@ impl AiHarness for FixtureHarness {
                         .contains("In progress — 1 of 2")
                 );
                 let state = PlannerState::load(&req.repo_root).unwrap();
-                let docs =
-                    koolade::artifacts::task_docs::load_latest(&req.repo_root, &state.workflow);
+                let docs = {
+                    // External integration targets do not inherit the
+                    // cfg(test) Path adapters, so the fixture root is bound
+                    // to an explicit legacy-embedded store — the same label
+                    // model the workflow prompt and write path emit.
+                    let store = koolade::artifacts::planning_store::PlanningStore::legacy_embedded(
+                        uuid::Uuid::nil(),
+                        &req.repo_root,
+                    );
+                    koolade::artifacts::task_docs::load_latest(&store, &state.workflow)
+                };
                 assert!(
                     docs.iter()
                         .any(|d| d.path.ends_with("001-persist-named-search-filters.md")),

@@ -14,10 +14,6 @@ pub(crate) fn read_state_file(path: &Path) -> anyhow::Result<Implementation> {
     Ok(state)
 }
 
-pub(crate) fn decode_state_bytes(bytes: &[u8]) -> anyhow::Result<Implementation> {
-    decode(bytes).map(|(state, _)| state)
-}
-
 fn decode(bytes: &[u8]) -> anyhow::Result<(Implementation, bool)> {
     let mut value: serde_json::Value = serde_json::from_slice(bytes)?;
     let object = value

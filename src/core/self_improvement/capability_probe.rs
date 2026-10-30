@@ -3,8 +3,11 @@ use sha2::{Digest, Sha256};
 
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 const MAX_CAPABILITIES: usize = 512;
-const MANIFEST: &str =
-    include_str!("../../../.koolade-packet/planning/product/active-capabilities.json");
+// Compiled-in snapshot of the shipping capability set. Lives with the
+// application sources (never in a live planning packet) and must mirror
+// REGISTERED_PROBES below: a feature PR adds its registration here and the
+// same capability/probe pair in assets/capabilities/active-capabilities.json.
+const MANIFEST: &str = include_str!("../../../assets/capabilities/active-capabilities.json");
 
 type Probe = fn(&crate::core::self_improvement::SelfImprovementRunV1) -> Result<(), String>;
 
