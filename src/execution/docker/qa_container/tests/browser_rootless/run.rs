@@ -10,9 +10,9 @@ mod primary;
 /// runs the pinned browser and, in candidate CI, the headless service driver
 /// through the app-owned relay; rejects requests to metadata, host-local and
 /// off-origin destinations; attempts to read synthetic credentials under the
-/// runner's HOME, connect to its actual Docker socket, and launch a canary from
-/// writable no-exec tmpfs in the live browser container; and cleans owned
-/// resources.
+/// runner's HOME, connect to its actual Docker socket, create a package-install
+/// marker in the immutable system path, and launch a canary from writable
+/// no-exec tmpfs in the live browser container; and cleans owned resources.
 /// Unit tests cannot prove rootless Docker extraction, preview reachability,
 /// browser/API execution, request containment, runtime access to host resources,
 /// or container cleanup.
