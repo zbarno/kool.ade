@@ -1,27 +1,22 @@
 # Runtime QA release evidence
 
-## Current main workflow status (2026-10-30, 09:56 UTC)
+## Current main workflow status (2026-10-30, 18:14 UTC)
 
 Evidence is anchored to current `main` commit
-[`c8623fb6`](https://github.com/zbarno/kool.ade/commit/c8623fb6cfdacbe7288b510f12155ffd29904f24),
-which merged PR #429. The exact-main quality workflow
-[41020392113](https://github.com/zbarno/kool.ade/actions/runs/41020392113),
+[`188fa595`](https://github.com/zbarno/kool.ade/commit/188fa595c4b66e6887147e6c43cb8114b97f00bf),
+which includes merged PR #416. The exact-main quality workflow
+[41092759609](https://github.com/zbarno/kool.ade/actions/runs/41092759609),
 native package workflow
-[41020392061](https://github.com/zbarno/kool.ade/actions/runs/41020392061),
-and CodeQL workflow [41020392222](https://github.com/zbarno/kool.ade/actions/runs/41020392222)
-passed. The native workflow built Linux x86_64, Linux arm64, Windows x64,
-Apple Silicon macOS, and Intel macOS packages.
-
-Trusted-image workflow [41020392017](https://github.com/zbarno/kool.ade/actions/runs/41020392017)
-passed failed-job-only attempt 5. The candidate verification passed for browser
-and desktop; the desktop app-owned upload/run test, Rust task test, and packaged
-Linux fixture all completed successfully. Attempts 2 and 3 had desktop tests
-exceed the approved QA-driver timeout after 134 seconds (`PolicyDenied`), while
-attempt 4 passed the app-owned test and then hit a Docker health disconnect in
-the later Rust test. Attempt 1's browser and desktop jobs failed before
-assertions with the same health error. Both QA profiles remain disabled; this
-implementation evidence does not authorize enabling them or certify the
-complete release matrix.
+[41092759599](https://github.com/zbarno/kool.ade/actions/runs/41092759599),
+CodeQL workflow [41092761671](https://github.com/zbarno/kool.ade/actions/runs/41092761671),
+and trusted executor image workflow
+[41092759940](https://github.com/zbarno/kool.ade/actions/runs/41092759940)
+passed on this exact commit. The native workflow built Linux x86_64, Linux
+arm64, Windows x64, Apple Silicon macOS, and Intel macOS packages. The trusted
+workflow passed rootless browser and desktop candidate verification, including
+app-owned lifecycle tests. QA profile publication, digest promotion, and
+published-image smokes were skipped because both profiles remain disabled.
+These checks do not authorize release or enable either profile.
 
 ## Merged candidate PR checks (2026-10-30)
 
@@ -41,20 +36,31 @@ above remains authoritative after merge. Trusted-image publication and
 published-image smokes are skipped on `main` while both QA profiles are
 disabled. These checks do not certify release readiness.
 
-## Open PR candidate checks (2026-10-30)
+## Current open PR candidate checks (2026-10-30)
 
 These hosted checks are for open PR heads. They are not merged-main release
 evidence and do not enable either QA profile:
 
 | PR head | Quality | Trusted image | Native packages | CodeQL | Scope and remaining status |
 | --- | --- | --- | --- | --- | --- |
-| [#428 `8f3bb07`](https://github.com/zbarno/kool.ade/commit/8f3bb07f41c32241359a6b52f401096dfe9dbcd5) | [41059042295](https://github.com/zbarno/kool.ade/actions/runs/41059042295) passed | [41059042298](https://github.com/zbarno/kool.ade/actions/runs/41059042298) passed: browser and desktop candidates, published-image smokes, and digest verification | [41059042355](https://github.com/zbarno/kool.ade/actions/runs/41059042355) passed | [41059036492](https://github.com/zbarno/kool.ade/actions/runs/41059036492) passed | Adds rootless host-HOME, Docker/display/service socket, environment, and `noexec` executable-denial probes. The 300-second desktop transport watchdog keeps the driver's approved per-run timeout authoritative. Earlier browser Docker health disconnects on `15ca529` did not recur. Merged as `713afd27`; technical #171 criteria remain open. |
+| [#434 `ebb037c`](https://github.com/zbarno/kool.ade/commit/ebb037ca25c261b8c74d11753dc4e9618be4e7f3) | [41094107050](https://github.com/zbarno/kool.ade/actions/runs/41094107050) passed | [41094107302](https://github.com/zbarno/kool.ade/actions/runs/41094107302) passed: browser and desktop rootless candidates, app-owned lifecycle checks, and digest verification | [41094114437](https://github.com/zbarno/kool.ade/actions/runs/41094114437) passed | [41094100192](https://github.com/zbarno/kool.ade/actions/runs/41094100192) passed | Adds rootless denial of host executable writes and host X11 socket identity probes. PR remains open awaiting maintainer approval. Candidate checks do not prove every security negative or failure case in #171. |
+| [#435 `613973f`](https://github.com/zbarno/kool.ade/commit/613973f9600f6ccbed4ae1fdc7fd8901cd8dd000) | [41094792398](https://github.com/zbarno/kool.ade/actions/runs/41094792398) passed after failed-job retry | [41094792348](https://github.com/zbarno/kool.ade/actions/runs/41094792348), attempt 2 passed browser and desktop candidates plus digest verification | [41094792596](https://github.com/zbarno/kool.ade/actions/runs/41094792596) passed | [41094788765](https://github.com/zbarno/kool.ade/actions/runs/41094788765) passed | Adds cancellation-at-QA-gate persistence coverage across reopen and proves spec reconciliation/PR work remain gated. An initial queue E2E attempt failed before assertions on a Docker health disconnect; its failed-job retry passed. The first browser candidate attempt had the same pre-assertion health disconnect and attempt 2 passed. PR remains open awaiting maintainer approval. Full repair/re-review/spec/PR lifecycle coverage remains incomplete. |
 
-PR #428 merged as `713afd27`. Its candidate quality, CodeQL, native package,
-browser and desktop rootless, and published-image checks passed. Exact-main checks
-on the merge commit are running. Three technical #171 acceptance items remain
-open. Deferred human prelaunch review does not block issue closure after technical
-acceptance is met.
+Both PR heads target exact current `main` commit `188fa595`. On PR #435, the
+published-image smoke jobs test the currently reviewed default-branch images;
+they do not publish the PR candidate. Both QA profiles remain disabled. The PR
+checks are candidate evidence, not merged-main release evidence. Three technical
+#171 acceptance items remain open. Deferred human prelaunch review does not
+block issue closure after technical acceptance is met.
+
+## Earlier candidate PR checks (2026-10-30)
+
+These results are retained as historical candidate evidence for merged PR #428.
+They do not replace the exact-main evidence above.
+
+| PR head | Quality | Trusted image | Native packages | CodeQL | Scope |
+| --- | --- | --- | --- | --- | --- |
+| [#428 `8f3bb07`](https://github.com/zbarno/kool.ade/commit/8f3bb07f41c32241359a6b52f401096dfe9dbcd5) | [41059042295](https://github.com/zbarno/kool.ade/actions/runs/41059042295) passed | [41059042298](https://github.com/zbarno/kool.ade/actions/runs/41059042298) passed: browser and desktop candidates, published-image smokes, and digest verification | [41059042355](https://github.com/zbarno/kool.ade/actions/runs/41059042355) passed | [41059036492](https://github.com/zbarno/kool.ade/actions/runs/41059036492) passed | Adds rootless host-HOME, Docker/display/service socket, environment, and `noexec` executable-denial probes. Merged as `713afd27`; technical #171 criteria remain open. |
 
 ## Previous exact-main matrix (2026-10-27)
 
