@@ -1,6 +1,6 @@
 # Runtime QA release evidence
 
-## Current main workflow status (2026-10-30, 09:34 UTC)
+## Current main workflow status (2026-10-30, 09:56 UTC)
 
 Evidence is anchored to current `main` commit
 [`c8623fb6`](https://github.com/zbarno/kool.ade/commit/c8623fb6cfdacbe7288b510f12155ffd29904f24),
@@ -13,15 +13,15 @@ passed. The native workflow built Linux x86_64, Linux arm64, Windows x64,
 Apple Silicon macOS, and Intel macOS packages.
 
 Trusted-image workflow [41020392017](https://github.com/zbarno/kool.ade/actions/runs/41020392017)
-is running failed-job-only attempt 4 for the desktop candidate. Browser passed
-on attempts 2 and 3. Desktop exceeded its approved QA-driver timeout after
-134 seconds on attempts 2 and 3 (`PolicyDenied`). Attempt 1's browser and
-desktop jobs failed before assertions with `ImageUnavailable: Docker Engine
-disconnected or did not answer its health request`; those errors do not
-establish product assertion failures. On attempt 4, the app-owned upload/run/
-cleanup test passed; the Rust desktop QA test is in progress. Both QA profiles
-remain disabled; this implementation evidence does not authorize enabling them
-or certify the complete release matrix.
+passed failed-job-only attempt 5. The candidate verification passed for browser
+and desktop; the desktop app-owned upload/run test, Rust task test, and packaged
+Linux fixture all completed successfully. Attempts 2 and 3 had desktop tests
+exceed the approved QA-driver timeout after 134 seconds (`PolicyDenied`), while
+attempt 4 passed the app-owned test and then hit a Docker health disconnect in
+the later Rust test. Attempt 1's browser and desktop jobs failed before
+assertions with the same health error. Both QA profiles remain disabled; this
+implementation evidence does not authorize enabling them or certify the
+complete release matrix.
 
 ## Merged candidate PR checks (2026-10-30)
 
@@ -48,12 +48,12 @@ evidence and do not enable either QA profile:
 
 | PR head | Quality | Trusted image | Native packages | CodeQL | Scope and remaining status |
 | --- | --- | --- | --- | --- | --- |
-| [#428 `8d9f9e7`](https://github.com/zbarno/kool.ade/pull/428/commits/8d9f9e7f0ee5f24c2ce1e0717119fbfa964747c6) | [41024133295](https://github.com/zbarno/kool.ade/actions/runs/41024133295) passed | [41024133366](https://github.com/zbarno/kool.ade/actions/runs/41024133366), attempt 3 failed | [41024133379](https://github.com/zbarno/kool.ade/actions/runs/41024133379) passed | CodeQL passed | Adds rootless host-HOME, Docker/display/service socket, environment, and `noexec` executable-denial probes. Attempt 2's app-owned upload/run test passed in 75 seconds, then a Rust desktop test failed before its assertion with Docker health disconnect. Attempt 3's app-owned test exceeded the fixture's 120-second outer watchdog. Local fix raises only that outer watchdog to 300 seconds and is under required-gate validation. PR awaits review; technical #171 criteria remain open. |
+| [#428 `15ca529`](https://github.com/zbarno/kool.ade/commit/15ca52945260df5cd4421aa424a367b31df59448) | [41034257580](https://github.com/zbarno/kool.ade/actions/runs/41034257580) passed | [41034257503](https://github.com/zbarno/kool.ade/actions/runs/41034257503), desktop and published-image checks passed; browser attempts 1–3 failed before their assertions with Docker health disconnects | [41034257591](https://github.com/zbarno/kool.ade/actions/runs/41034257591) passed | [41034252118](https://github.com/zbarno/kool.ade/actions/runs/41034252118) passed | Adds rootless host-HOME, Docker/display/service socket, environment, and `noexec` executable-denial probes. Raises only the desktop fixture's outer transport watchdog; the driver's approved per-run timeout remains enforced. PR awaits review and technical #171 criteria remain open. |
 
-PR #428 awaits required review. Its passed quality and CodeQL checks and
-successful checks from earlier heads do not replace pending current-head rootless
-and package results. Deferred human prelaunch review does not block issue
-closure after technical acceptance is met.
+PR #428 awaits required review. Its current-head quality, CodeQL, native package,
+desktop candidate, and published-image checks passed. Browser candidate verification
+still hits a Docker health disconnect before its assertions. Deferred human
+prelaunch review does not block issue closure after technical acceptance is met.
 
 ## Previous exact-main matrix (2026-10-27)
 
