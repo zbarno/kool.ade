@@ -7,6 +7,7 @@ pub(super) struct PrimaryDriverContext<'a> {
     pub browser_image: &'a crate::execution::docker::images::SelectedImage,
     pub lock: &'a ImageLock,
     pub artifact_root: &'a std::path::Path,
+    pub host_identity_root: &'a std::path::Path,
     pub artifact_upload: &'a QaContainerUpload,
     pub preview: &'a crate::execution::docker::qa_container::QaWebPreview,
     pub resources: &'a ResourceBudgetV1,
@@ -72,6 +73,13 @@ pub(super) async fn run(context: PrimaryDriverContext<'_>) -> Result<PrimaryDriv
             &relay_binding.relay_token,
             &expected_env,
             &context.browser_image.reference,
+        )
+        .await?;
+        super::super::security::assert_host_resources_denied(
+            context.docker,
+            &driver_id,
+            context.browser_image.runtime_user.as_str(),
+            context.host_identity_root,
         )
         .await?;
         validate_browser_driver_network(
