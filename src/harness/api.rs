@@ -143,6 +143,13 @@ pub trait AiHarness: Send + Sync {
     /// Human-readable backend label for the UI (e.g. "pi 0.84.4").
     fn label(&self) -> String;
 
+    /// A routing blocker that should be handled before accepting a user
+    /// reply. Unavailable routed harnesses expose their diagnostic here so
+    /// the UI can keep the reply as a draft instead of consuming it.
+    fn route_blocker(&self) -> Option<String> {
+        None
+    }
+
     /// Route identity and capability evidence captured when this adapter was
     /// selected. Wrapper harnesses preserve this for durable invocation logs.
     fn route_provenance(&self, _request: &PlanningRequest) -> Option<HarnessRouteProvenance> {

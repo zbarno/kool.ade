@@ -1,20 +1,17 @@
 //! Build or validate an ordered, project-specific product document set.
 use std::{fs, path::Path};
 
-use super::plan::Generated;
-use crate::artifacts::layout::canonical;
+use crate::artifacts::layout::store;
 use crate::artifacts::planning_store::PlanningStore;
 use crate::artifacts::product_docs::{CoreConcept, ProductManifest, ProductModule};
 
 mod active_features;
 use active_features::append_active_features;
 
-pub(super) fn bootstrap_files(
-    repo: &Path,
-    title_override: Option<&str>,
-) -> anyhow::Result<Vec<Generated>> {
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), repo);
-    bootstrap_files_with_store(repo, &store, title_override)
+#[derive(Debug, Clone)]
+pub(super) struct Generated {
+    pub(super) target: String,
+    pub(super) bytes: Vec<u8>,
 }
 
 pub(super) fn bootstrap_files_with_store(
@@ -23,7 +20,6 @@ pub(super) fn bootstrap_files_with_store(
     title_override: Option<&str>,
 ) -> anyhow::Result<Vec<Generated>> {
     let layout = store.layout();
-    let old = directory_state(&layout.legacy_product_root())?;
     let current = directory_state(&layout.product_root())?;
     if current {
         let manifest = if layout.product_manifest().is_file() {
@@ -38,16 +34,8 @@ pub(super) fn bootstrap_files_with_store(
         }
         return Ok(vec![manifest_file(&manifest)]);
     }
-    if old {
-        let root = layout.legacy_product_root();
-        let manifest = crate::artifacts::product_docs::legacy_manifest(&root)?
-            .ok_or_else(|| anyhow::anyhow!("Legacy product documents are incomplete"))?;
-        validate_product(&root, &manifest)?;
-        return Ok(vec![manifest_file(&manifest)]);
-    }
 
-    let source = layout.legacy_specification();
-    let existing = read_legacy_specification(store, &layout, &source)?;
+    let existing = read_seed_specification(store)?;
     let (title, archive_note, documents, manifest) = match existing {
         Some(text) => documents_from_spec(&text)?,
         None => {
@@ -80,7 +68,7 @@ pub(super) fn bootstrap_files_with_store(
     for (module, body) in manifest.modules.iter().zip(documents) {
         crate::artifacts::product_docs::validate_module(&body)?;
         files.push(Generated {
-            target: format!("{}/{}", canonical::PRODUCT, module.path),
+            target: format!("{}/{}", store::PRODUCT, module.path),
             bytes: body.into_bytes(),
         });
     }
@@ -93,40 +81,33 @@ pub(super) fn bootstrap_files_with_store(
     index.push_str("\n## Active features\n\n");
     append_active_features(store, &layout, &mut index)?;
     files.push(Generated {
-        target: canonical::PRODUCT_INDEX.into(),
+        target: store::PRODUCT_INDEX.into(),
         bytes: index.into_bytes(),
     });
     files.push(manifest_file(&manifest));
     Ok(files)
 }
 
-fn read_legacy_specification(
-    store: &PlanningStore,
-    layout: &crate::artifacts::planning_store::PlanningLayout,
-    source: &Path,
+/// Reads the optional seeding specification. Resolution is layout-aware:
+/// managed stores find it at their root; a migration source resolves the
+/// legacy in-checkout location instead.
+fn read_seed_specification(
+    store: &crate::artifacts::planning_store::PlanningStore,
 ) -> anyhow::Result<Option<String>> {
-    if source.starts_with(layout.root()) {
-        return match store.read_planning_path(source) {
-            Ok(bytes) => Ok(Some(String::from_utf8(bytes)?)),
-            Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
-                if source.kind() == std::io::ErrorKind::NotFound =>
-            {
-                Ok(None)
-            }
-            Err(error) => Err(error.into()),
-        };
-    }
-
-    match fs::symlink_metadata(source) {
-        Ok(metadata) => anyhow::ensure!(
-            metadata.is_file() && !metadata.file_type().is_symlink(),
-            "Legacy specification {} must be a regular file",
-            source.display()
-        ),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+    use std::io::ErrorKind;
+    let path = store.layout().legacy_specification();
+    let metadata = match std::fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
-    }
-    Ok(Some(fs::read_to_string(source)?))
+    };
+    anyhow::ensure!(
+        !metadata.file_type().is_symlink(),
+        "invalid planning path: {}",
+        path.display()
+    );
+    let bytes = std::fs::read(&path)?;
+    Ok(Some(String::from_utf8(bytes)?))
 }
 
 #[cfg(test)]
@@ -233,7 +214,7 @@ fn legacy_core_concept(index: usize) -> Option<CoreConcept> {
 
 fn manifest_file(manifest: &ProductManifest) -> Generated {
     Generated {
-        target: canonical::PRODUCT_MANIFEST.into(),
+        target: store::PRODUCT_MANIFEST.into(),
         bytes: serde_json::to_vec_pretty(manifest).expect("product manifest serializes"),
     }
 }

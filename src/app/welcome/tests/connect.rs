@@ -34,7 +34,10 @@ fn connecting_with_open_board_items_queues_an_initial_manager_review() {
     std::fs::create_dir_all(items_path.parent().unwrap()).unwrap();
     std::fs::write(&items_path, crate::artifacts::items_io::serialize(&[item])).unwrap();
 
-    let project = attempt_connect(repo.to_str().unwrap()).unwrap();
+    let store =
+        crate::artifacts::planning_store::PlanningStore::legacy_embedded(uuid::Uuid::nil(), &repo);
+    let project = attempt_connect_with_store(repo.to_str().unwrap(), store)
+        .expect("explicit legacy-store connect");
     assert!(
         project
             .activity
@@ -147,11 +150,20 @@ fn connecting_a_code_repo_with_an_unrelated_manifest_keeps_legacy_mode() {
     let repo = super::helpers::local_source_repo("unrelated-root-manifest");
     std::fs::write(repo.join("manifest.json"), r#"{"name":"ordinary project"}"#).unwrap();
 
-    let project = attempt_connect(repo.to_str().unwrap()).unwrap();
+    // Plain path connect refuses checkouts without a planning association...
+    let plain = attempt_connect(repo.to_str().unwrap());
+    assert!(matches!(plain, Err(AppError::InvalidRepo { .. })));
+
+    // ...while an explicitly selected legacy packet source still plans
+    // through the embedded store.
+    let store =
+        crate::artifacts::planning_store::PlanningStore::legacy_embedded(uuid::Uuid::nil(), &repo);
+    let project = attempt_connect_with_store(repo.to_str().unwrap(), store)
+        .expect("explicit legacy-store connect");
 
     assert_eq!(
         project.state.planning_store.mode,
-        crate::artifacts::planning_store::StoreMode::LegacyEmbedded
+        crate::artifacts::planning_store::StoreMode::LegacyPacketSource
     );
 }
 

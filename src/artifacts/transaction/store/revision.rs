@@ -98,7 +98,5 @@ fn is_independent_record_path(relative: &Path) -> bool {
 }
 
 fn is_local_only(relative: &Path) -> bool {
-    relative == Path::new("config/mcp.json")
-        || relative.starts_with("implementation")
-        || relative == Path::new("state/time-ledger.log")
+    crate::artifacts::planning_store::is_local_only(relative)
 }

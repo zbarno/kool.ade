@@ -61,7 +61,7 @@ pub(super) fn run_with_planning_store_options(
         claim_lease,
     } = options;
     let active_progress = progress.clone();
-    let migration_gate = crate::artifacts::migration::acquire_project_state_gate(state_root)?;
+    let migration_gate = crate::artifacts::locks::acquire_project_state_gate(state_root)?;
     anyhow::ensure!(
         target_repository_with_store(planning_store, state_root, ticket)?.canonicalize()?
             == repo.canonicalize()?,

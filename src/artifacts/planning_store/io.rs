@@ -163,8 +163,4 @@ impl PlanningStore {
     }
 }
 
-fn is_local_only(relative: &Path) -> bool {
-    relative == Path::new("config/mcp.json")
-        || relative.starts_with("implementation")
-        || relative == Path::new("state/time-ledger.log")
-}
+use super::is_local_only;

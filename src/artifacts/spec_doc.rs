@@ -48,11 +48,9 @@ pub fn load<R: PlanningRoot + ?Sized>(repo_root: &R) -> anyhow::Result<Option<St
 
 /// Ensure the current product document exists; returns true when created.
 pub fn ensure<R: PlanningRoot + ?Sized>(repo_root: &R, title: &str) -> anyhow::Result<bool> {
-    let code_root = repo_root.code_repository_root().ok_or_else(|| {
-        anyhow::anyhow!("Managed planning stores use managed workspace bootstrap")
-    })?;
+    let store_root = repo_root.planning_layout().root().to_path_buf();
     Ok(!crate::artifacts::migration::bootstrap_product_with_store(
-        &code_root,
+        &store_root,
         &repo_root.planning_store(),
         title,
     )?

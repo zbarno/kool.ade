@@ -85,7 +85,7 @@ impl TurnContext {
         }
         let overview = scan_for_store(&state.repo_root, &state.planning_store);
         let imports = derive_import_rows(state);
-        let mcp_summary = mcp::summary(&state.repo_root);
+        let mcp_summary = mcp::summary(state.mcp_config_dir().as_deref());
         let product_index = state
             .planning_store
             .read(crate::artifacts::planning_store::paths::PRODUCT_INDEX)
@@ -176,8 +176,8 @@ fn derive_import_rows(state: &PlannerState) -> Vec<ImportRow> {
         .iter()
         .map(|entry| entry.name.clone())
         .collect::<std::collections::HashSet<_>>();
-    let managed =
-        state.planning_store.mode != crate::artifacts::planning_store::StoreMode::LegacyEmbedded;
+    let managed = state.planning_store.mode
+        != crate::artifacts::planning_store::StoreMode::LegacyPacketSource;
     let mut inline_remaining = TOTAL_INLINE_CHARS;
     let mut rows = imports
         .into_iter()

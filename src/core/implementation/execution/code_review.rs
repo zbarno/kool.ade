@@ -9,7 +9,7 @@ pub(crate) fn arbitrate_code_review_finding(
     cancel: Arc<AtomicBool>,
     progress: Sender<LiveProgress>,
 ) -> anyhow::Result<crate::core::implementation::code_review::ManagerCodeReviewFindings> {
-    let _migration_gate = crate::artifacts::migration::acquire_project_state_gate(state_root)?;
+    let _migration_gate = crate::artifacts::locks::acquire_project_state_gate(state_root)?;
     let state_dir = state_dir_for_task(state_root, ticket, Some(&context.task_uid))?;
     let lock = fs::OpenOptions::new()
         .read(true)

@@ -33,9 +33,7 @@ pub(super) fn collect(
         let commit = super::verification::git_text(&path, &["rev-parse", "HEAD"])?;
         let git_ref = super::verification::active_ref(&path)?;
         let source = inventory::collect_optional(&path, repository_id)?;
-        let has_planning_root = path
-            .join(crate::artifacts::layout::canonical::ROOT)
-            .is_dir();
+        let has_planning_root = path.join(crate::artifacts::layout::store::ROOT).is_dir();
         for artifact in source {
             if artifact.kind == Kind::Private || artifact.relative == "manifest.json" {
                 continue;
@@ -79,7 +77,7 @@ pub(super) fn current_artifacts(checkout: &SourceCheckout) -> anyhow::Result<Vec
     let source = inventory::collect_optional(&checkout.path, &checkout.repository_id)?;
     let has_planning_root = checkout
         .path
-        .join(crate::artifacts::layout::canonical::ROOT)
+        .join(crate::artifacts::layout::store::ROOT)
         .is_dir();
     anyhow::ensure!(
         has_planning_root == checkout.has_planning_root,

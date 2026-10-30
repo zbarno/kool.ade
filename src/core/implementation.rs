@@ -63,8 +63,10 @@ pub use repair_context::ManagerRepairContextV1;
 pub(crate) use report::{BlockerDisposition, Report, ReportStatus, parse_report};
 use report::{external_blocker, external_blocker_detail, validate_report};
 use runner::{Runner, append_tail};
+pub(crate) use state::read_state_file;
 pub(crate) use state::save;
-pub(crate) use state::{decode_state_bytes, read_state_file, serialize_state};
+#[cfg(test)]
+pub(crate) use state::serialize_state;
 use state_paths::{common, key};
 pub(crate) use state_paths::{key_for_ticket, state_dir, state_dir_for_task};
 pub(crate) use task::permits_evidence_only_completion;

@@ -4,7 +4,7 @@
 //! that may need rollback before a pre-migration journal is recovered.
 use std::path::{Component, Path, PathBuf};
 
-pub mod canonical {
+pub mod store {
     pub const ROOT: &str = ".koolade-packet";
     pub const MANIFEST: &str = ".koolade-packet/manifest.json";
     pub const CONFIG: &str = ".koolade-packet/config";
@@ -75,7 +75,7 @@ impl ArtifactLayout {
     }
 
     pub fn canonical_path(&self, relative: &str) -> Option<PathBuf> {
-        safe_repository_path(&self.repository.join(canonical::ROOT), relative)
+        safe_repository_path(&self.repository.join(store::ROOT), relative)
     }
 
     /// Resolve a root-relative planning path. Legacy `.koolade-packet/...`
@@ -83,7 +83,7 @@ impl ArtifactLayout {
     /// `planning/changes/F1/specification.md`.
     pub fn resolve_planning_root_relative(root: &Path, relative: &str) -> Option<PathBuf> {
         let relative = relative
-            .strip_prefix(&format!("{}/", canonical::ROOT))
+            .strip_prefix(&format!("{}/", store::ROOT))
             .unwrap_or(relative);
         safe_repository_path(root, relative)
     }
@@ -93,40 +93,40 @@ impl ArtifactLayout {
     }
 
     pub fn koolade_root(&self) -> PathBuf {
-        self.at(canonical::ROOT)
+        self.at(store::ROOT)
     }
     pub fn manifest(&self) -> PathBuf {
-        self.at(canonical::MANIFEST)
+        self.at(store::MANIFEST)
     }
     pub fn config_root(&self) -> PathBuf {
-        self.at(canonical::CONFIG)
+        self.at(store::CONFIG)
     }
     pub fn project_config(&self) -> PathBuf {
-        self.at(canonical::PROJECT_CONFIG)
+        self.at(store::PROJECT_CONFIG)
     }
     pub fn project_manifest(&self) -> PathBuf {
-        self.at(canonical::PROJECT_MANIFEST)
+        self.at(store::PROJECT_MANIFEST)
     }
     pub fn mcp_config(&self) -> PathBuf {
-        self.at(canonical::MCP_CONFIG)
+        self.at(store::MCP_CONFIG)
     }
     pub fn planning_root(&self) -> PathBuf {
-        self.at(canonical::PLANNING)
+        self.at(store::PLANNING)
     }
     pub fn product_root(&self) -> PathBuf {
-        self.at(canonical::PRODUCT)
+        self.at(store::PRODUCT)
     }
     pub fn product_index(&self) -> PathBuf {
-        self.at(canonical::PRODUCT_INDEX)
+        self.at(store::PRODUCT_INDEX)
     }
     pub fn product_manifest(&self) -> PathBuf {
-        self.at(canonical::PRODUCT_MANIFEST)
+        self.at(store::PRODUCT_MANIFEST)
     }
     pub fn product_module(&self, name: &str) -> Option<PathBuf> {
         safe_component(name).then(|| self.product_root().join(name))
     }
     pub fn changes_root(&self) -> PathBuf {
-        self.at(canonical::CHANGES)
+        self.at(store::CHANGES)
     }
     pub fn change_specification(&self, id: &str) -> Option<PathBuf> {
         safe_component(id).then(|| self.changes_root().join(id).join("specification.md"))
@@ -140,40 +140,40 @@ impl ArtifactLayout {
         Some(format!("../{}", relative.display()))
     }
     pub fn decisions_root(&self) -> PathBuf {
-        self.at(canonical::DECISIONS)
+        self.at(store::DECISIONS)
     }
     pub fn decision_record(&self, name: &str) -> Option<PathBuf> {
         safe_component(name).then(|| self.decisions_root().join(name))
     }
     pub fn open_items(&self) -> PathBuf {
-        self.at(canonical::OPEN_ITEMS)
+        self.at(store::OPEN_ITEMS)
     }
     pub fn resolved_items(&self) -> PathBuf {
-        self.at(canonical::RESOLVED_ITEMS)
+        self.at(store::RESOLVED_ITEMS)
     }
     pub fn imports_root(&self) -> PathBuf {
-        self.at(canonical::IMPORTS)
+        self.at(store::IMPORTS)
     }
     pub fn tasks_root(&self) -> PathBuf {
-        self.at(canonical::TASKS)
+        self.at(store::TASKS)
     }
     pub fn task_batch(&self, name: &str) -> Option<PathBuf> {
         safe_component(name).then(|| self.tasks_root().join(name))
     }
     pub fn workflow_state(&self) -> PathBuf {
-        self.at(canonical::WORKFLOW)
+        self.at(store::WORKFLOW)
     }
     pub fn work_state(&self) -> PathBuf {
-        self.at(canonical::WORK)
+        self.at(store::WORK)
     }
     pub fn time_ledger(&self) -> PathBuf {
-        self.at(canonical::LEDGER)
+        self.at(store::LEDGER)
     }
     pub fn implementation_root(&self) -> PathBuf {
-        self.at(canonical::IMPLEMENTATION)
+        self.at(store::IMPLEMENTATION)
     }
     pub fn archive_root(&self) -> PathBuf {
-        self.at(canonical::ARCHIVE)
+        self.at(store::ARCHIVE)
     }
 
     pub fn legacy_specification(&self) -> PathBuf {
@@ -237,7 +237,7 @@ impl ArtifactLayout {
         self.at(legacy::SPEC_ARCHIVE)
     }
     pub fn canonical_spec_archive(&self) -> PathBuf {
-        self.at(canonical::LEGACY_SPEC_ARCHIVE)
+        self.at(store::LEGACY_SPEC_ARCHIVE)
     }
     pub fn legacy_project_config(&self) -> PathBuf {
         self.at(legacy::PROJECT_CONFIG)
@@ -260,7 +260,7 @@ impl ArtifactLayout {
     }
 
     pub fn is_task_ticket_path(relative: &str) -> bool {
-        relative.starts_with(&format!("{}/", canonical::TASKS))
+        relative.starts_with(&format!("{}/", store::TASKS))
     }
 
     fn at(&self, relative: &str) -> PathBuf {

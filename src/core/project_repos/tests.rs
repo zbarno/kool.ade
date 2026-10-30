@@ -77,7 +77,7 @@ fn portable_manifest_resolves_private_checkout_without_committing_paths() {
     ));
     let planning = root.join("planning-root");
     let api = root.join("api-checkout");
-    std::fs::create_dir_all(planning.join(crate::artifacts::layout::canonical::CONFIG)).unwrap();
+    std::fs::create_dir_all(planning.join(crate::artifacts::layout::store::CONFIG)).unwrap();
     std::fs::create_dir_all(&api).unwrap();
     for repo in [&planning, &api] {
         assert!(

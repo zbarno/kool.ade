@@ -264,3 +264,22 @@ impl ManagerHome for WorkspaceManager {
         &self.home
     }
 }
+
+#[test]
+fn first_join_from_an_entirely_fresh_state_root_succeeds() {
+    // Production boundary: an operator whose state root has never hosted a
+    // workspace (no projects/ directory at all) must still be able to join an
+    // existing shared planning checkout. Unit tests of individual lock/fs
+    // helpers cannot prove the composed join sequence tolerates the missing
+    // state directories end to end.
+    let temp = TestDirectory::new("fresh-state-root");
+    let seeder = temp.manager("creator-operator");
+    let created = seeder.create("Fresh operator joins").unwrap();
+
+    let newcomer = temp.manager("brand-new-operator");
+    let joined = newcomer.join(&created.planning_repo).unwrap();
+
+    assert_eq!(joined.id, created.id);
+    let joined_again = newcomer.join(&created.planning_repo).unwrap();
+    assert_eq!(joined_again.planning_repo, joined.planning_repo);
+}

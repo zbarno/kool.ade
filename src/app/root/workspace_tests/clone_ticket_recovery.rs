@@ -37,7 +37,7 @@ fn sw_clone_ticket_one_unsettled_worker_rides_back_next_tick() {
 }
 
 #[test]
-fn sw_clone_ticket_two_success_flows_into_submit_connect_and_connected() {
+fn sw_clone_ticket_two_success_flows_into_submit_connect_and_the_planning_setup_gate() {
     // Serialise the ambient-env mutations (git hierarchy + per-user
     // state root) behind the house lock while a REAL connect runs.
     let _environment = crate::test_support::lock_process_environment();
@@ -66,33 +66,32 @@ fn sw_clone_ticket_two_success_flows_into_submit_connect_and_connected() {
     await_settle(&app);
 
     // TICK TWO: job settled -> join -> refill conn_path -> submit_connect
-    // (the single connect authority) -> Connected.
+    // (the single connect authority) -> planning-setup refusal: a bare
+    // clone is not connectable until a planning repository exists.
     app.tick(0.016, &ctx);
     assert!(app.clone_job.is_none(), "settled worker is consumed");
-    let Screen::Connected(project) = &app.screen else {
-        panic!(
-            "expected Connected after a successful clone (err={:?})",
-            app.conn_error
-        );
-    };
-    let expected_title = dest
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    assert_eq!(
-        project.state.title, expected_title,
-        "title from the repo name"
+    assert!(
+        matches!(app.screen, Screen::Welcome),
+        "a planning-less clone cannot navigate to Connected (err={:?})",
+        app.conn_error
     );
     assert_eq!(
         app.conn_path,
         dest.to_string_lossy().into_owned(),
         "worker output filled conn_path (flow-through)"
     );
-    assert!(app.conn_github.is_empty(), "success FORGETS the pasted URL");
-    assert!(app.conn_error.is_none());
     assert!(
-        dest.join(crate::artifacts::product_docs::INDEX).exists(),
-        "the connect pipeline bootstrapped + migrated the cloned repo"
+        app.conn_github.contains("acme/site"),
+        "a refused connect preserves the pasted URL for correction"
+    );
+    let banner = app.conn_error.as_deref().unwrap_or("");
+    assert!(
+        banner.contains("planning repository"),
+        "the refusal carries actionable planning-setup guidance (got: {banner})"
+    );
+    assert!(
+        !dest.join(".koolade-packet").exists(),
+        "the refusal planted no planning state in the cloned repo"
     );
 
     let _ = std::fs::remove_dir_all(&dest);

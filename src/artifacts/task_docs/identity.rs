@@ -80,7 +80,7 @@ pub(super) fn resolve_batch_directory<R: PlanningRoot + ?Sized>(
     let accepted_roots = [
         task_root.as_str(),
         crate::artifacts::planning_store::paths::TASKS,
-        crate::artifacts::layout::canonical::TASKS,
+        crate::artifacts::layout::store::TASKS,
     ];
     for root in accepted_roots {
         let Some(name) = batch.directory.strip_prefix(&format!("{root}/")) else {
