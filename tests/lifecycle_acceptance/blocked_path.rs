@@ -6,13 +6,13 @@ use koolade::{
 };
 
 /// Production boundary: cancel a reviewed task at the Runtime QA gate, reopen
-/// its persisted lifecycle, and prove cancellation cannot create spec approval
-/// or PR work. A transition unit test cannot prove restart durability or the
-/// cross-record absence of a PR item. The fixture uses deterministic in-process
-/// adapters and no Docker or model service; setup cost is one lifecycle record
-/// replay and one attempted blocked transition.
+/// its persisted lifecycle stores, and prove cancellation cannot create spec
+/// approval or PR work. A transition unit test cannot prove persisted record
+/// replay or the cross-record absence of a PR item. The fixture uses
+/// deterministic in-process adapters and no Docker or model service; setup cost
+/// is one lifecycle record replay and one attempted blocked transition.
 #[test]
-fn cancelling_at_runtime_qa_gate_survives_restart_without_spec_or_pr_work() {
+fn cancellation_persists_after_store_reopen_without_spec_or_pr_work() {
     let temp = tempfile::tempdir().unwrap();
     let store = PlanningStore::new(uuid::Uuid::new_v4(), temp.path(), StoreMode::ManagedLocal);
     let lifecycle = LifecycleStore::new(&store);
@@ -90,8 +90,8 @@ fn ambiguous_goal_replays_to_reviewed_dag_and_blocks_without_real_qa() {
     let reopened_store = PlanningStore::new(store.project_id, store.root.clone(), store.mode);
     let reopened = LifecycleStore::new(&reopened_store);
     // No live browser/desktop evidence exists in this fixture. Persist an
-    // explicit blocker and prove restart does not synthesize QA/spec receipts,
-    // Done state, or a PR work item.
+    // explicit blocker and prove store reopen does not synthesize QA/spec
+    // receipts, Done state, or a PR work item.
     parent = reopened
         .apply_task_event(
             &parent_uid,
