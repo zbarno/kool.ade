@@ -123,7 +123,10 @@ pub(super) async fn run_scenario(
         &name,
         body,
         &uploads,
-        Duration::from_secs(120),
+        // This outer watchdog only bounds transport. The request embedded in
+        // the driver payload still enforces its approved per-run timeout; give
+        // software-rendered screenshots and app startup room on slow CI hosts.
+        Duration::from_secs(300),
         1024 * 1024,
         &mut cancel,
     )
