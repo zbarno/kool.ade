@@ -425,12 +425,23 @@ fn welcome_ui_wizard_clone_completion_pairs_before_connecting() {
         "the pairing intent rides alongside the worker"
     );
 
-    // Let the worker settle through the production tick path.
-    for _ in 0..500 {
-        if app.clone_job.is_none() {
-            break;
-        }
+    // Let the worker settle through the production tick path. The worker
+    // does real file-system work on a real thread, so patience is bounded
+    // by wall time (the house patient-drain pattern): tick the production
+    // clock while yielding, instead of burning a fixed frame count that
+    // starves the worker under a loaded runner.
+    let settle_deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while app.clone_job.is_some() {
         app.tick(0.016, &ctx);
+        if std::time::Instant::now() >= settle_deadline {
+            panic!(
+                "clone worker did not settle within 30s of wall time \
+                 (wiz_error: {:?}, conn_error: {:?})",
+                app.wiz.as_ref().and_then(|draft| draft.error.clone()),
+                app.conn_error
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
     }
     let Screen::Connected(project) = &app.screen else {
         let wiz_err = app.wiz.as_ref().and_then(|d| d.error.clone());
