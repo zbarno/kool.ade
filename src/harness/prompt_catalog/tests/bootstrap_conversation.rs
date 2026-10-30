@@ -33,7 +33,7 @@ fn bootstrap_prompt_has_a_versioned_no_tool_role_and_valid_manifest() {
     assert!(input.evidence_manifest.is_empty());
 
     let rendered = render(&input).unwrap();
-    assert_eq!(rendered.manifest.role_version, "bootstrap_conversation/v1");
+    assert_eq!(rendered.manifest.role_version, "bootstrap_conversation/v2");
     assert_eq!(
         rendered.manifest.output_schema_version,
         "BootstrapConversationResponseV1"

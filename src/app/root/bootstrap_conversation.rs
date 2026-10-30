@@ -9,7 +9,9 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
+mod context;
 mod controller;
+pub(crate) use context::{Context, ONBOARDING_CHAT};
 mod prompt;
 #[cfg(test)]
 mod tests;
@@ -18,6 +20,19 @@ mod worker;
 pub(crate) use controller::Controller;
 
 impl KooladeApp {
+    pub(super) fn send_onboarding_message(&mut self) {
+        let mut override_harness = self.task_harness.take();
+        let harness = super::harness_selection::configured_bootstrap_harness(&mut override_harness);
+        if let Err(error) = self.bootstrap_conversation.start_context(
+            &Context::onboarding(&self.onboarding, &self.machine_setup_tasks),
+            crate::app::setup_attention::catalog::HostKind::current(),
+            harness,
+        ) {
+            self.bootstrap_conversation
+                .set_error(ONBOARDING_CHAT, error);
+        }
+    }
+
     pub(super) fn send_bootstrap_conversation_message(&mut self, task_id: &str) {
         let Some(task) = self
             .machine_setup_tasks
@@ -30,12 +45,7 @@ impl KooladeApp {
             return;
         };
         let mut override_harness = self.task_harness.take();
-        let harness = crate::app::root::configured_harness_for_project_task(
-            &mut override_harness,
-            Some(crate::persistence::harness_settings::PLANNING),
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-        );
+        let harness = super::harness_selection::configured_bootstrap_harness(&mut override_harness);
         match self.bootstrap_conversation.start(
             &task,
             crate::app::setup_attention::catalog::HostKind::current(),
@@ -56,12 +66,7 @@ impl KooladeApp {
             return;
         }
         let mut no_override = None;
-        let selected = crate::app::root::configured_harness_for_project_task(
-            &mut no_override,
-            Some(crate::persistence::harness_settings::PLANNING),
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-        );
+        let selected = super::harness_selection::configured_bootstrap_harness(&mut no_override);
         let mut current_routes = BTreeMap::new();
         for (task_id, request) in requests {
             let current_route = selected.route_provenance(&request);
@@ -75,6 +80,17 @@ impl KooladeApp {
         }
         for completed in self.bootstrap_conversation.take_completed() {
             let task_id = completed.task_id().to_owned();
+            if task_id == ONBOARDING_CHAT {
+                self.bootstrap_conversation.finish_context(
+                    completed,
+                    Some(&Context::onboarding(
+                        &self.onboarding,
+                        &self.machine_setup_tasks,
+                    )),
+                    current_routes.remove(&task_id).flatten(),
+                );
+                continue;
+            }
             let task = self
                 .machine_setup_tasks
                 .iter()
@@ -126,12 +142,7 @@ impl KooladeApp {
             return;
         }
         let mut no_override = None;
-        let selected = crate::app::root::configured_harness_for_project_task(
-            &mut no_override,
-            Some(crate::persistence::harness_settings::PLANNING),
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-        );
+        let selected = super::harness_selection::configured_bootstrap_harness(&mut no_override);
         if selected.route_provenance(&suggestion.request).as_ref() != Some(&suggestion.route) {
             self.bootstrap_conversation.set_error(
                 task_id,
@@ -179,7 +190,13 @@ fn suggestion_view(suggestion: &BootstrapIntentSuggestionV1) -> BootstrapSuggest
 
 fn response_message(reply: BootstrapConversationReplyV1, task: &LocalTask) -> String {
     let bounded = |text: &str| text.chars().take(700).collect::<String>();
+    if let Some(explanation) = context::term_explanation(reply) {
+        return explanation.into();
+    }
     match reply {
+        BootstrapConversationReplyV1::ExplainDocker
+        | BootstrapConversationReplyV1::ExplainGit
+        | BootstrapConversationReplyV1::ExplainManager => unreachable!("handled above"),
         BootstrapConversationReplyV1::ExplainObservation => format!(
             "The setup task's current observation is: {}",
             bounded(&task.explanation)

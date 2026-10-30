@@ -35,8 +35,9 @@ pub(super) fn register_with_checkpoint(
         "code checkout is not a Git working tree"
     );
     anyhow::ensure!(
-        checkout != workspace.planning_repo,
-        "the planning repository cannot also be registered as a code checkout"
+        !checkout.starts_with(&workspace.planning_repo)
+            && !workspace.planning_repo.starts_with(&checkout),
+        "planning and code repositories must be separate and non-nested"
     );
     let remote = registration.remote.unwrap_or_default().trim().to_owned();
     if !remote.is_empty() {

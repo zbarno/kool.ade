@@ -25,6 +25,9 @@ pub enum BootstrapImageProfileV1 {
 #[serde(rename_all = "snake_case")]
 pub enum BootstrapConversationReplyV1 {
     ExplainObservation,
+    ExplainDocker,
+    ExplainGit,
+    ExplainManager,
     RepeatNextStep,
     AskWhatToExplain,
     AskWhatTaskShows,

@@ -137,7 +137,7 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         ),
         (
             PromptRole::BootstrapConversation,
-            "aaebcea7542c47a40d1d1f523d0978b111be467fbf1209d2fa6f97846fc097f2",
+            "500549a8692ac5bede8269f59eec634027891e056cd32d22fe9e3dd89fd76e6e",
             "270ae885b66059807edc4611117facceca34f9ad3287aecabf5ed93b9b484b2a",
         ),
     ];
