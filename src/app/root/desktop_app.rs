@@ -22,6 +22,9 @@ impl KooladeApp {
     pub(super) fn paint_screen(&mut self, ui: &mut egui::Ui) {
         crate::ui::theme::apply(ui.ctx());
         let welcome_screen = matches!(&self.screen, Screen::Welcome);
+        if welcome_screen && self.paint_onboarding(ui) {
+            return;
+        }
         let selection_id = egui::Id::new("koolade_welcome_setup_selection");
         let mut welcome_selection = ui
             .ctx()
@@ -40,7 +43,10 @@ impl KooladeApp {
                 let local_workspaces =
                     crate::core::managed_workspace::WorkspaceManager::from_state_root()
                         .list_local();
-                let local_workspaces = local_workspaces.unwrap_or_default();
+                let mut local_workspaces = local_workspaces.unwrap_or_default();
+                // A damaged personal history must not hide otherwise usable workspaces.
+                let _ = crate::core::managed_workspace::WorkspaceManager::from_state_root()
+                    .sort_by_recent_open(&mut local_workspaces);
                 if self.conn_workspace_id.is_none() {
                     self.conn_workspace_id = local_workspaces.first().map(|workspace| workspace.id);
                 }
@@ -111,29 +117,14 @@ impl KooladeApp {
                                 "No local workspace is registered yet.",
                             ));
                         } else {
-                            egui::ComboBox::from_id_salt("welcome_local_workspace")
-                                .selected_text(
-                                    self.conn_workspace_id
-                                        .and_then(|id| {
-                                            local_workspaces
-                                                .iter()
-                                                .find(|workspace| workspace.id == id)
-                                        })
-                                        .map(|workspace| {
-                                            format!("{} · {}", workspace.title, workspace.id)
-                                        })
-                                        .unwrap_or_else(|| "Choose a workspace".into()),
-                                )
-                                .width(field_width)
-                                .show_ui(ui, |ui| {
-                                    for workspace in &local_workspaces {
-                                        ui.selectable_value(
-                                            &mut self.conn_workspace_id,
-                                            Some(workspace.id),
-                                            format!("{} · {}", workspace.title, workspace.id),
-                                        );
-                                    }
-                                });
+                            if welcome::paint_recent(
+                                ui,
+                                &local_workspaces,
+                                &mut self.conn_workspace_id,
+                                clone_busy,
+                            ) {
+                                *open_local_workspace_slot.borrow_mut() = true;
+                            }
                             if ui
                                 .add_enabled(!clone_busy, egui::Button::new("Open local workspace"))
                                 .clicked()

@@ -134,3 +134,63 @@ impl ManagerPaths for WorkspaceManager {
         &self.home
     }
 }
+
+#[test]
+fn identified_creation_does_not_adopt_an_unrelated_pending_workspace() {
+    // Boundary: creation journal and real Git initialization. Requires local
+    // Git only, two small repos; mocks cannot prove identities survive recovery.
+    let temp = TestDirectory::new("identified-creation");
+    let manager = temp.manager("operator");
+    manager
+        .create_with_failure("Other request", CreationFailurePoint::GitInit)
+        .unwrap_err();
+    let other = only_pending_id(&manager);
+    let requested = uuid::Uuid::new_v4();
+    let created = manager.create_identified(requested, "New idea").unwrap();
+    assert_eq!(created.id, requested);
+    assert!(manager.project_dir(other).join("creation.json").is_file());
+    let before = git_ok(Some(&created.planning_repo), &["rev-parse", "HEAD"]).stdout;
+    let retry = manager.create_identified(requested, "New idea").unwrap();
+    assert_eq!(retry.id, requested);
+    assert_eq!(
+        before,
+        git_ok(Some(&retry.planning_repo), &["rev-parse", "HEAD"]).stdout
+    );
+    assert!(manager.create_identified(other, "Wrong request").is_err());
+    let recovered = manager.create_identified(other, "Other request").unwrap();
+    assert_eq!(recovered.id, other);
+}
+
+#[test]
+fn identified_creation_recovers_intent_before_journal_and_preserves_occupied_directory() {
+    // Real filesystem/Git boundary; local Git only, one small repo. Exercises
+    // interruption between durable intent, mkdir and the internal journal.
+    let temp = TestDirectory::new("creation-intent");
+    let manager = temp.manager("operator");
+    let id = uuid::Uuid::new_v4();
+    let directory = manager.project_dir(id);
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(
+        directory
+            .parent()
+            .unwrap()
+            .join(format!(".creation-{id}.json")),
+        serde_json::to_vec(&serde_json::json!({
+            "schemaVersion": 1, "workspaceId": id, "title": "Interrupted idea"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let recovered = manager.create_identified(id, "Interrupted idea").unwrap();
+    assert_eq!(recovered.id, id);
+    let occupied = uuid::Uuid::new_v4();
+    let occupied_dir = manager.project_dir(occupied);
+    fs::create_dir(&occupied_dir).unwrap();
+    fs::write(occupied_dir.join("sentinel"), b"preserve").unwrap();
+    assert!(manager.create_identified(occupied, "Must refuse").is_err());
+    assert_eq!(fs::read_dir(&occupied_dir).unwrap().count(), 1);
+    assert_eq!(
+        fs::read(occupied_dir.join("sentinel")).unwrap(),
+        b"preserve"
+    );
+}

@@ -32,6 +32,19 @@ impl Default for KooladeApp {
         let setup_task_state_path = setup_state_root.join("machine-setup").join("tasks.json");
 
         Self {
+            onboarding: welcome::onboarding::Onboarding::load({
+                #[cfg(test)]
+                {
+                    setup_state_root.join("onboarding.json")
+                }
+                #[cfg(not(test))]
+                {
+                    crate::persistence::state_root().join("onboarding.json")
+                }
+            }),
+            onboarding_creation: None,
+            onboarding_inspection: None,
+            onboarding_project_kind: None,
             task_harness: None,
             pending_feature_generation: None,
             screen: Screen::Welcome,

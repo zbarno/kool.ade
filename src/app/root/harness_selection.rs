@@ -1,3 +1,5 @@
+mod bootstrap;
+pub(crate) use bootstrap::configured_bootstrap_harness;
 mod cli_notice;
 mod role_router;
 mod route_readiness;

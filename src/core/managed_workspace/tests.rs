@@ -1,3 +1,7 @@
+#[path = "tests/application.rs"]
+mod application;
+#[path = "tests/existing_project.rs"]
+mod existing_project;
 #[path = "tests/identity.rs"]
 mod identity;
 #[path = "tests/initialization.rs"]

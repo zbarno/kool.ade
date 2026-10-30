@@ -11,7 +11,6 @@ pub(super) fn paint_tool_details(
     if id == "pi" {
         super::super::pi_guide::paint(ui, dialog);
     }
-    paint_provider_guidance(ui, dialog, id, harness);
     let now = crate::persistence::harness_settings::current_unix_ms();
     let fresh = harness.is_fresh_at(now);
     ui.label(theme::page_title(id));
@@ -160,6 +159,7 @@ pub(super) fn paint_tool_details(
     if let Some(diagnostic) = &harness.diagnostic {
         ui.colored_label(theme::DANGER, diagnostic);
     }
+    paint_provider_guidance(ui, dialog, id, harness);
 }
 
 pub(super) fn availability_label(
@@ -238,6 +238,14 @@ fn paint_provider_guidance(
     }
     ui.label(theme::helper_text(provider.install_note(host)));
     ui.label(theme::helper_text(provider.install_channel_note(host)));
+    ui.label("Man.ager helps plan your project, answer questions and coordinate work. Your provider's account and usage charges still apply.");
+    if ui.add_enabled(
+        dialog.onboarding_model(id).is_some(),
+        egui::Button::new("Use as Man.ager and setup helper"),
+    ).on_disabled_hover_text("Check this tool again after signing in and selecting a default model. It must support verified planning help.").clicked() {
+        dialog.select_onboarding_manager(id);
+    }
+    ui.label(theme::helper_text("This saves your Manager choice and setup helper. Repository work remains gated by the separate Manager and safe-execution checks; selecting a provider does not grant access."));
     let selected = dialog.settings.bootstrap_provider.as_deref() == Some(id);
     if ui
         .add(egui::RadioButton::new(

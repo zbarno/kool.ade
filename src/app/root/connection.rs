@@ -277,6 +277,13 @@ impl KooladeApp {
                 project.remember_chat(vec![session::welcome_message(&project.state.title)]);
                 self.conn_error = None;
                 let title = project.state.title.clone();
+                if let Some(workspace) = &project.managed_workspace
+                    && let Err(error) =
+                        crate::core::managed_workspace::WorkspaceManager::from_state_root()
+                            .record_successful_open(workspace.id)
+                {
+                    eprintln!("Could not save workspace launch history: {error}");
+                }
                 self.screen = Screen::Connected(Box::new(project));
                 // Success: forget the pasted URL (per-launch state only).
                 // A FAILED connect preserves it for typo correction.

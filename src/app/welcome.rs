@@ -3,7 +3,10 @@
 
 mod connect;
 mod github;
+pub(crate) mod onboarding;
+mod recent;
 mod repository_picker;
+pub use recent::paint_recent;
 mod screen;
 
 #[cfg(test)]

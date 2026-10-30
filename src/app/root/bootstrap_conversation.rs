@@ -30,12 +30,7 @@ impl KooladeApp {
             return;
         };
         let mut override_harness = self.task_harness.take();
-        let harness = crate::app::root::configured_harness_for_project_task(
-            &mut override_harness,
-            Some(crate::persistence::harness_settings::PLANNING),
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-        );
+        let harness = super::harness_selection::configured_bootstrap_harness(&mut override_harness);
         match self.bootstrap_conversation.start(
             &task,
             crate::app::setup_attention::catalog::HostKind::current(),
@@ -56,12 +51,7 @@ impl KooladeApp {
             return;
         }
         let mut no_override = None;
-        let selected = crate::app::root::configured_harness_for_project_task(
-            &mut no_override,
-            Some(crate::persistence::harness_settings::PLANNING),
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-        );
+        let selected = super::harness_selection::configured_bootstrap_harness(&mut no_override);
         let mut current_routes = BTreeMap::new();
         for (task_id, request) in requests {
             let current_route = selected.route_provenance(&request);
@@ -126,12 +116,7 @@ impl KooladeApp {
             return;
         }
         let mut no_override = None;
-        let selected = crate::app::root::configured_harness_for_project_task(
-            &mut no_override,
-            Some(crate::persistence::harness_settings::PLANNING),
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-        );
+        let selected = super::harness_selection::configured_bootstrap_harness(&mut no_override);
         if selected.route_provenance(&suggestion.request).as_ref() != Some(&suggestion.route) {
             self.bootstrap_conversation.set_error(
                 task_id,

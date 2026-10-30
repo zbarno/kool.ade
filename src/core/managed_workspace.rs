@@ -1,12 +1,17 @@
 //! Local workspace identity and its external planning Git repository.
 
+mod application;
 mod association;
+mod existing_project;
+pub use application::ApplicationCreation;
+pub use existing_project::{ExistingProject, ExistingProjectKind};
 mod creation;
 mod git;
 mod locking;
 mod manager;
 mod manifest;
 mod migration;
+mod recency;
 mod repositories;
 #[cfg(test)]
 mod tests;

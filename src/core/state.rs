@@ -105,10 +105,18 @@ impl PlannerState {
             git_email.as_deref(),
             config.user.as_ref(),
         );
-        let title = repo
+        let fallback_title = repo
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "project".into());
+        let title = if store.mode != crate::artifacts::planning_store::StoreMode::LegacyEmbedded {
+            crate::core::managed_workspace::WorkspaceManifest::read(&store.root)
+                .ok()
+                .and_then(|manifest| manifest.title)
+                .unwrap_or(fallback_title)
+        } else {
+            fallback_title
+        };
         let workflow = crate::artifacts::task_docs::load_workflow_unlocked(store)?;
         let active_features = crate::artifacts::product_docs::active_features(store);
         let active_feature =

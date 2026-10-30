@@ -39,6 +39,7 @@ mod desktop_app;
 mod dialogs;
 mod implementation_controller;
 mod implementation_decision;
+mod onboarding;
 mod opportunity_actions;
 pub(crate) mod plan_review;
 pub(crate) mod spec_reconciliation;
@@ -81,6 +82,14 @@ pub struct KooladeApp {
     spawn_target_override: Option<std::path::PathBuf>,
     dialog: Option<Dialog>,
     toasts: ToastQueue,
+    onboarding: welcome::onboarding::Onboarding,
+    onboarding_inspection: Option<
+        std::thread::JoinHandle<
+            Result<crate::core::managed_workspace::ExistingProjectKind, String>,
+        >,
+    >,
+    onboarding_project_kind: Option<crate::core::managed_workspace::ExistingProjectKind>,
+    onboarding_creation: Option<std::thread::JoinHandle<Result<uuid::Uuid, String>>>,
     conn_path: String,
     conn_create_title: String,
     /// Pasted GitHub URL on the connect card. Per-launch state only (no
