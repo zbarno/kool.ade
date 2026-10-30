@@ -531,17 +531,22 @@ fn welcome_ui_wizard_clone_worker_failure_surfaces_on_the_wizard() {
     assert!(app.clone_job.is_some(), "commit spawns the clone worker");
 
     // The worker is a REAL thread that panics; under heavy parallel-test
-    // contention it may starve for wall time. Tick patiently (breaking as
-    // soon as the job settles) while steadily yielding real time so the
-    // panic is guaranteed a scheduling slot. Common cost stays trivial.
-    for round in 0..20_000 {
-        if app.clone_job.is_none() {
-            break;
-        }
+    // contention it may starve for wall time. Patience is bounded by wall
+    // time (the same house drain pattern as the success-path twin): tick
+    // the production clock while steadily yielding real time so the panic
+    // is guaranteed a scheduling slot.
+    let settle_deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while app.clone_job.is_some() {
         app.tick(0.016, &ctx);
-        if round % 50 == 49 {
-            std::thread::sleep(std::time::Duration::from_millis(2));
+        if std::time::Instant::now() >= settle_deadline {
+            panic!(
+                "clone worker did not settle within 30s of wall time \
+                 (wiz_error: {:?}, conn_error: {:?})",
+                app.wiz.as_ref().and_then(|draft| draft.error.clone()),
+                app.conn_error
+            );
         }
+        std::thread::sleep(std::time::Duration::from_millis(2));
     }
     assert!(app.clone_job.is_none(), "the dead worker is settled");
     assert!(
