@@ -6,6 +6,65 @@ use harness::{IsolatedContainerCleanup, IsolatedRootlessDaemon};
 
 const OPT_IN: &str = "KOOLADE_DOCKER_DAEMON_RESTART_INTEGRATION";
 
+/// The isolated rootless daemon can answer its readiness ping before the full
+/// API stack is servable under a heavily loaded CI runner. The first real
+/// start therefore tolerates the narrow engine-disconnect signature for a
+/// bounded window; every other failure remains fatal exactly as before.
+async fn prepare_and_start_through_boot_window(
+    backend: &crate::execution::docker::backend::DockerExecutionBackend,
+    request: &crate::execution::contract::ExecutionRequestV1,
+) -> (
+    crate::execution::backend::WorkspaceLeaseV1,
+    crate::execution::backend::ExecutionHandleV1,
+) {
+    const MAX_ATTEMPTS: u32 = 8;
+    const PAUSE: std::time::Duration = std::time::Duration::from_secs(2);
+    let boot_disconnect = |error: &crate::execution::errors::ExecutionError| -> bool {
+        matches!(
+            error.kind,
+            crate::execution::errors::ExecutionErrorKind::ImageUnavailable
+                | crate::execution::errors::ExecutionErrorKind::EnvironmentUnavailable
+        ) && error.message.contains("Docker Engine disconnected")
+    };
+    let mut attempt = 0u32;
+    loop {
+        attempt += 1;
+        let lease = backend
+            .prepare_workspace(&request.workspace, &request.target)
+            .await
+            .unwrap_or_else(|error| {
+                panic!(
+                    "prepare task workspace (attempt {attempt}): {error}{}",
+                    boot_note(&error, &boot_disconnect, attempt, MAX_ATTEMPTS)
+                )
+            });
+        match backend.start(&lease, request).await {
+            Ok(handle) => return (lease, handle),
+            Err(error) => {
+                let note = boot_note(&error, &boot_disconnect, attempt, MAX_ATTEMPTS);
+                if note.is_empty() {
+                    panic!("start isolated container (attempt {attempt}): {error}");
+                }
+                drop(lease);
+                tokio::time::sleep(PAUSE).await;
+            }
+        }
+    }
+}
+
+fn boot_note<'a>(
+    error: &crate::execution::errors::ExecutionError,
+    boot_disconnect: &dyn Fn(&crate::execution::errors::ExecutionError) -> bool,
+    attempt: u32,
+    max_attempts: u32,
+) -> &'a str {
+    if boot_disconnect(error) && attempt < max_attempts {
+        ""
+    } else {
+        " (boot-window retries exhausted or failure is not a transient engine disconnect)"
+    }
+}
+
 /// Production boundary: the durable execution record and owned task clone are
 /// reconciled across an actual Docker Engine process restart. A unit test or a
 /// stopped-container simulation cannot prove the replacement worker reconnects
@@ -66,7 +125,7 @@ async fn restarted_rootless_daemon_preserves_dirty_clone_without_command_replay(
         endpoint.clone(),
         format!("koolade-exec-{}", request.execution_id),
     );
-    let (_lease, handle) = super::prepare_and_start(&backend, &request).await;
+    let (_lease, handle) = prepare_and_start_through_boot_window(&backend, &request).await;
 
     let backend = Arc::new(backend);
     let running_backend = backend.clone();
