@@ -48,12 +48,13 @@ evidence and do not enable either QA profile:
 
 | PR head | Quality | Trusted image | Native packages | CodeQL | Scope and remaining status |
 | --- | --- | --- | --- | --- | --- |
-| [#428 `15ca529`](https://github.com/zbarno/kool.ade/commit/15ca52945260df5cd4421aa424a367b31df59448) | [41034257580](https://github.com/zbarno/kool.ade/actions/runs/41034257580) passed | [41034257503](https://github.com/zbarno/kool.ade/actions/runs/41034257503), desktop and published-image checks passed; browser attempts 1–3 failed before their assertions with Docker health disconnects | [41034257591](https://github.com/zbarno/kool.ade/actions/runs/41034257591) passed | [41034252118](https://github.com/zbarno/kool.ade/actions/runs/41034252118) passed | Adds rootless host-HOME, Docker/display/service socket, environment, and `noexec` executable-denial probes. Raises only the desktop fixture's outer transport watchdog; the driver's approved per-run timeout remains enforced. PR awaits review and technical #171 criteria remain open. |
+| [#428 `8f3bb07`](https://github.com/zbarno/kool.ade/commit/8f3bb07f41c32241359a6b52f401096dfe9dbcd5) | [41059042295](https://github.com/zbarno/kool.ade/actions/runs/41059042295) passed | [41059042298](https://github.com/zbarno/kool.ade/actions/runs/41059042298) passed: browser and desktop candidates, published-image smokes, and digest verification | [41059042355](https://github.com/zbarno/kool.ade/actions/runs/41059042355) passed | [41059036492](https://github.com/zbarno/kool.ade/actions/runs/41059036492) passed | Adds rootless host-HOME, Docker/display/service socket, environment, and `noexec` executable-denial probes. The 300-second desktop transport watchdog keeps the driver's approved per-run timeout authoritative. Earlier browser Docker health disconnects on `15ca529` did not recur. Merged as `713afd27`; technical #171 criteria remain open. |
 
-PR #428 awaits required review. Its current-head quality, CodeQL, native package,
-desktop candidate, and published-image checks passed. Browser candidate verification
-still hits a Docker health disconnect before its assertions. Deferred human
-prelaunch review does not block issue closure after technical acceptance is met.
+PR #428 merged as `713afd27`. Its candidate quality, CodeQL, native package,
+browser and desktop rootless, and published-image checks passed. Exact-main checks
+on the merge commit are running. Three technical #171 acceptance items remain
+open. Deferred human prelaunch review does not block issue closure after technical
+acceptance is met.
 
 ## Previous exact-main matrix (2026-10-27)
 
