@@ -26,7 +26,7 @@ pub(super) async fn assert_preview_exit_fails_the_active_browser_run(
         preconditions: vec!["The approved Python preview is running.".into()],
         steps: vec![step(
             QaDriverActionV1::BrowserOpen {
-                url: "http://qa-service/?defect=slow-cancel".into(),
+                url: "http://qa-service/?defect=preview-exit".into(),
             },
             "Navigation reports the preview failure instead of passing",
             false,
@@ -97,7 +97,7 @@ pub(super) async fn assert_preview_exit_fails_the_active_browser_run(
             )
             .await
         });
-        if let Err(error) = super::cancellation::wait_for_cancel_marker(
+        if let Err(error) = wait_for_preview_exit_marker(
             docker,
             &preview.relay_binding.relay_container_id,
             &browser_image.runtime_user,
@@ -188,4 +188,33 @@ pub(super) async fn assert_preview_exit_fails_the_active_browser_run(
             Err(format!("{error}; browser driver cleanup failed: {cleanup}"))
         }
     }
+}
+
+async fn wait_for_preview_exit_marker(
+    docker: &bollard::Docker,
+    relay_container_id: &str,
+    relay_runtime_user: &str,
+) -> Result<(), String> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    while tokio::time::Instant::now() < deadline {
+        let probe = tokio::time::timeout(
+            Duration::from_secs(3),
+            super::probe::marker_is_active(
+                docker,
+                relay_container_id,
+                relay_runtime_user,
+                "/__preview_exit_started",
+                "started",
+            ),
+        )
+        .await;
+        match probe {
+            Ok(Ok(true)) => return Ok(()),
+            Ok(Ok(false)) => {}
+            Ok(Err(error)) => return Err(error),
+            Err(_) => return Err("timed out probing the preview exit marker".into()),
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    Err("browser never started the preview exit navigation".into())
 }
