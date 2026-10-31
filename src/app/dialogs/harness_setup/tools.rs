@@ -155,35 +155,43 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
             if entries.iter().any(|(visible, _)| visible.as_str() == id) {
                 continue;
             }
-            ui.collapsing(id, |ui| {
-                if let Some(harness) = dialog.settings.discovered.get(id).cloned() {
-                    details::paint_tool_details(ui, dialog, id, &harness);
-                } else {
-                    ui.label("Not checked yet. Run discovery to check installation and sign-in.");
-                    let provider =
-                        crate::app::setup_attention::catalog::ProviderIdV1::from_probe_id(id);
-                    if let Some(provider) = provider {
-                        ui.hyperlink_to("Installation guide", provider.installation_guide());
-                    }
-                    if ui.button(format!("Check {id}")).clicked() {
-                        dialog.retry_provider(id);
-                    }
-                    ui.label("Custom executable path");
-                    let draft = dialog.manual_path_drafts.entry(id.to_owned()).or_default();
-                    ui.text_edit_singleline(draft);
-                    if ui.button("Use path").clicked() {
-                        let selected_path = dialog
-                            .manual_path_drafts
-                            .get(id)
-                            .cloned()
-                            .unwrap_or_default();
-                        dialog.set_manual_path(id, selected_path);
-                    }
-                }
-            });
+            ui.collapsing(id, |ui| paint_provider_repair_details(ui, dialog, id));
         }
     });
     paint_rediscover_button(ui, dialog);
+}
+
+/// Shared repair-detail body. The collapsed provider panel calls this in
+/// production; headless interaction tests paint the same controls directly
+/// without depending on nested header hit-testing.
+pub(super) fn paint_provider_repair_details(
+    ui: &mut Ui,
+    dialog: &mut DlgHarnessSetup,
+    id: &str,
+) {
+    if let Some(harness) = dialog.settings.discovered.get(id).cloned() {
+        details::paint_tool_details(ui, dialog, id, &harness);
+    } else {
+        ui.label("Not checked yet. Run discovery to check installation and sign-in.");
+        let provider = crate::app::setup_attention::catalog::ProviderIdV1::from_probe_id(id);
+        if let Some(provider) = provider {
+            ui.hyperlink_to("Installation guide", provider.installation_guide());
+        }
+        if ui.button(format!("Check {id}")).clicked() {
+            dialog.retry_provider(id);
+        }
+        ui.label("Custom executable path");
+        let draft = dialog.manual_path_drafts.entry(id.to_owned()).or_default();
+        ui.text_edit_singleline(draft);
+        if ui.button("Use path").clicked() {
+            let selected_path = dialog
+                .manual_path_drafts
+                .get(id)
+                .cloned()
+                .unwrap_or_default();
+            dialog.set_manual_path(id, selected_path);
+        }
+    }
 }
 
 pub(super) fn paint_rediscover_button(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
