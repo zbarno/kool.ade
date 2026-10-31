@@ -1,16 +1,19 @@
 //! App-lifetime, bounded refresh of CLI routing evidence. Discovery and
 //! operator choices are different kinds of state: refresh never rewrites routes.
 use std::collections::BTreeMap;
-use std::sync::{Mutex, OnceLock, atomic::{AtomicBool, AtomicU64, Ordering}};
+use std::sync::{
+    Mutex, OnceLock,
+    atomic::{AtomicBool, AtomicU64, Ordering},
+};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::harness::discovery::{ModelCatalogStatus, ProbeDiagnosticCode, ProbeResult};
-use crate::persistence::harness_settings::{self, HarnessSettings};
 #[cfg(test)]
 use crate::persistence::harness_settings::DISCOVERY_FRESHNESS_MS;
+use crate::persistence::harness_settings::{self, HarnessSettings};
 
-use super::{probe_result, probes, discovery::update_settings_from_probe};
+use super::{discovery::update_settings_from_probe, probe_result, probes};
 
 const EARLY_REFRESH_MS: u64 = 3 * 60 * 1000;
 const RETRY_INTERVAL: Duration = Duration::from_secs(60);
@@ -49,16 +52,20 @@ pub(super) fn refresh_in_flight() -> bool {
 /// An unroutable saved provider requests verification; no probe runs on the
 /// caller's thread, and the existing route is never silently changed.
 pub(crate) fn request_refresh() {
-    coordinator().lock().unwrap_or_else(std::sync::PoisonError::into_inner).requested = true;
+    coordinator()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .requested = true;
 }
 
 fn refresh_due(settings: &HarnessSettings, now: u64) -> bool {
     // First run, newly installed providers, and expiring evidence all use
     // the same scheduler. Include absent providers in periodic rescans.
     probes::PROVIDERS.iter().any(|provider| {
-        settings.discovered.get(*provider).is_none_or(|entry| {
-            !entry.is_fresh_at(now.saturating_add(EARLY_REFRESH_MS))
-        })
+        settings
+            .discovered
+            .get(*provider)
+            .is_none_or(|entry| !entry.is_fresh_at(now.saturating_add(EARLY_REFRESH_MS)))
     })
 }
 
@@ -67,9 +74,10 @@ fn scan() -> CompletedScan {
     let started_at = harness_settings::current_unix_ms();
     let generation = NEXT_GENERATION.fetch_add(1, Ordering::Relaxed);
     let cancellation = std::sync::Arc::new(AtomicBool::new(false));
-    let runtime_available = std::panic::catch_unwind(
-        crate::harness::runtime_capabilities::RuntimeCapabilities::detect,
-    ).map(|capabilities| capabilities.implementation).unwrap_or(false);
+    let runtime_available =
+        std::panic::catch_unwind(crate::harness::runtime_capabilities::RuntimeCapabilities::detect)
+            .map(|capabilities| capabilities.implementation)
+            .unwrap_or(false);
     let mut results = super::bootstrap_probe::probe_bootstrap_clis(generation, cancellation);
     for result in &mut results {
         result.set_runtime_readiness(runtime_available);
@@ -92,9 +100,10 @@ fn merge_results(settings: &mut HarnessSettings, scan: CompletedScan) -> bool {
         if !probes::PROVIDERS.contains(&id.as_str())
             || result.diagnostic_code == Some(ProbeDiagnosticCode::InternalProbeFailure)
             || settings.manual_executable_paths.get(&id) != scan.original_paths.get(&id)
-            || settings.discovered.get(&id).is_some_and(|previous| {
-                previous.checked_at_unix_ms > scan.started_at
-            })
+            || settings
+                .discovered
+                .get(&id)
+                .is_some_and(|previous| previous.checked_at_unix_ms > scan.started_at)
         {
             continue;
         }
@@ -120,8 +129,14 @@ fn merge_results(settings: &mut HarnessSettings, scan: CompletedScan) -> bool {
 /// time; a monotonic retry interval prevents an expired record from causing a
 /// frame-by-frame probe loop after failures or a system clock adjustment.
 pub(crate) fn poll_auto_refresh() {
-    let mut state = coordinator().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if state.worker.as_ref().is_some_and(|worker| !worker.is_finished()) {
+    let mut state = coordinator()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if state
+        .worker
+        .as_ref()
+        .is_some_and(|worker| !worker.is_finished())
+    {
         return;
     }
     if let Some(worker) = state.worker.take()
@@ -140,7 +155,10 @@ pub(crate) fn poll_auto_refresh() {
     if !state.requested && !refresh_due(&settings, now) {
         return;
     }
-    if state.last_attempt.is_some_and(|when| when.elapsed() < RETRY_INTERVAL) {
+    if state
+        .last_attempt
+        .is_some_and(|when| when.elapsed() < RETRY_INTERVAL)
+    {
         return;
     }
     state.last_attempt = Some(Instant::now());
@@ -158,26 +176,45 @@ mod tests {
         assert!(refresh_due(&empty, now));
         let mut settings = HarnessSettings::default();
         for id in probes::PROVIDERS {
-            settings.discovered.insert(id.to_string(), crate::persistence::harness_settings::DetectedHarness {
-                status: "unavailable".into(),
-                version: None, executable: None, diagnostic: None, ready: false,
-                models: vec![], default_model: None, model_catalog_fresh: false,
-                configuration_required: false, implementation_available: false,
-                capability_snapshot: None, checked_at_unix_ms: now,
-            });
+            settings.discovered.insert(
+                id.to_string(),
+                crate::persistence::harness_settings::DetectedHarness {
+                    status: "unavailable".into(),
+                    version: None,
+                    executable: None,
+                    diagnostic: None,
+                    ready: false,
+                    models: vec![],
+                    default_model: None,
+                    model_catalog_fresh: false,
+                    configuration_required: false,
+                    implementation_available: false,
+                    capability_snapshot: None,
+                    checked_at_unix_ms: now,
+                },
+            );
         }
         assert!(!refresh_due(&settings, now));
-        assert!(refresh_due(&settings, now + DISCOVERY_FRESHNESS_MS - EARLY_REFRESH_MS + 1));
+        assert!(refresh_due(
+            &settings,
+            now + DISCOVERY_FRESHNESS_MS - EARLY_REFRESH_MS + 1
+        ));
     }
 
     #[test]
     fn an_inflight_scan_cannot_replace_changed_manual_path() {
         let mut settings = HarnessSettings::default();
-        settings.manual_executable_paths.insert("pi".into(), "/new/pi".into());
+        settings
+            .manual_executable_paths
+            .insert("pi".into(), "/new/pi".into());
         let scan = CompletedScan {
-            started_at: 100, generation: 1,
+            started_at: 100,
+            generation: 1,
             original_paths: BTreeMap::from([("pi".into(), "/old/pi".into())]),
-            results: vec![ProbeResult { provider_id: "pi".into(), ..Default::default() }],
+            results: vec![ProbeResult {
+                provider_id: "pi".into(),
+                ..Default::default()
+            }],
         };
         assert!(!merge_results(&mut settings, scan));
         assert_eq!(settings.manual_executable_paths["pi"], "/new/pi");
@@ -186,14 +223,20 @@ mod tests {
     #[test]
     fn failed_background_probe_does_not_delete_saved_routes() {
         let mut settings = HarnessSettings {
-            default_harness: Some("pi".into()), ..Default::default()
+            default_harness: Some("pi".into()),
+            ..Default::default()
         };
-        settings.work_routes.insert("implementation".into(),
+        settings.work_routes.insert(
+            "implementation".into(),
             crate::persistence::harness_settings::WorkRoute {
-                harness: "pi".into(), model: Some("chosen".into())
-            });
+                harness: "pi".into(),
+                model: Some("chosen".into()),
+            },
+        );
         let scan = CompletedScan {
-            started_at: 100, generation: 1, original_paths: BTreeMap::new(),
+            started_at: 100,
+            generation: 1,
+            original_paths: BTreeMap::new(),
             results: vec![ProbeResult {
                 provider_id: "pi".into(),
                 diagnostic_code: Some(ProbeDiagnosticCode::InternalProbeFailure),
