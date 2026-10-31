@@ -110,6 +110,14 @@ fn persisted_failed_report_records_lifecycle_and_manager_repair_work() {
     assert!(proposal.detail.contains(&request.qa_run_id));
     assert!(proposal.detail.contains(&request.code_head_sha));
 
+    planning
+        .write_planning_path(
+            &planning
+                .root
+                .join(crate::artifacts::planning_store::paths::PROJECT_MANIFEST),
+            br#"{"repositories":[]}"#,
+        )
+        .unwrap();
     let state = crate::core::state::PlannerState::load_with_store(root.path(), &planning).unwrap();
     let (context, greeting) =
         crate::core::task_conversation::presentation(&state, &[], &proposal.key)
