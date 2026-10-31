@@ -125,7 +125,7 @@ fn task_doc(
     metadata: crate::artifacts::task_docs::TaskMetadata,
 ) -> crate::artifacts::task_docs::TaskDocument {
     crate::artifacts::task_docs::TaskDocument {
-        path: format!(".koolade-packet/planning/tasks/{path}"),
+        path: format!("planning/tasks/{path}"),
         title: identity.title.clone(),
         text: String::new(),
         identity: Some(identity),

@@ -15,7 +15,6 @@ use anyhow::Context;
 mod listing;
 pub use listing::WorkspaceLauncher;
 mod operations;
-mod reconnect;
 mod relocation;
 pub(super) use relocation::RelocationIdentity;
 mod remote;
@@ -84,15 +83,13 @@ impl WorkspaceManager {
         creation::create(self, title, None)
     }
 
-    /// Materializes a new project as two ordinary sibling Git repositories
-    /// (``Parent/<code>`` and ``Parent/<planning>``), seeds the planning
-    /// repository, associates it as a managed workspace, and registers the
-    /// code checkout. Retrying reuses whatever already exists.
-    pub fn create_sibling_pair(
+    /// Creates a code checkout in the chosen parent and a separate planning
+    /// repository in Kool.ad/e's managed workspace area.
+    pub fn create_new_project(
         &self,
-        spec: &super::SiblingPairSpec,
+        spec: &super::NewProjectSpec,
     ) -> anyhow::Result<ManagedWorkspace> {
-        super::pair::create_sibling_pair(self, spec)
+        super::pair::create_new_project(self, spec)
     }
 
     #[cfg(test)]
@@ -191,6 +188,23 @@ impl WorkspaceManager {
                 "local checkout references unregistered repository {}",
                 checkout.repository_id
             );
+            match checkout.path.canonicalize() {
+                Ok(code_root) => {
+                    anyhow::ensure!(
+                        code_root == checkout.path,
+                        "managed code checkout path is redirected or symbolic"
+                    );
+                    anyhow::ensure!(
+                        !code_root.starts_with(&planning_repo)
+                            && !planning_repo.starts_with(&code_root),
+                        "planning and code repositories must be separate and non-nested"
+                    );
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(error).context("managed code checkout path could not be checked");
+                }
+            }
         }
         Ok(ManagedWorkspace {
             id,

@@ -88,9 +88,7 @@ pub(super) fn bootstrap_files_with_store(
     Ok(files)
 }
 
-/// Reads the optional seeding specification. Resolution is layout-aware:
-/// managed stores find it at their root; a migration source resolves the
-/// legacy in-checkout location instead.
+/// Reads an optional older specification from within the planning repository.
 fn read_seed_specification(
     store: &crate::artifacts::planning_store::PlanningStore,
 ) -> anyhow::Result<Option<String>> {

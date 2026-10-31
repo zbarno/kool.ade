@@ -28,20 +28,6 @@ pub(crate) fn logo(ctx: &Context, compact: bool) -> TextureHandle {
     texture
 }
 
-pub(crate) fn splash(ctx: &Context) -> TextureHandle {
-    let id = egui::Id::new("kool_ade_punch_splash_texture");
-    if let Some(texture) = ctx.data_mut(|data| data.get_temp::<TextureHandle>(id)) {
-        return texture;
-    }
-    let texture = decode(
-        ctx,
-        include_bytes!("../../../assets/brand/tropical-punch-splash.png"),
-        "kool_ade_punch_splash",
-    );
-    ctx.data_mut(|data| data.insert_temp(id, texture.clone()));
-    texture
-}
-
 fn decode(ctx: &Context, bytes: &[u8], name: &str) -> TextureHandle {
     let limit = ctx.input(|input| input.max_texture_side).min(1024) as u32;
     let image = image::load_from_memory(bytes)

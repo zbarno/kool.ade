@@ -4,7 +4,7 @@ use super::*;
 fn opening_a_task_shows_its_greeting_in_details_without_starting_a_model_turn() {
     let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
-    let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
+    let key = "planning/tasks/fixture/001-task.md";
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     let output = click_text(&mut app, &ctx, "First task");
@@ -95,8 +95,8 @@ fn task_details_load_persisted_histories_and_switch_without_loading_main_chat() 
     let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let ctx = egui::Context::default();
-    let first = ".koolade-packet/planning/tasks/fixture/001-task.md";
-    let second = ".koolade-packet/planning/tasks/fixture/002-task.md";
+    let first = "planning/tasks/fixture/001-task.md";
+    let second = "planning/tasks/fixture/002-task.md";
     let dir = std::env::temp_dir().join(format!("koolade_tab_isolation_{}", std::process::id()));
     let slug = dir.to_str().unwrap();
     if let Screen::Connected(p) = &mut app.screen {

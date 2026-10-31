@@ -116,7 +116,7 @@ fn replay_rejects_a_source_sha_without_a_matching_reviewed_head() {
         })
         .unwrap();
 
-    let state_dir = fixture.0.join(".koolade-packet/state");
+    let state_dir = fixture.0.join("state");
     let event_path = state_dir
         .join("lifecycle_events")
         .join(format!("{}.json", authorization_event.uid));

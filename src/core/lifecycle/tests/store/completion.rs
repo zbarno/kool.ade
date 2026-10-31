@@ -20,9 +20,9 @@ fn replay_does_not_restore_parent_without_subtask_projection() {
     let store = fixture.store();
     let lifecycle = LifecycleStore::new(&store);
     let (feature_uid, task_uid, _child_uid, _) = support::create_feature_graph(&lifecycle);
-    let parent_path = fixture.0.join(format!(
-        ".koolade-packet/state/lifecycle_tasks/{task_uid}.json"
-    ));
+    let parent_path = fixture
+        .0
+        .join(format!("state/lifecycle_tasks/{task_uid}.json"));
     let subtask_event = lifecycle
         .events_for_feature(&feature_uid)
         .unwrap()
@@ -35,10 +35,9 @@ fn replay_does_not_restore_parent_without_subtask_projection() {
             )
         })
         .unwrap();
-    let event_path = fixture.0.join(format!(
-        ".koolade-packet/state/lifecycle_events/{}.json",
-        subtask_event.uid
-    ));
+    let event_path = fixture
+        .0
+        .join(format!("state/lifecycle_events/{}.json", subtask_event.uid));
     let mut event: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&event_path).unwrap()).unwrap();
     event.as_object_mut().unwrap().remove("parentTaskAfter");

@@ -11,9 +11,10 @@ use super::super::super::test_support::dispatch_fixture as fixture;
 // file-backed store and synthetic records only; no Docker or network setup.
 fn failed_worker_start_persists_block_and_returns_no_handle() {
     let root = tempfile::tempdir().unwrap();
-    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::new_v4(),
         root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, _revision) = fixture::queued_task(&lifecycle);
@@ -45,9 +46,10 @@ fn failed_worker_start_persists_block_and_returns_no_handle() {
         execution.blocked_reason.as_deref(),
         Some("simulated worker thread spawn failure")
     );
-    let reopened = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let reopened = crate::artifacts::planning_store::PlanningStore::new(
         planning.project_id,
         root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let recovered = crate::core::lifecycle::LifecycleStore::new(&reopened)
         .load_task(&task_uid)
@@ -65,9 +67,10 @@ fn failed_worker_start_persists_block_and_returns_no_handle() {
 // no Docker or network is needed, with low setup cost.
 fn stale_running_attempt_without_durable_report_is_blocked_for_fresh_review() {
     let root = tempfile::tempdir().unwrap();
-    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::new_v4(),
         root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, revision) = fixture::queued_task(&lifecycle);
@@ -120,9 +123,10 @@ fn stale_running_attempt_without_durable_report_is_blocked_for_fresh_review() {
 // real file lock and file-backed lifecycle; no Docker or network, low setup.
 fn active_worker_contention_keeps_qa_run_pending() {
     let root = tempfile::tempdir().unwrap();
-    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::new_v4(),
         root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, _revision) = fixture::queued_task(&lifecycle);
@@ -155,9 +159,10 @@ fn active_worker_contention_keeps_qa_run_pending() {
 // no Docker or network setup.
 fn persisted_report_wins_over_dispatch_failure_after_lock_reacquisition() {
     let root = tempfile::tempdir().unwrap();
-    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::new_v4(),
         root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, revision) = fixture::queued_task(&lifecycle);
@@ -199,9 +204,10 @@ fn persisted_report_wins_over_dispatch_failure_after_lock_reacquisition() {
 #[test]
 fn approved_dispatch_requires_the_exact_pending_task_snapshot() {
     let root = tempfile::tempdir().unwrap();
-    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::new_v4(),
         root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, revision) = fixture::queued_task(&lifecycle);
@@ -245,9 +251,10 @@ fn approved_dispatch_requires_the_exact_pending_task_snapshot() {
 // prove cross-process lock behavior. No Docker or network; low setup cost.
 fn active_running_worker_cannot_be_blocked_by_preflight() {
     let root = tempfile::tempdir().unwrap();
-    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::new_v4(),
         root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, queued_revision) = fixture::queued_task(&lifecycle);

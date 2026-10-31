@@ -85,17 +85,10 @@ fn conflict_modal_cancel_keeps_the_conflict_unresolved() {
 }
 
 #[test]
-fn sync_button_dispatches_and_migration_preview_errors_are_visible() {
+fn sync_button_dispatches() {
     let mut probe = Probe::with_state(PlanningSyncState::Synced);
     let ctx = egui::Context::default();
     let pos = button_center(&ctx, &mut probe, "Sync Now");
     click(&ctx, &mut probe, pos);
     assert!(probe.sync_requested);
-
-    probe.view.as_mut().unwrap().migration_available = true;
-    let pos = button_center(&ctx, &mut probe, "Preview migration…");
-    click(&ctx, &mut probe, pos);
-    assert!(probe.migration_preview_requested.get());
-    let texts = render(&ctx, &mut probe, Vec::new()).0;
-    assert!(texts.contains("Migration preview failed: fixture failure"));
 }

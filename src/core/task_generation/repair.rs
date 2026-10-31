@@ -10,7 +10,7 @@ pub(super) fn working_tree_fingerprint(repo: &std::path::Path) -> Option<u64> {
             "HEAD",
             "--",
             ".",
-            ":(exclude).koolade-packet/state/work.json",
+            ":(exclude)state/work.json",
         ])
         .current_dir(repo)
         .output()

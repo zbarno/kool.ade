@@ -40,9 +40,6 @@ pub enum HeaderAction {
     CopySpec,
     OpenWorkspace,
     OpenRegisteredRepository { id: String },
-    AddCodeRepository,
-    MigrateEmbeddedPlanning,
-    RollbackPlanningMigration,
     Disconnect,
 }
 

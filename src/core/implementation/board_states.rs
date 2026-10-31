@@ -3,8 +3,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 pub fn load_board_states(repo: &Path) -> BTreeMap<String, Implementation> {
-    let store =
-        crate::artifacts::planning_store::PlanningStore::legacy_embedded(uuid::Uuid::nil(), repo);
+    let store = crate::artifacts::planning_store::PlanningStore::new(
+        uuid::Uuid::nil(),
+        repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     load_board_states_with_store(repo, &store)
 }
 

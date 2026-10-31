@@ -79,7 +79,7 @@ impl IdentitySource {
         match self {
             Self::GitUserName => "derived from git user.name",
             Self::GitUserEmail => "derived from git user.email (fallback)",
-            Self::ConfigBlock => "from .koolade-packet/config/project.md override",
+            Self::ConfigBlock => "from config/project.md override",
             Self::Guest => "no identity found — guest",
         }
     }
@@ -245,7 +245,7 @@ mod tests {
         );
         assert_eq!(
             IdentitySource::ConfigBlock.label(),
-            "from .koolade-packet/config/project.md override"
+            "from config/project.md override"
         );
         assert_eq!(IdentitySource::Guest.label(), "no identity found — guest");
     }

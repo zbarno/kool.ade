@@ -53,7 +53,7 @@ fn replay_does_not_restore_pr_scope_that_omits_a_completed_subtask() {
     let (feature_uid, _task_uid, child_uid, work_uid, completion_event_uid) =
         completed_parent_with_pr(&fixture, &lifecycle);
 
-    let state_dir = fixture.0.join(".koolade-packet/state");
+    let state_dir = fixture.0.join("state");
     let event_path = state_dir
         .join("lifecycle_events")
         .join(format!("{completion_event_uid}.json"));
@@ -85,7 +85,7 @@ fn replay_rejects_orphan_task_events_before_restoring_task_snapshots() {
         .apply_task_event(&task_uid, task.revision, &event_uid, TaskEvent::Start)
         .unwrap();
 
-    let state_dir = fixture.0.join(".koolade-packet/state");
+    let state_dir = fixture.0.join("state");
     let event_path = state_dir
         .join("lifecycle_events")
         .join(format!("{event_uid}.json"));
@@ -135,7 +135,7 @@ fn replay_rejects_orphan_pr_events_before_restoring_pr_snapshots() {
         .authorize_pr_publication(&work_uid, work.revision, &authorization_uid, &receipt)
         .unwrap();
 
-    let state_dir = fixture.0.join(".koolade-packet/state");
+    let state_dir = fixture.0.join("state");
     let event_path = state_dir
         .join("lifecycle_events")
         .join(format!("{authorization_uid}.json"));
@@ -165,7 +165,7 @@ fn replay_does_not_restore_a_done_parent_when_a_subtask_is_unfinished() {
     let lifecycle = LifecycleStore::new(&store);
     let (feature_uid, task_uid, child_uid, work_uid, _) =
         completed_parent_with_pr(&fixture, &lifecycle);
-    let state_dir = fixture.0.join(".koolade-packet/state");
+    let state_dir = fixture.0.join("state");
     let child_completion = lifecycle
         .events_for_feature(&feature_uid)
         .unwrap()

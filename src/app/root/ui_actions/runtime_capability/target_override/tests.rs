@@ -26,7 +26,7 @@ fn task_details_custom_web_and_headless_targets_persist_matching_readiness() {
 
 fn assert_custom_target_persists(app_surface: AppSurface) {
     let mut app = crate::app::root::board_tests::fixture();
-    let ticket = ".koolade-packet/planning/tasks/fixture/002-task.md";
+    let ticket = "planning/tasks/fixture/002-task.md";
     let task_uid = uuid::Uuid::new_v4().hyphenated().to_string();
     let batch_uid = uuid::Uuid::new_v4().hyphenated().to_string();
     let workspace_uid = uuid::Uuid::new_v4().hyphenated().to_string();

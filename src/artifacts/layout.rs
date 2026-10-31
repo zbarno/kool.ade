@@ -1,34 +1,32 @@
-//! Single source of truth for Koolade-owned paths in a project repository.
+//! Single source of truth for Koolade-owned paths in a planning repository.
 //!
 //! `canonical` is the live layout. `legacy` names migration inputs and paths
 //! that may need rollback before a pre-migration journal is recovered.
 use std::path::{Component, Path, PathBuf};
 
 pub mod store {
-    pub const ROOT: &str = ".koolade-packet";
-    pub const MANIFEST: &str = ".koolade-packet/manifest.json";
-    pub const CONFIG: &str = ".koolade-packet/config";
-    pub const PROJECT_CONFIG: &str = ".koolade-packet/config/project.md";
-    pub const PROJECT_MANIFEST: &str = ".koolade-packet/config/repositories.json";
-    pub const MCP_CONFIG: &str = ".koolade-packet/config/mcp.json";
-    pub const PLANNING: &str = ".koolade-packet/planning";
-    pub const PRODUCT: &str = ".koolade-packet/planning/product";
-    pub const PRODUCT_INDEX: &str = ".koolade-packet/planning/product/index.md";
-    pub const PRODUCT_MANIFEST: &str = ".koolade-packet/planning/product/manifest.json";
-    pub const CHANGES: &str = ".koolade-packet/planning/changes";
-    pub const DECISIONS: &str = ".koolade-packet/planning/decisions";
-    pub const OPEN_ITEMS: &str = ".koolade-packet/planning/open-items.md";
-    pub const RESOLVED_ITEMS: &str = ".koolade-packet/planning/resolved-items.json";
-    pub const IMPORTS: &str = ".koolade-packet/planning/imports";
-    pub const TASKS: &str = ".koolade-packet/planning/tasks";
-    pub const WORKFLOW: &str = ".koolade-packet/state/workflow.json";
-    pub const WORK: &str = ".koolade-packet/state/work.json";
-    pub const STATE: &str = ".koolade-packet/state";
-    pub const LEDGER: &str = ".koolade-packet/state/time-ledger.log";
-    pub const IMPLEMENTATION: &str = ".koolade-packet/implementation";
-    pub const ARCHIVE: &str = ".koolade-packet/planning/archive";
-    pub const LEGACY_SPEC_ARCHIVE: &str =
-        ".koolade-packet/planning/archive/specification-pre-modules.md";
+    pub const MANIFEST: &str = "manifest.json";
+    pub const CONFIG: &str = "config";
+    pub const PROJECT_CONFIG: &str = "config/project.md";
+    pub const PROJECT_MANIFEST: &str = "config/repositories.json";
+    pub const MCP_CONFIG: &str = "config/mcp.json";
+    pub const PLANNING: &str = "planning";
+    pub const PRODUCT: &str = "planning/product";
+    pub const PRODUCT_INDEX: &str = "planning/product/index.md";
+    pub const PRODUCT_MANIFEST: &str = "planning/product/manifest.json";
+    pub const CHANGES: &str = "planning/changes";
+    pub const DECISIONS: &str = "planning/decisions";
+    pub const OPEN_ITEMS: &str = "planning/open-items.md";
+    pub const RESOLVED_ITEMS: &str = "planning/resolved-items.json";
+    pub const IMPORTS: &str = "planning/imports";
+    pub const TASKS: &str = "planning/tasks";
+    pub const WORKFLOW: &str = "state/workflow.json";
+    pub const WORK: &str = "state/work.json";
+    pub const STATE: &str = "state";
+    pub const LEDGER: &str = "state/time-ledger.log";
+    pub const IMPLEMENTATION: &str = "implementation";
+    pub const ARCHIVE: &str = "planning/archive";
+    pub const LEGACY_SPEC_ARCHIVE: &str = "planning/archive/specification-pre-modules.md";
 }
 
 pub mod legacy {
@@ -52,12 +50,6 @@ pub mod legacy {
     pub const ROOT_SPECIFICATION: &str = "SPECIFICATION.md";
 }
 
-/// Transitional paths emitted by earlier canonical-layout versions.
-pub mod previous {
-    pub const ROOT: &str = ".koolade";
-    pub const WORK: &str = ".koolade/planning/work.json";
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArtifactLayout {
     repository: PathBuf,
@@ -75,16 +67,11 @@ impl ArtifactLayout {
     }
 
     pub fn canonical_path(&self, relative: &str) -> Option<PathBuf> {
-        safe_repository_path(&self.repository.join(store::ROOT), relative)
+        safe_repository_path(&self.repository, relative)
     }
 
-    /// Resolve a root-relative planning path. Legacy `.koolade-packet/...`
-    /// spellings remain accepted while managed stores use paths such as
-    /// `planning/changes/F1/specification.md`.
+    /// Resolve a root-relative path in the planning repository.
     pub fn resolve_planning_root_relative(root: &Path, relative: &str) -> Option<PathBuf> {
-        let relative = relative
-            .strip_prefix(&format!("{}/", store::ROOT))
-            .unwrap_or(relative);
         safe_repository_path(root, relative)
     }
 
@@ -93,7 +80,7 @@ impl ArtifactLayout {
     }
 
     pub fn koolade_root(&self) -> PathBuf {
-        self.at(store::ROOT)
+        self.repository.clone()
     }
     pub fn manifest(&self) -> PathBuf {
         self.at(store::MANIFEST)

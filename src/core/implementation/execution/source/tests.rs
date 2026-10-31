@@ -40,7 +40,25 @@ fn task_metadata_source_sha_keeps_the_task_on_its_recorded_commit() {
         .unwrap();
     let branch_head = runner.git(&repo, &["rev-parse", "HEAD"]).unwrap();
 
-    let planning = PlanningStore::legacy_embedded(uuid::Uuid::nil(), &repo);
+    let planning = PlanningStore::new(
+        uuid::Uuid::nil(),
+        &repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
+    let repository_manifest = crate::core::project_repos::ProjectManifest {
+        repositories: vec![crate::core::project_repos::Repository {
+            id: "root".into(),
+            role: "Primary code".into(),
+            remote: String::new(),
+            display_name: None,
+        }],
+    };
+    planning
+        .atomic_write(
+            crate::artifacts::layout::store::PROJECT_MANIFEST,
+            &serde_json::to_vec(&repository_manifest).unwrap(),
+        )
+        .unwrap();
     let identity = crate::domain::ArtifactIdentity {
         uid: uuid::Uuid::new_v4().hyphenated().to_string(),
         display_id: "TASK-1".into(),

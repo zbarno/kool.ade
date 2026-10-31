@@ -47,7 +47,7 @@ pub(super) fn save_evidence(
             .map(|item| item.id.clone()).collect::<Vec<_>>(),
     });
     let evidence = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(".koolade-packet/planning/tasks/koolade-task-centric-ux-remediation/evidence")
+        .join("planning/tasks/koolade-task-centric-ux-remediation/evidence")
         .join(format!(
             "scenario-{}-live.json",
             scenario.code.to_ascii_lowercase()
@@ -206,7 +206,7 @@ pub(super) fn approve_and_prepare_scenario_a(
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    let task_dir = crate::artifacts::repo_artifact(root, ".koolade-packet/planning/tasks");
+    let task_dir = crate::artifacts::repo_artifact(root, "planning/tasks");
     assert!(
         std::fs::read_dir(&task_dir).is_ok_and(|mut entries| entries.next().is_some()),
         "approved Scenario A must generate a task batch"

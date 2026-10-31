@@ -206,12 +206,8 @@ fn linked_worktrees_keep_recovery_journals_scoped_to_each_store_root() {
             second.to_str().unwrap(),
         ],
     );
-    let root_a = first.join(crate::artifacts::layout::store::ROOT);
-    let root_b = second.join(crate::artifacts::layout::store::ROOT);
-    std::fs::create_dir_all(&root_a).unwrap();
-    std::fs::create_dir_all(&root_b).unwrap();
-    let store_a = PlanningStore::new(uuid::Uuid::new_v4(), &root_a, StoreMode::LegacyPacketSource);
-    let store_b = PlanningStore::new(uuid::Uuid::new_v4(), &root_b, StoreMode::LegacyPacketSource);
+    let store_a = PlanningStore::new(uuid::Uuid::new_v4(), &first, StoreMode::ManagedLocal);
+    let store_b = PlanningStore::new(uuid::Uuid::new_v4(), &second, StoreMode::ManagedLocal);
     assert_eq!(
         transaction_root(&store_a).unwrap(),
         transaction_root(&store_b).unwrap()

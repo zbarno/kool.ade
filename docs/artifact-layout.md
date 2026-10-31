@@ -1,93 +1,48 @@
 # Repository artifact layout
 
-Reviewed against the checked-out implementation on 2026-10-11. New managed
-workspaces keep shared planning artifacts in one external planning Git
-repository, separate from code checkouts. The table below documents the
-embedded `.koolade-packet/` layout used by legacy workspaces and retained as a
-migration source. Managed workspaces use the direct-root layout described in
-[Planning repository v1](planning-repository-v1.md).
+Kool.ad/e keeps project artifacts in a separate, managed planning Git repository. A code checkout is never used as a planning root. The planning repository working-tree root is the artifact root.
 
-| Location | Purpose and ownership |
+For a GitHub code repository `owner/name`, setup uses the paired remote `owner/name.packet`. It clones both repositories into Kool.ad/e-managed locations. If the planning repository is missing, Kool.ad/e creates and pushes it with the code repository's visibility. Existing repositories with mismatched visibility are rejected; Kool.ad/e does not change visibility.
+
+```text
+~/kool-ade-workspaces/<code-repository>/
+~/.koolade-packet/projects/<workspace-uuid>/
+├── association.json
+└── planning-repo/
+    ├── manifest.json
+    ├── config/
+    ├── planning/
+    └── state/
+```
+
+`KOOLADE_HOME` can replace `~/.koolade-packet`. Local workspaces and planning checkouts are named by the workspace UUID, not by the current code branch or an arbitrary folder chosen during setup.
+
+## Shared planning repository
+
+| Path | Purpose and ownership |
 | --- | --- |
-| `.koolade-packet/manifest.json` | Identifies the Kool.ad/e artifact format and product. |
-| `.koolade-packet/config/project.md` | Project stakeholders, category owners, and identity fallback. |
-| `.koolade-packet/config/repositories.json` | Stable repository IDs, remote mappings, and optional shared display names; no local checkout paths. |
-| `.koolade-packet/config/mcp.json` | Locally stored MCP configuration; planner context receives server names only, not commands or credentials. |
-| `.koolade-packet/planning/product/` | Current product specification, module manifest, and index. Six concepts are required; optional modules reflect actual project needs. |
-| `.koolade-packet/planning/changes/` | Proposed feature/change specifications and their lifecycle. Merged behavior becomes current product truth only through reconciliation. |
-| `.koolade-packet/planning/open-items.md` | Actionable questions, assumptions, ambiguities, ownership gaps, and reviews. |
-| `.koolade-packet/planning/resolved-items.json` | Resolved item outcomes retained for board history and planning context. |
-| `.koolade-packet/planning/decisions/` | Durable architectural decisions approved through planning. Routine choices and implementation reports do not create decision records. |
-| `.koolade-packet/planning/tasks/` | Approved task stories, frozen feature snapshots, and task-batch metadata. |
-| `.koolade-packet/planning/imports/` | Reference material explicitly imported by the operator. |
-| `.koolade-packet/planning/archive/` | Superseded specification and historical implementation summaries preserved as evidence. |
-| `.koolade-packet/state/workflow.json` | Feature approvals, task-batch references, and typed plan-comparison records (alternatives, recommendation, transcript, status, selection, and update time). A chosen plan is mirrored in its feature contract so approval fingerprints cover the adopted intent. |
-| `.koolade-packet/state/work.json` | Persistent planning-work cards. |
-| `.koolade-packet/implementation/` | Local implementation reports, responses, verification results, and recovery evidence. Git ignores these files; back them up separately when moving a live workspace. |
-| `~/.koolade-packet/projects/<slug>/` or `$KOOLADE_HOME/projects/<slug>/` | Operator-local chat, task conversations, resumable generation checkpoints, and `repositories.json` mapping stable IDs to local checkout paths; not shared project truth. |
-| Git common directory | Per-clone process locks, migration/transaction journals, implementation queue and task state, private Git refs, and Pi event streams. |
-| Origin branches `refs/heads/koolade/claims/<task-uid>` | Temporary cross-clone implementation claims. Atomic creation prevents two clones with a reachable writable origin from starting the same task. Claims identify a Kool.ad/e session, claim time, and base commit; active workers refresh them and remove them on exit. |
-| `docs/` and `SPECIFICATION.md` | Maintainer guidance and historical references. These are project files, not Kool.ad/e's live planning store. |
+| `manifest.json` | Workspace identity and schema. |
+| `config/project.md` | Project description and planning context. |
+| `config/repositories.json` | Stable code repository IDs and remotes; it contains no local checkout paths. |
+| `planning/product/` | Current product specification, module manifest, and index. |
+| `planning/changes/` | Proposed feature specifications and their lifecycle metadata. |
+| `planning/items/` | Human-readable question and decision content. |
+| `planning/decisions/` | Durable architectural decisions approved through planning. |
+| `planning/tasks/` | Approved task stories and frozen feature snapshots. |
+| `planning/imports/` | Reference material explicitly imported by the operator. |
+| `planning/archive/` | Historical planning material retained for reference. |
+| `state/` | Structured feature, task, item, and planning-work records. |
 
-For legacy embedded workspaces, the old `planning/` and `.planner/` trees and
-`adr/` are migration inputs, not live runtime locations. The migration maps
-legacy product modules into the six
-required concepts while retaining project-specific modules, relocates feature
-specifications, task stories, imports, open/resolved items, and archives, and
-converts configuration and workflow state. Legacy `adr/implement-*.md` files
-are historical implementation summaries and move byte-for-byte into the
-implementation archive; actual approved decisions move to
-`.koolade-packet/planning/decisions/`. The root `SPECIFICATION.md` is retained
-as historical input. After migration, normal reads and writes use only the
-canonical paths above.
+Markdown stays human-readable. Structured metadata and state determine workflow behavior; visible status text does not grant approval or select a plan. Shared changes are synchronized through Git. A branch on the code repository does not change planning authority.
 
-Managed workspaces use normalized per-record planning files and do not create
-`.koolade-packet/` in either the planning repository or code checkouts. The
-legacy source remains available after migration as recovery evidence; the
-migration does not delete it. Shared Git sync is explicit and may be offline,
-permission-blocked, schema-incompatible, or conflicted. It reports those
-states and keeps pending local operations for retry or resolution. Git remote
-access controls apply to the repository as a whole; Kool.ad/e does not provide
-per-field Git permissions or automatic real-time updates.
+## Operator-local state
 
-Markdown artifacts are for people to read and edit. Versioned metadata and
-structured workflow state determine feature lifecycle, approval, queue, and
-implementation behavior; visible status text is rendered from that state and
-cannot set it. Decision records under `.koolade-packet/planning/decisions/`
-describe durable choices and their rationale. Implementation reports and
-transcripts are evidence and belong under `.koolade-packet/implementation/` or
-the historical archive, not in the decision record collection.
+Conversation history, task conversations, resumable generation checkpoints, and other private application state live under `KOOLADE_HOME`. Paths for Kool.ad/e-managed code clones live in the workspace association, not in the shared planning manifest. Setup does not accept user-selected local checkout paths. Credentials and provider configuration are never written to shared planning files.
 
-The local queue lock coordinates app windows that share one Git common
-directory. A remote claim coordinates independent clones only while `origin` is
-reachable and allows claim branch writes. With no configured origin, manual
-and automatic work remain usable with a visible local-only warning. If an
-origin is configured but unreachable, an explicit manual start can proceed
-locally with a warning; automatic work waits. Stale claims show their session,
-time, and base commit. Active workers refresh claims every five minutes; a
-claim appears stale after fifteen minutes without a refresh. Recovery requires
-an explicit stale-only compare-and-swap takeover, so a competing recovery
-cannot replace a newer claim. Neither mechanism makes planning edits
-collaborative.
+Implementation reports, verification results, task clones, process locks, and recovery state remain in Kool.ad/e's local application data or the Git common directory. They are not shared project planning artifacts.
 
-When a claim is held, the verified candidate branch and renewed claim are
-updated in one atomic Git push. A stale claim cannot update the candidate
-branch after takeover. Pull request creation uses the GitHub API and cannot be
-part of that Git transaction, so Kool.ad/e checks the claim immediately before
-the API call; a takeover can still race that final check.
+## Unsupported embedded layout
 
-Migration preflights all sources and destinations before moving files. If a
-legacy and canonical destination conflict, it preserves both and reports the
-specific conflict instead of overwriting either copy. A private checkpoint lets
-an interrupted migration resume safely. Legacy transaction recovery runs before
-the old paths move, so rollback is confined to migration startup.
+An embedded `.koolade-packet/` directory inside a code checkout is not a supported project-artifact layout. Kool.ad/e does not discover, load, migrate, or use it as a fallback. To use a code repository, open it through the managed GitHub clone flow and its paired planning repository. Existing contents are left untouched.
 
-Do not delete Kool.ad/e-owned task records, resolved outcomes, or implementation
-evidence merely because they are old or currently inactive. Task path changes
-preserve stable identities and associated implementation state; historical task
-snapshots remain useful for resuming and audit. Remove a file only after
-confirming it is a disposable duplicate and updating every reference to it.
-
-For a read-only task status audit, run
-`cargo run --offline --example task_status -- /absolute/path/to/repository`.
-The audit lists current board paths, preserved evidence identities, and totals.
+For schema, identity, synchronization, and recovery rules, see [Planning repository v1](planning-repository-v1.md).

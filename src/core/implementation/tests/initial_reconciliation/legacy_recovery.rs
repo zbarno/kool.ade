@@ -187,9 +187,10 @@ fn request_repair_before_preserving_later_task_edits(
     use crate::core::lifecycle::{GateDecision, LifecycleStore, TaskEvent, TaskPhase};
 
     let task_uid = state.task_uid.as_deref().expect("stable task identity");
-    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::nil(),
         &sandbox.repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let lifecycle = LifecycleStore::new(&planning);
     let task = lifecycle.load_task(task_uid).unwrap();

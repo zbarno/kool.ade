@@ -8,19 +8,6 @@ macro_rules! project_surface_methods {
             self.update_planning_remote(remote)
         }
 
-        fn migration_preview(
-            &self,
-        ) -> Result<crate::core::managed_workspace::MigrationPreview, String> {
-            self.build_migration_preview()
-        }
-
-        fn confirm_planning_migration(
-            &mut self,
-            preview: &crate::core::managed_workspace::MigrationPreview,
-        ) -> Result<(), String> {
-            self.confirm_legacy_migration(preview)
-        }
-
         fn people_settings_draft(&self) -> Option<crate::app::dialogs::DlgSettings> {
             match &self.screen {
                 Screen::Connected(project) => {
@@ -81,10 +68,6 @@ macro_rules! project_surface_methods {
 
         fn registered_repositories(&self) -> Vec<crate::ui::RepositoryChoice> {
             repository_switcher::choices(&self.screen)
-        }
-
-        fn can_register_code_repository(&self) -> bool {
-            self.can_add_code_repository()
         }
 
         fn git_branch(&self) -> &str {

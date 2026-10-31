@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn concurrent_tasks_get_independent_clones_and_branches() {
     let sandbox = Sandbox::new();
-    let second_ticket = ".koolade-packet/planning/tasks/feature/002-independent-task.md";
+    let second_ticket = "planning/tasks/feature/002-independent-task.md";
     let second_ticket_text = "# Independent task\n\nFeature: F1\n\n## Acceptance criteria\n\n- File contains implemented.\n";
     let second_ticket_document = crate::domain::ArtifactIdentity::preserve_markdown(
         second_ticket_text,

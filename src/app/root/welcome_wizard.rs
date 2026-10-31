@@ -1,16 +1,17 @@
 //! Welcome front door.
 //!
-//! The welcome screen leads with the three journeys operators actually
-//! start from — (1) my code already lives on this computer, (2) clone a
-//! code repository first, (3) start a blank project — each opening a
+//! The welcome screen leads with two journeys operators actually
+//! start from — (1) clone a code repository with its planning pair, or
+//! (2) start a blank project — each opening a
 //! two-step wizard: gather the few inputs, then REVIEW the exact side
-//! effects on disk before anything is written. Everything historical
-//! (classic connect, joins, workspace administration) remains reachable
-//! under "More connection options".
+//! effects on disk before anything is written. Saved managed workspaces
+//! reopen from their recorded workspace association.
 #![allow(clippy::too_many_arguments)]
 use std::cell::Cell;
 
-use super::{KooladeApp, WelcomeEntry, WelcomeWizard, WizField};
+use super::KooladeApp;
+mod state;
+pub(super) use state::{WelcomeEntry, WelcomeWizard, WizField};
 
 /// Discrete intents the primary welcome card can request from the caller.
 pub(super) enum WizAction {
@@ -51,80 +52,39 @@ impl KooladeApp {
         self.wiz = Some(WelcomeWizard::new(entry));
     }
 
-    /// Discards the active draft. A clone this wizard launched keeps
-    /// RUNNING; its pairing intent is dropped so the legacy completion
-    /// path governs it.
+    /// Discards the active draft. A clone worker already launched keeps running.
     pub(super) fn wizard_close(&mut self) {
         self.wiz = None;
-        self.pending_clone_pairing = None;
     }
 
     /// Step 1 → step 2 gate: collects the entry's required input or shows
     /// exactly what is still owed.
     pub(super) fn wizard_continue(&mut self) {
-        let (entry, code_path, url, name, parent, plan) = match self.wiz.as_ref() {
+        let (entry, url, name, parent) = match self.wiz.as_ref() {
             Some(wiz) => (
                 wiz.entry,
-                wiz.code_path.trim().to_string(),
                 wiz.url.trim().to_string(),
                 wiz.effective_project_name(),
                 wiz.parent.trim().to_string(),
-                wiz.packet_name.trim().to_string(),
             ),
             None => return,
         };
 
         match entry {
-            WelcomeEntry::ExistingCode => {
-                if code_path.is_empty() {
-                    self.browse_wizard_field(WizField::CodePath);
-                    return;
-                }
-                if !std::path::Path::new(&code_path).is_dir() {
-                    self.wiz_error(format!("That folder was not found: {code_path}"));
-                    return;
-                }
-                let picked = std::path::Path::new(&code_path);
-                let is_root =
-                    crate::core::managed_workspace::repository_root(picked).is_ok_and(|root| {
-                        if root == picked {
-                            return true;
-                        }
-                        // Tolerate trailing-separator and symlink-form
-                        // differences in the typed/picked path.
-                        std::fs::canonicalize(root)
-                            .ok()
-                            .zip(std::fs::canonicalize(picked).ok())
-                            .is_some_and(|(resolved_root, resolved_pick)| {
-                                resolved_root == resolved_pick
-                            })
-                    });
-                if !is_root {
-                    self.wiz_error(format!(
-                        "{code_path} is not the root of a Git repository — choose the folder that contains the .git"
-                    ));
-                    return;
-                }
-            }
             WelcomeEntry::CloneRepository => {
                 if url.is_empty() {
-                    self.wiz_error("Paste the repository URL (GitHub, Glab, HTTPS or SSH).");
+                    self.wiz_error("Paste the GitHub URL for the code repository.");
                     return;
                 }
-                let segment = match crate::app::welcome::parse_github_url(&url) {
-                    Ok(target) => target.repo,
+                let target = match crate::app::welcome::parse_github_url(&url) {
+                    Ok(target) => target,
                     Err(detail) => {
                         self.wiz_error(format!("That URL doesn't look cloneable\n{detail}"));
                         return;
                     }
                 };
-                let candidate = if plan.is_empty() {
-                    format!("{segment}.packet")
-                } else {
-                    plan
-                };
-                if let Some(problem) = naming_problem(&candidate) {
-                    self.wiz_error(problem);
+                if format!("{}.packet", target.repo).len() > 100 {
+                    self.wiz_error("The paired planning repository name would exceed GitHub's 100-character limit. Rename the code repository before cloning it.");
                     return;
                 }
             }
@@ -140,14 +100,10 @@ impl KooladeApp {
                 // Derive the candidate EXACTLY the way the commit (and the
                 // plan lines) do: the slugged code-folder name, never the
                 // raw title — operators routinely keep spaces in titles.
-                let candidate = if plan.is_empty() {
-                    format!(
-                        "{}.packet",
-                        crate::app::root::KooladeApp::project_title_to_folder_name(&name)
-                    )
-                } else {
-                    plan
-                };
+                let candidate = format!(
+                    "{}.packet",
+                    crate::app::root::KooladeApp::project_title_to_folder_name(&name)
+                );
                 if let Some(problem) = naming_problem(&candidate) {
                     self.wiz_error(problem);
                     return;
@@ -187,19 +143,16 @@ impl KooladeApp {
     }
 
     pub(super) fn browse_wizard_field(&mut self, which: WizField) {
-        self.conn_browse_target = super::BrowseTarget::Wizard(which);
-        self.pick_folder_for_active_target();
+        self.pick_wizard_folder(which);
     }
 
     /// Confirm-step authority. Nothing on the welcome surface writes to
     /// disk before this runs, and each branch spells out its effect.
     pub(super) fn wizard_commit(&mut self) {
-        let (entry, project, packet, code_path, url, parent) = match self.wiz.as_ref() {
+        let (entry, project, url, parent) = match self.wiz.as_ref() {
             Some(wiz) => (
                 wiz.entry,
                 wiz.effective_project_name(),
-                wiz.packet_name.trim().to_string(),
-                wiz.code_path.trim().to_string(),
                 wiz.url.trim().to_string(),
                 wiz.parent.trim().to_string(),
             ),
@@ -207,53 +160,14 @@ impl KooladeApp {
         };
 
         match entry {
-            WelcomeEntry::ExistingCode => {
-                let code_dir = std::path::Path::new(code_path.as_str());
-                let code_name = match code_dir.file_name().and_then(|n| n.to_str()) {
-                    Some(name) if !name.is_empty() => name.to_string(),
-                    _ => {
-                        self.wiz_error(
-                            "Choose the folder that IS the code repository, not its parent.",
-                        );
-                        return;
-                    }
-                };
-                let planning = if packet.is_empty() {
-                    format!("{code_name}.packet")
-                } else {
-                    packet
-                };
-                let mut spec = crate::core::managed_workspace::SiblingPairSpec::new(
-                    project,
-                    code_name.clone(),
-                );
-                spec.code_already_exists = true;
-                spec.planning_repo_name = planning;
-                spec.parent_dir = code_dir
-                    .parent()
-                    .map(std::path::Path::to_path_buf)
-                    .unwrap_or_else(|| std::path::PathBuf::from("/"));
-                match crate::app::welcome::attempt_create_project(&spec) {
-                    Ok(project) => self.finish_connect(Ok(project)),
-                    Err(error) => self.wiz_error(error.to_string()),
-                }
-            }
             WelcomeEntry::BlankProject => {
                 let code_name = Self::project_title_to_folder_name(&project);
                 if parent.is_empty() {
                     self.wiz_error("Choose the folder where the project lives.");
                     return;
                 }
-                let planning = if packet.is_empty() {
-                    format!("{code_name}.packet")
-                } else {
-                    packet
-                };
-                let mut spec = crate::core::managed_workspace::SiblingPairSpec::new(
-                    project,
-                    code_name.clone(),
-                );
-                spec.planning_repo_name = planning;
+                let mut spec =
+                    crate::core::managed_workspace::NewProjectSpec::new(project, code_name.clone());
                 spec.parent_dir = std::path::PathBuf::from(parent);
                 match crate::app::welcome::attempt_create_project(&spec) {
                     Ok(project) => self.finish_connect(Ok(project)),
@@ -269,16 +183,9 @@ impl KooladeApp {
                     self.wiz_error("Paste the repository URL first.");
                     return;
                 }
-                self.begin_clone(&url);
+                self.begin_clone(&url, &project);
                 if self.clone_job.is_some() {
-                    // The worker-completion hook consumes this intent and
-                    // pairs the planning sibling BEFORE connecting.
-                    self.pending_clone_pairing = Some(super::PendingClonePairing {
-                        project_name: project,
-                        packet_name: packet,
-                    });
-                    // Stay on the review step: it shows live progress and
-                    // locks the button while the download runs.
+                    // Stay on the review step while the worker clones and pairs.
                 } else {
                     let reason = self.conn_error.clone();
                     self.wiz_error(match reason {
@@ -299,7 +206,6 @@ impl KooladeApp {
             return String::new();
         };
         match which {
-            WizField::CodePath => wiz.code_path.trim().to_string(),
             WizField::Parent => wiz.parent.trim().to_string(),
         }
     }
@@ -309,17 +215,6 @@ impl KooladeApp {
             return;
         };
         match which {
-            WizField::CodePath => {
-                wiz.code_path = path;
-                // Derive a title ONCE so operators don't re-type the obvious.
-                if wiz.project_name.trim().is_empty() {
-                    wiz.project_name = std::path::Path::new(&wiz.code_path)
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("")
-                        .to_string();
-                }
-            }
             WizField::Parent => wiz.parent = path,
         }
     }

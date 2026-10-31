@@ -11,7 +11,9 @@ fn changing_the_planning_remote_invalidates_confirmation_but_equivalent_urls_do_
     let fixture = Fixture::new();
     let state_root = fixture.state_root("remote-identity");
     let manager = WorkspaceManager::new(&state_root);
-    let workspace = manager.join(&fixture.first).unwrap();
+    let workspace = manager
+        .join_remote(&fixture.remote.to_string_lossy())
+        .unwrap();
     assert_eq!(
         manager.sync_planning(workspace.id).unwrap().state,
         PlanningSyncState::Synced
@@ -58,20 +60,23 @@ fn changing_the_planning_remote_is_rejected_while_operations_are_pending() {
     let fixture = Fixture::new();
     let state_root = fixture.state_root("pending-remote-change");
     let manager = WorkspaceManager::new(&state_root);
-    let workspace = manager.join(&fixture.first).unwrap();
+    let workspace = manager
+        .join_remote(&fixture.remote.to_string_lossy())
+        .unwrap();
+    let planning_repo = workspace.planning_repo.clone();
     assert_eq!(
         manager.sync_planning(workspace.id).unwrap().state,
         PlanningSyncState::Synced
     );
 
     fixture.write_work(
-        &fixture.first,
+        &planning_repo,
         fixture.work_id,
         "title",
         "queued planning change",
     );
     prepare_local_intent(
-        &fixture.first,
+        &planning_repo,
         &state_root,
         "queued planning change",
         &[work_path(fixture.work_id)],
@@ -79,7 +84,7 @@ fn changing_the_planning_remote_is_rejected_while_operations_are_pending() {
     .unwrap()
     .unwrap();
     let original_remote = String::from_utf8(
-        super::super::support::git(Some(&fixture.first), &["remote", "get-url", "origin"]).stdout,
+        super::super::support::git(Some(&planning_repo), &["remote", "get-url", "origin"]).stdout,
     )
     .unwrap();
 
@@ -106,7 +111,7 @@ fn changing_the_planning_remote_is_rejected_while_operations_are_pending() {
     );
     assert_eq!(
         String::from_utf8(
-            super::super::support::git(Some(&fixture.first), &["remote", "get-url", "origin"])
+            super::super::support::git(Some(&planning_repo), &["remote", "get-url", "origin"])
                 .stdout,
         )
         .unwrap(),
@@ -121,15 +126,18 @@ fn sync_does_not_rebind_pending_operations_after_an_external_remote_change() {
     let fixture = Fixture::new();
     let state_root = fixture.state_root("external-pending-remote-change");
     let manager = WorkspaceManager::new(&state_root);
-    let workspace = manager.join(&fixture.first).unwrap();
+    let workspace = manager
+        .join_remote(&fixture.remote.to_string_lossy())
+        .unwrap();
+    let planning_repo = workspace.planning_repo.clone();
     fixture.write_work(
-        &fixture.first,
+        &planning_repo,
         fixture.work_id,
         "title",
         "queued planning change",
     );
     prepare_local_intent(
-        &fixture.first,
+        &planning_repo,
         &state_root,
         "queued planning change",
         &[work_path(fixture.work_id)],
@@ -150,7 +158,7 @@ fn sync_does_not_rebind_pending_operations_after_an_external_remote_change() {
         ],
     );
     super::super::support::git(
-        Some(&fixture.first),
+        Some(&planning_repo),
         &[
             "remote",
             "set-url",
@@ -159,7 +167,7 @@ fn sync_does_not_rebind_pending_operations_after_an_external_remote_change() {
         ],
     );
 
-    let status = sync_with_state_root(&fixture.first, &state_root).unwrap();
+    let status = sync_with_state_root(&planning_repo, &state_root).unwrap();
 
     assert_eq!(status.state, PlanningSyncState::Pending);
     assert_eq!(status.pending_operations, 1);
@@ -185,26 +193,29 @@ fn removing_origin_preserves_pending_status_and_exportability() {
     let fixture = Fixture::new();
     let state_root = fixture.state_root("missing-pending-remote");
     let manager = WorkspaceManager::new(&state_root);
-    let workspace = manager.join(&fixture.first).unwrap();
+    let workspace = manager
+        .join_remote(&fixture.remote.to_string_lossy())
+        .unwrap();
+    let planning_repo = workspace.planning_repo.clone();
     assert_eq!(
         manager.sync_planning(workspace.id).unwrap().state,
         PlanningSyncState::Synced
     );
     fixture.write_work(
-        &fixture.first,
+        &planning_repo,
         fixture.work_id,
         "title",
         "preserved without remote",
     );
     prepare_local_intent(
-        &fixture.first,
+        &planning_repo,
         &state_root,
         "preserved without remote",
         &[work_path(fixture.work_id)],
     )
     .unwrap()
     .unwrap();
-    super::super::support::git(Some(&fixture.first), &["remote", "remove", "origin"]);
+    super::super::support::git(Some(&planning_repo), &["remote", "remove", "origin"]);
 
     let status = manager.planning_sync_status(workspace.id).unwrap();
     assert_eq!(status.state, PlanningSyncState::Pending);

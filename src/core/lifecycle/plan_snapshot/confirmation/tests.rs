@@ -4,11 +4,7 @@ use crate::artifacts::planning_store::StoreMode;
 fn fixture() -> (tempfile::TempDir, PlanningStore, PlanSnapshotV1) {
     let root = tempfile::tempdir().unwrap();
     crate::artifacts::migration::bootstrap_product(root.path(), "Confirmation fixture").unwrap();
-    let store = PlanningStore::new(
-        uuid::Uuid::new_v4(),
-        root.path().join(".koolade-packet"),
-        StoreMode::ManagedLocal,
-    );
+    let store = PlanningStore::new(uuid::Uuid::new_v4(), root.path(), StoreMode::ManagedLocal);
     let markdown = crate::domain::ArtifactIdentity::preserve_markdown(
         "# CHG-981: Confirm\n\n## Intent\nConfirm current content.\n\n## Current Behavior\nHistorical confirmation.\n\n## Desired Behavior\nConfirm current product context.\n\n## Scope\nConfirmation.\n\n## Requirements\n- REQ-981: Preserve the approved target.\n\n## Acceptance Criteria\n- Approval remains auditable.\n",
         None, "CHG-981", "Confirm").unwrap();

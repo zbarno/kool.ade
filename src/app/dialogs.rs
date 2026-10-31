@@ -14,19 +14,12 @@ use crate::error::AppError;
 use crate::persistence::persona;
 use crate::ui::theme;
 
-mod browse;
-mod code_repository;
 mod harness_setup;
 mod import;
 mod mcp;
 mod persona_card;
 mod settings;
 
-use browse::expand_tilde;
-#[cfg(test)]
-use browse::{DirRow, resolve_seed};
-pub use browse::{DlgBrowse, paint_browse_card};
-pub use code_repository::DlgCodeRepository;
 #[cfg(not(test))]
 pub(crate) use harness_setup::poll_cli_auto_refresh;
 pub(crate) use harness_setup::probe_bootstrap_clis;

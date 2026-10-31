@@ -29,7 +29,7 @@ fn awaiting_approval(app: &mut KooladeApp, ticket: &str) {
 #[test]
 fn verified_work_waiting_approval_is_in_review_with_direct_card_actions() {
     let mut app = fixture();
-    let ticket = ".koolade-packet/planning/tasks/fixture/001-task.md";
+    let ticket = "planning/tasks/fixture/001-task.md";
     awaiting_approval(&mut app, ticket);
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
@@ -57,7 +57,7 @@ fn verified_work_waiting_approval_is_in_review_with_direct_card_actions() {
 #[test]
 fn changes_requested_is_saved_as_a_review_outcome() {
     let mut app = fixture();
-    let ticket = ".koolade-packet/planning/tasks/fixture/001-task.md";
+    let ticket = "planning/tasks/fixture/001-task.md";
     awaiting_approval(&mut app, ticket);
 
     app.dispatch_ui_command(crate::ui::ApplicationCommand::RequestPublicationChanges {
@@ -82,7 +82,7 @@ fn changes_requested_is_saved_as_a_review_outcome() {
 #[test]
 fn requested_changes_have_an_explicit_response_separate_from_questions() {
     let mut app = fixture();
-    let ticket = ".koolade-packet/planning/tasks/fixture/001-task.md";
+    let ticket = "planning/tasks/fixture/001-task.md";
     awaiting_approval(&mut app, ticket);
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);

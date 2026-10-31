@@ -1,5 +1,4 @@
 use super::*;
-mod existing;
 mod launcher;
 mod opening;
 pub(super) use launcher::Launcher;
@@ -12,12 +11,6 @@ mod readiness;
 mod recovery;
 use crate::app::welcome::onboarding::Step;
 pub(super) use recovery::Recovery;
-pub(super) type InspectionResult = (
-    String,
-    std::path::PathBuf,
-    Result<crate::core::managed_workspace::ExistingProjectKind, String>,
-);
-
 impl KooladeApp {
     /// Returns false for the existing workspace/advanced surface.
     pub(super) fn paint_onboarding(&mut self, ui: &mut egui::Ui) -> bool {
@@ -31,7 +24,7 @@ impl KooladeApp {
             ui.ctx().request_repaint_after(Duration::from_millis(100));
             return true;
         }
-        if matches!(self.onboarding.step, Step::Projects | Step::ExistingProject) {
+        if self.onboarding.step == Step::Projects {
             self.onboarding_launcher.poll(ui);
         }
         if !matches!(self.screen, Screen::Welcome) {
@@ -106,7 +99,6 @@ impl KooladeApp {
                         if ui.add(presentation::primary_button("Continue to my projects")).clicked() { next = Some(Step::Projects); }
                         if ui.button("Back").clicked() { next = Some(Step::Manager); }
                     }
-                    Step::ExistingProject => { self.paint_existing_project(ui, &mut next); }
                     Step::Projects | Step::NewProject | Step::ReviewProject => {
                         self.paint_project_entry(ui, &mut next);
                     }

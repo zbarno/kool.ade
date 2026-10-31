@@ -33,7 +33,7 @@ fn planning_work_status_does_not_invalidate_task_generation_checkpoints() {
         "koolade-task-generation-fingerprint-{}",
         uuid::Uuid::new_v4()
     ));
-    fs::create_dir_all(root.join(".koolade-packet/state")).unwrap();
+    fs::create_dir_all(root.join("state")).unwrap();
     let git = |args: &[&str]| {
         let status = Command::new("git")
             .args(args)
@@ -46,16 +46,12 @@ fn planning_work_status_does_not_invalidate_task_generation_checkpoints() {
     git(&["config", "user.name", "Kool.ad/e Test"]);
     git(&["config", "user.email", "koolade-test@example.invalid"]);
     fs::write(root.join("src.rs"), "base").unwrap();
-    fs::write(root.join(".koolade-packet/state/work.json"), "[]").unwrap();
+    fs::write(root.join("state/work.json"), "[]").unwrap();
     git(&["add", "."]);
     git(&["commit", "-qm", "base"]);
 
     let clean = working_tree_fingerprint(&root).unwrap();
-    fs::write(
-        root.join(".koolade-packet/state/work.json"),
-        "changed retry state",
-    )
-    .unwrap();
+    fs::write(root.join("state/work.json"), "changed retry state").unwrap();
     assert_eq!(working_tree_fingerprint(&root), Some(clean));
     fs::write(root.join("src.rs"), "changed source").unwrap();
     assert_ne!(working_tree_fingerprint(&root), Some(clean));

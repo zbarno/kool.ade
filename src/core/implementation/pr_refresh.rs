@@ -9,7 +9,11 @@ pub struct PrRefresh {
 }
 impl PrRefresh {
     pub fn start(repo: PathBuf, tickets: Vec<String>) -> Self {
-        let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), &repo);
+        let store = PlanningStore::new(
+            uuid::Uuid::nil(),
+            &repo,
+            crate::artifacts::planning_store::StoreMode::ManagedLocal,
+        );
         Self::start_with_store(store, repo, tickets)
     }
 
@@ -66,7 +70,11 @@ impl Drop for PrRefresh {
 
 #[cfg(test)]
 pub(super) fn refresh_pr(repo: &Path, ticket: &str, runner: &Runner) -> anyhow::Result<()> {
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), repo);
+    let store = PlanningStore::new(
+        uuid::Uuid::nil(),
+        repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     refresh_pr_with_store(&store, repo, ticket, runner)
 }
 

@@ -84,7 +84,7 @@ mod tests {
         let metadata =
             crate::artifacts::task_docs::TaskMetadata::new(&identity, "repo", vec![]).unwrap();
         let document = TaskDocument {
-            path: ".koolade-packet/planning/tasks/legacy/001-task.md".into(),
+            path: "planning/tasks/legacy/001-task.md".into(),
             title: "Legacy task".into(),
             text: "# Legacy task".into(),
             identity: Some(identity),

@@ -68,92 +68,53 @@ fn manifest_rejects_git_remote_helpers_and_option_injection() {
 }
 
 #[test]
-fn portable_manifest_resolves_private_checkout_without_committing_paths() {
-    let _environment = crate::test_support::lock_process_environment();
+fn unmanaged_planning_roots_do_not_resolve_arbitrary_local_checkouts() {
     let root = std::env::temp_dir().join(format!(
         "koolade-repos-{}-{}",
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
     let planning = root.join("planning-root");
-    let api = root.join("api-checkout");
-    std::fs::create_dir_all(planning.join(crate::artifacts::layout::store::CONFIG)).unwrap();
-    std::fs::create_dir_all(&api).unwrap();
-    for repo in [&planning, &api] {
+    let code = root.join("api-checkout");
+    std::fs::create_dir_all(&planning).unwrap();
+    std::fs::create_dir_all(&code).unwrap();
+    for repository in [&planning, &code] {
         assert!(
             std::process::Command::new("git")
                 .args(["init", "-q"])
-                .current_dir(repo)
+                .current_dir(repository)
                 .status()
                 .unwrap()
                 .success()
         );
     }
-    assert!(
-        std::process::Command::new("git")
-            .args(["remote", "add", "origin", "git@example.test:team/api.git"])
-            .current_dir(&api)
-            .status()
-            .unwrap()
-            .success()
-    );
-    let rewrite = format!("url.{}.insteadOf", root.join("mirror.git").display());
-    assert!(
-        std::process::Command::new("git")
-            .args(["config", "--local", &rewrite, "git@example.test:"])
-            .current_dir(&api)
-            .status()
-            .unwrap()
-            .success()
-    );
-    let effective = std::process::Command::new("git")
-        .args(["remote", "get-url", "origin"])
-        .current_dir(&api)
-        .output()
-        .unwrap();
-    assert!(effective.status.success());
-    assert_ne!(
-        String::from_utf8(effective.stdout).unwrap().trim(),
-        "git@example.test:team/api.git"
-    );
     let manifest = ProjectManifest {
-        repositories: vec![
-            Repository {
-                id: "planning".into(),
-                role: "Planning root".into(),
-                remote: "git@example.test:team/planning.git".into(),
-                display_name: None,
-            },
-            Repository {
-                id: "api".into(),
-                role: "Backend API".into(),
-                remote: "git@example.test:team/api.git".into(),
-                display_name: None,
-            },
-        ],
+        repositories: vec![Repository {
+            id: "api".into(),
+            role: "Backend API".into(),
+            remote: "git@example.test:team/api.git".into(),
+            display_name: None,
+        }],
     };
+    std::fs::create_dir_all(planning.join("config")).unwrap();
     std::fs::write(
         planning.join(PROJECT_FILE),
         serde_json::to_string_pretty(&manifest).unwrap(),
     )
     .unwrap();
-    map_local_checkout(&planning, "api", &api).unwrap();
+
+    let loaded = ProjectManifest::load(&planning).unwrap();
     assert_eq!(
-        ProjectManifest::load(&planning)
-            .unwrap()
-            .target(&planning, "api")
+        loaded
+            .target_if_available(uuid::Uuid::new_v4(), &planning, "api")
             .unwrap(),
-        api.canonicalize().unwrap()
+        None
     );
     assert!(
         !std::fs::read_to_string(planning.join(PROJECT_FILE))
             .unwrap()
-            .contains(api.to_str().unwrap())
+            .contains(code.to_str().unwrap())
     );
-    let private = crate::persistence::project_dir(&crate::persistence::project_slug(
-        &planning.canonicalize().unwrap(),
-    ));
-    let _ = std::fs::remove_dir_all(private);
     let _ = std::fs::remove_dir_all(root);
 }
 

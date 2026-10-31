@@ -230,7 +230,7 @@ fn live_dogfood_scenario_from_environment() {
     if resume_root.is_some() {
         let evidence = continuation::approve_and_prepare_scenario_a(&mut app, &ctx, &root);
         let evidence_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join(".koolade-packet/planning/tasks/koolade-task-centric-ux-remediation/evidence/scenario-a-continuation-live.json");
+            .join("planning/tasks/koolade-task-centric-ux-remediation/evidence/scenario-a-continuation-live.json");
         std::fs::write(
             &evidence_path,
             serde_json::to_vec_pretty(&evidence).unwrap(),
@@ -258,7 +258,7 @@ fn live_dogfood_scenario_from_environment() {
         .map(|run| serde_json::json!({"initial": initial_evidence, "continuation": run}))
         .unwrap_or(initial_evidence);
     let evidence_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(".koolade-packet/planning/tasks/koolade-task-centric-ux-remediation/evidence")
+        .join("planning/tasks/koolade-task-centric-ux-remediation/evidence")
         .join(format!(
             "scenario-{}-live.json",
             scenario.code.to_ascii_lowercase()

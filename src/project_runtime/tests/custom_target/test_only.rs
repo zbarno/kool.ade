@@ -9,7 +9,11 @@ use crate::core::lifecycle::{GateActor, GateDecision, GateReceipt};
 fn test_only_custom_target_saves_without_build_artifacts() {
     let root = std::env::temp_dir().join(format!("koolade-test-only-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
-    let planning = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &root);
+    let planning = PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        &root,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let runtime = ProjectRuntimeStore::new(&planning);
     let workspace_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let _approval_cleanup =
