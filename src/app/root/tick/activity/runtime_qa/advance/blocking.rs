@@ -13,11 +13,45 @@ pub(super) enum BlockOutcome {
     ReportPresent(String),
 }
 
+pub(super) struct PlanningWorkState<'a> {
+    pub(super) items: &'a mut Vec<crate::core::planning_work::Work>,
+    pub(super) baseline_revision: &'a mut String,
+}
+
 /// Persist a blocker only while the observed request still owns the lifecycle
 /// snapshot. Running requests also require the per-run lock, so a second app
 /// cannot block a worker that is still producing its report.
+#[cfg(test)]
 pub(super) fn persist_block(
     planning_store: &PlanningStore,
+    qa_root: &Path,
+    snapshot: &TaskRecord,
+    request: &QaRunRequestV1,
+    event_kind: &str,
+    reason: String,
+) -> Result<BlockOutcome, String> {
+    let mut planning_work =
+        crate::core::planning_work::load(planning_store).map_err(|error| error.to_string())?;
+    let mut baseline = planning_store
+        .revision()
+        .map_err(|error| error.to_string())?;
+    persist_block_with_work(
+        planning_store,
+        PlanningWorkState {
+            items: &mut planning_work,
+            baseline_revision: &mut baseline,
+        },
+        qa_root,
+        snapshot,
+        request,
+        event_kind,
+        reason,
+    )
+}
+
+pub(super) fn persist_block_with_work(
+    planning_store: &PlanningStore,
+    planning_work: PlanningWorkState<'_>,
     qa_root: &Path,
     snapshot: &TaskRecord,
     request: &QaRunRequestV1,
@@ -64,6 +98,8 @@ pub(super) fn persist_block(
         {
             let notice = match super::super::reports::record_persisted_report(
                 planning_store,
+                planning_work.items,
+                planning_work.baseline_revision,
                 &lifecycle,
                 &qa_store,
                 &current,

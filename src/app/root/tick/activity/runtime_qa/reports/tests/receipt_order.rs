@@ -1,8 +1,11 @@
 use super::*;
 use crate::{
     artifacts::planning_store::{PlanningStore, StoreMode},
-    core::lifecycle::{QaExecutionStateV1, QaExecutionStatusV1},
+    core::lifecycle::{
+        GateActor, GateDecision, GateReceipt, QaExecutionStateV1, QaExecutionStatusV1,
+    },
     core::planning::QuestionStore,
+    harness::prompt_catalog::PromptRole,
     runtime_qa::*,
 };
 
@@ -30,10 +33,14 @@ fn missing_gate_receipt_prevents_durable_finding_decisions() {
     });
     let qa_root = root.path().join("qa");
     let qa_store = RuntimeQaStore::new(&qa_root);
-    save_failed_report_with_nonblocking_finding(&qa_store, &task.task_uid, &request);
+    save_failed_report_with_finding(&qa_store, &task.task_uid, &request, false);
 
+    let mut planning_work = Vec::new();
+    let mut baseline = planning.revision().unwrap();
     let result = record_persisted_report(
         &planning,
+        &mut planning_work,
+        &mut baseline,
         &crate::core::lifecycle::LifecycleStore::new(&planning),
         &qa_store,
         &task,
@@ -63,7 +70,7 @@ fn legacy_schema_three_report_with_v3_receipt_is_not_recordable() {
     let task = super::task();
     let request = super::request(&task);
     let store = RuntimeQaStore::new(root.path().join("qa"));
-    save_failed_report_with_nonblocking_finding(&store, &task.task_uid, &request);
+    save_failed_report_with_finding(&store, &task.task_uid, &request, false);
     let (persisted, _, evidence, mut result) = store.load_run(&request.qa_run_id).unwrap();
     assert_eq!(persisted, request);
 
@@ -120,6 +127,10 @@ fn legacy_schema_three_report_with_v3_receipt_is_not_recordable() {
                 request.qa_run_id,
                 evidence.sha256().unwrap()
             ),
+            format!(
+                "runtime-qa:{}/scenarios:{}",
+                request.qa_run_id, result.scenario_set_sha256
+            ),
         ],
         prompt_sha256: Some(prompt.identity_sha256()),
         prompt_manifest: Some(prompt),
@@ -148,10 +159,11 @@ fn legacy_schema_three_report_with_v3_receipt_is_not_recordable() {
     );
 }
 
-fn save_failed_report_with_nonblocking_finding(
+pub(super) fn save_failed_report_with_finding(
     store: &RuntimeQaStore,
     task_uid: &str,
     request: &QaRunRequestV1,
+    blocking: bool,
 ) {
     let scenario = QaScenarioV1 {
         schema_version: 1,
@@ -216,7 +228,9 @@ fn save_failed_report_with_nonblocking_finding(
         coverage: Vec::new(),
         retention_policy: "user-local/30-days".into(),
     };
-    let mut finding = super::finding(false);
+    let mut finding = super::finding(blocking);
+    finding.code_sha = request.code_head_sha.clone();
+    finding.requirement_uids = request.requirement_ids.clone();
     finding.scenario_uid = scenario.id.clone();
     let result = QaResultV1 {
         schema_version: CURRENT_QA_RESULT_SCHEMA_VERSION,
@@ -256,4 +270,63 @@ fn save_failed_report_with_nonblocking_finding(
     store
         .save_run(request, &[scenario], &evidence, &result)
         .unwrap();
+}
+
+pub(super) fn save_valid_gate_receipt(store: &RuntimeQaStore, request: &QaRunRequestV1) {
+    use crate::harness::prompt_catalog::{RoleInputV1, RolePayloadV1, render};
+
+    let (_, _, evidence, result) = store.load_run(&request.qa_run_id).unwrap();
+    let role = PromptRole::RuntimeQaReviewerV3;
+    let prompt = render(&RoleInputV1 {
+        role,
+        workspace_uid: request.feature_uid.clone(),
+        feature_uid: request.feature_uid.clone(),
+        task_uid: Some(request.parent_task_uid.clone()),
+        original_goal: "Review the persisted runtime QA report".into(),
+        approved_spec_ref: Some("approved-spec".into()),
+        approved_spec_hash: Some(request.approved_spec_hash.clone()),
+        decision_refs: Vec::new(),
+        evidence_manifest: Vec::new(),
+        execution_policy_ref: "read-only isolated reviewer".into(),
+        output_schema_version: role.output_schema_version().into(),
+        payload: RolePayloadV1::Review {
+            subject_revision: request.code_head_sha.clone(),
+            subject_hash: request.complete_diff_hash.clone(),
+            author_run_id: request.author_run_id.clone(),
+            reviewer_run_id: result.reviewer_execution_id.clone(),
+            author_session_id: Some(request.author_session_id.clone()),
+            reviewer_session_id: Some(result.reviewer_session_id.clone()),
+            requirements_matrix: request.acceptance_criteria.clone(),
+            explicit_exclusions: Vec::new(),
+        },
+    })
+    .unwrap()
+    .manifest;
+    let receipt = GateReceipt {
+        receipt_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
+        subject_uid: request.parent_task_uid.clone(),
+        subject_sha256: request.complete_diff_hash.clone(),
+        actor: GateActor::IndependentReviewer,
+        decision: GateDecision::ChangesRequested,
+        recorded_at_unix_ms: 1,
+        evidence_refs: vec![
+            format!("runtime-qa:{}/result", request.qa_run_id),
+            format!(
+                "runtime-qa:{}/evidence:{}",
+                request.qa_run_id,
+                evidence.sha256().unwrap()
+            ),
+            format!(
+                "runtime-qa:{}/scenarios:{}",
+                request.qa_run_id, result.scenario_set_sha256
+            ),
+        ],
+        prompt_sha256: Some(prompt.identity_sha256()),
+        prompt_manifest: Some(prompt),
+        reviewer_run_id: Some(result.reviewer_execution_id.clone()),
+        author_run_id: Some(request.author_run_id.clone()),
+        reviewer_session_id: Some(result.reviewer_session_id.clone()),
+        author_session_id: Some(request.author_session_id.clone()),
+    };
+    store.save_gate_receipt(&receipt).unwrap();
 }
