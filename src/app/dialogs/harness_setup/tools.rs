@@ -16,13 +16,7 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
     let now_ms = crate::persistence::harness_settings::current_unix_ms();
     // Normal tool selection is not an installation/repair catalog. Show only
     // providers verified for real work; the rest live under Add / Fix.
-    let entries = dialog
-        .settings
-        .discovered
-        .iter()
-        .filter(|(id, harness)| harness.is_currently_actionable(id, now_ms))
-        .map(|(id, harness)| (id.clone(), harness.clone()))
-        .collect::<Vec<_>>();
+    let entries = visible_entries(&dialog.settings, now_ms);
     if entries.is_empty() {
         ui.label(if matches!(dialog.probe_view, ProbeView::Pending) {
             "Checking coding tools…"
@@ -186,5 +180,39 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
 pub(super) fn paint_rediscover_button(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
     if ui.button("Rediscover tools").clicked() {
         dialog.refresh();
+    }
+}
+
+fn visible_entries(
+    settings: &crate::persistence::harness_settings::HarnessSettings,
+    now: u64,
+) -> Vec<(String, crate::persistence::harness_settings::DetectedHarness)> {
+    settings
+        .discovered
+        .iter()
+        .filter(|(id, harness)| harness.is_currently_actionable(id, now))
+        .map(|(id, harness)| (id.clone(), harness.clone()))
+        .collect()
+}
+
+#[cfg(test)]
+mod visibility_tests {
+    use super::*;
+    #[test]
+    fn missing_and_unverified_providers_never_appear_in_normal_picker() {
+        let mut settings = crate::persistence::harness_settings::HarnessSettings::default();
+        settings.discovered.insert("pi".into(),
+            crate::persistence::harness_settings::DetectedHarness {
+                status: "not installed".into(), version: None, executable: None,
+                diagnostic: None, ready: false, models: Vec::new(), default_model: None,
+                model_catalog_fresh: false, configuration_required: false,
+                implementation_available: false, capability_snapshot: None,
+                checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms()
+            }
+        );
+        assert!(visible_entries(&settings,
+            crate::persistence::harness_settings::current_unix_ms()).is_empty());
+        assert!(settings.discovered.contains_key("pi"),
+            "repair view must retain persisted diagnostics for missing CLI");
     }
 }

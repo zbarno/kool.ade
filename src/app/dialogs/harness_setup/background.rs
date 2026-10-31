@@ -35,6 +35,17 @@ fn coordinator() -> &'static Mutex<Coordinator> {
     COORDINATOR.get_or_init(|| Mutex::new(Coordinator::default()))
 }
 
+/// Whether the app already owns an in-flight sweep. Dialogs avoid starting a
+/// competing full scan; results are reconciled into their view after commit.
+pub(super) fn refresh_in_flight() -> bool {
+    coordinator()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .worker
+        .as_ref()
+        .is_some_and(|worker| !worker.is_finished())
+}
+
 /// An unroutable saved provider requests verification; no probe runs on the
 /// caller's thread, and the existing route is never silently changed.
 pub(crate) fn request_refresh() {

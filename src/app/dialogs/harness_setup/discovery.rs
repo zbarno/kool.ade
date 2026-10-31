@@ -69,6 +69,11 @@ impl DlgHarnessSetup {
             self.probe_view = ProbeView::Complete;
             return;
         }
+        if super::background::refresh_in_flight() {
+            // The app-lifetime coordinator will publish a fresh snapshot;
+            // another dialog sweep here would compete with that worker.
+            return;
+        }
         if matches!(
             acquire_scan_window(cooldown::effective_now_ms()),
             ScanWindow::Accepted
