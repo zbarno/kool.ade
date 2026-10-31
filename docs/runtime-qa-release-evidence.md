@@ -1,44 +1,16 @@
 # Runtime QA release evidence
 
-## Snapshot (2026-10-31, 11:59 UTC)
+## Snapshot (2026-10-31, 14:15 UTC)
 
-Current `main` is [`c234d024`](https://github.com/zbarno/kool.ade/commit/c234d02465ae2839b4fc01d56105080a752958e2),
-which merged PR #441. Exact-main [quality](https://github.com/zbarno/kool.ade/actions/runs/41197720046)
-passed; [native packages](https://github.com/zbarno/kool.ade/actions/runs/41197720107)
-and [trusted executor images](https://github.com/zbarno/kool.ade/actions/runs/41197719987)
-were still running at this snapshot. Both Runtime QA profiles remain disabled;
-candidate checks do not approve release or enable either profile.
+Current `main` is [`2d34e158`](https://github.com/zbarno/kool.ade/commit/2d34e1581ba989017786f6b36d4d231f92a1dae4), which merged PR #443. Exact-main [quality](https://github.com/zbarno/kool.ade/actions/runs/41200913803), [CodeQL](https://github.com/zbarno/kool.ade/actions/runs/41200913743), [trusted executor images](https://github.com/zbarno/kool.ade/actions/runs/41200913817), and [native desktop packages](https://github.com/zbarno/kool.ade/actions/runs/41200913885) passed. Browser and desktop Runtime QA profiles remain disabled; candidate checks do not authorize release or enable either profile.
 
-PR [#442](https://github.com/zbarno/kool.ade/pull/442), `Part of #171`, is open
-at `8b912193`, which merges current `main` into the candidate branch. Its prior
-head `a0839860` adds rootless browser-driver rejection coverage for unsupported
-shell, extension-install, and package-install actions, plus an orchestrator
-regression test proving a forged screenshot ID cannot authorize visual QA. All
-four local Rust gates passed on `a0839860` (3,667 Nextest tests passed, 17
-skipped), and independent review found no blocking findings.
+PR [#442](https://github.com/zbarno/kool.ade/pull/442), `Part of #171`, is remotely at `8b912193`, based on `c234d024` and behind current `main`. On that remote head, quality [41197933398](https://github.com/zbarno/kool.ade/actions/runs/41197933398), CodeQL [41197931273](https://github.com/zbarno/kool.ade/actions/runs/41197931273), all five native package targets [41197933373](https://github.com/zbarno/kool.ade/actions/runs/41197933373), and trusted-image checks [41197933369](https://github.com/zbarno/kool.ade/actions/runs/41197933369) passed, including browser and desktop candidates and both published-image smokes. A merge of `2d34e158` is staged locally. The full local Rust gates passed against that merged source; the sync commit and fresh hosted checks remain outstanding.
 
-The first hosted run on `a0839860` passed the browser app-owned preview/driver
-test and the desktop app-owned lifecycle test, including the new browser
-rejection cases. Later browser and desktop task-runtime cases failed with
-`ImageUnavailable: Docker Engine disconnected or did not answer its health
-request`; Docker logs showed repeated rootless network-namespace restoration
-errors. The isolated queue-concurrency test failed before its assertions with
-the same Docker health error, while the separate daemon-recovery shard passed.
-The failed quality jobs were rerun; quality [attempt 2](https://github.com/zbarno/kool.ade/actions/runs/41196629064/attempts/2)
-passed, including queue concurrency. The trusted-image [attempt 2](https://github.com/zbarno/kool.ade/actions/runs/41196629122/attempts/2)
-is still running on `a0839860`.
+PR [#444](https://github.com/zbarno/kool.ade/pull/444), `Part of #171`, is remotely at `d263ff32`, also based on `c234d024`. Its quality [41200425716](https://github.com/zbarno/kool.ade/actions/runs/41200425716), CodeQL [41200424109](https://github.com/zbarno/kool.ade/actions/runs/41200424109), docs-only trusted-image [41200425583](https://github.com/zbarno/kool.ade/actions/runs/41200425583), and all five native package targets including Intel macOS [41200425586](https://github.com/zbarno/kool.ade/actions/runs/41200425586) passed. A merge of `2d34e158` and README/evidence updates are staged locally; the sync commit and fresh hosted checks remain outstanding.
 
-When `main` advanced to `c234d024`, PR #442 synchronized to `8b912193`. The
-sync-triggered [quality run](https://github.com/zbarno/kool.ade/actions/runs/41197933398)
-and [trusted-image run](https://github.com/zbarno/kool.ade/actions/runs/41197933369)
-were canceled while the earlier head's retries were starting. The [CodeQL run](https://github.com/zbarno/kool.ade/actions/runs/41197931273)
-on `8b912193` passed, and its [native-package run](https://github.com/zbarno/kool.ade/actions/runs/41197933373)
-has not completed. Fresh current-head quality and trusted-image verification
-is still required.
+PR [#445](https://github.com/zbarno/kool.ade/pull/445) adds a durable Manager proposal handoff for blocking findings from persisted failed Runtime QA reports. Its format check passed; CodeQL, quality, native-package, and trusted-image workflows were still in progress at this snapshot. Local format, all-target Nextest (3,684 passed, 18 skipped), doc tests, Clippy, and the focused proposal regression passed on its head.
 
-Issue #171 remains open for its other technical acceptance criteria. Human
-readiness/status/screenshot review is deferred to prelaunch and does not block
-issue closure after technical acceptance is complete.
+Issue #171 remains open for broader rootless security/failure coverage; completion of the full repair loop, including fresh review and QA; and verified readiness/status/screenshot UX plus release documentation. PR #445 only supplies the Manager proposal handoff. Human readiness/status/screenshot review is deferred to prelaunch and will not block issue closure after technical acceptance is complete.
 
 ## Historical exact-main snapshot (2026-10-30, 15:59 UTC)
 

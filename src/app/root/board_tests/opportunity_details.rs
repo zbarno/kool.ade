@@ -66,7 +66,7 @@ fn proposal_opens_the_universal_details_modal_with_its_own_discussion() {
     click_text(&mut app, &ctx, "Improve planning reliability");
     let output = click_text(&mut app, &ctx, "Target and evidence");
     for expected in [
-        "Task conversation",
+        "Ask a question",
         "Task details & state",
         "Grounded trigger",
         "Expected benefit",
@@ -84,7 +84,7 @@ fn proposal_opens_the_universal_details_modal_with_its_own_discussion() {
             "missing {expected:?} in opportunity details"
         );
     }
-    let conversation = text_position(&output, "Task conversation").unwrap();
+    let conversation = text_position(&output, "Ask a question").unwrap();
     let details = text_position(&output, "Task details & state").unwrap();
     assert!(
         conversation.x < details.x,

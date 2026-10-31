@@ -20,6 +20,7 @@ fn source_choice_ids_must_match_generated_options() {
             label: "Accept".into(),
             meaning: "Accept the actual list".into(),
             consequence: "The baseline changes".into(),
+            clarification: false,
             source_evidence: Some("accept".into()),
         }],
         steps: vec![],
@@ -32,6 +33,7 @@ fn source_choice_ids_must_match_generated_options() {
         label: "Correct".into(),
         meaning: "Correct the rule".into(),
         consequence: "The written promise changes".into(),
+        clarification: false,
         source_evidence: Some("correct".into()),
     });
     both.recommendation = Some(Recommendation {
@@ -73,6 +75,7 @@ fn legacy_choices_are_generated_from_quotes_in_the_same_saved_action_line() {
                 label: format!("Recovery path {}", index + 1),
                 meaning: format!("Use {source}."),
                 consequence: format!("The task follows the {source} recovery."),
+                clarification: false,
                 source_evidence: Some((*source).into()),
             })
             .collect(),
@@ -102,6 +105,7 @@ fn generated_options_are_rejected_when_the_report_has_no_choices() {
             label: "Buy more capacity".into(),
             meaning: "Ask the provider to raise the request limit.".into(),
             consequence: "This may add cost to the account.".into(),
+            clarification: false,
             source_evidence: None,
         }],
         steps: vec![],
@@ -151,7 +155,7 @@ fn structured_issue_choices_need_no_fixed_letter_or_sentence_pattern() {
                 label: choice.label.clone(),
                 meaning: choice.meaning.clone(),
                 consequence: choice.consequence.clone(),
-                source_evidence: Some(choice.label.clone()),
+                clarification: false, source_evidence: Some(choice.label.clone()),
             })
             .collect(),
         steps: vec![],

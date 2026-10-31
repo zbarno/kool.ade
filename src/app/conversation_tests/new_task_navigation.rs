@@ -8,12 +8,12 @@ fn opening_a_task_shows_its_greeting_in_details_without_starting_a_model_turn() 
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     let output = click_text(&mut app, &ctx, "First task");
-    assert!(text_position(&output, "Task conversation").is_some());
-    assert!(text_position(&output, "How can I help you with First task?").is_some());
+    assert!(text_position(&output, "Ask a question").is_some());
+    assert!(text_position(&output, "You can ask me about First task.").is_some());
     assert!(
         app.task_messages(key)[0]
             .text
-            .contains("How can I help you with First task?")
+            .contains("You can ask me about First task.")
     );
     assert!(!app.task_reply_busy());
     assert!(app.chat_messages().is_empty());
@@ -82,7 +82,7 @@ fn question_opening_uses_current_context_and_resolved_items_offer_help() {
     p.state.resolved_items.push(item);
     app.prepare_task_chat("CLR-002");
     let greeting = &app.task_messages("CLR-002")[0].text;
-    assert!(greeting.contains("- How can I help you with this item?"));
+    assert!(greeting.contains("- You can ask me about this item."));
     assert!(!greeting.contains("- Which authentication provider?"));
     let Screen::Connected(p) = &app.screen else {
         panic!()
@@ -134,7 +134,7 @@ fn task_details_load_persisted_histories_and_switch_without_loading_main_chat() 
     frame(&mut app, &ctx, vec![]);
     let assert_history = |output: &egui::FullOutput, expected_key: &str| {
         assert!(text_position(output, "MAIN HISTORY MARKER").is_none());
-        assert!(text_position(output, "Task conversation").is_some());
+        assert!(text_position(output, "Ask a question").is_some());
         let first_history = output.shapes.iter().find_map(|shape| match &shape.shape {
             egui::Shape::Text(text)
                 if matches!(

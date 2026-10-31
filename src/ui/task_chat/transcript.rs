@@ -19,15 +19,6 @@ pub(crate) fn transcript_with_max_height(
     transcript_inner(ui, messages, follow_tail, max_height, true);
 }
 
-pub(crate) fn history_with_max_height(
-    ui: &mut egui::Ui,
-    messages: &[ChatMessage],
-    follow_tail: bool,
-    max_height: f32,
-) {
-    transcript_inner(ui, messages, follow_tail, max_height, false);
-}
-
 fn transcript_inner(
     ui: &mut egui::Ui,
     messages: &[ChatMessage],

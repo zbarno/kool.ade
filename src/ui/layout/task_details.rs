@@ -1,10 +1,10 @@
 //! Conversation and task state for the task modal.
 use super::*;
+mod action;
 mod activity;
 mod conversation;
 mod dependency;
 mod details;
-mod hero;
 mod lifecycle;
 mod planning;
 mod reply;
@@ -62,7 +62,6 @@ pub(super) fn paint(
     if ui.available_width() < 500.0 {
         ui.spacing_mut().item_spacing.y = 4.0;
     }
-    hero::paint(ui, doc);
     if doc.path.ends_with("/README.md") {
         crate::ui::spec_viewer::render(ui, Some(&doc.text));
         return;
@@ -88,15 +87,39 @@ pub(super) fn paint(
         _ => None,
     };
     let open_ask = crate::ui::reply_tail::open_ask_index(&view.messages);
-    let decision_sent = brief
-        .as_ref()
-        .is_some_and(|brief| !brief.options.is_empty())
-        && view
-            .messages
+    let legacy_current = view
+        .messages
+        .iter()
+        .rev()
+        .find(|message| {
+            message.role == crate::domain::ChatRole::Agent
+                && message.id.starts_with("needs-attention:")
+        })
+        .is_some_and(|message| view.answer_context.as_deref() == Some(message.id.as_str()));
+    let decision_sent = brief.as_ref().is_some_and(|brief| {
+        view.messages
             .iter()
             .rev()
-            .find(|message| message.role == crate::domain::ChatRole::User)
-            .is_some_and(|message| message.text.starts_with("I choose option ("));
+            .take_while(|message| {
+                message.role != crate::domain::ChatRole::Agent
+                    || !(message.id.starts_with("needs-attention:")
+                        || message.text.starts_with("## What Happened"))
+            })
+            .any(|message| {
+                message.role == crate::domain::ChatRole::User
+                    && !message.clarification
+                    && ((message.answer_context.is_some()
+                        && message.answer_context == view.answer_context
+                        && !message.text.trim().is_empty())
+                        || (message.answer_context.is_none()
+                            && legacy_current
+                            && brief.options.iter().any(|option| {
+                                message
+                                    .text
+                                    .starts_with(&format!("I choose option ({}):", option.id))
+                            })))
+            })
+    });
     let column = view.board_column;
     let pull_request_closed = record.as_ref().is_some_and(|record| {
         record.pr_state == Some(crate::core::implementation::PullRequestState::Closed)
@@ -139,74 +162,69 @@ pub(super) fn paint(
             .map(|record| record.status.label())
             .unwrap_or(crate::core::implementation::BOARD_COLUMNS[column])
     };
-    if ui.available_width() >= 1000.0 {
-        ui.columns(2, |columns| {
-            egui::ScrollArea::vertical()
-                .id_salt(("task_conversation_pane", ticket))
-                .max_height(height)
-                .auto_shrink([false, false])
-                .show(&mut columns[0], |ui| {
-                    conversation::paint(ui, s, ticket, &mut view, brief.as_ref(), height);
-                });
-            let presentation = state::Presentation {
-                ticket,
-                view: &view,
-                record: record.as_ref(),
-                failure: failure.as_deref(),
-                cleanup_error: cleanup_error.as_deref(),
-                status,
-                open_ask,
-                decision_sent,
-                column,
-                active,
-                pull_request_closed,
-                interrupted,
-            };
-            egui::ScrollArea::vertical()
-                .id_salt(("task_details_pane", ticket))
-                .max_height(height)
-                .auto_shrink([false, false])
-                .show(&mut columns[1], |ui| {
-                    details::paint(
-                        ui,
-                        s,
-                        doc,
-                        presentation,
-                        checks_unavailable,
-                        failure.as_deref(),
-                        activity_path,
-                    );
-                });
+    let mut conversation_view = view.clone();
+    let presentation = state::Presentation {
+        ticket,
+        view: &view,
+        record: record.as_ref(),
+        failure: failure.as_deref(),
+        cleanup_error: cleanup_error.as_deref(),
+        status,
+        open_ask,
+        decision_sent,
+        column,
+        active,
+        pull_request_closed,
+        interrupted,
+    };
+    if ui.available_width() >= 760.0 {
+        let available = ui.available_size();
+        let gap = 28.0;
+        let left = (available.x - gap) * 0.6;
+        ui.horizontal_top(|ui| {
+            ui.allocate_ui_with_layout(
+                egui::vec2(left, height),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    egui::ScrollArea::vertical()
+                        .id_salt(("task_action", ticket))
+                        .max_height(height)
+                        .show(ui, |ui| {
+                            action::paint(
+                                ui,
+                                s,
+                                doc,
+                                presentation,
+                                brief.as_ref(),
+                                checks_unavailable,
+                                activity_path,
+                            );
+                        });
+                },
+            );
+            ui.separator();
+            ui.add_space(12.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2((available.x - left - gap).max(0.0), height),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    conversation::paint(ui, s, ticket, &mut conversation_view, None, height);
+                },
+            );
         });
     } else {
-        let presentation = state::Presentation {
-            ticket,
-            view: &view,
-            record: record.as_ref(),
-            failure: failure.as_deref(),
-            cleanup_error: cleanup_error.as_deref(),
-            status,
-            open_ask,
-            decision_sent,
-            column,
-            active,
-            pull_request_closed,
-            interrupted,
-        };
-        // The modal owns scrolling on narrow windows. One continuous document
-        // keeps the reply composer reachable without tiny nested scroll panes.
-        details::paint(
+        action::paint(
             ui,
             s,
             doc,
             presentation,
+            brief.as_ref(),
             checks_unavailable,
-            failure.as_deref(),
             activity_path,
         );
-        ui.add_space(theme::spacing::L);
+        ui.add_space(20.0);
         ui.separator();
-        conversation::paint(ui, s, ticket, &mut view, brief.as_ref(), height);
+        conversation::paint(ui, s, ticket, &mut conversation_view, None, height);
     }
 }
 

@@ -39,9 +39,9 @@ fn task_cards_open_persisted_conversation_in_details_and_keep_each_draft_isolate
     let output = click_text(&mut app, &ctx, "First task");
     assert!(text_position(&output, "Task draft stays with this item").is_some());
     assert!(text_position(&output, "Task-only previous reply").is_some());
-    assert!(text_position(&output, "Task conversation").is_some());
-    assert!(text_position(&output, "Task details & state").is_some());
-    assert!(text_position(&output, "Send response").is_some());
+    assert!(text_position(&output, "Ask a question").is_some());
+    assert!(text_position(&output, "Why am I seeing this?").is_some());
+    assert!(text_position(&output, "Send").is_some());
     assert!(text_position(&output, "Keep my project draft").is_none());
     assert_eq!(output.viewport_output.len(), 1);
     assert_eq!(
@@ -72,7 +72,7 @@ fn task_cards_open_persisted_conversation_in_details_and_keep_each_draft_isolate
     assert!(text_position(&output, "Second task only").is_some());
     assert!(text_position(&output, "Second task draft").is_some());
     assert!(text_position(&output, "Task-only previous reply").is_none());
-    assert!(text_position(&output, "Task conversation").is_some());
+    assert!(text_position(&output, "Ask a question").is_some());
 }
 
 #[test]
@@ -110,8 +110,8 @@ fn narrow_task_workspace_leads_with_action_and_discloses_description() {
     let action = text_position(&output, "Implement & continue queue")
         .expect("task implementation action is visible");
     assert!(action.x > 0.0 && action.x < size.x && action.y > 0.0 && action.y < size.y);
-    assert!(text_position(&output, "CURRENT STATE").is_some());
-    assert!(text_position(&output, "YOUR NEXT STEP").is_some());
+    assert!(text_position(&output, "CURRENT STATE").is_none());
+    assert!(text_position(&output, "CURRENT STATE").is_none());
     assert!(text_position(&output, "Unique story detail 0").is_none());
 }
 
