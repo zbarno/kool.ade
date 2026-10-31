@@ -166,7 +166,7 @@ fn task_route_validation_requires_typed_ready_authentication() {
     assert!(
         validate_task_routes(&stale, &route)
             .unwrap_err()
-            .contains("discovery is stale")
+            .contains("reverified automatically")
     );
 
     let mut missing = settings_with("opencode", ReadinessState::Ready, now);
