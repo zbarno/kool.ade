@@ -7,8 +7,8 @@ mod refresh_click;
 mod retry_provider;
 
 /// Open the troubleshooting controls through their real egui headings.
- /// Unavailable providers are intentionally absent from the normal picker.
- /// Keep interaction tests focused on the actual repair path, not a hidden row.
+/// Unavailable providers are intentionally absent from the normal picker.
+/// Keep interaction tests focused on the actual repair path, not a hidden row.
 pub(super) fn reveal_provider_details(
     ctx: &egui::Context,
     dialog: &mut DlgHarnessSetup,
