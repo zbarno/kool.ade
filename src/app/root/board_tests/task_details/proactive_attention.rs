@@ -186,6 +186,43 @@ fn multiple_attention_events_open_one_conversation_after_another() {
 }
 
 #[test]
+fn agent_owned_follow_up_does_not_prompt_the_user_or_open_attention() {
+    let _environment = crate::test_support::lock_process_environment();
+    let mut app = fixture();
+    let mut item = crate::domain::OpenItem::new(
+        "CLR-006".into(),
+        crate::domain::Priority::Blocking,
+        crate::domain::ItemKind::Question,
+        "General".into(),
+        Some("Zach".into()),
+        "Update the existing spec with the previously settled default.".into(),
+        "A related clarification was resolved; this is agent-owned follow-up.".into(),
+    );
+    item.authority = crate::domain::Authority::Agent;
+    if let Screen::Connected(project) = &mut app.screen {
+        project.state.items.push(item);
+    }
+
+    let ctx = egui::Context::default();
+    app.tick(0.016, &ctx);
+    frame(&mut app, &ctx, vec![]);
+    frame(&mut app, &ctx, vec![]);
+
+    assert_ne!(
+        ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_planning")))
+            .as_deref(),
+        Some("CLR-006"),
+        "an Agent item must not open as a human clarification"
+    );
+    if let Screen::Connected(project) = &app.screen {
+        assert!(
+            !project.task_chats.messages.contains_key("CLR-006"),
+            "an Agent item must not receive a synthetic 'answer this question' chat message"
+        );
+    }
+}
+
+#[test]
 fn newly_actionable_clarification_focuses_its_persistent_conversation() {
     let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();

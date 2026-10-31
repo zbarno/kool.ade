@@ -30,6 +30,8 @@ mod defects;
 mod identity;
 #[path = "browser_rootless/lifecycle.rs"]
 mod lifecycle;
+#[path = "browser_rootless/preview_failure.rs"]
+mod preview_failure;
 #[path = "browser_rootless/probe.rs"]
 mod probe;
 #[path = "browser_rootless/redirect.rs"]
