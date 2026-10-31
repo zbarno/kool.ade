@@ -16,7 +16,7 @@ pub(super) fn paint(ui: &mut egui::Ui, doc: &crate::artifacts::task_docs::TaskDo
         .on_hover_text(&doc.path);
     });
     let title = super::super::board::presentation::human_title(&doc.title, &doc.path);
-    let mut job = egui::text::LayoutJob::simple(
+    let job = egui::text::LayoutJob::simple(
         title.to_owned(),
         egui::FontId::proportional(if ui.available_width() < 500.0 {
             20.0
@@ -26,7 +26,6 @@ pub(super) fn paint(ui: &mut egui::Ui, doc: &crate::artifacts::task_docs::TaskDo
         theme::TEXT,
         ui.available_width(),
     );
-    job.wrap.max_rows = if ui.available_width() < 500.0 { 4 } else { 3 };
     let text = ui.painter().layout_job(job);
     ui.add(egui::Label::new(text)).on_hover_text(title);
     ui.add_space(4.0);
