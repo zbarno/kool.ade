@@ -26,7 +26,7 @@
 //! is saved.
 
 use crate::domain::{
-    AssignmentMatch, CurrentUser, GUEST_NAME, OpenItem, Stakeholders, is_general_category,
+    AssignmentMatch, Authority, CurrentUser, GUEST_NAME, OpenItem, Stakeholders, is_general_category,
 };
 
 /// Explanation of why an item may be posed to the current user.
@@ -156,6 +156,9 @@ pub fn eligible_items<'a>(
         .iter()
         .filter(|item| {
             item.status == crate::domain::ItemStatus::Open
+                // Routing eligibility is not permission to request a human answer.
+                // Agent items belong to Kool.ad/e even in broadcast or user-owned lanes.
+                && item.authority != Authority::Agent
                 && evaluate(item, user, stakes).is_eligible()
                 && !has_open_prerequisite(items, item)
         })
@@ -336,6 +339,33 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["CLR-011", "CLR-012"]
         );
+    }
+
+    #[test]
+    fn agent_owned_items_never_request_a_user_answer() {
+        let mut agent = item("CLR-006", Priority::Blocking, "General", Some("Zach"));
+        agent.authority = Authority::Agent;
+        let human = item("CLR-007", Priority::High, "General", None);
+        let mut review = item("CLR-008", Priority::Normal, "General", None);
+        review.authority = Authority::Review;
+        let items = vec![agent.clone(), human, review];
+
+        // General broadcast and direct assignment do not convert Agent work
+        // into a user-facing decision or a proactive attention event.
+        assert!(evaluate(&agent, &chair(), &Stakeholders::default()).is_eligible());
+        assert_eq!(
+            eligible_items(&items, &chair(), &Stakeholders::default())
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["CLR-007", "CLR-008"]
+        );
+        assert_eq!(
+            recommended_next(&items, &chair(), &Stakeholders::default())
+                .map(|item| item.id.as_str()),
+            Some("CLR-007")
+        );
+        assert!(eligible_items(&[agent], &chair(), &Stakeholders::default()).is_empty());
     }
 
     // ---- rule 1: the General broadcast ------------------------------------
