@@ -154,7 +154,7 @@ pub(super) fn render(
             origin: EvidenceOrigin::Application,
             confidentiality: EvidenceConfidentiality::WorkspacePrivate,
             source: format!("planning feature specification {feature_uid}"),
-            content: crate::core::context_build::clip(feature_text, 16 * 1024),
+            content: crate::core::context_build::clip_bytes(feature_text, 16 * 1024),
         },
         repository_evidence::for_feature(&project.state, feature_uid, &workspace_uid),
     ];
@@ -190,7 +190,7 @@ pub(super) fn render(
         workspace_uid: workspace_uid.clone(),
         feature_uid: feature_uid.to_owned(),
         task_uid: None,
-        original_goal: crate::core::workflow::feature_contract(feature_text),
+        original_goal: crate::core::context_build::clip_bytes(&contract, 16 * 1024),
         approved_spec_ref: None,
         approved_spec_hash: None,
         decision_refs: questions

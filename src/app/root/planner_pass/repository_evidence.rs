@@ -26,7 +26,7 @@ pub(super) fn for_feature(
         origin: EvidenceOrigin::Application,
         confidentiality: EvidenceConfidentiality::WorkspacePrivate,
         source: "read-only repository README, root manifests, and shallow file tree".into(),
-        content: crate::core::context_build::clip(&content, 12 * 1024),
+        content: crate::core::context_build::clip_bytes(&content, 12 * 1024),
     }
 }
 
