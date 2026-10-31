@@ -133,7 +133,7 @@ fn configured_implementation_route_requires_current_ready_authentication_snapsho
             &std::collections::BTreeMap::new(),
         );
         let error = harness.check_available().unwrap_err().detail();
-        assert!(error.contains("stale"), "{error}");
+        assert!(error.contains("reverified automatically"), "{error}");
     });
     let _ = std::fs::remove_file(path);
 }
@@ -166,7 +166,7 @@ fn task_route_validation_requires_typed_ready_authentication() {
     assert!(
         validate_task_routes(&stale, &route)
             .unwrap_err()
-            .contains("discovery is stale")
+            .contains("reverified automatically")
     );
 
     let mut missing = settings_with("opencode", ReadinessState::Ready, now);

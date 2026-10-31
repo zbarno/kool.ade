@@ -142,8 +142,9 @@ pub(super) fn routed_harness<'a>(
     let authenticated =
         detected.is_some_and(|entry| has_current_authenticated_snapshot(harness_id, entry, now));
     if !discovery_fresh {
+        crate::app::dialogs::request_cli_auto_refresh();
         return Box::new(UnavailableHarness::guidance(format!(
-            "Discovery for {harness_id} is stale. Refresh Coding tools before retrying; no fallback will run this request."
+            "CLI {harness_id} is being reverified automatically. Retry shortly if it does not resume; unverified execution remains blocked."
         )));
     }
     if !detected.is_some_and(|entry| entry.ready) {

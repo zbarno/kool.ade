@@ -51,12 +51,14 @@ fn pending_scan_keeps_completed_provider_results_visible() {
     assert!(labels.iter().any(|label| {
         label == "Checking installed tools; completed provider results appear below."
     }));
-    assert!(labels.iter().any(|label| label == "In progress: codex"));
-    assert!(labels.iter().any(|label| label == "Last probe: 57 ms"));
+    assert!(labels.iter().any(|label| label == "Checking 1 tools…"));
     assert!(
         labels
             .iter()
-            .any(|label| label.contains("Still checking: codex"))
+            .any(|label| label == "Add / Fix a coding tool")
     );
-    assert!(labels.iter().any(|label| label.starts_with("pi")));
+    // Completed but unverified providers are kept out of the ready picker;
+    // their probe evidence stays available through Add / Fix.
+    assert!(!labels.iter().any(|label| label == "pi"));
+    assert_eq!(dialog.probe_results["pi"].duration_ms, 57);
 }

@@ -11,7 +11,7 @@ pub(in crate::app::dialogs::harness_setup) fn apply_probe_results(
     }
 }
 
-pub(super) fn update_settings_from_probe(
+pub(in crate::app::dialogs::harness_setup) fn update_settings_from_probe(
     settings: &mut crate::persistence::harness_settings::HarnessSettings,
     report: &HarnessProbe,
     generation: u64,

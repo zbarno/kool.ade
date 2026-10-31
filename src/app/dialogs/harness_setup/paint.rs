@@ -3,6 +3,8 @@ use crate::ui::theme;
 use egui::RichText;
 
 pub fn paint_harness_setup_card(ui: &mut egui::Ui, dialog: &mut DlgHarnessSetup) -> (bool, bool) {
+    dialog.reload_newer_discovery();
+    dialog.reload_newer_discovery();
     dialog.ensure_first_scan();
     dialog.drain_probe();
     dialog.drop_expired_feedback();
