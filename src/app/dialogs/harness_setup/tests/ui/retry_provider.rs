@@ -92,6 +92,7 @@ fn retry_button_rechecks_only_the_selected_provider() {
             output.textures_delta.clear();
             output
         };
+        reveal_provider_details(&context, &mut dialog, "pi");
         let output = frame(&mut dialog, vec![]);
         let retry = output
             .shapes
@@ -215,6 +216,7 @@ fn retry_clicked_inside_the_cooldown_explains_the_wait_without_scanning() {
             output.textures_delta.clear();
             output
         };
+        reveal_provider_details(&context, &mut dialog, "pi");
         let output = frame(&mut dialog, vec![]);
         let retry = output
             .shapes
