@@ -89,7 +89,7 @@ fn actionable_feature_decision_is_shown_on_the_paused_task_and_clears_when_resol
     let Screen::Connected(project) = &mut app.screen else {
         unreachable!()
     };
-    let path = ".koolade-packet/planning/tasks/CHG-012-feature/CHG-012-TASK-001-example.md";
+    let path = "planning/tasks/CHG-012-feature/CHG-012-TASK-001-example.md";
     project.task_documents[0].path = path.into();
     project.queue.blocked.insert(
         path.into(),

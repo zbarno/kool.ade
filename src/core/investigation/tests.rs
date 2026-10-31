@@ -63,10 +63,9 @@ fn fixture() -> (PathBuf, PlannerState, String) {
     std::fs::create_dir_all(root.join("planning")).unwrap();
     std::fs::write(root.join("planning/specification.md"), &legacy).unwrap();
     crate::artifacts::product_docs::migrate(&root, &legacy).unwrap();
-    std::fs::create_dir_all(root.join(".koolade-packet/planning")).unwrap();
+    std::fs::create_dir_all(root.join("planning")).unwrap();
     let feature = "# CHG-001: Search\n\n**Status:** Draft\n\n## Intent\n\nImprove search.\n\n## Current Behavior\n\nQuery persistence is unknown.\n\n## Desired Behavior\n\nQueries persist.\n\n## Scope\n\nSearch.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\nQueries persist.\n\n## Decisions and Assumptions\n\nNone.\n\n## Acceptance Criteria\n\nRestart retains query.\n".to_string();
-    let feature_path =
-        root.join(".koolade-packet/planning/changes/CHG-001-search/specification.md");
+    let feature_path = root.join("planning/changes/CHG-001-search/specification.md");
     std::fs::create_dir_all(feature_path.parent().unwrap()).unwrap();
     std::fs::write(&feature_path, &feature).unwrap();
     let mut item = OpenItem::new(
@@ -81,7 +80,7 @@ fn fixture() -> (PathBuf, PlannerState, String) {
     item.authority = Authority::Agent;
     item.feature_id = Some("CHG-001".into());
     std::fs::write(
-        root.join(".koolade-packet/planning/open-items.md"),
+        root.join("planning/open-items.md"),
         crate::artifacts::items_io::serialize(&[item]),
     )
     .unwrap();
@@ -136,7 +135,7 @@ impl AiHarness for DriftingPeer {
     fn execute(&self, _req: &PlanningRequest) -> Result<HarnessOutcome, crate::error::AppError> {
         let path = self
             .root
-            .join(".koolade-packet/planning/changes/CHG-001-search/specification.md");
+            .join("planning/changes/CHG-001-search/specification.md");
         let text = std::fs::read_to_string(&path)
             .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
         std::fs::write(
@@ -177,14 +176,13 @@ fn drifting_project_defers_instead_of_clobbering() {
         "expected a benign deferral, got: {message}"
     );
     // The peer's edit survives; the investigation wrote nothing.
-    let feature_now = std::fs::read_to_string(
-        root.join(".koolade-packet/planning/changes/CHG-001-search/specification.md"),
-    )
-    .unwrap();
+    let feature_now =
+        std::fs::read_to_string(root.join("planning/changes/CHG-001-search/specification.md"))
+            .unwrap();
     assert!(feature_now.contains("Concurrent edit by a gated writer."));
     assert!(feature_now.contains("Query persistence is unknown."));
     let items = crate::artifacts::items_io::parse(
-        &std::fs::read_to_string(root.join(".koolade-packet/planning/open-items.md")).unwrap(),
+        &std::fs::read_to_string(root.join("planning/open-items.md")).unwrap(),
     )
     .unwrap();
     assert!(items.iter().any(|item| item.id == "CLR-001"));

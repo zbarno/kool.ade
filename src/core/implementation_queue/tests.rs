@@ -6,7 +6,7 @@ use super::*;
 
 fn doc(n: usize, dependencies: &str) -> TaskDocument {
     TaskDocument {
-        path: format!(".koolade-packet/planning/tasks/fixture/{n:03}-task.md"),
+        path: format!("planning/tasks/fixture/{n:03}-task.md"),
         title: format!("Task {n}"),
         text: format!(
             "# Task {n}\n\n## Dependencies\n{dependencies}\n\n## Acceptance criteria\n- Done."
@@ -370,7 +370,7 @@ fn preferences_and_inflight_ticket_survive_restart_and_lock_excludes_another_win
     let lock = Queue::acquire(&root).unwrap();
     assert!(Queue::acquire(&root).is_err());
     queue.running = true;
-    queue.current_ticket = Some(".koolade-packet/planning/tasks/fixture/001-task.md".into());
+    queue.current_ticket = Some("planning/tasks/fixture/001-task.md".into());
     queue.in_flight.extend(["one".into(), "two".into()]);
     queue.max_parallel = 4;
     queue.save(&root).unwrap();

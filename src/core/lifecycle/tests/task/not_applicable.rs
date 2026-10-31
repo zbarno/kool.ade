@@ -101,9 +101,10 @@ fn headless_not_applicable_requires_exact_reviewer_assessment_and_manager_signof
     ];
 
     let root = tempfile::tempdir().unwrap();
-    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::new_v4(),
         root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let lifecycle = LifecycleStore::new(&planning);
     assert!(matches!(

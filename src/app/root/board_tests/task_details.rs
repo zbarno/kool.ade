@@ -12,7 +12,7 @@ mod full_state;
 fn task_details_show_independent_check_result_separately_from_koolade_verification() {
     let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
-    let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
+    let key = "planning/tasks/fixture/001-task.md";
     if let Screen::Connected(project) = &mut app.screen {
         let mut identity = crate::domain::ArtifactIdentity::new("TASK-1", "First task");
         identity.parent_uid = Some(uuid::Uuid::new_v4().to_string());
@@ -165,7 +165,7 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
 fn task_details_offer_open_options_in_the_action_pane() {
     let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
-    let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
+    let key = "planning/tasks/fixture/001-task.md";
     if let Screen::Connected(p) = &mut app.screen {
         p.task_chats.messages.insert(key.into(), vec![ChatMessage::new(
             ChatRole::Agent,
@@ -198,7 +198,7 @@ fn task_details_offer_open_options_in_the_action_pane() {
 fn generated_attention_brief_explains_an_unseen_blocker_and_sends_its_choice() {
     let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
-    let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
+    let key = "planning/tasks/fixture/001-task.md";
     if let Screen::Connected(p) = &mut app.screen {
         p.queue.blocked.insert(key.into(), crate::core::implementation::Failure::other("## Waiting for user action\n\nA provider quota stopped the job.\n\n### Next action(s)\n\n- Account owner: choose (a) wait or (b) request more capacity.\n\nFull report: report.json"));
     }

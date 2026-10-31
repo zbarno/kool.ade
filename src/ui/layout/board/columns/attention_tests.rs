@@ -77,7 +77,7 @@ fn linked_task_attention_requires_an_open_actionable_item_for_same_feature() {
     board.eligible_item_ids.insert(item.id.clone());
     board.planning_items.push(item);
 
-    let path = ".koolade-packet/planning/tasks/CHG-012-release/CHG-012-TASK-001-release.md";
+    let path = "planning/tasks/CHG-012-release/CHG-012-TASK-001-release.md";
     assert_eq!(linked_user_action(&board, path).unwrap().id, "CLR-012");
 
     board.planning_items[0].status = crate::domain::ItemStatus::Resolved;
@@ -104,11 +104,7 @@ fn linked_task_attention_does_not_cross_feature_boundaries() {
     board.planning_items.push(item);
 
     assert!(
-        linked_user_action(
-            &board,
-            ".koolade-packet/planning/tasks/CHG-012-release/CHG-012-TASK-001.md"
-        )
-        .is_none()
+        linked_user_action(&board, "planning/tasks/CHG-012-release/CHG-012-TASK-001.md").is_none()
     );
 }
 

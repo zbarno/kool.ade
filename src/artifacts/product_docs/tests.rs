@@ -22,9 +22,7 @@ fn archive_relocation_preserves_evidence_and_retries_checkpoint_paths() {
     std::fs::create_dir_all(root.join("planning")).unwrap();
     let source = crate::artifacts::spec_doc::bootstrap_template("Demo");
     std::fs::write(root.join("planning/specification.md"), &source).unwrap();
-    migrate(&root, &source).unwrap();
     std::fs::create_dir_all(root.join("planning/archive")).unwrap();
-    std::fs::rename(root.join(LEGACY_ARCHIVE), root.join(OLD_LEGACY_ARCHIVE)).unwrap();
     for args in [vec!["init", "-q"], vec!["add", "."]] {
         assert!(
             std::process::Command::new("git")
@@ -39,18 +37,17 @@ fn archive_relocation_preserves_evidence_and_retries_checkpoint_paths() {
     std::fs::write(root.join(LEGACY_ARCHIVE), "other evidence").unwrap();
     assert!(migrate(&root, &source).is_err());
     assert_eq!(
-        std::fs::read_to_string(root.join(OLD_LEGACY_ARCHIVE)).unwrap(),
-        source
-    );
-    assert_eq!(
         std::fs::read_to_string(root.join(LEGACY_ARCHIVE)).unwrap(),
         "other evidence"
     );
+    assert_eq!(
+        std::fs::read_to_string(root.join("planning/specification.md")).unwrap(),
+        source
+    );
     std::fs::remove_file(root.join(LEGACY_ARCHIVE)).unwrap();
     let paths = migrate(&root, &source).unwrap();
-    assert!(paths.contains(&OLD_LEGACY_ARCHIVE.to_string()));
     assert!(paths.contains(&LEGACY_ARCHIVE.to_string()));
-    assert!(!root.join(OLD_LEGACY_ARCHIVE).exists());
+    assert!(!root.join("planning/specification.md").exists());
     assert_eq!(
         std::fs::read_to_string(root.join(LEGACY_ARCHIVE)).unwrap(),
         source
@@ -159,8 +156,8 @@ fn migration_preserves_historical_tasks_and_open_board_items() {
     let items = crate::artifacts::items_io::serialize(std::slice::from_ref(&item));
     std::fs::write(&items_path, &items).unwrap();
     migrate(&root, &legacy).unwrap();
-    assert!(!task_path.exists());
-    assert!(!items_path.exists());
+    assert!(task_path.exists());
+    assert!(items_path.exists());
     assert_eq!(std::fs::read_to_string(&canonical_task).unwrap(), task);
     assert_eq!(std::fs::read_to_string(&canonical_items).unwrap(), items);
     let restored = crate::artifacts::items_io::parse(&items).unwrap();

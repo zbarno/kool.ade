@@ -163,10 +163,9 @@ fn task_batch_retries_resume_partial_writes_and_reject_changed_bindings() {
             )
         })
         .unwrap();
-    let event_path = fixture.0.join(format!(
-        ".koolade-packet/state/lifecycle_events/{}.json",
-        subtask_event.uid
-    ));
+    let event_path = fixture
+        .0
+        .join(format!("state/lifecycle_events/{}.json", subtask_event.uid));
     let mut event: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&event_path).unwrap()).unwrap();
     let fake_parent = uuid::Uuid::new_v4().hyphenated().to_string();

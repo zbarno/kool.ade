@@ -54,7 +54,7 @@ mod tests {
             std::process::id(),
             chrono::Utc::now().timestamp_nanos_opt().unwrap()
         ));
-        std::fs::create_dir_all(root.join(".koolade-packet/config")).unwrap();
+        std::fs::create_dir_all(root.join("config")).unwrap();
         std::process::Command::new("git")
             .args(["init", "-q"])
             .current_dir(&root)

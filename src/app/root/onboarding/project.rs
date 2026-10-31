@@ -1,7 +1,7 @@
 use super::*;
 mod location;
 mod review;
-use crate::core::managed_workspace::{ApplicationCreation, WorkspaceManager};
+use crate::core::managed_workspace::ApplicationCreation;
 
 impl KooladeApp {
     pub(super) fn paint_project_entry(&mut self, ui: &mut egui::Ui, next: &mut Option<Step>) {
@@ -15,17 +15,8 @@ impl KooladeApp {
         presentation::problem(ui, self.conn_error.as_deref());
         match self.onboarding.step {
             Step::Projects => {
-                ui.heading("What would you like to do?");
-                for request in self.onboarding.previous_attachments.clone() {
-                    if ui
-                        .button(format!("Resume connecting: {}", request.title))
-                        .clicked()
-                    {
-                        self.onboarding.existing = Some(request);
-                        self.onboarding_project_kind = None;
-                        *next = Some(Step::ExistingProject);
-                    }
-                }
+                ui.heading("Clone or create a project");
+                ui.label("Clone code from GitHub with its paired planning repository, or start a blank local project.");
                 for request in self.onboarding.previous_creations.clone() {
                     if ui
                         .button(format!("Resume creation: {}", request.title))
@@ -48,11 +39,17 @@ impl KooladeApp {
                         *next = Some(Step::ReviewProject);
                     }
                 }
+                if ui
+                    .add(presentation::primary_button(
+                        "Clone a code repository from GitHub…",
+                    ))
+                    .clicked()
+                {
+                    self.wizard_open(crate::app::root::WelcomeEntry::CloneRepository);
+                    *next = Some(Step::Advanced);
+                }
                 if ui.button("Create something new").clicked() {
                     *next = Some(Step::NewProject);
-                }
-                if ui.button("Use an existing project").clicked() {
-                    *next = Some(Step::ExistingProject);
                 }
                 if let Some(id) = self.onboarding.opening_workspace_id
                     && ui.button("Resume opening my workspace").clicked()
@@ -63,6 +60,11 @@ impl KooladeApp {
                     ui.spinner();
                     ui.label("Finding your workspaces…");
                 }
+                ui.add_space(10.0);
+                ui.label(egui::RichText::new("Managed workspaces on this computer").strong());
+                ui.label(
+                    "Select a workspace to open its planning board and registered code checkouts.",
+                );
                 if welcome::paint_recent(
                     ui,
                     &self.onboarding_launcher.available,
@@ -74,24 +76,17 @@ impl KooladeApp {
                         Some(welcome::onboarding::EntryPath::Recent);
                     self.begin_onboarding_open(id, None);
                 }
-                for (id, title, missing) in self.onboarding_launcher.unavailable.clone() {
+                for (id, title, _missing) in self.onboarding_launcher.unavailable.clone() {
                     ui.push_id(id, |ui| {
                         ui.label(title);
-                        ui.label(if missing { "Its planning folder has moved or is missing." } else { "This workspace could not be opened. Review its settings in Advanced options." });
-                        if missing && ui.button("Find its planning folder…").clicked()
-                            && let Some(folder) = rfd::FileDialog::new().set_title("Reconnect this workspace").pick_folder() {
-                            self.onboarding_creation = Some(std::thread::spawn(move || {
-                                WorkspaceManager::from_state_root().reconnect(id, &folder)
-                                    .map(|workspace| workspace.id).map_err(|error| format!("{error:#}"))
-                            }));
-                        }
+                        ui.label("This managed workspace could not be opened. Kool.ad/e did not search for a replacement folder.");
                     });
                 }
                 if self.onboarding_launcher.history_unavailable {
                     ui.label("Recent ordering is unavailable. Your workspaces are shown by name.");
                 }
                 if self.onboarding_launcher.error.is_some() {
-                    ui.label("Workspaces could not be listed. Retry or use Advanced options to open a known location.");
+                    ui.label("Workspaces could not be listed. Retry after checking access to Kool.ad/e's application data folder.");
                 }
                 if ui.button("Refresh workspaces").clicked() {
                     self.onboarding_launcher.invalidate();

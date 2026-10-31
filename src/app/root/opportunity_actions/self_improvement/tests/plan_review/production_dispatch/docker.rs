@@ -64,7 +64,12 @@ pub(super) fn execute(ready: &ReadyTask, root: &Path) {
     );
     assert_eq!(git(&task_repository, &["rev-parse", "HEAD"]), source_sha);
 
-    let text = std::fs::read_to_string(ready.repo_root.join(&ready.ticket)).unwrap();
+    let ticket_path = ready.planning.root.join(&ready.ticket);
+    assert!(
+        !ready.repo_root.join(&ready.ticket).exists(),
+        "task tickets stay in the separate planning repository"
+    );
+    let text = std::fs::read_to_string(ticket_path).unwrap();
     let implementation: Implementation = serde_json::from_value(serde_json::json!({
         "ticket": ready.ticket,
         "task_uid": ready.metadata.uid,

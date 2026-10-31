@@ -11,19 +11,22 @@ fn shared_sync_never_imports_planning_from_a_source_branch() {
     let fixture = Fixture::new();
     let state_root = fixture.state_root("branch-isolation");
     let manager = WorkspaceManager::new(&state_root);
-    let workspace = manager.join(&fixture.first).unwrap();
+    let workspace = manager
+        .join_remote(&fixture.remote.to_string_lossy())
+        .unwrap();
+    let planning_repo = workspace.planning_repo.clone();
     assert_eq!(
         manager.sync_planning(workspace.id).unwrap().state,
         PlanningSyncState::Synced
     );
     fixture.write_work(
-        &fixture.first,
+        &planning_repo,
         fixture.work_id,
         "title",
         "canonical pending edit",
     );
     prepare_local_intent(
-        &fixture.first,
+        &planning_repo,
         &state_root,
         "canonical pending edit",
         &[work_path(fixture.work_id)],
@@ -31,17 +34,17 @@ fn shared_sync_never_imports_planning_from_a_source_branch() {
     .unwrap()
     .unwrap();
     super::super::support::git(
-        Some(&fixture.first),
+        Some(&planning_repo),
         &["switch", "--quiet", "-c", "feature/source-planning"],
     );
     let feature_only_id = uuid::Uuid::new_v4();
-    fs::create_dir_all(fixture.first.join("state/work")).unwrap();
+    fs::create_dir_all(planning_repo.join("state/work")).unwrap();
     fs::write(
-        fixture.first.join(work_path(feature_only_id)),
+        planning_repo.join(work_path(feature_only_id)),
         super::super::support::record(feature_only_id, "feature-only", "private branch data", 1),
     )
     .unwrap();
-    super::super::support::commit_all(&fixture.first, "source branch planning changes");
+    super::super::support::commit_all(&planning_repo, "source branch planning changes");
     let remote_head_before = String::from_utf8(
         super::super::support::git(
             None,
@@ -56,7 +59,7 @@ fn shared_sync_never_imports_planning_from_a_source_branch() {
     )
     .unwrap();
 
-    let status = sync_with_state_root(&fixture.first, &state_root).unwrap();
+    let status = sync_with_state_root(&planning_repo, &state_root).unwrap();
 
     assert_eq!(status.state, PlanningSyncState::Pending);
     assert!(
@@ -87,7 +90,7 @@ fn shared_sync_never_imports_planning_from_a_source_branch() {
     assert_ne!(
         remote_head_after,
         String::from_utf8(
-            super::super::support::git(Some(&fixture.first), &["rev-parse", "HEAD"]).stdout,
+            super::super::support::git(Some(&planning_repo), &["rev-parse", "HEAD"]).stdout,
         )
         .unwrap()
     );

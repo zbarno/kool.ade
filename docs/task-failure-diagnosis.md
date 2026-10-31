@@ -16,12 +16,13 @@ If a worker exits without returning a result, Kool.ad/e reports a failure and re
 
 ## Feature-named task resume
 
-Task loading and implementation use the same filename rules: numbered stories,
-`F<number>-TASK-*.md`, and `CHG-nnn-TASK-*.md` work in both supported task roots.
-Previously, Resume rejected feature-named stories after relocation into
-`.koolade-packet/planning/tasks/` with “Select a numbered task story”, before
-starting a worker. Target-validation errors now also appear as a notification
-and on the affected card, rather than only in the queue status.
+Task loading and implementation use the same filename rules for numbered
+stories, `F<number>-TASK-*.md`, and `CHG-nnn-TASK-*.md` in the standalone
+planning repository's `planning/tasks/` directory.
+Previously, Resume rejected feature-named stories from the standalone planning
+repository's `planning/tasks/` directory with “Select a numbered task story”,
+before starting a worker. Target-validation errors now also appear as a
+notification and on the affected card, rather than only in the queue status.
 
 Resuming preserves the existing task clone, partial implementation, and acceptance
 criteria. It does not resolve a previously reported human decision or external

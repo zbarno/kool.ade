@@ -132,6 +132,17 @@ pub fn is_work_tree(cwd: &Path) -> bool {
     code == 0
 }
 
+/// Return the configured `origin` URL when the repository has one. Callers
+/// use this to verify that a managed checkout still belongs to the remote
+/// requested by the operator before reusing it.
+pub fn origin_url(cwd: &Path) -> Option<String> {
+    run(cwd, &["remote", "get-url", "origin"])
+        .ok()
+        .filter(|(code, _, _)| *code == 0)
+        .map(|(_, stdout, _)| stdout.trim().to_owned())
+        .filter(|remote| !remote.is_empty())
+}
+
 /// True when `relative` is known to the repository rooted at `cwd`
 /// (`git ls-files --error-unmatch`, dispatched through [`run`] so the
 /// NFR-5 vector-argument/no-shell guarantee stays centralized). Probe

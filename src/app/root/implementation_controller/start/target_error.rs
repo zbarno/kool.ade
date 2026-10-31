@@ -4,7 +4,7 @@ pub(super) fn message(ticket: &str, error: &anyhow::Error) -> String {
         .strip_prefix("No local checkout mapped for ")
     {
         format!(
-            "Cannot start {ticket}: code repository {repository_id} has no local checkout. Open Workspace settings > Code repositories and map its checkout before implementation."
+            "Cannot start {ticket}: Kool.ad/e has no managed clone for code repository {repository_id}. Clone the repository through the welcome screen before implementation."
         )
     } else {
         format!("Cannot start {ticket}: {error}")

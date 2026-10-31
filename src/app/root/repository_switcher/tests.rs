@@ -1,15 +1,15 @@
 use crate::{
     app::{KooladeApp, root::Screen, session::test_support},
-    core::project_repos::{ProjectManifest, Repository, map_local_checkout},
+    core::{
+        managed_workspace::{CodeRepositoryRegistration, WorkspaceManager},
+        project_repos::ProjectManifest,
+    },
 };
 use std::{
     path::{Path, PathBuf},
     process::Command,
     time::{Duration, Instant},
 };
-
-#[path = "tests/registration_ui.rs"]
-mod registration_ui;
 
 fn git(root: &Path, args: &[&str]) {
     let output = Command::new("git")
@@ -44,38 +44,30 @@ fn workspace_menu_opens_the_id_mapped_checkout_in_a_new_process() {
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
-    let root = base.join("planning");
     let worker = base.join("worker");
     let remote = "https://example.test/worker.git";
-    init_repo(&root, "https://example.test/planning.git");
     init_repo(&worker, remote);
-    let manifest = ProjectManifest {
-        repositories: vec![
-            Repository {
-                id: "root".into(),
-                role: "Planning root".into(),
-                remote: "https://example.test/planning.git".into(),
-                display_name: Some("Planning".into()),
-            },
-            Repository {
-                id: "worker".into(),
-                role: "Worker".into(),
-                remote: remote.into(),
-                display_name: Some("API".into()),
-            },
-        ],
-    };
-    let manifest_path = crate::artifacts::layout::ArtifactLayout::new(&root).project_manifest();
-    std::fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
-    std::fs::write(
-        &manifest_path,
-        serde_json::to_vec_pretty(&manifest).unwrap(),
-    )
-    .unwrap();
     let koolade_home = base.join("koolade-home");
     let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
     environment.set("KOOLADE_HOME", &koolade_home);
-    map_local_checkout(&root, "worker", &worker).unwrap();
+    let manager = WorkspaceManager::from_state_root();
+    let workspace = manager.create("Repository switcher test").unwrap();
+    let root = workspace.planning_repo.clone();
+    manager
+        .register_code_repository(
+            workspace.id,
+            CodeRepositoryRegistration {
+                id: "worker".into(),
+                role: "Worker".into(),
+                remote: Some(remote.into()),
+                checkout: worker.clone(),
+            },
+        )
+        .unwrap();
+    let manifest_path = workspace.store.layout().project_manifest();
+    let mut manifest = ProjectManifest::load(&workspace.store).unwrap();
+    manifest.repositories[0].display_name = Some("API".into());
+    crate::core::project_repos::save_display_names(&workspace.store, manifest).unwrap();
 
     let probe = base.join("capture-cwd.sh");
     let captured = base.join("child-cwd.txt");
@@ -90,7 +82,8 @@ fn workspace_menu_opens_the_id_mapped_checkout_in_a_new_process() {
         std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
-    let project = test_support::project_from(&root);
+    let mut project = test_support::project_from(&root);
+    project.managed_workspace = Some(workspace);
     let mut app = KooladeApp {
         screen: Screen::Connected(Box::new(project)),
         spawn_target_override: Some(probe),

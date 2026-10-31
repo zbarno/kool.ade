@@ -6,7 +6,7 @@ fn completed_task_shows_cleanup_failure_without_reopening_implementation() {
     if let Screen::Connected(p) = &mut app.screen {
         let record = p
             .implementation_states
-            .get_mut(".koolade-packet/planning/tasks/fixture/003-task.md")
+            .get_mut("planning/tasks/fixture/003-task.md")
             .unwrap();
         record.cleanup.error = Some("Task repository contains local changes".into());
     }

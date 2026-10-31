@@ -1,5 +1,5 @@
-//! Filesystem layout for planning artifacts inside the connected repository
-//! (SPECIFICATION.md §4, §21) plus small shared IO helpers.
+//! Filesystem layout for planning artifacts in the standalone planning
+//! repository (SPECIFICATION.md §4, §21) plus small shared IO helpers.
 //!
 //! Named-file module convention: this file declares submodules; each artifact
 //! file has its own small neighbor.
@@ -67,10 +67,7 @@ mod tests {
     #[test]
     fn artifact_paths_join_relatively() {
         let p = repo_artifact(Path::new("/repo"), SPEC_FILE);
-        assert_eq!(
-            p,
-            PathBuf::from("/repo/.koolade-packet/planning/product/index.md")
-        );
+        assert_eq!(p, PathBuf::from("/repo/planning/product/index.md"));
     }
 
     #[test]

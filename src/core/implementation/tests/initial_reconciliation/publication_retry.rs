@@ -131,9 +131,10 @@ fn generated_output_survives_publication_retry_without_reconciliation_plan() {
     )
     .unwrap()
     .unwrap();
-    let store = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let store = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::nil(),
         &s.repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     store
         .transaction_with_removals(

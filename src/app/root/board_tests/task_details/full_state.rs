@@ -4,7 +4,7 @@ use super::*;
 fn task_details_show_full_state_and_inline_reply() {
     let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
-    let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
+    let key = "planning/tasks/fixture/001-task.md";
     if let Screen::Connected(p) = &mut app.screen {
         p.queue.blocked.insert(p.task_documents[0].path.clone(),
             crate::core::implementation::Failure::new(

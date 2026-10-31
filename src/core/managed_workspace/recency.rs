@@ -177,21 +177,6 @@ impl WorkspaceManager {
         (title, missing)
     }
 
-    pub(super) fn relocation_identity(
-        &self,
-        id: uuid::Uuid,
-    ) -> anyhow::Result<Option<super::manager::RelocationIdentity>> {
-        Ok(self.read_history()?.identities.remove(&id))
-    }
-
-    pub(super) fn reconnect_token(&self, id: uuid::Uuid) -> anyhow::Result<Option<String>> {
-        Ok(self.read_history()?.tokens.remove(&id))
-    }
-
-    pub(super) fn last_opened_head(&self, id: uuid::Uuid) -> anyhow::Result<Option<String>> {
-        Ok(self.read_history()?.heads.remove(&id))
-    }
-
     pub fn last_opened_dates(
         &self,
     ) -> anyhow::Result<BTreeMap<uuid::Uuid, chrono::DateTime<chrono::Utc>>> {

@@ -128,15 +128,13 @@ fn material_approved_choice_prepares_a_compact_immutable_adr() {
     assert!(!visible.contains("Acceptance evidence"));
     assert!(!visible.contains("Implementation commit"));
 
-    let store =
-        crate::artifacts::planning_store::PlanningStore::legacy_embedded(uuid::Uuid::nil(), &root);
-    // Persist via the store: the prepared change key is git-root-relative,
-    // the store write path is store-root-relative.
-    let rel = first
-        .0
-        .strip_prefix(".koolade-packet/")
-        .expect("prepared decision paths are packet-relative");
-    let change = (rel.to_string(), first.1.clone().into_bytes());
+    let store = crate::artifacts::planning_store::PlanningStore::new(
+        uuid::Uuid::nil(),
+        &root,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
+    let rel = first.0.clone();
+    let change = (rel.clone(), first.1.clone().into_bytes());
     crate::artifacts::transaction::apply_store(&store, std::slice::from_ref(&change), None)
         .unwrap();
     let retry = prepare_decision_record(&root, &item).unwrap().unwrap();

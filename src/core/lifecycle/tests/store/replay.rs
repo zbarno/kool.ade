@@ -40,9 +40,9 @@ fn replay_restores_a_missing_feature_snapshot_and_preserves_corrupt_records() {
             },
         )
         .unwrap();
-    let snapshot_path = fixture.0.join(format!(
-        ".koolade-packet/state/lifecycle_features/{feature_uid}.json"
-    ));
+    let snapshot_path = fixture
+        .0
+        .join(format!("state/lifecycle_features/{feature_uid}.json"));
     std::fs::remove_file(&snapshot_path).unwrap();
     let root = fixture.0.clone();
     let barrier = Arc::new(Barrier::new(3));
@@ -52,7 +52,11 @@ fn replay_restores_a_missing_feature_snapshot_and_preserves_corrupt_records() {
             let barrier = Arc::clone(&barrier);
             let feature_uid = feature_uid.clone();
             std::thread::spawn(move || {
-                let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &root);
+                let store = PlanningStore::new(
+                    uuid::Uuid::new_v4(),
+                    &root,
+                    crate::artifacts::planning_store::StoreMode::ManagedLocal,
+                );
                 let lifecycle = LifecycleStore::new(&store);
                 barrier.wait();
                 lifecycle.replay_feature(&feature_uid)
@@ -109,9 +113,9 @@ fn replay_rejects_a_v3_feature_event_without_revision_metadata() {
         )
         .unwrap();
 
-    let path = fixture.0.join(format!(
-        ".koolade-packet/state/lifecycle_events/{transition_uid}.json"
-    ));
+    let path = fixture
+        .0
+        .join(format!("state/lifecycle_events/{transition_uid}.json"));
     let mut event: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     event
@@ -149,9 +153,9 @@ fn legacy_creation_history_remains_readable_but_is_not_replayable() {
         task_uids: Vec::new(),
     };
     lifecycle.create_feature(&feature, &create_uid).unwrap();
-    let path = fixture.0.join(format!(
-        ".koolade-packet/state/lifecycle_events/{create_uid}.json"
-    ));
+    let path = fixture
+        .0
+        .join(format!("state/lifecycle_events/{create_uid}.json"));
     let mut event: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     let object = event.as_object_mut().unwrap();

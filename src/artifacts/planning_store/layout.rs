@@ -1,14 +1,11 @@
 use std::path::{Component, Path, PathBuf};
 
-use super::{PlanningStore, StoreMode};
+use super::PlanningStore;
 
-/// Resolved planning paths. The root is the only root owned by a planning
-/// store; legacy source paths are available only to the explicit migration
-/// reader (`StoreMode::LegacyPacketSource`).
+/// Resolved paths inside a standalone planning repository.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlanningLayout {
     root: PathBuf,
-    legacy_repository: Option<PathBuf>,
 }
 
 pub mod paths {
@@ -49,9 +46,6 @@ impl PlanningLayout {
     pub(super) fn for_store(store: &PlanningStore) -> Self {
         Self {
             root: store.root.clone(),
-            legacy_repository: (store.mode == StoreMode::LegacyPacketSource)
-                .then(|| store.root.parent().map(Path::to_path_buf))
-                .flatten(),
         }
     }
 
@@ -59,12 +53,9 @@ impl PlanningLayout {
         &self.root
     }
 
-    /// Accepts the old `.koolade-packet/...` spelling or a new root-relative
-    /// path. The returned path is always underneath this planning root.
+    /// Resolve a root-relative path beneath this planning repository.
     pub fn canonical_path(&self, relative: &str) -> Option<PathBuf> {
-        crate::artifacts::layout::ArtifactLayout::resolve_planning_root_relative(
-            &self.root, relative,
-        )
+        safe_path(&self.root, relative)
     }
 
     pub fn manifest(&self) -> PathBuf {
@@ -217,7 +208,7 @@ impl PlanningLayout {
     }
     pub fn legacy_import_relative(&self, name: &str) -> Option<String> {
         self.legacy_import_path(name)?
-            .strip_prefix(self.legacy_repository.as_deref()?)
+            .strip_prefix(&self.root)
             .ok()
             .map(|path| path.to_string_lossy().into_owned())
     }
@@ -254,14 +245,11 @@ impl PlanningLayout {
     }
 
     pub fn legacy_path(&self, relative: &str) -> Option<PathBuf> {
-        safe_path(self.legacy_repository.as_deref()?, relative)
+        safe_path(&self.root, relative)
     }
 
     fn legacy(&self, relative: &str) -> PathBuf {
-        self.legacy_repository
-            .as_ref()
-            .map(|root| root.join(relative))
-            .unwrap_or_else(|| self.root.join(relative))
+        self.root.join(relative)
     }
 
     fn at(&self, relative: &str) -> PathBuf {

@@ -6,11 +6,7 @@ fn task_gate_requires_a_current_independent_approved_plan_review() {
     use crate::core::lifecycle::GateDecision;
     let root = std::env::temp_dir().join(format!("plan-review-{}", uuid::Uuid::new_v4()));
     crate::artifacts::migration::bootstrap_product(&root, "Plan Review Fixture").unwrap();
-    let store = PlanningStore::new(
-        uuid::Uuid::new_v4(),
-        root.join(".koolade-packet"),
-        StoreMode::ManagedLocal,
-    );
+    let store = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
     let (identity, markdown) = identified(&spec());
     let contract = crate::core::workflow::feature_contract(&markdown);
     let mut snapshot =
@@ -224,11 +220,8 @@ fn task_gate_requires_a_current_independent_approved_plan_review() {
         std::env::temp_dir().join(format!("plan-review-approved-{}", uuid::Uuid::new_v4()));
     crate::artifacts::migration::bootstrap_product(&next_root, "Approved Plan Review Fixture")
         .unwrap();
-    let approved_store = PlanningStore::new(
-        uuid::Uuid::new_v4(),
-        next_root.join(".koolade-packet"),
-        StoreMode::ManagedLocal,
-    );
+    let approved_store =
+        PlanningStore::new(uuid::Uuid::new_v4(), &next_root, StoreMode::ManagedLocal);
     persist_snapshot(&approved_store, &snapshot);
     persist_user_confirmation(&approved_store, &snapshot);
     let approved = plan_receipt(&snapshot, GateDecision::Approved);

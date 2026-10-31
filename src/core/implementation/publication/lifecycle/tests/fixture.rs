@@ -58,8 +58,34 @@ impl Fixture {
                 .success()
         );
         migration::bootstrap_product(root.path(), "Publication Fixture").unwrap();
-        let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), root.path());
-        let repository_root = store.root.parent().unwrap().to_path_buf();
+        let project_id = uuid::Uuid::new_v4();
+        let store = PlanningStore::new(
+            project_id,
+            root.path(),
+            crate::artifacts::planning_store::StoreMode::ManagedLocal,
+        );
+        let workspace = crate::core::managed_workspace::WorkspaceManifest::new(project_id);
+        store
+            .atomic_write(
+                crate::artifacts::layout::store::MANIFEST,
+                &serde_json::to_vec(&workspace).unwrap(),
+            )
+            .unwrap();
+        let repositories = crate::core::project_repos::ProjectManifest {
+            repositories: vec![crate::core::project_repos::Repository {
+                id: "root".into(),
+                role: "Primary code".into(),
+                remote: String::new(),
+                display_name: None,
+            }],
+        };
+        store
+            .atomic_write(
+                crate::artifacts::layout::store::PROJECT_MANIFEST,
+                &serde_json::to_vec(&repositories).unwrap(),
+            )
+            .unwrap();
+        let repository_root = root.path().to_path_buf();
         Self::build_records(
             Some(root),
             store,

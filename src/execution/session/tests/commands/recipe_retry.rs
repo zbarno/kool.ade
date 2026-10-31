@@ -27,9 +27,10 @@ fn approved_recipe_retry_preserves_the_approval_and_artifact_request() {
         task_id: "00000000-0000-4000-8000-000000000002".into(),
         source_sha: "a".repeat(40),
     };
-    let planning = PlanningStore::legacy_embedded(
+    let planning = PlanningStore::new(
         uuid::Uuid::parse_str(&workspace.project_id).unwrap(),
         root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let runtime = ProjectRuntimeStore::new(&planning);
     let approval_proof = crate::ui::layout::RuntimeTargetApprovalProof::for_test();

@@ -71,12 +71,7 @@ pub fn next_feature_id<R: PlanningRoot + ?Sized>(repo: &R) -> String {
     }
     let store = repo.planning_store();
     let git_root = store.git_root();
-    let history_path =
-        if store.mode == crate::artifacts::planning_store::StoreMode::LegacyPacketSource {
-            crate::artifacts::layout::store::CHANGES
-        } else {
-            crate::artifacts::planning_store::paths::CHANGES
-        };
+    let history_path = crate::artifacts::planning_store::paths::CHANGES;
     if let Ok(output) = std::process::Command::new("git")
         .args([
             "log",

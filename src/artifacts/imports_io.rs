@@ -1,4 +1,4 @@
-//! Document import into `.koolade-packet/planning/imports/` (SPECIFICATION.md §21).
+//! Document import into `planning/imports/` (SPECIFICATION.md §21).
 //!
 //! Imports are copied into the repository so Pi can inspect them as part of
 //! normal project context. Text-oriented sources additionally gain a

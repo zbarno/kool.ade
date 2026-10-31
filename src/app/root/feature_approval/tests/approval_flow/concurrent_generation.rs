@@ -6,7 +6,7 @@ fn approved_task_generation_runs_alongside_an_unrelated_implementation() {
     let (mut app, root, review) = setup();
     if let Screen::Connected(project) = &mut app.screen {
         project.active_implementations.insert(
-            ".koolade-packet/planning/tasks/other-feature/001-running.md".into(),
+            "planning/tasks/other-feature/001-running.md".into(),
             crate::core::implementation::Controller::idle_fixture(),
         );
     }

@@ -19,14 +19,5 @@ pub(super) fn paint_menu(ui: &mut egui::Ui, surface: &mut dyn Surface) {
                 }
             }
         }
-        if surface.can_register_code_repository() {
-            ui.separator();
-            if ui.button("Add code repository…").clicked() {
-                surface.dispatch(ApplicationCommand::HeaderAction(
-                    HeaderAction::AddCodeRepository,
-                ));
-                ui.close();
-            }
-        }
     });
 }

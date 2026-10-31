@@ -1,7 +1,7 @@
 use std::path::Path;
 
 /// Atomic publication without replacing an occupied destination.
-pub(super) fn directory(from: &Path, to: &Path) -> anyhow::Result<()> {
+pub(crate) fn directory(from: &Path, to: &Path) -> anyhow::Result<()> {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         use std::{ffi::CString, os::unix::ffi::OsStrExt};

@@ -20,12 +20,6 @@ impl KooladeApp {
             PlanningRepositoryCommand::CancelPendingOperation { operation_id } => {
                 self.cancel_pending_planning_operation(operation_id)
             }
-            PlanningRepositoryCommand::MapCodeCheckout { repository_id } => {
-                self.map_workspace_checkout(&repository_id)
-            }
-            PlanningRepositoryCommand::ForgetCodeCheckout { repository_id } => {
-                self.forget_workspace_checkout(&repository_id)
-            }
             PlanningRepositoryCommand::ExportPending => self.export_pending_planning(),
         }
     }
@@ -227,55 +221,6 @@ impl KooladeApp {
             Err(error) => self
                 .toasts
                 .warning(format!("Unsynced changes were not exported: {error:#}")),
-        }
-    }
-
-    fn map_workspace_checkout(&mut self, repository_id: &str) {
-        let Some(path) = rfd::FileDialog::new()
-            .set_title("Choose this code repository checkout")
-            .pick_folder()
-        else {
-            return;
-        };
-        let Screen::Connected(project) = &mut self.screen else {
-            return;
-        };
-        let Some(workspace) = &project.managed_workspace else {
-            return;
-        };
-        match WorkspaceManager::from_state_root().map_code_checkout(
-            workspace.id,
-            repository_id,
-            &path,
-        ) {
-            Ok(workspace) => {
-                project.managed_workspace = Some(workspace);
-                self.toasts
-                    .success(format!("Checkout mapped for {repository_id}"));
-            }
-            Err(error) => self
-                .toasts
-                .warning(format!("Checkout was not mapped: {error:#}")),
-        }
-    }
-
-    fn forget_workspace_checkout(&mut self, repository_id: &str) {
-        let Screen::Connected(project) = &mut self.screen else {
-            return;
-        };
-        let Some(workspace) = &project.managed_workspace else {
-            return;
-        };
-        match WorkspaceManager::from_state_root().disconnect_checkout(workspace.id, repository_id) {
-            Ok(workspace) => {
-                project.managed_workspace = Some(workspace);
-                self.toasts.info(format!(
-                    "Forgot the local checkout mapping for {repository_id}"
-                ));
-            }
-            Err(error) => self
-                .toasts
-                .warning(format!("Checkout mapping was preserved: {error:#}")),
         }
     }
 }

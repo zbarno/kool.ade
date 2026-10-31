@@ -19,8 +19,8 @@ mod fixture_support;
 #[cfg(unix)]
 #[test]
 fn provider_refresh_persists_and_queues_pr_open_close_reopen_and_merge() {
-    let _environment = crate::test_support::lock_process_environment();
     let fixture = Fixture::new();
+    let _home = crate::test_support::KooladeHomeGuard::set(&fixture.0.join("app-state"));
     let (base_sha, head_sha, merge_sha) = current_support::init_merged_repo(&fixture.0);
     let store = fixture.store();
     let _ssh = bind_fixture_provider_remote(&fixture.0, &store);
@@ -98,7 +98,7 @@ fn provider_refresh_persists_and_queues_pr_open_close_reopen_and_merge() {
         )
         .unwrap();
 
-    let ticket = ".koolade-packet/planning/tasks/feature/001-pr-refresh.md";
+    let ticket = "planning/tasks/feature/001-pr-refresh.md";
     let ticket_markdown = crate::domain::ArtifactIdentity::preserve_markdown(
         "# PR refresh\n\nRepository: root\n",
         None,

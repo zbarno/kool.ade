@@ -8,9 +8,7 @@ fn board_mockup_hierarchy_and_centered_legend_at_desktop_sizes() {
             unreachable!()
         };
         let doc = &mut project.task_documents[0];
-        doc.path =
-            ".koolade-packet/planning/tasks/fixture/F7-TASK-generate-completed-month-report.md"
-                .into();
+        doc.path = "planning/tasks/fixture/F7-TASK-generate-completed-month-report.md".into();
         doc.title =
             "F7-TASK-generate-completed-month-report — Generate completed-month report".into();
         doc.text = "# Report\n\n## Intent\nBuild a report from recorded activity.\n\n## Acceptance criteria\n- Handle empty months\n- Preserve day ordering\n- Sum recorded time\n- Keep workspaces separate\n- Include report totals\n".into();

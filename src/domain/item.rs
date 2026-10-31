@@ -1,7 +1,7 @@
 //! Open-item model (SPECIFICATION.md §5–§9).
 //!
 //! An open item is a single unresolved planning issue. It is `Open` while it
-//! exists in `.koolade-packet/planning/open-items.md` and ceases to exist once resolved
+//! exists in `planning/open-items.md` and ceases to exist once resolved
 //! (resolution history is preserved by git, not by this model).
 
 use serde::{Deserialize, Serialize};

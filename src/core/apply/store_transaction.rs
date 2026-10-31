@@ -9,13 +9,7 @@ pub(super) fn apply(
 ) -> anyhow::Result<(Vec<String>, String)> {
     let encoded = changes
         .iter()
-        .map(|(path, text)| {
-            let relative = path
-                .strip_prefix(".koolade-packet/")
-                .unwrap_or(path)
-                .to_owned();
-            (relative, text.as_bytes().to_vec())
-        })
+        .map(|(path, text)| (path.to_owned(), text.as_bytes().to_vec()))
         .collect::<Vec<_>>();
     store
         .transaction_with_revision_and_record_revisions(

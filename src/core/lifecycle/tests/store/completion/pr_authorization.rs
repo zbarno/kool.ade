@@ -231,7 +231,7 @@ fn task_completion_and_pr_preparation_are_committed_as_one_transition() {
     );
     let expected_parent = reopened.load_task(&task_uid).unwrap();
     let expected_child = reopened.load_task(&child_uid).unwrap();
-    let state_dir = fixture.0.join(".koolade-packet/state");
+    let state_dir = fixture.0.join("state");
     std::fs::remove_file(
         state_dir
             .join("lifecycle_tasks")
