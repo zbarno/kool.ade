@@ -27,14 +27,14 @@ use browse::expand_tilde;
 use browse::{DirRow, resolve_seed};
 pub use browse::{DlgBrowse, paint_browse_card};
 pub use code_repository::DlgCodeRepository;
+#[cfg(not(test))]
+pub(crate) use harness_setup::poll_cli_auto_refresh;
 pub(crate) use harness_setup::probe_bootstrap_clis;
+pub(crate) use harness_setup::request_cli_auto_refresh;
 pub(crate) use harness_setup::supported_provider_id;
 pub use harness_setup::{
     DlgHarnessSetup, HarnessSettingsSection, paint_harness_setup_card, paint_harness_setup_page,
 };
-#[cfg(not(test))]
-pub(crate) use harness_setup::poll_cli_auto_refresh;
-pub(crate) use harness_setup::request_cli_auto_refresh;
 pub use import::DlgImport;
 pub use mcp::{DlgMcp, MCP_EXAMPLE_HINT, paint_mcp_card};
 pub use persona_card::{
