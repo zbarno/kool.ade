@@ -30,6 +30,13 @@ jobs:
     name: tests and Docker runtime
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # The runner must hold locked Docker images and two Rust test/binary
+    # link artifacts simultaneously. Debug symbols consumed its remaining
+    # disk space before tests could start (os error 28).
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_BUILD_JOBS: "2"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install isolated rootless-daemon prerequisites
@@ -149,6 +156,14 @@ jobs:
           set -e
           if [ "$test_status" -ne 0 ]; then exit "$test_status"; fi
           exit "$report_status"
+
+      - name: Record storage and rootless Docker health after test shard
+        if: always()
+        run: |
+          df -h / "$RUNNER_TEMP" || true
+          du -sh target/debug "$HOME/.cargo" 2>/dev/null || true
+          timeout 15s docker info --format '{{.ServerVersion}} {{json .SecurityOptions}}' || true
+          timeout 15s docker system df || true
 
       - name: Report remote worker retry stages
         if: always()
