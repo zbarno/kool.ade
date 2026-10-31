@@ -123,9 +123,12 @@ impl DlgHarnessSetup {
             return;
         }
         for (id, entry) in saved.discovered {
-            if self.settings.discovered.get(&id).is_none_or(|current| {
-                entry.checked_at_unix_ms > current.checked_at_unix_ms
-            }) {
+            if self
+                .settings
+                .discovered
+                .get(&id)
+                .is_none_or(|current| entry.checked_at_unix_ms > current.checked_at_unix_ms)
+            {
                 self.settings.discovered.insert(id, entry);
             }
         }
