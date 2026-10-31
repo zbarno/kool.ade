@@ -161,7 +161,7 @@ fn stale_discovery_cannot_route_a_saved_model() {
         None,
     );
     let error = harness.check_available().unwrap_err().detail();
-    assert!(error.contains("Refresh Coding tools"));
+    assert!(error.contains("reverified automatically"));
 }
 
 #[test]
