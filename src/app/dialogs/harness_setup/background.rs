@@ -6,9 +6,11 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crate::harness::discovery::{ModelCatalogStatus, ProbeDiagnosticCode, ProbeResult};
-use crate::persistence::harness_settings::{self, HarnessSettings, DISCOVERY_FRESHNESS_MS};
+use crate::persistence::harness_settings::{self, HarnessSettings};
+#[cfg(test)]
+use crate::persistence::harness_settings::DISCOVERY_FRESHNESS_MS;
 
-use super::{probe_result, probes, discovery::results};
+use super::{probe_result, probes, discovery::update_settings_from_probe};
 
 const EARLY_REFRESH_MS: u64 = 3 * 60 * 1000;
 const RETRY_INTERVAL: Duration = Duration::from_secs(60);
@@ -97,7 +99,7 @@ fn merge_results(settings: &mut HarnessSettings, scan: CompletedScan) -> bool {
             result.model_catalog_status = ModelCatalogStatus::Stale;
         }
         let report = probe_result::into_harness_probe(&result.bounded());
-        results::update_settings_from_probe(settings, &report, scan.generation);
+        update_settings_from_probe(settings, &report, scan.generation);
         changed = true;
     }
     changed

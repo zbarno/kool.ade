@@ -10,7 +10,7 @@ mod results;
 pub(super) use results::apply_probe_results;
 #[cfg(test)]
 pub(super) use results::update_runtime_readiness;
-use results::update_settings_from_probe;
+pub(in crate::app::dialogs::harness_setup) use results::update_settings_from_probe;
 mod workers;
 
 #[cfg(test)]
@@ -66,6 +66,7 @@ impl DlgHarnessSetup {
         }
         if self.has_recent_discovery_evidence() {
             self.first_scan_pending = false;
+            self.probe_view = ProbeView::Complete;
             return;
         }
         if matches!(
@@ -104,6 +105,25 @@ impl DlgHarnessSetup {
                     .get(provider)
                     .is_some_and(|entry| entry.is_fresh_at(now))
             })
+    }
+
+    /// Refresh only evidence from the background coordinator. Never replace
+    /// operator choices or a live dialog-owned scan with a stale settings copy.
+    pub(super) fn reload_newer_discovery(&mut self) {
+        if self.probe_rx.is_some() {
+            return;
+        }
+        let (saved, diagnostic) = crate::persistence::harness_settings::load();
+        if diagnostic.is_some() {
+            return;
+        }
+        for (id, entry) in saved.discovered {
+            if self.settings.discovered.get(&id).is_none_or(|current| {
+                entry.checked_at_unix_ms > current.checked_at_unix_ms
+            }) {
+                self.settings.discovered.insert(id, entry);
+            }
+        }
     }
 
     pub fn drain_probe(&mut self) {

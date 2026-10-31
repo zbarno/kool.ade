@@ -12,21 +12,6 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
     ));
     if matches!(dialog.probe_view, ProbeView::Pending) {
         probe_status::paint_scan_progress(ui, dialog);
-        let waiting = super::probes::PROVIDERS
-            .iter()
-            .filter(|id| {
-                dialog.settings.discovered.get(**id).is_none_or(|entry| {
-                    !entry.is_fresh_at(crate::persistence::harness_settings::current_unix_ms())
-                })
-            })
-            .copied()
-            .collect::<Vec<_>>();
-        if !waiting.is_empty() {
-            ui.label(theme::metadata_text(format!(
-                "Still checking: {}",
-                waiting.join(", ")
-            )));
-        }
     }
     let now_ms = crate::persistence::harness_settings::current_unix_ms();
     // Normal tool selection is not an installation/repair catalog. Show only
@@ -45,7 +30,7 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
             "No ready coding tools. Use Add / Fix a coding tool below."
         });
     } else {
-    // Exactly one actionable provider narrows the default choice to a
+        // Exactly one actionable provider narrows the default choice to a
     // single click, so that row earns a visible marker. The predicate is
     // the same canonical one the router's task-detail notice uses.
     let ready_count = entries
@@ -160,7 +145,7 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
             message.push_str(blocker);
         }
         message.push_str(
-            " Refresh Coding tools and resolve the blocker. Repository reads still need Docker.",
+            " Kool.ad/e checks installed tools automatically. If this persists, open Add / Fix a coding tool below. Repository reads still need Docker.",
         );
         ui.colored_label(theme::DANGER, message);
     }
@@ -169,7 +154,7 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
     // default/role selection list. Preserve access to manual paths and login.
     ui.collapsing("Add / Fix a coding tool", |ui| {
         for id in super::probes::PROVIDERS {
-            if entries.iter().any(|(visible, _)| visible == id) {
+            if entries.iter().any(|(visible, _)| visible.as_str() == id) {
                 continue;
             }
             ui.collapsing(id, |ui| {
