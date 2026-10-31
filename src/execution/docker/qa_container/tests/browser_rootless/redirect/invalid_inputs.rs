@@ -7,12 +7,12 @@ enum InvalidInput {
 
 /// Rootless Docker integration boundary: send deliberately malformed driver
 /// requests around the controller's scenario validator and prove the pinned
-/// driver rejects unsafe URLs, arbitrary command actions, and extension
-/// installation before Chromium starts. A unit test cannot prove the built
-/// driver's runtime policy. This needs rootless Docker, the candidate browser
-/// image, and the existing preview/service fixture; the two added attack cases
-/// create two extra short-lived driver containers in the existing rootless
-/// integration run.
+/// driver rejects unsafe URLs, arbitrary command actions, package and
+/// extension installation before Chromium starts. A unit test cannot prove
+/// the built driver's runtime policy. This needs rootless Docker, the candidate
+/// browser image, and the existing preview/service fixture; the three added
+/// attack cases create three extra short-lived driver containers in the
+/// existing rootless integration run.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn assert_invalid_browser_inputs_denied(
     docker: &bollard::Docker,
@@ -47,6 +47,14 @@ pub(super) async fn assert_invalid_browser_inputs_denied(
             InvalidInput::Action(serde_json::json!({
                 "action": "install_extension",
                 "path": "/tmp/koolade-qa-unauthorized-extension"
+            })),
+        ),
+        (
+            "package installation",
+            InvalidInput::Action(serde_json::json!({
+                "action": "install_package",
+                "manager": "apt",
+                "package": "curl"
             })),
         ),
     ];
