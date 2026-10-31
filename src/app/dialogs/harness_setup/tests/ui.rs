@@ -216,6 +216,7 @@ fn codex_settings_show_models_when_the_docker_execution_session_is_unavailable()
         first_scan_pending: false,
     };
     let ctx = egui::Context::default();
+    reveal_provider_details(&ctx, &mut dialog, "codex");
     let mut output = ctx.run_ui(
         egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
