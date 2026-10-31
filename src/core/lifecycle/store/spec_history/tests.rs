@@ -42,7 +42,11 @@ impl Fixture {
     }
 
     fn store(&self) -> PlanningStore {
-        PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &self.0)
+        PlanningStore::new(
+            uuid::Uuid::new_v4(),
+            &self.0,
+            crate::artifacts::planning_store::StoreMode::ManagedLocal,
+        )
     }
 
     fn feature(store: &PlanningStore) -> (String, String) {

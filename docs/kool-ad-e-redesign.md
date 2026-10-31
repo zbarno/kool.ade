@@ -81,7 +81,7 @@ Keep type badges compact and colored, on neutral card backgrounds. Do not depend
 
 ## Scope and migration
 
-Replace primary user-visible `Kool.ad/e` text, window title, and working status with `Kool.ad/e`. Internal crate names, namespaces, stored data, and artifact paths should remain stable unless independently required. In particular, `.koolade-packet/` remains the live shared project-artifact root under the repository's `AGENTS.md` rule. Do not turn a visual rebrand into a data migration.
+Replace primary user-visible `Kool.ad/e` text, window title, and working status with `Kool.ad/e`. Internal crate names and namespaces should remain stable unless independently required. This historical rebrand document predates the separate planning-repository architecture; see [planning repository v1](planning-repository-v1.md) for current artifact ownership. Do not turn a visual rebrand into a data migration.
 
 Preserve task transitions, board filtering, specification behavior, acceptance criteria, ownership, task conversations, agent execution, Git storage, and human gates. Provide focus states and readable contrast. Status, type, errors, and completion must be understandable without color alone.
 
@@ -100,7 +100,7 @@ Preserve task transitions, board filtering, specification behavior, acceptance c
 - The app has neutral near-black surfaces, Punch Red ambient accents rather than pink, Kool Blue primary actions and active work, amber human attention, green Done, and locally scoped failure red.
 - `+ New Task` is right aligned on the Specification/Board row; the task-type legend sits between Board and New Task.
 - Human titles dominate IDs; existing card and global activity graphs use blue and red line styling respectively while preserving their real-time data and behavior.
-- The five lanes, all existing work flows, human gates, and `.koolade-packet/` data continue unchanged.
+- The five lanes, existing work flows, and human gates remain. Shared project artifacts live in the separate managed planning repository; code checkouts are not planning stores.
 - Keyboard focus, status labels, contrast, responsive header behavior, and reduced-motion behavior remain usable.
 - Decorative elements never cover controls, criteria, or task content.
 

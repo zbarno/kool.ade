@@ -7,7 +7,7 @@ pub(super) fn verify_fixture(
     task_uid: &str,
 ) {
     let record_path = format!("state/lifecycle_tasks/{task_uid}.json");
-    let task_file = fixture.0.join(".koolade-packet").join(&record_path);
+    let task_file = fixture.0.join(&record_path);
     let mut legacy_json: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&task_file).unwrap()).unwrap();
     legacy_json["record"]

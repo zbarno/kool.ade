@@ -20,7 +20,7 @@ fn fixture() -> (
     let store = Box::leak(Box::new(
         crate::artifacts::planning_store::PlanningStore::new(
             uuid::Uuid::new_v4(),
-            root.join(".koolade-packet"),
+            &root,
             crate::artifacts::planning_store::StoreMode::ManagedLocal,
         ),
     ));

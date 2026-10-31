@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn board_cancel_requires_a_visible_confirmation() {
     let mut app = fixture();
-    let ticket = ".koolade-packet/planning/tasks/fixture/001-task.md";
+    let ticket = "planning/tasks/fixture/001-task.md";
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     click_text(&mut app, &ctx, "First task");
@@ -42,7 +42,7 @@ fn queued_running_attention_review_and_completed_tasks_cancel_safely() {
     let queued = project.task_documents[0].path.clone();
     let review = project.task_documents[1].path.clone();
     let complete = project.task_documents[2].path.clone();
-    let attention = ".koolade-packet/planning/tasks/fixture/004-attention.md".to_owned();
+    let attention = "planning/tasks/fixture/004-attention.md".to_owned();
     let mut attention_doc = project.task_documents[0].clone();
     attention_doc.path = attention.clone();
     attention_doc.title = "Needs attention task".into();

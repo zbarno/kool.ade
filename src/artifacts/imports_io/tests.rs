@@ -161,8 +161,12 @@ fn list_rejects_symlinked_import_parent_and_entries() {
     use std::os::unix::fs::symlink;
 
     let (repo, outside) = sandbox("list_symlink");
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &repo);
-    let imports = repo.join(".koolade-packet/planning/imports");
+    let store = PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        &repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
+    let imports = repo.join("planning/imports");
     std::fs::create_dir_all(&imports).unwrap();
     std::fs::write(outside.join("secret.txt"), "outside data").unwrap();
     symlink(outside.join("secret.txt"), imports.join("linked.txt")).unwrap();
@@ -172,8 +176,8 @@ fn list_rejects_symlinked_import_parent_and_entries() {
         Err(StoreError::InvalidPath(_))
     ));
     std::fs::remove_file(imports.join("linked.txt")).unwrap();
-    std::fs::remove_dir_all(repo.join(".koolade-packet/planning")).unwrap();
-    symlink(&outside, repo.join(".koolade-packet/planning")).unwrap();
+    std::fs::remove_dir_all(repo.join("planning")).unwrap();
+    symlink(&outside, repo.join("planning")).unwrap();
     assert!(matches!(
         list_imports_in_store(&store),
         Err(StoreError::InvalidPath(_))

@@ -1,30 +1,18 @@
-# Planning repository cutover notes
+# Planning repository setup and recovery notes
 
 The managed planning repository is the shared planning authority for a
-workspace. New workspaces have one planning Git repository and zero or more
-code repositories. A workspace can be created without a code checkout, and
-operators join by connecting to its planning repository. Joining keeps the
-workspace UUID and task identities and records local checkout mappings only
-for the operator who configures them.
+workspace. Setup starts with a GitHub code repository and derives the paired
+`<owner>/<repository>.packet` remote. Kool.ad/e clones both repositories; if
+the planning repository is missing, it creates it with the code repository's
+visibility. A visibility mismatch is reported without changing either repo.
+Existing local workspaces reopen from their saved managed association.
 
-## Existing data and migration
+## Embedded project data
 
-Managed planning repositories use normalized per-record files at the
-repository root, as specified in [Planning repository v1](../planning-repository-v1.md).
-Legacy `.koolade-packet/` and recognized historical planning layouts remain
-migration inputs. Migration preflights sources and destinations, keeps
-conflicting copies, preserves recognized IDs and approval fingerprints, and
-retains the original checkout and monolithic source files as recovery
-evidence. Missing code checkouts do not block planning migration. No legacy
-source is automatically deleted.
-
-To roll back, stop planning edits, preserve the managed planning repository
-and operator-local workspace association, and reconnect to the preserved
-legacy checkout. If managed planning has received newer shared edits, export
-or manually reconcile those changes before resuming work from the legacy
-copy; the application does not automatically reverse-sync normalized records
-into legacy monolithic files. Keep a backup of both repositories before any
-manual recovery.
+Project artifacts embedded in a code checkout are unsupported. Kool.ad/e does
+not discover, import, migrate, or use `.koolade-packet/` as a fallback. Existing
+files remain untouched. Use the managed GitHub clone flow to establish the
+code/planning pair; do not select a code or planning checkout by local path.
 
 ## Sync and limitations
 
@@ -43,7 +31,6 @@ code repository, not to the planning repository. An operator without that
 code checkout can review shared tasks but cannot execute tasks that require
 the missing repository.
 
-This cutover does not rewrite Git history, remove embedded artifacts, or
-claim that separate PR merges are integrated until their commits are
-verified in the target repositories. Keep the legacy checkout until the
-managed workspace has been opened, synced, and its required records checked.
+This setup does not rewrite Git history or import embedded project artifacts.
+Verify the code and planning repositories are paired and that their remotes
+have matching visibility before shared work begins.

@@ -3,10 +3,10 @@
 //! Named-file module layout:
 //! * `artifacts.rs`     — path constants, read/write utilities
 //! * `spec_doc.rs`      — current product-document lifecycle
-//! * `items_io.rs`      — `.koolade-packet/planning/open-items.md` serialization
-//! * `config_io.rs`     — `.koolade-packet/config/project.md` parsing/serialization
-//! * `imports_io.rs`    — `.koolade-packet/planning/imports/` intake (§6)
-//! * `time_ledger.rs`  — `.koolade-packet/state/time-ledger.log` append/load, torn-row salvage (F7)
+//! * `items_io.rs`      — `planning/open-items.md` serialization
+//! * `config_io.rs`     — `config/project.md` parsing/serialization
+//! * `imports_io.rs`    — `planning/imports/` intake (§6)
+//! * `time_ledger.rs`  — `state/time-ledger.log` append/load, torn-row salvage (F7)
 //! * `mcp_io.rs`        — Koolade MCP configuration load/save/clear/checkpoint (F-18)
 
 pub mod config_io;

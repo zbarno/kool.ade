@@ -185,7 +185,7 @@ fn decode(
         PromptRole::ManagerV2 => parse!(ManagerOutputV1, ManagerLegacy),
         PromptRole::Planner => parse!(PlannerOutputV2, PlannerV3),
         PromptRole::PlannerV2 => parse!(PlannerOutputV1, Planner),
-        PromptRole::PlannerConversation => {
+        PromptRole::PlannerConversation | PromptRole::PlannerConversationV5 => {
             crate::harness::responses::decode_turn(text, turn_purpose)
                 .map(Box::new)
                 .map(RoleOutputV1::PlanningTurn)

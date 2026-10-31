@@ -110,7 +110,7 @@ fn fixture() -> PathBuf {
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
-    std::fs::create_dir_all(root.join(".koolade-packet/config")).unwrap();
+    std::fs::create_dir_all(root.join("config")).unwrap();
     let git = |args: &[&str]| {
         std::process::Command::new("git")
             .args(args)
@@ -122,7 +122,7 @@ fn fixture() -> PathBuf {
     assert!(git(&["config", "user.name", "Settings Test"]).success());
     assert!(git(&["config", "user.email", "settings@example.test"]).success());
     std::fs::write(
-        root.join(".koolade-packet/config/project.md"),
+        root.join("config/project.md"),
         "# Planner Configuration\n\n## Current User\nName: Settings Test\nGroups:\n\n## Stakeholders\n",
     )
     .unwrap();
@@ -202,7 +202,7 @@ fn project_harness_route_is_committed_and_restored_with_project_state() {
     assert!(
         String::from_utf8(paths.stdout)
             .unwrap()
-            .contains(".koolade-packet/config/harness-routes.json")
+            .contains("config/harness-routes.json")
     );
     let _ = std::fs::remove_dir_all(root);
 }

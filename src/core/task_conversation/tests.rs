@@ -15,7 +15,7 @@ fn references_match_whole_ids_in_headings_bullets_and_tables() {
 #[test]
 fn task_story_prompt_includes_explicit_dependency_and_referenced_specification() {
     let root = std::env::temp_dir().join(format!("koolade_task_prompt_{}", std::process::id()));
-    let directory = ".koolade-packet/planning/tasks/authentication";
+    let directory = "planning/tasks/authentication";
     std::fs::create_dir_all(root.join(directory)).unwrap();
     let mut state = PlannerState::load(&root).unwrap();
     state.spec_text = Some("# Product\n## FR-1 Sign in\nUse corporate SSO.\n## FR-10 Reporting\nUnrelated reporting details.".into());

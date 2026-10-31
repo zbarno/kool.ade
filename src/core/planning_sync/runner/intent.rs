@@ -19,8 +19,8 @@ pub(in crate::core::planning_sync) fn prepare_local_intent(
     message: &str,
     paths: &[String],
 ) -> anyhow::Result<Option<uuid::Uuid>> {
-    // Ordinary and legacy project repositories may contain planning data
-    // without the managed workspace manifest; they remain local-only.
+    // A repository without managed-workspace identity has no shared planning
+    // sync lifecycle; it remains local-only.
     if !repo.join("manifest.json").is_file() {
         return Ok(None);
     }

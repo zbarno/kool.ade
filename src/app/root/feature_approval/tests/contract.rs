@@ -38,8 +38,7 @@ fn changed_contract_stops_authorized_continuation_and_manager_uses_current_state
     let prompt = crate::app::manager::Manager::prompt_body(p.as_ref(), &[]);
     assert!(prompt.contains("CHG-004: approved for current contract; do not ask again"));
     assert!(prompt.contains("Persist saved searches and restore them after restarting."));
-    let path =
-        root.join(".koolade-packet/planning/changes/CHG-004-saved-searches/specification.md");
+    let path = root.join("planning/changes/CHG-004-saved-searches/specification.md");
     let changed = std::fs::read_to_string(&path)
         .unwrap()
         .replace("Persist saved searches", "Publish saved searches");
@@ -83,8 +82,7 @@ fn changed_contract_stops_authorized_continuation_and_manager_uses_current_state
 fn stale_display_cannot_approve_changed_contract_or_overwrite_other_approval() {
     let _shield = crate::core::gitops::test_support::shield("feature-approval-drift");
     let (mut app, root, _) = setup();
-    let path =
-        root.join(".koolade-packet/planning/changes/CHG-004-saved-searches/specification.md");
+    let path = root.join("planning/changes/CHG-004-saved-searches/specification.md");
     let original = std::fs::read_to_string(&path).unwrap();
     std::fs::write(
         &path,
@@ -105,7 +103,7 @@ fn stale_display_cannot_approve_changed_contract_or_overwrite_other_approval() {
     };
     assert!(p.active_turn.is_none());
     std::fs::write(&path, original).unwrap();
-    let other_directory = root.join(".koolade-packet/planning/changes/CHG-009-other-feature");
+    let other_directory = root.join("planning/changes/CHG-009-other-feature");
     std::fs::create_dir_all(&other_directory).unwrap();
     let other_path = other_directory.join("specification.md");
     let other_spec = crate::artifacts::product_docs::identity::preserve_feature_identity(
@@ -192,10 +190,7 @@ fn explicit_plan_confirmation_persists_snapshot_and_blocks_without_independent_r
         &contract,
     )
     .unwrap();
-    let path = root.join(format!(
-        ".koolade-packet/state/lifecycle_plans/{}.json",
-        snapshot.uid
-    ));
+    let path = root.join(format!("state/lifecycle_plans/{}.json", snapshot.uid));
     let persisted: serde_json::Value =
         serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert_eq!(persisted["data"]["contentHash"], snapshot.content_hash);
@@ -219,8 +214,7 @@ fn explicit_plan_confirmation_persists_snapshot_and_blocks_without_independent_r
     assert!(project.active_turn.is_none());
 
     let changed = markdown.replace("Persist saved searches", "Publish saved searches");
-    let spec_path =
-        root.join(".koolade-packet/planning/changes/CHG-004-saved-searches/specification.md");
+    let spec_path = root.join("planning/changes/CHG-004-saved-searches/specification.md");
     std::fs::write(spec_path, changed).unwrap();
     assert!(!crate::core::workflow::feature_approved(
         &project.state.planning_store,

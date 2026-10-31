@@ -1,5 +1,5 @@
 use crate::{
-    artifacts::planning_store::{PlanningStore, StoreMode},
+    artifacts::planning_store::PlanningStore,
     artifacts::task_docs::TaskDocument,
     core::task_claim::{ClaimError, ClaimRequest, ClaimScope},
 };
@@ -44,9 +44,8 @@ pub(super) fn prepare(
         }
     };
     let scope = match planning_store.mode {
-        StoreMode::ManagedShared => ClaimScope::SharedRequired,
-        StoreMode::ManagedLocal => ClaimScope::LocalOnly,
-        StoreMode::LegacyPacketSource => ClaimScope::SharedOptional,
+        crate::artifacts::planning_store::StoreMode::ManagedShared => ClaimScope::SharedRequired,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal => ClaimScope::LocalOnly,
     };
     Ok(ClaimRequest::new(
         planning_store.git_root(),

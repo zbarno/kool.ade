@@ -11,7 +11,7 @@ fn board_state_follows_task_uid_after_story_path_changes() {
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
-    let directory = ".koolade-packet/planning/tasks/renamed-batch";
+    let directory = "planning/tasks/renamed-batch";
     let ticket = format!("{directory}/F7-TASK-renamed.md");
     let readme =
         ArtifactIdentity::preserve_markdown("# Renamed batch\n", None, "batch-1", "Renamed batch")

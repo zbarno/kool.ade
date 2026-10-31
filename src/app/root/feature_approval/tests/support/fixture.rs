@@ -35,7 +35,11 @@ pub(in crate::app::root::feature_approval::tests) fn decomposer_graph(app: &Kool
         .unwrap();
     let checkout = state
         .repositories
-        .target(&state.repo_root, &repository.id)
+        .target(
+            state.planning_store.project_id,
+            &state.repo_root,
+            &repository.id,
+        )
         .unwrap();
     let sha = std::process::Command::new("git")
         .args([
@@ -117,7 +121,7 @@ pub(crate) fn setup() -> (KooladeApp, std::path::PathBuf, serde_json::Value) {
     }
     let mut state = crate::core::state::PlannerState::load(&root).unwrap();
     state.bootstrap_missing().unwrap();
-    let dir = root.join(".koolade-packet/planning/changes/CHG-004-saved-searches");
+    let dir = root.join("planning/changes/CHG-004-saved-searches");
     std::fs::create_dir_all(&dir).unwrap();
     let mut spec = "# CHG-004: Saved searches\n\n**Status:** Ready\n".to_string();
     for heading in [
@@ -175,19 +179,11 @@ pub(crate) fn setup() -> (KooladeApp, std::path::PathBuf, serde_json::Value) {
     item.feature_id = Some("CHG-004".into());
     item.status = crate::domain::ItemStatus::Resolved;
     std::fs::write(
-        root.join(".koolade-packet/planning/resolved-items.json"),
+        root.join("planning/resolved-items.json"),
         serde_json::to_vec(&vec![item]).unwrap(),
     )
     .unwrap();
-    crate::core::gitops::commit(
-        &root,
-        "fixture",
-        &[
-            ".koolade-packet/planning".into(),
-            ".koolade-packet/config".into(),
-        ],
-    )
-    .unwrap();
+    crate::core::gitops::commit(&root, "fixture", &["planning".into(), "config".into()]).unwrap();
     let feature_identity = crate::domain::ArtifactIdentity::from_markdown(&spec)
         .unwrap()
         .unwrap();

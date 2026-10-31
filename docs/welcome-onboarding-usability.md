@@ -1,57 +1,45 @@
-# Welcome onboarding usability session
+# Welcome workspace setup walkthrough
 
-Status: test script prepared; implementation and validation are not complete.
-Run against the final candidate build, not an earlier screenshot or fixture.
-Record the candidate commit, package version, Linux distribution, desktop,
-and whether the participant has prior terminal, Git, Docker or coding-tool
-experience. Use synthetic project names and ideas. Never publish personal
-paths, account details, credentials or transcripts containing private data.
+Status: ready for the operator to run against the final candidate build. Record
+the candidate commit, package version, Pop!_OS version, COSMIC version and
+outcomes. The operator reports terminal comfort. The separate novice usability
+session was waived; this walkthrough must not be described as novice testing.
 
-Planned operator walkthrough: Pop!_OS with COSMIC. The participant reports
-comfort with the terminal. Distribution version and outcomes are still pending;
-the operator explicitly waived the observed novice-session requirement for this
-PR on 2026-10-30. Their manual walkthrough remains the acceptance check.
+Use the existing public pair `https://github.com/zbarno/kool.ade` and
+`https://github.com/zbarno/kool.ade.packet`. Do not include private home paths,
+credentials, account details or unredacted diagnostics in screenshots or
+public notes.
 
-## Preparation
+## Walkthrough
 
-Use a disposable user profile with no saved application setup or projects.
-Have a supported provider account available for its own secure login flow.
-Do not give the participant terminal commands or explain the UI in advance.
-The observer records confusion before intervening. Stop if an operation's
-preview is unclear or differs from the requested action.
-
-## Participant tasks
-
-1. Launch Kool.ad/e and explain what you think it will help you do.
-2. Choose an assistant, complete provider-owned login as needed, and explain
-   which actions the assistant can perform before the computer is ready.
-3. Review a real missing prerequisite. Explain the proposed repair, approve
-   only the intended change, and follow the application's guidance. Decline
-   another repair and check that planning remains available when safe.
-4. Close and reopen during an unfinished setup step. Explain what resumed
-   and confirm that no earlier permission was silently reused.
-5. Create “Garden notes” with the idea “Help me track planting dates”. Review
-   where code and planning history will live before confirming creation.
-   Check that the idea appears in the normal planning conversation.
-6. Open an existing non-Git folder containing synthetic files. Review and
-   approve history initialization; verify those files are unchanged.
-7. Open an existing Git project with an uncommitted change. Confirm that its
-   branch, staged files and working changes are preserved.
-8. Open several workspaces, restart, and find the most recently opened one.
-   Move one disposable workspace folder and try reconnecting it without
-   creating a replacement workspace or losing history.
-9. Resize to a narrow window and navigate using Tab, Shift+Tab, Enter and
-   Escape. Ask for help during setup and project selection.
+1. Launch Kool.ad/e and identify the action for cloning a code repository with
+   its planning repository.
+2. Paste the code repository URL. Leave the optional display name blank, then
+   continue. Confirm that review names both repositories, shows the managed
+   local code destination and explains the separate planning checkout.
+3. Confirm the operation. Check that Kool.ad/e clones the code repository and
+   the same-owner `kool.ade.packet` planning repository, registers the code
+   repository and opens the board.
+4. In the opened workspace, verify code files come from the code checkout and
+   planning data comes from the planning checkout. Confirm no
+   `.koolade-packet` project-artifact directory was created inside either
+   checkout.
+5. Quit and relaunch. Reopen the saved workspace and confirm it returns to the
+   same project and planning history without another clone or duplicate
+   workspace.
+6. Return to Welcome and inspect the available setup choices. Confirm there is
+   no control to select arbitrary existing code or planning folders and no
+   embedded-planning migration path.
+7. If a safe test pair is available, verify that a missing planning repository
+   is created with the code repository's visibility. Verify a visibility
+   mismatch stops before either repository is changed.
+8. Resize the window and use Tab, Shift+Tab, Enter and Escape. Confirm labels,
+   review details, errors and primary actions remain clear and reachable.
 
 ## Observer record
 
-For each task, record outcome (completed / assisted / blocked), observed
-confusion, exact UI action needed, and any unexpected changes. Record wide
-and narrow screenshots using synthetic data. Avoid recording provider login
-screens or private diagnostics. Link each actionable finding to its fix and
-repeat the affected task on the corrected candidate.
-
-Record participant experience honestly. The operator waived the separate novice
-session; this walkthrough must not be described as novice validation. Automated
-fixtures do not substitute for the manual session. Platform claims remain
-limited to the hosts actually tested.
+For each step, record outcome (completed / assisted / blocked), any confusing
+wording or action, and any unexpected files or Git changes. Link each actionable
+finding to a fix and repeat the affected step on the corrected candidate.
+Automated fixtures do not replace this manual check. Platform claims remain
+limited to hosts actually tested.

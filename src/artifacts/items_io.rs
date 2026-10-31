@@ -1,4 +1,4 @@
-//! Markdown round-tripping for `.koolade-packet/planning/open-items.md` (SPECIFICATION.md §5).
+//! Markdown round-tripping for `planning/open-items.md` (SPECIFICATION.md §5).
 //!
 //! The app is the sole producer of this format and the parser is correspondingly
 //! strict: a broken file is a *loud* error, never silently half-applied state.

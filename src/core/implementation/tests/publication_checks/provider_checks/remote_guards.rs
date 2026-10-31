@@ -14,6 +14,22 @@ fn publication_runner(sandbox: &Sandbox) -> Runner {
     }
 }
 
+fn align_manifest_remote(sandbox: &Sandbox, remote: &str) {
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
+        uuid::Uuid::nil(),
+        &sandbox.repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
+    let mut manifest = crate::core::project_repos::ProjectManifest::load(&planning).unwrap();
+    manifest.repositories[0].remote = remote.to_owned();
+    planning
+        .atomic_write(
+            crate::artifacts::layout::store::PROJECT_MANIFEST,
+            &serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+}
+
 #[test]
 fn task_clone_remote_changes_refuse_pull_request_publication() {
     for key in ["remote.origin.url", "remote.origin.pushurl"] {
@@ -162,6 +178,7 @@ fn required_independent_checks_reject_redirected_push_destinations() {
         &sandbox.repo,
         &["config", "remote.origin.url", unsupported_remote],
     );
+    align_manifest_remote(&sandbox, unsupported_remote);
     sandbox.git(
         &sandbox.repo,
         &[
@@ -214,6 +231,7 @@ fn required_independent_checks_fail_closed_for_unsupported_git_hosting() {
             "ssh://git@example.test/team/repo.git",
         ],
     );
+    align_manifest_remote(&sandbox, "ssh://git@example.test/team/repo.git");
     let error = sandbox
         .run_with_publication_policy(
             "complete",

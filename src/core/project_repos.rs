@@ -1,4 +1,4 @@
-//! Planning-root manifest and private machine checkout map.
+//! Portable repository identity stored in the managed planning repository.
 use crate::artifacts::planning_store::PlanningRoot;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -42,21 +42,6 @@ pub struct ProjectManifest {
 }
 impl ProjectManifest {
     pub fn load<R: PlanningRoot + ?Sized>(planning_root: &R) -> anyhow::Result<Self> {
-        let code_root = planning_root.code_repository_root();
-        Self::load_with_optional_code_root(planning_root, code_root.as_deref())
-    }
-
-    pub fn load_with_code_root<R: PlanningRoot + ?Sized>(
-        planning_root: &R,
-        code_root: &Path,
-    ) -> anyhow::Result<Self> {
-        Self::load_with_optional_code_root(planning_root, Some(code_root))
-    }
-
-    fn load_with_optional_code_root<R: PlanningRoot + ?Sized>(
-        planning_root: &R,
-        code_root: Option<&Path>,
-    ) -> anyhow::Result<Self> {
         let path = planning_root.planning_layout().project_manifest();
         let contents = match planning_root.read_planning_path(&path) {
             Ok(bytes) => {
@@ -65,26 +50,6 @@ impl ProjectManifest {
                     "project repository manifest exceeds the 1 MiB size limit"
                 );
                 String::from_utf8(bytes)?
-            }
-            Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
-                if source.kind() == std::io::ErrorKind::NotFound =>
-            {
-                anyhow::ensure!(
-                    code_root.is_some(),
-                    "A code repository root is required to initialize project repository identity"
-                );
-                let remote = code_root
-                    .and_then(git_remote)
-                    .filter(|remote| portable_remote(remote))
-                    .unwrap_or_default();
-                return Ok(Self {
-                    repositories: vec![Repository {
-                        id: "root".into(),
-                        role: "Planning root".into(),
-                        remote,
-                        display_name: None,
-                    }],
-                });
             }
             Err(error) => {
                 // Keep the offending path and OS cause visible: this used to
@@ -134,14 +99,20 @@ impl ProjectManifest {
         }
         Ok(())
     }
-    pub fn target(&self, planning_root: &Path, id: &str) -> anyhow::Result<PathBuf> {
-        self.target_if_available(planning_root, id)?
+    pub fn target(
+        &self,
+        workspace_id: uuid::Uuid,
+        code_root: &Path,
+        id: &str,
+    ) -> anyhow::Result<PathBuf> {
+        self.target_if_available(workspace_id, code_root, id)?
             .ok_or_else(|| anyhow::anyhow!("No local checkout mapped for {id}"))
     }
 
     pub fn target_if_available(
         &self,
-        planning_root: &Path,
+        workspace_id: uuid::Uuid,
+        _code_root: &Path,
         id: &str,
     ) -> anyhow::Result<Option<PathBuf>> {
         anyhow::ensure!(valid_id(id), "Invalid repository ID");
@@ -150,39 +121,19 @@ impl ProjectManifest {
             .iter()
             .find(|r| r.id == id)
             .ok_or_else(|| anyhow::anyhow!("Unknown repository ID {id}"))?;
-        let root = planning_root.canonicalize()?;
-        if crate::core::managed_workspace::WorkspaceManifest::is_managed_repository(&root)? {
-            let workspace = crate::core::managed_workspace::WorkspaceManifest::read(&root)?;
-            if let Some(checkout) =
-                crate::core::managed_workspace::WorkspaceManager::from_state_root().checkout_path(
-                    workspace.workspace_id,
-                    id,
-                    &expected.remote,
-                )?
-            {
-                return Ok(Some(checkout));
-            }
-            return Ok(None);
+        let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
+        let checkout = manager.checkout_path(workspace_id, id, &expected.remote)?;
+        if checkout.is_some() {
+            return Ok(checkout);
         }
-        if (id == "root" && expected.remote.is_empty())
-            || git_remote(&root).as_deref() == Some(expected.remote.as_str())
+        #[cfg(test)]
+        if id == "root"
+            && let Ok(root) = _code_root.canonicalize()
+            && test_root_matches(&root, &expected.remote)
         {
-            return Ok(Some(root));
+            return Ok(Some(root.to_path_buf()));
         }
-        let mapping = private_checkout_map(&root)?;
-        let Some(path) = mapping.get(id) else {
-            return Ok(None);
-        };
-        let path = match PathBuf::from(path).canonicalize() {
-            Ok(path) => path,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
-        };
-        anyhow::ensure!(
-            git_remote(&path).as_deref() == Some(expected.remote.as_str()),
-            "Local checkout for {id} has a different origin"
-        );
-        Ok(Some(path))
+        Ok(None)
     }
 }
 
@@ -217,46 +168,25 @@ pub(crate) fn portable_remote(remote: &str) -> bool {
     !host.is_empty() && !host.contains('/') && !host.starts_with('.') && !path.is_empty()
 }
 
+#[cfg(test)]
+fn test_root_matches(root: &Path, expected_remote: &str) -> bool {
+    if expected_remote.is_empty() {
+        return true;
+    }
+    let output = std::process::Command::new("git")
+        .args(["config", "--get", "remote.origin.url"])
+        .current_dir(root)
+        .output();
+    output.is_ok_and(|output| {
+        output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == expected_remote
+    })
+}
+
 fn is_remote_helper(remote: &str) -> bool {
     remote.starts_with("ext::")
         || remote.split_once("::").is_some_and(|(transport, _)| {
             !transport.contains('/') && !transport.contains('@') && !transport.contains('[')
         })
-}
-
-pub fn map_local_checkout(planning_root: &Path, id: &str, checkout: &Path) -> anyhow::Result<()> {
-    let root = planning_root.canonicalize()?;
-    let expected =
-        if crate::core::managed_workspace::WorkspaceManifest::is_managed_repository(&root)? {
-            let workspace = crate::core::managed_workspace::WorkspaceManifest::read(&root)?;
-            return crate::core::managed_workspace::WorkspaceManager::from_state_root()
-                .map_checkout(workspace.workspace_id, id, &checkout.canonicalize()?);
-        } else {
-            let manifest = ProjectManifest::load(
-                &crate::artifacts::planning_store::PlanningStore::legacy_embedded(
-                    uuid::Uuid::nil(),
-                    &root,
-                ),
-            )?;
-            manifest
-                .repositories
-                .iter()
-                .find(|r| r.id == id)
-                .ok_or_else(|| anyhow::anyhow!("Unknown repository ID {id}"))?
-                .clone()
-        };
-    let checkout = checkout.canonicalize()?;
-    anyhow::ensure!(
-        expected.remote.is_empty()
-            || git_remote(&checkout).as_deref() == Some(expected.remote.as_str()),
-        "Checkout origin does not match registered repository {id}"
-    );
-    let mut mapping = private_checkout_map(&root)?;
-    mapping.insert(id.to_string(), checkout.to_string_lossy().into_owned());
-    let slug = crate::persistence::project_slug(&root);
-    let path = crate::persistence::project_dir(&slug).join("repositories.json");
-    std::fs::create_dir_all(path.parent().unwrap())?;
-    crate::artifacts::atomic_write(&path, &serde_json::to_string_pretty(&mapping)?)
 }
 
 fn valid_id(id: &str) -> bool {
@@ -265,30 +195,6 @@ fn valid_id(id: &str) -> bool {
         && id
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-}
-fn git_remote(root: &Path) -> Option<String> {
-    let out = std::process::Command::new("git")
-        // The manifest records repository identity. `remote get-url` applies
-        // local insteadOf transport rewrites, which may point at a mirror.
-        .args(["config", "--get", "remote.origin.url"])
-        .current_dir(root)
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| String::from_utf8(out.stdout).ok())??
-        .trim()
-        .to_string()
-        .into()
-}
-fn private_checkout_map(root: &Path) -> anyhow::Result<std::collections::BTreeMap<String, String>> {
-    let slug = crate::persistence::project_slug(root);
-    let path = crate::persistence::project_dir(&slug).join("repositories.json");
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(serde_json::from_str(&text)?),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Default::default()),
-        Err(e) => Err(e.into()),
-    }
 }
 
 #[cfg(test)]

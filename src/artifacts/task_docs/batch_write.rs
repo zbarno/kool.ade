@@ -152,8 +152,5 @@ pub(crate) fn write_batch_expected_with_revision_and_checks<R: PlanningRoot + ?S
 }
 
 fn store_relative_directory(directory: &str) -> String {
-    directory
-        .strip_prefix(".koolade-packet/")
-        .unwrap_or(directory)
-        .to_owned()
+    directory.to_owned()
 }

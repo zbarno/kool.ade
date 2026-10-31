@@ -12,26 +12,12 @@ use crate::{
 };
 use std::path::PathBuf;
 
+#[derive(Default)]
 pub(super) struct Probe {
     pub(super) view: Option<PlanningRepositoryViewModel>,
     toast: ToastQueue,
     pub(super) sync_requested: bool,
-    pub(super) migration_preview_requested: std::cell::Cell<bool>,
-    migration_error: Option<String>,
     pub(super) resolution: Option<PlanningConflictChoice>,
-}
-
-impl Default for Probe {
-    fn default() -> Self {
-        Self {
-            view: None,
-            toast: ToastQueue::default(),
-            sync_requested: false,
-            migration_preview_requested: std::cell::Cell::new(false),
-            migration_error: None,
-            resolution: None,
-        }
-    }
 }
 
 impl Probe {
@@ -50,7 +36,6 @@ impl Probe {
                 }],
                 sync: status(state),
                 sync_running: false,
-                migration_available: false,
             }),
             ..Self::default()
         }
@@ -138,15 +123,6 @@ impl Surface for Probe {
     }
     fn planning_repository(&self) -> Option<PlanningRepositoryViewModel> {
         self.view.clone()
-    }
-    fn migration_preview(
-        &self,
-    ) -> Result<crate::core::managed_workspace::MigrationPreview, String> {
-        self.migration_preview_requested.set(true);
-        Err(self
-            .migration_error
-            .clone()
-            .unwrap_or_else(|| "fixture failure".into()))
     }
     fn dispatch(&mut self, command: ApplicationCommand) {
         let ApplicationCommand::PlanningRepository(command) = command else {

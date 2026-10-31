@@ -15,6 +15,7 @@ struct FixtureHarness {
     calls: Arc<AtomicUsize>,
     generation: bool,
     failure_mode: u8,
+    planning_root: std::path::PathBuf,
 }
 impl AiHarness for FixtureHarness {
     fn label(&self) -> String {
@@ -40,9 +41,7 @@ impl AiHarness for FixtureHarness {
         } else {
             assert!(req.prompt_body.contains("The user explicitly approved"));
             if req.prompt_body.contains("ONLY detailed story 2 of 2") {
-                let directory = req
-                    .repo_root
-                    .join(".koolade-packet/planning/tasks/saved-searches");
+                let directory = self.planning_root.join("planning/tasks/saved-searches");
                 assert!(
                     directory
                         .join("001-persist-named-search-filters.md")
@@ -59,18 +58,13 @@ impl AiHarness for FixtureHarness {
                         .unwrap()
                         .contains("In progress — 1 of 2")
                 );
-                let state = PlannerState::load(&req.repo_root).unwrap();
-                let docs = {
-                    // External integration targets do not inherit the
-                    // cfg(test) Path adapters, so the fixture root is bound
-                    // to an explicit legacy-embedded store — the same label
-                    // model the workflow prompt and write path emit.
-                    let store = koolade::artifacts::planning_store::PlanningStore::legacy_embedded(
-                        uuid::Uuid::nil(),
-                        &req.repo_root,
-                    );
-                    koolade::artifacts::task_docs::load_latest(&store, &state.workflow)
-                };
+                let store = koolade::artifacts::planning_store::PlanningStore::new(
+                    uuid::Uuid::nil(),
+                    &self.planning_root,
+                    koolade::artifacts::planning_store::StoreMode::ManagedLocal,
+                );
+                let state = PlannerState::load_with_store(&req.repo_root, &store).unwrap();
+                let docs = { koolade::artifacts::task_docs::load_latest(&store, &state.workflow) };
                 assert!(
                     docs.iter()
                         .any(|d| d.path.ends_with("001-persist-named-search-filters.md")),
@@ -149,6 +143,7 @@ impl AiHarness for FixtureHarness {
 }
 pub(super) fn run(state: PlannerState, generation: bool, failure_mode: u8) -> TurnOutcome {
     let calls = Arc::new(AtomicUsize::new(0));
+    let planning_root = state.planning_store.root.clone();
     let ctrl = TurnController::start(
         TurnInputs {
             state,
@@ -170,6 +165,7 @@ pub(super) fn run(state: PlannerState, generation: bool, failure_mode: u8) -> Tu
             calls: calls.clone(),
             generation,
             failure_mode,
+            planning_root,
         }),
     );
     // The workflow advances across worker threads and repository-backed

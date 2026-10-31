@@ -65,9 +65,7 @@ impl Drop for RestoreEnvironmentVariable {
 
 pub(super) fn bind_task_to_ticket(root: &Path, task_uid: &str, planning_item_uid: &str) {
     let record_path = format!("state/lifecycle_tasks/{task_uid}.json");
-    let path = root
-        .join(crate::artifacts::layout::store::ROOT)
-        .join(&record_path);
+    let path = root.join(&record_path);
     let mut wrapper: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     wrapper["record"]["planning_item_uid"] = planning_item_uid.into();
     fs::write(path, serde_json::to_vec(&wrapper).unwrap()).unwrap();
@@ -81,8 +79,9 @@ pub(super) fn save_refresh_state(
     head_sha: &str,
     gh: &Path,
 ) {
-    let dir = crate::artifacts::layout::ArtifactLayout::new(root)
-        .implementation_root()
+    let project_id = crate::persistence::project_slug(root);
+    let dir = crate::persistence::project_dir(&project_id)
+        .join("implementations")
         .join(crate::core::implementation::key_for_ticket(ticket));
     fs::create_dir_all(&dir).unwrap();
     fs::write(

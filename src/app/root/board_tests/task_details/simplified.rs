@@ -4,7 +4,7 @@ use super::*;
 #[test]
 fn decision_controls_stay_left_of_questions_and_context_starts_closed() {
     let mut app = fixture();
-    let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
+    let key = "planning/tasks/fixture/001-task.md";
     app.attention_fixture.insert(
         key.into(),
         crate::core::attention::Brief {
@@ -138,7 +138,7 @@ fn clarification_command_keeps_the_planning_decision_open() {
 #[test]
 fn human_steps_without_choices_expose_an_explicit_answer() {
     let mut app = fixture();
-    let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
+    let key = "planning/tasks/fixture/001-task.md";
     app.attention_fixture.insert(
         key.into(),
         crate::core::attention::Brief {

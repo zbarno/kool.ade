@@ -149,10 +149,7 @@ impl KooladeApp {
             .unwrap()
             .to_string_lossy()
             .replace('\\', "/");
-        let adr_relative = adr_path
-            .strip_prefix(".koolade-packet/")
-            .unwrap_or(&adr_path)
-            .to_owned();
+        let adr_relative = adr_path;
         let (mut changes, workflow_checks, _) =
             match crate::artifacts::task_docs::workflow_record_changes(store, &workflow) {
                 Ok(changes) => changes,

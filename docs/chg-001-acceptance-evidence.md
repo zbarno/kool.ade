@@ -1,8 +1,10 @@
 # CHG-001 acceptance evidence
 
-Historical evidence note: the repository path recorded below refers to the
-pre-migration artifact layout. Current live artifacts use `.koolade-packet/`;
-see [the artifact layout](artifact-layout.md).
+Historical evidence note: the repository paths recorded below refer to an
+earlier artifact layout. Current shared project artifacts live in the separate
+planning repository, not in a `.koolade-packet/` directory inside a code
+checkout. The similarly named directory under the user's home stores local
+application data. See [the artifact layout](artifact-layout.md).
 
 This index maps the feature's numbered acceptance criteria to current repository evidence. The feature specification remains the normative acceptance list; this file points reviewers to the smallest proof for each item.
 

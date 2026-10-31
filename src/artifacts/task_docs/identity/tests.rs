@@ -102,9 +102,7 @@ fn legacy_store_resolves_store_relative_batch_directory() {
         std::process::id(),
         uuid::Uuid::new_v4()
     ));
-    let directory = root
-        .join(crate::artifacts::layout::store::ROOT)
-        .join("planning/tasks/shared-batch");
+    let directory = root.join("planning/tasks/shared-batch");
     std::fs::create_dir_all(&directory).unwrap();
     std::fs::write(directory.join("README.md"), "# Shared batch\n").unwrap();
 
@@ -117,7 +115,7 @@ fn legacy_store_resolves_store_relative_batch_directory() {
     };
     assert_eq!(
         resolve_batch_directory(&root, &batch).as_deref(),
-        Some(".koolade-packet/planning/tasks/shared-batch")
+        Some("planning/tasks/shared-batch")
     );
 
     std::fs::remove_dir_all(root).unwrap();

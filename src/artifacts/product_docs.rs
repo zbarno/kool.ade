@@ -16,8 +16,6 @@ mod tests;
 pub const PRODUCT_DIR: &str = crate::artifacts::layout::store::PRODUCT;
 pub const INDEX: &str = crate::artifacts::layout::store::PRODUCT_INDEX;
 pub const LEGACY_ARCHIVE: &str = crate::artifacts::layout::store::LEGACY_SPEC_ARCHIVE;
-#[cfg(test)]
-const OLD_LEGACY_ARCHIVE: &str = crate::artifacts::layout::legacy::SPEC_ARCHIVE;
 /// Compatibility paths used only to import the old thirteen-file layout.
 pub const LEGACY_MODULES: [&str; 13] = [
     "01-vision.md",

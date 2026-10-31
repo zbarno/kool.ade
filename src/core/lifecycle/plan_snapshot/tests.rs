@@ -282,11 +282,7 @@ fn user_confirmation_is_persisted_once_and_bound_to_the_exact_snapshot() {
     use crate::core::lifecycle::{GateActor, GateDecision, GateReceipt};
     let root = std::env::temp_dir().join(format!("plan-confirmation-{}", uuid::Uuid::new_v4()));
     crate::artifacts::migration::bootstrap_product(&root, "Plan Confirmation Fixture").unwrap();
-    let store = PlanningStore::new(
-        uuid::Uuid::new_v4(),
-        root.join(".koolade-packet"),
-        StoreMode::ManagedLocal,
-    );
+    let store = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
     let (identity, markdown) = identified(&spec());
     let contract = crate::core::workflow::feature_contract(&markdown);
     let snapshot =

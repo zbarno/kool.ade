@@ -1,10 +1,10 @@
 # Historical Exit-Demonstration Runbook — Seven-Outcome Walkthrough
 
-> Historical evidence only; this is not the current Kool.ad/e dogfood runbook.
-> Its prepared fixture deliberately uses the pre-migration `planning/` and
-> `.planner/` paths as migration inputs. A connected fixture is migrated to
-> `.koolade-packet/` before planning begins. Use the current remediation plan's
-> Phase 8 scenarios for present-day product validation.
+> Historical walkthrough; this is not the current Kool.ad/e dogfood runbook.
+> Its setup is retained as a fixture example only. Current workspaces use a
+> separate planning repository. Kool.ad/e does not import embedded project
+> artifacts from code checkouts. Use the current remediation plan's Phase 8
+> scenarios for present-day product validation.
 
 > blocked until: all three prerequisites have landed —
 > (1) git-derived identity (FR-13) plumbed through connect/resync,

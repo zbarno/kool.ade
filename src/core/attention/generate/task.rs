@@ -1,8 +1,6 @@
 use std::path::{Component, Path};
 
 pub(super) fn content(
-    worktree: &Path,
-    repo: &Path,
     planning_store: &crate::artifacts::planning_store::PlanningStore,
     ticket: &str,
 ) -> String {
@@ -14,45 +12,10 @@ pub(super) fn content(
     {
         return "Task story unavailable; rely on the saved report only.".into();
     }
-    if planning_store.mode != crate::artifacts::planning_store::StoreMode::LegacyPacketSource
-        && let Some(path) = planning_store
-            .layout()
-            .canonical_path(ticket)
-            .filter(|path| path.starts_with(planning_store.layout().tasks_root()))
-    {
-        let stored = planning_store
-            .read_planning_path(&path)
-            .ok()
-            .and_then(|bytes| String::from_utf8(bytes).ok());
-        return stored.map_or_else(
-            || "Task story unavailable; rely on the saved report only.".into(),
-            |markdown| {
-                crate::core::context_build::clip(
-                    &crate::artifacts::task_docs::visible_content(&markdown),
-                    18000,
-                )
-            },
-        );
-    }
-    for root in [worktree, repo] {
-        let Ok(canonical_root) = root.canonicalize() else {
-            continue;
-        };
-        let Ok(path) = root.join(relative).canonicalize() else {
-            continue;
-        };
-        if !path.starts_with(&canonical_root) {
-            continue;
-        }
-        let Ok(markdown) = std::fs::read_to_string(path) else {
-            continue;
-        };
-        let visible = crate::artifacts::task_docs::visible_content(&markdown);
-        return crate::core::context_build::clip(&visible, 18000);
-    }
     let stored = planning_store
         .layout()
         .canonical_path(ticket)
+        .filter(|path| path.starts_with(planning_store.layout().tasks_root()))
         .and_then(|path| planning_store.read_planning_path(&path).ok())
         .and_then(|bytes| String::from_utf8(bytes).ok());
     stored.map_or_else(
@@ -103,7 +66,7 @@ mod tests {
             )
             .unwrap();
 
-        let text = content(&worktree, &repo, &store, ticket);
+        let text = content(&store, ticket);
         assert!(text.contains("Current authoritative details."));
         assert!(!text.contains("Stale"));
         let _ = std::fs::remove_dir_all(root);

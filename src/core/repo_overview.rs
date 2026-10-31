@@ -7,7 +7,6 @@ use std::path::Path;
 
 const MAX_README_CHARS: usize = 4000;
 const MAX_TREE_LINES: usize = 150;
-const MAX_PLANNING_FILES: usize = 200;
 const TREE_DEPTH: u32 = 2;
 
 /// Directories the tree walk refuses to descend into.
@@ -64,31 +63,24 @@ const MANIFEST_NAMES: &[&str] = &[
 ];
 
 pub fn scan(repo: &Path) -> Overview {
-    scan_inner(repo, true)
+    scan_inner(repo)
 }
 
-/// Scan source code without treating stale embedded artifacts as planning
-/// context when a project uses a managed planning repository.
+/// Scan only the code checkout. Planning artifacts are read from the
+/// associated planning repository by the planning-specific readers.
 pub fn scan_for_store(
     repo: &Path,
-    store: &crate::artifacts::planning_store::PlanningStore,
+    _store: &crate::artifacts::planning_store::PlanningStore,
 ) -> Overview {
-    scan_inner(
-        repo,
-        store.mode == crate::artifacts::planning_store::StoreMode::LegacyPacketSource,
-    )
+    scan_inner(repo)
 }
 
-fn scan_inner(repo: &Path, include_legacy_planning: bool) -> Overview {
+fn scan_inner(repo: &Path) -> Overview {
     Overview {
         readme: find_readme(repo),
-        tree_lines: tree_walk(repo, include_legacy_planning),
+        tree_lines: tree_walk(repo),
         manifests: scan_manifests(repo),
-        planning_files: if include_legacy_planning {
-            list_planning(repo)
-        } else {
-            Vec::new()
-        },
+        planning_files: Vec::new(),
     }
 }
 
@@ -129,30 +121,17 @@ fn truncate_chars(s: &str, cap: usize) -> String {
     out
 }
 
-fn is_skipped(name: &str, include_legacy_planning: bool) -> bool {
-    SKIP_DIRS.contains(&name)
-        || (name.starts_with('.')
-            && (!include_legacy_planning
-                || name
-                    != std::path::Path::new(crate::artifacts::layout::store::ROOT)
-                        .file_name()
-                        .unwrap()
-                        .to_string_lossy()))
+fn is_skipped(name: &str) -> bool {
+    SKIP_DIRS.contains(&name) || name.starts_with('.')
 }
 
-fn tree_walk(root: &Path, include_legacy_planning: bool) -> Vec<String> {
+fn tree_walk(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
-    walk_into(root, root, 0, &mut out, include_legacy_planning);
+    walk_into(root, root, 0, &mut out);
     out
 }
 
-fn walk_into(
-    root: &Path,
-    dir: &Path,
-    depth: u32,
-    out: &mut Vec<String>,
-    include_legacy_planning: bool,
-) {
+fn walk_into(root: &Path, dir: &Path, depth: u32, out: &mut Vec<String>) {
     if out.len() >= MAX_TREE_LINES || depth > TREE_DEPTH {
         return;
     }
@@ -162,7 +141,7 @@ fn walk_into(
     let mut names: Vec<(String, std::path::PathBuf)> = entries
         .flatten()
         .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
-        .filter(|(n, _)| !is_skipped(n, include_legacy_planning))
+        .filter(|(n, _)| !is_skipped(n))
         .collect();
     names.sort_by(|a, b| a.0.cmp(&b.0));
     for (name, path) in names {
@@ -176,51 +155,9 @@ fn walk_into(
             .unwrap_or(name.clone());
         if path.is_dir() {
             out.push(format!("{rel}/"));
-            walk_into(root, &path, depth + 1, out, include_legacy_planning);
+            walk_into(root, &path, depth + 1, out);
         } else {
             out.push(rel);
-        }
-    }
-}
-
-/// Everything under Koolade's canonical planning/configuration roots, paths shown relative to the
-/// repo root so agents can grab exact filenames for imports (§6).
-fn list_planning(repo: &Path) -> Vec<String> {
-    let mut out = Vec::new();
-    let layout = crate::artifacts::layout::ArtifactLayout::new(repo);
-    for base in [layout.planning_root(), layout.config_root()] {
-        if base.is_dir() {
-            rec_list(&base, repo, &mut out);
-        }
-    }
-    out.sort();
-    out
-}
-
-fn rec_list(dir: &Path, root: &Path, out: &mut Vec<String>) {
-    if out.len() >= MAX_PLANNING_FILES {
-        return;
-    }
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    let mut entries = entries.flatten().collect::<Vec<_>>();
-    entries.sort_by_key(|entry| entry.file_name());
-    for e in entries {
-        if out.len() >= MAX_PLANNING_FILES {
-            break;
-        }
-        let p = e.path();
-        let rel = p
-            .strip_prefix(root)
-            .map(|r| r.display().to_string())
-            .unwrap_or_default();
-        if p.is_dir() {
-            out.push(format!("{rel}/"));
-            rec_list(&p, root, out);
-        } else {
-            let kb = fs::metadata(&p).map(|m| m.len() / 1024).unwrap_or(0);
-            out.push(format!("{rel} ({kb} KB)"));
         }
     }
 }

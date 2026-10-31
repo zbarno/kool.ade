@@ -88,8 +88,10 @@ fn manager_shared_sync_leaves_a_registered_code_checkout_untouched() {
     let fixture = Fixture::new();
     let state_root = fixture.state_root("manager-state");
     let manager = WorkspaceManager::new(&state_root);
-    super::super::support::git(Some(&fixture.first), &["remote", "remove", "origin"]);
-    let workspace = manager.join(&fixture.first).unwrap();
+    let workspace = manager
+        .join_remote(&fixture.remote.to_string_lossy())
+        .unwrap();
+    let planning_repo = workspace.planning_repo.clone();
 
     let code_repo = fixture.root.join("code-checkout");
     super::super::support::git(
@@ -116,14 +118,6 @@ fn manager_shared_sync_leaves_a_registered_code_checkout_untouched() {
             },
         )
         .unwrap();
-    super::super::support::git(
-        Some(&fixture.first),
-        &["remote", "add", "origin", fixture.remote.to_str().unwrap()],
-    );
-    super::super::support::git(
-        Some(&fixture.first),
-        &["push", "origin", "HEAD:refs/heads/main"],
-    );
     let head_before = String::from_utf8(
         super::super::support::git(Some(&code_repo), &["rev-parse", "HEAD"]).stdout,
     )
@@ -134,13 +128,13 @@ fn manager_shared_sync_leaves_a_registered_code_checkout_untouched() {
     .unwrap();
 
     fixture.write_work(
-        &fixture.first,
+        &planning_repo,
         fixture.work_id,
         "title",
         "planning-only update",
     );
     prepare_local_intent(
-        &fixture.first,
+        &planning_repo,
         &state_root,
         "sync planning update",
         &[work_path(fixture.work_id)],

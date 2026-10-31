@@ -68,7 +68,7 @@ fn active_task_clone_resumes_after_ticket_rename() {
     )
     .unwrap();
 
-    let renamed = ".koolade-packet/planning/tasks/implementation/002-implement-ticket-behavior.md";
+    let renamed = "planning/tasks/implementation/002-implement-ticket-behavior.md";
     fs::create_dir_all(s.repo.join(renamed).parent().unwrap()).unwrap();
     fs::rename(s.repo.join(&s.ticket), s.repo.join(renamed)).unwrap();
     s.git(&s.repo, &["add", "-A"]);

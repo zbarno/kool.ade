@@ -5,7 +5,7 @@ fn board_restores_blue_activity_on_cards_and_sums_all_sources() {
     let mut app = fixture();
     if let Screen::Connected(p) = &mut app.screen {
         for (key, count) in [
-            (".koolade-packet/planning/tasks/fixture/001-task.md", 2),
+            ("planning/tasks/fixture/001-task.md", 2),
             ("another-task", 3),
         ] {
             p.activity
@@ -23,18 +23,18 @@ fn board_restores_blue_activity_on_cards_and_sums_all_sources() {
             .samples = vec![(100, 5), (101, 1)];
         p.activity
             .conversations
-            .entry(".koolade-packet/planning/tasks/fixture/001-task.md".into())
+            .entry("planning/tasks/fixture/001-task.md".into())
             .or_default()
             .telemetry
             .samples = vec![(100, 7)];
         p.active_implementations.insert(
-            ".koolade-packet/planning/tasks/fixture/001-task.md".into(),
+            "planning/tasks/fixture/001-task.md".into(),
             crate::core::implementation::Controller::idle_fixture(),
         );
     }
     assert_eq!(app.activity_samples(None), vec![(100, 17), (101, 1)]);
     assert_eq!(
-        app.activity_samples(Some(".koolade-packet/planning/tasks/fixture/001-task.md")),
+        app.activity_samples(Some("planning/tasks/fixture/001-task.md")),
         vec![(100, 9)]
     );
     let ctx = egui::Context::default();
@@ -90,7 +90,7 @@ fn done_task_can_be_archived_off_the_board() {
     let Screen::Connected(project) = &app.screen else {
         panic!("disconnected")
     };
-    let ticket = ".koolade-packet/planning/tasks/fixture/003-task.md";
+    let ticket = "planning/tasks/fixture/003-task.md";
     assert!(project.archived_tasks.contains(ticket));
     assert!(crate::persistence::archived_tasks::load(&project.chat_slug).contains(ticket));
 }

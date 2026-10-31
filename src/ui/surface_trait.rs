@@ -20,9 +20,6 @@ pub trait Surface {
     fn registered_repositories(&self) -> Vec<RepositoryChoice> {
         Vec::new()
     }
-    fn can_register_code_repository(&self) -> bool {
-        false
-    }
     fn git_branch(&self) -> &str;
     fn repository_branches(&self) -> Vec<String> {
         Vec::new()
@@ -53,17 +50,6 @@ pub trait Surface {
     }
     fn save_planning_remote(&mut self, _remote: &str) -> Result<(), String> {
         Err("Planning repository settings are unavailable in this workspace.".into())
-    }
-    fn migration_preview(
-        &self,
-    ) -> Result<crate::core::managed_workspace::MigrationPreview, String> {
-        Err("Legacy migration preview is unavailable in this workspace.".into())
-    }
-    fn confirm_planning_migration(
-        &mut self,
-        _preview: &crate::core::managed_workspace::MigrationPreview,
-    ) -> Result<(), String> {
-        Err("Legacy migration is unavailable in this workspace.".into())
     }
     fn save_project_settings(
         &mut self,

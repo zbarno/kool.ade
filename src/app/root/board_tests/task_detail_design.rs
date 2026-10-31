@@ -4,7 +4,7 @@ use super::*;
 fn task_popup_prioritizes_human_title_and_keeps_live_action_visible() {
     for size in [egui::vec2(1280.0, 720.0), egui::vec2(360.0, 720.0)] {
         let mut app = fixture();
-        let key = ".koolade-packet/planning/tasks/fixture/F7-TASK-compute-day-and-week-totals";
+        let key = "planning/tasks/fixture/F7-TASK-compute-day-and-week-totals";
         let ticket = format!("{key}.md");
         let full_title = "F7-TASK-compute-day-and-week-totals — Compute day and ISO-week per-workspace totals from ledger intervals";
         let Screen::Connected(project) = &mut app.screen else {

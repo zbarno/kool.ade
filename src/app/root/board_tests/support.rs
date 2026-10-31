@@ -1,157 +1,12 @@
 use super::*;
 
+#[path = "support/fixture.rs"]
+mod fixture;
+pub(in crate::app::root) use fixture::fixture;
+
 #[path = "support/restart.rs"]
 mod restart;
 pub(crate) use restart::restart_fixture;
-
-pub(in crate::app::root) fn fixture() -> KooladeApp {
-    static NEXT_FIXTURE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let chat_root = std::env::temp_dir().join(format!(
-        "koolade-board-chat-{}-{}",
-        std::process::id(),
-        NEXT_FIXTURE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
-    let chat_slug = chat_root.to_string_lossy().into_owned();
-    let test_root = std::env::temp_dir().join(format!(
-        "koolade-board-ui-fixture-{}-{}",
-        std::process::id(),
-        NEXT_FIXTURE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
-    let setup_state_root = std::env::temp_dir().join(format!(
-        "koolade-board-setup-state-{}-{}",
-        std::process::id(),
-        NEXT_FIXTURE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
-    std::fs::create_dir_all(&test_root).unwrap();
-    let root = test_root.join("workspace");
-    std::fs::create_dir_all(&root).unwrap();
-    let git = |args: &[&str]| {
-        let output = std::process::Command::new("git")
-            .args(args)
-            .current_dir(&root)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    };
-    git(&["init", "-q", "-b", "main"]);
-    git(&["config", "user.name", "Koolade Test"]);
-    git(&["config", "user.email", "koolade@example.test"]);
-    std::fs::write(root.join("README.md"), "isolated UI fixture\n").unwrap();
-    git(&["add", "README.md"]);
-    git(&["commit", "-q", "-m", "UI fixture"]);
-    let docs = ["First task", "Review task", "Merged task"]
-        .iter()
-        .enumerate()
-        .map(|(i, title)| crate::artifacts::task_docs::TaskDocument {
-            path: format!(
-                ".koolade-packet/planning/tasks/fixture/{:03}-task.md",
-                i + 1
-            ),
-            title: title.to_string(),
-            text: format!("# {title}\n\nUnique story detail {i}"),
-            identity: None,
-            metadata: None,
-            task_state: None,
-
-            metadata_error: None,
-        })
-        .collect::<Vec<_>>();
-    let mut states = std::collections::BTreeMap::new();
-    for (i, pr_state) in [(1, "OPEN"), (2, "MERGED")] {
-        let record = crate::core::implementation::Implementation {
-            ticket: docs[i].path.clone(),
-            task_uid: None,
-            workspace_uid: None,
-            ticket_text: docs[i].text.clone(),
-            approved_specification: None,
-            approved_product_context: None,
-            completed_dependency_context: None,
-            manager_repair_context: None,
-            branch: "koolade/fixture".into(),
-            source_branch: None,
-            destination_branch: None,
-            source_ref: None,
-            source_commit: None,
-            repository_id: None,
-            project_id: None,
-            repository_identity: None,
-            push_repository: None,
-            repository_cache: None,
-            task_repository_allocation_key: None,
-            base: "main".into(),
-            base_commit: "fixture".into(),
-            task_repository: root.join("worktree"),
-            task_repository_kind: crate::core::implementation::TaskRepositoryKind::LegacyWorktree,
-            task_repository_ready: false,
-            task_repositories: vec![root.join("worktree")],
-            task_repository_commits: std::collections::BTreeMap::new(),
-            status: if i == 1 {
-                ImplementationStatus::AwaitingReview
-            } else {
-                ImplementationStatus::Completed
-            },
-            detail: String::new(),
-            pr_url: Some(format!("https://github.com/fixture/repo/pull/{i}")),
-            verified_head: Some("fixture".into()),
-            auto_merge: false,
-            merged_commit: None,
-            pr_state: PullRequestState::parse_legacy(pr_state),
-            pr_details: None,
-            pr_checked_at: None,
-            pr_check_attempted_at: None,
-            pr_check_error: None,
-            independent_check: None,
-            cleanup: Default::default(),
-        };
-        states.insert(record.ticket.clone(), record);
-    }
-    KooladeApp {
-        _test_temp_roots: vec![
-            crate::app::root::TestTempRoot(test_root),
-            crate::app::root::TestTempRoot(chat_root),
-            crate::app::root::TestTempRoot(setup_state_root.clone()),
-        ],
-        setup_task_state_path: setup_state_root.join("machine-setup").join("tasks.json"),
-        screen: Screen::Connected(Box::new(Project {
-            specification_trace_navigation: None,
-            task_chats: Default::default(),
-            activity: Default::default(),
-            state: crate::core::state::PlannerState::load(&root).unwrap(),
-            managed_workspace: None,
-            planning_sync: crate::core::planning_sync::PlanningSyncStatus::local(),
-            planning_remote_url: None,
-            chat_slug,
-            chat: Vec::new(),
-            draft: String::new(),
-            queue: Default::default(),
-            queue_lock: None,
-            active_implementations: Default::default(),
-            implementation_states: states,
-            pr_refresh: None,
-            reconciliation: Default::default(),
-            investigation: None,
-            investigation_attempted: Default::default(),
-            investigation_cooldown_until: None,
-            last_pr_refresh: None,
-            active_turn: None,
-            task_turns: Default::default(),
-            task_live: Default::default(),
-            planning_work: Default::default(),
-            active_planning_work: None,
-            live_progress: Default::default(),
-            next_question_id: None,
-            git: Default::default(),
-            task_documents: docs,
-            archived_tasks: Default::default(),
-            cancelled_work: Default::default(),
-        })),
-        ..Default::default()
-    }
-}
 
 pub(in crate::app::root) fn frame(
     app: &mut KooladeApp,
@@ -369,8 +224,9 @@ pub(in crate::app::root) fn park_fixture_with_unapproved_feature(lapsed: bool) -
             .unwrap();
             std::fs::create_dir_all(
                 p.state
-                    .repo_root
-                    .join(".koolade-packet/planning/changes/CHG-999-fixture"),
+                    .planning_store
+                    .root
+                    .join("planning/changes/CHG-999-fixture"),
             )
             .unwrap();
             let feature_path = crate::artifacts::product_docs::document_path(
@@ -385,7 +241,7 @@ pub(in crate::app::root) fn park_fixture_with_unapproved_feature(lapsed: bool) -
                 .approved_features
                 .insert("CHG-999".into(), "fixture stale contract".into());
             crate::persistence::feature_approvals::record(
-                &p.state.repo_root,
+                &p.state.planning_store.root,
                 "CHG-999",
                 "fixture stale contract",
             )

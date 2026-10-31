@@ -29,7 +29,11 @@ impl Fixture {
         let home_root =
             std::env::temp_dir().join(format!("koolade-runtime-home-{}", uuid::Uuid::new_v4()));
         let home = crate::test_support::KooladeHomeGuard::set(&home_root);
-        let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &root);
+        let store = PlanningStore::new(
+            uuid::Uuid::new_v4(),
+            &root,
+            crate::artifacts::planning_store::StoreMode::ManagedLocal,
+        );
         Self {
             root,
             home_root,

@@ -52,9 +52,10 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
         fixtures::write_stack_fixture(&clone.join("apps/web"), tool);
         workspace.source_sha = Fixture::commit_task_clone(&clone);
         let (docker, _) = backend(&fixture, workspace.clone());
-        let planning = PlanningStore::legacy_embedded(
+        let planning = PlanningStore::new(
             uuid::Uuid::parse_str(&workspace.project_id).unwrap(),
             &fixture.root,
+            crate::artifacts::planning_store::StoreMode::ManagedLocal,
         );
         let runtime_store = ProjectRuntimeStore::new(&planning);
         let context = DiscoveryContext {
