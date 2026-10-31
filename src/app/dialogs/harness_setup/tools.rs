@@ -164,11 +164,7 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
 /// Shared repair-detail body. The collapsed provider panel calls this in
 /// production; headless interaction tests paint the same controls directly
 /// without depending on nested header hit-testing.
-pub(super) fn paint_provider_repair_details(
-    ui: &mut Ui,
-    dialog: &mut DlgHarnessSetup,
-    id: &str,
-) {
+pub(super) fn paint_provider_repair_details(ui: &mut Ui, dialog: &mut DlgHarnessSetup, id: &str) {
     if let Some(harness) = dialog.settings.discovered.get(id).cloned() {
         details::paint_tool_details(ui, dialog, id, &harness);
     } else {
