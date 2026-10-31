@@ -52,7 +52,11 @@ fn pending_scan_keeps_completed_provider_results_visible() {
         label == "Checking installed tools; completed provider results appear below."
     }));
     assert!(labels.iter().any(|label| label == "Checking 1 tools…"));
-    assert!(labels.iter().any(|label| label == "Add / Fix a coding tool"));
+    assert!(
+        labels
+            .iter()
+            .any(|label| label == "Add / Fix a coding tool")
+    );
     // Completed but unverified provider details are still accessible under
     // Add / Fix, not advertised as ready in the main picker.
     assert!(labels.iter().any(|label| label.starts_with("pi")));
