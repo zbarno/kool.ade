@@ -213,18 +213,33 @@ mod visibility_tests {
     #[test]
     fn missing_and_unverified_providers_never_appear_in_normal_picker() {
         let mut settings = crate::persistence::harness_settings::HarnessSettings::default();
-        settings.discovered.insert("pi".into(),
+        settings.discovered.insert(
+            "pi".into(),
             crate::persistence::harness_settings::DetectedHarness {
-                status: "not installed".into(), version: None, executable: None,
-                diagnostic: None, ready: false, models: Vec::new(), default_model: None,
-                model_catalog_fresh: false, configuration_required: false,
-                implementation_available: false, capability_snapshot: None,
-                checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms()
-            }
+                status: "not installed".into(),
+                version: None,
+                executable: None,
+                diagnostic: None,
+                ready: false,
+                models: Vec::new(),
+                default_model: None,
+                model_catalog_fresh: false,
+                configuration_required: false,
+                implementation_available: false,
+                capability_snapshot: None,
+                checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
+            },
         );
-        assert!(visible_entries(&settings,
-            crate::persistence::harness_settings::current_unix_ms()).is_empty());
-        assert!(settings.discovered.contains_key("pi"),
-            "repair view must retain persisted diagnostics for missing CLI");
+        assert!(
+            visible_entries(
+                &settings,
+                crate::persistence::harness_settings::current_unix_ms()
+            )
+            .is_empty()
+        );
+        assert!(
+            settings.discovered.contains_key("pi"),
+            "repair view must retain persisted diagnostics for missing CLI"
+        );
     }
 }
