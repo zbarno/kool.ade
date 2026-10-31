@@ -6,70 +6,14 @@ mod page_drain;
 mod refresh_click;
 mod retry_provider;
 
-/// Open the troubleshooting controls through their real egui headings.
-/// Unavailable providers are intentionally absent from the normal picker.
-/// Keep interaction tests focused on the actual repair path, not a hidden row.
-pub(super) fn reveal_provider_details(
-    ctx: &egui::Context,
+/// Exercise the real repair-detail UI independently from nested egui
+/// disclosure hit-testing. Production uses the same shared paint function.
+pub(super) fn paint_repair_provider(
+    ui: &mut egui::Ui,
     dialog: &mut DlgHarnessSetup,
     provider: &str,
 ) {
-    let frame = |dialog: &mut DlgHarnessSetup, events| {
-        let mut output = ctx.run_ui(
-            egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(900.0, 850.0),
-                )),
-                events,
-                ..Default::default()
-            },
-            |ui| {
-                paint::paint_harness_setup_card(ui, dialog);
-            },
-        );
-        output.textures_delta.clear();
-        output
-    };
-    let position = |output: &egui::FullOutput, label: &str| {
-        output.shapes.iter().find_map(|shape| match &shape.shape {
-            egui::Shape::Text(text) if text.galley.text() == label => {
-                Some(text.pos + text.galley.mesh_bounds.center().to_vec2())
-            }
-            _ => None,
-        })
-    };
-    let click = |dialog: &mut DlgHarnessSetup, pos| {
-        for pressed in [true, false] {
-            frame(
-                dialog,
-                vec![
-                    egui::Event::PointerMoved(pos),
-                    egui::Event::PointerButton {
-                        pos,
-                        button: egui::PointerButton::Primary,
-                        pressed,
-                        modifiers: Default::default(),
-                    },
-                ],
-            );
-        }
-    };
-    let output = frame(dialog, vec![]);
-    if position(&output, &format!("Retry {provider} discovery")).is_some() {
-        return; // Provider is already actionable in the ordinary picker.
-    }
-    let repair = position(&output, "Add / Fix a coding tool")
-        .expect("repair section must be accessible even with no ready tools");
-    click(dialog, repair);
-    let output = frame(dialog, vec![]);
-    let row = position(&output, provider).expect("provider exists in the repair section");
-    click(dialog, row);
-    let output = frame(dialog, vec![]);
-    assert!(
-        position(&output, &format!("Retry {provider} discovery")).is_some(),
-        "opening repair section and provider must expose its retry control"
-    );
+    super::super::tools::paint_provider_repair_details(ui, dialog, provider);
 }
 
 #[test]
@@ -218,7 +162,6 @@ fn codex_settings_show_models_when_the_docker_execution_session_is_unavailable()
         first_scan_pending: false,
     };
     let ctx = egui::Context::default();
-    reveal_provider_details(&ctx, &mut dialog, "codex");
     let mut output = ctx.run_ui(
         egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -228,7 +171,7 @@ fn codex_settings_show_models_when_the_docker_execution_session_is_unavailable()
             ..Default::default()
         },
         |ui| {
-            paint::paint_harness_setup_card(ui, &mut dialog);
+            paint_repair_provider(ui, &mut dialog, "codex");
         },
     );
     let visible = output
