@@ -245,6 +245,9 @@ mod tests {
         };
         assert!(!merge_results(&mut settings, scan));
         assert_eq!(settings.default_harness.as_deref(), Some("pi"));
-        assert_eq!(settings.work_routes["implementation"].model.as_deref(), Some("chosen"));
+        assert_eq!(
+            settings.work_routes["implementation"].model.as_deref(),
+            Some("chosen")
+        );
     }
 }
