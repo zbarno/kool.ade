@@ -76,6 +76,19 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        if self.path == "/__preview_exit_started":
+            try:
+                with open("/tmp/qa-browser-preview-exit-started", "rb") as marker:
+                    started = marker.read() == b"started"
+            except OSError:
+                started = False
+            body = b"started" if started else b"waiting"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path == "/__parallel_active":
             marker = "/tmp/qa-browser-parallel-active"
             try:
@@ -92,6 +105,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/?defect=slow-cancel":
             with open("/tmp/qa-browser-cancel-started", "wb") as marker:
+                marker.write(b"started")
+            time.sleep(30)
+        if self.path == "/?defect=preview-exit":
+            with open("/tmp/qa-browser-preview-exit-started", "wb") as marker:
                 marker.write(b"started")
             time.sleep(30)
         if self.path == "/?defect=parallel":
