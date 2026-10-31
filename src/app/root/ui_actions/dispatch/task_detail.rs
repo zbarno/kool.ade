@@ -13,13 +13,32 @@ pub(super) fn dispatch(app: &mut KooladeApp, command: TaskDetailCommand) {
             draft,
             decision,
         } => {
-            if let crate::app::root::Screen::Connected(project) = &mut app.screen {
-                project.task_chats.drafts.insert(ticket.clone(), draft);
-            }
+            let previous = if let crate::app::root::Screen::Connected(project) = &mut app.screen {
+                project.task_chats.drafts.insert(ticket.clone(), draft.clone())
+            } else { None };
             if decision {
-                app.submit_implementation_decision(&ticket);
+                if app.submit_implementation_decision(&ticket) {
+                    app.start_implementation(ticket.clone(), true);
+                }
             } else {
                 app.submit_task_reply(&ticket);
+            }
+            // Inline cards have their own payload. Preserve any unrelated
+            // question still being composed, including when a save fails.
+            if let Some(previous) = previous.filter(|previous| previous != &draft)
+                && let crate::app::root::Screen::Connected(project) = &mut app.screen {
+                project.task_chats.drafts.insert(ticket, previous);
+            }
+        }
+
+        TaskDetailCommand::AskQuestion { ticket, draft } => {
+            let previous = if let crate::app::root::Screen::Connected(project) = &mut app.screen {
+                project.task_chats.drafts.insert(ticket.clone(), draft.clone())
+            } else { None };
+            app.submit_task_reply_mode(&ticket, true);
+            if let Some(previous) = previous.filter(|previous| previous != &draft)
+                && let crate::app::root::Screen::Connected(project) = &mut app.screen {
+                project.task_chats.drafts.insert(ticket, previous);
             }
         }
         TaskDetailCommand::RetryChatSave => app.retry_task_chat_save(),

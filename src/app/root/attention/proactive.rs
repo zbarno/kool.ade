@@ -168,6 +168,8 @@ impl KooladeApp {
                 role: ChatRole::Agent,
                 text: brief.conversation_message(),
                 ref_item: Some(event.ticket.clone()),
+                answer_context: None,
+                clarification: false,
                 ts: chrono::Utc::now(),
             };
             if let Screen::Connected(project) = &mut self.screen {

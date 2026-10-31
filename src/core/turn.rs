@@ -59,6 +59,11 @@ pub enum TurnEvt {
 
 #[derive(Debug)]
 pub enum TurnOutcome {
+    /// Conversation-only output; no planning validation, writes, or adoption.
+    Discussion {
+        final_text: String,
+        elapsed: Duration,
+    },
     /// Success: artifacts written; `commit_result` carries the checkpoint sha
     /// or the git error. Adoption proceeds either way — the files on disk
     /// already reflect the turn, and the state clone matches disk.

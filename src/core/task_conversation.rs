@@ -83,7 +83,7 @@ pub fn presentation(
                 item.question.clone()
             }
         } else {
-            "How can I help you with this item?".into()
+            "You can ask me about this item.".into()
         };
         let greeting = format!(
             "We’re discussing {}: {}\n\n{}\n\n---\n- {ask}",
@@ -109,7 +109,7 @@ pub fn presentation(
         .min_by_key(|item| (item.priority.rank(), &item.id));
     let ask = pending
         .map(|item| format!("{}: {}", item.id, item.question))
-        .unwrap_or_else(|| format!("How can I help you with {}?", doc.title));
+        .unwrap_or_else(|| format!("You can ask me about {}.", doc.title));
     let next = if pending.is_some() {
         format!("---\n- {ask}")
     } else {
@@ -130,6 +130,21 @@ pub fn prompt(
     message: &str,
     history: &[(String, String)],
 ) -> Result<String, String> {
+    if let Some(uid) = key.strip_prefix("clarification:") {
+        let (question, _) = crate::core::planning::QuestionStore::new(&state.planning_store)
+            .load(uid)
+            .map_err(|error| error.to_string())?;
+        return Ok(format!(
+            "Explain this question briefly in plain language. This is clarification chat, not a submitted answer. Do not resolve the question, change a selected option, invent a decision, or modify any project state. Answers are submitted separately through the answer controls.\nQUESTION CONTEXT\n{}\nCONVERSATION\n{}\nUSER QUESTION\n{}",
+            serde_json::to_string_pretty(&question).map_err(|error| error.to_string())?,
+            history
+                .iter()
+                .map(|(speaker, text)| format!("{speaker}: {}", clip(text, 2000)))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            message
+        ));
+    }
     if let Some(uid) = uid_from_conversation_key(key) {
         return opportunity::prompt(state, uid, message, history);
     }
@@ -272,7 +287,7 @@ pub fn prompt(
         .collect::<Vec<_>>()
         .join("\n");
     Ok(format!(
-        "=== TASK CONVERSATION: {key} ===\nYou are continuing this board task, not generic Main Chat. Do not generate task stories or claim implementation work. Persist the user's answer through validated specification and item updates. Resolve only existing CLR-numbered items. Resolve Agent-owned uncertainty from evidence; add all actionable independent Human/Review items together, include their consequences and rationale, and set blocked_by for dependent decisions that must wait. Never ask an actionable question only in prose; summarize progress and point to the board. Ownership assignments are made through the item's Assign ownership control. Do not claim implementation worker status changes through prose.\n\nPROJECT: {}\nCURRENT USER: {:?}\n\nDURABLE TASK CONTEXT\n{}\n\nEXPLICITLY RELATED ITEMS\n{}\n\nREFERENCED SPECIFICATION\n{}\nRead referenced source artifacts if more context is needed; never write files directly.\n\nTHIS TASK'S CONVERSATION ONLY\n{history}\n\nUSER REPLY\n{message}",
+        "=== TASK CONVERSATION: {key} ===\nYou are continuing this board task, not generic Main Chat. Do not generate task stories or claim implementation work. Answer clarifying questions briefly in everyday language, usually one or two sentences. A question, uncertainty, or request for explanation is not a submitted answer: leave existing decisions unresolved and do not change their selected options. Preserve established decisions instead of asking for confirmation again. Only persist an explicit answer through validated specification and item updates. Resolve only existing CLR-numbered items. Resolve Agent-owned uncertainty from evidence; add all actionable independent Human/Review items together, include their consequences and rationale, and set blocked_by for dependent decisions that must wait. Never ask an actionable question only in prose; summarize progress and point to the board. Ownership assignments are made through the item's Assign ownership control. Do not claim implementation worker status changes through prose.\n\nPROJECT: {}\nCURRENT USER: {:?}\n\nDURABLE TASK CONTEXT\n{}\n\nEXPLICITLY RELATED ITEMS\n{}\n\nREFERENCED SPECIFICATION\n{}\nRead referenced source artifacts if more context is needed; never write files directly.\n\nTHIS TASK'S CONVERSATION ONLY\n{history}\n\nUSER REPLY\n{message}",
         state.title,
         state.effective_user(),
         clip(&subject, 16000),

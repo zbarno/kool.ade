@@ -166,6 +166,11 @@ fn live_card_opens_full_activity_and_returns_to_item_details() {
     click(&mut app, text_position(&output, "First task").unwrap());
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
+    click(
+        &mut app,
+        text_position(&output, "Why am I seeing this?").unwrap(),
+    );
+    let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Activity").is_some());
     assert!(text_position(&output, "Checking the permissions test results").is_some());
     click(

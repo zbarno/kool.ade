@@ -1,6 +1,8 @@
 //! Kool.ad/e visual identity and reusable surface styling.
 
 use egui::{Color32, CornerRadius, Stroke};
+mod typography;
+pub use typography::task_heading_font;
 
 pub const REDUCE_MOTION_ID: &str = "kool_ade_reduce_motion";
 
@@ -151,6 +153,7 @@ pub fn board_state_frame(
 
 /// One style contract for the desktop app and rendered interaction checks.
 pub fn apply(ctx: &egui::Context) {
+    typography::install(ctx);
     ctx.set_visuals(koolade_visuals());
     ctx.style_mut_of(egui::Theme::Dark, |style| {
         for (kind, size) in [

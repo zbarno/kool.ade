@@ -1,4 +1,5 @@
 use super::*;
+mod attention;
 mod lifecycle_pr;
 mod lifecycle_publication;
 mod lifecycle_qa;
@@ -15,35 +16,83 @@ pub(super) fn paint(
     s: &mut dyn Surface,
     doc: &crate::artifacts::task_docs::TaskDocument,
     presentation: state::Presentation<'_>,
-    checks_unavailable: bool,
-    failure: Option<&str>,
+    _checks_unavailable: bool,
+    _failure: Option<&str>,
     activity_path: &mut Option<String>,
 ) {
-    ui.heading("Task details & state");
+    ui.heading("Supporting details");
+    let view = presentation.view;
+    let ticket = presentation.ticket;
+    let active = presentation.active;
+    let column = presentation.column;
+    // Keep the action panel directly below the task heading. The supporting
+    // state, target, specification, and linkage sections can be long, while
+    // the task's next action must remain reachable without scrolling on short
+    // and narrow displays.
+    state::paint(ui, s, presentation);
+    target::paint(ui, s, presentation.ticket, presentation.view);
+    target::paint_execution_evidence(ui, presentation.view);
+    runtime_capability::paint(ui, s, presentation.ticket, presentation.view);
+    runtime_qa_scenarios::paint(ui, s, presentation.ticket, presentation.view);
+    runtime_qa_applicability::paint(ui, s, presentation.ticket, presentation.view);
+    lifecycle_spec::paint(ui, s, presentation.ticket, presentation.view);
+    lifecycle_qa::paint(ui, presentation.view.lifecycle.as_ref());
+    linkage::paint(ui, doc);
+    activity::paint(ui, view, ticket, active, activity_path);
+    if let Some(progress) = view.progress.as_ref() {
+        super::dependency::paint_history(ui, &progress.dependency_requests);
+    }
+    metrics::paint(ui, view);
+    let checklist = crate::ui::task_checklist::from_task(&doc.text, s.implementation_state(ticket));
+    if !checklist.is_empty() {
+        ui.collapsing("Checklist", |ui| {
+            let elapsed = s.implementation_elapsed(ticket);
+            crate::ui::task_checklist::paint(
+                ui,
+                &checklist,
+                column == 4,
+                false,
+                active,
+                elapsed.as_deref(),
+            );
+        });
+    }
+    ui.collapsing("Task description & acceptance criteria", |ui| {
+        crate::ui::spec_viewer::render(ui, Some(&doc.text));
+    });
+    ui.collapsing("Technical details", |ui| paint_task_properties(ui, s, doc));
+    {
+        let mut lifecycle_surface = Some(&mut *s);
+        lifecycle::paint(
+            ui,
+            &mut lifecycle_surface,
+            ticket,
+            presentation.view.lifecycle.as_ref(),
+            presentation.view.lifecycle_error.as_deref(),
+        );
+    }
+}
+
+pub(super) fn paint_primary(
+    ui: &mut egui::Ui,
+    s: &mut dyn Surface,
+    presentation: state::Presentation<'_>,
+    checks_unavailable: bool,
+) {
     let view = presentation.view;
     let record = presentation.record;
     let ticket = presentation.ticket;
     let active = presentation.active;
     let column = presentation.column;
+    let failure = presentation.failure;
     let brief = match &view.attention {
         Some(crate::core::attention::View::Ready(brief)) => Some(brief),
         _ => None,
     };
     let decision_sent = presentation.decision_sent;
     ui.add_space(10.0);
-    egui::Frame::NONE
-        .fill(egui::Color32::from_rgb(14, 31, 44))
-        .stroke(egui::Stroke::new(1.5, theme::BLUE))
-        .corner_radius(10)
-        .inner_margin(if ui.available_width() < 500.0 { 10 } else { 14 })
-        .show(ui, |ui| {
+    egui::Frame::NONE.show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(
-                RichText::new("YOUR NEXT STEP")
-                    .size(10.5)
-                    .strong()
-                    .color(theme::BLUE_BRIGHT),
-            );
             if let Some(request) = view.progress.as_ref().and_then(|progress| {
                 progress
                     .dependency_requests
@@ -55,7 +104,6 @@ pub(super) fn paint(
                 ui.add_space(8.0);
             }
             if active {
-                ui.label("Kool.ad/e is working. You can cancel this task while unrelated work continues.");
                 if ui
                     .add(
                         egui::Button::new("Cancel task")
@@ -101,7 +149,7 @@ pub(super) fn paint(
             } else if review::approval_required(record) {
                 review::paint_approval(ui, s, ticket);
             } else {
-                paint_attention(ui, brief, decision_sent, failure, checks_unavailable);
+                attention::paint(ui, brief, decision_sent, failure, checks_unavailable);
                 let label = if record.is_some_and(|record| {
                     record.status
                         == crate::core::implementation::ImplementationStatus::ReadyToPublish
@@ -170,19 +218,18 @@ pub(super) fn paint(
                 });
             }
         });
-    // Keep the action panel directly below the task heading. The supporting
-    // state, target, specification, and linkage sections can be long, while
-    // the task's next action must remain reachable without scrolling on short
-    // and narrow displays.
-    state::paint(ui, s, presentation);
-    target::paint(ui, s, presentation.ticket, presentation.view);
-    target::paint_execution_evidence(ui, presentation.view);
-    runtime_capability::paint(ui, s, presentation.ticket, presentation.view);
-    runtime_qa_scenarios::paint(ui, s, presentation.ticket, presentation.view);
-    runtime_qa_applicability::paint(ui, s, presentation.ticket, presentation.view);
-    lifecycle_spec::paint(ui, s, presentation.ticket, presentation.view);
-    lifecycle_qa::paint(ui, presentation.view.lifecycle.as_ref());
-    linkage::paint(ui, doc);
+    if column == 4 && ui.button("Archive").clicked() {
+        s.dispatch(crate::ui::ApplicationCommand::ArchiveTask {
+            ticket: ticket.to_owned(),
+        });
+        ui.ctx().data_mut(|data| {
+            data.insert_temp(egui::Id::new("koolade_task_details_close"), true);
+        });
+    }
+    confirm_cancel(ui, s, ticket);
+}
+
+fn confirm_cancel(ui: &mut egui::Ui, s: &mut dyn Surface, ticket: &str) {
     let cancel_id = egui::Id::new("koolade_cancel_pending");
     let confirming_cancel = ui
         .ctx()
@@ -210,88 +257,6 @@ pub(super) fn paint(
                 }
             });
         });
-    }
-    activity::paint(ui, view, ticket, active, activity_path);
-    if let Some(progress) = view.progress.as_ref() {
-        super::dependency::paint_history(ui, &progress.dependency_requests);
-    }
-    if column == 4 && ui.button("Archive").clicked() {
-        s.dispatch(crate::ui::ApplicationCommand::ArchiveTask {
-            ticket: ticket.to_owned(),
-        });
-        ui.ctx().data_mut(|data| {
-            data.insert_temp(egui::Id::new("koolade_task_details_close"), true);
-        });
-    }
-    metrics::paint(ui, view);
-    let checklist = crate::ui::task_checklist::from_task(&doc.text, s.implementation_state(ticket));
-    if !checklist.is_empty() {
-        ui.collapsing("Checklist", |ui| {
-            let elapsed = s.implementation_elapsed(ticket);
-            crate::ui::task_checklist::paint(
-                ui,
-                &checklist,
-                column == 4,
-                false,
-                active,
-                elapsed.as_deref(),
-            );
-        });
-    }
-    ui.collapsing("Task description & acceptance criteria", |ui| {
-        crate::ui::spec_viewer::render(ui, Some(&doc.text));
-    });
-    ui.collapsing("Technical details", |ui| paint_task_properties(ui, s, doc));
-    {
-        let mut lifecycle_surface = Some(&mut *s);
-        lifecycle::paint(
-            ui,
-            &mut lifecycle_surface,
-            ticket,
-            presentation.view.lifecycle.as_ref(),
-            presentation.view.lifecycle_error.as_deref(),
-        );
-    }
-}
-
-fn paint_attention(
-    ui: &mut egui::Ui,
-    brief: Option<&crate::core::attention::Brief>,
-    decision_sent: bool,
-    failure: Option<&str>,
-    checks_unavailable: bool,
-) {
-    if let Some(brief) = brief {
-        if decision_sent {
-            ui.label("Decision saved in this task's conversation.");
-        }
-        if !brief.options.is_empty() {
-            ui.label("Kool.ad/e is waiting for your decision. Choose an option in the task conversation.");
-        } else if !brief.steps.is_empty() {
-            ui.label("Kool.ad/e is waiting for the action listed below. Your work is safe.");
-        } else {
-            ui.label("Kool.ad/e couldn't complete this check. Your work is safe. Resume implementation to try again.");
-        }
-        reply::paint_recommendation(ui, brief);
-        for step in &brief.steps {
-            ui.add(egui::Label::new(format!("{}: {}", step.owner, step.action)).wrap());
-        }
-        ui.label(RichText::new(&brief.after).small().weak());
-    } else if checks_unavailable {
-        ui.label("Kool.ad/e couldn't complete the project check. Your work is safe and hasn't been published.");
-    } else if let Some(error) = failure {
-        let actions = reply::failure_actions(error);
-        if actions.is_empty() {
-            ui.label(
-                "Review the blocker and reply in the conversation. Resume after it is resolved.",
-            );
-        } else {
-            for action in actions {
-                ui.add(egui::Label::new(format!("• {action}")).wrap());
-            }
-        }
-    } else {
-        ui.label("Start implementation when this task is ready.");
     }
 }
 

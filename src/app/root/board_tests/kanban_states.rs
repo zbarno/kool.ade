@@ -100,9 +100,9 @@ fn kanban_distinguishes_authority_blockers_tasks_and_completed_work() {
         assert!(text_position(&output, label).is_some(), "missing {label}");
     }
     for (card, status) in [
-        ("Human decision card", "Waiting for your decision"),
-        ("Agent resolving card", "Kool.ad/e is investigating"),
-        ("Review decision card", "Ready for your review"),
+        ("Human decision card", "Action needed"),
+        ("Agent resolving card", "Working"),
+        ("Review decision card", "Action needed"),
     ] {
         let details = click_text(&mut app, &ctx, card);
         assert!(
@@ -158,6 +158,7 @@ fn agent_item_shows_live_investigation_on_board_and_in_detail() {
     assert!(text_position(&output, "Reading search source").is_none());
     let details = click_text(&mut app, &ctx, &item.question);
     assert!(text_position(&details, "Agent investigation").is_none());
+    click_text(&mut app, &ctx, "Why am I seeing this?");
     click_text(&mut app, &ctx, "Activity");
     let details = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&details, "Agent investigation").is_some());

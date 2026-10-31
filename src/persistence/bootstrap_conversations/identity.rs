@@ -114,6 +114,8 @@ impl StoredMessageV1 {
             role: self.role,
             text: redact(&self.text),
             ref_item: None,
+            answer_context: None,
+            clarification: false,
             ts: self.ts,
         }
     }
