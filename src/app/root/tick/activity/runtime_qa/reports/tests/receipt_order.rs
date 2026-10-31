@@ -30,10 +30,14 @@ fn missing_gate_receipt_prevents_durable_finding_decisions() {
     });
     let qa_root = root.path().join("qa");
     let qa_store = RuntimeQaStore::new(&qa_root);
-    save_failed_report_with_nonblocking_finding(&qa_store, &task.task_uid, &request);
+    save_failed_report_with_finding(&qa_store, &task.task_uid, &request, false);
 
+    let mut planning_work = Vec::new();
+    let mut baseline = planning.revision().unwrap();
     let result = record_persisted_report(
         &planning,
+        &mut planning_work,
+        &mut baseline,
         &crate::core::lifecycle::LifecycleStore::new(&planning),
         &qa_store,
         &task,
@@ -63,7 +67,7 @@ fn legacy_schema_three_report_with_v3_receipt_is_not_recordable() {
     let task = super::task();
     let request = super::request(&task);
     let store = RuntimeQaStore::new(root.path().join("qa"));
-    save_failed_report_with_nonblocking_finding(&store, &task.task_uid, &request);
+    save_failed_report_with_finding(&store, &task.task_uid, &request, false);
     let (persisted, _, evidence, mut result) = store.load_run(&request.qa_run_id).unwrap();
     assert_eq!(persisted, request);
 
@@ -148,10 +152,11 @@ fn legacy_schema_three_report_with_v3_receipt_is_not_recordable() {
     );
 }
 
-fn save_failed_report_with_nonblocking_finding(
+pub(super) fn save_failed_report_with_finding(
     store: &RuntimeQaStore,
     task_uid: &str,
     request: &QaRunRequestV1,
+    blocking: bool,
 ) {
     let scenario = QaScenarioV1 {
         schema_version: 1,
@@ -216,7 +221,7 @@ fn save_failed_report_with_nonblocking_finding(
         coverage: Vec::new(),
         retention_policy: "user-local/30-days".into(),
     };
-    let mut finding = super::finding(false);
+    let mut finding = super::finding(blocking);
     finding.scenario_uid = scenario.id.clone();
     let result = QaResultV1 {
         schema_version: CURRENT_QA_RESULT_SCHEMA_VERSION,

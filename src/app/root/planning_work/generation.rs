@@ -255,6 +255,7 @@ fn feature_branch_targets(
             crate::core::planning_work::WorkKind::TaskGeneration
                 | crate::core::planning_work::WorkKind::PlanReviewDisposition
                 | crate::core::planning_work::WorkKind::CodeReviewDisposition
+                | crate::core::planning_work::WorkKind::QaFindingDisposition
         ) && (work.feature_uid.as_deref() == feature_uid && feature_uid.is_some()
             || work.feature_id.as_deref() == Some(feature_id))
     });
