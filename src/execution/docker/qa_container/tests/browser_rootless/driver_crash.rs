@@ -18,8 +18,9 @@ pub(super) async fn assert_driver_crash_fails_closed(
     preview: &super::super::QaWebPreview,
     resources: &crate::execution::contract::ResourceBudgetV1,
 ) -> Result<(), String> {
-    let mut run_request = request.clone();
-    run_request.qa_run_id = uuid::Uuid::new_v4().hyphenated().to_string();
+    // Reuse the request whose preview lease is already running. The lease is
+    // immutably bound to this QA run ID; only the scenario needs a fresh ID.
+    let run_request = request.clone();
     let scenario = QaScenarioV1 {
         schema_version: 1,
         id: uuid::Uuid::new_v4().hyphenated().to_string(),
