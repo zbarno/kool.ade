@@ -195,7 +195,10 @@ pub(super) fn paint_rediscover_button(ui: &mut Ui, dialog: &mut DlgHarnessSetup)
 fn visible_entries(
     settings: &crate::persistence::harness_settings::HarnessSettings,
     now: u64,
-) -> Vec<(String, crate::persistence::harness_settings::DetectedHarness)> {
+) -> Vec<(
+    String,
+    crate::persistence::harness_settings::DetectedHarness,
+)> {
     settings
         .discovered
         .iter()
