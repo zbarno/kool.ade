@@ -6,6 +6,16 @@ mod page_drain;
 mod refresh_click;
 mod retry_provider;
 
+/// Exercise the real repair-detail UI independently from nested egui
+/// disclosure hit-testing. Production uses the same shared paint function.
+pub(super) fn paint_repair_provider(
+    ui: &mut egui::Ui,
+    dialog: &mut DlgHarnessSetup,
+    provider: &str,
+) {
+    super::super::tools::paint_provider_repair_details(ui, dialog, provider);
+}
+
 #[test]
 fn coding_settings_sections_open_on_tools_and_expose_routing_categories() {
     assert_eq!(
@@ -161,7 +171,7 @@ fn codex_settings_show_models_when_the_docker_execution_session_is_unavailable()
             ..Default::default()
         },
         |ui| {
-            paint::paint_harness_setup_card(ui, &mut dialog);
+            paint_repair_provider(ui, &mut dialog, "codex");
         },
     );
     let visible = output

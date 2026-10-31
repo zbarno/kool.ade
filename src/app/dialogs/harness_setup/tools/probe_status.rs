@@ -9,13 +9,8 @@ pub(super) fn paint_scan_progress(ui: &mut Ui, dialog: &DlgHarnessSetup) {
     });
     if !dialog.running_providers.is_empty() {
         ui.label(theme::metadata_text(format!(
-            "In progress: {}",
-            dialog
-                .running_providers
-                .iter()
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(", ")
+            "Checking {} tools…",
+            dialog.running_providers.len()
         )));
     }
 }
