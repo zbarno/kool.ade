@@ -1,6 +1,9 @@
 use super::*;
 use crate::harness::prompt_catalog::{CoverageStatus, CoverageV1, ReviewVerdictV1};
 
+#[path = "visual_review/forged_screenshot.rs"]
+mod forged_screenshot;
+
 fn run_visual_review(
     visual_scenario_count: usize,
     cited_scenario_count: usize,
