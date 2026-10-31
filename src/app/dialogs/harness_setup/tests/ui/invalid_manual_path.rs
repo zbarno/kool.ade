@@ -49,6 +49,7 @@ fn invalid_manual_path_shows_status_and_auto_detect_reset() {
         first_scan_pending: false,
     };
     let context = egui::Context::default();
+    reveal_provider_details(&context, &mut dialog, "pi");
     let mut output = context.run_ui(
         egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
