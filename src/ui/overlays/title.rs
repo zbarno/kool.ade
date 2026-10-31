@@ -27,7 +27,7 @@ pub(super) fn paint(ui: &mut egui::Ui, title: &str, width: f32) -> egui::Respons
             egui::Label::new(RichText::new(title).strong().size(17.0))
                 .halign(egui::Align::Min)
                 .sense(egui::Sense::drag())
-                .truncate(),
+                .wrap(),
         )
         .on_hover_text(title)
     }

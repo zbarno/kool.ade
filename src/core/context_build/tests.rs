@@ -235,3 +235,19 @@ fn accepted_feature_knowledge_survives_chat_expiration_and_derived_cache_deletio
     assert!(!rebuilt.contains("DISPOSABLE_CACHE_MARKER"));
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn byte_clipping_includes_marker_and_preserves_unicode() {
+    for text in ["a".repeat(20_000), "質問🦀".repeat(6_000)] {
+        for cap in [0, 4, 16, 16_384] {
+            let clipped = clip_bytes(&text, cap);
+            assert!(clipped.len() <= cap);
+            assert!(text.starts_with(clipped.split('\n').next().unwrap()) || cap < 18);
+            if cap >= 18 {
+                assert!(clipped.ends_with("\n[…truncated…]"));
+            }
+        }
+    }
+    let exact = "🦀".repeat(4096);
+    assert_eq!(clip_bytes(&exact, 16_384), exact);
+}

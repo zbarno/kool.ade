@@ -273,7 +273,7 @@ pub(super) fn prepare(
                 workspace_uid,
                 feature_uid,
                 task_uid: None,
-                original_goal: crate::core::context_build::clip(prompt_message, 16 * 1024),
+                original_goal: crate::core::context_build::clip_bytes(prompt_message, 16 * 1024),
                 approved_spec_ref: None,
                 approved_spec_hash: None,
                 decision_refs: vec![],

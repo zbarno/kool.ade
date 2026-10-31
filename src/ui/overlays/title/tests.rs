@@ -28,6 +28,7 @@ fn task_heading_reserves_the_close_button_at_both_window_widths() {
             );
             output.textures_delta.clear();
             if step >= 2 {
+                output.textures_delta.clear();
                 let heading = output
                     .shapes
                     .iter()
@@ -51,6 +52,39 @@ fn task_heading_reserves_the_close_button_at_both_window_widths() {
                     "close button must fit the header"
                 );
             }
+        }
+    }
+}
+
+// Exercises the actual modal heading layout; no GPU or external services.
+// A string-only unit test cannot establish wrapping or close-button geometry.
+#[test]
+fn long_question_heading_wraps_without_eliding_text() {
+    let title = "Which behavior should the application use when the selected project has unresolved questions and needs the user's decision before planning can continue?";
+    for width in [244.0, 800.0] {
+        let ctx = egui::Context::default();
+        for _ in 0..4 {
+            let mut heading_rect = egui::Rect::NOTHING;
+            let mut close_rect = egui::Rect::NOTHING;
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                ui.set_width(width);
+                ui.horizontal(|ui| {
+                    heading_rect = paint(ui, title, width).rect;
+                    close_rect = super::super::close_button(ui).rect;
+                });
+            });
+            output.textures_delta.clear();
+            let heading = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.text() == title => Some(text),
+                    _ => None,
+                })
+                .expect("question heading");
+            assert!(!heading.galley.elided);
+            assert!(heading.galley.rows.len() > 1);
+            assert!(heading_rect.right() <= close_rect.left());
         }
     }
 }
