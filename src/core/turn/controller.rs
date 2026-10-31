@@ -8,7 +8,7 @@ use crate::core::state::PlannerState;
 use crate::domain::Authority;
 use crate::harness::{AiHarness, LiveProgress};
 
-use super::execute::run_turn;
+use super::execute::{run_turn, run_turn_read_only};
 use super::{TurnEvt, TurnInputs, TurnOutcome, configured_turn_timeout};
 
 /// Lifetime handle for one running turn; polled from the UI tick loop.
@@ -32,6 +32,23 @@ impl TurnController {
         inputs: TurnInputs,
         harness: Box<dyn AiHarness>,
         task: Option<String>,
+    ) -> TurnController {
+        Self::start_mode(inputs, harness, task, false)
+    }
+
+    pub fn start_read_only(
+        inputs: TurnInputs,
+        harness: Box<dyn AiHarness>,
+        task: Option<String>,
+    ) -> TurnController {
+        Self::start_mode(inputs, harness, task, true)
+    }
+
+    fn start_mode(
+        inputs: TurnInputs,
+        harness: Box<dyn AiHarness>,
+        task: Option<String>,
+        read_only: bool,
     ) -> TurnController {
         let (evt_tx, evt_rx) = channel();
         let (act_tx, act_rx) = channel::<LiveProgress>();
@@ -62,7 +79,18 @@ impl TurnController {
             let budget = configured_turn_timeout();
             let began = Instant::now();
             let mut inputs = inputs;
-            let mut outcome = run_turn(
+            if read_only {
+                inputs.user_message = format!(
+                    "Clarification only: answer briefly without changing project state or treating this as a submitted decision.\n\n{}",
+                    inputs.user_message
+                );
+            }
+            let run = if read_only {
+                run_turn_read_only
+            } else {
+                run_turn
+            };
+            let mut outcome = run(
                 &inputs,
                 &*harness,
                 &worker_cancel,
@@ -96,7 +124,7 @@ impl TurnController {
                     ),
                     ..Default::default()
                 });
-                outcome = run_turn(
+                outcome = run(
                     &inputs,
                     &*harness,
                     &worker_cancel,

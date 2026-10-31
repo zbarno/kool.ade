@@ -7,6 +7,8 @@ mod fixtures;
 mod onboarding;
 #[path = "visual_gallery/renderer.rs"]
 mod renderer;
+#[path = "visual_gallery/task_details.rs"]
+mod task_details;
 
 #[test]
 #[ignore = "GPU screenshot review; requires isolated KOOLADE_HOME and KOOLADE_UI_REVIEW_DIR"]

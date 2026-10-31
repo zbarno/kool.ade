@@ -1,7 +1,8 @@
 use super::*;
+use crate::app::root::board_tests::text_contains;
 
 #[test]
-fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() {
+fn submitted_answers_share_history_and_keep_other_chats_out_of_prompts() {
     let _environment = crate::test_support::lock_process_environment();
     let root = std::env::temp_dir().join(format!("koolade_conversation_ui_{}", std::process::id()));
     let repo = root.join("repo");
@@ -61,14 +62,18 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     click_text(&mut app, &ctx, question);
-    click_text(&mut app, &ctx, "Reply about this task…");
+    click_text(&mut app, &ctx, "Enter your answer…");
     frame(
         &mut app,
         &ctx,
         vec![egui::Event::Text("Use corporate SSO".into())],
     );
-    assert_eq!(app.task_draft("CLR-001").unwrap(), "Use corporate SSO");
-    click_text(&mut app, &ctx, "Send reply");
+    assert_eq!(
+        ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new(("planning_answer", "CLR-001"))))
+            .as_deref(),
+        Some("Use corporate SSO")
+    );
+    click_text(&mut app, &ctx, "Submit answer");
     assert_eq!(app.task_messages("CLR-001").len(), 2);
     complete(&mut app);
     assert_eq!(app.task_messages("CLR-001").len(), 4);
@@ -77,20 +82,24 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
     assert!(text_position(&output, "Needs attention · 1").is_some());
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Waiting for your response").is_some());
-    assert!(text_position(&output, "Use corporate SSO").is_some());
-    click_text(&mut app, &ctx, "Reply about this task…");
+    assert!(text_contains(&output, "Use corporate SSO"));
+    click_text(&mut app, &ctx, "Enter your answer…");
     frame(
         &mut app,
         &ctx,
         vec![egui::Event::Text("Require MFA as well".into())],
     );
-    assert_eq!(app.task_draft("CLR-001").unwrap(), "Require MFA as well");
+    assert!(
+        ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new(("planning_answer", "CLR-001"))))
+            .unwrap()
+            .contains("Require MFA as well")
+    );
     app.task_harness = Some(Box::new(ReplyHarness { prompts: prompts.clone(), reply: serde_json::json!({
         "schema_version":1, "assistant_message":"Corporate SSO with MFA is confirmed.",
         "document_updates":[{"document_id":"product:current-capabilities","content":"## 5. Functional Requirements\n\nUse corporate SSO with MFA.\n"}],
         "open_items_resolved":["CLR-001"]
     }).to_string() }));
-    click_text(&mut app, &ctx, "Send reply");
+    click_text(&mut app, &ctx, "Submit answer");
     assert_eq!(app.task_messages("CLR-001").len(), 5);
     complete(&mut app);
     assert_eq!(app.task_messages("CLR-001").len(), 7);
@@ -128,9 +137,23 @@ fn inline_and_modal_replies_share_history_and_keep_other_chats_out_of_prompts() 
             .iter()
             .any(|event| event.contains("User replied in task CLR-001"))
     );
+    for _ in 0..3 {
+        frame(&mut app, &ctx, vec![]);
+    }
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Done · 1").is_some());
-    assert!(text_position(&output, "Corporate SSO with MFA is confirmed.").is_some());
+    assert!(
+        text_position(&output, "Corporate SSO with MFA is confirmed.").is_some(),
+        "visible: {:?}",
+        output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => Some(text.galley.text()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    );
     let main_prompts = Arc::new(Mutex::new(Vec::new()));
     app.task_harness = Some(Box::new(ReplyHarness {
         prompts: main_prompts.clone(),

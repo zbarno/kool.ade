@@ -1,7 +1,8 @@
 use super::*;
+use crate::app::root::board_tests::text_contains;
 
 #[test]
-fn next_step_is_prominent_and_older_messages_are_disclosed_on_request() {
+fn task_conversation_preserves_the_open_question_and_earlier_context() {
     let mut app = fixture();
     if let Screen::Connected(p) = &mut app.screen {
         p.task_documents.clear();
@@ -34,9 +35,9 @@ fn next_step_is_prominent_and_older_messages_are_disclosed_on_request() {
     }
     frame(&mut app, &ctx, vec![]);
     let output = click_text(&mut app, &ctx, "Which provider?");
-    assert!(text_position(&output, "Task conversation").is_some());
-    assert!(text_position(&output, "Should guests use SSO too?").is_some());
-    assert!(text_position(&output, "Reply about this task…").is_some());
-    assert!(text_position(&output, "Ctrl + Enter to send").is_some());
+    assert!(text_position(&output, "Ask a question").is_some());
+    assert!(text_contains(&output, "Should guests use SSO too?"));
+    assert!(text_position(&output, "Ask for clarification…").is_some());
+    assert!(text_position(&output, "Send").is_some());
     assert!(text_position(&output, "Earlier context for the provider").is_some());
 }

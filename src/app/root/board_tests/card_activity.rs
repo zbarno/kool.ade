@@ -71,8 +71,8 @@ fn compact_task_cards_only_show_inputs_for_pending_answers() {
     assert!(text_position(&output, "First task").is_some());
     click_text(&mut app, &ctx, "First task");
     let details = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&details, "Your response…").is_some());
-    assert!(text_position(&details, "Send response").is_some());
+    assert!(text_position(&details, "Ask for clarification…").is_some());
+    assert!(text_position(&details, "Send").is_some());
 }
 
 #[test]
