@@ -275,6 +275,12 @@ jobs:
     name: isolated queue concurrency E2E
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Like the Docker test shard, this job holds pinned images plus both the
+    # app worker and the test binary in its single rootless runner.
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_BUILD_JOBS: "2"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install isolated rootless-daemon prerequisites
@@ -359,6 +365,17 @@ jobs:
           python3 scripts/summarize-nextest-junit.py \
             "$RUNNER_TEMP/nextest-time.txt" target/nextest/default/nextest.xml \
             >> "$GITHUB_STEP_SUMMARY"
+      - name: Report rootless Docker and proxy health after queue test
+        if: always()
+        run: |
+          df -h / "$RUNNER_TEMP" || true
+          du -sh target/debug 2>/dev/null || true
+          timeout 15s docker info --format '{{.ServerVersion}} {{json .SecurityOptions}}' || true
+          timeout 15s docker --host "unix://$XDG_RUNTIME_DIR/docker.sock" info --format '{{.ServerVersion}} {{json .SecurityOptions}}' || true
+          if [ -f "$RUNNER_TEMP/docker-socket-proxy.log" ]; then
+            tail -n 60 "$RUNNER_TEMP/docker-socket-proxy.log"
+          fi
+
       - name: Retain queue E2E timing and failure evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
