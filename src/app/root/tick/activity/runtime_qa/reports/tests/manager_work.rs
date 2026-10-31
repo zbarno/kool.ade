@@ -54,3 +54,58 @@ fn blocking_qa_finding_creates_one_manager_repair_proposal() {
     .unwrap();
     assert_eq!(planning_work::load(&planning).unwrap().len(), 1);
 }
+
+/// Production boundary: the persisted report handler must create Manager repair work before it
+/// records the lifecycle transition. File-backed planning and QA stores cover the complete
+/// handoff and replay path; no Docker, provider, or network dependency is needed.
+#[test]
+fn persisted_failed_report_records_lifecycle_and_manager_repair_work() {
+    use crate::{
+        core::lifecycle::{LifecycleStore, TaskPhase},
+        runtime_qa::RuntimeQaStore,
+    };
+
+    let root = tempfile::tempdir().unwrap();
+    let planning = PlanningStore::new(uuid::Uuid::new_v4(), root.path(), StoreMode::ManagedLocal);
+    let lifecycle = LifecycleStore::new(&planning);
+    let (task_uid, request, _) =
+        crate::app::root::tick::activity::runtime_qa::test_support::dispatch_fixture::queued_task(
+            &lifecycle,
+        );
+    let task = lifecycle.load_task(&task_uid).unwrap();
+    let qa = RuntimeQaStore::new(root.path().join("qa"));
+    super::receipt_order::save_failed_report_with_finding(&qa, &task_uid, &request, true);
+    super::receipt_order::save_valid_gate_receipt(&qa, &request);
+
+    let mut work = planning_work::load(&planning).unwrap();
+    let mut baseline = planning.revision().unwrap();
+    let summary = super::super::record_persisted_report(
+        &planning,
+        &mut work,
+        &mut baseline,
+        &lifecycle,
+        &qa,
+        &task,
+    )
+    .unwrap()
+    .unwrap();
+
+    assert!(summary.contains("Manager should route the observed findings"));
+    assert_eq!(
+        lifecycle.load_task(&task_uid).unwrap().phase,
+        TaskPhase::Repairing
+    );
+    let saved = planning_work::load(&planning).unwrap();
+    let proposal = saved
+        .iter()
+        .find(|work| work.kind == WorkKind::QaFindingDisposition)
+        .expect("failed report persists a Manager repair proposal");
+    assert_eq!(proposal.status, WorkStatus::Todo);
+    assert_eq!(
+        proposal.kind.harness_route_category(),
+        crate::persistence::harness_settings::MANAGER
+    );
+    assert_eq!(proposal.parent_uid.as_deref(), Some(task_uid.as_str()));
+    assert!(proposal.detail.contains(&request.qa_run_id));
+    assert!(proposal.detail.contains(&request.code_head_sha));
+}
