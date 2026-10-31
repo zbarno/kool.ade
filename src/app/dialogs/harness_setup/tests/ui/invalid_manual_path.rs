@@ -58,7 +58,7 @@ fn invalid_manual_path_shows_status_and_auto_detect_reset() {
             ..Default::default()
         },
         |ui| {
-            paint::paint_harness_setup_card(ui, &mut dialog);
+            paint_repair_provider(ui, &mut dialog, "pi");
         },
     );
     let labels = output

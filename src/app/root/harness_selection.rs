@@ -87,8 +87,9 @@ pub(crate) fn validate_task_routes(
             ));
         };
         if !detected.is_fresh_at(crate::persistence::harness_settings::current_unix_ms()) {
+            crate::app::dialogs::request_cli_auto_refresh();
             return Err(format!(
-                "Harness '{}' discovery is stale; refresh Coding tools before task routing",
+                "Harness '{}' is being reverified automatically before task routing",
                 route.harness
             ));
         }

@@ -392,6 +392,12 @@ jobs:
     if: needs.changes.outputs.qa == 'true'
     name: Build and verify ${{ matrix.profile }} (linux/amd64)
     runs-on: ubuntu-24.04
+    # Candidate images and several app-owned Rust integration binaries share
+    # one rootless engine. Bound compile pressure while retaining every test.
+    env:
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_BUILD_JOBS: "2"
     permissions:
       contents: read
     strategy:
@@ -552,6 +558,14 @@ jobs:
           polyglot_task_runtime_test=execution::docker::qa_container::tests::browser_rootless::task_runtime::polyglot::rootless_polyglot_targets_run_approved_recipes_with_exact_receipts
           cargo +1.98.1 test --locked --lib "$polyglot_task_runtime_test" -- --ignored --exact --list | grep -Fx "$polyglot_task_runtime_test: test"
           cargo +1.98.1 test --locked --lib "$polyglot_task_runtime_test" -- --ignored --exact
+      - name: Report rootless Docker health and free storage
+        if: always()
+        run: |
+          df -h / "$RUNNER_TEMP" || true
+          du -sh target/debug "$HOME/.cargo" 2>/dev/null || true
+          timeout 15s docker info --format '{{.ServerVersion}} {{json .SecurityOptions}}' || true
+          timeout 15s docker system df || true
+
       - name: Verify candidate record and report its immutable digest
         env:
           PROFILE: ${{ matrix.profile }}

@@ -118,7 +118,7 @@ fn stale_saved_default_is_rejected_before_it_can_route() {
             &std::collections::BTreeMap::new(),
         );
         let error = harness.check_available().unwrap_err().detail();
-        assert!(error.contains("Discovery for opencode is stale"));
+        assert!(error.contains("reverified automatically"), "{error}");
     });
     let _ = std::fs::remove_file(path);
 }
