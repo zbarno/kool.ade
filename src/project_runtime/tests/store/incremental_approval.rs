@@ -8,7 +8,7 @@ impl Fixture {
         let root =
             std::env::temp_dir().join(format!("koolade-runtime-store-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
-        let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &root);
+        let store = PlanningStore::new(uuid::Uuid::new_v4(), &root, crate::artifacts::planning_store::StoreMode::ManagedLocal);
         Self(root, store)
     }
 }

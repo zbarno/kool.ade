@@ -8,7 +8,7 @@ fn unsupported_platform_rejects_implementation_before_dispatch() {
         implementation: false,
     };
     app.start_implementation_with_capabilities(
-        ".koolade-packet/planning/tasks/fixture/001-task.md".into(),
+        "planning/tasks/fixture/001-task.md".into(),
         false,
         capabilities,
     );
@@ -30,7 +30,7 @@ fn unsupported_platform_rejects_implementation_before_dispatch() {
 #[test]
 fn auto_queue_cannot_start_task_from_unapproved_feature() {
     let mut app = fixture();
-    let ticket = ".koolade-packet/planning/tasks/fixture/001-task.md";
+    let ticket = "planning/tasks/fixture/001-task.md";
     if let Screen::Connected(project) = &mut app.screen {
         assert!(project.queue.auto_build);
         project.task_documents[0]
@@ -65,7 +65,7 @@ fn resume_dispatch_accepts_feature_named_workspace_story() {
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
-    let ticket = ".koolade-packet/planning/tasks/demo/CHG-003-TASK-verify.md";
+    let ticket = "planning/tasks/demo/CHG-003-TASK-verify.md";
     std::fs::create_dir_all(root.join(ticket).parent().unwrap()).unwrap();
     std::fs::write(root.join(ticket), "# Verify workspace\n").unwrap();
     assert!(
@@ -171,7 +171,7 @@ fn task_details_offer_implementation_after_generation_and_board_replaces_main_ch
             .push(crate::core::workflow::TaskBatchRef {
                 identity: None,
                 feature: "Current feature".into(),
-                directory: ".koolade-packet/planning/tasks/fixture".into(),
+                directory: "planning/tasks/fixture".into(),
                 count: 3,
                 created_at_ms: 0,
             });
@@ -246,8 +246,8 @@ fn parallel_cards_and_targeted_pause_preserves_other_workers_and_completion() {
             .unwrap()
             .success()
     );
-    let first = ".koolade-packet/planning/tasks/fixture/001-task.md";
-    let second = ".koolade-packet/planning/tasks/fixture/002-task.md";
+    let first = "planning/tasks/fixture/001-task.md";
+    let second = "planning/tasks/fixture/002-task.md";
     let mut completed_record = None;
     if let Screen::Connected(p) = &mut app.screen {
         completed_record = p.implementation_states.values().next().cloned();

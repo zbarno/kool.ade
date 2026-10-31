@@ -32,9 +32,8 @@ pub(super) fn create(initial_files: &[(&str, &str)]) -> Sandbox {
     git(&["init", "-q", "-b", "main"]);
     git(&["config", "user.name", "Fixture"]);
     git(&["config", "user.email", "fixture@example.test"]);
-    let ticket =
-        ".koolade-packet/planning/tasks/feature/001-implement-ticket-behavior.md".to_owned();
-    fs::create_dir_all(repo.join(".koolade-packet/planning/tasks/feature")).unwrap();
+    let ticket = "planning/tasks/feature/001-implement-ticket-behavior.md".to_owned();
+    fs::create_dir_all(repo.join("planning/tasks/feature")).unwrap();
     let ticket_text = "# Implement ticket behavior\n\nFeature: F1\n\n## Acceptance criteria\n\n- File contains implemented.\n";
     let identity = crate::domain::ArtifactIdentity::preserve_markdown(
         ticket_text,
@@ -45,7 +44,7 @@ pub(super) fn create(initial_files: &[(&str, &str)]) -> Sandbox {
     .unwrap();
     fs::write(repo.join(&ticket), &identity).unwrap();
     fs::write(
-        repo.join(".koolade-packet/planning/tasks/feature/specification.md"),
+        repo.join("planning/tasks/feature/specification.md"),
         "# F1: Implement ticket behavior\n\n- File contains implemented.\n",
     )
     .unwrap();
@@ -54,6 +53,28 @@ pub(super) fn create(initial_files: &[(&str, &str)]) -> Sandbox {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, contents).unwrap();
     }
+    let workspace_id = uuid::Uuid::new_v4();
+    let mut workspace = crate::core::managed_workspace::WorkspaceManifest::new(workspace_id);
+    workspace.canonical_ref = "refs/heads/main".into();
+    fs::write(
+        repo.join(crate::artifacts::layout::store::MANIFEST),
+        serde_json::to_vec_pretty(&workspace).unwrap(),
+    )
+    .unwrap();
+    let repositories = crate::core::project_repos::ProjectManifest {
+        repositories: vec![crate::core::project_repos::Repository {
+            id: "root".into(),
+            role: "Primary code".into(),
+            remote: "ssh://git@github.com/fixture/repo.git".into(),
+            display_name: None,
+        }],
+    };
+    fs::create_dir_all(repo.join(crate::artifacts::layout::store::CONFIG)).unwrap();
+    fs::write(
+        repo.join(crate::artifacts::layout::store::PROJECT_MANIFEST),
+        serde_json::to_vec_pretty(&repositories).unwrap(),
+    )
+    .unwrap();
     git(&["add", "."]);
     git(&["commit", "-qm", "baseline"]);
     git(&[

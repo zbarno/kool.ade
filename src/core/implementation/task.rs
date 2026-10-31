@@ -62,18 +62,22 @@ pub(super) fn read_ticket_and_identity<R: PlanningRoot + ?Sized>(
 }
 
 pub fn target_repository(planning_root: &Path, ticket: &str) -> anyhow::Result<PathBuf> {
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), planning_root);
+    let store = PlanningStore::new(
+        uuid::Uuid::nil(),
+        planning_root,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     target_repository_with_store(&store, planning_root, ticket)
 }
 
-pub(crate) fn target_repository_with_store(
+pub fn target_repository_with_store(
     planning_store: &PlanningStore,
     code_root: &Path,
     ticket: &str,
 ) -> anyhow::Result<PathBuf> {
     let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
     let id = task_repository_id_with_store(planning_store, ticket)?;
-    manifest.target(code_root, &id)
+    manifest.target(planning_store.project_id, code_root, &id)
 }
 
 pub(crate) fn task_repository_id(
@@ -113,7 +117,11 @@ pub(super) fn scoped_product_context(
     planning_root: &Path,
     ticket: &str,
 ) -> anyhow::Result<Option<String>> {
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), planning_root);
+    let store = PlanningStore::new(
+        uuid::Uuid::nil(),
+        planning_root,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     scoped_product_context_with_store(&store, ticket)
 }
 
@@ -124,11 +132,8 @@ pub(crate) fn scoped_product_context_with_store(
     let Some(parent) = Path::new(ticket).parent() else {
         return Ok(None);
     };
-    let relative = parent.join("contract.json");
-    let relative = relative
-        .strip_prefix(crate::artifacts::layout::store::ROOT)
-        .unwrap_or(&relative);
-    let bytes = match planning_store.read(relative) {
+    let relative = parent.join("contract.json").to_string_lossy().into_owned();
+    let bytes = match planning_store.read(&relative) {
         Ok(bytes) => bytes,
         Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
             if source.kind() == std::io::ErrorKind::NotFound =>
@@ -154,11 +159,15 @@ pub fn completed_dependency_context(
     ticket: &str,
     ticket_text: &str,
 ) -> anyhow::Result<Option<String>> {
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), planning_root);
+    let store = PlanningStore::new(
+        uuid::Uuid::nil(),
+        planning_root,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     completed_dependency_context_with_store(&store, planning_root, ticket, ticket_text)
 }
 
-pub(crate) fn completed_dependency_context_with_store(
+pub fn completed_dependency_context_with_store(
     planning_store: &PlanningStore,
     state_root: &Path,
     ticket: &str,

@@ -160,7 +160,7 @@ pub(super) fn context(
             .map(|state| state.task_repository)
             .filter(|path| path.is_dir())
             .unwrap_or_else(|| repo.to_owned());
-    let task = task::content(&task_repository, repo, planning_store, ticket);
+    let task = task::content(planning_store, ticket);
     let documents = referenced_documents(&task_repository, report);
     (task_repository, task, documents)
 }

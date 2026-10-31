@@ -26,12 +26,18 @@ fn held_qa_run_lock_is_reported_as_active_worker_contention() {
 fn stale_request_replacement_wins_before_dispatch_claim_and_no_worker_lock_leaks() {
     let root = tempfile::tempdir().unwrap();
     let project_id = uuid::Uuid::new_v4();
-    let planning =
-        crate::artifacts::planning_store::PlanningStore::legacy_embedded(project_id, root.path());
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
+        project_id,
+        root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, revision) = dispatch_fixture::queued_task(&lifecycle);
-    let other_planning =
-        crate::artifacts::planning_store::PlanningStore::legacy_embedded(project_id, root.path());
+    let other_planning = crate::artifacts::planning_store::PlanningStore::new(
+        project_id,
+        root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let other_lifecycle = crate::core::lifecycle::LifecycleStore::new(&other_planning);
     let mut replacement = request.clone();
     replacement.qa_run_id = uuid::Uuid::new_v4().hyphenated().to_string();
@@ -67,8 +73,11 @@ fn stale_request_replacement_wins_before_dispatch_claim_and_no_worker_lock_leaks
 fn stale_running_request_without_report_fails_closed_after_lock_recovery() {
     let root = tempfile::tempdir().unwrap();
     let project_id = uuid::Uuid::new_v4();
-    let planning =
-        crate::artifacts::planning_store::PlanningStore::legacy_embedded(project_id, root.path());
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
+        project_id,
+        root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, revision) = dispatch_fixture::queued_task(&lifecycle);
     let queued = lifecycle.load_task(&task_uid).unwrap();

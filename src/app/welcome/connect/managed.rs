@@ -1,84 +1,45 @@
-use std::path::Path;
-
 use crate::{
     app::session::Project,
-    core::managed_workspace::{WorkspaceManager, WorkspaceManifest},
+    core::managed_workspace::{NewProjectSpec, WorkspaceManager},
     error::AppError,
 };
 
-use super::{connect_canonical_with_key, expand_home};
-
-/// Create and open a planning-only workspace before any code repository is
-/// registered. The workspace identity remains stable across restarts.
-pub fn attempt_create_workspace(title: &str) -> Result<Project, AppError> {
-    let workspace = WorkspaceManager::from_state_root()
-        .create(title)
-        .map_err(|error| AppError::Other(format!("workspace creation failed: {error:#}")))?;
-    connect_canonical_with_key(
-        workspace.planning_repo,
-        workspace.store,
-        workspace.id.hyphenated().to_string(),
-    )
-}
+use super::connect_canonical_with_key;
 
 /// Reopen a local workspace using its durable workspace UUID.
 pub fn attempt_open_workspace(workspace_id: uuid::Uuid) -> Result<Project, AppError> {
-    let workspace = WorkspaceManager::from_state_root()
+    let manager = WorkspaceManager::from_state_root();
+    let workspace = manager
         .open(workspace_id)
         .map_err(|error| AppError::Other(format!("workspace could not be opened: {error:#}")))?;
+    let repository = workspace
+        .repositories
+        .repositories
+        .iter()
+        .find(|repository| repository.id == crate::core::managed_workspace::PAIR_CODE_REPO_ID)
+        .or_else(|| workspace.repositories.repositories.first())
+        .ok_or_else(|| AppError::Other("workspace has no paired code repository".into()))?;
+    let checkout = manager
+        .checkout_path(workspace.id, &repository.id, &repository.remote)
+        .map_err(|error| {
+            AppError::Other(format!(
+                "managed code checkout could not be opened: {error:#}"
+            ))
+        })?
+        .ok_or_else(|| {
+            AppError::Other("paired code repository is not cloned on this computer".into())
+        })?;
     connect_canonical_with_key(
-        workspace.planning_repo,
+        checkout,
         workspace.store,
         workspace_id.hyphenated().to_string(),
     )
 }
 
-/// Join an existing managed planning checkout and reuse its workspace ID.
-pub fn attempt_join_workspace(raw: &str) -> Result<Project, AppError> {
-    let value = raw.trim();
-    let manager = WorkspaceManager::from_state_root();
-    let workspace = if value.contains("://") || value.starts_with("git@") {
-        manager.join_remote(value)
-    } else {
-        let path = expand_home(value);
-        manager.join(Path::new(path.as_os_str()))
-    }
-    .map_err(|error| {
-        AppError::Other(format!("planning workspace could not be joined: {error:#}"))
-    })?;
-    connect_canonical_with_key(
-        workspace.planning_repo,
-        workspace.store,
-        workspace.id.hyphenated().to_string(),
-    )
-}
-
-pub(super) fn is_managed_repository(path: &Path) -> Result<bool, AppError> {
-    WorkspaceManifest::is_managed_repository(path)
-        .map_err(|error| AppError::Other(format!("planning manifest is invalid: {error:#}")))
-}
-
-pub(super) fn join_workspace_path(path: &Path) -> Result<Project, AppError> {
-    let workspace = WorkspaceManager::from_state_root()
-        .join(path)
-        .map_err(|error| {
-            AppError::Other(format!("planning workspace could not be joined: {error:#}"))
-        })?;
-    connect_canonical_with_key(
-        workspace.planning_repo,
-        workspace.store,
-        workspace.id.hyphenated().to_string(),
-    )
-}
-
-/// Wizard "new project" track: materializes the visible sibling pair and
-/// reconnects through the ordinary code-root gate over the fresh checkout,
-/// exercising the same managed detection a returning operator gets.
-pub fn attempt_create_project(
-    spec: &crate::core::managed_workspace::SiblingPairSpec,
-) -> Result<Project, AppError> {
+/// Create a brand-new sibling code and planning repository pair.
+pub fn attempt_create_project(spec: &NewProjectSpec) -> Result<Project, AppError> {
     WorkspaceManager::from_state_root()
-        .create_sibling_pair(spec)
+        .create_new_project(spec)
         .map_err(|error| AppError::Other(format!("new project could not be created: {error:#}")))?;
     let code = spec.parent_dir.join(&spec.code_repo_name);
     super::attempt_connect(&code.to_string_lossy())

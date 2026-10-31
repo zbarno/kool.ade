@@ -176,8 +176,6 @@ fn derive_import_rows(state: &PlannerState) -> Vec<ImportRow> {
         .iter()
         .map(|entry| entry.name.clone())
         .collect::<std::collections::HashSet<_>>();
-    let managed = state.planning_store.mode
-        != crate::artifacts::planning_store::StoreMode::LegacyPacketSource;
     let mut inline_remaining = TOTAL_INLINE_CHARS;
     let mut rows = imports
         .into_iter()
@@ -189,8 +187,7 @@ fn derive_import_rows(state: &PlannerState) -> Vec<ImportRow> {
                     .is_some_and(|source| names.contains(source))
         })
         .map(|entry| {
-            let content = if managed
-                && inline_remaining > 0
+            let content = if inline_remaining > 0
                 && crate::artifacts::imports_io::is_textual_import_name(&entry.name)
             {
                 let relative = format!(

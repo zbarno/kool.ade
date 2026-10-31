@@ -50,7 +50,11 @@ fn deployment() -> DeploymentEvidenceV1 {
 #[test]
 fn deployment_projection_persists_pending_then_success_and_rejects_stale_receipts() {
     let root = tempfile::tempdir().unwrap();
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), root.path());
+    let store = PlanningStore::new(
+        uuid::Uuid::nil(),
+        root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let current = current();
     persist_current_receipt(&store, &current);
     let lifecycle = LifecycleStore::new(&store);

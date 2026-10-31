@@ -55,18 +55,6 @@ impl KooladeApp {
 
         match &mut self.screen {
             Screen::Welcome => {
-                // Folder-picker selections belong to the card that RAISED the
-                // picker: the code-repository card by default. The
-                // planning-repository card's Browse… button flips
-                // `conn_browse_target` in the same frame before the consumer
-                // below dispatches, so this reset cannot shadow it.
-                self.conn_browse_target = BrowseTarget::CodeRepo;
-                let slot = std::cell::RefCell::new(false);
-                let browse_slot = std::cell::RefCell::new(false);
-                let clone_slot = std::cell::RefCell::new(false);
-                let create_workspace_slot = std::cell::RefCell::new(false);
-                let join_workspace_slot = std::cell::RefCell::new(false);
-                let open_local_workspace_slot = std::cell::RefCell::new(false);
                 let harness_setup_slot = std::cell::RefCell::new(false);
                 let local_workspaces =
                     crate::core::managed_workspace::WorkspaceManager::from_state_root()
@@ -109,15 +97,8 @@ impl KooladeApp {
                                 paint_more_connections(
                                     &mut columns[0],
                                     self,
-                                    &browse_slot,
-                                    &clone_slot,
-                                    &slot,
-                                    &create_workspace_slot,
-                                    &join_workspace_slot,
-                                    &open_local_workspace_slot,
                                     &harness_setup_slot,
                                     &local_workspaces,
-                                    cloning,
                                 );
                                 columns[1].vertical_centered(|ui| {
                                     welcome_setup_action =
@@ -141,15 +122,8 @@ impl KooladeApp {
                             paint_more_connections(
                                 ui,
                                 self,
-                                &browse_slot,
-                                &clone_slot,
-                                &slot,
-                                &create_workspace_slot,
-                                &join_workspace_slot,
-                                &open_local_workspace_slot,
                                 &harness_setup_slot,
                                 &local_workspaces,
-                                cloning,
                             );
                             ui.vertical_centered(|ui| {
                                 welcome_setup_action = crate::ui::layout::paint_welcome_setup_board(
@@ -172,26 +146,6 @@ impl KooladeApp {
                         );
                     }
                 });
-                if self.wiz.is_none() {
-                    // Veiled while the wizard modal is open (see the card-bus
-                    // guard): legacy actions must not fire from clicks the
-                    // backdrop is eating.
-                    if *slot.borrow() {
-                        self.submit_connect();
-                    } else if *clone_slot.borrow() {
-                        self.begin_clone_from_field();
-                    } else if *create_workspace_slot.borrow() {
-                        self.submit_create_workspace();
-                    } else if *join_workspace_slot.borrow() {
-                        self.submit_join_workspace();
-                    } else if *open_local_workspace_slot.borrow() {
-                        self.submit_open_local_workspace();
-                    } else if *browse_slot.borrow() {
-                        // One picker serves both welcome cards; the active
-                        // target decides which field receives the selection.
-                        self.pick_folder_for_active_target();
-                    }
-                }
                 if self.wiz.is_none() && *harness_setup_slot.borrow() {
                     self.dialog = Some(Dialog::HarnessSetup(app_dialogs::DlgHarnessSetup::new()));
                 }

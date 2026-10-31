@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn compare_plans_saves_typed_workflow_record_without_mutating_feature_document() {
     let (mut state, root) = state_at("plan_comparison");
-    let feature_dir = root.join(".koolade-packet/planning/changes/CHG-004-saved-searches");
+    let feature_dir = root.join("planning/changes/CHG-004-saved-searches");
     std::fs::create_dir_all(&feature_dir).unwrap();
     let path = feature_dir.join("specification.md");
     let body = crate::artifacts::product_docs::identity::preserve_feature_identity(
@@ -71,9 +71,7 @@ fn compare_plans_saves_typed_workflow_record_without_mutating_feature_document()
     let workflow_uid = state.workflow.feature_record_ids["CHG-004"].clone();
     assert_eq!(
         receipt.repo_relative_paths,
-        vec![format!(
-            ".koolade-packet/state/workflow/{workflow_uid}.json"
-        )]
+        vec![format!("state/workflow/{workflow_uid}.json")]
     );
     assert!(!state.active_feature.unwrap().1.contains("planComparison"));
     assert!(!state.active_features[0].1.contains("planComparison"));

@@ -8,7 +8,7 @@ fn task_details_show_the_latest_persisted_execution_target_and_image() {
     ));
     let _home = crate::test_support::KooladeHomeGuard::set(&root);
     let mut app = board_tests::fixture();
-    let ticket = ".koolade-packet/planning/tasks/fixture/002-task.md";
+    let ticket = "planning/tasks/fixture/002-task.md";
     let task_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let project_slug = if let Screen::Connected(project) = &mut app.screen {
         project
@@ -105,7 +105,7 @@ fn task_details_show_the_latest_persisted_execution_target_and_image() {
 #[test]
 fn task_details_read_from_one_model_and_emit_typed_commands() {
     let mut app = board_tests::fixture();
-    let ticket = ".koolade-packet/planning/tasks/fixture/002-task.md";
+    let ticket = "planning/tasks/fixture/002-task.md";
     if let Screen::Connected(project) = &mut app.screen {
         project.task_chats.messages.insert(
             ticket.into(),

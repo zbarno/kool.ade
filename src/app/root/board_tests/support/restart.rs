@@ -9,8 +9,12 @@ use crate::app::{
 pub(crate) fn restart_fixture(mut app: KooladeApp) -> KooladeApp {
     let test_temp_roots = std::mem::take(&mut app._test_temp_roots);
     let setup_task_state_path = app.setup_task_state_path.clone();
-    let (repo_root, chat_slug) = match &app.screen {
-        Screen::Connected(project) => (project.state.repo_root.clone(), project.chat_slug.clone()),
+    let (repo_root, planning_store, chat_slug) = match &app.screen {
+        Screen::Connected(project) => (
+            project.state.repo_root.clone(),
+            project.state.planning_store.clone(),
+            project.chat_slug.clone(),
+        ),
         _ => panic!("fixture should be connected before restart"),
     };
     drop(app);
@@ -22,7 +26,8 @@ pub(crate) fn restart_fixture(mut app: KooladeApp) -> KooladeApp {
             specification_trace_navigation: None,
             task_chats: Default::default(),
             activity: Default::default(),
-            state: crate::core::state::PlannerState::load(&repo_root).unwrap(),
+            state: crate::core::state::PlannerState::load_with_store(&repo_root, &planning_store)
+                .unwrap(),
             managed_workspace: None,
             planning_sync: crate::core::planning_sync::PlanningSyncStatus::local(),
             planning_remote_url: None,

@@ -16,7 +16,7 @@ fn rejects_incomplete_uncovered_or_misordered_tasks_without_writes() {
     let mut task = story();
     task.scope_items = vec![2];
     assert!(generation(&s, vec![task]).is_err());
-    assert!(!s.repo_root.join(".koolade-packet/planning/tasks").exists());
+    assert!(!s.repo_root.join("planning/tasks").exists());
     std::fs::remove_dir_all(s.repo_root).unwrap();
 }
 
@@ -30,7 +30,7 @@ fn stale_spec_cannot_write_tasks_and_revisions_preserve_previous_batches() {
     let original_spec = std::fs::read(&spec_path).unwrap();
     std::fs::write(&spec_path, "# External change").unwrap();
     assert!(apply::apply(&mut s, &nt).is_err());
-    assert!(!s.repo_root.join(".koolade-packet/planning/tasks").exists());
+    assert!(!s.repo_root.join("planning/tasks").exists());
     assert!(
         !PlannerState::load(&s.repo_root)
             .unwrap()
@@ -54,7 +54,7 @@ fn stale_spec_cannot_write_tasks_and_revisions_preserve_previous_batches() {
     assert!(apply::apply(&mut s, &nt).is_err());
     assert!(
         !s.repo_root
-            .join(".koolade-packet/planning/tasks/saved-searches-02")
+            .join("planning/tasks/saved-searches-02")
             .exists()
     );
     assert_eq!(std::fs::read(first).unwrap(), original);
@@ -72,7 +72,12 @@ fn batch_publication_rolls_back_on_metadata_failure() {
         .layout()
         .workflow_record("00000000-0000-0000-0000-000000000000")
         .unwrap();
-    std::fs::remove_file(&workflow_record).unwrap();
+    match std::fs::remove_file(&workflow_record) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => panic!("could not reserve the workflow record path: {error}"),
+    }
+    std::fs::create_dir_all(workflow_record.parent().unwrap()).unwrap();
     std::fs::create_dir(&workflow_record).unwrap();
     let mut workflow = nt.workflow.unwrap();
     assert!(
@@ -83,12 +88,8 @@ fn batch_publication_rolls_back_on_metadata_failure() {
         )
         .is_err()
     );
-    assert_eq!(
-        std::fs::read_dir(s.repo_root.join(".koolade-packet/planning/tasks"))
-            .unwrap()
-            .count(),
-        0
-    );
+    let tasks = s.repo_root.join("planning/tasks");
+    assert!(!tasks.exists() || std::fs::read_dir(tasks).unwrap().next().is_none());
     assert!(workflow.task_batches.is_empty());
     std::fs::remove_dir_all(s.repo_root).unwrap();
 }
@@ -99,12 +100,8 @@ fn generated_paths_cannot_escape_through_symlinks() {
     let mut s = state("symlink");
     mark_ready(&mut s);
     let nt = generation(&s, vec![story()]).unwrap();
-    std::fs::create_dir_all(s.repo_root.join(".koolade-packet/planning")).unwrap();
-    std::os::unix::fs::symlink(
-        std::env::temp_dir(),
-        s.repo_root.join(".koolade-packet/planning/tasks"),
-    )
-    .unwrap();
+    std::fs::create_dir_all(s.repo_root.join("planning")).unwrap();
+    std::os::unix::fs::symlink(std::env::temp_dir(), s.repo_root.join("planning/tasks")).unwrap();
     assert!(apply::apply(&mut s, &nt).is_err());
     assert_eq!(
         crate::artifacts::task_docs::slug("../../Bad / Feature"),

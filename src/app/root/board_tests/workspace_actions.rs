@@ -18,7 +18,7 @@ fn open_workspace_spawns_a_detached_sibling_without_touching_the_session() {
 
     // Fake in-flight work: a real-but-suspended turn plus an active
     // implementation, alongside an unsent composer draft.
-    let ticket = ".koolade-packet/planning/tasks/fixture/001-task.md".to_string();
+    let ticket = "planning/tasks/fixture/001-task.md".to_string();
     let running = {
         let Screen::Connected(project) = &mut app.screen else {
             panic!("fixture must be connected")

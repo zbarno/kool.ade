@@ -151,8 +151,8 @@ fn manager_generation_persists_only_valid_opportunity_proposals() {
 }
 
 #[test]
-fn manager_prompt_supplies_public_product_evidence_only_for_linked_product_repo() {
-    let (_temp, mut project, _) = initialized_repository();
+fn manager_prompt_excludes_product_evidence_without_a_managed_product_checkout() {
+    let (_temp, project, _) = initialized_repository();
     let events = ["manager-refresh".to_owned()];
     let unlinked = super::super::catalog::render(&project, &events).unwrap();
     assert!(
@@ -162,16 +162,6 @@ fn manager_prompt_supplies_public_product_evidence_only_for_linked_product_repo(
             .contains("koolade-product-opportunity-contract")
     );
 
-    project.state.repositories.repositories[0].remote = "https://github.com/zbarno/kool.ade".into();
-    git(
-        &project.state.repo_root,
-        &[
-            "remote",
-            "set-url",
-            "origin",
-            "https://github.com/zbarno/kool.ade",
-        ],
-    );
     let linked = super::super::catalog::render(&project, &events).unwrap();
     assert!(
         !linked
@@ -180,50 +170,10 @@ fn manager_prompt_supplies_public_product_evidence_only_for_linked_product_repo(
             .contains("koolade-product-opportunity-contract"),
         "workspace manager must not receive product-public evidence"
     );
-    let product = super::super::catalog::render_product(&project)
-        .unwrap()
-        .expect("linked product checkout should enable a separate public scan");
-    assert_eq!(
-        product
-            .validation
-            .evidence_repository_refs
-            .get("koolade-product-opportunity-contract")
-            .map(String::as_str),
-        Some("koolade-product")
-    );
     assert!(
-        product
-            .rendered
-            .user
-            .contains("koolade-product-opportunity-contract")
-    );
-    assert!(
-        product
-            .rendered
-            .user
-            .contains("koolade-product-capability-inventory")
-    );
-    assert!(
-        product
-            .rendered
-            .user
-            .contains("target_repository_ref=koolade-product")
-    );
-    assert!(
-        product
-            .rendered
-            .user
-            .contains("target_repository=https://github.com/zbarno/kool.ade")
-    );
-    assert!(
-        !product.rendered.user.contains(
-            &project
-                .state
-                .planning_store
-                .project_id
-                .hyphenated()
-                .to_string()
-        )
+        super::super::catalog::render_product(&project)
+            .unwrap()
+            .is_none()
     );
 }
 

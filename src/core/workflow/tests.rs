@@ -59,7 +59,7 @@ fn state(tag: &str) -> PlannerState {
 fn install_approved_feature(state: &mut PlannerState) {
     let root = state.repo_root.clone();
     let id = "CHG-004";
-    let dir = root.join(".koolade-packet/planning/changes/CHG-004-saved-searches");
+    let dir = root.join("planning/changes/CHG-004-saved-searches");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("specification.md");
     let markdown = "# CHG-004: Saved searches\n\n**Status:** Ready\n\n## Intent\n\nLet analysts resume a useful query.\n\n## Current Behavior\n\nAnalysts reconstruct query configuration each morning.\n\n## Desired Behavior\n\nAnalysts can restore a saved query.\n\n## Scope\n\nPersist and restore named search filters.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\n- SEARCH-R1 (MUST). Restore a named query after restart.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** Saved searches remain local.\n\n## Acceptance Criteria\n\n1. A named query restores after restart.\n";
@@ -93,7 +93,7 @@ fn install_approved_feature(state: &mut PlannerState) {
     crate::core::gitops::commit(
         &root,
         "fixture: create approved saved-search feature",
-        &[".koolade-packet/planning".into()],
+        &["planning".into()],
     )
     .unwrap();
     state.active_feature = Some((id.into(), markdown.clone()));
@@ -142,7 +142,7 @@ fn readiness_persists_and_approved_stories_are_detailed_and_numbered() {
     s = PlannerState::load(&s.repo_root).unwrap();
     assert!(s.workflow.ready(s.planning_contract()));
     assert!(
-        !s.repo_root.join(".koolade-packet/planning/tasks").exists(),
+        !s.repo_root.join("planning/tasks").exists(),
         "readiness must not generate files"
     );
     let mut second = story();
@@ -196,7 +196,7 @@ fn readiness_persists_and_approved_stories_are_detailed_and_numbered() {
         receipt
             .repo_relative_paths
             .iter()
-            .any(|path| path.starts_with(".koolade-packet/state/workflow/"))
+            .any(|path| path.starts_with("state/workflow/"))
     );
     let restored = PlannerState::load(&s.repo_root).unwrap();
     assert!(!restored.workflow.ready(restored.planning_contract()));
@@ -223,7 +223,7 @@ fn no_approval_or_incomplete_intent_cannot_generate_tasks() {
     env = envelope();
     env.task_stories = Some(vec![story()]);
     assert!(validation::validate(&env, &s, &s.effective_user()).is_err());
-    assert!(!s.repo_root.join(".koolade-packet/planning/tasks").exists());
+    assert!(!s.repo_root.join("planning/tasks").exists());
     let nt = validation::validate(&envelope(), &s, &s.effective_user()).unwrap();
     apply::apply(&mut s, &nt).unwrap();
     assert!(

@@ -53,8 +53,11 @@ pub(super) fn seed_task(repo: &Path, ticket: &str, ticket_text: &str) {
         "revision": 0,
         "record": record
     });
-    let store =
-        crate::artifacts::planning_store::PlanningStore::legacy_embedded(uuid::Uuid::nil(), repo);
+    let store = crate::artifacts::planning_store::PlanningStore::new(
+        uuid::Uuid::nil(),
+        repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     store
         .transaction(
             &[(
@@ -76,8 +79,11 @@ pub(super) fn refresh_unstarted_task_spec(repo: &Path, ticket: &str) {
         return;
     };
     let path = format!("state/lifecycle_tasks/{}.json", identity.uid);
-    let store =
-        crate::artifacts::planning_store::PlanningStore::legacy_embedded(uuid::Uuid::nil(), repo);
+    let store = crate::artifacts::planning_store::PlanningStore::new(
+        uuid::Uuid::nil(),
+        repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let Ok(bytes) = store.read(&path) else {
         return;
     };

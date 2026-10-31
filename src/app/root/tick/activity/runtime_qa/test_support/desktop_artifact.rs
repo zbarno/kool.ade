@@ -79,7 +79,11 @@ impl DesktopArtifactFixture {
 
         let project_id = uuid::Uuid::new_v4();
         let workspace_uid = project_id.hyphenated().to_string();
-        let planning = PlanningStore::legacy_embedded(project_id, project_root.path());
+        let planning = PlanningStore::new(
+            project_id,
+            project_root.path(),
+            crate::artifacts::planning_store::StoreMode::ManagedLocal,
+        );
         let mut project = crate::app::session::test_support::project_from(project_root.path());
         project.state.planning_store = planning.clone();
         let approval_cleanup = WorkspaceCleanup::new(&workspace_uid);

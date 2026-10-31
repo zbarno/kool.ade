@@ -68,7 +68,7 @@ fn modular_turn_changes_only_named_modules_and_rejects_bad_id_atomically() {
     git_stdout(&dir, &["add", "-A"]);
     git_stdout(&dir, &["commit", "-m", "Seed modular product"]);
     inputs.state = PlannerState::load(&dir).unwrap();
-    let product = dir.join(".koolade-packet/planning/product");
+    let product = dir.join("planning/product");
     let vision = product.join("overview.md");
     let scope = product.join("users-and-outcomes.md");
     let unrelated = product.join("current-capabilities.md");
@@ -289,10 +289,9 @@ fn modular_turn_creates_next_feature_and_indexes_it() {
         }
         other => panic!("expected new feature, got {other:?}"),
     }
-    let saved_feature = std::fs::read_to_string(
-        dir.join(".koolade-packet/planning/changes/F1-saved-searches/specification.md"),
-    )
-    .unwrap();
+    let saved_feature =
+        std::fs::read_to_string(dir.join("planning/changes/F1-saved-searches/specification.md"))
+            .unwrap();
     let identity = crate::domain::ArtifactIdentity::from_markdown(&saved_feature)
         .unwrap()
         .unwrap();
@@ -309,7 +308,7 @@ fn modular_turn_creates_next_feature_and_indexes_it() {
         + "\n";
     assert_eq!(visible_feature, feature);
     assert!(
-        std::fs::read_to_string(dir.join(".koolade-packet/planning/product/index.md"))
+        std::fs::read_to_string(dir.join("planning/product/index.md"))
             .unwrap()
             .contains("F1-saved-searches")
     );

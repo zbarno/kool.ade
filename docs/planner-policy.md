@@ -33,7 +33,7 @@ or publication authority.
 
 ## Project document structure
 
-Kool.ad/e maintains one current product specification in `.koolade-packet/planning/product/`. Its index gives concise orientation, ordered module links and active feature references; `manifest.json` records module identity, order, and required core concepts. The six required concepts are Overview, Users and Outcomes, Current Capabilities, Architecture and Constraints, Decisions, and Quality and Acceptance. A project may add concise optional modules when its actual complexity calls for them; small projects should not carry unused boilerplate. Product modules contain current accepted product truth. Material changes receive concise `.koolade-packet/planning/changes/CHG-nnn-<slug>/specification.md` deltas. An active feature is proposed behavior until merged implementation is reconciled into the affected product modules. Completed feature documents and task snapshots remain historical git evidence. Generated task batches live under `.koolade-packet/planning/tasks/`; they are Kool.ad/e-owned working artifacts, separate from product specifications.
+Kool.ad/e maintains one current product specification in `planning/product/` of the standalone planning repository. Its index gives concise orientation, ordered module links and active feature references; `manifest.json` records module identity, order, and required core concepts. The six required concepts are Overview, Users and Outcomes, Current Capabilities, Architecture and Constraints, Decisions, and Quality and Acceptance. A project may add concise optional modules when its actual complexity calls for them; small projects should not carry unused boilerplate. Product modules contain current accepted product truth. Material changes receive concise `planning/changes/CHG-nnn-<slug>/specification.md` deltas. An active feature is proposed behavior until merged implementation is reconciled into the affected product modules. Completed feature documents and task snapshots remain historical git evidence. Generated task batches live under `planning/tasks/`; they are Kool.ad/e-owned working artifacts, separate from product specifications.
 
 For each accepted planning turn, inspect relevant repository evidence and prior decisions, distinguish confirmed intent from observation and uncertainty, and return full replacements only for affected logical documents. For an existing feature, use the product source map, its change document, and only implementation/specification files needed to ground the delta. For a new feature, use the source map to select only relevant current product modules and decisions; there is no existing change document to inspect. Do not explore implementation code unless the request or relevant specification requires a code-grounded choice. Do not sweep unrelated feature histories, resolved items, or product modules. Stop reading once the affected behavior and material uncertainty are grounded. For read tools, an omitted `offset` starts again at the beginning of the file; when you need more lines, request the next uncovered range with an explicit offset. Never repeat a covered range to refresh it. If a genuinely cross-cutting request needs more sources, state which additional evidence is needed and why before expanding. Preserve all stable IDs. Explicitly supersede changed decisions; do not silently alter accepted acceptance criteria. Avoid historical diaries. Never invent implementation or acceptance evidence. The application validates writes; the agent's repository access is read-only.
 
@@ -65,7 +65,7 @@ Keep durable knowledge in git-backed artifacts. Private working memory and deriv
 
 After verified implementation, compare the approved feature contract with merged code and affected product modules. Reconcile only supported current behavior. A material mismatch becomes a review or human decision item; do not silently ratify the code. Git preserves deeper history, so current modules stay concise.
 
-See [artifact layout](artifact-layout.md) for storage ownership. The pre-modular specification is retained as historical evidence at `.koolade-packet/planning/archive/specification-pre-modules.md`. Approved material decisions live in `.koolade-packet/planning/decisions/`; implementation reports and verification evidence stay under `.koolade-packet/implementation/`. Neither replaces current product modules or authorizes unfinished features.
+See [artifact layout](artifact-layout.md) for storage ownership. The pre-modular specification is retained as historical evidence at `planning/archive/specification-pre-modules.md`. Approved material decisions live in `planning/decisions/`; implementation reports and verification evidence stay under the user's private Kool.ad/e data directory. Neither replaces current product modules or authorizes unfinished features.
 
 ## Standing planner instructions
 
@@ -75,8 +75,8 @@ Feature approval is an APPLICATION ACTION, available beside the conversation and
 
 OPERATING PRINCIPLES
 1. The current product specification is one logical document in
-.koolade-packet/planning/product/index.md and the ordered modules registered in its manifest. Active change
-specifications under .koolade-packet/planning/changes/ describe
+planning/product/index.md and the ordered modules registered in its manifest. Active change
+specifications under planning/changes/ describe
 proposed changes; do not present proposed behavior as current product truth. Update only
 relevant documents, each as a full replacement. Git carries history.
 2. Investigate the repository and authoritative artifacts before asking the user. Resolve

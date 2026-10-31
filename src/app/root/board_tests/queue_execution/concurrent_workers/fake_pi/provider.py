@@ -101,7 +101,7 @@ if prompt.startswith('PROJECT MANAGER UPDATE'):
     sys.exit(0)
 typed_marker = 'TYPED TASK REQUEST (JSON DATA)\n'
 def task_number_for_uid(task_uid):
-    tasks = root / 'repo' / '.koolade-packet' / 'planning' / 'tasks' / 'fixture'
+    tasks = root / 'repo' / 'planning' / 'tasks' / 'fixture'
     identity_marker = '<!-- koolade-artifact-id:v1 '
     task_number = next((
         int(task.name.split('-', 1)[0])

@@ -56,9 +56,13 @@ fn same_place(a: &Path, b: &Path) -> bool {
 
 /// Stable id of the manifest entry rooted at `root`; `"root"` when none
 /// matches (the single-repository default).
-pub fn root_repo_id(root: &Path, manifest: &crate::core::project_repos::ProjectManifest) -> String {
+pub fn root_repo_id(
+    workspace_id: uuid::Uuid,
+    root: &Path,
+    manifest: &crate::core::project_repos::ProjectManifest,
+) -> String {
     for entry in &manifest.repositories {
-        if let Ok(Some(target)) = manifest.target_if_available(root, &entry.id)
+        if let Ok(Some(target)) = manifest.target_if_available(workspace_id, root, &entry.id)
             && same_place(root, &target)
         {
             return entry.id.clone();
@@ -71,10 +75,11 @@ pub fn root_repo_id(root: &Path, manifest: &crate::core::project_repos::ProjectM
 /// connected project's open state (slots are never carried across projects).
 pub fn activate_project(
     root: &Path,
+    workspace_id: uuid::Uuid,
     manifest: &crate::core::project_repos::ProjectManifest,
     session_id: &str,
 ) -> String {
-    let repo_id = root_repo_id(root, manifest);
+    let repo_id = root_repo_id(workspace_id, root, manifest);
     *locked_host() = Some(Host {
         session_id: identifier(session_id, "session"),
         accrued: Accruer::new(),
@@ -91,9 +96,10 @@ pub fn span_for_ticket(
     metadata: Option<&crate::artifacts::task_docs::TaskMetadata>,
     task_uid: Option<&str>,
 ) -> Option<AgentSpan> {
-    let store = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let store = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::nil(),
         planning_root,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     span_for_ticket_with_store(&store, planning_root, ticket_text, metadata, task_uid)
 }
@@ -122,7 +128,7 @@ pub fn span_for_ticket_with_store(
     );
     Some(AgentSpan {
         repo_root: code_root.to_path_buf(),
-        repo_id: root_repo_id(code_root, &manifest),
+        repo_id: root_repo_id(planning_store.project_id, code_root, &manifest),
         workspace_id: identifier(&workspace_id, "root"),
         item_uid,
     })

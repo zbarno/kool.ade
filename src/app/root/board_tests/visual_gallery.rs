@@ -36,7 +36,7 @@ fn render_workspace_review_gallery() {
         gallery.ctx.data_mut(|data| {
             data.insert_temp(
                 egui::Id::new("koolade_task_activity"),
-                ".koolade-packet/planning/tasks/fixture/001-task.md".to_owned(),
+                "planning/tasks/fixture/001-task.md".to_owned(),
             )
         });
         gallery.save("all-activity");
@@ -116,7 +116,6 @@ fn render_workspace_review_gallery() {
             gallery.escape();
         }
         gallery.app.screen = Screen::Welcome;
-        gallery.app.conn_path.clear();
         gallery.save("welcome");
         gallery.scroll_to_bottom();
         gallery.save("welcome-scrolled");
@@ -156,7 +155,7 @@ impl Gallery {
         project.state.title = "Orbit · Team workspace".into();
         project.git.branch = "feat/improve-project-workflow".into();
         let mut active_doc = project.task_documents[0].clone();
-        active_doc.path = ".koolade-packet/planning/tasks/fixture/004-task.md".into();
+        active_doc.path = "planning/tasks/fixture/004-task.md".into();
         active_doc.title = "Refine the workspace navigation and onboarding flow".into();
         project.active_implementations.insert(
             active_doc.path.clone(),

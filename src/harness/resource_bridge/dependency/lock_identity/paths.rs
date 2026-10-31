@@ -23,38 +23,36 @@ pub(super) fn strip_dependency_root<'a>(
 pub(super) fn is_npm_package_manifest(path: &str) -> bool {
     path.rsplit('/').next() == Some("package.json")
         && !path.split('/').any(|part| {
-            matches!(
-                part,
-                ".git"
-                    | "node_modules"
-                    | ".koolade-packet"
-                    | "target"
-                    | "dist"
-                    | "build"
-                    | "coverage"
-                    | "vendor"
-                    | "obj"
-                    | "bin"
-            )
+            part.starts_with('.')
+                || matches!(
+                    part,
+                    "node_modules"
+                        | "target"
+                        | "dist"
+                        | "build"
+                        | "coverage"
+                        | "vendor"
+                        | "obj"
+                        | "bin"
+                )
         })
 }
 
 fn is_lockfile(path: &str, ecosystem: PackageEcosystem) -> bool {
     if ecosystem == PackageEcosystem::Npm
         && path.split('/').any(|part| {
-            matches!(
-                part,
-                ".git"
-                    | "node_modules"
-                    | ".koolade-packet"
-                    | "target"
-                    | "dist"
-                    | "build"
-                    | "coverage"
-                    | "vendor"
-                    | "obj"
-                    | "bin"
-            )
+            part.starts_with('.')
+                || matches!(
+                    part,
+                    "node_modules"
+                        | "target"
+                        | "dist"
+                        | "build"
+                        | "coverage"
+                        | "vendor"
+                        | "obj"
+                        | "bin"
+                )
         })
     {
         return false;

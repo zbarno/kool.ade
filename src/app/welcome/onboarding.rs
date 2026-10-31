@@ -11,7 +11,6 @@ pub enum Step {
     Projects,
     NewProject,
     ReviewProject,
-    ExistingProject,
     Advanced,
 }
 
@@ -27,7 +26,6 @@ pub enum Mode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EntryPath {
     Recent,
-    ExistingProject,
     NewProject,
 }
 
@@ -59,10 +57,6 @@ pub struct Onboarding {
     #[serde(default)]
     pub help_open: bool,
     #[serde(default)]
-    pub existing: Option<crate::core::managed_workspace::ExistingProject>,
-    #[serde(default)]
-    pub previous_attachments: Vec<crate::core::managed_workspace::ExistingProject>,
-    #[serde(default)]
     pub project_name: String,
     #[serde(default)]
     pub project_intent: String,
@@ -90,8 +84,6 @@ impl Onboarding {
             project_intent: String::new(),
             project_directory_name: String::new(),
             project_parent: std::env::var("HOME").unwrap_or_default(),
-            existing: None,
-            previous_attachments: Vec::new(),
             creation: None,
             previous_creations: Vec::new(),
             version: 1,
@@ -149,7 +141,6 @@ impl Onboarding {
                     Some(crate::persistence::harness_settings::MANAGER.into())
             }
             Step::NewProject => self.selected_entry_path = Some(EntryPath::NewProject),
-            Step::ExistingProject => self.selected_entry_path = Some(EntryPath::ExistingProject),
             _ => {}
         }
         self.revision = self.revision.saturating_add(1);

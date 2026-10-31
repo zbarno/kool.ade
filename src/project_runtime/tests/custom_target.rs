@@ -9,7 +9,11 @@ mod test_only;
 fn custom_target_recipes_and_readiness_persist_as_untested_user_approved_state() {
     let root = std::env::temp_dir().join(format!("koolade-custom-target-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &root);
+    let store = PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        &root,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let runtime = ProjectRuntimeStore::new(&store);
     let workspace_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let _approval_cleanup =

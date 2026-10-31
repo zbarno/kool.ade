@@ -2,7 +2,7 @@ use super::*;
 
 fn planner_turn_input() -> RoleInputV1 {
     base(
-        PromptRole::PlannerConversation,
+        PromptRole::PlannerConversationV5,
         RolePayloadV1::PlannerTurn {
             turn_context: "Current user request and retrieved project context.".into(),
             workflow_instructions: Some("Interview workflow rules.".into()),
@@ -13,14 +13,48 @@ fn planner_turn_input() -> RoleInputV1 {
 }
 
 #[test]
+fn historical_planner_v4_manifest_remains_valid() {
+    let input = base(
+        PromptRole::PlannerConversation,
+        RolePayloadV1::PlannerTurn {
+            turn_context: "historical context".into(),
+            workflow_instructions: None,
+            operator_persona: "historical persona".into(),
+            task_mode_note: None,
+        },
+    );
+    let manifest = render(&input).unwrap().manifest;
+    assert_eq!(manifest.role_version, "planner/v4");
+    assert_eq!(
+        validate_prompt_manifest(&manifest).unwrap(),
+        PromptRole::PlannerConversation
+    );
+    let output = r#"{"schema_version":2,"assistant_message":"Historical response"}"#;
+    assert!(matches!(
+        validate_output_with_manifest(&manifest, output, &Default::default()).unwrap(),
+        RoleOutputV1::PlanningTurn(_)
+    ));
+}
+
+#[test]
 fn planning_turn_catalog_keeps_dynamic_context_out_of_trusted_system() {
     let rendered = render(&planner_turn_input()).unwrap();
-    assert_eq!(rendered.manifest.role_version, "planner/v4");
+    assert_eq!(rendered.manifest.role_version, "planner_conversation/v5");
     assert_eq!(
         rendered.manifest.output_schema_version,
         "PlanningTurnResponseV1"
     );
     assert!(rendered.system.contains("Planning Analyst for Kool.ad/e"));
+    assert!(
+        rendered
+            .system
+            .contains("separate managed planning-repository root")
+    );
+    assert!(
+        !rendered
+            .system
+            .contains(".koolade-packet/planning/product/")
+    );
     assert!(
         rendered
             .system

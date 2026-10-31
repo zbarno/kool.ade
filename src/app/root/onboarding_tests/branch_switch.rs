@@ -1,4 +1,4 @@
-use super::support::{StateHome, click, frame, git, visible_text};
+use super::support::{StateHome, click, clone_bare_remote, frame, git, visible_text};
 use crate::{
     app::{
         root::{KooladeApp, Screen},
@@ -153,20 +153,20 @@ fn two_operator_checkouts_keep_the_same_workspace_picker_and_board_after_branch_
         crate::core::workflow::feature_contract(&feature),
     );
     crate::artifacts::task_docs::save_workflow(&workspace_a.store, &workflow).unwrap();
-    let record = workspace_a.store.layout().work_record(&work.uid).unwrap();
-    let relative = record
-        .strip_prefix(&workspace_a.planning_repo)
-        .unwrap()
-        .to_string_lossy()
-        .into_owned();
-    crate::core::gitops::commit(
-        &workspace_a.planning_repo,
-        "Kool.ad/e: save shared board fixture",
-        &[relative],
-    )
-    .unwrap();
+    git(Some(&workspace_a.planning_repo), &["add", "--all"]);
+    git(
+        Some(&workspace_a.planning_repo),
+        &["commit", "-qm", "Kool.ad/e: save shared board fixture"],
+    );
+    let planning_remote = base.join("shared-planning.git");
+    clone_bare_remote(&workspace_a.planning_repo, &planning_remote);
+    manager_a
+        .set_planning_remote(workspace_a.id, &planning_remote.to_string_lossy())
+        .unwrap();
     let manager_b = WorkspaceManager::new(&home_b);
-    let workspace_b = manager_b.join(&workspace_a.planning_repo).unwrap();
+    let workspace_b = manager_b
+        .join_remote(&planning_remote.to_string_lossy())
+        .unwrap();
 
     let code_remote = "https://example.test/team/api-service.git";
     let code_a = base.join("code-a");

@@ -1,23 +1,30 @@
 use std::{fs, path::Path};
 
-mod existing_checkout_mapping;
-mod planning_inspection;
-
 use super::super::{
-    association::{CodeCheckout, WorkspaceAssociation},
-    creation, git,
-    manifest::WorkspaceManifest,
-    repositories,
+    association::WorkspaceAssociation, creation, git, manifest::WorkspaceManifest, repositories,
 };
 use super::{CodeRepositoryRegistration, ManagedWorkspace, WorkspaceManager, sync_directory};
 
 impl WorkspaceManager {
-    /// Associate an existing planning checkout without creating or replacing
-    /// any repository. An existing local association is reused by identity.
-    pub fn join(&self, planning_repo: &Path) -> anyhow::Result<ManagedWorkspace> {
-        let (planning_repo, manifest) = validate_join_checkout(planning_repo)?;
-        let _join_lock = super::super::locking::lock(&self.home.join("projects/.join.lock"))?;
-        self.join_validated(planning_repo, manifest)
+    /// Resolve a code checkout to the workspace that already registers its
+    /// managed path. This lookup never adopts or maps a caller-selected path.
+    pub fn workspace_for_checkout(
+        &self,
+        checkout: &Path,
+    ) -> anyhow::Result<Option<ManagedWorkspace>> {
+        let checkout = checkout.canonicalize()?;
+        for local in self.list_launcher()?.available {
+            let workspace = self.open(local.id)?;
+            if workspace
+                .association
+                .code_checkouts
+                .iter()
+                .any(|mapping| mapping.path == checkout)
+            {
+                return Ok(Some(workspace));
+            }
+        }
+        Ok(None)
     }
 
     /// Complete a join while the caller holds the cross-process join lock.
@@ -84,7 +91,7 @@ impl WorkspaceManager {
         }
     }
 
-    pub fn register_code_repository(
+    pub(crate) fn register_code_repository(
         &self,
         id: uuid::Uuid,
         registration: CodeRepositoryRegistration,
@@ -116,58 +123,6 @@ impl WorkspaceManager {
         WorkspaceManager::open_unlocked(self, id)
     }
 
-    pub fn map_code_checkout(
-        &self,
-        id: uuid::Uuid,
-        repository_id: &str,
-        checkout_path: &Path,
-    ) -> anyhow::Result<ManagedWorkspace> {
-        let _lock = super::super::locking::lock(&self.project_dir(id).join(".workspace.lock"))?;
-        let mut workspace = WorkspaceManager::open_unlocked(self, id)?;
-        let repository = workspace
-            .repositories
-            .repositories
-            .iter()
-            .find(|repository| repository.id == repository_id)
-            .ok_or_else(|| anyhow::anyhow!("unknown repository ID {repository_id}"))?;
-        let checkout = checkout_path.canonicalize()?;
-        anyhow::ensure!(
-            git::is_work_tree(&checkout),
-            "code checkout is not a Git working tree"
-        );
-        if !repository.remote.is_empty() {
-            anyhow::ensure!(
-                git::origin(&checkout).as_deref() == Some(repository.remote.as_str()),
-                "checkout origin does not match registered repository {repository_id}"
-            );
-        }
-        let mapping = CodeCheckout {
-            repository_id: repository_id.to_owned(),
-            path: checkout,
-        };
-        match workspace
-            .association
-            .code_checkouts
-            .iter_mut()
-            .find(|entry| entry.repository_id == repository_id)
-        {
-            Some(entry) => *entry = mapping,
-            None => workspace.association.code_checkouts.push(mapping),
-        }
-        workspace.association.write(&self.association_path(id))?;
-        WorkspaceManager::open_unlocked(self, id)
-    }
-
-    pub(crate) fn map_checkout(
-        &self,
-        id: uuid::Uuid,
-        repository_id: &str,
-        checkout_path: &Path,
-    ) -> anyhow::Result<()> {
-        self.map_code_checkout(id, repository_id, checkout_path)
-            .map(|_| ())
-    }
-
     pub(crate) fn checkout_path(
         &self,
         id: uuid::Uuid,
@@ -190,6 +145,10 @@ impl WorkspaceManager {
             return Ok(None);
         }
         let path = checkout.path.canonicalize()?;
+        anyhow::ensure!(
+            path == checkout.path,
+            "managed checkout path for {repository_id} is redirected or symbolic"
+        );
         anyhow::ensure!(
             git::is_work_tree(&path),
             "local checkout for {repository_id} is not a Git working tree"

@@ -16,7 +16,7 @@ fn create_follow_up_ticket(sandbox: &Sandbox, path: &str) {
 #[test]
 fn verified_disjoint_baseline_is_reused_by_followup_tasks() {
     let sandbox = Sandbox::new();
-    let second_ticket = ".koolade-packet/planning/tasks/feature/002-follow-up-ticket.md";
+    let second_ticket = "planning/tasks/feature/002-follow-up-ticket.md";
     create_follow_up_ticket(&sandbox, second_ticket);
     sandbox.git(&sandbox.repo, &["add", second_ticket]);
     sandbox.git(&sandbox.repo, &["commit", "-qm", "add follow-up ticket"]);
@@ -86,7 +86,7 @@ fn verified_disjoint_baseline_is_reused_by_followup_tasks() {
 #[test]
 fn fast_forward_hook_edits_are_not_accepted_as_a_cached_baseline() {
     let sandbox = Sandbox::new();
-    let second_ticket = ".koolade-packet/planning/tasks/feature/002-follow-up-ticket.md";
+    let second_ticket = "planning/tasks/feature/002-follow-up-ticket.md";
     create_follow_up_ticket(&sandbox, second_ticket);
     sandbox.git(&sandbox.repo, &["add", second_ticket]);
     sandbox.git(&sandbox.repo, &["commit", "-qm", "add follow-up ticket"]);

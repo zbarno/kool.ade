@@ -269,7 +269,7 @@ pub(super) fn prepare(
             .unwrap_or_else(|| format!("planning:{workspace_uid}"));
         let rendered =
             crate::harness::prompt_catalog::render(&crate::harness::prompt_catalog::RoleInputV1 {
-                role: crate::harness::prompt_catalog::PromptRole::PlannerConversation,
+                role: crate::harness::prompt_catalog::PromptRole::PlannerConversationV5,
                 workspace_uid,
                 feature_uid,
                 task_uid: None,
@@ -280,7 +280,7 @@ pub(super) fn prepare(
                 evidence_manifest: vec![],
                 execution_policy_ref: "planning-turn/application-validation-only/v1".into(),
                 output_schema_version:
-                    crate::harness::prompt_catalog::PromptRole::PlannerConversation
+                    crate::harness::prompt_catalog::PromptRole::PlannerConversationV5
                         .output_schema_version()
                         .into(),
                 payload: crate::harness::prompt_catalog::RolePayloadV1::PlannerTurn {

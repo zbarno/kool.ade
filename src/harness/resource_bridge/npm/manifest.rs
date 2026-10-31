@@ -118,21 +118,14 @@ pub(super) fn dependency_input_from_bytes(bytes: &[u8]) -> anyhow::Result<Value>
 }
 
 fn ignored_directory(name: &std::ffi::OsStr) -> bool {
-    matches!(
-        name.to_str(),
-        Some(
-            ".git"
-                | "node_modules"
-                | ".koolade-packet"
-                | "target"
-                | "dist"
-                | "build"
-                | "coverage"
-                | "vendor"
-                | "obj"
-                | "bin"
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+    name.starts_with('.')
+        || matches!(
+            name,
+            "node_modules" | "target" | "dist" | "build" | "coverage" | "vendor" | "obj" | "bin"
         )
-    )
 }
 
 pub(super) fn has_declared_dependencies(root: &Path) -> anyhow::Result<bool> {
@@ -152,21 +145,7 @@ pub(super) fn has_declared_dependencies(root: &Path) -> anyhow::Result<bool> {
             }
             let path = entry.path();
             if file_type.is_dir() {
-                if !matches!(
-                    entry.file_name().to_str(),
-                    Some(
-                        ".git"
-                            | "node_modules"
-                            | ".koolade-packet"
-                            | "target"
-                            | "dist"
-                            | "build"
-                            | "coverage"
-                            | "vendor"
-                            | "obj"
-                            | "bin"
-                    )
-                ) {
+                if !ignored_directory(&entry.file_name()) {
                     pending.push_back((path, depth + 1));
                 }
                 continue;

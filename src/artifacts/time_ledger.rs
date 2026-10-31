@@ -1,7 +1,7 @@
 //! Git-backed time ledger (F7, Scope 3 / AD-3): durable interval rows in a
-//! dedicated artifact slot under `.koolade-packet/`.
+//! dedicated artifact slot in the separate planning repository.
 //!
-//! Slot: `.koolade-packet/state/time-ledger.log`
+//! Slot: `state/time-ledger.log`
 //! ([`crate::artifacts::layout::store::LEDGER`]). The file carries one
 //! header line ([`HEADER_LINE`]) followed by interval rows, one UTF-8 line
 //! each, `:`-separated with a stable field order:

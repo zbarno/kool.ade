@@ -5,9 +5,6 @@ use std::path::Path;
 /// Refuse links in app-owned paths before creating directories or files.
 pub fn safe_directory<R: PlanningRoot + ?Sized>(repo: &R, relative: &str) -> anyhow::Result<()> {
     let layout = repo.planning_layout();
-    let relative = relative
-        .strip_prefix(".koolade-packet/")
-        .unwrap_or(relative);
     let root = layout.root();
     if !root.exists() {
         std::fs::create_dir_all(root)?;

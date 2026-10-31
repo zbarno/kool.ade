@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn scans_shape_of_repo() {
+fn scans_code_shape_without_loading_planning_artifacts() {
     let tmp = std::env::temp_dir().join(format!("koolade_ov_{}", std::process::id()));
     let _ = fs::remove_dir_all(&tmp);
     fs::create_dir_all(tmp.join("src/deep/deeper/deepest")).unwrap();
@@ -20,16 +20,12 @@ fn scans_shape_of_repo() {
     assert!(ov.tree_lines.iter().any(|l| l == "src/"));
     assert!(!ov.tree_lines.iter().any(|l| l.starts_with("node_modules")));
     assert!(!ov.tree_lines.iter().any(|l| l.contains("deepest")));
-    assert!(
-        ov.planning_files
-            .iter()
-            .any(|l| l.contains(".koolade-packet/planning/imports/doc.txt (0 KB)"))
-    );
+    assert!(ov.planning_files.is_empty());
     let _ = fs::remove_dir_all(&tmp);
 }
 
 #[test]
-fn managed_store_scan_excludes_stale_embedded_planning_artifacts() {
+fn managed_store_scan_does_not_treat_code_folder_as_planning_context() {
     let tmp = std::env::temp_dir().join(format!(
         "koolade_managed_overview_{}-{}",
         std::process::id(),
@@ -37,11 +33,11 @@ fn managed_store_scan_excludes_stale_embedded_planning_artifacts() {
     ));
     let repo = tmp.join("code");
     let store_root = tmp.join("planning");
-    fs::create_dir_all(repo.join(".koolade-packet/planning/product")).unwrap();
+    fs::create_dir_all(repo.join(".hidden-planning/product")).unwrap();
     fs::create_dir_all(&store_root).unwrap();
     fs::write(
-        repo.join(".koolade-packet/planning/product/index.md"),
-        "stale embedded spec",
+        repo.join(".hidden-planning/product/index.md"),
+        "not planning context",
     )
     .unwrap();
     fs::write(repo.join("src.rs"), "source").unwrap();
@@ -58,7 +54,7 @@ fn managed_store_scan_excludes_stale_embedded_planning_artifacts() {
         overview
             .tree_lines
             .iter()
-            .all(|line| !line.starts_with(".koolade-packet"))
+            .all(|line| !line.starts_with(".hidden-planning"))
     );
     assert!(overview.planning_files.is_empty());
     let _ = fs::remove_dir_all(tmp);

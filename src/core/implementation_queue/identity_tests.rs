@@ -46,15 +46,12 @@ fn completed(path: &str) -> Implementation {
 #[test]
 fn blocked_retry_and_running_state_follow_uid_after_rename() {
     let root = repo();
-    let old = ".koolade-packet/planning/tasks/current/001-login.md";
-    let moved = ".koolade-packet/planning/tasks/renamed/009-login.md";
+    let old = "planning/tasks/current/001-login.md";
+    let moved = "planning/tasks/renamed/009-login.md";
     let current = ArtifactIdentity::new("TASK-001", "Current story");
     let historical = ArtifactIdentity::new("TASK-001", "Historical reuse");
     let first = story(old, current.clone());
-    let second = story(
-        ".koolade-packet/planning/tasks/archive/001-old.md",
-        historical.clone(),
-    );
+    let second = story("planning/tasks/archive/001-old.md", historical.clone());
     let mut queue = Queue::default();
     for (doc, text) in [
         (&first, "preserve this blocker"),
@@ -134,7 +131,7 @@ fn blocked_retry_and_running_state_follow_uid_after_rename() {
 #[test]
 fn reused_filename_orphans_old_state_instead_of_aliasing_it() {
     let root = repo();
-    let path = ".koolade-packet/planning/tasks/current/001.md";
+    let path = "planning/tasks/current/001.md";
     let old_identity = ArtifactIdentity::new("TASK-001", "Old task");
     let new_identity = ArtifactIdentity::new("TASK-001", "New task");
     let old_doc = story(path, old_identity.clone());
@@ -181,8 +178,8 @@ fn scheduler_uses_dependency_uids_even_when_markdown_links_change() {
         title: "Dependency".into(),
         parent_uid: Some(batch_uid),
     };
-    let blocked_path = ".koolade-packet/planning/tasks/batch/001-dependent.md";
-    let dependency_path = ".koolade-packet/planning/tasks/batch/002-dependency.md";
+    let blocked_path = "planning/tasks/batch/001-dependent.md";
+    let dependency_path = "planning/tasks/batch/002-dependency.md";
     let blocked_metadata = crate::artifacts::task_docs::TaskMetadata::new(
         &blocked_identity,
         "root",

@@ -31,7 +31,7 @@ fn implementation_context_uses_only_frozen_affected_product_modules() {
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
-    let batch = root.join(".koolade-packet/planning/tasks/feature");
+    let batch = root.join("planning/tasks/feature");
     fs::create_dir_all(&batch).unwrap();
     let contract = crate::core::contract_snapshot::BatchContract {
         feature_id: "CHG-001".into(),
@@ -45,10 +45,9 @@ fn implementation_context_uses_only_frozen_affected_product_modules() {
         serde_json::to_vec(&contract).unwrap(),
     )
     .unwrap();
-    let context =
-        scoped_product_context(&root, ".koolade-packet/planning/tasks/feature/001-task.md")
-            .unwrap()
-            .unwrap();
+    let context = scoped_product_context(&root, "planning/tasks/feature/001-task.md")
+        .unwrap()
+        .unwrap();
     assert!(context.contains("product:current-capabilities"));
     assert!(context.contains("## 5. Relevant"));
     assert!(!context.contains("product:overview"));
@@ -61,7 +60,7 @@ fn cross_repository_dependency_context_requires_merged_record() {
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
-    let batch = root.join(".koolade-packet/planning/tasks/feature");
+    let batch = root.join("planning/tasks/feature");
     fs::create_dir_all(&batch).unwrap();
     assert!(
         std::process::Command::new("git")
@@ -71,10 +70,10 @@ fn cross_repository_dependency_context_requires_merged_record() {
             .unwrap()
             .success()
     );
-    let prior = ".koolade-packet/planning/tasks/feature/001-api.md";
+    let prior = "planning/tasks/feature/001-api.md";
     let prior_text = "# API contract\n\nRepository: api\n\nThe endpoint returns a saved search.\n";
     fs::write(root.join(prior), prior_text).unwrap();
-    let next = ".koolade-packet/planning/tasks/feature/002-web.md";
+    let next = "planning/tasks/feature/002-web.md";
     let next_text =
         "# Web client\n\nRepository: web\n\n## Dependencies\n\n- [API contract](001-api.md)\n";
     fs::write(root.join(next), next_text).unwrap();

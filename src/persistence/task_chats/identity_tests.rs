@@ -24,8 +24,8 @@ fn legacy_history_migrates_to_uid_and_follows_a_task_move() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let slug = dir.to_str().unwrap();
-    let old_path = ".koolade-packet/planning/tasks/first/001-login.md";
-    let new_path = ".koolade-packet/planning/tasks/renamed/009-login.md";
+    let old_path = "planning/tasks/first/001-login.md";
+    let new_path = "planning/tasks/renamed/009-login.md";
     let identity = crate::domain::ArtifactIdentity::new("TASK-001", "Login");
     let original = ChatMessage::new(ChatRole::User, "Keep the SSO decision", None);
     let legacy = BTreeMap::from([(old_path.to_owned(), vec![original.clone()])]);
@@ -117,7 +117,7 @@ fn reused_filename_keeps_old_conversation_unlinked_from_new_task() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let slug = dir.to_str().unwrap();
-    let path = ".koolade-packet/planning/tasks/current/001.md";
+    let path = "planning/tasks/current/001.md";
     let old_identity = crate::domain::ArtifactIdentity::new("TASK-001", "Old task");
     let new_identity = crate::domain::ArtifactIdentity::new("TASK-001", "New task");
     let legacy = BTreeMap::from([(

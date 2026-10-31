@@ -40,50 +40,41 @@ impl Drop for TestHome {
     }
 }
 
+/// Exercises the filesystem boundary through the production planning writer:
+/// records must land in the separate planning checkout and preserve an old
+/// code-checkout directory. A unit test cannot prove the paths do not cross.
+/// It uses only temporary directories and Git-independent filesystem IO, with
+/// negligible setup cost and no external services.
 #[test]
-fn koolade_repository_keeps_runtime_artifacts_in_the_canonical_root() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    for path in ["planning", ".planner", "adr", "SPECIFICATION.md"] {
-        assert!(
-            !root.join(path).exists(),
-            "legacy runtime artifact remains outside .koolade: {path}"
-        );
-    }
-    assert!(
-        !root
-            .join(koolade::artifacts::layout::previous::WORK)
-            .exists(),
-        "planning work remains in its previous canonical location"
-    );
+fn planning_work_writes_only_to_the_standalone_planning_checkout() {
+    let root = std::env::temp_dir().join(format!(
+        "koolade-separated-planning-layout-{}-{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap()
+    ));
+    let code = root.join("code");
+    let planning = root.join("planning");
+    let embedded_marker = code.join(".koolade-packet/planning/marker.md");
+    fs::create_dir_all(embedded_marker.parent().unwrap()).unwrap();
+    fs::write(&embedded_marker, "existing checkout data").unwrap();
 
-    for path in [
-        canonical::MANIFEST,
-        canonical::PROJECT_CONFIG,
-        canonical::PROJECT_MANIFEST,
-        canonical::PRODUCT_MANIFEST,
-        canonical::OPEN_ITEMS,
-        canonical::RESOLVED_ITEMS,
-        canonical::WORKFLOW,
-        canonical::WORK,
-    ] {
-        assert!(
-            root.join(path).is_file(),
-            "missing canonical artifact: {path}"
-        );
-    }
-    assert!(root.join(canonical::CHANGES).is_dir());
-    let product: serde_json::Value =
-        serde_json::from_slice(&fs::read(root.join(canonical::PRODUCT_MANIFEST)).unwrap()).unwrap();
-    for module in product["modules"].as_array().unwrap() {
-        let path = root
-            .join(canonical::PRODUCT)
-            .join(module["path"].as_str().unwrap());
-        assert!(
-            path.is_file(),
-            "product module is missing: {}",
-            path.display()
-        );
-    }
+    let _home = TestHome::new(&root);
+    let store = PlanningStore::new(uuid::Uuid::nil(), &planning, StoreMode::ManagedLocal);
+    let work = planning_work::Work::new(
+        "planning:separate".into(),
+        "Separate planning record".into(),
+        "Keep this record durable.".into(),
+        "Waiting".into(),
+    );
+    planning_work::save(&store, std::slice::from_ref(&work)).unwrap();
+
+    assert!(planning.join(canonical::STATE).is_dir());
+    assert_eq!(
+        fs::read_to_string(embedded_marker).unwrap(),
+        "existing checkout data"
+    );
+    assert!(!code.join("planning").exists());
+    let _ = fs::remove_dir_all(root);
 }
 
 #[test]
@@ -101,22 +92,22 @@ fn planning_work_save_creates_the_canonical_state_directory() {
         "Keep this record durable.".into(),
         "Waiting".into(),
     );
-    planning_work::save(
-        &koolade::artifacts::planning_store::PlanningStore::legacy_embedded(
-            uuid::Uuid::nil(),
-            &root,
-        ),
-        std::slice::from_ref(&work),
-    )
-    .unwrap();
+    let store = PlanningStore::new(
+        uuid::Uuid::nil(),
+        root.join("planning-repo"),
+        StoreMode::ManagedLocal,
+    );
+    planning_work::save(&store, std::slice::from_ref(&work)).unwrap();
     assert!(
-        root.join(canonical::STATE)
+        store
+            .root
+            .join(canonical::STATE)
             .join("work")
             .join(format!("{}.json", work.uid))
             .is_file()
     );
-    assert!(!root.join(canonical::WORK).exists());
-    assert!(root.join(canonical::STATE).is_dir());
+    assert!(!store.root.join(canonical::WORK).exists());
+    assert!(store.root.join(canonical::STATE).is_dir());
     let _ = fs::remove_dir_all(root);
 }
 

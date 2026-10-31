@@ -60,16 +60,17 @@ fn save_branch_intent(sandbox: &Sandbox, source: &str, destination: &str) {
     sandbox.git(&sandbox.repo, &["push", "-q", "origin", "main"]);
 }
 
-fn use_legacy_lifecycle_path(sandbox: &Sandbox) {
+fn remove_lifecycle_task_record(sandbox: &Sandbox) {
     let uid = crate::domain::ArtifactIdentity::from_markdown(
         &fs::read_to_string(sandbox.repo.join(&sandbox.ticket)).unwrap(),
     )
     .unwrap()
     .unwrap()
     .uid;
-    let store = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let store = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::nil(),
         &sandbox.repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     match fs::remove_file(store.root.join(format!("state/lifecycle_tasks/{uid}.json"))) {
         Ok(()) => {}
@@ -224,7 +225,7 @@ fn same_source_and_destination_reconciles_destination_updates_before_opening_pr(
 #[test]
 fn default_destination_pr_reconciles_remote_changes_before_publication() {
     let sandbox = Sandbox::new();
-    use_legacy_lifecycle_path(&sandbox);
+    remove_lifecycle_task_record(&sandbox);
     let calls = Arc::new(AtomicUsize::new(0));
     let harness = AdvanceDestination {
         sandbox: &sandbox,

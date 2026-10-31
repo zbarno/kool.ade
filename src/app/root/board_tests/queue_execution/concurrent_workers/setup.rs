@@ -30,8 +30,8 @@ pub(super) fn git(cwd: &Path, args: &[&str]) -> String {
 pub(super) fn prepare(root: PathBuf) -> Prepared {
     let repo = root.join("repo");
     let remote = root.join("remote.git");
-    std::fs::create_dir_all(repo.join(".koolade-packet/planning/tasks/fixture")).unwrap();
-    std::fs::create_dir_all(repo.join(".koolade-packet/state")).unwrap();
+    std::fs::create_dir_all(repo.join("planning/tasks/fixture")).unwrap();
+    std::fs::create_dir_all(repo.join("state")).unwrap();
     std::fs::write(root.join("capacity-wait-barrier-enabled"), "").unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["config", "user.name", "Fixture"]);
@@ -66,7 +66,7 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
                 "None."
             };
             crate::artifacts::task_docs::TaskDocument {
-                path: format!(".koolade-packet/planning/tasks/fixture/{number:03}-task.md"),
+                path: format!("planning/tasks/fixture/{number:03}-task.md"),
                 title,
                 text: format!(
                     "# Task {number}\n\nFeature: CHG-001\n\n## Dependencies\n{dependencies}\n\n## Affected files and components\n- src/task-{number}.rs\n\n## Acceptance criteria\n- File exists.\n"
@@ -90,20 +90,20 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
         std::fs::write(repo.join(&doc.path), stored).unwrap();
     }
     let feature = "# CHG-001: Fixture\n\n**Status:** Ready\n\n## Intent\nFixture.\n\n## Current Behavior\nFixture.\n\n## Desired Behavior\nFixture.\n\n## Scope\nFixture.\n\n## Affected Product Areas\nFixture.\n\n## Requirements\nFixture.\n\n## Decisions and Assumptions\nFixture.\n\n## Acceptance Criteria\nFixture.\n";
-    std::fs::create_dir_all(repo.join(".koolade-packet/planning/changes/CHG-001-fixture")).unwrap();
+    std::fs::create_dir_all(repo.join("planning/changes/CHG-001-fixture")).unwrap();
     std::fs::write(
-        repo.join(".koolade-packet/planning/changes/CHG-001-fixture/specification.md"),
+        repo.join("planning/changes/CHG-001-fixture/specification.md"),
         feature,
     )
     .unwrap();
     // Implementation loads the immutable approved specification beside the
     // generated task batch, as real task generation does.
     std::fs::write(
-        repo.join(".koolade-packet/planning/tasks/fixture/specification.md"),
+        repo.join("planning/tasks/fixture/specification.md"),
         feature,
     )
     .unwrap();
-    std::fs::write(repo.join(".koolade-packet/state/workflow.json"), serde_json::json!({"brief":null,"reviewedSpecification":null,"taskBatches":[{"feature":"fixture","directory":".koolade-packet/planning/tasks/fixture","count":4}]}).to_string()).unwrap();
+    std::fs::write(repo.join("state/workflow.json"), serde_json::json!({"brief":null,"reviewedSpecification":null,"taskBatches":[{"feature":"fixture","directory":"planning/tasks/fixture","count":4}]}).to_string()).unwrap();
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-qm", "baseline"]);
     git(&root, &["init", "--bare", "-q", remote.to_str().unwrap()]);
@@ -144,14 +144,11 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
     // Planning approval commonly exists only in the planning-root checkout
     // when Auto starts. Its commit must remain an ancestor of published work.
     std::fs::write(
-        repo.join(".koolade-packet/planning/local-approval.md"),
+        repo.join("planning/local-approval.md"),
         "approved locally\n",
     )
     .unwrap();
-    git(
-        &repo,
-        &["add", ".koolade-packet/planning/local-approval.md"],
-    );
+    git(&repo, &["add", "planning/local-approval.md"]);
     git(&repo, &["commit", "-qm", "approve local plan"]);
     let pi = fake_pi::create(&root);
     unsafe { std::env::set_var("KOOLADE_PI_BIN", &pi) };

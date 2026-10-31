@@ -161,32 +161,15 @@ fn setup_attention_card_opens_workspace_settings() {
 }
 
 #[test]
-fn project_connection_computes_the_local_setup_attention_state() {
+fn project_open_failure_computes_the_local_setup_attention_state() {
     let state_home = tempfile::tempdir().unwrap();
     let _state_home = crate::test_support::KooladeHomeGuard::set(state_home.path());
-    let root = std::env::temp_dir().join(format!(
-        "koolade-setup-connect-{}-{}",
-        std::process::id(),
-        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
-    ));
-    std::fs::create_dir_all(&root).unwrap();
-    for args in [
-        vec!["init", "--quiet"],
-        vec!["config", "user.name", "Kool.ad/e Setup Test"],
-        vec!["config", "user.email", "koolade-setup@example.invalid"],
-    ] {
-        let status = std::process::Command::new("git")
-            .arg("-C")
-            .arg(&root)
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success());
-    }
     let mut app = fixture();
     let setup_store = SetupTaskStoreFixture::attach(&mut app);
-    app.conn_path = root.to_string_lossy().into_owned();
-    app.submit_connect();
+    app.finish_connect(Err(crate::error::AppError::InvalidRepo {
+        path: "/synthetic/unpaired-code-repository".into(),
+        detail: "no managed planning repository is associated with this code checkout".into(),
+    }));
     assert!(
         app.setup_probe.is_some(),
         "project connection must start a scan"
@@ -198,5 +181,4 @@ fn project_connection_computes_the_local_setup_attention_state() {
         "project connection must project its own persisted prerequisite state"
     );
     assert!(setup_store.state_path.is_file());
-    std::fs::remove_dir_all(root).unwrap();
 }

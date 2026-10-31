@@ -12,12 +12,6 @@ pub enum PlanningRepositoryCommand {
     CancelPendingOperation {
         operation_id: uuid::Uuid,
     },
-    MapCodeCheckout {
-        repository_id: String,
-    },
-    ForgetCodeCheckout {
-        repository_id: String,
-    },
     ExportPending,
 }
 
@@ -38,5 +32,4 @@ pub struct PlanningRepositoryViewModel {
     pub repositories: Vec<PlanningCodeRepositoryView>,
     pub sync: crate::core::planning_sync::PlanningSyncStatus,
     pub sync_running: bool,
-    pub migration_available: bool,
 }

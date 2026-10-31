@@ -19,7 +19,11 @@ impl Fixture {
     }
 
     fn store(&self) -> PlanningStore {
-        PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &self.0)
+        PlanningStore::new(
+            uuid::Uuid::new_v4(),
+            &self.0,
+            crate::artifacts::planning_store::StoreMode::ManagedLocal,
+        )
     }
 }
 
@@ -56,7 +60,7 @@ fn lifecycle_events_and_snapshots_commit_atomically_and_survive_reopen() {
         task_uids: Vec::new(),
     };
     lifecycle.create_feature(&feature, &create_event).unwrap();
-    let packet = fixture.0.join(".koolade-packet/state");
+    let packet = fixture.0.join("state");
     assert!(
         packet
             .join("lifecycle_features")

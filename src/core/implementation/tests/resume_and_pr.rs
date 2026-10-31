@@ -78,7 +78,7 @@ fn active_resume_overrides_a_persisted_blocked_board_status() {
 #[test]
 fn feature_named_workspace_ticket_resumes_preserved_work() {
     let mut s = Sandbox::new();
-    let ticket = ".koolade-packet/planning/tasks/feature/CHG-003-TASK-verify-workspace.md";
+    let ticket = "planning/tasks/feature/CHG-003-TASK-verify-workspace.md";
     fs::create_dir_all(s.repo.join(ticket).parent().unwrap()).unwrap();
     fs::rename(s.repo.join(&s.ticket), s.repo.join(ticket)).unwrap();
     s.ticket = ticket.into();
@@ -102,7 +102,7 @@ fn feature_named_workspace_ticket_resumes_preserved_work() {
 #[test]
 fn implementation_reads_only_canonical_board_task_paths() {
     let s = Sandbox::new();
-    let root = ".koolade-packet/planning/tasks";
+    let root = "planning/tasks";
     fs::create_dir_all(s.repo.join(root).join("validation")).unwrap();
     for name in [
         "001-task.md",
@@ -121,17 +121,16 @@ fn implementation_reads_only_canonical_board_task_paths() {
             "{path}"
         );
     }
-    fs::create_dir_all(s.repo.join("planning/tasks/validation")).unwrap();
-    fs::write(
-        s.repo.join("planning/tasks/validation/001-task.md"),
-        "# Legacy fixture task",
-    )
-    .unwrap();
+    let legacy = s
+        .repo
+        .join(".koolade-packet/planning/tasks/validation/001-task.md");
+    fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    fs::write(legacy, "# Legacy fixture task").unwrap();
     assert_eq!(
         read_ticket(&s.repo, "planning/tasks/validation/001-task.md").unwrap(),
         "# Fixture task"
     );
-    assert!(read_ticket(&s.repo, ".koolade-packet/planning/tasks/../001-task.md").is_err());
+    assert!(read_ticket(&s.repo, "planning/tasks/../001-task.md").is_err());
 }
 
 #[test]
@@ -161,6 +160,19 @@ fn fetch_failure_stops_before_agent_runs() {
         &s.repo,
         &["remote", "set-url", "origin", "/nonexistent-koolade-remote"],
     );
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
+        uuid::Uuid::nil(),
+        &s.repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
+    let mut manifest = crate::core::project_repos::ProjectManifest::load(&planning).unwrap();
+    manifest.repositories[0].remote.clear();
+    planning
+        .atomic_write(
+            crate::artifacts::layout::store::PROJECT_MANIFEST,
+            &serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
     let original = s.git(&s.repo, &["rev-parse", "HEAD"]);
     let calls = Arc::new(AtomicUsize::new(0));
     let error = s.run("complete", calls.clone()).unwrap_err().to_string();

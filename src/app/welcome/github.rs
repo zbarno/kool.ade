@@ -1,6 +1,17 @@
-use crate::core::gitops;
-use crate::error::AppError;
 use std::path::{Path, PathBuf};
+
+mod clone;
+mod pending_clone;
+mod setup_lock;
+pub(super) use clone::perform_clone_at_with_pre_publish;
+pub(super) use clone::reject_occupied_destination;
+pub use clone::{perform_clone, perform_clone_at};
+pub(crate) use pending_clone::{
+    clear_pending_clone_receipt, pending_clone_workspace_id, perform_clone_for_workspace,
+};
+#[cfg(test)]
+pub(crate) use pending_clone::{pending_clone_workspace_id_at, perform_clone_at_for_workspace};
+pub(crate) use setup_lock::SetupLock;
 /// A parsed GitHub clone target.
 ///
 /// `url` is the canonical rebuilt form, never the raw pasted string, so
@@ -164,94 +175,4 @@ fn valid_repo_segment(segment: &str) -> bool {
 /// case.
 pub fn clone_destination(repo: &str, home: &Path) -> PathBuf {
     home.join("kool-ade-workspaces").join(repo)
-}
-
-/// Clone `source` (ALWAYS the canonical url rebuilt by
-/// [`parse_github_url`]) into `$HOME/kool-ade-workspaces/{repo}` via the system git CLI.
-///
-/// Scratch-plus-rename invariant: git writes into
-/// `$HOME/kool-ade-workspaces/{repo}.koolade-cloning.<pid>` and the finished tree is renamed
-/// into place atomically within $HOME \u{2014} the real destination can
-/// never exist half-written, even if the app or the machine dies mid-
-/// download. Stale scratch left by crashed attempts for the same repo is
-/// swept before every new clone (the sweep predicate and the scratch name
-/// stay coupled in this one function).
-pub fn perform_clone(source: &str, repo: &str) -> Result<PathBuf, AppError> {
-    let home = std::env::var("HOME")
-        .ok()
-        .filter(|home| !home.trim().is_empty())
-        .map(PathBuf::from)
-        .ok_or_else(|| AppError::Io {
-            op: "locate home directory".into(),
-            detail: "Set $HOME to a writable directory before cloning.".into(),
-        })?;
-    perform_clone_at(source, repo, &home)
-}
-
-/// The home-independent core of [`perform_clone`]: destinations, the
-/// stale-scratch sweep and the atomic rename all key off `home`, which
-/// production resolves from `$HOME` and tests inject directly (no env
-/// mutation).
-pub fn perform_clone_at(source: &str, repo: &str, home: &Path) -> Result<PathBuf, AppError> {
-    let dest = clone_destination(repo, home);
-    if dest.is_file() {
-        return Err(AppError::InvalidRepo {
-            path: dest.to_string_lossy().into_owned(),
-            detail: "a file already occupies that name".into(),
-        });
-    }
-    if dest.is_dir() {
-        // Already cloned \u{2014} fast-path back through the EXISTING connect
-        // path (or let attempt_connect raise its incumbent "no .git
-        // directory found" banner for a foreign directory). Never re-clone.
-        return Ok(dest);
-    }
-    if !home.is_dir() {
-        return Err(AppError::Io {
-            op: "prepare clone parent".into(),
-            detail: format!(
-                "$HOME points at {}, which is not a directory",
-                home.to_string_lossy()
-            ),
-        });
-    }
-    let parent = dest.parent().expect("clone destination has a parent");
-    if let Err(e) = std::fs::create_dir_all(parent) {
-        return Err(AppError::Io {
-            op: "prepare clone parent".into(),
-            detail: format!("could not create {}: {e}", parent.to_string_lossy()),
-        });
-    }
-    let scratch_prefix = format!("{repo}.koolade-cloning.");
-    if let Ok(entries) = std::fs::read_dir(parent) {
-        for entry in entries.flatten() {
-            if entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with(&scratch_prefix)
-            {
-                let _ = std::fs::remove_dir_all(entry.path());
-            }
-        }
-    }
-    let scratch = parent.join(format!("{repo}.koolade-cloning.{}", std::process::id()));
-    if let Err(e) = gitops::clone_repo(source, &scratch) {
-        let _ = std::fs::remove_dir_all(&scratch);
-        return Err(e);
-    }
-    if !scratch.is_dir() {
-        let _ = std::fs::remove_dir_all(&scratch);
-        return Err(AppError::Git {
-            cmd: crate::error::redact_secrets(&format!("clone {source}")),
-            detail: "git reported success but the scratch directory is missing".into(),
-        });
-    }
-    if let Err(e) = std::fs::rename(&scratch, &dest) {
-        let _ = std::fs::remove_dir_all(&scratch);
-        return Err(AppError::Io {
-            op: "place cloned repository".into(),
-            detail: format!("could not move the clone into place: {e}"),
-        });
-    }
-    Ok(dest)
 }

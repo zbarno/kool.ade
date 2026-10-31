@@ -3,6 +3,11 @@
 //! A [`PlanningStore`] is always the standalone Git repository that holds a
 //! project's planning state. Planning state never lives inside a code
 //! checkout. See `docs/planning-repository-v1.md`.
+#[cfg(test)]
+use std::{
+    collections::HashSet,
+    sync::{OnceLock, RwLock},
+};
 use std::{
     fmt, io,
     path::{Path, PathBuf},
@@ -38,11 +43,6 @@ pub(crate) fn is_local_only(relative: &Path) -> bool {
 pub enum StoreMode {
     ManagedLocal,
     ManagedShared,
-    /// Temporary migration-reader mode: points INTO a legacy
-    /// `.koolade-packet/` directory inside a source checkout. Only the
-    /// explicit managed-workspace migration flow may construct stores this
-    /// way; connected projects never run in this mode.
-    LegacyPacketSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,7 +50,12 @@ pub struct PlanningStore {
     pub project_id: uuid::Uuid,
     pub root: PathBuf,
     pub mode: StoreMode,
+    #[cfg(test)]
+    pub(crate) revision_code_root_fixture: bool,
 }
+
+#[cfg(test)]
+static CODE_ROOT_FIXTURES: OnceLock<RwLock<HashSet<PathBuf>>> = OnceLock::new();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreFile {
@@ -129,48 +134,46 @@ impl PlanningStore {
         } else {
             std::fs::canonicalize(&root).unwrap_or(root)
         };
+        #[cfg(test)]
+        let revision_code_root_fixture = is_code_root_fixture(&root);
         Self {
             project_id,
             root,
             mode,
+            #[cfg(test)]
+            revision_code_root_fixture,
         }
     }
 
-    /// Migration-exception constructor: opens the legacy
-    /// `.koolade-packet/` directory of a source checkout being migrated into
-    /// a managed workspace. Outside the explicit migration flow, checkouts
-    /// do not hold planning state and this constructor must not be used.
-    pub fn legacy_embedded(project_id: uuid::Uuid, repository: &Path) -> Self {
-        Self::new(
-            project_id,
-            repository.join(crate::artifacts::layout::store::ROOT),
-            StoreMode::LegacyPacketSource,
-        )
+    #[cfg(test)]
+    pub(crate) fn for_code_root_fixture(
+        project_id: uuid::Uuid,
+        root: impl Into<PathBuf>,
+        mode: StoreMode,
+    ) -> Self {
+        let mut store = Self::new(project_id, root, mode);
+        CODE_ROOT_FIXTURES
+            .get_or_init(Default::default)
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(store.root.clone());
+        store.revision_code_root_fixture = true;
+        store
     }
 
     pub fn layout(&self) -> PlanningLayout {
         PlanningLayout::for_store(self)
     }
 
-    /// Git root for checkpointing planning writes. Stores commit at their
-    /// own repository root; the migration reader resolves to the source
-    /// checkout for compatibility with pre-migration checkpoints.
+    /// Git root for checkpointing planning writes.
     pub fn git_root(&self) -> PathBuf {
-        match self.mode {
-            StoreMode::LegacyPacketSource => self.root.parent().unwrap_or(&self.root).to_path_buf(),
-            StoreMode::ManagedLocal | StoreMode::ManagedShared => self.root.clone(),
-        }
+        self.root.clone()
     }
 
     /// Convert a store-relative path to the path staged by the store's Git
     /// repository.
     pub fn git_path(&self, relative: &str) -> String {
-        match self.mode {
-            StoreMode::LegacyPacketSource => {
-                format!("{}/{}", crate::artifacts::layout::store::ROOT, relative)
-            }
-            StoreMode::ManagedLocal | StoreMode::ManagedShared => relative.to_owned(),
-        }
+        relative.to_owned()
     }
 
     pub fn transaction(
@@ -283,4 +286,13 @@ impl PlanningStore {
         self.validate_root().map_err(E::from)?;
         crate::artifacts::transaction::with_consistent_read(self, read)
     }
+}
+
+#[cfg(test)]
+fn is_code_root_fixture(root: &Path) -> bool {
+    CODE_ROOT_FIXTURES
+        .get_or_init(Default::default)
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .contains(root)
 }

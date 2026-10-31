@@ -41,8 +41,8 @@ write screenshots, logs, or reviewer output into a project checkout or planning
 Git repository. Linux uses `$XDG_DATA_HOME` or `$HOME/.local/share`; macOS uses
 `~/Library/Application Support`; Windows uses `%LOCALAPPDATA%`. If the local
 data directory cannot be resolved, QA stops with an explicit storage error.
-Older development records under an embedded `.koolade-packet/state/runtime-qa`
-directory are left intact and are not automatically imported.
+Historical Runtime QA records found in a project checkout are left intact and
+are not automatically imported.
 
 `approved_gate_receipt` converts a validated report into a lifecycle receipt
 bound to the task, source SHA, exact current Runtime QA reviewer prompt,

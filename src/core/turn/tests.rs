@@ -49,7 +49,7 @@ impl AiHarness for ScriptedHarness {
                 req.prompt_manifest
                     .as_ref()
                     .map(|manifest| manifest.role_version.as_str()),
-                Some("planner/v4")
+                Some("planner_conversation/v5")
             );
         }
         let text = match (&self.raw, &self.canned) {
@@ -113,7 +113,7 @@ impl AiHarness for RetrievalPipelineHarness {
                 .prompt_manifest
                 .as_ref()
                 .map(|manifest| manifest.role_version.as_str()),
-            Some("planner/v4")
+            Some("planner_conversation/v5")
         );
         assert!(
             request
@@ -325,8 +325,11 @@ fn law_evidence(root: &std::path::Path) -> (Vec<u8>, Vec<u8>, Vec<u8>, usize) {
 }
 
 fn item_files_evidence(root: &std::path::Path) -> Vec<u8> {
-    let store =
-        crate::artifacts::planning_store::PlanningStore::legacy_embedded(uuid::Uuid::nil(), root);
+    let store = crate::artifacts::planning_store::PlanningStore::new(
+        uuid::Uuid::nil(),
+        root,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let mut files = Vec::new();
     for directory in [
         crate::artifacts::planning_store::paths::ITEM_CONTENTS,

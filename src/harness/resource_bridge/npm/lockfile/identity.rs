@@ -71,12 +71,12 @@ fn lockfiles(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
                 continue;
             }
             if kind.is_dir() {
-                if !matches!(
-                    entry.file_name().to_str(),
-                    Some(
-                        ".git"
-                            | "node_modules"
-                            | ".koolade-packet"
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if !name.starts_with('.')
+                    && !matches!(
+                        name.as_ref(),
+                        "node_modules"
                             | "target"
                             | "dist"
                             | "build"
@@ -85,7 +85,7 @@ fn lockfiles(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
                             | "obj"
                             | "bin"
                     )
-                ) {
+                {
                     pending.push((path, depth + 1));
                 }
                 continue;

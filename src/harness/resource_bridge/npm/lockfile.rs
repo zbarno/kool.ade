@@ -81,12 +81,11 @@ fn collect_lockfiles_with_requirement(
             }
             if file_type.is_dir() {
                 let name = entry.file_name();
-                if !matches!(
-                    name.to_str(),
-                    Some(
-                        ".git"
-                            | "node_modules"
-                            | ".koolade-packet"
+                let name = name.to_string_lossy();
+                if !name.starts_with('.')
+                    && !matches!(
+                        name.as_ref(),
+                        "node_modules"
                             | "target"
                             | "dist"
                             | "build"
@@ -95,7 +94,7 @@ fn collect_lockfiles_with_requirement(
                             | "obj"
                             | "bin"
                     )
-                ) {
+                {
                     pending.push_back((path, depth + 1));
                 }
                 continue;

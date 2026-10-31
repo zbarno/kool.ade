@@ -1,12 +1,14 @@
-# Legacy migration test audit outside implementation
+# Historical legacy migration test audit outside implementation
 
-This is the wider-repository migration slice of issue #204. It covers the active artifact-root migration, planning-workspace migration, and legacy record readers outside `core::implementation`. It complements the implementation worktree audit in [the core implementation inventory](core-implementation-slowest.md).
+> Historical snapshot from the issue #204 tree. The production paths and tests listed here are not current support claims. Kool.ad/e now opens a managed GitHub code checkout with a separate same-owner planning repository and does not discover, import, migrate, or fall back to planning data inside a code checkout. Product-format normalization inside the separate planning repository is a distinct concern.
+
+This is the wider-repository migration slice of issue #204. It records the earlier artifact-root migration, planning-workspace migration, and legacy record readers outside `core::implementation`. It complements the historical implementation worktree audit in [the core implementation inventory](core-implementation-slowest.md).
 
 ## Measurement and production scope
 
 Durations come from the successful full Nextest run in [PR #213 CI](https://github.com/zbarno/kool.ade/actions/runs/38801858544), source based on `main` at `39f6972`. The run passed 1,936 tests and skipped 2. The 44 cases below total 79.194 cumulative case-seconds; this is summed test duration, not additional suite wall time. All migration integration fixtures use temporary synthetic project data and local Git repositories; none requires Docker or SSH. The legacy item parser is a pure data test.
 
-These migrations remain supported production paths: `artifacts::migration` relocates prior packet roots and state, and `core::managed_workspace::migration` previews, applies, resumes, and rolls back legacy planning checkouts. The legacy task-worktree migration is still dispatched by `core::implementation::execution::task_state` and is audited in the linked core inventory. Since these paths are active, the migration assertions are not obsolete.
+The production-scope statements below describe that earlier revision only. This branch removes the embedded-packet and managed-planning-checkout migration paths. Tests or compatibility behavior that remain in a separate planning repository or in task-worktree recovery are separate from embedded project artifacts.
 
 ## Artifact layout and state migration
 
@@ -74,4 +76,4 @@ These migrations remain supported production paths: `artifacts::migration` reloc
 
 ## Audit result
 
-The cases cover distinct source formats, recovery points, repository topologies, and fail-closed conflicts. Some tests exercise a positive path and its negative counterpart, but they protect different outcomes (for example content conflict versus workspace identity conflict). No obsolete or clearly duplicated assertion was found in this migration slice, so none was removed. This report is a focused migration slice, not a full-suite inventory. The complete source-level review of all 1,961 current inventory rows, including migration-related rows outside this slice, is recorded in [full-suite.md](full-suite.md) and [full-suite.csv](full-suite.csv).
+The earlier cases covered distinct source formats, recovery points, repository topologies, and fail-closed conflicts. Their keep decisions are historical and do not imply that those removed paths remain supported. This report is a focused migration slice, not a current test inventory. The repository's broader inventory is also a historical snapshot in [full-suite.md](full-suite.md) and [full-suite.csv](full-suite.csv).

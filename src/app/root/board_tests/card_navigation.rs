@@ -60,7 +60,7 @@ fn board_cards_select_story_details_and_open_the_correct_pr() {
     assert_eq!(
         ctx.data_mut(|d| d.get_temp::<String>(egui::Id::new("koolade_selected_task")))
             .as_deref(),
-        Some(".koolade-packet/planning/tasks/fixture/002-task.md")
+        Some("planning/tasks/fixture/002-task.md")
     );
     assert!(
         text_position(&output, "Unique story detail 1").is_none(),
@@ -117,7 +117,7 @@ fn board_cards_select_story_details_and_open_the_correct_pr() {
         ctx.data_mut(|d| d.get_temp::<String>(egui::Id::new("koolade_selected_task")))
             .is_none()
     );
-    app.implement_task(".koolade-packet/planning/tasks/fixture/002-task.md".into());
+    app.implement_task("planning/tasks/fixture/002-task.md".into());
     assert!(
         !app.is_busy(),
         "published tasks must not start another agent"
@@ -126,7 +126,7 @@ fn board_cards_select_story_details_and_open_the_correct_pr() {
 #[test]
 fn live_card_opens_full_activity_and_returns_to_item_details() {
     let mut app = fixture();
-    let ticket = ".koolade-packet/planning/tasks/fixture/001-task.md".to_owned();
+    let ticket = "planning/tasks/fixture/001-task.md".to_owned();
     if let Screen::Connected(p) = &mut app.screen {
         p.active_implementations.insert(
             ticket.clone(),

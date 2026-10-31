@@ -200,9 +200,9 @@ pub(super) fn exercise(prepared: Prepared) -> PathBuf {
     }
     let published_files = setup::git(&remote, &["ls-tree", "-r", "--name-only", "main"]);
     assert_eq!(setup::git(&remote, &["rev-list", "--count", "main"]), "1");
-    assert!(!published_files.contains(".koolade-packet/planning/local-approval.md"));
+    assert!(!published_files.contains("planning/local-approval.md"));
     assert_eq!(
-        std::fs::read_to_string(repo.join(".koolade-packet/planning/local-approval.md")).unwrap(),
+        std::fs::read_to_string(repo.join("planning/local-approval.md")).unwrap(),
         "approved locally\n"
     );
     assert!(!published_files.contains("001-task.txt"));
