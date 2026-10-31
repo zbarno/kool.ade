@@ -153,6 +153,14 @@ fn two_operator_checkouts_keep_the_same_workspace_picker_and_board_after_branch_
         crate::core::workflow::feature_contract(&feature),
     );
     crate::artifacts::task_docs::save_workflow(&workspace_a.store, &workflow).unwrap();
+    git(
+        Some(&workspace_a.planning_repo),
+        &["config", "user.name", "Koolade Test"],
+    );
+    git(
+        Some(&workspace_a.planning_repo),
+        &["config", "user.email", "koolade@example.invalid"],
+    );
     git(Some(&workspace_a.planning_repo), &["add", "--all"]);
     git(
         Some(&workspace_a.planning_repo),
