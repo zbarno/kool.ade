@@ -32,6 +32,11 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
     let repo = root.join("repo");
     let planning_repo = root.join("planning-repo");
     let remote = root.join("remote.git");
+    std::fs::write(
+        root.join("planning-repository-path"),
+        planning_repo.to_string_lossy().as_bytes(),
+    )
+    .unwrap();
     std::fs::write(root.join("capacity-wait-barrier-enabled"), "").unwrap();
     std::fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
