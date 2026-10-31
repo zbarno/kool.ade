@@ -9,9 +9,12 @@ use crate::{
 };
 
 mod clarification;
+mod manager_work;
 
 pub(super) fn record_persisted_report(
     planning_store: &crate::artifacts::planning_store::PlanningStore,
+    planning_work: &mut Vec<crate::core::planning_work::Work>,
+    baseline_planning_revision: &mut String,
     lifecycle: &LifecycleStore<'_>,
     qa_store: &RuntimeQaStore,
     task: &TaskRecord,
@@ -49,6 +52,14 @@ pub(super) fn record_persisted_report(
         request,
         &result,
         &dispositions,
+    )?;
+    manager_work::persist(
+        planning_store,
+        planning_work,
+        baseline_planning_revision,
+        task,
+        request,
+        &result,
     )?;
     for disposition in &mut dispositions {
         disposition.decision_id = decision_ids.get(&disposition.finding_id).cloned();

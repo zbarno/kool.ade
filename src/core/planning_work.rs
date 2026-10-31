@@ -36,6 +36,7 @@ pub enum WorkKind {
     TaskGeneration,
     PlanReviewDisposition,
     CodeReviewDisposition,
+    QaFindingDisposition,
 }
 
 impl WorkKind {
@@ -49,6 +50,7 @@ impl WorkKind {
             Self::TaskGeneration => "Task generation",
             Self::PlanReviewDisposition => "Plan review",
             Self::CodeReviewDisposition => "Code review",
+            Self::QaFindingDisposition => "Runtime QA finding",
         }
     }
 
@@ -60,7 +62,9 @@ impl WorkKind {
             Self::NewProject => routes::SPECIFICATION,
             Self::DocumentationRefresh => routes::DOCUMENTATION,
             Self::TaskGeneration => routes::TASK_GENERATION,
-            Self::PlanReviewDisposition | Self::CodeReviewDisposition => routes::MANAGER,
+            Self::PlanReviewDisposition
+            | Self::CodeReviewDisposition
+            | Self::QaFindingDisposition => routes::MANAGER,
         }
     }
 
@@ -89,6 +93,9 @@ impl WorkKind {
             }
             Self::CodeReviewDisposition => {
                 "Resolve one Manager disposition for a persisted independent code-review finding. Preserve the approved specification, make the smallest scoped repair, and require fresh verification and independent review after code changes."
+            }
+            Self::QaFindingDisposition => {
+                "Review one persisted runtime QA finding and propose a repair within the approved requirements. Bind the proposal to the exact failed QA run and code revision; do not broaden or change approved product scope."
             }
         }
     }
