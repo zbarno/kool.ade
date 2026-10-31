@@ -81,6 +81,7 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
                 WorkKind::TaskGeneration
                     | WorkKind::PlanReviewDisposition
                     | WorkKind::CodeReviewDisposition
+                    | WorkKind::QaFindingDisposition
             ) && (work.feature_uid.as_deref() == Some(&metadata.uid)
                 || (work.feature_uid.is_none() && work.feature_id.as_deref() == Some(id)))
         }) {

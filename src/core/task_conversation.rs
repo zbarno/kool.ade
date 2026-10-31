@@ -42,6 +42,9 @@ pub fn presentation(
             crate::core::planning_work::WorkKind::CodeReviewDisposition => {
                 "Continue this code-review disposition here. The current finding and Manager decision are attached to this thread; code changes require fresh verification and independent review."
             }
+            crate::core::planning_work::WorkKind::QaFindingDisposition => {
+                "Continue this Runtime QA finding here. Propose a repair within the approved requirements and require fresh independent review and Runtime QA."
+            }
             _ => {
                 "Continue planning this task here. Questions and assumptions are tracked on the board."
             }

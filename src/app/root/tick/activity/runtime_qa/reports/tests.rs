@@ -4,6 +4,8 @@ use crate::{
     runtime_qa::{QaFindingCategory, QaFindingSeverity},
 };
 
+#[path = "tests/manager_work.rs"]
+mod manager_work;
 #[path = "tests/receipt_order.rs"]
 mod receipt_order;
 
