@@ -57,7 +57,8 @@ fn pending_scan_keeps_completed_provider_results_visible() {
             .iter()
             .any(|label| label == "Add / Fix a coding tool")
     );
-    // Completed but unverified provider details are still accessible under
-    // Add / Fix, not advertised as ready in the main picker.
-    assert!(labels.iter().any(|label| label.starts_with("pi")));
+    // Completed but unverified providers are kept out of the ready picker;
+    // their probe evidence stays available through Add / Fix.
+    assert!(!labels.iter().any(|label| label == "pi"));
+    assert_eq!(dialog.probe_results["pi"].duration_ms, 57);
 }
