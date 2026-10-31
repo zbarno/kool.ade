@@ -84,6 +84,8 @@ fn append_at(
             role: message.role,
             text: super::identity::redact(&message.text),
             ref_item: None,
+            answer_context: None,
+            clarification: false,
             ts: message.ts,
         };
         StoredMessageV1::from_message(&sanitized)?;

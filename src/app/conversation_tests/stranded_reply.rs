@@ -55,10 +55,14 @@ fn a_stranded_last_reply_drains_before_the_instance_is_replaced() {
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     click_text(&mut app, &ctx, question);
-    click_text(&mut app, &ctx, "Reply about this task…");
+    click_text(&mut app, &ctx, "Enter your answer…");
     frame(&mut app, &ctx, vec![egui::Event::Text("Postgres".into())]);
-    assert_eq!(app.task_draft("CLR-001").unwrap(), "Postgres");
-    click_text(&mut app, &ctx, "Send reply");
+    assert_eq!(
+        ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new(("planning_answer", "CLR-001"))))
+            .as_deref(),
+        Some("Postgres")
+    );
+    click_text(&mut app, &ctx, "Submit answer");
     complete(&mut app);
     assert!(
         app.task_messages("CLR-001")

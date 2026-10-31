@@ -27,6 +27,29 @@ pub(super) fn run_turn(
     task: Option<&str>,
     timeout: Duration,
 ) -> TurnOutcome {
+    run_turn_mode(inputs, harness, cancel, progress_tx, task, timeout, false)
+}
+
+pub(super) fn run_turn_read_only(
+    inputs: &TurnInputs,
+    harness: &dyn AiHarness,
+    cancel: &Arc<AtomicBool>,
+    progress_tx: Sender<LiveProgress>,
+    task: Option<&str>,
+    timeout: Duration,
+) -> TurnOutcome {
+    run_turn_mode(inputs, harness, cancel, progress_tx, task, timeout, true)
+}
+
+fn run_turn_mode(
+    inputs: &TurnInputs,
+    harness: &dyn AiHarness,
+    cancel: &Arc<AtomicBool>,
+    progress_tx: Sender<LiveProgress>,
+    task: Option<&str>,
+    timeout: Duration,
+    read_only: bool,
+) -> TurnOutcome {
     let started = Instant::now();
     let prepared =
         match request::prepare(inputs, harness, cancel, progress_tx, task, timeout, started) {
@@ -58,6 +81,12 @@ pub(super) fn run_turn(
                 reason: "cancelled by user".into(),
                 stderr_tail: String::new(),
             },
+            elapsed: started.elapsed(),
+        };
+    }
+    if read_only {
+        return TurnOutcome::Discussion {
+            final_text: outcome.final_text,
             elapsed: started.elapsed(),
         };
     }

@@ -96,3 +96,13 @@ fn planning_turn_output_uses_existing_operation_decoder_and_rejects_invalid_clai
         .is_err()
     );
 }
+
+#[test]
+fn planning_turn_renders_byte_bounded_unicode_goal() {
+    let mut input = planner_turn_input();
+    let message = "質問🦀".repeat(4000);
+    input.original_goal = crate::core::context_build::clip_bytes(&message, 16 * 1024);
+    assert!(input.original_goal.len() <= 16 * 1024);
+    let rendered = render(&input).expect("long Unicode goal must render");
+    assert!(rendered.user.contains("質問🦀"));
+}

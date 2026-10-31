@@ -172,6 +172,19 @@ pub fn detail_key(repo: &Path, ticket: &str, detail: &str) -> Option<PathBuf> {
     Some(state.join(format!("detail-{}", fingerprint(detail.as_bytes()))))
 }
 
+/// Bind an explicit answer to the saved blocker and its report contents.
+pub fn answer_context(repo: &Path, ticket: &str, detail: &str) -> String {
+    let mut material = detail.as_bytes().to_vec();
+    if let Some(path) = source_path(repo, ticket, detail)
+        && let Ok(bytes) = fs::read(path)
+    {
+        material.extend(bytes);
+    }
+    material.extend_from_slice(ticket.as_bytes());
+    material.push(0);
+    format!("needs-attention:{}", fingerprint(&material))
+}
+
 fn fingerprint(bytes: &[u8]) -> String {
     let mut hash = 0xcbf29ce484222325u64;
     for byte in bytes {

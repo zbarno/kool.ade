@@ -239,7 +239,14 @@ impl KooladeApp {
         } else {
             crate::ui::task_chat::board_column(base, &messages, conversation_active)
         };
+        let answer_context = match &self.screen {
+            Screen::Connected(project) => failure.as_deref().map(|detail| {
+                crate::core::attention::answer_context(&project.state.repo_root, ticket, detail)
+            }),
+            Screen::Welcome => None,
+        };
         Some(crate::ui::task_detail::ViewModel {
+            answer_context,
             implementation,
             implementation_active,
             failure,

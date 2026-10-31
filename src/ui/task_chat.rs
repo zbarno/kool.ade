@@ -17,7 +17,6 @@ pub fn paint(ui: &mut egui::Ui, s: &mut dyn crate::ui::Surface, key: &str, expan
 pub(crate) use status::board_column;
 #[cfg(test)]
 pub(crate) use status::{Reply, split_reply};
-pub(crate) use transcript::history_with_max_height;
 pub use transcript::paint_history;
 #[cfg(test)]
 pub(crate) use transcript::transcript;

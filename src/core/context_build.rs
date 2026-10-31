@@ -164,6 +164,22 @@ pub fn clip(s: &str, cap: usize) -> String {
     out
 }
 
+/// Clip prompt fields to a byte budget, preserving UTF-8 and counting the marker.
+pub fn clip_bytes(text: &str, cap: usize) -> String {
+    if text.len() <= cap {
+        return text.to_owned();
+    }
+    const MARKER: &str = "\n[…truncated…]";
+    if cap < MARKER.len() {
+        return ".".repeat(cap);
+    }
+    let mut end = cap - MARKER.len();
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}{MARKER}", &text[..end])
+}
+
 /// Imports are whatever sits under Koolade's canonical imports tree except the companion
 /// sidecars the importer writes (.txt.md companions, .bin-note.md notes).
 fn derive_import_rows(state: &PlannerState) -> Vec<ImportRow> {

@@ -7,6 +7,15 @@ impl KooladeApp {
         project: &mut Project,
         outcome: TurnOutcome,
     ) -> Option<crate::harness::RequestedAction> {
+        if let TurnOutcome::Discussion { final_text, .. } = &outcome {
+            remember_turn_messages(
+                project,
+                None,
+                vec![ChatMessage::new(ChatRole::Agent, final_text, None)],
+            );
+            project.task_chats.active = None;
+            return None;
+        }
         let plan_disposition_conversation = project
             .active_planning_work
             .as_ref()
@@ -261,6 +270,9 @@ impl KooladeApp {
                         .toasts
                         .warning(format!("Applied; git checkpoint failed: {}", e.headline())),
                 }
+            }
+            TurnOutcome::Discussion { .. } => {
+                unreachable!("discussion handled before state adoption")
             }
             TurnOutcome::Rejected {
                 problems,

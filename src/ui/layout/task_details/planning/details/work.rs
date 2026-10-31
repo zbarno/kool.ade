@@ -8,11 +8,7 @@ pub(super) fn paint(
 ) {
     use crate::core::planning_work::WorkKind;
     ui.heading(&work.title);
-    ui.label(crate::ui::theme::metadata_text(format!(
-        "{} · {:?}",
-        work.kind.label(),
-        work.status
-    )));
+    ui.label(super::super::super::action::concise_detail(&work.detail));
     ui.add_space(crate::ui::theme::spacing::M);
     ui.label(crate::ui::theme::section_heading("Next step"));
     if work.kind == WorkKind::TaskGeneration {
@@ -32,8 +28,12 @@ pub(super) fn paint(
         }
     } else if work.status == crate::core::planning_work::WorkStatus::InProgress {
         ui.label("Kool.ad/e is working on this task.");
-    } else {
-        ui.label("Continue this work in the task conversation.");
+    } else if matches!(
+        work.status,
+        crate::core::planning_work::WorkStatus::NeedsAttention
+            | crate::core::planning_work::WorkStatus::InReview
+    ) {
+        super::decision::free_text(ui, surface, &work.key);
     }
     if let Some(parent) = crate::ui::layout::planning_parent_label(
         work,
@@ -41,7 +41,14 @@ pub(super) fn paint(
     ) {
         ui.label(crate::ui::theme::helper_text(parent));
     }
-    ui.collapsing("Description", |ui| ui.label(&work.detail));
+    ui.collapsing("Why am I seeing this?", |ui| {
+        ui.label(crate::ui::theme::metadata_text(format!(
+            "{} · {:?}",
+            work.kind.label(),
+            work.status
+        )));
+        ui.label(&work.detail);
+    });
     paint_approval(ui, surface, work);
     if let Some(offer) = &work.follow_up_task {
         ui.collapsing("Related task", |ui| {

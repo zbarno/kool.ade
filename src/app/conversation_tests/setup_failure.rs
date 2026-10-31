@@ -91,7 +91,7 @@ fn failed_project_planning_preserves_setup_cause_and_retry_on_its_board_card() {
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     click_text(&mut app, &ctx, &work_title);
-    let output = click_text(&mut app, &ctx, "Description");
+    let output = click_text(&mut app, &ctx, "Why am I seeing this?");
     assert!(text_contains(&output, "provider unavailable"));
     assert!(text_contains(&output, "Needs attention"));
     std::fs::remove_dir_all(root).unwrap();

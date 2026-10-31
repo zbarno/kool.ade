@@ -409,5 +409,8 @@ mod digest;
 mod persona_boundary;
 /// Pipeline battery for operator persona binding and uncached reloads.
 mod persona_injection;
+mod prompt_bounds;
 mod routing;
 mod validation;
+
+mod read_only;

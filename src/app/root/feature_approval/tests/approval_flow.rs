@@ -33,7 +33,7 @@ fn board_approval_adds_a_task_generation_card_that_generates_stories_on_request(
     assert!(text_position(&output, "CHG-004: Saved searches").is_some());
     click_text(&mut app, &ctx, "Review specification");
     let details = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&details, "Task conversation").is_some());
+    assert!(text_position(&details, "Ask a question").is_some());
     assert!(text_position(&details, "Request changes").is_some());
     click_text(&mut app, &ctx, "Confirm this plan");
     assert_current_test_plan_confirmation(&mut app, "CHG-004");

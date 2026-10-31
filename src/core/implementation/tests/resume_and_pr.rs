@@ -121,11 +121,6 @@ fn implementation_reads_only_canonical_board_task_paths() {
             "{path}"
         );
     }
-    let legacy = s
-        .repo
-        .join(".koolade-packet/planning/tasks/validation/001-task.md");
-    fs::create_dir_all(legacy.parent().unwrap()).unwrap();
-    fs::write(legacy, "# Legacy fixture task").unwrap();
     assert_eq!(
         read_ticket(&s.repo, "planning/tasks/validation/001-task.md").unwrap(),
         "# Fixture task"

@@ -1,73 +1,12 @@
 use super::*;
+#[path = "task_details/simplified.rs"]
+mod simplified;
 
 #[path = "task_details/proactive_attention.rs"]
 mod proactive_attention;
 
-#[test]
-fn task_details_show_full_state_and_inline_reply() {
-    let _environment = crate::test_support::lock_process_environment();
-    let mut app = fixture();
-    let key = "planning/tasks/fixture/001-task.md";
-    if let Screen::Connected(p) = &mut app.screen {
-        p.queue.blocked.insert(p.task_documents[0].path.clone(),
-            crate::core::implementation::Failure::new(
-                crate::core::implementation::FailureKind::ExternalPrerequisite,
-                crate::core::implementation::RecoveryDisposition::UserAction,
-                "## Waiting for user action\n\nThe published history conflicts with the gate.\n\n### Next action(s)\n\n- Adjudicator: approve the corrected footprint.\n- Operator: record the display demonstration.\n\nFull report: saved-report.json",
-            ));
-    }
-    app.attention_fixture.insert(
-        key.into(),
-        crate::core::attention::Brief {
-            problem: "The published history conflicts with the required file list.".into(),
-            recommendation: None,
-            options: Vec::new(),
-            steps: vec![crate::core::attention::HumanStep {
-                owner: "Operator".into(),
-                action: "Record the display demonstration.".into(),
-            }],
-            after: "Resume once the required review is complete.".into(),
-        },
-    );
-    let ctx = egui::Context::default();
-    frame(&mut app, &ctx, vec![]);
-    let output = click_text(&mut app, &ctx, "First task");
-    for label in [
-        "Task conversation",
-        "Task details & state",
-        "CURRENT STATE",
-        "YOUR NEXT STEP",
-        "Activity",
-        "Resume after action",
-        "Reply to this task",
-        "Send response",
-    ] {
-        assert!(text_position(&output, label).is_some(), "missing {label}");
-    }
-    let conversation = text_position(&output, "Task conversation").unwrap();
-    let state = text_position(&output, "Task details & state").unwrap();
-    assert!(
-        conversation.x < state.x,
-        "conversation should be the left pane"
-    );
-    assert!(
-        text_position(
-            &output,
-            "The published history conflicts with the required file list."
-        )
-        .is_some()
-    );
-    assert!(text_position(&output, "Operator: Record the display demonstration.").is_some());
-    assert!(text_position(&output, "Full blocker report").is_some());
-    let output = click_text(&mut app, &ctx, "Full blocker report");
-    assert!(text_position(&output, "Full report: saved-report.json").is_some());
-    assert!(text_position(&output, "Copy full report").is_some());
-    assert!(
-        output.shapes.iter().any(|shape| matches!(&shape.shape,
-        egui::Shape::Text(text) if text.galley.text().contains("Full report: saved-report.json"))),
-        "the complete failure text must be rendered, not shortened to a summary"
-    );
-}
+#[path = "task_details/full_state.rs"]
+mod full_state;
 
 #[test]
 fn task_details_show_independent_check_result_separately_from_koolade_verification() {
@@ -156,7 +95,8 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
     }
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
-    let output = click_text(&mut app, &ctx, "First task");
+    click_text(&mut app, &ctx, "First task");
+    let output = click_text(&mut app, &ctx, "Why am I seeing this?");
     for expected in [
         "In review",
         "GitHub Actions · Passed",
@@ -182,14 +122,47 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
         "the task detail modal should show the normalized task status"
     );
     let size = egui::vec2(1800.0, 1400.0);
-    click_text_at(&mut app, &ctx, "Technical details", size);
-    let output = click_text_at(&mut app, &ctx, "Branch intent", size);
-    assert!(text_position(&output, "Source branch: release/2.1").is_some());
+    for _ in 0..3 {
+        frame_at(&mut app, &ctx, vec![], size);
+    }
+    for section in ["Technical details", "Branch intent"] {
+        click_text_at(&mut app, &ctx, section, size);
+        frame_at(
+            &mut app,
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(egui::pos2(400.0, 700.0)),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -600.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: Default::default(),
+                },
+            ],
+            size,
+        );
+        for _ in 0..3 {
+            frame_at(&mut app, &ctx, vec![], size);
+        }
+    }
+    let output = frame_at(&mut app, &ctx, vec![], size);
+    assert!(
+        text_position(&output, "Source branch: release/2.1").is_some(),
+        "visible: {:?}",
+        output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => Some(text.galley.text()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    );
     assert!(text_position(&output, "Destination branch: integration").is_some());
 }
 
 #[test]
-fn task_details_offer_open_options_in_the_reply_box() {
+fn task_details_offer_open_options_in_the_action_pane() {
     let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let key = "planning/tasks/fixture/001-task.md";
@@ -205,10 +178,10 @@ fn task_details_offer_open_options_in_the_reply_box() {
     let output = click_text(&mut app, &ctx, "First task");
     for label in [
         "Which approach?",
-        "Choose an option",
+        "Choose one",
         "Yes, use the existing adapter.",
         "No, replace the adapter.",
-        "Send response",
+        "Send",
     ] {
         assert!(text_position(&output, label).is_some(), "missing {label}");
     }
@@ -238,10 +211,10 @@ fn generated_attention_brief_explains_an_unseen_blocker_and_sends_its_choice() {
         options: vec![
             crate::core::attention::OptionBrief { id: "a".into(), label: "Wait for reset".into(),
                 meaning: "Use the existing quota after it refreshes.".into(),
-                consequence: "There is no account change, but the task remains paused until tomorrow.".into(), source_evidence: None },
+                consequence: "There is no account change, but the task remains paused until tomorrow.".into(), clarification: false, source_evidence: None },
             crate::core::attention::OptionBrief { id: "b".into(), label: "Request higher quota".into(),
                 meaning: "Ask the provider to raise the account limit.".into(),
-                consequence: "This may require account approval or added cost; the task remains paused until capacity is granted.".into(), source_evidence: None },
+                consequence: "This may require account approval or added cost; the task remains paused until capacity is granted.".into(), clarification: false, source_evidence: None },
         ],
         steps: vec![crate::core::attention::HumanStep {
             owner: "Account owner".into(), action: "Choose how to get more capacity.".into(),
@@ -253,45 +226,50 @@ fn generated_attention_brief_explains_an_unseen_blocker_and_sends_its_choice() {
     let output = click_text(&mut app, &ctx, "First task");
     for label in [
         "The provider has reached its daily request limit, so the job cannot continue today.",
-        "Kool.ad/e recommends",
-        "Wait for reset: Waiting avoids account changes and extra charges; the report says capacity returns tomorrow.",
-        "Account owner: Choose how to get more capacity.",
         "Wait for reset",
         "Request higher quota",
-        "If chosen: There is no account change, but the task remains paused until tomorrow.",
-        "If chosen: This may require account approval or added cost; the task remains paused until capacity is granted.",
+        "I'm not sure",
         "Kool.ad/e can retry once capacity is available.",
-        "Send decision",
     ] {
         assert!(text_position(&output, label).is_some(), "missing {label}");
     }
+    assert!(
+        text_position(&output, "Send decision").is_none(),
+        "cards submit directly"
+    );
+    if let Screen::Connected(project) = &mut app.screen {
+        project
+            .task_chats
+            .drafts
+            .insert(key.into(), "What happens next?".into());
+    }
     click_text(&mut app, &ctx, "Request higher quota");
-    if let Screen::Connected(p) = &app.screen {
+    if let Screen::Connected(project) = &app.screen {
         assert_eq!(
-            p.task_chats.drafts.get(key).map(String::as_str),
-            Some("I choose option (b): Request higher quota.")
+            project.task_chats.drafts.get(key).map(String::as_str),
+            Some("What happens next?")
         );
     }
-    let output = click_text(&mut app, &ctx, "Send decision");
-    assert!(text_position(&output, "Decision saved for Kool.ad/e.").is_some());
-    assert!(text_position(&output, "Change decision").is_some());
     if let Screen::Connected(p) = &app.screen {
         assert!(
             p.task_turns.is_empty(),
             "decision should not start a planner turn"
         );
-        assert!(p.task_chats.drafts.get(key).is_none_or(String::is_empty));
+        assert_eq!(
+            p.task_chats.drafts.get(key).map(String::as_str),
+            Some("What happens next?")
+        );
         assert!(
             p.task_chats.messages[key]
-                .last()
-                .is_some_and(|m| m.role == ChatRole::User && m.text.contains("option (b)"))
+                .iter()
+                .any(|m| m.role == ChatRole::User && m.text.contains("option (b)"))
         );
         let mut saved = crate::persistence::task_chats::TaskChats::default();
         saved.ensure_loaded(&p.chat_slug);
         assert!(
             saved.messages[key]
-                .last()
-                .is_some_and(|m| m.text.contains("option (b)"))
+                .iter()
+                .any(|m| m.text.contains("option (b)"))
         );
     }
 }

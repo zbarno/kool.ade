@@ -35,7 +35,7 @@ fn verified_work_waiting_approval_is_in_review_with_direct_card_actions() {
     frame(&mut app, &ctx, vec![]);
     let output = click_text(&mut app, &ctx, "First task");
     for expected in [
-        "CURRENT STATE",
+        "Why am I seeing this?",
         "Implementation is complete and verified",
         "Approve and create pull request",
         "Request changes",
@@ -74,4 +74,47 @@ fn changes_requested_is_saved_as_a_review_outcome() {
                 && message.text == "I am requesting changes before approving a pull request."
         }));
     }
+}
+
+// Production modal -> explicit review response -> durable task history/resume
+// boundary. Local Git fixture only; no provider or Docker worker is started.
+// A painter-only test cannot establish that the mutable review route is used.
+#[test]
+fn requested_changes_have_an_explicit_response_separate_from_questions() {
+    let mut app = fixture();
+    let ticket = "planning/tasks/fixture/001-task.md";
+    awaiting_approval(&mut app, ticket);
+    let ctx = egui::Context::default();
+    frame(&mut app, &ctx, vec![]);
+    click_text(&mut app, &ctx, "First task");
+    let output = click_text(&mut app, &ctx, "Request changes");
+    assert!(text_contains(&output, "Action needed"));
+    click_text(&mut app, &ctx, "Describe the changes…");
+    frame(
+        &mut app,
+        &ctx,
+        vec![egui::Event::Text("Improve the empty state.".into())],
+    );
+    click_text(&mut app, &ctx, "Submit changes");
+    let Screen::Connected(project) = &app.screen else {
+        unreachable!()
+    };
+    assert!(project.task_chats.messages[ticket].iter().any(|message| {
+        message.role == ChatRole::User
+            && message.text == "Improve the empty state."
+            && !message.clarification
+    }));
+    assert!(
+        project
+            .activity
+            .pending
+            .iter()
+            .any(|event| event.contains("Requested changes for task")
+                && event.contains("Improve the empty state."))
+    );
+    assert!(
+        ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new(("task_answer", ticket))))
+            .unwrap_or_default()
+            .is_empty()
+    );
 }

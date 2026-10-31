@@ -103,6 +103,7 @@ pub(super) fn clarification_brief(detail: &str) -> Brief {
                         } else {
                             consequence
                         },
+                        clarification: false,
                         source_evidence: None,
                     }
                 })
@@ -144,7 +145,7 @@ pub(super) fn approval_brief(ticket: &str) -> Brief {
             label: "Approve".into(),
             meaning: "Allow Kool.ad/e to publish the verified changes as a pull request.".into(),
             consequence: "The changes become available for review on GitHub.".into(),
-            source_evidence: Some(format!("Task {ticket} is awaiting approval.")),
+            clarification: false, source_evidence: Some(format!("Task {ticket} is awaiting approval.")),
         }],
         steps: vec![HumanStep {
             owner: "You".into(),

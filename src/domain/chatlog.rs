@@ -31,6 +31,12 @@ pub struct ChatMessage {
     /// question targeted or an answer resolved).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_item: Option<String>,
+    /// Fingerprint of the task blocker explicitly answered by this message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer_context: Option<String>,
+    /// A question can never serve as decision authority.
+    #[serde(default)]
+    pub clarification: bool,
     pub ts: DateTime<Utc>,
 }
 
@@ -44,6 +50,8 @@ impl ChatMessage {
             role,
             text: text.into(),
             ref_item,
+            answer_context: None,
+            clarification: false,
             ts: Utc::now(),
         }
     }
