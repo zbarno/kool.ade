@@ -81,7 +81,7 @@ impl KooladeApp {
             ApplicationCommand::PrepareTaskChat { key } => self.prepare_task_chat(&key),
             ApplicationCommand::SendTaskReply { key } => self.submit_task_reply(&key),
             ApplicationCommand::SendImplementationDecision { key } => {
-                self.submit_implementation_decision(&key)
+                self.submit_implementation_decision(&key);
             }
             ApplicationCommand::CancelTaskReply { key } => self.cancel_task_reply(&key),
             ApplicationCommand::RetryTaskChatSave => self.retry_task_chat_save(),

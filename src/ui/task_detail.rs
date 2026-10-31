@@ -12,6 +12,7 @@ pub struct ViewModel {
     pub implementation: Option<crate::core::implementation::Implementation>,
     pub implementation_active: bool,
     pub failure: Option<String>,
+    pub answer_context: Option<String>,
     pub failure_disposition: Option<crate::core::implementation::RecoveryDisposition>,
     pub attention: Option<crate::core::attention::View>,
     pub messages: Vec<ChatMessage>,
@@ -66,6 +67,10 @@ pub enum Command {
         ticket: String,
         draft: String,
         decision: bool,
+    },
+    AskQuestion {
+        ticket: String,
+        draft: String,
     },
     RetryChatSave,
     RetryExplanation {

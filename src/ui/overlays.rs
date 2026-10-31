@@ -4,6 +4,7 @@ use crate::ui::{
     theme,
 };
 use egui::{Frame, RichText};
+mod title;
 
 type ModalFooter<'a> = Option<Box<dyn FnOnce(&mut egui::Ui) + 'a>>;
 
@@ -195,14 +196,23 @@ fn modal(ui: &mut egui::Ui, config: ModalConfig<'_>, body: impl FnOnce(&mut egui
     let viewport = ui.ctx().content_rect();
     let metrics = SurfaceBounds::for_viewport(viewport, kind, width);
     let bounds = bounds.map(|rect| rect.intersect(viewport).shrink(8.0));
-    let rect = bounds.unwrap_or(metrics.rect);
-    let width = (rect.width() - 34.0).max(80.0);
+    let task_details = title == "Task details";
+    let rect = if task_details {
+        viewport.shrink(10.0)
+    } else {
+        bounds.unwrap_or(metrics.rect)
+    };
+    let width = (rect.width() - if task_details { 64.0 } else { 34.0 }).max(80.0);
     let footer_height = if footer.is_some() { 62.0 } else { 0.0 };
     let height = (rect.height() - 84.0 - footer_height).max(40.0);
     let id = egui::Id::new("koolade_modal").with(identity);
     let mut modal = egui::Modal::new(id).frame(
         Frame::NONE
-            .fill(theme::PANEL)
+            .fill(if task_details {
+                egui::Color32::from_rgb(11, 22, 30)
+            } else {
+                theme::PANEL
+            })
             .corner_radius(12.0)
             .stroke(egui::Stroke::new(1.5, theme::BORDER_STRONG))
             .shadow(egui::epaint::Shadow {
@@ -211,7 +221,11 @@ fn modal(ui: &mut egui::Ui, config: ModalConfig<'_>, body: impl FnOnce(&mut egui
                 spread: 2,
                 color: egui::Color32::from_black_alpha(180),
             })
-            .inner_margin(16),
+            .inner_margin(if task_details {
+                egui::Margin::symmetric(32, 16)
+            } else {
+                egui::Margin::same(16)
+            }),
     );
     let position_id = id.with("position");
     let saved_position = ui
@@ -237,15 +251,7 @@ fn modal(ui: &mut egui::Ui, config: ModalConfig<'_>, body: impl FnOnce(&mut egui
         }
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
         ui.horizontal(|ui| {
-            let title_response = ui
-                .add_sized(
-                    [(width - 38.0).max(20.0), 28.0],
-                    egui::Label::new(RichText::new(title).strong().size(17.0))
-                        .halign(egui::Align::Min)
-                        .sense(egui::Sense::drag())
-                        .truncate(),
-                )
-                .on_hover_text(title);
+            let title_response = title::paint(ui, title, width);
             drag = title_response
                 .on_hover_cursor(egui::CursorIcon::Grab)
                 .drag_delta();

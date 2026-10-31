@@ -41,7 +41,7 @@ fn planning_items_use_board_and_modal_even_before_tasks_exist() {
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Determines the access model").is_some());
     assert!(text_position(&output, "Owner: All").is_none());
-    assert!(text_position(&output, "Task conversation").is_some());
+    assert!(text_position(&output, "Ask a question").is_some());
     *app.task_draft("CLR-010").unwrap() = "Use corporate SSO".into();
     assert!(app.chat_draft().is_empty());
     assert!(
@@ -138,18 +138,30 @@ fn human_decision_brief_shows_issue_specific_buttons_and_advisory_details() {
         &ctx,
         "How long should people stay signed in before",
     );
-    for label in ["Recommendation", "Evidence", "Task conversation"] {
+    assert!(text_position(&output, "Recommendation").is_none());
+    let output = click_text(&mut app, &ctx, "Why am I seeing this?");
+    for label in ["Recommendation", "Evidence", "Ask a question"] {
         assert!(
             text_position(&output, label).is_some(),
             "missing {label} in task details"
         );
     }
     assert!(text_position(&output, "Your answer needed").is_none());
+    if let Screen::Connected(project) = &mut app.screen {
+        project.task_chats.drafts.insert(
+            item.conversation_key().into(),
+            "Explain the tradeoff".into(),
+        );
+    }
+    app.task_harness = Some(Box::new(HangingTurnHarness));
     click_text(&mut app, &ctx, "Ask people to sign in again after one hour");
     assert_eq!(
         app.task_draft(&item.id).map(|draft| draft.as_str()),
-        Some("I choose option (short-session): Ask people to sign in again after one hour.")
+        Some("Explain the tradeoff")
     );
+    assert!(app.task_messages(item.conversation_key()).iter().any(|message|
+        message.role == ChatRole::User && !message.clarification
+            && message.text == "I choose option (short-session): Ask people to sign in again after one hour."));
     if let Screen::Connected(project) = &app.screen {
         assert_eq!(
             project.state.items[0].status,
@@ -158,8 +170,8 @@ fn human_decision_brief_shows_issue_specific_buttons_and_advisory_details() {
         assert!(project.active_turn.is_none());
     }
 
-    let details = click_text(&mut app, &ctx, &item.question);
-    assert!(text_position(&details, "Decision guidance").is_some());
+    let details = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&details, "Choose one").is_some());
     assert!(text_contains(
         &details,
         "Kool.ad/e recommends Ask people to sign in again after one hour"

@@ -35,10 +35,8 @@ fn new_blocker_opens_its_conversation_once_and_changed_blocker_surfaces_again() 
         Some(key)
     );
     for section in [
-        "What Happened",
-        "WHAT IS NEEDED OF THE USER",
-        "NEXT STEPS",
         "Account owner: Choose whether to wait or request more capacity.",
+        "I need your help before I continue.",
     ] {
         assert!(
             text_contains(&output, section),
@@ -108,18 +106,17 @@ fn approval_gate_opens_a_task_chat_with_the_matching_user_action() {
     if let Screen::Connected(project) = &mut app.screen {
         let record = project.implementation_states.get_mut(key).unwrap();
         record.status = crate::core::implementation::ImplementationStatus::AwaitingApproval;
+        record.pr_url = None;
+        record.pr_state = None;
     }
     let ctx = egui::Context::default();
     app.tick(0.016, &ctx);
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     for text in [
-        "What Happened",
-        "waiting for your approval",
-        "WHAT IS NEEDED OF THE USER",
-        "Review the task's changes",
-        "NEXT STEPS",
-        "Approve or Request changes",
+        "Implementation is complete and verified",
+        "Approve and create pull request",
+        "Request changes",
     ] {
         assert!(text_contains(&output, text), "missing {text}");
     }
@@ -248,11 +245,8 @@ fn newly_actionable_clarification_focuses_its_persistent_conversation() {
         Some("CLR-030")
     );
     for text in [
-        "What Happened",
         "Should this release include the migration?",
-        "WHAT IS NEEDED OF THE USER",
-        "Answer this question in the task conversation",
-        "NEXT STEPS",
+        "Ask a question",
     ] {
         assert!(text_contains(&output, text), "missing {text}");
     }
@@ -288,10 +282,9 @@ fn planning_work_attention_opens_its_conversation_tab() {
     );
     let conversation = canvas_text(&output);
     for text in [
-        "WHAT IS NEEDED OF THE USER",
-        "Prepare implementation stories for the approved feature.",
+        "Generate task stories",
         "The saved stories need a correction",
-        "choose Generate tasks on the task card to retry story generation",
+        "Generate tasks",
     ] {
         assert!(
             conversation.contains(text),

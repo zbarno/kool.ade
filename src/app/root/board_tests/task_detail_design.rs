@@ -42,7 +42,8 @@ fn task_popup_prioritizes_human_title_and_keeps_live_action_visible() {
             stop.x < size.x && stop.y < size.y - 25.0,
             "action must remain visible: {stop:?}"
         );
-        assert!(text_position(&output, "Worker detail").is_some());
+        assert!(text_position(&output, "Worker detail").is_none());
+        assert!(text_position(&output, "Why am I seeing this?").is_some());
         assert!(
             !text_contains(&output, &format!("Implementing {ticket}")),
             "raw path stays in the disclosure"
@@ -52,14 +53,18 @@ fn task_popup_prioritizes_human_title_and_keeps_live_action_visible() {
 
 #[test]
 fn task_details_use_a_wide_workspace_and_stack_cleanly_on_laptop_widths() {
-    for size in [egui::vec2(1280.0, 820.0), egui::vec2(900.0, 720.0)] {
+    for size in [
+        egui::vec2(1280.0, 820.0),
+        egui::vec2(900.0, 720.0),
+        egui::vec2(360.0, 720.0),
+    ] {
         let mut app = fixture();
         let ctx = super::mockup_layout::styled_context();
         for _ in 0..3 {
             frame_at(&mut app, &ctx, vec![], size);
         }
         let output = click_text_at(&mut app, &ctx, "First task", size);
-        let details = text_position(&output, "Task details & state").expect("details");
+        let details = text_position(&output, "Why am I seeing this?").expect("supporting context");
         fn modal_frame(shape: &egui::Shape) -> Option<egui::Rect> {
             match shape {
                 egui::Shape::Rect(rect)
@@ -80,14 +85,14 @@ fn task_details_use_a_wide_workspace_and_stack_cleanly_on_laptop_widths() {
             egui::Rect::from_min_size(egui::Pos2::ZERO, size).contains_rect(modal),
             "modal outside {size:?}: {modal:?}"
         );
-        if size.x >= 1200.0 {
-            let conversation = text_position(&output, "Task conversation").expect("conversation");
+        if size.x >= 900.0 {
+            let conversation = text_position(&output, "Ask a question").expect("conversation");
             assert!(
                 modal.width() >= size.x * 0.9,
                 "workspace too narrow: {modal:?}"
             );
             assert!(
-                conversation.x < details.x,
+                conversation.x > details.x,
                 "desktop panes should be side by side"
             );
         } else {
@@ -108,7 +113,7 @@ fn task_details_use_a_wide_workspace_and_stack_cleanly_on_laptop_widths() {
                     ],
                     size,
                 );
-                if let Some(position) = text_position(&output, "Task conversation") {
+                if let Some(position) = text_position(&output, "Ask a question") {
                     conversation = Some(position);
                     break;
                 }
@@ -132,7 +137,8 @@ fn task_and_planning_cards_share_modal_header_status_and_close_behavior() {
     }
     let task = click_text_at(&mut task_app, &task_ctx, "Review task", size);
     assert!(text_position(&task, "Task details").is_some());
-    assert!(text_position(&task, "CURRENT STATE").is_some());
+    assert!(text_position(&task, "Why am I seeing this?").is_some());
+    assert!(text_position(&task, "CURRENT STATE").is_none());
     assert!(text_position(&task, "Open PR").is_some());
     let task_modal = modal_frame(&task).expect("task uses the shared modal frame");
     assert_modal_escapes(&mut task_app, &task_ctx, size);
@@ -166,8 +172,9 @@ fn task_and_planning_cards_share_modal_header_status_and_close_behavior() {
     }
     let planning = click_text_at(&mut planning_app, &planning_ctx, &item.question, size);
     assert!(text_position(&planning, &item.question).is_some());
-    assert!(text_contains(&planning, "Question · General"));
-    assert!(text_position(&planning, "Send reply").is_some());
+    assert!(!text_contains(&planning, "Question · General"));
+    assert!(text_position(&planning, "Why am I seeing this?").is_some());
+    assert!(text_position(&planning, "Send").is_some());
     let planning_modal = modal_frame(&planning).expect("planning uses the shared modal frame");
     assert_eq!(task_modal.size(), planning_modal.size());
     assert_eq!(task_modal.left(), planning_modal.left());

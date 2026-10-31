@@ -37,5 +37,5 @@ pub(super) fn paint_approval(ui: &mut egui::Ui, s: &mut dyn Surface, ticket: &st
 }
 
 pub(super) fn paint_changes_requested(ui: &mut egui::Ui) {
-    ui.label("Changes were requested before PR approval. Describe the requested changes below to resume implementation; another approval will be required before a PR is created.");
+    ui.label("Changes were requested before publication. Submit the changes to resume implementation; another approval will be required before a pull request is created.");
 }

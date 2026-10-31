@@ -2,7 +2,12 @@ use super::*;
 
 impl KooladeApp {
     pub(in crate::app::root) fn submit_task_reply(&mut self, key: &str) {
-        let review_changes = matches!(&self.screen, Screen::Connected(project)
+        self.submit_task_reply_mode(key, false);
+    }
+
+    pub(in crate::app::root) fn submit_task_reply_mode(&mut self, key: &str, read_only: bool) {
+        let review_changes = !read_only
+            && matches!(&self.screen, Screen::Connected(project)
             if project.implementation_states.get(key).is_some_and(|state|
                 state.status == crate::core::implementation::ImplementationStatus::ChangesRequested));
         if review_changes {
@@ -49,7 +54,8 @@ impl KooladeApp {
         }
         project.bind_task_conversation_identities();
         project.task_chats.ensure_loaded(&project.chat_slug);
-        let user_message = ChatMessage::new(ChatRole::User, &text, Some(key.into()));
+        let mut user_message = ChatMessage::new(ChatRole::User, &text, Some(key.into()));
+        user_message.clarification = read_only;
         let sent_id = user_message.id.clone();
         if let Err(error) = project
             .task_chats
@@ -73,7 +79,9 @@ impl KooladeApp {
             .filter(|m| m.id != sent_id)
             .map(|m| (format!("{:?}", m.role), m.text.clone()))
             .collect();
-        super::documentation_refresh::record(project, work.as_ref(), &sent_id);
+        if !read_only {
+            super::documentation_refresh::record(project, work.as_ref(), &sent_id);
+        }
         let purpose = if crate::core::task_conversation::is_opportunity_conversation_key(key)
             || work
                 .as_ref()
@@ -92,13 +100,14 @@ impl KooladeApp {
         };
         project.task_chats.drafts.remove(key);
         let route_label = harness.label();
+        let start = if read_only {
+            TurnController::start_read_only
+        } else {
+            TurnController::start_scoped
+        };
         project.task_turns.insert(
             key.into(),
-            std::rc::Rc::new(TurnController::start_scoped(
-                inputs,
-                harness,
-                Some(key.into()),
-            )),
+            std::rc::Rc::new(start(inputs, harness, Some(key.into()))),
         );
         project.task_live.insert(
             key.into(),
