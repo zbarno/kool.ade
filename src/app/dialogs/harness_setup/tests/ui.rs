@@ -24,7 +24,9 @@ pub(super) fn reveal_provider_details(
                 events,
                 ..Default::default()
             },
-            |ui| paint::paint_harness_setup_card(ui, dialog),
+            |ui| {
+                paint::paint_harness_setup_card(ui, dialog);
+            },
         );
         output.textures_delta.clear();
         output
