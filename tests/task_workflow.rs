@@ -1,7 +1,10 @@
 #[path = "task_workflow/support.rs"]
 mod support;
 
-use koolade::core::{state::PlannerState, turn::TurnOutcome};
+use koolade::{
+    artifacts::planning_store::{PlanningStore, StoreMode},
+    core::{state::PlannerState, turn::TurnOutcome},
+};
 use support::run;
 
 /// Production boundary: the threaded TurnController must persist planning and
@@ -16,15 +19,75 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
             .prefix("koolade_full_workflow_")
             .tempdir()
             .unwrap();
-        let root = tempdir.path();
+        let root = tempdir.path().join("code");
+        let planning_root = tempdir.path().join("planning");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&planning_root).unwrap();
         assert!(
             std::process::Command::new("git")
                 .args(["init", "-q"])
-                .current_dir(root)
+                .current_dir(&root)
                 .status()
                 .unwrap()
                 .success()
         );
+        assert!(
+            std::process::Command::new("git")
+                .args(["init", "-q", "-b", "main"])
+                .current_dir(&planning_root)
+                .status()
+                .unwrap()
+                .success()
+        );
+        for (key, value) in [
+            ("user.name", "Synthetic Test"),
+            ("user.email", "test@example.invalid"),
+        ] {
+            assert!(
+                std::process::Command::new("git")
+                    .args(["config", key, value])
+                    .current_dir(&planning_root)
+                    .status()
+                    .unwrap()
+                    .success()
+            );
+        }
+        std::fs::create_dir_all(planning_root.join("config")).unwrap();
+        std::fs::write(
+            planning_root.join("README.md"),
+            "Separate planning repository\n",
+        )
+        .unwrap();
+        std::fs::write(
+            planning_root.join("config/repositories.json"),
+            serde_json::to_vec_pretty(&koolade::core::project_repos::ProjectManifest {
+                repositories: vec![koolade::core::project_repos::Repository {
+                    id: "root".into(),
+                    role: "Python code".into(),
+                    remote: String::new(),
+                    display_name: None,
+                }],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["add", "-A"])
+                .current_dir(&planning_root)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            std::process::Command::new("git")
+                .args(["commit", "-qm", "seed separate planning repository"])
+                .current_dir(&planning_root)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let store = PlanningStore::new(uuid::Uuid::nil(), &planning_root, StoreMode::ManagedLocal);
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::write(
             root.join("src/server.py"),
@@ -38,7 +101,7 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
             assert!(
                 std::process::Command::new("git")
                     .args(["config", key, value])
-                    .current_dir(root)
+                    .current_dir(&root)
                     .status()
                     .unwrap()
                     .success()
@@ -47,7 +110,7 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
         assert!(
             std::process::Command::new("git")
                 .args(["add", "src/server.py"])
-                .current_dir(root)
+                .current_dir(&root)
                 .status()
                 .unwrap()
                 .success()
@@ -55,14 +118,14 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
         assert!(
             std::process::Command::new("git")
                 .args(["commit", "-qm", "seed Python-only workspace"])
-                .current_dir(root)
+                .current_dir(&root)
                 .status()
                 .unwrap()
                 .success()
         );
         assert!(!root.join("Cargo.toml").exists());
         assert!(!root.join("package.json").exists());
-        let mut state = PlannerState::load(root).unwrap();
+        let mut state = PlannerState::load_with_store(&root, &store).unwrap();
         state.bootstrap_missing().unwrap();
         let TurnOutcome::Applied {
             state,
@@ -74,7 +137,7 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
         };
         assert!(commit_result.is_ok());
         assert!(state.workflow.ready(state.spec_text.as_deref()));
-        assert!(!root.join(".koolade-packet/planning/tasks").exists());
+        assert!(!root.join("planning").exists());
         let outcome = run(*state, true, failure_mode);
         if failure_mode == 6 {
             let TurnOutcome::HarnessFailed { error, .. } = outcome else {
@@ -86,28 +149,25 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
                 error.detail()
             );
             assert!(
-                !root
-                    .join(
-                        ".koolade-packet/planning/tasks/saved-searches/001-persist-named-search-filters.md"
-                    )
+                !planning_root
+                    .join("planning/tasks/saved-searches/001-persist-named-search-filters.md")
                     .exists()
             );
         } else if failure_mode == 1 || failure_mode == 2 {
             assert!(matches!(outcome, TurnOutcome::HarnessFailed { .. }));
-            let first = root.join(
-                ".koolade-packet/planning/tasks/saved-searches/001-persist-named-search-filters.md",
-            );
+            let first = planning_root
+                .join("planning/tasks/saved-searches/001-persist-named-search-filters.md");
             let saved = std::fs::read_to_string(&first).unwrap();
-            let reloaded = PlannerState::load(root).unwrap();
+            let reloaded = PlannerState::load_with_store(&root, &store).unwrap();
             assert!(
                 reloaded.workflow.ready(reloaded.spec_text.as_deref()),
                 "failed generation can be retried"
             );
             if failure_mode == 1 {
                 let manifest: serde_json::Value = serde_json::from_str(
-                    &std::fs::read_to_string(root.join(
-                        ".koolade-packet/planning/tasks/saved-searches/.koolade-progress.json",
-                    ))
+                    &std::fs::read_to_string(
+                        planning_root.join("planning/tasks/saved-searches/.koolade-progress.json"),
+                    )
                     .unwrap(),
                 )
                 .unwrap();
@@ -126,10 +186,7 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
                 std::fs::write(&first, &edited).unwrap();
                 assert!(
                     koolade::artifacts::task_docs::save_progress(
-                        &koolade::artifacts::planning_store::PlanningStore::legacy_embedded(
-                            uuid::Uuid::nil(),
-                            root,
-                        ),
+                        &store,
                         manifest["run"].as_str().unwrap(),
                         &batch,
                         2
@@ -146,13 +203,13 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
             );
             assert_eq!(std::fs::read_to_string(first).unwrap(), saved);
             assert!(
-                !root
-                    .join(".koolade-packet/planning/tasks/saved-searches-02")
+                !planning_root
+                    .join("planning/tasks/saved-searches-02")
                     .exists()
             );
             assert!(
                 std::fs::read_to_string(
-                    root.join(".koolade-packet/planning/tasks/saved-searches/README.md")
+                    planning_root.join("planning/tasks/saved-searches/README.md")
                 )
                 .unwrap()
                 .contains("Status: Complete")
@@ -193,19 +250,18 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
             );
             let tracked = std::process::Command::new("git")
                 .args(["ls-tree", "-r", "--name-only", "HEAD"])
-                .current_dir(root)
+                .current_dir(&planning_root)
                 .output()
                 .unwrap();
             let paths = String::from_utf8(tracked.stdout).unwrap();
-            assert!(paths.contains(
-                ".koolade-packet/planning/tasks/saved-searches/001-persist-named-search-filters.md"
-            ));
-            assert!(paths.contains(
-                ".koolade-packet/planning/tasks/saved-searches/002-build-the-saved-search-picker.md"
-            ));
             assert!(
-                paths.contains(".koolade-packet/planning/tasks/saved-searches/specification.md")
+                paths.contains("planning/tasks/saved-searches/001-persist-named-search-filters.md")
             );
+            assert!(
+                paths
+                    .contains("planning/tasks/saved-searches/002-build-the-saved-search-picker.md")
+            );
+            assert!(paths.contains("planning/tasks/saved-searches/specification.md"));
         }
     }
 }

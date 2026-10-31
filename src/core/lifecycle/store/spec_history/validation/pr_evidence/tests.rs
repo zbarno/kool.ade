@@ -41,11 +41,7 @@ fn persisted_pr_reference_is_admitted_and_forged_linkage_is_rejected() {
             .success()
     );
     migration::bootstrap_product(&root, "PR evidence fixture").unwrap();
-    let store = PlanningStore::new(
-        uuid::Uuid::new_v4(),
-        root.join(".koolade-packet"),
-        StoreMode::ManagedLocal,
-    );
+    let store = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
     let feature_uid = uuid::Uuid::new_v4().hyphenated().to_string();
     let task_uid = uuid::Uuid::new_v4().hyphenated().to_string();
     let work_uid = uuid::Uuid::new_v4().hyphenated().to_string();

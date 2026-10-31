@@ -61,22 +61,31 @@ pub struct PlannerState {
 }
 
 impl PlannerState {
-    /// Operator-local configuration directory for this checkout's managed
-    /// workspace. Files stored here (MCP credentials, operator prefs) live
-    /// outside every Git repository and are never synchronized or shared.
-    pub fn mcp_config_dir(&self) -> Option<PathBuf> {
-        let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
-        let workspace = manager
-            .workspace_for_checkout(&self.repo_root)
-            .ok()
-            .flatten()?;
-        Some(manager.project_dir(workspace.id))
-    }
-
     /// Read every artifact from disk into memory (strict: corrupt files are
     /// reported rather than guessed around — §16).
+    #[cfg(test)]
     pub fn load(repo: &Path) -> anyhow::Result<Self> {
-        let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), repo);
+        let workspace_id = test_support::ensure_workspace_manifest(repo)?;
+        let store = PlanningStore::for_code_root_fixture(
+            workspace_id.unwrap_or_else(uuid::Uuid::nil),
+            repo,
+            crate::artifacts::planning_store::StoreMode::ManagedLocal,
+        );
+        let manifest_path = store.layout().project_manifest();
+        if !manifest_path.is_file() {
+            let manifest = crate::core::project_repos::ProjectManifest {
+                repositories: vec![crate::core::project_repos::Repository {
+                    id: "root".into(),
+                    role: "Test code repository".into(),
+                    remote: test_support::git_remote(repo).unwrap_or_default(),
+                    display_name: None,
+                }],
+            };
+            store.atomic_write(
+                crate::artifacts::planning_store::paths::PROJECT_MANIFEST,
+                &serde_json::to_vec_pretty(&manifest)?,
+            )?;
+        }
         Self::load_with_store(repo, &store)
     }
 
@@ -129,8 +138,7 @@ impl PlannerState {
         let active_features = crate::artifacts::product_docs::active_features(store);
         let active_feature =
             crate::artifacts::product_docs::active_feature_for_workflow(store, &workflow);
-        let repositories =
-            crate::core::project_repos::ProjectManifest::load_with_code_root(store, repo)?;
+        let repositories = crate::core::project_repos::ProjectManifest::load(store)?;
         let harness_routes =
             crate::persistence::project_harness_routes::ProjectHarnessRoutes::load(store)?;
         let ending_revision = store.revision()?;
@@ -268,6 +276,10 @@ impl PlannerState {
         self.identity.user.clone()
     }
 }
+
+mod mcp_config;
+#[cfg(test)]
+mod test_support;
 
 /// Seed a fresh config with the starter categories (§7) so the team sees
 /// exactly where to write owners; no invented members.

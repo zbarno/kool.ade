@@ -1,11 +1,10 @@
 //! Read-only observations for explaining interrupted project setup.
-use super::{ApplicationCreation, ExistingProject, WorkspaceManager};
+use super::{ApplicationCreation, WorkspaceManager};
 use std::{io::ErrorKind, path::Path};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RecoveryRequest {
     New(ApplicationCreation),
-    Existing(ExistingProject),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,20 +32,11 @@ impl WorkspaceManager {
     /// history or permission to resume. The approved operation revalidates all.
     pub fn inspect_setup_recovery(&self, request: &RecoveryRequest) -> Vec<RecoveryItem> {
         use ArtifactPresence::{Found, NotFound, Unavailable};
-        let (folder, id, repository_id, idea) = match request {
-            RecoveryRequest::New(request) => (
-                &request.code_directory,
-                request.workspace_id,
-                format!("app-{}", request.transaction_id.simple()),
-                Some(request.transaction_id.to_string()),
-            ),
-            RecoveryRequest::Existing(request) => (
-                &request.folder,
-                request.workspace_id,
-                request.repository_id.clone(),
-                None,
-            ),
-        };
+        let RecoveryRequest::New(request) = request;
+        let folder = &request.code_directory;
+        let id = request.workspace_id;
+        let repository_id = format!("app-{}", request.transaction_id.simple());
+        let idea = request.transaction_id.to_string();
         let mut items = vec![
             RecoveryItem {
                 label: "App folder",
@@ -61,37 +51,19 @@ impl WorkspaceManager {
                 presence: presence(&self.association_path(id)),
             },
         ];
-        if let RecoveryRequest::New(request) = request {
-            if let Some(parent) = folder.parent() {
-                items.push(RecoveryItem {
-                    label: "Temporary creation folder",
-                    presence: presence(
-                        &parent.join(format!(".koolade-create-{}", request.transaction_id)),
-                    ),
-                });
-            }
+        if let Some(parent) = folder.parent() {
             items.push(RecoveryItem {
-                label: "Planning folder",
-                presence: presence(&self.planning_repo_path(id)),
+                label: "Temporary creation folder",
+                presence: presence(
+                    &parent.join(format!(".koolade-create-{}", request.transaction_id)),
+                ),
             });
         }
+        items.push(RecoveryItem {
+            label: "Planning folder",
+            presence: presence(&self.planning_repo_path(id)),
+        });
         let workspace = Self::open_unlocked(self, id).ok();
-        if let RecoveryRequest::Existing(request) = request {
-            let planning = workspace
-                .as_ref()
-                .map(|workspace| presence(&workspace.planning_repo))
-                .unwrap_or_else(|| {
-                    if request.create_workspace {
-                        presence(&self.planning_repo_path(id))
-                    } else {
-                        Unavailable
-                    }
-                });
-            items.push(RecoveryItem {
-                label: "Planning folder",
-                presence: planning,
-            });
-        }
         let registration =
             workspace.as_ref().map_or(Unavailable, |workspace| {
                 if workspace.association.code_checkouts.iter().any(|checkout| {
@@ -106,7 +78,7 @@ impl WorkspaceManager {
             label: "Saved app connection",
             presence: registration,
         });
-        if let Some(uid) = idea {
+        {
             let work = workspace
                 .as_ref()
                 .and_then(|workspace| crate::core::planning_work::load(&workspace.store).ok());
@@ -114,7 +86,7 @@ impl WorkspaceManager {
                 label: "Saved initial idea",
                 presence: work.map_or(Unavailable, |work| {
                     if work.iter().any(|work| {
-                        work.uid == uid
+                        work.uid == idea
                             && work.kind == crate::core::planning_work::WorkKind::NewProject
                     }) {
                         Found

@@ -11,7 +11,7 @@ fn render_simplified_task_details_reference() {
     std::fs::create_dir_all(&dir).unwrap();
     for size in [[1280, 820], [900, 720], [360, 720]] {
         let mut gallery = Gallery::new(size, dir.clone());
-        let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
+        let key = "planning/tasks/fixture/001-task.md";
         gallery.app.attention_fixture.insert(key.into(), crate::core::attention::Brief {
             problem: "Should I update the plan to use the new default?".into(),
             recommendation: None,
@@ -89,7 +89,7 @@ fn render_simplified_task_details_reference() {
             gallery.ctx.data_mut(|data| {
                 data.insert_temp(
                     egui::Id::new("koolade_selected_task"),
-                    ".koolade-packet/planning/tasks/fixture/003-task.md".to_owned(),
+                    "planning/tasks/fixture/003-task.md".to_owned(),
                 )
             });
             gallery.save("simplified-task-completed");

@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 mod intent;
 pub(super) mod preflight;
-mod publish;
+pub(super) mod publish;
+pub(crate) use publish::directory as publish_directory;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ApplicationCreation {

@@ -52,7 +52,7 @@ fn approve(app: &mut KooladeApp) {
 }
 
 fn task_files(root: &std::path::Path) -> Vec<(String, Vec<u8>)> {
-    let base = root.join(".koolade-packet/planning/tasks");
+    let base = root.join("planning/tasks");
     let Ok(batches) = std::fs::read_dir(base) else {
         return Vec::new();
     };
@@ -105,7 +105,11 @@ fn graph_response(app: &KooladeApp) -> String {
     let checkout = project
         .state
         .repositories
-        .target(&project.state.repo_root, &repository.id)
+        .target(
+            project.state.planning_store.project_id,
+            &project.state.repo_root,
+            &repository.id,
+        )
         .unwrap();
     let sha = std::process::Command::new("git")
         .args([
@@ -177,8 +181,7 @@ fn stale_approval_at_generation_start_does_not_write_task_artifacts() {
     let (mut app, root, _) = setup();
     approve(&mut app);
     let task_baseline = task_files(&root);
-    let specification =
-        root.join(".koolade-packet/planning/changes/CHG-004-saved-searches/specification.md");
+    let specification = root.join("planning/changes/CHG-004-saved-searches/specification.md");
     let current = std::fs::read_to_string(&specification).unwrap();
     std::fs::write(
         &specification,
@@ -204,8 +207,7 @@ fn approval_change_during_decomposition_does_not_publish_task_artifacts() {
     let (mut app, root, _) = setup();
     approve(&mut app);
     let response = graph_response(&app);
-    let specification_path =
-        root.join(".koolade-packet/planning/changes/CHG-004-saved-searches/specification.md");
+    let specification_path = root.join("planning/changes/CHG-004-saved-searches/specification.md");
     let calls = Arc::new(Mutex::new(0));
     let harness: Box<dyn crate::harness::AiHarness> = Box::new(MutatingHarness {
         response,

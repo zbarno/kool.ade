@@ -10,7 +10,7 @@ macro_rules! conversation_surface_methods {
         fn chat_draft(&mut self) -> &mut String {
             match &mut self.screen {
                 Screen::Connected(p) => &mut p.draft,
-                Screen::Welcome => &mut self.conn_path,
+                Screen::Welcome => &mut self.welcome_draft,
             }
         }
 

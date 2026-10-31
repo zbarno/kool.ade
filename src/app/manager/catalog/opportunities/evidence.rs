@@ -161,10 +161,7 @@ pub(in crate::app::manager::catalog) fn koolade_product_capability_evidence(
         origin: EvidenceOrigin::Application,
         confidentiality: EvidenceConfidentiality::Public,
         source: "designated model-shareable Kool.ad/e capability inventory".into(),
-        content: include_str!(
-            "../../../../../.koolade-packet/planning/product/current-capabilities.md"
-        )
-        .into(),
+        content: include_str!("../../../../../assets/capabilities/active-capabilities.json").into(),
     }
 }
 

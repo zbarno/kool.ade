@@ -1,11 +1,14 @@
 use std::fs;
 
-use crate::core::managed_workspace::SiblingPairSpec;
+use crate::core::managed_workspace::NewProjectSpec;
 
 use super::support::TestDirectory;
 
-fn spec_in(temp: &TestDirectory) -> SiblingPairSpec {
-    let mut spec = SiblingPairSpec::new("Demo widget backend", "widget");
+#[path = "pair_creation/recovery.rs"]
+mod recovery;
+
+fn spec_in(temp: &TestDirectory) -> NewProjectSpec {
+    let mut spec = NewProjectSpec::new("Demo widget backend", "widget");
     spec.parent_dir = temp.path.join("workspaces");
     spec
 }
@@ -21,19 +24,27 @@ fn branch_of(root: &std::path::Path) -> String {
 }
 
 #[test]
-fn create_sibling_pair_materializes_and_registers_both_repositories() {
+fn new_project_uses_a_code_checkout_and_managed_planning_repository() {
     let temp = TestDirectory::new("pair-full");
     fs::create_dir_all(temp.path.join("workspaces")).unwrap();
     let manager = temp.manager("operator");
-    let workspace = manager.create_sibling_pair(&spec_in(&temp)).unwrap();
+    let workspace = manager.create_new_project(&spec_in(&temp)).unwrap();
 
     let code = temp.path.join("workspaces/widget");
-    let planning = temp.path.join("workspaces/widget.packet");
-    assert_eq!(workspace.planning_repo, planning.canonicalize().unwrap());
+    let planning = workspace.planning_repo.clone();
+    assert_eq!(
+        planning,
+        manager.project_dir(workspace.id).join("planning-repo")
+    );
+    assert_ne!(planning, code);
+    assert!(
+        !temp.path.join("workspaces/widget.packet").exists(),
+        "planning stays under the managed workspace area"
+    );
     assert_eq!(
         workspace.repositories.repositories.len(),
         1,
-        "the pair registers exactly one code repository"
+        "the project registers exactly one code repository"
     );
     let registered = &workspace.repositories.repositories[0];
     assert_eq!(registered.id, "root");
@@ -69,12 +80,12 @@ fn create_sibling_pair_materializes_and_registers_both_repositories() {
     assert_eq!(
         branch_of(&planning),
         "main",
-        "planning pair member follows the canonical branch"
+        "planning repository follows the canonical branch"
     );
     assert!(
         planning.join("manifest.json").is_file()
             && planning.join("config/repositories.json").is_file(),
-        "planning pair member carries the managed workspace scaffolding"
+        "planning repository carries the managed workspace scaffolding"
     );
     let status = super::support::git_ok(Some(&planning), &["status", "--porcelain"]);
     assert!(
@@ -95,14 +106,15 @@ fn repeated_creations_are_idempotent() {
     let manager = temp.manager("operator");
     let spec = spec_in(&temp);
 
-    let first = manager.create_sibling_pair(&spec).unwrap();
+    let first = manager.create_new_project(&spec).unwrap();
     let code = temp.path.join("workspaces/widget");
-    let planning = temp.path.join("workspaces/widget.packet");
+    let planning = first.planning_repo.clone();
     let code_before = rev_count(&code);
     let planning_before = rev_count(&planning);
 
-    let second = manager.create_sibling_pair(&spec).unwrap();
+    let second = manager.create_new_project(&spec).unwrap();
     assert_eq!(first.id, second.id, "the same pair maps to one workspace");
+    assert_eq!(first.planning_repo, second.planning_repo);
     assert_eq!(
         rev_count(&code),
         code_before,
@@ -123,11 +135,11 @@ fn occupied_non_repo_destination_is_rejected_without_side_effects() {
     let manager = temp.manager("operator");
 
     let error = manager
-        .create_sibling_pair(&spec_in(&temp))
+        .create_new_project(&spec_in(&temp))
         .unwrap_err()
         .to_string();
     assert!(
-        error.contains("already exists and is not a Git repository root"),
+        error.contains("will not adopt an existing checkout"),
         "actual: {error}"
     );
     assert!(
@@ -137,7 +149,7 @@ fn occupied_non_repo_destination_is_rejected_without_side_effects() {
 }
 
 #[test]
-fn occupied_planning_destination_leaves_no_half_pair_behind() {
+fn similarly_named_local_folder_is_preserved_and_never_used_as_planning() {
     let temp = TestDirectory::new("pair-plan-occupied");
     fs::create_dir_all(temp.path.join("workspaces")).unwrap();
     fs::write(
@@ -147,19 +159,12 @@ fn occupied_planning_destination_leaves_no_half_pair_behind() {
     .unwrap();
     let manager = temp.manager("operator");
 
-    let error = manager
-        .create_sibling_pair(&spec_in(&temp))
-        .unwrap_err()
-        .to_string();
-    assert!(
-        error.contains("already exists and is not a Git repository root"),
-        "actual: {error}"
+    let workspace = manager.create_new_project(&spec_in(&temp)).unwrap();
+    assert!(temp.path.join("workspaces/widget").join(".git").is_dir());
+    assert_ne!(
+        workspace.planning_repo,
+        temp.path.join("workspaces/widget.packet")
     );
-    assert!(
-        !temp.path.join("workspaces/widget").exists(),
-        "the code repository must not exist when the planning destination is refused"
-    );
-    assert!(manager.list_local().unwrap().is_empty());
     assert_eq!(
         fs::read_to_string(temp.path.join("workspaces/widget.packet")).unwrap(),
         "someone's notes",
@@ -194,11 +199,11 @@ fn foreign_repository_at_code_destination_is_refused_not_adopted() {
     let manager = temp.manager("operator");
 
     let error = manager
-        .create_sibling_pair(&spec_in(&temp))
+        .create_new_project(&spec_in(&temp))
         .unwrap_err()
         .to_string();
     assert!(
-        error.contains("did not create for this project"),
+        error.contains("will not adopt an existing checkout"),
         "foreign repositories must be refused, not silently adopted (actual: {error})"
     );
     assert!(manager.list_local().unwrap().is_empty());
@@ -214,56 +219,20 @@ fn foreign_repository_at_code_destination_is_refused_not_adopted() {
 }
 
 #[test]
-fn explicit_planning_repository_name_is_honored_and_resumable() {
-    let temp = TestDirectory::new("pair-named-plan");
-    fs::create_dir_all(temp.path.join("workspaces")).unwrap();
-    let mut spec = spec_in(&temp);
-    spec.planning_repo_name = "bay-of-packets".to_owned();
-    spec.parent_dir = temp.path.join("workspaces");
-    let manager = temp.manager("operator");
-
-    manager.create_sibling_pair(&spec).unwrap();
-    let planning = temp.path.join("workspaces/bay-of-packets");
-    assert!(planning.join("manifest.json").is_file());
-    assert!(
-        !temp.path.join("workspaces/widget.packet").exists(),
-        "the explicit name replaces the conventional sibling"
-    );
-    let before = rev_count(&planning);
-    manager.create_sibling_pair(&spec).unwrap();
-    assert_eq!(rev_count(&planning), before);
-}
-
-#[test]
-fn hostile_repository_names_are_rejected_before_touching_disk() {
-    let temp = TestDirectory::new("pair-names");
-    fs::create_dir_all(temp.path.join("workspaces")).unwrap();
-    let manager = temp.manager("operator");
-
-    for name in ["../escape", "a b", ".dotfile", "", "way/too/many/slashes"] {
-        let mut spec = spec_in(&temp);
-        spec.code_repo_name = name.to_owned();
-        spec.planning_repo_name = format!("{name}.packet");
-        manager.create_sibling_pair(&spec).unwrap_err();
-    }
-    let entries = fs::read_dir(temp.path.join("workspaces")).unwrap().count();
-    assert_eq!(
-        entries, 0,
-        "validation must happen before any disk mutation"
-    );
-}
-
-#[test]
-fn existing_code_repository_is_paired_untouched() {
-    let temp = TestDirectory::new("pair-ext");
-    let code = temp.path.join("workspaces/ext-app");
-    fs::create_dir_all(&code).unwrap();
-    fs::write(code.join("src.txt"), "operator's code\n").unwrap();
+fn empty_existing_git_checkout_is_refused_not_adopted() {
+    let temp = TestDirectory::new("pair-empty-git");
+    fs::create_dir_all(temp.path.join("workspaces/widget")).unwrap();
+    let code = temp.path.join("workspaces/widget");
     super::support::git_ok(
         Some(&code),
         &["init", "--quiet", "--initial-branch=main", "."],
     );
-    super::support::git_ok(Some(&code), &["add", "-A"]);
+    fs::write(
+        code.join("README.md"),
+        "# Demo widget backend\n\nCode repository maintained by Kool.ad/e.\n",
+    )
+    .unwrap();
+    super::support::git_ok(Some(&code), &["add", "README.md"]);
     super::support::git_ok(
         Some(&code),
         &[
@@ -274,72 +243,20 @@ fn existing_code_repository_is_paired_untouched() {
             "commit",
             "-q",
             "-m",
-            "their commit one",
+            "Kool.ad/e: initialize Demo widget backend code repository",
         ],
     );
-    fs::write(code.join("more.txt"), "more\n").unwrap();
-    super::support::git_ok(Some(&code), &["add", "-A"]);
-    super::support::git_ok(
-        Some(&code),
-        &[
-            "-c",
-            "user.name=Fixture Operator",
-            "-c",
-            "user.email=fixture@example.com",
-            "commit",
-            "-q",
-            "-m",
-            "their commit two",
-        ],
-    );
-
-    let mut spec = spec_in(&temp);
-    spec.code_repo_name = "ext-app".to_owned();
-    spec.planning_repo_name = "ext-app.packet".to_owned();
-    spec.code_already_exists = true;
     let manager = temp.manager("operator");
-    let workspace = manager.create_sibling_pair(&spec).unwrap();
 
-    assert_eq!(
-        rev_count(&code),
-        2,
-        "the operator's history must survive intact"
-    );
-    let subject = super::support::git_ok(Some(&code), &["log", "-1", "--pretty=%s"]);
-    assert_eq!(
-        String::from_utf8_lossy(&subject.stdout).trim(),
-        "their commit two"
-    );
-    assert_eq!(
-        fs::read_to_string(code.join("src.txt")).unwrap(),
-        "operator's code\n"
-    );
-    let planning = temp.path.join("workspaces/ext-app.packet");
-    assert!(planning.join("manifest.json").is_file());
-    let reopened = manager.open(workspace.id).unwrap();
-    let mapped = reopened
-        .association
-        .code_checkouts
-        .iter()
-        .find(|mapping| mapping.repository_id == "root")
-        .expect("root checkout registered");
-    assert_eq!(mapped.path, code.canonicalize().unwrap());
-}
+    let error = manager
+        .create_new_project(&spec_in(&temp))
+        .unwrap_err()
+        .to_string();
 
-#[test]
-fn existing_flag_requires_a_real_repository_root() {
-    let temp = TestDirectory::new("pair-ext-invalid");
-    let plain = temp.path.join("workspaces/plain-old");
-    fs::create_dir_all(&plain).unwrap();
-    let mut spec = spec_in(&temp);
-    spec.code_repo_name = "plain-old".to_owned();
-    spec.code_already_exists = true;
-    let manager = temp.manager("operator");
-    let error = manager.create_sibling_pair(&spec).unwrap_err().to_string();
     assert!(
-        error.contains("is not a Git repository root"),
+        error.contains("will not adopt an existing checkout"),
         "actual: {error}"
     );
     assert!(manager.list_local().unwrap().is_empty());
-    assert!(!temp.path.join("workspaces/plain-old.packet").exists());
+    assert!(code.join("README.md").is_file());
 }

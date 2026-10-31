@@ -7,16 +7,7 @@ mod path_support;
 const MAX_DEPTH: usize = 6;
 const MAX_ENTRIES: usize = 10_000;
 const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
-const SKIP_DIRECTORIES: &[&str] = &[
-    ".git",
-    ".koolade-packet",
-    "node_modules",
-    "target",
-    "vendor",
-    "build",
-    "dist",
-    ".venv",
-];
+const SKIP_DIRECTORIES: &[&str] = &["node_modules", "target", "vendor", "build", "dist", ".venv"];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DiscoveryEvidence {
@@ -57,7 +48,10 @@ pub fn detect_candidate_targets(root: &Path) -> Result<Vec<DiscoveryEvidence>, S
             let name = entry.file_name();
             let name = name.to_string_lossy();
             if file_type.is_dir() {
-                if depth < MAX_DEPTH && !SKIP_DIRECTORIES.contains(&name.as_ref()) {
+                if depth < MAX_DEPTH
+                    && !name.starts_with('.')
+                    && !SKIP_DIRECTORIES.contains(&name.as_ref())
+                {
                     pending.push_back((entry.path(), depth + 1));
                 }
                 continue;

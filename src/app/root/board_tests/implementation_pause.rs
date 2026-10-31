@@ -55,7 +55,7 @@ fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
     git(&["init", "-q", "-b", "main"]);
     git(&["config", "user.name", "Koolade Test"]);
     git(&["config", "user.email", "koolade@example.test"]);
-    let ticket = ".koolade-packet/planning/tasks/fixture/001-task.md";
+    let ticket = "planning/tasks/fixture/001-task.md";
     let ticket_text = "# First task\n\nUnique story detail 0\n";
     let ticket_path = root.join(ticket);
     std::fs::create_dir_all(ticket_path.parent().unwrap()).unwrap();

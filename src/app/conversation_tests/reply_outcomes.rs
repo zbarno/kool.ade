@@ -27,7 +27,7 @@ fn rejected_failed_and_cancelled_replies_stay_in_task_and_preserve_project_state
                 None,
             )];
         }
-        let product_vision = root.join(".koolade-packet/planning/product/overview.md");
+        let product_vision = root.join("planning/product/overview.md");
         let before = std::fs::read(&product_vision).unwrap();
         app.task_harness = Some(if mode == "rejected" {
             Box::new(ReplyHarness {

@@ -24,18 +24,14 @@ fn merged_commit_is_inspected_before_product_truth_is_checkpointed() {
     .unwrap();
     assert!(updated.active_feature.is_none());
     assert!(
-        std::fs::read_to_string(
-            repo.join(".koolade-packet/planning/product/current-capabilities.md")
-        )
-        .unwrap()
-        .contains("Search queries persist across restart")
+        std::fs::read_to_string(repo.join("planning/product/current-capabilities.md"))
+            .unwrap()
+            .contains("Search queries persist across restart")
     );
     assert!(
-        std::fs::read_to_string(
-            repo.join(".koolade-packet/planning/changes/CHG-001-search/specification.md")
-        )
-        .unwrap()
-        .contains(merged)
+        std::fs::read_to_string(repo.join("planning/changes/CHG-001-search/specification.md"))
+            .unwrap()
+            .contains(merged)
     );
     assert_eq!(git(&repo, &["rev-list", "--count", "HEAD"]), "6");
     let _ = std::fs::remove_dir_all(repo);
@@ -87,8 +83,7 @@ fn drifting_project_is_deferred_not_clobbered() {
     let response = serde_json::json!({"schema_version":2,"assistant_message":"Reconciled persisted search queries.",
             "document_updates":[{"document_id":"feature:CHG-001","content":updated_feature,"status":"implemented"},
                 {"document_id":"product:current-capabilities","content":product}]}).to_string();
-    let feature_path =
-        repo.join(".koolade-packet/planning/changes/CHG-001-search/specification.md");
+    let feature_path = repo.join("planning/changes/CHG-001-search/specification.md");
     let harness = DriftHarness {
         envelope: response,
         feature_path: feature_path.clone(),
@@ -111,11 +106,9 @@ fn drifting_project_is_deferred_not_clobbered() {
     // Reconciliation must not have checkpointed or applied anything.
     assert_eq!(git(&repo, &["rev-list", "--count", "HEAD"]), "5");
     assert!(
-        !std::fs::read_to_string(
-            repo.join(".koolade-packet/planning/product/current-capabilities.md")
-        )
-        .unwrap()
-        .contains("persist across restart")
+        !std::fs::read_to_string(repo.join("planning/product/current-capabilities.md"))
+            .unwrap()
+            .contains("persist across restart")
     );
     // The external edit survives untouched by the deferral.
     assert!(
@@ -130,7 +123,7 @@ fn drifting_project_is_deferred_not_clobbered() {
 fn candidate_waits_for_every_task_to_reach_merged_state() {
     let (repo, _, expected, _) = fixture();
     std::fs::write(
-        repo.join(".koolade-packet/planning/tasks/search/contract.json"),
+        repo.join("planning/tasks/search/contract.json"),
         serde_json::to_string_pretty(&expected.contract).unwrap(),
     )
     .unwrap();
@@ -138,7 +131,7 @@ fn candidate_waits_for_every_task_to_reach_merged_state() {
     workflow.task_batches.push(workflow::TaskBatchRef {
         identity: None,
         feature: "Search".into(),
-        directory: ".koolade-packet/planning/tasks/search".into(),
+        directory: "planning/tasks/search".into(),
         count: 1,
         created_at_ms: 0,
     });
@@ -169,9 +162,7 @@ fn candidate_waits_for_every_task_to_reach_merged_state() {
 #[test]
 fn conflicting_merged_behavior_creates_review_card_without_rewriting_product() {
     let (repo, state, candidate, feature) = fixture();
-    let before =
-        std::fs::read(repo.join(".koolade-packet/planning/product/current-capabilities.md"))
-            .unwrap();
+    let before = std::fs::read(repo.join("planning/product/current-capabilities.md")).unwrap();
     let response = serde_json::json!({"schema_version":2,"assistant_message":"Merged code differs from approved intent.",
             "document_updates":[{"document_id":"feature:CHG-001","content":feature.replace("**Status:** Implementing", "**Status:** Reconciliation"),"status":"reconciliation"}],
             "open_items_added":[{"kind":"Assumption","priority":"Normal","authority":"Review",
@@ -190,8 +181,7 @@ fn conflicting_merged_behavior_creates_review_card_without_rewriting_product() {
     )
     .unwrap();
     assert_eq!(
-        std::fs::read(repo.join(".koolade-packet/planning/product/current-capabilities.md"))
-            .unwrap(),
+        std::fs::read(repo.join("planning/product/current-capabilities.md")).unwrap(),
         before
     );
     assert_eq!(updated.items.len(), 1);

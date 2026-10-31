@@ -6,6 +6,23 @@ fn lines(n: usize) -> Vec<(String, String)> {
         .collect()
 }
 
+fn seed_root_repository_manifest(store: &crate::artifacts::planning_store::PlanningStore) {
+    let manifest = crate::core::project_repos::ProjectManifest {
+        repositories: vec![crate::core::project_repos::Repository {
+            id: "root".into(),
+            role: "Primary code".into(),
+            remote: String::new(),
+            display_name: None,
+        }],
+    };
+    store
+        .atomic_write(
+            crate::artifacts::planning_store::paths::PROJECT_MANIFEST,
+            &serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+}
+
 #[test]
 fn conversation_tail_bounded_and_ordered() {
     let convos: Vec<ConversationLine> = TailPreview::preview(&lines(10));
@@ -67,6 +84,20 @@ fn managed_imports_are_loaded_from_the_planning_store_into_turn_context() {
         &planning,
         crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
+    let manifest = crate::core::project_repos::ProjectManifest {
+        repositories: vec![crate::core::project_repos::Repository {
+            id: "root".into(),
+            role: "Primary code".into(),
+            remote: String::new(),
+            display_name: None,
+        }],
+    };
+    store
+        .atomic_write(
+            crate::artifacts::planning_store::paths::PROJECT_MANIFEST,
+            &serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
     store
         .atomic_write(
             "planning/imports/reference.md",
@@ -103,22 +134,39 @@ fn historical_features_tasks_and_items_do_not_expand_normal_prompt_without_bound
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
-    std::fs::create_dir_all(&root).unwrap();
+    let code = root.join("code");
+    let planning = root.join("planning-repo");
+    std::fs::create_dir_all(&code).unwrap();
+    std::fs::create_dir_all(&planning).unwrap();
     assert!(
         std::process::Command::new("git")
             .args(["init", "-q"])
-            .current_dir(&root)
+            .current_dir(&code)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q", "-b", "main"])
+            .current_dir(&planning)
             .status()
             .unwrap()
             .success()
     );
     let legacy = crate::artifacts::spec_doc::bootstrap_template("Demo");
-    crate::artifacts::product_docs::migrate(&root, &legacy).unwrap();
-    let active = root.join(".koolade-packet/planning/changes/CHG-001-active/specification.md");
+    crate::artifacts::product_docs::migrate(&planning, &legacy).unwrap();
+    let active = planning.join("planning/changes/CHG-001-active/specification.md");
     std::fs::create_dir_all(active.parent().unwrap()).unwrap();
     std::fs::write(active,
             "# CHG-001: Active\n\n**Status:** Draft\n\n## Intent\n\nOne feature.\n\n## Current Behavior\n\nCurrent.\n\n## Desired Behavior\n\nDesired.\n\n## Scope\n\nOne area.\n\n## Affected Product Areas\n\n`current-capabilities.md`\n\n## Requirements\n\nOne.\n\n## Decisions and Assumptions\n\nNone.\n\n## Acceptance Criteria\n\nOne.\n").unwrap();
-    let mut state = PlannerState::load(&root).unwrap();
+    let store = crate::artifacts::planning_store::PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        &planning,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
+    seed_root_repository_manifest(&store);
+    let mut state = PlannerState::load_with_store(&code, &store).unwrap();
     let before_ctx = TurnContext::build(&state, "Plan this feature", &lines(2));
     assert!(before_ctx.selected_documents.is_empty());
     let before = crate::core::prompt::render_prompt(&before_ctx)
@@ -126,10 +174,10 @@ fn historical_features_tasks_and_items_do_not_expand_normal_prompt_without_bound
             &state,
             crate::core::workflow::TurnPurpose::Interview,
         );
-    std::fs::create_dir_all(root.join(".koolade-packet/planning/imports")).unwrap();
+    std::fs::create_dir_all(planning.join("planning/imports")).unwrap();
     for n in 2..=250 {
         let name = format!("CHG-{n:03}-historical");
-        let dir = root.join(".koolade-packet/planning/changes").join(name);
+        let dir = planning.join("planning/changes").join(name);
         std::fs::create_dir(&dir).unwrap();
         std::fs::write(
             dir.join("specification.md"),
@@ -137,7 +185,8 @@ fn historical_features_tasks_and_items_do_not_expand_normal_prompt_without_bound
         )
         .unwrap();
         std::fs::write(
-            root.join(".koolade-packet/planning/imports")
+            planning
+                .join("planning/imports")
                 .join(format!("source-{n:03}.txt")),
             "evidence",
         )
@@ -148,7 +197,7 @@ fn historical_features_tasks_and_items_do_not_expand_normal_prompt_without_bound
             .push(crate::core::workflow::TaskBatchRef {
                 identity: None,
                 feature: format!("Historical batch {n}"),
-                directory: format!(".koolade-packet/planning/tasks/historical-{n}"),
+                directory: format!("planning/tasks/historical-{n}"),
                 count: 1,
                 created_at_ms: 0,
             });
@@ -190,16 +239,19 @@ fn accepted_feature_knowledge_survives_chat_expiration_and_derived_cache_deletio
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
-    std::fs::create_dir_all(&root).unwrap();
-    std::fs::create_dir_all(root.join(".koolade-packet/state/derived")).unwrap();
+    let code = root.join("code");
+    let planning = root.join("planning-repo");
+    std::fs::create_dir_all(&code).unwrap();
+    std::fs::create_dir_all(&planning).unwrap();
+    std::fs::create_dir_all(planning.join("state/derived")).unwrap();
     let legacy = crate::artifacts::spec_doc::bootstrap_template("Demo");
-    crate::artifacts::product_docs::migrate(&root, &legacy).unwrap();
-    let active = root.join(".koolade-packet/planning/changes/CHG-001-active/specification.md");
+    crate::artifacts::product_docs::migrate(&planning, &legacy).unwrap();
+    let active = planning.join("planning/changes/CHG-001-active/specification.md");
     std::fs::create_dir_all(active.parent().unwrap()).unwrap();
     std::fs::write(active,
             "# CHG-001: Active\n\n**Status:** Draft\n\n## Intent\n\nDURABLE_DECISION_MARKER\n\n## Current Behavior\n\nCurrent.\n\n## Desired Behavior\n\nDesired.\n\n## Scope\n\nOne area.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\nOne.\n\n## Decisions and Assumptions\n\nAccepted.\n\n## Acceptance Criteria\n\nOne.\n").unwrap();
     std::fs::write(
-        root.join(".koolade-packet/state/derived/summary.json"),
+        planning.join("state/derived/summary.json"),
         "DISPOSABLE_CACHE_MARKER",
     )
     .unwrap();
@@ -215,7 +267,13 @@ fn accepted_feature_knowledge_survives_chat_expiration_and_derived_cache_deletio
             )
         })
         .collect::<Vec<_>>();
-    let state = PlannerState::load(&root).unwrap();
+    let store = crate::artifacts::planning_store::PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        &planning,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
+    seed_root_repository_manifest(&store);
+    let state = PlannerState::load_with_store(&code, &store).unwrap();
     let first = crate::core::prompt::render_prompt(&TurnContext::build(
         &state,
         "Continue the active feature",
@@ -224,8 +282,8 @@ fn accepted_feature_knowledge_survives_chat_expiration_and_derived_cache_deletio
     assert!(first.contains("DURABLE_DECISION_MARKER"));
     assert!(!first.contains("EXPIRED_CHAT_MARKER"));
     assert!(!first.contains("DISPOSABLE_CACHE_MARKER"));
-    std::fs::remove_dir_all(root.join(".koolade-packet/state/derived")).unwrap();
-    let reloaded = PlannerState::load(&root).unwrap();
+    std::fs::remove_dir_all(planning.join("state/derived")).unwrap();
+    let reloaded = PlannerState::load_with_store(&code, &store).unwrap();
     let rebuilt = crate::core::prompt::render_prompt(&TurnContext::build(
         &reloaded,
         "Continue the active feature",

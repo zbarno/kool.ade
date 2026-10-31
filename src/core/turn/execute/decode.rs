@@ -30,7 +30,11 @@ pub(in crate::core::turn) fn decode_catalogued_envelope(
     let Some(manifest) = manifest else {
         return decode_envelope(final_text, purpose);
     };
-    if manifest.role_version != crate::harness::prompt_catalog::PromptRole::PlannerConversation.id()
+    if ![
+        crate::harness::prompt_catalog::PromptRole::PlannerConversation.id(),
+        crate::harness::prompt_catalog::PromptRole::PlannerConversationV5.id(),
+    ]
+    .contains(&manifest.role_version.as_str())
     {
         return decode_envelope(final_text, purpose);
     }

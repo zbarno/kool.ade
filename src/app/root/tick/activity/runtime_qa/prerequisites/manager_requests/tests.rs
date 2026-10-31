@@ -145,7 +145,7 @@ fn missing_recipe_toolchain_is_source_bound_and_deduplicated_in_manager_queue() 
 
     let metadata = TaskMetadata::new(&identity, "synthetic-repo", Vec::new()).unwrap();
     project.task_documents.push(TaskDocument {
-        path: ".koolade-packet/tasks/TASK-1.md".into(),
+        path: "planning/tasks/TASK-1.md".into(),
         title: "Synthetic app target".into(),
         text: String::new(),
         identity: None,
@@ -207,7 +207,7 @@ fn missing_recipe_toolchain_is_source_bound_and_deduplicated_in_manager_queue() 
         )
         .is_empty()
     );
-    let requests = &project.activity.tasks[".koolade-packet/tasks/TASK-1.md"].dependency_requests;
+    let requests = &project.activity.tasks["planning/tasks/TASK-1.md"].dependency_requests;
     assert_eq!(requests.len(), 1);
     let expected_source = format!(
         "runtime-capability://{}/{}@{}",

@@ -174,17 +174,16 @@ pub(in crate::app::root::surface) fn for_markdown(
         ..Default::default()
     };
     if let Some(current) = status.current_implementation.as_ref() {
-        let registered = crate::core::project_repos::ProjectManifest::load_with_code_root(
-            &project.state.planning_store,
-            &project.state.repo_root,
-        )
-        .and_then(|manifest| {
-            manifest.target_if_available(
-                project.state.planning_store.planning_layout().root(),
-                &current.repository_id,
-            )
-        })
-        .map_err(|error| error.to_string())?;
+        let registered =
+            crate::core::project_repos::ProjectManifest::load(&project.state.planning_store)
+                .and_then(|manifest| {
+                    manifest.target_if_available(
+                        project.state.planning_store.project_id,
+                        project.state.planning_store.planning_layout().root(),
+                        &current.repository_id,
+                    )
+                })
+                .map_err(|error| error.to_string())?;
         status.current_implementation_stale = match registered {
             Some(repository) => !checkout_matches_current_evidence(&repository, current),
             None => true,

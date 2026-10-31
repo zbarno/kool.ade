@@ -4,8 +4,7 @@ use super::*;
 fn compare_plans_turn_persists_two_options_for_the_ready_feature() {
     let _shield = crate::core::gitops::test_support::shield("feature-plan-comparison-turn");
     let (mut app, root, _) = setup();
-    let path =
-        root.join(".koolade-packet/planning/changes/CHG-004-saved-searches/specification.md");
+    let path = root.join("planning/changes/CHG-004-saved-searches/specification.md");
     let body = std::fs::read_to_string(&path).unwrap();
     let marker = body
         .lines()
@@ -143,8 +142,7 @@ fn compare_plans_turn_persists_two_options_for_the_ready_feature() {
 fn discard_recompare_action_keeps_the_previous_plan_transcript() {
     let _shield = crate::core::gitops::test_support::shield("feature-plan-discard");
     let (mut app, root, _) = setup();
-    let path =
-        root.join(".koolade-packet/planning/changes/CHG-004-saved-searches/specification.md");
+    let path = root.join("planning/changes/CHG-004-saved-searches/specification.md");
     let body = std::fs::read_to_string(&path).unwrap();
     let identity = crate::domain::ArtifactIdentity::from_markdown(&body)
         .unwrap()

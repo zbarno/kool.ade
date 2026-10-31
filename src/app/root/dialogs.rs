@@ -1,13 +1,10 @@
 use super::*;
 
-mod code_repository;
-
 impl KooladeApp {
     /// Paint a modal with the dialog moved OUT of `self` (clean borrows);
     /// the dialog is put back unless the user closed or completed it.
     pub(super) fn render_dialog(&mut self, ui: &mut egui::Ui, dialog: Dialog) {
         match dialog {
-            Dialog::AddCodeRepository(d) => self.render_code_repository_dialog(ui, d),
             Dialog::Import(mut d) => {
                 let save_slot = std::cell::RefCell::new(false);
                 let close_slot = std::cell::RefCell::new(false);
@@ -128,36 +125,6 @@ impl KooladeApp {
                 // (a malformed save must survive its own successful feedback).
                 if !closed && !*close_slot.borrow() && d.keep_open {
                     self.dialog = Some(Dialog::Mcp(d));
-                }
-            }
-            #[cfg(test)]
-            Dialog::Browse(mut d) => {
-                let choose_slot = std::cell::RefCell::new(false);
-                let cancel_slot = std::cell::RefCell::new(false);
-                let closed = crate::ui::overlays::show_modal(
-                    ui,
-                    true,
-                    "Choose a workspace folder",
-                    560.0,
-                    |ui| {
-                        let (choose, cancel) = app_dialogs::paint_browse_card(ui, &mut d);
-                        *choose_slot.borrow_mut() = choose;
-                        *cancel_slot.borrow_mut() = cancel;
-                    },
-                );
-                // Choosing writes ONLY `conn_path` (an absolute canonical
-                // path): no connect attempt, no toast, and `conn_error`
-                // keeps describing the last ATTEMPTED connect. The Open
-                // button / Enter via submit_connect remains the single
-                // connect authority. The defensive Welcome guard mirrors
-                // the arms that only push from that screen.
-                if *choose_slot.borrow() && matches!(self.screen, Screen::Welcome) {
-                    self.conn_path = d.selection().to_string_lossy().into_owned();
-                }
-                // Standard put-back: reopen unless closed (X/Escape),
-                // cancelled, or positively completed (Choose).
-                if !closed && !*cancel_slot.borrow() && !*choose_slot.borrow() {
-                    self.dialog = Some(Dialog::Browse(d));
                 }
             }
         }

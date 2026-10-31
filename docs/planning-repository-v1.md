@@ -1,11 +1,14 @@
 # Planning repository v1
 
 This is the normative on-disk contract for managed planning repositories.
-New workspaces use one external planning repository, independently of their
-zero or more code repositories. Operators join an existing workspace through
-that repository and bind their own local code checkout paths. Existing
-embedded `.koolade-packet/` artifacts remain migration and recovery inputs;
-the migration preserves the source data.
+Every workspace has one separate planning repository. Setup starts from a
+GitHub code repository and derives a same-owner `<code-repository>.packet`
+planning repository. If that repository is missing, Kool.ad/e creates it with
+the code repository's visibility; an existing repository with a different
+visibility is rejected. Kool.ad/e clones both repositories into managed
+locations. It does not accept arbitrary local code or planning checkout paths.
+Embedded `.koolade-packet/` project artifacts are unsupported: they are not
+read, migrated, or used as fallback, and existing contents are left untouched.
 
 ## Workspace identity and ownership
 
@@ -22,25 +25,15 @@ code repository IDs, filesystem paths, and active branches. Every operator
 joining the same planning repository uses that same ID. Local checkout paths
 and user state are independent per operator.
 
-`workspaceId` defines the logical workspace. In shared mode, the selected
-planning remote is the operator's explicit access route to its one
-authoritative repository. Remote URLs are locators and may be aliases, so URL
-equality alone neither proves nor disproves identity. A local-only workspace
-may have no planning remote; its selected local repository remains local
-authority and does not claim remote synchronization. A local path with a
-configured planning remote uses that remote as its shared access route. On a
-first shared connection, the operator explicitly selects the remote URL or
-the local repository configured with that remote. If an operator already has
-an association and selects another path or remote carrying the same
-`workspaceId`, compare the `canonicalRef` commit histories: accept another
-clone of the same history, including a fast-forward-only update, but reject
-unrelated or diverged histories and preserve both. A fork retaining the UUID
-is a replica of that workspace, not a second workspace; it cannot be used as
-an independent authority. Git provides no global registry that can reveal an
-unseen fork to a first-time operator, so the explicit first connection is the
-trust decision. The application does not silently switch an established
-association to a different history. Updating an existing local path binding
-requires an explicit reconnect even when the candidate history is compatible.
+`workspaceId` defines the logical workspace. The application derives the
+planning remote from the code remote, then validates the planning manifest
+and Git history before associating it. Remote URLs are locators and may be
+aliases, so URL equality alone neither proves nor disproves identity. An
+existing local workspace is reopened through its saved workspace UUID and
+association; setup does not browse for a replacement checkout or expose a
+reconnect action. A fork retaining the UUID is a replica, not a second
+workspace. The application does not silently switch an established
+association to a different history.
 
 A feature/change belongs to the workspace and may cover several code
 repositories. An executable task names one code repository; a planning-only
@@ -138,8 +131,8 @@ Legacy `planning/open-items.md`, `planning/resolved-items.json`,
 `state/workflow.json`, and `state/work.json` are compatibility and migration
 inputs only. They are never authoritative shared files in a new managed
 planning repository. Managed workspaces read and write planning through the
-injected `PlanningStore`; legacy embedded workspaces retain compatibility
-readers and migration support.
+injected `PlanningStore`. These record-format upgrades operate only inside the
+standalone planning repository; they do not inspect code checkouts.
 
 ### Per-record authority and revisions
 
@@ -191,8 +184,9 @@ different IDs. If both operators edit the same work UID from revision 4, the
 second update must be rejected or surfaced as a conflict for that UID; it
 cannot replace the first update based on commit time.
 
-The v1 planning manifest is distinct from the current embedded artifact
-manifest (`schemaVersion` 4 and `product: Koolade`). Its schema is:
+The planning manifest is the identity record for the standalone planning
+repository. Machine-local application data has its own storage and is not a
+planning manifest. The planning manifest schema is:
 
 ```json
 {
@@ -242,13 +236,12 @@ The v1 association shape is:
 ```
 
 `planningRepoPath` and checkout paths are absolute paths on that operator's
-machine. A checkout entry refers to an ID in the shared registry and is
-accepted only when its Git remote matches that registry entry. The list may
-be empty or omit code repositories the operator has not checked out. Joining
-a workspace binds local paths to its existing workspace ID; it does not
-create a second workspace. The shared planning remote, not these local paths,
-is the workspace identity. MCP context continues to receive server names only;
-commands and credentials remain local.
+machine. Code paths are recorded by managed setup and accepted only when
+their Git remotes match the shared registry. Opening a workspace uses its
+saved association; setup does not browse for alternate local paths. The
+shared planning remote, not local paths, is the workspace identity. MCP
+context continues to receive server names only; commands and credentials
+remain local.
 
 The following data is private to the operator and is not tracked in the
 planning repository:
@@ -257,21 +250,17 @@ planning repository:
 | --- | --- |
 | Workspace association and local code checkout paths | `projects/<workspace_uuid>/association.json` |
 | Managed planning checkout | `projects/<workspace_uuid>/planning-repo/` |
-| Existing `.koolade-packet/implementation/` reports, responses, verification results, and recovery evidence | `projects/<workspace_uuid>/implementation/` |
-| Existing `.koolade-packet/state/time-ledger.log` | `projects/<workspace_uuid>/state/time-ledger.log` |
-| Existing `.koolade-packet/config/mcp.json` | `projects/<workspace_uuid>/config/mcp.json`; preserve credentials and commands locally |
-| Existing `$KOOLADE_HOME/projects/<repo_slug>/repositories.json` checkout map | `projects/<workspace_uuid>/association.json` under `codeCheckouts`; never copy local paths into shared `config/repositories.json` |
-| Chat histories, task conversations, checkpoints, telemetry, and other user state | Under the operator's workspace directory; never shared as planning truth |
-| Existing implementation records under `$KOOLADE_HOME/projects/<repo_slug>/implementations/<allocation_key>/` | Keep readable through the legacy-slug association; when explicitly relocated, use `projects/<workspace_uuid>/implementations/<allocation_key>/` and preserve task UID and state |
-| Existing task clones under `$KOOLADE_HOME/projects/<repo_slug>/task-repositories/<repository_id>/<allocation_key>/` | Keep using the exact existing clone through the legacy-slug association; when explicitly relocated, preserve repository ID, allocation key, Git remote, branch, and commit before switching saved paths |
-| Local locks, worker state, run logs, and Pi event streams | Operator-local runtime state (including Git common-directory state); do not commit or treat it as shared workflow |
+| Implementation records and verification evidence | Operator-local Kool.ad/e application data; not part of the planning Git repository |
+| Time ledger, MCP configuration, and other local settings | Operator-local Kool.ad/e application data; never shared as planning truth |
+| Existing `$KOOLADE_HOME/projects/<repo_slug>/repositories.json` checkout map | `projects/<workspace_uuid>/association.json` under `codeCheckouts`; local paths are never copied into shared `config/repositories.json` |
+| Chat histories, task conversations, checkpoints, telemetry, and other user state | Operator-local Kool.ad/e application data; never shared as planning truth |
+| Task clones, local locks, worker state, run logs, and Pi event streams | Operator-local runtime state (including Git common-directory state); do not commit or treat it as shared workflow |
 | Git credentials | Existing host Git credential mechanism; never copy into a manifest, association, planning document, prompt, or log |
 
-The old per-repository-slug directory may be retained as a compatibility alias
-while its data is associated with the stable workspace UUID. Private data is
-copied or moved only by an explicit migration with preflight, conflict
-reporting, and rollback evidence. A missing or inaccessible private directory
-does not authorize deleting or overwriting the old copy.
+Kool.ad/e does not copy or migrate project artifacts from a code checkout into
+the planning repository. Missing private application data is reported through
+its own storage errors; it does not authorize reading project files from the
+code checkout as a substitute.
 
 ## Ownership, synchronization, and offline behavior
 
@@ -352,31 +341,22 @@ conflict-free concurrent edits.
 
 ## Discovery and association errors
 
-Discovery follows explicit user intent and never silently forks workspace
-identity:
+Discovery follows the managed GitHub setup flow and never silently forks
+workspace identity:
 
-1. **Create workspace** creates a new managed planning Git
-   repository and one workspace UUID, even when no code repository is
-   registered. It does not use a code checkout as the planning root.
-2. **Join existing workspace** accepts a planning remote or local planning
-   repository path, validates its manifest, uses its `workspaceId`, then
-   creates or updates only the operator-local association. A remote URL
-   selects the shared authority explicitly; a local path without a configured
-   remote remains local-only. A path with a configured planning remote uses that
-   remote for shared synchronization. For an existing association, a same-ID
-   candidate must have the same
-   or a fast-forward-compatible `canonicalRef` history; a display-name or URL
-   match alone is insufficient.
-3. **Open existing local workspace** resolves the saved workspace UUID and
-   local planning repository from the operator association. Opening a code
-   checkout by itself does not create another workspace.
-4. **Migrate legacy project** is an explicit operation. Until it is completed,
-   the legacy project remains readable in its embedded `.koolade-packet/`
-   layout; opening it does not copy or remove data in the managed planning
-   repository.
-5. If an association exists, validate it and its planning manifest before
-   loading shared state. Do not fall back to legacy or create a new workspace
-   when the association is broken or conflicts with the manifest.
+1. **Clone code repository** accepts a GitHub code URL, clones it into the
+   managed code-checkout folder, and derives `<owner>/<repository>.packet`.
+2. **Open paired planning repository** clones the derived repository if it
+   exists. Its visibility must match the code repository's visibility.
+3. **Create missing planning repository** creates the derived remote with the
+   code repository's visibility, pushes the initialized planning store, and
+   records the paired code remote.
+4. **Open existing local workspace** resolves the saved workspace UUID and
+   the managed checkouts from its operator-local association. An arbitrary
+   code checkout cannot create or replace a workspace association.
+5. Validate the association and planning manifest before loading shared
+   state. Do not fall back to project files inside the code checkout or create
+   a replacement workspace when an association is broken.
 
 The following messages are part of the connection contract; `<...>` values
 are substituted with the relevant UUID, path, or reason:
@@ -384,24 +364,23 @@ are substituted with the relevant UUID, path, or reason:
 | Condition | Message |
 | --- | --- |
 | Selected planning root has no manifest | `Planning repository is missing manifest.json.` |
-| An existing association points to a missing planning checkout | `Planning repository <path> from workspace association <association_path> is missing; restore it or explicitly reconnect. Kool.ad/e will not create a replacement.` |
+| An existing association points to a missing planning checkout | `Planning repository <path> from workspace association <association_path> is missing; restore it through the managed setup flow. Kool.ad/e will not create a replacement.` |
 | Planning checkout exists but is unreadable | `Planning repository <path> cannot be read: <reason>.` |
 | Planning manifest is malformed or violates the v1 schema | `Planning repository manifest <path> is invalid: <reason>.` |
-| A known workspace has no local binding | `No workspace association exists for <workspace_id>. Connect the planning repository to join this workspace.` |
+| A known workspace has no local binding | `No workspace association exists for <workspace_id>. Start from its paired code repository in the GitHub setup flow to create a managed local association.` |
 | Association cannot be parsed or validated | `Workspace association <path> is invalid: <reason>.` |
 | Association and planning manifest name different workspaces | `Workspace ID mismatch: association names <expected_id>, planning repository names <actual_id>.` |
 | A Git operation is already holding the planning checkout lock | `Planning repository <path> is locked by another Git operation; finish or recover that operation before retrying.` |
 | The selected directory is a different existing Git repository | `Directory <path> already contains an unrelated Git repository; nothing was overwritten.` |
 | A normalized record is malformed or its path ID differs from its record ID | `Planning record <path> is invalid: <reason>.` |
-| Changing an existing workspace binding without an explicit reconnect | `Workspace <workspace_id> is already associated with planning repository <existing_path>; explicitly reconnect before selecting <selected_path>.` |
 | Same workspace ID appears at an unrelated or diverged planning history | `Workspace <workspace_id> has a conflicting planning history at <selected_path>; refusing to replace <existing_path>.` |
 | Local checkout remote differs from the shared registry | `Code repository <repository_id> origin does not match its registered remote.` |
 | Legacy and workspace leases both exist for a task | `Execution lease conflict for task <task_uid>: legacy code-repository claim and workspace planning claim both exist; preserve both and resolve before retry.` |
 
 Errors leave all existing files and associations intact. A malformed planning
-manifest also leaves the selected checkout and association untouched; it does
-not fall back to legacy discovery or create a new workspace. Reconnecting or
-resolving an identity conflict is an explicit operator action.
+manifest leaves the managed checkout and association untouched. Kool.ad/e does
+not search code checkouts for embedded project data or create a replacement
+workspace as a fallback.
 
 ## Worked examples
 
@@ -494,9 +473,10 @@ Operator A stores this file at
 Operator B stores this file at
 `$KOOLADE_HOME/projects/<workspace_uuid>/association.json`.
 
-Operator B sees the shared API tasks but cannot execute one until a matching
-API checkout is mapped. Different local paths do not create different
-workspaces or alter shared planning state.
+Operator B sees the shared API tasks but cannot execute one until Kool.ad/e
+clones the API repository into that operator's managed workspace. Different
+managed clone locations do not create different workspaces or alter shared
+planning state.
 
 ### Two code branches
 
@@ -514,74 +494,16 @@ workspace ID, planning repository, task UID, or planning authority. Branch
 names are interpreted only within `api`; another code repository may have
 branches with the same names without ambiguity.
 
-## Legacy path mapping
+## Unsupported embedded project layout
 
-The table maps every current `ArtifactLayout::canonical` path to its v1 owner.
-The `.koolade-packet/` prefix is removed for shared artifacts because the
-managed planning checkout root is itself the artifact root. Private and
-transient data is not moved into the shared repository.
+The standalone planning repository is the only live shared project-artifact
+root. A code checkout is source code only. Kool.ad/e does not search for
+`.koolade-packet/`, `.koolade/`, `.planner/`, or other legacy planning roots
+inside a code checkout. It does not migrate those files, merge them into a
+planning repository, or fall back to them when a managed association is
+missing or damaged. Existing files are left untouched.
 
-| Current embedded path | V1 destination or disposition |
-| --- | --- |
-| `.koolade-packet/` | Legacy embedded store retained as migration input until explicit cutover; managed repository root replaces it for new workspaces. |
-| `.koolade-packet/manifest.json` | Transform into the v1 root `manifest.json`; generate or preserve one workspace UUID, and retain source evidence through successful migration. The old artifact schema version is not the new manifest schema version. |
-| `.koolade-packet/config/` | Structural directory becomes `config/`; shared and private children are mapped separately below. |
-| `.koolade-packet/config/project.md` | `config/project.md` |
-| `.koolade-packet/config/repositories.json` | `config/repositories.json`; preserve stable IDs/remotes, remove local paths and secrets from shared data. |
-| `.koolade-packet/config/mcp.json` | `$KOOLADE_HOME/projects/<workspace_uuid>/config/mcp.json` |
-| `.koolade-packet/planning/` | Structural directory becomes `planning/`; children are mapped separately below. |
-| `.koolade-packet/planning/product/` | `planning/product/` |
-| `.koolade-packet/planning/product/index.md` | `planning/product/index.md` |
-| `.koolade-packet/planning/product/manifest.json` | `planning/product/manifest.json` |
-| `.koolade-packet/planning/product/**` | `planning/product/**`; includes the current product index and product manifest. |
-| `.koolade-packet/planning/changes/**` | `planning/changes/<feature-uid>/{specification.md,metadata.json}`; preserve feature UIDs and add metadata without changing feature identity. |
-| `.koolade-packet/planning/decisions/**` | `planning/decisions/**` |
-| `.koolade-packet/planning/open-items.md` | Split each item into `planning/items/<item-uid>.md` and `state/items/<item-uid>.json`; preserve item identity and links. Keep the source file as migration evidence. |
-| `.koolade-packet/planning/resolved-items.json` | Convert each item's resolved status into its `state/items/<item-uid>.json`; preserve the source file as migration evidence. |
-| `.koolade-packet/planning/imports/**` | Optional `planning/imports/**`; keep only references explicitly imported by an operator. |
-| `.koolade-packet/planning/tasks/**` | Keep human-readable batch/task documents under `planning/tasks/<scope>/**`; preserve task UIDs and metadata. Normalize shared per-task workflow metadata under `planning/tasks/<scope>/workflow/<task-uid>.json` and mutable task status under `state/tasks/<task-uid>.json`. Per-run `.koolade-progress.json`, `activity.json`, local `state.json`, lock files, and temporary files remain private runtime state and are not shared. |
-| `.koolade-packet/planning/archive/**` | Optional `planning/archive/**`; preserve historical material and references. |
-| `.koolade-packet/planning/archive/specification-pre-modules.md` | `planning/archive/specification-pre-modules.md`, byte-preserved as historical source. |
-| `.koolade-packet/state/` | Structural directory becomes `state/`; shared records and private time-ledger files are mapped separately below. |
-| `.koolade-packet/state/workflow.json` | Split feature workflow into `state/workflow/<feature-uid>.json`; preserve feature, task-batch, approval, and fingerprint identities. Keep the source file as migration evidence. |
-| `.koolade-packet/state/work.json` | Split each planning-work record into `state/work/<work-uid>.json`; preserve every `Work.uid`, branch field, relationship, and durable field. Keep the source file as migration evidence. |
-| `.koolade-packet/state/time-ledger.log` | `$KOOLADE_HOME/projects/<workspace_uuid>/state/time-ledger.log` |
-| `.koolade-packet/implementation/**` | `$KOOLADE_HOME/projects/<workspace_uuid>/implementation/**`; keep local reports, responses, verification results, and recovery evidence. |
-
-Other current runtime state is also private: Git-common-directory migration
-journals, local queues, process locks, active worker files, ignored task
-progress, and task clones. Existing task clones and their saved implementation
-state remain associated with the same task UID and code repository ID through
-cutover. Remote leases are recreated or migrated by the lease protocol; they
-are not copied into tracked planning files.
-
-Older layouts are migration inputs, not additional live roots:
-
-| Legacy input | V1 mapping |
-| --- | --- |
-| `planning/features/**` | `planning/changes/<feature-uid>/{specification.md,metadata.json}`; preserve stable feature UIDs. |
-| `planning/open-items.md` | Split item content and state into `planning/items/<item-uid>.md` and `state/items/<item-uid>.json`. |
-| `planning/resolved-items.json` | Normalize each item's status into `state/items/<item-uid>.json`. |
-| `state/work.json` | Split into `state/work/<work-uid>.json`, preserving each stable work UID and its relationships. |
-| `state/workflow.json` | Split into `state/workflow/<feature-uid>.json`, preserving approval fingerprints and feature/task relationships. |
-| Other `planning/**` documents | Matching `planning/**` path, except the specification and archive rules below. |
-| `planning/specification.md` | `planning/archive/specification-pre-modules.md` |
-| `planning/archive/**` | `planning/archive/**` |
-| `SPECIFICATION.md` | `planning/archive/SPECIFICATION.md` |
-| `.planner/config.md` | `config/project.md` |
-| `.planner/project.json` | `config/repositories.json` |
-| `.planner/workflow.json` | Legacy workflow input; normalize feature records into `state/workflow/<feature-uid>.json` and retain source evidence. |
-| `.planner/mcp.json` | `$KOOLADE_HOME/projects/<workspace_uuid>/config/mcp.json`; never publish it. |
-| Other `.planner/**` files | `planning/archive/legacy-planner/**` |
-| `adr/implement-*.md` | `planning/archive/implementation-decisions/**` as historical summaries. |
-| Other `adr/**` decisions | `planning/decisions/**` |
-| Prior `.koolade/**` root | Matching path under the legacy `.koolade-packet/` root before external cutover; `.koolade/planning/work.json` is a migration input split into `state/work/<work-uid>.json`. |
-
-Migration preflights every source and destination. If the destination exists
-with different content, both copies remain and the conflict is reported for
-operator resolution. A malformed or duplicate legacy record blocks
-finalization; the conflict report identifies affected record IDs and source
-hashes, and the original remains available for recovery. A retry reuses the
-persisted workspace ID and stable record UIDs. No legacy source, task clone,
-or implementation evidence is deleted merely because the external planning
-checkout has been created.
+Schema and record normalization inside an already-managed planning repository
+remain separate concerns; they never cause Kool.ad/e to adopt or read an
+embedded code-checkout artifact tree. For current file ownership, see
+[Repository artifact layout](artifact-layout.md).

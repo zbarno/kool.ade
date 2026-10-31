@@ -9,8 +9,11 @@ use super::*;
 fn partial_report_artifact_prevents_qa_driver_redispatch_after_restart() {
     let root = tempfile::tempdir().unwrap();
     let project_id = uuid::Uuid::new_v4();
-    let planning =
-        crate::artifacts::planning_store::PlanningStore::legacy_embedded(project_id, root.path());
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
+        project_id,
+        root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, revision) = super::dispatch_fixture::queued_task(&lifecycle);
     let run_dir = root.path().join(&request.qa_run_id);
@@ -51,8 +54,11 @@ fn partial_report_artifact_prevents_qa_driver_redispatch_after_restart() {
 fn approved_scenario_metadata_does_not_prevent_initial_worker_claim() {
     let root = tempfile::tempdir().unwrap();
     let project_id = uuid::Uuid::new_v4();
-    let planning =
-        crate::artifacts::planning_store::PlanningStore::legacy_embedded(project_id, root.path());
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
+        project_id,
+        root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, revision) = super::dispatch_fixture::queued_task(&lifecycle);
     let run_dir = root.path().join(&request.qa_run_id);
@@ -108,8 +114,11 @@ fn approved_scenario_metadata_does_not_prevent_initial_worker_claim() {
 fn legacy_request_only_artifact_prevents_pending_worker_redispatch() {
     let root = tempfile::tempdir().unwrap();
     let project_id = uuid::Uuid::new_v4();
-    let planning =
-        crate::artifacts::planning_store::PlanningStore::legacy_embedded(project_id, root.path());
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
+        project_id,
+        root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, revision) = super::dispatch_fixture::queued_task(&lifecycle);
     let run_dir = root.path().join("runtime-qa").join(&request.qa_run_id);
@@ -143,8 +152,11 @@ fn legacy_request_only_artifact_prevents_pending_worker_redispatch() {
 fn mismatched_applicability_does_not_hide_legacy_request_artifact() {
     let root = tempfile::tempdir().unwrap();
     let project_id = uuid::Uuid::new_v4();
-    let planning =
-        crate::artifacts::planning_store::PlanningStore::legacy_embedded(project_id, root.path());
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
+        project_id,
+        root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, revision) = super::dispatch_fixture::queued_task(&lifecycle);
     let mut persisted = request.clone();
@@ -194,8 +206,11 @@ fn mismatched_applicability_does_not_hide_legacy_request_artifact() {
 fn legacy_request_file_prevents_stale_running_worker_redispatch() {
     let root = tempfile::tempdir().unwrap();
     let project_id = uuid::Uuid::new_v4();
-    let planning =
-        crate::artifacts::planning_store::PlanningStore::legacy_embedded(project_id, root.path());
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
+        project_id,
+        root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, revision) = super::dispatch_fixture::queued_task(&lifecycle);
     let lock_path = root

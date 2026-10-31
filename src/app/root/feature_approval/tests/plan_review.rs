@@ -221,8 +221,7 @@ fn user_confirmation_runs_independent_plan_reviewer_and_persists_its_exact_verdi
 }
 
 fn prepare_reviewable_plan(app: &mut KooladeApp, root: &std::path::Path) {
-    let spec_path =
-        root.join(".koolade-packet/planning/changes/CHG-004-saved-searches/specification.md");
+    let spec_path = root.join("planning/changes/CHG-004-saved-searches/specification.md");
     let spec = std::fs::read_to_string(&spec_path).unwrap();
     let spec = spec
         .replace(

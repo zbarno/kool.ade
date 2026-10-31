@@ -22,7 +22,7 @@ fn board_is_primary_and_legacy_main_chat_is_hidden() {
 fn task_cards_open_persisted_conversation_in_details_and_keep_each_draft_isolated() {
     let mut app = fixture();
     let ctx = egui::Context::default();
-    let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
+    let key = "planning/tasks/fixture/001-task.md";
     *app.chat_draft() = "Keep my project draft".into();
     *app.task_draft(key).unwrap() = "Task draft stays with this item".into();
     if let Screen::Connected(p) = &mut app.screen {
@@ -60,7 +60,7 @@ fn task_cards_open_persisted_conversation_in_details_and_keep_each_draft_isolate
             modifiers: Default::default(),
         }],
     );
-    let second = ".koolade-packet/planning/tasks/fixture/002-task.md";
+    let second = "planning/tasks/fixture/002-task.md";
     *app.task_draft(second).unwrap() = "Second task draft".into();
     if let Screen::Connected(project) = &mut app.screen {
         project.task_chats.messages.insert(
@@ -101,7 +101,7 @@ fn narrow_workspace_does_not_restore_main_chat_for_questions() {
 #[test]
 fn narrow_task_workspace_leads_with_action_and_discloses_description() {
     let mut app = fixture();
-    app.prepare_task_chat(".koolade-packet/planning/tasks/fixture/001-task.md");
+    app.prepare_task_chat("planning/tasks/fixture/001-task.md");
     let ctx = egui::Context::default();
     let size = egui::vec2(360.0, 480.0);
     frame_at(&mut app, &ctx, vec![], size);

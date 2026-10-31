@@ -67,7 +67,11 @@ fn approved_recipe(recipe_id: &str, args: &[&str]) -> ExecutionRecipeV1 {
 // low in-process setup cost.
 fn worker_rejects_revoked_prepared_start_after_selection_changes_to_new_target() {
     let root = tempfile::tempdir().unwrap();
-    let planning = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), root.path());
+    let planning = PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let runtime = ProjectRuntimeStore::new(&planning);
     let workspace_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let _approval_cleanup =

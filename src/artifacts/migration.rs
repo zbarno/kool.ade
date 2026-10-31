@@ -1,10 +1,9 @@
 //! Planning-store bootstrapping: create or normalize the product document
 //! set inside a managed planning repository.
 //!
-//! Legacy in-place repository migrations no longer run on connect. Planning
-//! state lives exclusively in the project's separate planning repository;
-//! moving an old embedded checkout into that model is the explicit,
-//! one-way managed-workspace migration.
+//! Planning state lives exclusively in the project's separate planning
+//! repository. This module bootstraps product documents there; it does not
+//! inspect or migrate project artifacts from a code checkout.
 mod bootstrap;
 mod product;
 

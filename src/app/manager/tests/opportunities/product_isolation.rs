@@ -66,12 +66,33 @@ impl AiHarness for SplitOpportunityHarness {
 /// Docker or network. Setup cost is several Git calls and store writes.
 #[test]
 fn product_opportunity_isolated_and_persists_public_evidence_only() {
-    let (_project_temp, mut project, _) = initialized_repository();
-    project.chat.push(crate::domain::chatlog::ChatMessage::new(
-        crate::domain::chatlog::ChatRole::User,
-        "PRIVATE-SAMPLE-CUSTOMER-DATA: internal account 88421 needs support",
-        None,
-    ));
+    let project_temp = tempfile::tempdir().expect("temporary code checkout");
+    let code = project_temp.path();
+    git(code, &["init", "-q", "-b", "main"]);
+    git(code, &["config", "user.name", "Fixture User"]);
+    git(code, &["config", "user.email", "fixture@example.invalid"]);
+    let code_remote = "https://github.com/example/private-project.git";
+    git(code, &["remote", "add", "origin", code_remote]);
+    std::fs::write(code.join("README.md"), "private project fixture\n").unwrap();
+    git(code, &["add", "README.md"]);
+    git(code, &["commit", "-qm", "fixture"]);
+
+    let operator_home = tempfile::tempdir().expect("temporary Kool.ad/e home");
+    let _home = crate::test_support::KooladeHomeGuard::set(operator_home.path());
+    let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
+    let workspace = manager.create("Opportunity fixture").unwrap();
+    manager
+        .register_code_repository(
+            workspace.id,
+            crate::core::managed_workspace::CodeRepositoryRegistration {
+                id: "root".into(),
+                role: "Primary code".into(),
+                remote: Some(code_remote.into()),
+                checkout: code.to_path_buf(),
+            },
+        )
+        .unwrap();
+
     let product_temp = tempfile::tempdir().expect("temporary product checkout");
     git(product_temp.path(), &["init", "-q"]);
     git(
@@ -98,33 +119,24 @@ fn product_opportunity_isolated_and_persists_public_evidence_only() {
             "https://github.com/zbarno/kool.ade",
         ],
     );
-    let mut manifest = project.state.repositories.clone();
-    manifest
-        .repositories
-        .push(crate::core::project_repos::Repository {
-            id: "product".into(),
-            role: "Kool.ad/e product source".into(),
-            remote: "https://github.com/zbarno/kool.ade".into(),
-            display_name: Some("Kool.ad/e".into()),
-        });
-    project
-        .state
-        .planning_store
-        .transaction(
-            &[(
-                crate::artifacts::planning_store::paths::PROJECT_MANIFEST.into(),
-                serde_json::to_vec(&manifest).unwrap(),
-            )],
-            None,
+    let product_remote = "https://github.com/zbarno/kool.ade";
+    manager
+        .register_code_repository(
+            workspace.id,
+            crate::core::managed_workspace::CodeRepositoryRegistration {
+                id: "product".into(),
+                role: "Kool.ad/e product source".into(),
+                remote: Some(product_remote.into()),
+                checkout: product_temp.path().to_path_buf(),
+            },
         )
         .unwrap();
-    crate::core::project_repos::map_local_checkout(
-        &project.state.repo_root,
-        "product",
-        product_temp.path(),
-    )
-    .unwrap();
-    project.state.repositories = manifest;
+    let mut project = crate::app::welcome::attempt_connect(&code.to_string_lossy()).unwrap();
+    project.chat.push(crate::domain::chatlog::ChatMessage::new(
+        crate::domain::chatlog::ChatRole::User,
+        "PRIVATE-SAMPLE-CUSTOMER-DATA: internal account 88421 needs support",
+        None,
+    ));
 
     let manager = Manager::start(
         &project,

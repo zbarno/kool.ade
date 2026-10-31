@@ -15,8 +15,16 @@ fn real_connections_record_recency_but_listing_and_failed_opens_do_not() {
     let mut home = StateHome::new();
     home.set(&base);
     let manager = WorkspaceManager::from_state_root();
-    let first = manager.create("Alpha workspace").unwrap();
-    let second = manager.create("Beta workspace").unwrap();
+    let code_parent = base.join("code");
+    std::fs::create_dir_all(&code_parent).unwrap();
+    let mut first_spec =
+        crate::core::managed_workspace::NewProjectSpec::new("Alpha workspace", "alpha");
+    first_spec.parent_dir = code_parent.clone();
+    let first = manager.create_new_project(&first_spec).unwrap();
+    let mut second_spec =
+        crate::core::managed_workspace::NewProjectSpec::new("Beta workspace", "beta");
+    second_spec.parent_dir = code_parent;
+    let second = manager.create_new_project(&second_spec).unwrap();
     let mut app = KooladeApp::default();
     assert!(manager.last_opened_dates().unwrap().is_empty());
     app.conn_workspace_id = Some(second.id);

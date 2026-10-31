@@ -27,7 +27,11 @@ pub fn load_all(repo: &Path) -> Vec<Implementation> {
         .collect()
 }
 pub fn load(repo: &Path, ticket: &str) -> Option<Implementation> {
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), repo);
+    let store = PlanningStore::new(
+        uuid::Uuid::nil(),
+        repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     load_with_store(&store, repo, ticket)
 }
 

@@ -59,7 +59,7 @@ fn check_feature_outcome(
                 .find(|(id, _)| Some(id.as_str()) == work.feature_id.as_deref())
                 .expect("Scenario A must save its feature specification");
             assert!(
-                feature.1.contains("src/") || feature.1.contains(".koolade-packet/"),
+                feature.1.contains("src/") || feature.1.contains("planning/"),
                 "Scenario A feature must include evidence grounded in the repository"
             );
         }

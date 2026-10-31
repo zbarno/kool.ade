@@ -88,7 +88,7 @@ impl Context {
                 "Open the checks to see what is ready and what needs attention. Each Fix action opens its own approval. You can continue to projects while a coding prerequisite is unavailable; continuing does not grant execution access."
             }
             Step::Projects => {
-                "Open a recent workspace, connect an existing project folder, or start something new. Your planning history is kept separately from your application code."
+                "Open a managed workspace, clone code from GitHub with its matching planning repository, or start a blank local project."
             }
             Step::NewProject => {
                 "Give your project a name and describe what you want to make. Choose a parent folder you can write to. Review shows the exact code and planning locations before anything is created."
@@ -96,11 +96,8 @@ impl Context {
             Step::ReviewProject => {
                 "Check both locations and your idea. Approve creates separate code and planning repositories and opens the planning interview. Existing files are never replaced. After an interruption, review this same request to resume."
             }
-            Step::ExistingProject => {
-                "Select the root folder of your project. Existing Git files and history are preserved. A folder without Git needs your explicit initialization approval. Choose a separate new or existing planning workspace before connecting."
-            }
             Step::Advanced => {
-                "Advanced options retain direct workspace opening and joining. These paths keep their existing checks and permissions."
+                "Advanced options show managed workspaces and computer setup tools. Clone a code repository to add a project."
             }
         }
     }

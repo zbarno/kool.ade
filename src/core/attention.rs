@@ -45,7 +45,11 @@ impl Controller {
         report_path: PathBuf,
         harness: Box<dyn AiHarness>,
     ) -> Self {
-        let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), &repo);
+        let store = PlanningStore::new(
+            uuid::Uuid::nil(),
+            &repo,
+            crate::artifacts::planning_store::StoreMode::ManagedLocal,
+        );
         Self::start_with_store(store, repo, ticket, report_path, harness)
     }
 
@@ -84,7 +88,11 @@ impl Controller {
         detail: String,
         harness: Box<dyn AiHarness>,
     ) -> Self {
-        let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), &repo);
+        let store = PlanningStore::new(
+            uuid::Uuid::nil(),
+            &repo,
+            crate::artifacts::planning_store::StoreMode::ManagedLocal,
+        );
         Self::start_detail_with_store(store, repo, ticket, detail, harness)
     }
 
@@ -201,7 +209,11 @@ fn run(
     harness: &dyn AiHarness,
     cancel: Arc<AtomicBool>,
 ) -> anyhow::Result<Brief> {
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), repo);
+    let store = PlanningStore::new(
+        uuid::Uuid::nil(),
+        repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     run_with_store(&store, repo, ticket, report_path, harness, cancel)
 }
 
@@ -263,7 +275,11 @@ fn run_detail(
     harness: &dyn AiHarness,
     cancel: Arc<AtomicBool>,
 ) -> anyhow::Result<Brief> {
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), repo);
+    let store = PlanningStore::new(
+        uuid::Uuid::nil(),
+        repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     run_detail_with_store(&store, repo, ticket, detail, harness, cancel)
 }
 

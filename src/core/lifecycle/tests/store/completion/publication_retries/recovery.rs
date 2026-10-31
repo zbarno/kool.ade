@@ -82,7 +82,7 @@ fn publication_failures_preserve_done_and_recover_one_authorized_attempt() {
         // the PR projection restores the same job rather than inventing one.
         lifecycle.replay_feature(&work.feature_uid).unwrap();
         let path = fixture.0.join(format!(
-            ".koolade-packet/state/lifecycle_pr_work_items/{}.json",
+            "state/lifecycle_pr_work_items/{}.json",
             work.work_item_uid
         ));
         std::fs::remove_file(path).unwrap();
