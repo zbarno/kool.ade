@@ -26,7 +26,8 @@
 //! is saved.
 
 use crate::domain::{
-    AssignmentMatch, Authority, CurrentUser, GUEST_NAME, OpenItem, Stakeholders, is_general_category,
+    AssignmentMatch, Authority, CurrentUser, GUEST_NAME, OpenItem, Stakeholders,
+    is_general_category,
 };
 
 /// Explanation of why an item may be posed to the current user.
