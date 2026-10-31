@@ -1,4 +1,6 @@
 use super::*;
+#[path = "run/failure_paths.rs"]
+mod failure_paths;
 #[path = "run/finalize.rs"]
 mod finalize;
 #[path = "run/primary.rs"]
@@ -262,7 +264,7 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
             resources: &resources,
         })
         .await;
-    let preview_failure_result = preview_failure::assert_preview_exit_fails_the_active_browser_run(
+    let failure_paths_result = failure_paths::assert(
         &docker,
         &request,
         &browser_image,
@@ -283,7 +285,7 @@ async fn rootless_app_owned_browser_preview_and_driver_produce_evidence_and_clea
         seeded_defect_result,
         cancellation_result,
         concurrent_runs_result,
-        preview_failure_result,
+        failure_paths_result,
         headless_service_result,
         evidence_root: artifact_root.path(),
     })
