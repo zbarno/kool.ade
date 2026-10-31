@@ -1,30 +1,44 @@
 # Runtime QA release evidence
 
-## Current snapshot (2026-10-30, 21:43 UTC)
+## Snapshot (2026-10-31, 11:59 UTC)
 
-Current `main` is [`abad2af3`](https://github.com/zbarno/kool.ade/commit/abad2af35d6cd9c0334edbe731ac333e1e872f72),
-which merged PR #435. Exact-main [quality](https://github.com/zbarno/kool.ade/actions/runs/41130466227)
-and [CodeQL](https://github.com/zbarno/kool.ade/actions/runs/41130465745) passed.
-The [native package](https://github.com/zbarno/kool.ade/actions/runs/41130466222)
-and [trusted executor image](https://github.com/zbarno/kool.ade/actions/runs/41130466301)
-workflows were still running at this snapshot. Runtime QA profile publication
-remains disabled; candidate checks do not approve release or enable either profile.
+Current `main` is [`c234d024`](https://github.com/zbarno/kool.ade/commit/c234d02465ae2839b4fc01d56105080a752958e2),
+which merged PR #441. Exact-main [quality](https://github.com/zbarno/kool.ade/actions/runs/41197720046)
+passed; [native packages](https://github.com/zbarno/kool.ade/actions/runs/41197720107)
+and [trusted executor images](https://github.com/zbarno/kool.ade/actions/runs/41197719987)
+were still running at this snapshot. Both Runtime QA profiles remain disabled;
+candidate checks do not approve release or enable either profile.
 
-PR [#435](https://github.com/zbarno/kool.ade/pull/435) merged as `abad2af3`.
-Its final candidate head `5f1a0aaa` passed quality, CodeQL, all five native
-package targets, rootless browser and desktop candidate verification,
-published-image smokes, and reviewed-digest verification. The exact-main
-workflows above are the post-merge checks.
+PR [#442](https://github.com/zbarno/kool.ade/pull/442), `Part of #171`, is open
+at `8b912193`, which merges current `main` into the candidate branch. Its prior
+head `a0839860` adds rootless browser-driver rejection coverage for unsupported
+shell, extension-install, and package-install actions, plus an orchestrator
+regression test proving a forged screenshot ID cannot authorize visual QA. All
+four local Rust gates passed on `a0839860` (3,667 Nextest tests passed, 17
+skipped), and independent review found no blocking findings.
 
-PR [#436](https://github.com/zbarno/kool.ade/pull/436) has been updated to
-include `abad2af3` using a normal merge commit; its refreshed hosted checks must
-complete before it can merge. Maintainer review is still required and normal
-auto-merge remains enabled.
+The first hosted run on `a0839860` passed the browser app-owned preview/driver
+test and the desktop app-owned lifecycle test, including the new browser
+rejection cases. Later browser and desktop task-runtime cases failed with
+`ImageUnavailable: Docker Engine disconnected or did not answer its health
+request`; Docker logs showed repeated rootless network-namespace restoration
+errors. The isolated queue-concurrency test failed before its assertions with
+the same Docker health error, while the separate daemon-recovery shard passed.
+The failed quality jobs were rerun; quality [attempt 2](https://github.com/zbarno/kool.ade/actions/runs/41196629064/attempts/2)
+passed, including queue concurrency. The trusted-image [attempt 2](https://github.com/zbarno/kool.ade/actions/runs/41196629122/attempts/2)
+is still running on `a0839860`.
 
-These results establish candidate and exact-main CI status only. Technical
-#171 acceptance criteria remain open. Deferred human readiness/status/screenshot
-review is a prelaunch activity and does not block issue closure after technical
-acceptance is complete.
+When `main` advanced to `c234d024`, PR #442 synchronized to `8b912193`. The
+sync-triggered [quality run](https://github.com/zbarno/kool.ade/actions/runs/41197933398)
+and [trusted-image run](https://github.com/zbarno/kool.ade/actions/runs/41197933369)
+were canceled while the earlier head's retries were starting. The [CodeQL run](https://github.com/zbarno/kool.ade/actions/runs/41197931273)
+on `8b912193` passed, and its [native-package run](https://github.com/zbarno/kool.ade/actions/runs/41197933373)
+has not completed. Fresh current-head quality and trusted-image verification
+is still required.
+
+Issue #171 remains open for its other technical acceptance criteria. Human
+readiness/status/screenshot review is deferred to prelaunch and does not block
+issue closure after technical acceptance is complete.
 
 ## Historical exact-main snapshot (2026-10-30, 15:59 UTC)
 
