@@ -35,7 +35,7 @@ Turn vague ideas into living specifications, actionable tasks, verified code, an
 
 </div>
 
-> **Currently shipping:** an experimental Linux desktop app with Git-backed planning, independent task clones, concurrent workers, verification, and six coding CLI adapters. **Being built and queued:** separate multi-user planning repositories, Docker-only execution, dependable CLI discovery and role parity, secure remote workers, and interactive runtime QA. The roadmap below separates the two.
+> **Currently shipping:** an experimental Linux desktop app with Git-backed planning, independent task clones, concurrent workers, verification, and six coding CLI adapters. **Being built and queued:** separate multi-user planning repositories, Docker-only execution, dependable CLI discovery and role parity, and secure remote workers. Runtime QA has an integrated candidate, but its browser and Linux desktop profiles remain disabled behind security and release gates; it is not yet available as a supported project capability.
 
 
 
@@ -406,7 +406,7 @@ Current capabilities include:
 | Consistent CLI role support + resilient discovery | 🛠️ In progress |
 | Docker-only local execution | 🛠️ In progress |
 | Remote Docker workers | 🛠️ In progress |
-| Interactive UI / runtime QA | 🛠️ In progress; experimental and not shipped |
+| Interactive UI / runtime QA | 🛠️ Candidate implementation; profiles disabled pending release gates |
 | macOS | 🧪 Unsigned native CI packages; Docker Desktop execution and host validation remain gated |
 | Windows | 🧪 Unsigned native CI package; Docker Desktop execution and host validation remain gated |
 | Additional agent CLIs | 🥤 Very much planned |
@@ -423,8 +423,8 @@ Right now Kool.ad/e is deliberately opinionated:
 - repository tool availability requires an approved Docker target; context-only planning remains separate
 - Pi keeps provider authentication and model transport on the controller process
 - a CLI adapter being integrated does not guarantee every role works with every version yet
-- authenticated remote execution and interactive runtime QA are not yet shipped
-- Runtime QA is unavailable pending the release gate; see the [operator guide](docs/runtime-qa-operations.md) for current readiness, evidence, and recovery boundaries
+- authenticated remote execution is not yet shipped
+- browser and Linux desktop Runtime QA have candidate implementations, but their profiles remain disabled pending security and release gates; they are not supported project capabilities yet. See the [operator guide](docs/runtime-qa-operations.md) for current readiness, evidence, and recovery boundaries
 
 If you need something polished, cross-platform, and enterprise-ready today, this is probably early for you.
 
@@ -442,7 +442,7 @@ Kool.ad/e began as a Linux desktop app with a planning board and isolated local 
 flowchart LR
     A["01 · TODAY<br/>Linux desktop<br/>Git-backed planning<br/>Task clones + 6 CLI adapters"] --> B["02 · IN FLIGHT<br/>Standalone planning Git repos<br/>Multi-user sync + task claims<br/>Safe branch/PR coordination"]
     B --> C["03 · QUEUED<br/>Docker-only tool execution<br/>CLI parity + reliable discovery<br/>Remote SSH workers"]
-    C --> D["04 · ON THE HORIZON<br/>Interactive visual / functional QA<br/>macOS + Windows hosts<br/>Smarter context + notifications"]
+    C --> D["04 · GATED CANDIDATE<br/>Browser + Linux desktop QA<br/>Profiles disabled pending release gates<br/>macOS + Windows hosts remain queued"]
 ```
 
 ### 01. In the glass today
@@ -463,9 +463,9 @@ The shared request/policy/event contract is documented in [Execution architectur
 
 **Docker is required for repository tools on the current supported Linux path.** Remote worker readiness and cross-platform support remain subject to the release checks in the security matrix.
 
-### 04. After the foundation: agents that check their own homework
+### 04. Gated Runtime QA candidate and future platform support
 
-Autonomous runtime QA should launch a finished app, interact with the UI, inspect visuals and behavior, capture evidence, and send defects back through controlled repair loops. Browser automation and containerized Linux UI tests come first; native platform-specific testing will need additional workers and drivers.
+The integrated Runtime QA candidate can launch a finished app, interact with its UI, and inspect evidence. Its blocking-finding Manager repair proposal and complete repair loop are still in progress; browser and Linux desktop profiles remain disabled until their security and release gates pass. Native platform-specific testing will need additional workers and drivers.
 
 Also in the mix: **macOS and Windows controller support**, better completion/blocker alerts, improved context selection and token economics, smarter model and harness routing, and more coding CLIs.
 

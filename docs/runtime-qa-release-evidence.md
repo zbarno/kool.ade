@@ -1,30 +1,16 @@
 # Runtime QA release evidence
 
-## Current snapshot (2026-10-30, 21:43 UTC)
+## Snapshot (2026-10-31, 14:15 UTC)
 
-Current `main` is [`abad2af3`](https://github.com/zbarno/kool.ade/commit/abad2af35d6cd9c0334edbe731ac333e1e872f72),
-which merged PR #435. Exact-main [quality](https://github.com/zbarno/kool.ade/actions/runs/41130466227)
-and [CodeQL](https://github.com/zbarno/kool.ade/actions/runs/41130465745) passed.
-The [native package](https://github.com/zbarno/kool.ade/actions/runs/41130466222)
-and [trusted executor image](https://github.com/zbarno/kool.ade/actions/runs/41130466301)
-workflows were still running at this snapshot. Runtime QA profile publication
-remains disabled; candidate checks do not approve release or enable either profile.
+Current `main` is [`2d34e158`](https://github.com/zbarno/kool.ade/commit/2d34e1581ba989017786f6b36d4d231f92a1dae4), which merged PR #443. Exact-main [quality](https://github.com/zbarno/kool.ade/actions/runs/41200913803), [CodeQL](https://github.com/zbarno/kool.ade/actions/runs/41200913743), [trusted executor images](https://github.com/zbarno/kool.ade/actions/runs/41200913817), and [native desktop packages](https://github.com/zbarno/kool.ade/actions/runs/41200913885) passed. Browser and desktop Runtime QA profiles remain disabled; candidate checks do not authorize release or enable either profile.
 
-PR [#435](https://github.com/zbarno/kool.ade/pull/435) merged as `abad2af3`.
-Its final candidate head `5f1a0aaa` passed quality, CodeQL, all five native
-package targets, rootless browser and desktop candidate verification,
-published-image smokes, and reviewed-digest verification. The exact-main
-workflows above are the post-merge checks.
+PR [#442](https://github.com/zbarno/kool.ade/pull/442), `Part of #171`, is remotely at `8b912193`, based on `c234d024` and behind current `main`. On that remote head, quality [41197933398](https://github.com/zbarno/kool.ade/actions/runs/41197933398), CodeQL [41197931273](https://github.com/zbarno/kool.ade/actions/runs/41197931273), all five native package targets [41197933373](https://github.com/zbarno/kool.ade/actions/runs/41197933373), and trusted-image checks [41197933369](https://github.com/zbarno/kool.ade/actions/runs/41197933369) passed, including browser and desktop candidates and both published-image smokes. A merge of `2d34e158` is staged locally. The full local Rust gates passed against that merged source; the sync commit and fresh hosted checks remain outstanding.
 
-PR [#436](https://github.com/zbarno/kool.ade/pull/436) has been updated to
-include `abad2af3` using a normal merge commit; its refreshed hosted checks must
-complete before it can merge. Maintainer review is still required and normal
-auto-merge remains enabled.
+PR [#444](https://github.com/zbarno/kool.ade/pull/444), `Part of #171`, is remotely at `d263ff32`, also based on `c234d024`. Its quality [41200425716](https://github.com/zbarno/kool.ade/actions/runs/41200425716), CodeQL [41200424109](https://github.com/zbarno/kool.ade/actions/runs/41200424109), docs-only trusted-image [41200425583](https://github.com/zbarno/kool.ade/actions/runs/41200425583), and all five native package targets including Intel macOS [41200425586](https://github.com/zbarno/kool.ade/actions/runs/41200425586) passed. A merge of `2d34e158` and README/evidence updates are staged locally; the sync commit and fresh hosted checks remain outstanding.
 
-These results establish candidate and exact-main CI status only. Technical
-#171 acceptance criteria remain open. Deferred human readiness/status/screenshot
-review is a prelaunch activity and does not block issue closure after technical
-acceptance is complete.
+PR [#445](https://github.com/zbarno/kool.ade/pull/445) adds a durable Manager proposal handoff for blocking findings from persisted failed Runtime QA reports. Its format check passed; CodeQL, quality, native-package, and trusted-image workflows were still in progress at this snapshot. Local format, all-target Nextest (3,684 passed, 18 skipped), doc tests, Clippy, and the focused proposal regression passed on its head.
+
+Issue #171 remains open for broader rootless security/failure coverage; completion of the full repair loop, including fresh review and QA; and verified readiness/status/screenshot UX plus release documentation. PR #445 only supplies the Manager proposal handoff. Human readiness/status/screenshot review is deferred to prelaunch and will not block issue closure after technical acceptance is complete.
 
 ## Historical exact-main snapshot (2026-10-30, 15:59 UTC)
 
