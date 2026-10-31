@@ -143,10 +143,11 @@ pub(crate) fn poll_auto_refresh() {
         && let Ok(completed) = worker.join()
     {
         let (mut settings, diagnostic) = harness_settings::load();
-        if diagnostic.is_none() && merge_results(&mut settings, completed) {
-            if let Err(error) = harness_settings::save(&settings) {
-                eprintln!("Kool.ad/e CLI discovery: failed to save refresh: {error}");
-            }
+        if diagnostic.is_none()
+            && merge_results(&mut settings, completed)
+            && let Err(error) = harness_settings::save(&settings)
+        {
+            eprintln!("Kool.ad/e CLI discovery: failed to save refresh: {error}");
         }
     }
 
