@@ -9,6 +9,7 @@ pub(super) fn exercise(prepared: Prepared) -> PathBuf {
     let Prepared {
         root,
         repo,
+        planning_repo,
         remote,
         docs,
         mut app,
@@ -202,7 +203,7 @@ pub(super) fn exercise(prepared: Prepared) -> PathBuf {
     assert_eq!(setup::git(&remote, &["rev-list", "--count", "main"]), "1");
     assert!(!published_files.contains("planning/local-approval.md"));
     assert_eq!(
-        std::fs::read_to_string(repo.join("planning/local-approval.md")).unwrap(),
+        std::fs::read_to_string(planning_repo.join("planning/local-approval.md")).unwrap(),
         "approved locally\n"
     );
     assert!(!published_files.contains("001-task.txt"));

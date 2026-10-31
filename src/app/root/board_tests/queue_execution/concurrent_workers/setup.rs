@@ -8,6 +8,7 @@ use std::{
 pub(super) struct Prepared {
     pub(super) root: PathBuf,
     pub(super) repo: PathBuf,
+    pub(super) planning_repo: PathBuf,
     pub(super) remote: PathBuf,
     pub(super) docs: Vec<crate::artifacts::task_docs::TaskDocument>,
     pub(super) app: KooladeApp,
@@ -29,13 +30,49 @@ pub(super) fn git(cwd: &Path, args: &[&str]) -> String {
 
 pub(super) fn prepare(root: PathBuf) -> Prepared {
     let repo = root.join("repo");
+    let planning_repo = root.join("planning-repo");
     let remote = root.join("remote.git");
-    std::fs::create_dir_all(repo.join("planning/tasks/fixture")).unwrap();
-    std::fs::create_dir_all(repo.join("state")).unwrap();
     std::fs::write(root.join("capacity-wait-barrier-enabled"), "").unwrap();
+    std::fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["config", "user.name", "Fixture"]);
     git(&repo, &["config", "user.email", "fixture@example.test"]);
+    std::fs::write(repo.join("README.md"), "code checkout fixture\n").unwrap();
+    git(&repo, &["add", "README.md"]);
+    git(&repo, &["commit", "-qm", "code baseline"]);
+    let code_remote_url = "ssh://git@github.com/koolade-fixture/fixture.git";
+    std::fs::create_dir_all(&planning_repo).unwrap();
+    git(&planning_repo, &["init", "-q", "-b", "main"]);
+    git(&planning_repo, &["config", "user.name", "Fixture"]);
+    git(
+        &planning_repo,
+        &["config", "user.email", "fixture@example.test"],
+    );
+    let workspace_id = uuid::Uuid::new_v4();
+    std::fs::write(
+        planning_repo.join("manifest.json"),
+        serde_json::to_vec_pretty(&crate::core::managed_workspace::WorkspaceManifest::new(
+            workspace_id,
+        ))
+        .unwrap(),
+    )
+    .unwrap();
+    std::fs::create_dir_all(planning_repo.join("config")).unwrap();
+    let repositories = crate::core::project_repos::ProjectManifest {
+        repositories: vec![crate::core::project_repos::Repository {
+            id: "root".into(),
+            role: "Primary code".into(),
+            remote: code_remote_url.into(),
+            display_name: None,
+        }],
+    };
+    std::fs::write(
+        planning_repo.join("config/repositories.json"),
+        serde_json::to_vec_pretty(&repositories).unwrap(),
+    )
+    .unwrap();
+    std::fs::create_dir_all(planning_repo.join("planning/tasks/fixture")).unwrap();
+    std::fs::create_dir_all(planning_repo.join("state")).unwrap();
     let batch_uid = uuid::Uuid::new_v4().hyphenated().to_string();
     let task_uids = (1..=4)
         .map(|_| uuid::Uuid::new_v4().hyphenated().to_string())
@@ -80,32 +117,32 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
         })
         .collect::<Vec<_>>();
     for doc in &docs {
-        std::fs::create_dir_all(repo.join(&doc.path).parent().unwrap()).unwrap();
+        std::fs::create_dir_all(planning_repo.join(&doc.path).parent().unwrap()).unwrap();
         let metadata = serde_json::to_string(doc.metadata.as_ref().unwrap()).unwrap();
         let identity = serde_json::to_string(doc.identity.as_ref().unwrap()).unwrap();
         let stored = format!(
             "---\nkoolade-task: {metadata}\n---\n\n{}\n<!-- koolade-artifact-id:v1 {identity} -->\n",
             doc.text
         );
-        std::fs::write(repo.join(&doc.path), stored).unwrap();
+        std::fs::write(planning_repo.join(&doc.path), stored).unwrap();
     }
     let feature = "# CHG-001: Fixture\n\n**Status:** Ready\n\n## Intent\nFixture.\n\n## Current Behavior\nFixture.\n\n## Desired Behavior\nFixture.\n\n## Scope\nFixture.\n\n## Affected Product Areas\nFixture.\n\n## Requirements\nFixture.\n\n## Decisions and Assumptions\nFixture.\n\n## Acceptance Criteria\nFixture.\n";
-    std::fs::create_dir_all(repo.join("planning/changes/CHG-001-fixture")).unwrap();
+    std::fs::create_dir_all(planning_repo.join("planning/changes/CHG-001-fixture")).unwrap();
     std::fs::write(
-        repo.join("planning/changes/CHG-001-fixture/specification.md"),
+        planning_repo.join("planning/changes/CHG-001-fixture/specification.md"),
         feature,
     )
     .unwrap();
     // Implementation loads the immutable approved specification beside the
     // generated task batch, as real task generation does.
     std::fs::write(
-        repo.join("planning/tasks/fixture/specification.md"),
+        planning_repo.join("planning/tasks/fixture/specification.md"),
         feature,
     )
     .unwrap();
-    std::fs::write(repo.join("state/workflow.json"), serde_json::json!({"brief":null,"reviewedSpecification":null,"taskBatches":[{"feature":"fixture","directory":"planning/tasks/fixture","count":4}]}).to_string()).unwrap();
-    git(&repo, &["add", "."]);
-    git(&repo, &["commit", "-qm", "baseline"]);
+    std::fs::write(planning_repo.join("state/workflow.json"), serde_json::json!({"brief":null,"reviewedSpecification":null,"taskBatches":[{"feature":"fixture","directory":"planning/tasks/fixture","count":4}]}).to_string()).unwrap();
+    git(&planning_repo, &["add", "."]);
+    git(&planning_repo, &["commit", "-qm", "planning baseline"]);
     git(&root, &["init", "--bare", "-q", remote.to_str().unwrap()]);
     git(&remote, &["config", "uploadpack.allowFilter", "true"]);
     let ssh = root.join("ssh-fixture");
@@ -117,16 +154,20 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
     std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
     // SAFETY: the cross-process environment lock is held and the value is restored above.
     unsafe { std::env::set_var("GIT_SSH_COMMAND", &ssh) };
-    git(
-        &repo,
-        &[
-            "remote",
-            "add",
-            "origin",
-            "ssh://git@github.com/koolade-fixture/fixture.git",
-        ],
-    );
+    git(&repo, &["remote", "add", "origin", code_remote_url]);
     git(&repo, &["push", "-q", "origin", "main"]);
+    std::fs::write(
+        planning_repo.join("planning/local-approval.md"),
+        "approved locally\n",
+    )
+    .unwrap();
+    git(&planning_repo, &["add", "planning/local-approval.md"]);
+    git(&planning_repo, &["commit", "-qm", "approve local plan"]);
+    let planning_store = crate::artifacts::planning_store::PlanningStore::new(
+        workspace_id,
+        &planning_repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let fake_bin = root.join("fake-bin");
     std::fs::create_dir_all(&fake_bin).unwrap();
     let fake_gh = fake_bin.join("gh");
@@ -141,20 +182,14 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
     ))
     .unwrap();
     unsafe { std::env::set_var("PATH", test_path) };
-    // Planning approval commonly exists only in the planning-root checkout
-    // when Auto starts. Its commit must remain an ancestor of published work.
-    std::fs::write(
-        repo.join("planning/local-approval.md"),
-        "approved locally\n",
-    )
-    .unwrap();
-    git(&repo, &["add", "planning/local-approval.md"]);
-    git(&repo, &["commit", "-qm", "approve local plan"]);
+    // Planning approval lives in its own repository and must stay out of code
+    // publication.
     let pi = fake_pi::create(&root);
     unsafe { std::env::set_var("KOOLADE_PI_BIN", &pi) };
     let mut app = fixture();
     if let Screen::Connected(project) = &mut app.screen {
-        project.state = crate::core::state::PlannerState::load(&repo).unwrap();
+        project.state =
+            crate::core::state::PlannerState::load_with_store(&repo, &planning_store).unwrap();
         // Plan confirmation binds to the current product specification, just
         // as a connected project does after its initial bootstrap.
         project.state.bootstrap_missing().unwrap();
@@ -179,7 +214,7 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
     if let Screen::Connected(project) = &mut app.screen {
         project.state.active_feature = Some(("CHG-001".into(), feature.into()));
         assert!(!crate::core::workflow::feature_approved(
-            &repo,
+            &planning_store,
             &project.state.workflow,
             "CHG-001"
         ));
@@ -204,13 +239,14 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
         assert!(project.active_turn.is_none());
         assert!(project.active_implementations.contains_key(&docs[0].path));
         assert!(crate::core::workflow::feature_approved(
-            &repo,
+            &planning_store,
             &project.state.workflow,
             "CHG-001"
         ));
-        let saved = crate::core::state::PlannerState::load(&repo).unwrap();
+        let saved =
+            crate::core::state::PlannerState::load_with_store(&repo, &planning_store).unwrap();
         assert!(crate::core::workflow::feature_approved(
-            &repo,
+            &planning_store,
             &saved.workflow,
             "CHG-001"
         ));
@@ -218,6 +254,7 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
     Prepared {
         root,
         repo,
+        planning_repo,
         remote,
         docs,
         app,
