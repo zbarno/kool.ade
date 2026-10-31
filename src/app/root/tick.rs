@@ -17,6 +17,8 @@ pub(crate) fn poll_implementations_for_test(app: &mut KooladeApp) {
 impl KooladeApp {
     pub(super) fn tick(&mut self, _dt: f32, ctx: &egui::Context) {
         self.surface_time_ledger_errors();
+        #[cfg(not(test))]
+        crate::app::dialogs::poll_cli_auto_refresh();
         self.poll_attention(ctx);
         self.poll_bootstrap_conversation();
         self.poll_setup_attention(ctx);

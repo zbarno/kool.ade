@@ -28,26 +28,26 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
             )));
         }
     }
+    let now_ms = crate::persistence::harness_settings::current_unix_ms();
+    // Normal tool selection is not an installation/repair catalog. Show only
+    // providers verified for real work; the rest live under Add / Fix.
     let entries = dialog
         .settings
         .discovered
         .iter()
+        .filter(|(id, harness)| harness.is_currently_actionable(id, now_ms))
         .map(|(id, harness)| (id.clone(), harness.clone()))
         .collect::<Vec<_>>();
     if entries.is_empty() {
-        if matches!(dialog.probe_view, ProbeView::Pending) {
-            for id in super::probes::PROVIDERS {
-                ui.label(format!("{id}: checking…"));
-            }
-            return;
-        }
-        ui.label("No supported coding tools were detected.");
-        return;
-    }
+        ui.label(if matches!(dialog.probe_view, ProbeView::Pending) {
+            "Checking coding tools…"
+        } else {
+            "No ready coding tools. Use Add / Fix a coding tool below."
+        });
+    } else {
     // Exactly one actionable provider narrows the default choice to a
     // single click, so that row earns a visible marker. The predicate is
     // the same canonical one the router's task-detail notice uses.
-    let now_ms = crate::persistence::harness_settings::current_unix_ms();
     let ready_count = entries
         .iter()
         .filter(|(id, harness)| harness.is_currently_actionable(id, now_ms))
@@ -164,6 +164,37 @@ pub(super) fn paint_tools(ui: &mut Ui, dialog: &mut DlgHarnessSetup) {
         );
         ui.colored_label(theme::DANGER, message);
     }
+    }
+    // Installation and troubleshooting are deliberately separate from the
+    // default/role selection list. Preserve access to manual paths and login.
+    ui.collapsing("Add / Fix a coding tool", |ui| {
+        for id in super::probes::PROVIDERS {
+            if entries.iter().any(|(visible, _)| visible == id) {
+                continue;
+            }
+            ui.collapsing(id, |ui| {
+                if let Some(harness) = dialog.settings.discovered.get(id).cloned() {
+                    details::paint_tool_details(ui, dialog, id, &harness);
+                } else {
+                    ui.label("Not checked yet. Run discovery to check installation and sign-in.");
+                    let provider = crate::app::setup_attention::catalog::ProviderIdV1::from_probe_id(id);
+                    if let Some(provider) = provider {
+                        ui.hyperlink_to("Installation guide", provider.installation_guide());
+                    }
+                    if ui.button(format!("Check {id}")).clicked() {
+                        dialog.retry_provider(id);
+                    }
+                    ui.label("Custom executable path");
+                    let draft = dialog.manual_path_drafts.entry(id.to_owned()).or_default();
+                    ui.text_edit_singleline(draft);
+                    if ui.button("Use path").clicked() {
+                        let selected_path = dialog.manual_path_drafts.get(id).cloned().unwrap_or_default();
+                        dialog.set_manual_path(id, selected_path);
+                    }
+                }
+            });
+        }
+    });
     paint_rediscover_button(ui, dialog);
 }
 

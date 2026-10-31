@@ -4,6 +4,8 @@ use std::sync::mpsc::Receiver;
 
 use crate::harness::discovery::ProbeResult;
 
+mod background;
+pub(crate) use background::{poll_auto_refresh as poll_cli_auto_refresh, request_refresh as request_cli_auto_refresh};
 mod bootstrap_probe;
 mod bootstrap_provider;
 mod discovery;
