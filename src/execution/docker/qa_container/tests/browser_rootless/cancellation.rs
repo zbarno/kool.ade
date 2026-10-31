@@ -1,9 +1,16 @@
 use super::*;
-use marker::wait_for_cancel_marker;
 use std::time::Duration;
 
 #[path = "cancellation/marker.rs"]
 mod marker;
+
+pub(super) async fn wait_for_cancel_marker(
+    docker: &bollard::Docker,
+    relay_container_id: &str,
+    relay_runtime_user: &str,
+) -> Result<(), String> {
+    marker::wait_for_cancel_marker(docker, relay_container_id, relay_runtime_user).await
+}
 
 /// Production boundary: a real browser driver is blocked in a task-service
 /// navigation when cancellation arrives; the controller must stop waiting,
