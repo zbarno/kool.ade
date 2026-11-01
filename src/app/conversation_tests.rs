@@ -40,3 +40,6 @@ mod reply_history;
 mod reply_outcomes;
 #[path = "conversation_tests/stranded_reply.rs"]
 mod stranded_reply;
+
+#[path = "conversation_tests/saved_answers.rs"]
+mod saved_answers;

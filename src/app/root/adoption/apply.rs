@@ -130,6 +130,7 @@ impl KooladeApp {
                 ..
             } => {
                 let previous_batches = project.state.workflow.task_batches.len();
+                let previous_state = project.state.clone();
                 // Another worker may have committed since this outcome was
                 // queued. Adopt current disk truth, never an older snapshot.
                 project.state = crate::core::state::PlannerState::load_with_store(
@@ -137,6 +138,32 @@ impl KooladeApp {
                     &state.planning_store,
                 )
                 .unwrap_or(*state);
+                if let Some(key) = task_conversation {
+                    let excluded = project
+                        .planning_work
+                        .iter()
+                        .filter(|work| {
+                            project.task_turns.contains_key(&work.key)
+                                || project.task_chats.has_failed_task_reply(&work.key)
+                                || project.task_chats.has_pending_user_reply(&work.key)
+                                || project.cancelled_work.contains(
+                                    &crate::persistence::cancelled_work::planning_id(&work.uid),
+                                )
+                        })
+                        .map(|work| work.key.clone())
+                        .collect();
+                    if crate::core::planning_work::reconcile_answered_child(
+                        &previous_state,
+                        &project.state,
+                        key,
+                        &mut project.planning_work,
+                        &excluded,
+                    ) && let Err(error) = project.save_planning_work()
+                    {
+                        self.toasts
+                            .danger(format!("Cannot save refreshed planning parent: {error}"));
+                    }
+                }
                 self.record_plan_author_provenance(
                     project,
                     &normalized.document_updates,

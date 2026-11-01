@@ -138,6 +138,7 @@ fn run_prompt(
     let mut outcome = Err("Project manager did not complete".to_owned());
     let mut failure_category = None;
     let mut failure_message = None;
+    let mut request = request.clone();
     for attempt in 0..2 {
         if request.cancel.load(std::sync::atomic::Ordering::Relaxed) {
             let message = "Project manager was cancelled".to_owned();
@@ -147,7 +148,7 @@ fn run_prompt(
                 Some(message),
             );
         }
-        let response = match harness.execute(request) {
+        let response = match harness.execute(&request) {
             Ok(response) => response,
             Err(error) => {
                 let retryable = matches!(
@@ -178,6 +179,12 @@ fn run_prompt(
             failure_category = None;
             failure_message = None;
             break;
+        }
+        if let Err(detail) = &outcome {
+            request.prompt_body.push_str(&format!(
+                "\nApplication validation rejected the previous response: {}\nReturn only a corrected JSON object with exactly these top-level fields: {{\"summary\":\"Current evidence-backed update\",\"proposed_actions\":[],\"opportunities\":[]}}. Do not add schema_version, output_schema_version, evidence_refs, or commentary fields. Preserve the original evidence and action restrictions. Empty action arrays are valid; do not invent actions to repair the format.",
+                crate::core::context_build::clip_bytes(&crate::error::redact_secrets(detail), 2048)
+            ));
         }
         failure_category = Some("invalid_response".into());
         failure_message = outcome

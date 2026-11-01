@@ -212,33 +212,5 @@ fn manager_execution_workspace(
     project: &super::session::Project,
     task_id: &str,
 ) -> Option<crate::execution::contract::WorkspaceRef> {
-    let repo_root = &project.state.repo_root;
-    let root_metadata = std::fs::symlink_metadata(repo_root).ok()?;
-    if !root_metadata.is_dir() || root_metadata.file_type().is_symlink() {
-        return None;
-    }
-    let git_metadata = std::fs::symlink_metadata(repo_root.join(".git")).ok()?;
-    if git_metadata.file_type().is_symlink() || !(git_metadata.is_dir() || git_metadata.is_file()) {
-        return None;
-    }
-    let root = repo_root.canonicalize().ok()?;
-    let mut git = crate::core::planning_sync::validated_git_command(&root).ok()?;
-    let output = git.args(["rev-parse", "--verify", "HEAD"]).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let source_sha = String::from_utf8(output.stdout).ok()?.trim().to_owned();
-    if !crate::execution::contract::is_valid_sha(&source_sha) {
-        return None;
-    }
-    Some(crate::execution::contract::WorkspaceRef {
-        project_id: project
-            .state
-            .planning_store
-            .project_id
-            .hyphenated()
-            .to_string(),
-        task_id: task_id.to_owned(),
-        source_sha,
-    })
+    crate::core::source_workspace::bind(&project.state, task_id)
 }

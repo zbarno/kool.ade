@@ -84,6 +84,7 @@ fn append_at(
             role: message.role,
             text: super::identity::redact(&message.text),
             ref_item: None,
+            lease_renewed_at: None,
             answer_context: None,
             clarification: false,
             ts: message.ts,

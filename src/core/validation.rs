@@ -36,6 +36,7 @@ pub struct UpdatePatch {
 mod decision_tests;
 mod human_resolution;
 mod plan_comparison;
+mod readiness;
 pub(crate) use plan_comparison::validate_persisted;
 #[path = "validation/requested_action.rs"]
 mod requested_action_validation;
@@ -764,6 +765,7 @@ pub fn validate_for_turn_with_user_message(
         plan_comparison,
     };
     crate::core::workflow::prepare(state, envelope, &mut normalized, purpose)?;
+    readiness::align_change_status(state, &mut normalized);
     Ok(normalized)
 }
 

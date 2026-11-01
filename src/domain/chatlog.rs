@@ -37,6 +37,9 @@ pub struct ChatMessage {
     /// Marks a clarification-only exchange, which cannot serve as a submitted decision.
     #[serde(default)]
     pub clarification: bool,
+    /// Durable lease heartbeat; the visible event timestamp remains unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_renewed_at: Option<DateTime<Utc>>,
     pub ts: DateTime<Utc>,
 }
 
@@ -52,6 +55,7 @@ impl ChatMessage {
             ref_item,
             answer_context: None,
             clarification: false,
+            lease_renewed_at: None,
             ts: Utc::now(),
         }
     }

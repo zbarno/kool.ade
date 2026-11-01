@@ -1,3 +1,5 @@
+mod answers;
+
 pub(crate) fn reconcile_inactive_planning_work(project: &mut crate::app::session::Project) {
     let active_key = project
         .active_turn
@@ -82,6 +84,9 @@ pub(crate) fn reconcile_inactive_planning_work(project: &mut crate::app::session
         active_key,
         &excluded,
     );
+    if answers::reconcile(project, &mut updated, active_key) {
+        changes.push("Refreshed planning parents from applied saved answers".into());
+    }
     changes.extend(recovered);
     if retry {
         changes.push("previously reconciled planning work".to_owned());

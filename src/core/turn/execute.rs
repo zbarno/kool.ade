@@ -333,7 +333,7 @@ fn run_turn_mode(
             }
         }
         EnvelopeDecode::Absent => TurnOutcome::Rejected {
-            problems: vec!["The planner's final message did not include the required structured JSON block, so NO changes were saved. Try sending the request again.".into()],
+            problems: vec!["The planner's final message did not include the required structured JSON block, so NO changes were saved. The submitted answer remains saved for internal recovery; do not submit it again.".into()],
             final_text: outcome.final_text,
             elapsed: started.elapsed(),
         },
