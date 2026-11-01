@@ -161,6 +161,7 @@ impl KooladeApp {
                 role: ChatRole::Agent,
                 text: brief.conversation_message(),
                 ref_item: Some(event.selection.clone()),
+                lease_renewed_at: None,
                 answer_context: None,
                 clarification: false,
                 ts: chrono::Utc::now(),

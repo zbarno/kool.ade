@@ -13,6 +13,7 @@ pub mod overlays;
 pub mod planning_board;
 pub mod planning_repository;
 pub mod reply_tail;
+pub(crate) mod saved_reply;
 pub mod spec_viewer;
 mod specification_status;
 pub mod surface;

@@ -136,13 +136,18 @@ fn run_with_settle_window(
         item.id,
         item.id
     );
+    let task_id = item.uid.clone().ok_or_else(|| {
+        anyhow::anyhow!("Repository investigation requires a stable item identity")
+    })?;
+    let execution_workspace = crate::core::source_workspace::bind(state, &task_id)
+        .ok_or_else(|| anyhow::anyhow!("Cannot start repository investigation without a verified source HEAD. Record the source revision before continuing this internal investigation; the saved answer does not need to be repeated."))?;
     let mut correction = String::new();
     for attempt in 1..=3 {
         anyhow::ensure!(!cancel.load(Ordering::SeqCst), "Investigation cancelled");
         let request = PlanningRequest {
             prompt_manifest: None,
             mode: ExecutionMode::Investigation,
-            task_id: None,
+            task_id: Some(task_id.clone()),
             reasoning_level: "off".into(),
             telemetry_phase: None,
             repo_root: state.repo_root.clone(),
@@ -152,7 +157,7 @@ fn run_with_settle_window(
             timeout: crate::core::turn::configured_turn_timeout(),
             progress_tx: progress.clone(),
             cancel: cancel.clone(),
-            execution_workspace: None,
+            execution_workspace: Some(execution_workspace.clone()),
             destination_sha: None,
 
             authorization_verifier: None,

@@ -23,10 +23,7 @@ pub(in crate::ui::layout::board::columns) fn work(
             ui.horizontal(|ui| {
                 theme::badge(ui, work.kind.label(), theme::PANEL, theme::TEXT_DIM);
                 if column == 3 {
-                    super::super::attention::badge(
-                        ui,
-                        super::super::attention::Kind::WaitingOnUser,
-                    );
+                    super::super::attention::badge(ui, super::super::attention::Kind::Blocked);
                 }
             });
             if ui
@@ -53,7 +50,8 @@ pub(in crate::ui::layout::board::columns) fn work(
                     crate::core::planning_work::WorkStatus::InProgress => "In progress",
                     crate::core::planning_work::WorkStatus::InReview => "Ready for review",
                     crate::core::planning_work::WorkStatus::NeedsAttention => {
-                        "Waiting for your response"
+                        crate::ui::saved_reply::label(s.task_messages(&work.key))
+                            .unwrap_or("Planning needs review or internal recovery")
                     }
                     crate::core::planning_work::WorkStatus::Done => "Completed",
                 }
@@ -64,7 +62,7 @@ pub(in crate::ui::layout::board::columns) fn work(
                 && ui
                     .add_sized(
                         [ui.available_width(), 28.0],
-                        egui::Button::new("Respond").fill(theme::WARNING.gamma_multiply(0.18)),
+                        egui::Button::new("View details").fill(theme::WARNING.gamma_multiply(0.18)),
                     )
                     .clicked()
             {

@@ -15,6 +15,7 @@ const MAX_PLANNING_CONFLICT_CLAIMS_PER_RETRY: usize = 2;
 mod helpers;
 mod planning_conflict;
 mod reply_claim;
+mod safe_recovery;
 
 use helpers::{
     claim_is_fresh, claim_scope, is_clarification_agent_reply, is_conflict_retry,
@@ -58,7 +59,7 @@ impl TaskChats {
             else {
                 return Ok(None);
             };
-            if !claim_is_fresh(&claim.ts) {
+            if !claim_is_fresh(claim.lease_renewed_at.as_ref().unwrap_or(&claim.ts)) {
                 return Ok(None);
             }
         } else if after.iter().any(is_conflict_retry)
@@ -78,11 +79,13 @@ impl TaskChats {
 }
 
 pub(super) fn has_task_reply_outcome(messages: &[ChatMessage]) -> bool {
-    messages.iter().any(|message| {
-        message.role == ChatRole::System
-            && (message.id.starts_with(TASK_REPLY_OUTCOME_PREFIX)
-                || message.id.starts_with(PLANNING_CONFLICT_APPLIED_PREFIX))
-    })
+    safe_recovery::attempts(messages) >= 2
+        || messages.iter().any(|message| {
+            message.role == ChatRole::System
+                && ((message.id.starts_with(TASK_REPLY_OUTCOME_PREFIX)
+                    && !safe_recovery::is_recoverable(message))
+                    || message.id.starts_with(PLANNING_CONFLICT_APPLIED_PREFIX))
+        })
 }
 
 pub(super) fn has_failed_task_reply(messages: &[ChatMessage]) -> bool {
@@ -92,10 +95,23 @@ pub(super) fn has_failed_task_reply(messages: &[ChatMessage]) -> bool {
     else {
         return false;
     };
-    messages[latest_user + 1..].iter().any(|message| {
+    let after = &messages[latest_user + 1..];
+    if after.iter().any(is_substantive_agent_reply)
+        || after.iter().any(|message| {
+            message.role == ChatRole::System
+                && (message
+                    .id
+                    .starts_with("internal-task-reply-outcome:applied:")
+                    || message.id.starts_with(PLANNING_CONFLICT_APPLIED_PREFIX))
+        })
+    {
+        return false;
+    }
+    after.iter().any(|message| {
         message.role == ChatRole::System
             && (message.id.starts_with(TASK_REPLY_FAILED_PREFIX)
-                || message.id.starts_with(TASK_REPLY_EXHAUSTED_PREFIX))
+                || message.id.starts_with(TASK_REPLY_EXHAUSTED_PREFIX)
+                || safe_recovery::is_recoverable(message))
     })
 }
 
@@ -112,7 +128,7 @@ pub(super) fn has_active_reply_claim(messages: &[ChatMessage]) -> bool {
     messages
         .iter()
         .find(|message| message.id == claim_id)
-        .is_some_and(|claim| claim_is_fresh(&claim.ts))
+        .is_some_and(|claim| claim_is_fresh(claim.lease_renewed_at.as_ref().unwrap_or(&claim.ts)))
 }
 
 fn latest_user_id(messages: &[ChatMessage]) -> Option<&str> {
@@ -199,5 +215,7 @@ pub(super) fn has_active_retry_claim(messages: &[ChatMessage]) -> bool {
             || (message.role == ChatRole::User && message.clarification)
             || is_clarification_agent_reply(message)
     }) && claims.len() < MAX_PLANNING_CONFLICT_CLAIMS_PER_RETRY
-        && claims.last().is_some_and(|claim| claim_is_fresh(&claim.ts))
+        && claims.last().is_some_and(|claim| {
+            claim_is_fresh(claim.lease_renewed_at.as_ref().unwrap_or(&claim.ts))
+        })
 }

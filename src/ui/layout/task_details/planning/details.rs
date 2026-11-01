@@ -68,6 +68,11 @@ fn paint_item_details(
 ) {
     let status = if item.status == crate::domain::ItemStatus::Resolved {
         "Completed"
+    } else if crate::core::task_conversation::answer_receipt::is_saved(
+        item,
+        surface.task_messages(item.conversation_key()),
+    ) {
+        "Answer saved"
     } else if item.authority == crate::domain::Authority::Agent {
         "Working"
     } else {

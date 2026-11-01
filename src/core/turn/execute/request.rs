@@ -13,6 +13,7 @@ use super::{TurnInputs, TurnOutcome};
 
 mod render;
 mod task_note;
+mod workspace;
 
 pub(super) struct PreparedTurn {
     pub request: PlanningRequest,
@@ -267,6 +268,7 @@ pub(super) fn prepare(
             })?;
             (rendered.user, rendered.system, Some(rendered.manifest))
         };
+    let execution_workspace = workspace::bind(&inputs.state, task, started)?;
     let request = PlanningRequest {
         prompt_manifest,
         mode: if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks {
@@ -274,7 +276,9 @@ pub(super) fn prepare(
         } else {
             crate::harness::ExecutionMode::Planning
         },
-        task_id: None,
+        task_id: execution_workspace
+            .as_ref()
+            .map(|workspace| workspace.task_id.clone()),
         reasoning_level: match inputs.purpose {
             crate::core::workflow::TurnPurpose::GenerateTasks => "off",
             _ => "xhigh",
@@ -288,7 +292,7 @@ pub(super) fn prepare(
         timeout,
         progress_tx,
         cancel: Arc::clone(cancel),
-        execution_workspace: None,
+        execution_workspace,
         destination_sha: None,
 
         authorization_verifier: None,

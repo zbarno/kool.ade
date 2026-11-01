@@ -16,7 +16,9 @@ pub use code_review_disposition::{
 };
 use validation::validate;
 pub use validation::{routing_for_feature, save, save_expected};
+mod answered;
 mod reconcile;
+pub use answered::reconcile_answered_child;
 #[cfg(test)]
 mod tests;
 

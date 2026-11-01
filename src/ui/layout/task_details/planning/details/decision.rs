@@ -13,6 +13,36 @@ pub(super) fn paint(
     {
         return;
     }
+    let key = item.conversation_key();
+    if crate::core::task_conversation::answer_receipt::is_saved(item, surface.task_messages(key)) {
+        ui.label(
+            crate::ui::saved_reply::label(surface.task_messages(key))
+                .unwrap_or("Your answer is saved."),
+        );
+        let latest_answer = surface
+            .task_messages(key)
+            .iter()
+            .rev()
+            .find(|message| message.role == crate::domain::ChatRole::User && !message.clarification)
+            .map(|message| message.id.clone());
+        let edit_id = egui::Id::new(("change_planning_answer", key, latest_answer));
+        let edit = ui
+            .ctx()
+            .data_mut(|data| data.get_temp::<bool>(edit_id))
+            .unwrap_or(false);
+        if !edit {
+            if ui
+                .add_enabled(
+                    !surface.task_chat_active(key),
+                    egui::Button::new("Change saved answer"),
+                )
+                .clicked()
+            {
+                ui.ctx().data_mut(|data| data.insert_temp(edit_id, true));
+            }
+            return;
+        }
+    }
     let Some(brief) = item
         .decision_brief
         .as_ref()
