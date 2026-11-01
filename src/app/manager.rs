@@ -8,6 +8,8 @@ mod telemetry;
 pub(crate) const MAX_PLAN_ARBITRATION_ATTEMPTS: usize = 2;
 pub(crate) use dependency::{DependencyReview, DependencyTriage, enforce_policy};
 pub(crate) use dispositions::has_unpromoted_nonblocking_findings;
+#[cfg(test)]
+pub(crate) use dispositions::next_qa_finding_repair_with_store;
 pub(super) use dispositions::persist_dispositions;
 #[cfg(test)]
 pub(super) use dispositions::persist_plan_dispositions;

@@ -23,6 +23,8 @@ pub(crate) use code_reviews::{
     next_arbitration as next_code_review_arbitration,
 };
 use kind::DispositionWork;
+#[cfg(test)]
+pub(crate) use qa_findings::next_repair_with_store_for_test as next_qa_finding_repair_with_store;
 pub(crate) use qa_findings::{
     finish_after_qa as finish_qa_finding_repair, next_repair as next_qa_finding_repair,
 };

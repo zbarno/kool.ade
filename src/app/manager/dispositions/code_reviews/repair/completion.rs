@@ -154,10 +154,7 @@ fn finish_runtime_qa_repair_review(
     context: &crate::core::implementation::ManagerRepairContextV1,
 ) {
     let lifecycle = LifecycleStore::new(&project.state.planning_store);
-    let current = lifecycle
-        .task_for_planning_item(&context.task_uid)
-        .ok()
-        .flatten();
+    let current = lifecycle.load_task(&context.task_uid).ok();
     let review_is_current = current.as_ref().is_some_and(|task| {
         task.phase == TaskPhase::AwaitingRuntimeQa
             && task.reviewed_code_head_sha.as_deref()

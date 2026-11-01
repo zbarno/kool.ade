@@ -22,6 +22,26 @@ pub(crate) fn next_repair(project: &mut Project) -> Option<(String, String)> {
     {
         return None;
     }
+    let qa_root =
+        RuntimeQaStore::local_root_for_workspace(project.state.planning_store.project_id).ok()?;
+    next_repair_with_store(project, &RuntimeQaStore::new(qa_root))
+}
+
+#[cfg(test)]
+pub(crate) fn next_repair_with_store_for_test(
+    project: &mut Project,
+    qa: &RuntimeQaStore,
+) -> Option<(String, String)> {
+    next_repair_with_store(project, qa)
+}
+
+fn next_repair_with_store(project: &mut Project, qa: &RuntimeQaStore) -> Option<(String, String)> {
+    if project.active_turn.is_some()
+        || project.activity.manager.is_some()
+        || !project.active_implementations.is_empty()
+    {
+        return None;
+    }
     let work_index = project.planning_work.iter().position(|work| {
         work.kind == WorkKind::QaFindingDisposition && work.status == WorkStatus::Todo
     })?;
@@ -40,7 +60,7 @@ pub(crate) fn next_repair(project: &mut Project) -> Option<(String, String)> {
         );
     }
     let lifecycle = LifecycleStore::new(&project.state.planning_store);
-    let task = lifecycle.task_for_planning_item(task_uid).ok().flatten()?;
+    let task = lifecycle.load_task(task_uid).ok()?;
     if task.repair_budget_exhausted() {
         return mark_attention(
             project,
@@ -62,9 +82,6 @@ pub(crate) fn next_repair(project: &mut Project) -> Option<(String, String)> {
             "The Runtime QA finding is stale for the current task head; Manager must review the latest evidence.",
         );
     }
-    let qa_root =
-        RuntimeQaStore::local_root_for_workspace(project.state.planning_store.project_id).ok()?;
-    let qa = RuntimeQaStore::new(qa_root);
     let Some((qa_run_id, finding_id)) = parse_work_key(&work.key) else {
         return mark_attention(
             project,
