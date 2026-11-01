@@ -6,7 +6,7 @@ impl KooladeApp {
         &mut self,
         project: &mut Project,
         problems: Vec<String>,
-        final_text: String,
+        _final_text: String,
         conversation: Option<&str>,
     ) {
         let concurrent_write_conflict = problems
@@ -55,15 +55,6 @@ impl KooladeApp {
         {
             crate::persistence::task_chats::TaskChats::mark_task_reply_outcome(message);
         }
-        chat.push(ChatMessage::new(
-            ChatRole::Agent,
-            if final_text.trim().is_empty() {
-                "(no legible reply — try again)".to_string()
-            } else {
-                final_text
-            },
-            None,
-        ));
         remember_turn_messages(project, conversation, chat);
         self.toasts.danger(format!(
             "Rejected: {}",

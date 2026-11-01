@@ -81,7 +81,7 @@ pub(super) fn build(project: &Project, events: &[String]) -> String {
     let blocked_elsewhere = blocked_elsewhere.into_iter().take(12).collect::<Vec<_>>();
     let internal_recovery = internal_recovery.into_iter().take(12).collect::<Vec<_>>();
     let active_progress = active_worker_progress(project);
-    let update = crate::core::context_build::clip(
+    let update = crate::core::context_build::clip_bytes(
         &format!(
             "PROJECT MANAGER UPDATE\nProject: {}\nEvents: {:?}\nTask count: {}\nBoard tasks: {:?}\n{}\nActive worker progress: {:?}\nActive worker: {:?}\nQueue running: {}\nWaiting on user: {:?}\nSaved user replies awaiting internal processing: {:?}\nInternal recovery required: {:?}\nBlocked on external work or dependencies: {:?}",
             project.state.title,
@@ -97,24 +97,45 @@ pub(super) fn build(project: &Project, events: &[String]) -> String {
             internal_recovery,
             blocked_elsewhere
         ),
-        12000,
+        3 * 1024,
     );
     let features = project
         .state
         .active_features
         .iter()
+        .filter(|(id, _)| {
+            project
+                .state
+                .active_feature
+                .as_ref()
+                .is_some_and(|(active, _)| active == id)
+        })
+        .chain(project.state.active_features.iter().filter(|(id, _)| {
+            project
+                .state
+                .active_feature
+                .as_ref()
+                .is_none_or(|(active, _)| active != id)
+        }))
         .map(|(id, text)| format!("{id}\n{}", crate::core::workflow::feature_contract(text)))
         .collect::<Vec<_>>()
         .join("\n\n");
-    format!(
+    let summary = format!(
         "{update}\n\n{}\n\n=== CURRENT FEATURE CONTRACTS (authoritative over chat history) ===\n{}\n\n{}",
-        crate::core::prompt::workflow_context(
-            &project.state,
-            crate::core::workflow::TurnPurpose::Interview
+        crate::core::context_build::clip_bytes(
+            &crate::core::prompt::workflow_context(
+                &project.state,
+                crate::core::workflow::TurnPurpose::Interview
+            ),
+            4 * 1024
         ),
-        crate::core::context_build::clip(&features, 16000),
-        project.task_interaction_context(&events.join("\n"))
-    )
+        crate::core::context_build::clip_bytes(&features, 5 * 1024),
+        crate::core::context_build::clip_bytes(
+            &project.task_interaction_context(&events.join("\n")),
+            3 * 1024
+        )
+    );
+    crate::core::context_build::clip_bytes(&summary, 16 * 1024)
 }
 
 #[cfg(test)]

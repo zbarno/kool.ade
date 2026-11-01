@@ -62,6 +62,11 @@ fn rejected_failed_and_cancelled_replies_stay_in_task_and_preserve_project_state
                 .any(|m| m.role == ChatRole::System),
             "{mode}"
         );
+        if mode == "rejected" {
+            assert!(!app.task_messages("CLR-001").iter().any(|m| {
+                m.role == ChatRole::Agent && m.text.contains("Starting an unrelated interview")
+            }));
+        }
         assert!(!app.task_chat_active("CLR-001"));
         assert_eq!(std::fs::read(&product_vision).unwrap(), before);
         let Screen::Connected(p) = &mut app.screen else {

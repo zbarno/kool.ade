@@ -117,12 +117,31 @@ pub(super) fn initialized_repository() -> (tempfile::TempDir, crate::app::sessio
 
 /// Production boundary: Manager::start validates the assembled typed prompt
 /// before invoking a provider. This proves long event text cannot invalidate
-/// the role payload; a validator-only unit test cannot prove the Manager builder
+/// the role payload, even with multiple large Unicode feature contracts.
+/// A validator-only unit test cannot prove the Manager builder
 /// keeps event content out of the bounded cursor field. Uses a temporary Git
 /// repository and fake local harness; no Docker or network, with a few Git calls.
 #[test]
 fn manager_accepts_long_event_text_without_using_it_as_the_cursor() {
-    let (_temp, project, _) = initialized_repository();
+    let (_temp, mut project, _) = initialized_repository();
+    project.state.active_features = (1..=8)
+        .map(|i| {
+            (
+                format!("F{i}"),
+                format!(
+                    "## Requirements\n{}",
+                    "Unicode requirement é. ".repeat(1600)
+                ),
+            )
+        })
+        .collect();
+    project.state.active_feature = project.state.active_features.last().cloned();
+    let prompt = Manager::prompt_body(&project, &[]);
+    assert!(prompt.len() <= 16 * 1024);
+    assert!(
+        prompt
+            .contains("=== CURRENT FEATURE CONTRACTS (authoritative over chat history) ===\nF8\n")
+    );
     let event = format!("Task conversation updated: {}", "é".repeat(100));
     assert!(event.len() > 128);
     let output = serde_json::json!({

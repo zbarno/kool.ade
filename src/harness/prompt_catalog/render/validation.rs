@@ -62,7 +62,11 @@ pub(super) fn validate_input(input: &RoleInputV1) -> Result<(), String> {
             return Err("restricted evidence cannot be placed in a model prompt".into());
         }
         if evidence.content.len() > MAX_FIELD_BYTES {
-            return Err("individual evidence item exceeds the prompt size limit".into());
+            return Err(format!(
+                "evidence item {} contains {} bytes; the per-item prompt limit is {MAX_FIELD_BYTES} bytes",
+                evidence.id,
+                evidence.content.len()
+            ));
         }
         if evidence.source.len() > 1024 {
             return Err("evidence source exceeds the prompt size limit".into());

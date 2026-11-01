@@ -67,6 +67,7 @@ impl KooladeApp {
                 project.live_progress = Default::default();
                 match result {
                     Ok(output) => {
+                        project.activity.last_manager_error = None;
                         let dispositions = crate::app::manager::persist_dispositions(
                             project,
                             &output.proposed_actions,
@@ -93,13 +94,16 @@ impl KooladeApp {
                             &crate::error::redact_secrets(&error),
                             1200,
                         );
-                        project.remember_chat(vec![ChatMessage::new(
+                        if project.activity.last_manager_error.as_deref() != Some(&detail) {
+                            project.activity.last_manager_error = Some(detail.clone());
+                            project.remember_chat(vec![ChatMessage::new(
                             ChatRole::System,
                             format!(
                                 "Project-manager update unavailable: {detail} Task work continues; you can still send a message."
                             ),
                             None,
                         )]);
+                        }
                     }
                 }
             }
