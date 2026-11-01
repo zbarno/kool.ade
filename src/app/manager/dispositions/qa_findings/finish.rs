@@ -3,10 +3,12 @@ use crate::{
     app::session::Project,
     core::{
         implementation,
+        lifecycle::{GateDecision, LifecycleStore, QaExecutionStatusV1, TaskPhase},
         planning_work::{WorkKind, WorkStatus},
     },
     runtime_qa::{QaOutcome, QaResultV1, QaRunRequestV1, RuntimeQaStore},
 };
+use sha2::Digest as _;
 
 pub(crate) fn finish_after_qa(
     project: &mut Project,
@@ -20,12 +22,56 @@ pub(crate) fn finish_after_qa(
     {
         return;
     }
+    let lifecycle = LifecycleStore::new(&project.state.planning_store);
+    let Ok(task) = lifecycle.load_task(task_uid) else {
+        return;
+    };
+    let Some(execution) = task.qa_execution.as_ref() else {
+        return;
+    };
+    if task.phase != TaskPhase::AwaitingSpecReconciliation
+        || execution.status != QaExecutionStatusV1::Completed
+        || execution.request.as_ref() != Some(request)
+    {
+        return;
+    }
     let Ok(root) =
         RuntimeQaStore::local_root_for_workspace(project.state.planning_store.project_id)
     else {
         return;
     };
     let store = RuntimeQaStore::new(root);
+    let Ok((persisted_request, _, evidence, persisted_result)) =
+        store.load_current_run(&request.qa_run_id)
+    else {
+        return;
+    };
+    let Ok(encoded_result) = serde_json::to_vec(&persisted_result) else {
+        return;
+    };
+    let result_sha256 = format!("{:x}", sha2::Sha256::digest(encoded_result));
+    let Ok(evidence_sha256) = evidence.sha256() else {
+        return;
+    };
+    let Ok(receipt) = store.load_gate_receipt(&request.qa_run_id) else {
+        return;
+    };
+    if persisted_request != *request
+        || persisted_result != *result
+        || execution.result_sha256.as_deref() != Some(result_sha256.as_str())
+        || execution.evidence_manifest_sha256.as_deref() != Some(evidence_sha256.as_str())
+        || execution.reviewer_execution_id.as_deref()
+            != Some(persisted_result.reviewer_execution_id.as_str())
+        || execution.reviewer_session_id.as_deref()
+            != Some(persisted_result.reviewer_session_id.as_str())
+        || receipt.decision != GateDecision::Approved
+        || receipt.reviewer_run_id.as_deref()
+            != Some(persisted_result.reviewer_execution_id.as_str())
+        || receipt.reviewer_session_id.as_deref()
+            != Some(persisted_result.reviewer_session_id.as_str())
+    {
+        return;
+    }
     let resolved = project
         .planning_work
         .iter()

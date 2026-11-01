@@ -56,9 +56,9 @@ fn blocking_qa_finding_creates_one_manager_repair_proposal() {
 }
 
 /// Production boundary: a persisted failed report must create Manager work, record Repairing,
-/// and dispatch that work through the app repair path using the lifecycle UUID even when there is
-/// no planning-item mapping. File-backed stores and an isolated Git fixture cover the handoff;
-/// no Docker, provider, or network dependency is needed.
+/// dispatch by lifecycle UUID without a planning-item mapping, and reject a caller-supplied pass
+/// that lacks accepted lifecycle and persisted QA evidence. File-backed stores and an isolated
+/// Git fixture cover the handoff; no Docker, provider, or network dependency is needed.
 #[test]
 fn persisted_failed_report_records_lifecycle_and_manager_repair_work() {
     use crate::{
@@ -73,6 +73,7 @@ fn persisted_failed_report_records_lifecycle_and_manager_repair_work() {
     let root = tempfile::tempdir().unwrap();
     let mut _environment = crate::test_support::ProcessEnvironmentGuard::new();
     _environment.set("KOOLADE_HOME", root.path().join("operator-state"));
+    _environment.set("XDG_DATA_HOME", root.path().join("user-data"));
     init_git(root.path());
     let mut project = project_from(root.path());
     let planning = project.state.planning_store.clone();
@@ -82,7 +83,8 @@ fn persisted_failed_report_records_lifecycle_and_manager_repair_work() {
             &lifecycle,
         );
     let task = lifecycle.load_task(&task_uid).unwrap();
-    let qa = RuntimeQaStore::new(root.path().join("qa"));
+    let qa_root = RuntimeQaStore::local_root_for_workspace(planning.project_id).unwrap();
+    let qa = RuntimeQaStore::new(qa_root);
     super::receipt_order::save_failed_report_with_finding(&qa, &task_uid, &request, true);
     super::receipt_order::save_valid_gate_receipt(&qa, &request);
 
@@ -216,18 +218,73 @@ fn persisted_failed_report_records_lifecycle_and_manager_repair_work() {
             .status,
         WorkStatus::InProgress
     );
+
+    let mut passing_request = request.clone();
+    passing_request.qa_run_id = uuid::Uuid::new_v4().hyphenated().to_string();
+    passing_request.code_head_sha = "9".repeat(40);
+    let passing_result = crate::runtime_qa::QaResultV1 {
+        schema_version: crate::runtime_qa::CURRENT_QA_RESULT_SCHEMA_VERSION,
+        subject_sha: passing_request.code_head_sha.clone(),
+        run_id: passing_request.qa_run_id.clone(),
+        reviewer_execution_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        reviewer_session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+        outcome: crate::runtime_qa::QaOutcome::Pass,
+        evidence_manifest_sha256: "a".repeat(64),
+        scenario_set_sha256: "b".repeat(64),
+        reviewed_screenshot_ids: Vec::new(),
+        review_coverage: Vec::new(),
+        cases: Vec::new(),
+        coverage: crate::runtime_qa::QaCoverageV1 {
+            requirements: Vec::new(),
+            scenario_ids: Vec::new(),
+            states: Vec::new(),
+        },
+        findings: Vec::new(),
+        tool_versions: Default::default(),
+        started_at_unix_ms: 1,
+        completed_at_unix_ms: 2,
+    };
+    let persisted_failure = qa.load_current_run(&request.qa_run_id).unwrap();
+    assert_eq!(
+        persisted_failure.3.outcome,
+        crate::runtime_qa::QaOutcome::Fail
+    );
+    assert_ne!(passing_request.code_head_sha, request.code_head_sha);
+    crate::app::manager::finish_qa_finding_repair(
+        &mut project,
+        &task_uid,
+        &passing_request,
+        &passing_result,
+    );
+    let resolved = project
+        .planning_work
+        .iter()
+        .find(|work| work.uid == proposal_uid)
+        .unwrap();
+    assert_eq!(resolved.status, WorkStatus::InProgress);
+    assert!(
+        project
+            .implementation_states
+            .get(&ticket)
+            .unwrap()
+            .manager_repair_context
+            .is_some()
+    );
 }
 
 fn init_git(root: &std::path::Path) {
     use std::process::Command;
 
     let git = |args: &[&str]| {
-        let output = Command::new("git")
-            .args(args)
-            .current_dir(root)
-            .output()
-            .expect("git is installed");
-        assert!(output.status.success(), "git {args:?}");
+        assert!(
+            Command::new("git")
+                .args(args)
+                .current_dir(root)
+                .status()
+                .expect("git is installed")
+                .success(),
+            "git {args:?}"
+        )
     };
     git(&["init", "-q"]);
     git(&["config", "user.name", "Fixture User"]);
