@@ -4,6 +4,9 @@ use crate::{
     runtime_qa::RuntimeQaStore,
 };
 
+#[path = "manager_work/passing_report.rs"]
+mod passing_report;
+
 /// Production boundary: persisted blocking QA evidence becomes durable Manager
 /// work on the Manager route. File-backed stores prove restart and replay
 /// behavior; no Docker, provider, or network dependency is needed.
@@ -219,49 +222,22 @@ fn persisted_failed_report_records_lifecycle_and_manager_repair_work() {
         WorkStatus::InProgress
     );
 
-    let mut passing_request = request.clone();
-    passing_request.qa_run_id = uuid::Uuid::new_v4().hyphenated().to_string();
-    passing_request.code_head_sha = "9".repeat(40);
-    let passing_result = crate::runtime_qa::QaResultV1 {
-        schema_version: crate::runtime_qa::CURRENT_QA_RESULT_SCHEMA_VERSION,
-        subject_sha: passing_request.code_head_sha.clone(),
-        run_id: passing_request.qa_run_id.clone(),
-        reviewer_execution_id: uuid::Uuid::new_v4().hyphenated().to_string(),
-        reviewer_session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
-        outcome: crate::runtime_qa::QaOutcome::Pass,
-        evidence_manifest_sha256: "a".repeat(64),
-        scenario_set_sha256: "b".repeat(64),
-        reviewed_screenshot_ids: Vec::new(),
-        review_coverage: Vec::new(),
-        cases: Vec::new(),
-        coverage: crate::runtime_qa::QaCoverageV1 {
-            requirements: Vec::new(),
-            scenario_ids: Vec::new(),
-            states: Vec::new(),
-        },
-        findings: Vec::new(),
-        tool_versions: Default::default(),
-        started_at_unix_ms: 1,
-        completed_at_unix_ms: 2,
-    };
-    let persisted_failure = qa.load_current_run(&request.qa_run_id).unwrap();
-    assert_eq!(
-        persisted_failure.3.outcome,
-        crate::runtime_qa::QaOutcome::Fail
-    );
-    assert_ne!(passing_request.code_head_sha, request.code_head_sha);
+    let mut forged_request = request.clone();
+    forged_request.qa_run_id = uuid::Uuid::new_v4().hyphenated().to_string();
+    forged_request.code_head_sha = "9".repeat(40);
+    let forged_result = passing_report::fabricated_pass(&forged_request);
     crate::app::manager::finish_qa_finding_repair(
         &mut project,
         &task_uid,
-        &passing_request,
-        &passing_result,
+        &forged_request,
+        &forged_result,
     );
-    let resolved = project
+    let unresolved = project
         .planning_work
         .iter()
         .find(|work| work.uid == proposal_uid)
         .unwrap();
-    assert_eq!(resolved.status, WorkStatus::InProgress);
+    assert_eq!(unresolved.status, WorkStatus::InProgress);
     assert!(
         project
             .implementation_states
@@ -269,6 +245,25 @@ fn persisted_failed_report_records_lifecycle_and_manager_repair_work() {
             .unwrap()
             .manager_repair_context
             .is_some()
+    );
+
+    let passing_result =
+        passing_report::record_fresh_pass(&mut project, &task_uid, &task, &request, &qa);
+    assert_eq!(passing_result.outcome, crate::runtime_qa::QaOutcome::Pass);
+    let resolved = project
+        .planning_work
+        .iter()
+        .find(|work| work.uid == proposal_uid)
+        .unwrap();
+    assert_eq!(resolved.status, WorkStatus::Done);
+    assert!(resolved.detail.contains("after fresh independent review"));
+    assert!(
+        project
+            .implementation_states
+            .get(&ticket)
+            .unwrap()
+            .manager_repair_context
+            .is_none()
     );
 }
 
