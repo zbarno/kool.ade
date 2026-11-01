@@ -74,13 +74,11 @@ pub(crate) use task::permits_evidence_only_completion;
 use task::read_ticket;
 #[cfg(test)]
 use task::scoped_product_context;
+pub(crate) use task::scoped_product_context_with_store;
 pub(crate) use task::task_repository_id;
 pub(crate) use task::task_repository_id_with_store;
 pub use task::{completed_dependency_context, target_repository};
-pub(crate) use task::{
-    completed_dependency_context_with_store, scoped_product_context_with_store,
-    target_repository_with_store,
-};
+pub use task::{completed_dependency_context_with_store, target_repository_with_store};
 use task::{read_ticket_and_identity, specification_matches_task, ticket_identity, title};
 #[cfg(test)]
 mod identity_tests;

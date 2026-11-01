@@ -238,7 +238,11 @@ fn active_repository_ref(project: &super::super::session::Project) -> Option<Str
             project
                 .state
                 .repositories
-                .target_if_available(&project.state.repo_root, &repository.id)
+                .target_if_available(
+                    project.state.planning_store.project_id,
+                    &project.state.repo_root,
+                    &repository.id,
+                )
                 .ok()
                 .flatten()
                 .and_then(|path| path.canonicalize().ok())

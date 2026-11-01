@@ -21,29 +21,20 @@ pub(super) fn choices(screen: &Screen) -> Vec<RepositoryChoice> {
 }
 
 impl KooladeApp {
-    pub(super) fn can_add_code_repository(&self) -> bool {
-        matches!(&self.screen, Screen::Connected(project)
-            if matches!(
-                project.state.planning_store.mode,
-                crate::artifacts::planning_store::StoreMode::ManagedLocal
-                    | crate::artifacts::planning_store::StoreMode::ManagedShared
-            )
-                && !project.state.planning_store.project_id.is_nil())
-    }
-
     pub(super) fn open_registered_repository(&mut self, id: &str) {
         let target = match &self.screen {
-            Screen::Connected(project) => project
-                .state
-                .repositories
-                .target_if_available(&project.state.repo_root, id),
+            Screen::Connected(project) => project.state.repositories.target_if_available(
+                project.state.planning_store.project_id,
+                &project.state.repo_root,
+                id,
+            ),
             Screen::Welcome => return,
         };
         let path = match target {
             Ok(Some(path)) => path,
             Ok(None) => {
                 self.toasts.warning(format!(
-                    "No local checkout is mapped for repository {id}; map a checkout before opening it."
+                    "Kool.ad/e has no managed clone for repository {id}. Clone it through the welcome screen before opening it."
                 ));
                 return;
             }

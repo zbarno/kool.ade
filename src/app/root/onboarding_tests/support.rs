@@ -1,4 +1,4 @@
-use super::super::super::{KooladeApp, Screen};
+use super::super::super::KooladeApp;
 use std::{path::Path, process::Command};
 
 pub(super) struct StateHome {
@@ -217,25 +217,4 @@ pub(super) fn clone_bare_remote(source: &Path, path: &Path) {
             path.to_str().unwrap(),
         ],
     );
-}
-
-pub(super) fn wait_for_cancelled_turn(app: &mut KooladeApp) {
-    let Screen::Connected(project) = &mut app.screen else {
-        panic!("workspace should remain open")
-    };
-    let turn = project.active_turn.take().unwrap();
-    turn.request_cancel();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        if matches!(
-            turn.poll(std::time::Duration::from_millis(20)),
-            Some(crate::core::turn::TurnEvt::Done(_))
-        ) {
-            return;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "fixture turn timed out"
-        );
-    }
 }

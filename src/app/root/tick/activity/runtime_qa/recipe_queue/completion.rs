@@ -89,7 +89,11 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(&root).unwrap();
-        let planning = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &root);
+        let planning = PlanningStore::new(
+            uuid::Uuid::new_v4(),
+            &root,
+            crate::artifacts::planning_store::StoreMode::ManagedLocal,
+        );
         let store = ProjectRuntimeStore::new(&planning);
         let workspace = WorkspaceRef {
             project_id: "project".into(),

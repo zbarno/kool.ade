@@ -151,7 +151,7 @@ fn temporary_live_fixture_prepare_and_generate() {
         if id == "F7" {
             assert_ne!(
                 batch.directory,
-                ".koolade-packet/planning/tasks/F7-comparative-feature-plan-comparison-before-approval-05"
+                "planning/tasks/F7-comparative-feature-plan-comparison-before-approval-05"
             );
         }
         if id == "CHG-007" {

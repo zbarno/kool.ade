@@ -91,7 +91,7 @@ fn dirty_user_checkout_on_another_branch_starts_from_the_exact_local_commit() {
             .lines()
             .filter(|line| {
                 let path = line.get(2..).unwrap_or_default().trim_start();
-                !path.starts_with(".koolade-packet/state/lifecycle_")
+                !path.starts_with("state/lifecycle_")
             })
             .map(str::trim_start)
             .collect::<Vec<_>>(),
@@ -229,7 +229,7 @@ fn repository_caches_are_isolated_by_the_effective_push_endpoint() {
             alternate_remote.to_str().unwrap(),
         ],
     );
-    let second_ticket = ".koolade-packet/planning/tasks/feature/002-distinct-push-endpoint.md";
+    let second_ticket = "planning/tasks/feature/002-distinct-push-endpoint.md";
     let second_ticket_text = "# Distinct push endpoint\n\nFeature: F1\n\n## Acceptance criteria\n\n- File contains implemented.\n";
     let second_ticket_document = crate::domain::ArtifactIdentity::preserve_markdown(
         second_ticket_text,

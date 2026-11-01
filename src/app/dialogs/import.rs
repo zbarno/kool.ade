@@ -1,5 +1,12 @@
 use super::*;
 
+fn expand_tilde(raw: &str) -> String {
+    if let (Some(rest), Some(home)) = (raw.strip_prefix("~/"), std::env::var("HOME").ok()) {
+        return format!("{home}/{rest}");
+    }
+    raw.to_owned()
+}
+
 // Import dialog
 // ---------------------------------------------------------------------------
 

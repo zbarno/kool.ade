@@ -85,6 +85,9 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
                     WorkKind::CodeReviewDisposition => {
                         "Resolve a Manager disposition for an independent code-review finding."
                     }
+                    WorkKind::QaFindingDisposition => {
+                        "Propose a scoped repair for a persisted runtime QA finding."
+                    }
                 };
                 ui.label(theme::helper_text(selected_help));
                 ui.add_space(theme::spacing::S);

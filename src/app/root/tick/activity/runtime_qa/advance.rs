@@ -102,8 +102,12 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
             && let Some(Err(reason)) = worker_result.as_ref()
             && project.activity.runtime_qa_worker.is_none()
         {
-            match blocking::persist_block(
+            match blocking::persist_block_with_work(
                 &project.state.planning_store,
+                blocking::PlanningWorkState {
+                    items: &mut project.planning_work,
+                    baseline_revision: &mut project.state.baseline_planning_revision,
+                },
                 &qa_root,
                 &task,
                 request,
@@ -131,6 +135,8 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
         }
         match reports::record_persisted_report(
             &project.state.planning_store,
+            &mut project.planning_work,
+            &mut project.state.baseline_planning_revision,
             &LifecycleStore::new(&project.state.planning_store),
             &qa_store,
             &task,
@@ -144,8 +150,12 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                 let reason = format!(
                     "a persisted QA report could not be safely accepted ({error}); inspect the exact run evidence and create a fresh reviewed request before retrying."
                 );
-                match blocking::persist_block(
+                match blocking::persist_block_with_work(
                     &project.state.planning_store,
+                    blocking::PlanningWorkState {
+                        items: &mut project.planning_work,
+                        baseline_revision: &mut project.state.baseline_planning_revision,
+                    },
                     &qa_root,
                     &task,
                     request,
@@ -187,7 +197,7 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
             Ok(prepared) if prepared.request == *request => prepared,
             Ok(_) => {
                 let reason = "queued Runtime QA request no longer matches the exact reviewed task, target, recipe, or build receipt; issue a fresh reviewed request.";
-                match blocking::persist_block(&project.state.planning_store, &qa_root, &task, request, "runtime-qa-request-stale-v1", reason.into()) {
+                match blocking::persist_block_with_work(&project.state.planning_store, blocking::PlanningWorkState { items: &mut project.planning_work, baseline_revision: &mut project.state.baseline_planning_revision }, &qa_root, &task, request, "runtime-qa-request-stale-v1", reason.into()) {
                     Ok(blocking::BlockOutcome::Persisted) => notices.push(format!("Runtime QA for task {} was blocked because its queued request is stale; issue a fresh reviewed request.", task.task_uid)),
                     Ok(blocking::BlockOutcome::ActiveWorker) => notices.push(format!("Runtime QA for task {} is still owned by an active worker; its state was left unchanged.", task.task_uid)),
                     Ok(blocking::BlockOutcome::Stale) => notices.push(format!("Runtime QA for task {} changed before its stale request could be blocked.", task.task_uid)),
@@ -200,8 +210,12 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                 let reason = format!(
                     "queued Runtime QA request inputs cannot be reconstructed: {reason}; issue a fresh reviewed request."
                 );
-                match blocking::persist_block(
+                match blocking::persist_block_with_work(
                     &project.state.planning_store,
+                    blocking::PlanningWorkState {
+                        items: &mut project.planning_work,
+                        baseline_revision: &mut project.state.baseline_planning_revision,
+                    },
                     &qa_root,
                     &task,
                     request,
@@ -229,8 +243,12 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
             }
         };
         if let Some(reason) = unavailable_reason(project, &task, request) {
-            let blocked = match blocking::persist_block(
+            let blocked = match blocking::persist_block_with_work(
                 &project.state.planning_store,
+                blocking::PlanningWorkState {
+                    items: &mut project.planning_work,
+                    baseline_revision: &mut project.state.baseline_planning_revision,
+                },
                 &qa_root,
                 &task,
                 request,

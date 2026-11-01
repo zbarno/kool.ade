@@ -42,7 +42,7 @@ fn fixture() -> (PathBuf, PlannerState, Candidate, String) {
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
-    std::fs::create_dir_all(repo.join(".koolade-packet/planning/changes/CHG-001-search")).unwrap();
+    std::fs::create_dir_all(repo.join("planning/changes/CHG-001-search")).unwrap();
     git(&repo, &["init", "-q"]);
     git(&repo, &["config", "user.name", "Fixture"]);
     git(&repo, &["config", "user.email", "fixture@example.test"]);
@@ -50,7 +50,7 @@ fn fixture() -> (PathBuf, PlannerState, Candidate, String) {
     std::fs::create_dir_all(repo.join("planning")).unwrap();
     std::fs::write(repo.join("planning/specification.md"), &legacy).unwrap();
     crate::artifacts::product_docs::migrate(&repo, &legacy).unwrap();
-    std::fs::create_dir_all(repo.join(".koolade-packet/planning")).unwrap();
+    std::fs::create_dir_all(repo.join("planning")).unwrap();
     let feature = crate::domain::ArtifactIdentity::preserve_markdown(
         "# CHG-001: Search\n\n**Status:** Implementing\n\n## Intent\n\nSave searches.\n\n## Current Behavior\n\nNo persistence.\n\n## Desired Behavior\n\nQueries persist.\n\n## Scope\n\nSearch.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\nQueries persist.\n\n## Decisions and Assumptions\n\nUse local store.\n\n## Acceptance Criteria\n\nQuery survives restart.\n",
         None,
@@ -59,7 +59,7 @@ fn fixture() -> (PathBuf, PlannerState, Candidate, String) {
     )
     .unwrap();
     std::fs::write(
-        repo.join(".koolade-packet/planning/changes/CHG-001-search/specification.md"),
+        repo.join("planning/changes/CHG-001-search/specification.md"),
         &feature,
     )
     .unwrap();
@@ -75,13 +75,9 @@ fn fixture() -> (PathBuf, PlannerState, Candidate, String) {
         &feature,
     )
     .unwrap();
-    std::fs::create_dir_all(repo.join(".koolade-packet/planning/tasks/search")).unwrap();
+    std::fs::create_dir_all(repo.join("planning/tasks/search")).unwrap();
     let ticket = "# Save query\n\nFeature ID: CHG-001\nRepository: root\n";
-    std::fs::write(
-        repo.join(".koolade-packet/planning/tasks/search/001-save-query.md"),
-        ticket,
-    )
-    .unwrap();
+    std::fs::write(repo.join("planning/tasks/search/001-save-query.md"), ticket).unwrap();
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-qm", "baseline"]);
     let base = git(&repo, &["rev-parse", "HEAD"]);
@@ -119,7 +115,7 @@ fn fixture() -> (PathBuf, PlannerState, Candidate, String) {
     }
     let state = PlannerState::load(&repo).unwrap();
     let task: crate::core::implementation::Implementation = serde_json::from_value(serde_json::json!({
-            "ticket":".koolade-packet/planning/tasks/search/001-save-query.md","ticket_text":ticket,"branch":"koolade/task",
+            "ticket":"planning/tasks/search/001-save-query.md","ticket_text":ticket,"branch":"koolade/task",
             "base":"main","base_commit":base,"worktree":repo,"status":"completed","detail":"",
             "pr_url":null,"verified_head":merged,"merged_commit":merged
         })).unwrap();
@@ -128,10 +124,7 @@ fn fixture() -> (PathBuf, PlannerState, Candidate, String) {
         feature_specification: feature.clone(),
         product_modules: [(
             "current-capabilities".to_string(),
-            std::fs::read_to_string(
-                repo.join(".koolade-packet/planning/product/current-capabilities.md"),
-            )
-            .unwrap(),
+            std::fs::read_to_string(repo.join("planning/product/current-capabilities.md")).unwrap(),
         )]
         .into(),
         repository_bases: Default::default(),
@@ -139,7 +132,7 @@ fn fixture() -> (PathBuf, PlannerState, Candidate, String) {
     };
     let candidate = Candidate {
         feature_id: "CHG-001".into(),
-        batch_directory: ".koolade-packet/planning/tasks/search".into(),
+        batch_directory: "planning/tasks/search".into(),
         contract,
         tasks: vec![task],
     };

@@ -4,7 +4,7 @@ use super::*;
 fn new_blocker_opens_its_conversation_once_and_changed_blocker_surfaces_again() {
     let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
-    let key = ".koolade-packet/planning/tasks/fixture/001-task.md";
+    let key = "planning/tasks/fixture/001-task.md";
     let detail = "## Waiting for user action\n\nThe provider quota stopped this task.\n\n### Next action(s)\n\n- Account owner: choose whether to wait or request more capacity.";
     if let Screen::Connected(project) = &mut app.screen {
         project.queue.blocked.insert(
@@ -102,7 +102,7 @@ fn new_blocker_opens_its_conversation_once_and_changed_blocker_surfaces_again() 
 fn approval_gate_opens_a_task_chat_with_the_matching_user_action() {
     let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
-    let key = ".koolade-packet/planning/tasks/fixture/002-task.md";
+    let key = "planning/tasks/fixture/002-task.md";
     if let Screen::Connected(project) = &mut app.screen {
         let record = project.implementation_states.get_mut(key).unwrap();
         record.status = crate::core::implementation::ImplementationStatus::AwaitingApproval;
@@ -126,8 +126,8 @@ fn approval_gate_opens_a_task_chat_with_the_matching_user_action() {
 fn multiple_attention_events_open_one_conversation_after_another() {
     let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
-    let first = ".koolade-packet/planning/tasks/fixture/001-task.md";
-    let second = ".koolade-packet/planning/tasks/fixture/002-task.md";
+    let first = "planning/tasks/fixture/001-task.md";
+    let second = "planning/tasks/fixture/002-task.md";
     let brief = || crate::core::attention::Brief {
         problem: "A provider limit paused this task.".into(),
         recommendation: None,

@@ -35,7 +35,7 @@ Turn vague ideas into living specifications, actionable tasks, verified code, an
 
 </div>
 
-> **Currently shipping:** an experimental Linux desktop app with Git-backed planning, independent task clones, concurrent workers, verification, and six coding CLI adapters. **Being built and queued:** separate multi-user planning repositories, Docker-only execution, dependable CLI discovery and role parity, and secure remote workers. Runtime QA has an integrated candidate, but its browser and Linux desktop profiles remain disabled behind security and release gates; it is not yet available as a supported project capability.
+> **Currently shipping:** an experimental Linux desktop app with separate Git-backed planning repositories, independent task clones, concurrent workers, verification, and six coding CLI adapters. **Being built and queued:** multi-operator sync and coordination, Docker-only execution, dependable CLI discovery and role parity, and secure remote workers. Runtime QA has an integrated candidate, but its browser and Linux desktop profiles remain disabled behind security and release gates; it is not yet available as a supported project capability.
 
 
 
@@ -199,7 +199,7 @@ Tasks are generated as durable Markdown artifacts in the repository.
 For example:
 
 ```text
-.koolade-packet/planning/tasks/saved-searches/
+planning/tasks/saved-searches/
 ├── README.md
 ├── specification.md
 ├── 001-persist-named-search-filters.md
@@ -440,7 +440,7 @@ Kool.ad/e began as a Linux desktop app with a planning board and isolated local 
 
 ```mermaid
 flowchart LR
-    A["01 · TODAY<br/>Linux desktop<br/>Git-backed planning<br/>Task clones + 6 CLI adapters"] --> B["02 · IN FLIGHT<br/>Standalone planning Git repos<br/>Multi-user sync + task claims<br/>Safe branch/PR coordination"]
+    A["01 · TODAY<br/>Linux desktop<br/>Git-backed planning<br/>Separate planning repo + task clones"] --> B["02 · IN FLIGHT<br/>Multi-user sync + task claims<br/>Safe branch/PR coordination"]
     B --> C["03 · QUEUED<br/>Docker-only tool execution<br/>CLI parity + reliable discovery<br/>Remote SSH workers"]
     C --> D["04 · GATED CANDIDATE<br/>Browser + Linux desktop QA<br/>Profiles disabled pending release gates<br/>macOS + Windows hosts remain queued"]
 ```
@@ -451,9 +451,9 @@ Kanban planning, task-specific conversations, living specifications, six CLI int
 
 ### 02. Shared planning across multiple operators
 
-Each workspace has one external **planning repository**, independent of its zero or more code repositories. Operators join the same workspace by connecting to that repository; local code checkout mappings remain operator-specific. Shared planning uses normalized per-record files, explicit Git sync, task claims, branch/PR linkage, and conflict recovery. Legacy embedded artifacts remain migration and recovery inputs; migration preserves the originals.
+Each workspace has one separate **planning repository** alongside its code repository. Start with a GitHub code repository: Kool.ad/e clones it into its managed checkout folder and pairs it with `<code-repository>.packet` under the same owner. If that planning repository is missing, Kool.ad/e creates it with the code repository's visibility; an existing pair with mismatched visibility is refused. Planning uses normalized per-record files, explicit Git sync, task claims, branch/PR linkage, and conflict recovery. Code checkouts are not searched for planning data, and embedded planning artifacts are not migrated or used as fallback.
 
-Planning-only workspaces are supported. Code branches belong to their selected code repository and do not change planning authority. See [the planning repository contract](docs/planning-repository-v1.md) and [cutover and recovery notes](docs/releases/2026-10-planning-repository.md) for sync, recovery, security, and limitations.
+Code branches belong to the code repository and do not change planning authority. See [the planning repository contract](docs/planning-repository-v1.md) for storage, sync, recovery, security, and limitations.
 
 ### 03. Next major architectural upgrade: Docker everywhere work executes
 
@@ -520,22 +520,20 @@ Kool.ad/e is currently developed with Rust toolchain **1.98.1**.
 
 ## Where does everything live?
 
-Kool.ad/e intentionally keeps durable project knowledge close to the code.
+Kool.ad/e keeps shared project knowledge in a separate Git repository so it can be versioned independently from code.
 
-### In the repository
+### In the managed checkouts
 
 ```text
-.koolade-packet/
-├── config/
-├── planning/
-│   ├── product/
-│   ├── changes/
-│   ├── tasks/
-│   └── ...
-└── state/
+~/kool-ade-workspaces/<code-repository>/      # cloned code
+~/.koolade-packet/projects/<workspace-id>/
+└── planning-repo/                            # separate <code-repository>.packet clone
+    ├── config/
+    ├── planning/
+    └── state/
 ```
 
-This is the **legacy embedded planning layout currently supported by existing workspaces**. The ongoing planning-repository cutover moves shared planning truth to an independent, per-workspace Git repository with one file per mutable record, leaving code branches and checkouts independent. See [the planning repository contract](docs/planning-repository-v1.md) and [cutover issue #120](https://github.com/zbarno/kool.ade/issues/120).
+`KOOLADE_HOME` can replace `~/.koolade-packet`. Kool.ad/e derives the planning repository from the code repository's GitHub owner and name; it does not ask users to choose local checkouts. Existing planning artifacts embedded in a code checkout are unsupported and are not copied, migrated, or used as fallback.
 
 ### Outside the repository
 

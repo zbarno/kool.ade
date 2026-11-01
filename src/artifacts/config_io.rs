@@ -1,4 +1,4 @@
-//! Markdown round-tripping for `.koolade-packet/config/project.md` (SPECIFICATION.md §4).
+//! Markdown round-tripping for `config/project.md` (SPECIFICATION.md §4).
 //!
 //! Both category layouts are accepted on parse:
 //! * canonical (app-emitted): `## Stakeholders` → `### <Category>` → bullets

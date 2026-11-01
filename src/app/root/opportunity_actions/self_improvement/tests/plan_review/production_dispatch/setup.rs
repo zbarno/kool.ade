@@ -27,6 +27,10 @@ pub(super) struct ReadyTask {
 
 pub(super) fn ready_task(gh: &std::path::Path) -> ReadyTask {
     let mut app = crate::app::root::board_tests::fixture();
+    if let Screen::Connected(project) = &mut app.screen {
+        project.queue.auto_build = false;
+        project.queue.running = false;
+    }
     let opportunity_uid = {
         let Screen::Connected(project) = &mut app.screen else {
             panic!("fixture should be connected")

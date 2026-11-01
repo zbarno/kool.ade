@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn malformed_specification_rejects_otherwise_valid_turn_without_mutation() {
     let (inputs, dir) = inputs_for("spec_layout", "rewrite the specification");
-    git_stdout(&dir, &["add", ".koolade-packet"]);
+    git_stdout(&dir, &["add", "."]);
     git_stdout(&dir, &["commit", "-m", "Seed planning artifacts"]);
     let before = law_evidence(&dir);
     let raw = serde_json::json!({

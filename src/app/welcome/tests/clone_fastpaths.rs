@@ -3,49 +3,35 @@ use super::helpers::*;
 use crate::core::gitops;
 use crate::error::AppError;
 #[test]
-fn perform_clone_healthy_existing_tree_fast_paths_without_retouching() {
-    // AC6: $HOME/kool-ade-workspaces/{repo} already a HEALTHY work tree from a previous
-    // clone → immediate return, no re-clone, no scratch remnant, and
-    // not even a new commit on the tree.
+fn perform_clone_refuses_to_adopt_an_existing_same_origin_checkout() {
+    // Existing folders are never accepted as managed clones, even when their
+    // Git origin matches. Reopening uses a saved workspace association.
     let home = scratch_home("health");
     let src = local_source_repo("health");
     let dest = home.join("kool-ade-workspaces/sw-health");
-    std::fs::create_dir_all(&dest).unwrap();
-    let git = |args: &[&str]| {
-        let status = std::process::Command::new("git")
-            .arg("-C")
-            .arg(&dest)
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?} failed");
-    };
-    git(&["init", "-q", "-b", "main"]);
-    git(&["config", "user.name", "Health"]);
-    git(&["config", "user.email", "h@example.invalid"]);
-    std::fs::write(dest.join("note.txt"), b"frozen-bytes").unwrap();
-    git(&["add", "-A"]);
-    git(&["commit", "-q", "-m", "healthy head"]);
-
-    let got =
-        perform_clone_at(src.to_str().unwrap(), "sw-health", &home).expect("fast path returns");
-    assert_eq!(got, dest);
-    assert_eq!(
-        std::fs::read(dest.join("note.txt")).unwrap(),
-        b"frozen-bytes",
-        "no re-clone: tree byte-identical"
-    );
-    assert!(gitops::is_work_tree(&dest));
-    let head = std::process::Command::new("git")
-        .arg("-C")
+    std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+    let output = std::process::Command::new("git")
+        .args(["clone", "--quiet"])
+        .arg(&src)
         .arg(&dest)
-        .args(["log", "-1", "--format=%s"])
         .output()
         .unwrap();
+    assert!(output.status.success(), "local clone fixture failed");
+    std::fs::write(dest.join("note.txt"), b"frozen-bytes").unwrap();
+
+    match perform_clone_at(src.to_str().unwrap(), "sw-health", &home) {
+        Err(AppError::InvalidRepo { detail, .. }) => {
+            assert!(
+                detail.contains("will not adopt an existing checkout"),
+                "{detail}"
+            );
+        }
+        other => panic!("expected existing checkout refusal, got {other:?}"),
+    }
+    assert!(gitops::is_work_tree(&dest));
     assert_eq!(
-        String::from_utf8_lossy(&head.stdout),
-        "healthy head\n",
-        "no checkpoint of any kind was added"
+        std::fs::read(dest.join("note.txt")).unwrap(),
+        b"frozen-bytes"
     );
     no_scratch_left(&home);
     let _ = std::fs::remove_dir_all(&home);
@@ -70,7 +56,7 @@ fn perform_clone_plain_repo_meets_the_same_planning_setup_gate_as_a_typed_path()
     // Identity clause under the enforced model: the SAME planning-less
     // tree, reached once through the clone and once by hand-typing the
     // source's path, meets the same planning-setup gate — neither leg
-    // may silently adopt embedded state or bootstrap scaffolds.
+    // may silently adopt an unregistered checkout or write project state there.
     for (path, what) in [(dest.as_path(), "clone leg"), (src.as_path(), "typed leg")] {
         match attempt_connect(path.to_str().unwrap()) {
             Ok(project) => panic!(
@@ -94,40 +80,67 @@ fn perform_clone_plain_repo_meets_the_same_planning_setup_gate_as_a_typed_path()
 }
 
 #[test]
-fn perform_clone_preexisting_directory_fast_paths_and_connect_diagnoses_it() {
+fn perform_clone_refuses_a_preexisting_non_repository_directory() {
     let home = scratch_home("skip");
     let src = local_source_repo("skip");
     let dest = home.join("kool-ade-workspaces/sw-skip");
     std::fs::create_dir_all(&dest).unwrap();
     std::fs::write(dest.join("marker.bin"), b"frozen-bytes").unwrap();
 
-    let got = perform_clone_at(src.to_str().unwrap(), "sw-skip", &home).expect("fast path returns");
-    assert_eq!(got, dest);
-    assert_eq!(
-        std::fs::read(dest.join("marker.bin")).unwrap(),
-        b"frozen-bytes",
-        "no re-clone: the pre-existing directory is byte-identical"
-    );
-    no_scratch_left(&home);
-
-    // A FOREIGN (non-git) directory is diagnosed by the INCUMBENT
-    // attempt_connect banner — no invented new logic.
-    match attempt_connect(dest.to_str().unwrap()) {
-        Err(err) => {
-            let msg = format!("{} | {}", err.headline(), err.detail());
+    match perform_clone_at(src.to_str().unwrap(), "sw-skip", &home) {
+        Err(AppError::InvalidRepo { detail, .. }) => {
             assert!(
-                msg.contains("no .git directory found"),
-                "legacy banner: {msg}"
+                detail.contains("will not adopt an existing checkout"),
+                "{detail}"
             );
         }
-        Ok(_) => panic!("a foreign (non-git) directory must be rejected"),
+        other => panic!("expected existing directory refusal, got {other:?}"),
     }
+    assert_eq!(
+        std::fs::read(dest.join("marker.bin")).unwrap(),
+        b"frozen-bytes"
+    );
+    no_scratch_left(&home);
+    let _ = std::fs::remove_dir_all(&home);
+    let _ = std::fs::remove_dir_all(&src);
+}
+
+#[cfg(unix)]
+#[test]
+fn perform_clone_refuses_a_symlink_at_the_managed_destination() {
+    let home = scratch_home("symlink");
+    let src = local_source_repo("symlink");
+    let parent = home.join("kool-ade-workspaces");
+    std::fs::create_dir_all(&parent).unwrap();
+    let target = home.join("operator-checkout");
+    std::fs::create_dir(&target).unwrap();
+    std::fs::write(target.join("marker.bin"), b"keep me").unwrap();
+    let dest = parent.join("sw-symlink");
+    std::os::unix::fs::symlink(&target, &dest).unwrap();
+
+    match perform_clone_at(src.to_str().unwrap(), "sw-symlink", &home) {
+        Err(AppError::InvalidRepo { detail, .. }) => {
+            assert!(detail.contains("symbolic link"), "{detail}");
+        }
+        other => panic!("expected symlink refusal, got {other:?}"),
+    }
+    assert!(
+        std::fs::symlink_metadata(&dest)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        std::fs::read(target.join("marker.bin")).unwrap(),
+        b"keep me"
+    );
+    no_scratch_left(&home);
     let _ = std::fs::remove_dir_all(&home);
     let _ = std::fs::remove_dir_all(&src);
 }
 
 #[test]
-fn perform_clone_sweeps_stale_scratch_before_cloning() {
+fn perform_clone_preserves_an_unowned_staging_directory() {
     let home = scratch_home("sweep");
     let src = local_source_repo("sweep");
     let stale = home.join("kool-ade-workspaces/sw-sweep.koolade-cloning.999");
@@ -135,21 +148,27 @@ fn perform_clone_sweeps_stale_scratch_before_cloning() {
     std::fs::write(stale.join("junk/leftover.txt"), "dead").unwrap();
 
     let dest = perform_clone_at(src.to_str().unwrap(), "sw-sweep", &home).expect("clone lands");
-    assert!(!stale.exists(), "stale foreign-pid scratch swept");
+    assert!(stale.is_dir(), "unowned staging directories are preserved");
+    assert_eq!(
+        std::fs::read(stale.join("junk/leftover.txt")).unwrap(),
+        b"dead"
+    );
     assert!(gitops::is_work_tree(&dest));
-
-    // Same-pid repetition: the sweep must also clear THIS process'
-    // scratch name, and the second clone rides the same scratch path.
-    let own = home.join(format!(
-        "kool-ade-workspaces/sw-sweep.koolade-cloning.{}",
-        std::process::id()
-    ));
-    std::fs::remove_dir_all(&dest).unwrap();
-    std::fs::create_dir_all(&own).unwrap();
-    let again = perform_clone_at(src.to_str().unwrap(), "sw-sweep", &home).expect("reclone lands");
-    assert!(!own.exists(), "same-pid scratch swept");
-    assert!(again.is_dir());
-    no_scratch_left(&home);
+    let staging = std::fs::read_dir(home.join("kool-ade-workspaces"))
+        .unwrap()
+        .flatten()
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("sw-sweep.koolade-cloning.")
+        })
+        .filter(|entry| entry.path() != stale)
+        .collect::<Vec<_>>();
+    assert!(
+        staging.is_empty(),
+        "this clone left no staging folder: {staging:?}"
+    );
     let _ = std::fs::remove_dir_all(&home);
     let _ = std::fs::remove_dir_all(&src);
 }

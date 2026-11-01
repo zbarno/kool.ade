@@ -137,9 +137,10 @@ fn repository_root_alias_passes_root_guard_before_manifest_lookup() {
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&root).unwrap();
-    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::new_v4(),
         &root,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let store = ProjectRuntimeStore::new(&planning);
     let target = AppTargetV1 {

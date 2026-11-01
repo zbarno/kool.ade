@@ -1,5 +1,8 @@
 use super::*;
 use crate::artifacts::planning_store::StoreMode;
+#[path = "managed_store/support.rs"]
+mod support;
+use support::seed_planning_metadata;
 
 #[test]
 fn separate_code_checkouts_load_the_same_injected_planning_root() {
@@ -11,6 +14,7 @@ fn separate_code_checkouts_load_the_same_injected_planning_root() {
         &planning_root,
         crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
+    seed_planning_metadata(&store, "");
     store
         .atomic_write(
             crate::artifacts::planning_store::paths::PRODUCT_INDEX,
@@ -64,6 +68,7 @@ fn managed_store_bootstrap_preserves_the_connected_checkout_remote_identity() {
         &planning_root,
         crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
+    seed_planning_metadata(&store, remote);
 
     let mut first_state = PlannerState::load_with_store(&first, &store).unwrap();
     assert_eq!(first_state.repositories.repositories[0].remote, remote);
@@ -72,7 +77,7 @@ fn managed_store_bootstrap_preserves_the_connected_checkout_remote_identity() {
     assert_eq!(persisted.repositories[0].remote, remote);
     assert!(
         persisted
-            .target_if_available(&second, "root")
+            .target_if_available(store.project_id, &second, "root")
             .unwrap()
             .is_none(),
         "the saved root identity must reject a different code checkout"
@@ -111,6 +116,7 @@ fn managed_store_keeps_create_edit_approval_and_generation_across_code_branch_sw
         &planning_root,
         StoreMode::ManagedLocal,
     );
+    seed_planning_metadata(&store, "");
     let mut state = PlannerState::load_with_store(&code, &store).unwrap();
     state.bootstrap_missing().unwrap();
 

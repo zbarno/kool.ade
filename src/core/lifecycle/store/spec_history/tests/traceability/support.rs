@@ -35,9 +35,9 @@ pub(crate) fn reviewed_feature(
         crate::domain::ChangeStatus::Implementing,
     )
     .unwrap();
-    let path = fixture.0.join(format!(
-        ".koolade-packet/planning/changes/{folder}/specification.md"
-    ));
+    let path = fixture
+        .0
+        .join(format!("planning/changes/{folder}/specification.md"));
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, &markdown).unwrap();
     let mut workflow = crate::core::workflow::Workflow::default();

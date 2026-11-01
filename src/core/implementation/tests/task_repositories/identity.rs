@@ -1,6 +1,23 @@
 use super::*;
 use crate::artifacts::planning_store::{PlanningStore, StoreMode};
 
+fn planning_store(sandbox: &Sandbox, project_id: uuid::Uuid) -> PlanningStore {
+    let root = sandbox.root.join("planning-repository");
+    if !root.join(".git").is_dir() {
+        fs::create_dir_all(&root).unwrap();
+        sandbox.git(&root, &["init", "-q", "-b", "main"]);
+        fs::write(root.join("README.md"), "Separate planning fixture\n").unwrap();
+        sandbox.git(&root, &["add", "README.md"]);
+        sandbox.git(&root, &["commit", "-qm", "planning fixture"]);
+    }
+    let ticket_path = root.join(&sandbox.ticket);
+    if !ticket_path.is_file() {
+        fs::create_dir_all(ticket_path.parent().unwrap()).unwrap();
+        fs::copy(sandbox.repo.join(&sandbox.ticket), &ticket_path).unwrap();
+    }
+    PlanningStore::new(project_id, root, StoreMode::ManagedLocal)
+}
+
 fn reload_with_store(sandbox: &Sandbox, store: &PlanningStore) -> Implementation {
     let (progress, _updates) = mpsc::channel();
     super::super::super::run_with_planning_store_options(
@@ -64,11 +81,7 @@ fn migrate_identity(
     sandbox.git(&sandbox.repo, &["push", "-q", "origin", "main"]);
 
     let project_id = uuid::Uuid::new_v4();
-    let store = PlanningStore::new(
-        project_id,
-        sandbox.repo.join(".koolade-packet"),
-        StoreMode::ManagedLocal,
-    );
+    let store = planning_store(sandbox, project_id);
     let manifest = crate::core::project_repos::ProjectManifest {
         repositories: vec![crate::core::project_repos::Repository {
             id: "root".into(),
@@ -110,11 +123,7 @@ fn missing_workspace_and_task_ids_migrate_to_persisted_stable_ids() {
     assert_eq!(persisted.workspace_uid, migrated.workspace_uid);
     assert_eq!(persisted.task_uid, migrated.task_uid);
 
-    let store = PlanningStore::new(
-        project_id,
-        sandbox.repo.join(".koolade-packet"),
-        StoreMode::ManagedLocal,
-    );
+    let store = planning_store(&sandbox, project_id);
     let repeated = reload_with_store(&sandbox, &store);
     assert_eq!(repeated.workspace_uid, migrated.workspace_uid);
     assert_eq!(repeated.task_uid, migrated.task_uid);

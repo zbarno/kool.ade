@@ -43,6 +43,28 @@ fn separate_store_roots_resolve_the_same_artifact_independently() {
 }
 
 #[test]
+fn test_code_root_fixture_revision_mode_survives_store_reconstruction() {
+    let temp = TempDir::new();
+    std::fs::write(temp.path().join("README.md"), "code checkout only").unwrap();
+    std::fs::create_dir_all(temp.path().join("planning")).unwrap();
+    std::fs::write(
+        temp.path().join("planning/specification.md"),
+        "planning data",
+    )
+    .unwrap();
+    let original = PlanningStore::for_code_root_fixture(
+        uuid::Uuid::new_v4(),
+        temp.path(),
+        StoreMode::ManagedLocal,
+    );
+    let reopened = PlanningStore::new(original.project_id, temp.path(), StoreMode::ManagedLocal);
+
+    assert!(original.revision_code_root_fixture);
+    assert!(reopened.revision_code_root_fixture);
+    assert_eq!(original.revision().unwrap(), reopened.revision().unwrap());
+}
+
+#[test]
 fn store_paths_reject_parent_absolute_and_windows_paths() {
     let temp = TempDir::new();
     let store = store(temp.path().join("planning-repo"));
@@ -84,18 +106,16 @@ fn store_paths_reject_symlink_jumps() {
 
 #[cfg(unix)]
 #[test]
-fn legacy_store_root_symlinks_are_preserved_and_rejected() {
+fn planning_store_root_symlinks_are_preserved_and_rejected() {
     use std::os::unix::fs::symlink;
 
     let temp = TempDir::new();
-    let project = temp.path().join("code");
+    let root = temp.path().join("planning-repo");
     let outside = temp.path().join("outside");
-    std::fs::create_dir_all(&project).unwrap();
     std::fs::create_dir_all(&outside).unwrap();
-    let root = project.join(crate::artifacts::layout::store::ROOT);
     symlink(&outside, &root).unwrap();
 
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &project);
+    let store = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
     assert_eq!(store.root, root);
     assert!(matches!(
         store.read("planning/open-items.md"),
@@ -108,40 +128,45 @@ fn legacy_store_root_symlinks_are_preserved_and_rejected() {
 
 #[cfg(unix)]
 #[test]
-fn dangling_store_root_symlink_is_not_treated_as_an_empty_store() {
+fn dangling_planning_store_root_symlink_is_not_treated_as_an_empty_store() {
     use std::os::unix::fs::symlink;
 
     let temp = TempDir::new();
-    let project = temp.path().join("code");
-    std::fs::create_dir_all(&project).unwrap();
-    let root = project.join(crate::artifacts::layout::store::ROOT);
+    let root = temp.path().join("planning-repo");
     symlink(temp.path().join("missing-target"), &root).unwrap();
 
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &project);
+    let store = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
     assert_eq!(store.root, root);
     assert!(matches!(store.revision(), Err(StoreError::InvalidPath(_))));
 }
 
 #[test]
-fn compatibility_store_keeps_existing_embedded_root() {
+fn separate_planning_store_never_reads_code_checkout_artifacts() {
     let temp = TempDir::new();
     let project = temp.path().join("code");
-    std::fs::create_dir_all(project.join(".koolade-packet/planning")).unwrap();
+    let planning = temp.path().join("planning-repo");
+    std::fs::create_dir_all(project.join("planning")).unwrap();
+    std::fs::create_dir_all(planning.join("planning")).unwrap();
     std::fs::write(
-        project.join(".koolade-packet/planning/product.md"),
-        b"legacy bytes",
+        project.join("planning/product.md"),
+        b"stale code checkout bytes",
     )
     .unwrap();
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &project);
+    std::fs::write(
+        planning.join("planning/product.md"),
+        b"planning repository bytes",
+    )
+    .unwrap();
+    let store = PlanningStore::new(uuid::Uuid::new_v4(), &planning, StoreMode::ManagedLocal);
 
+    assert_eq!(store.root, planning);
     assert_eq!(
-        store.root,
-        project.join(crate::artifacts::layout::store::ROOT)
+        store.read("planning/product.md").unwrap(),
+        b"planning repository bytes"
     );
-    assert_eq!(store.read("planning/product.md").unwrap(), b"legacy bytes");
     assert_eq!(
         store.layout().legacy_path("planning/product.md"),
-        Some(project.join("planning/product.md"))
+        Some(planning.join("planning/product.md"))
     );
 }
 

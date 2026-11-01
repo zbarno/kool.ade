@@ -205,7 +205,7 @@ fn ordinary_failure_uses_its_own_detail_as_source() {
     let detail = "Disk is full\n\n### Next action(s)\n- Free space in the task worktree";
     let brief = run_detail(
         Path::new("/tmp"),
-        ".koolade-packet/planning/tasks/demo/task.md",
+        "planning/tasks/demo/task.md",
         detail,
         &Fixture,
         Arc::new(AtomicBool::new(false)),
@@ -282,8 +282,8 @@ fn report_gets_a_read_only_issue_specific_brief_and_reuses_the_cache() {
         std::env::temp_dir().join(format!("koolade-attention-{}-{stamp}", std::process::id()));
     fs::create_dir_all(repo.join("docs")).unwrap();
     fs::write(repo.join("docs/quota.md"), "Higher quota may increase cost").unwrap();
-    let ticket = ".koolade-packet/planning/tasks/demo/001-task.md";
-    fs::create_dir_all(repo.join(".koolade-packet/planning/tasks/demo")).unwrap();
+    let ticket = "planning/tasks/demo/001-task.md";
+    fs::create_dir_all(repo.join("planning/tasks/demo")).unwrap();
     fs::write(
         repo.join(ticket),
         "# Recover the release task\n\nThe published-base footprint must match the exact set introduced by this ticket.\n",

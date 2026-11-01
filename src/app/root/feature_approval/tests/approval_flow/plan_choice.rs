@@ -4,8 +4,7 @@ use super::*;
 fn plan_choice_is_persisted_before_feature_approval_is_allowed() {
     let _shield = crate::core::gitops::test_support::shield("feature-plan-choice");
     let (mut app, root, _) = setup();
-    let path =
-        root.join(".koolade-packet/planning/changes/CHG-004-saved-searches/specification.md");
+    let path = root.join("planning/changes/CHG-004-saved-searches/specification.md");
     let mut markdown = std::fs::read_to_string(&path).unwrap();
     let marker = markdown
         .lines()
@@ -160,7 +159,7 @@ fn plan_choice_is_persisted_before_feature_approval_is_allowed() {
             .1
             .contains("## Selected Plan")
     );
-    let decisions = root.join(".koolade-packet/planning/decisions");
+    let decisions = root.join("planning/decisions");
     let adr = std::fs::read_dir(decisions)
         .unwrap()
         .next()

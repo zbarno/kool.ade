@@ -1,9 +1,8 @@
 //! Koolade-owned working artifacts and ADR publication.
 //!
-//! `.koolade` is intentionally separate from product documentation:
-//! it contains resumable planning/task material and implementation evidence.
-//! A verified implementation is summarized into a decision record under
-//! `.koolade-packet/planning/decisions/` in the implementation repository.
+//! Planning artifacts live in a standalone planning repository, separate
+//! from code and product documentation. A verified implementation is
+//! summarized into an approved decision record under `planning/decisions/`.
 
 mod decision;
 mod identity;
@@ -15,19 +14,14 @@ pub(crate) use plan_choice::prepare_plan_choice_record;
 use std::path::{Path, PathBuf};
 
 use crate::artifacts::layout::{ArtifactLayout, store};
-use crate::artifacts::planning_store::{PlanningRoot, StoreMode};
+use crate::artifacts::planning_store::PlanningRoot;
 
-pub const KOOLADE_DIR: &str = store::ROOT;
 pub const KOOLADE_PLANNING_DIR: &str = store::PLANNING;
 pub const KOOLADE_IMPLEMENTATION_DIR: &str = store::IMPLEMENTATION;
 pub const KOOLADE_TASKS_DIR: &str = store::TASKS;
 pub const ADR_DIR: &str = store::DECISIONS;
 
-pub fn task_dir<R: PlanningRoot + ?Sized>(repo: &R) -> String {
-    let store = repo.planning_store();
-    if store.mode == StoreMode::LegacyPacketSource {
-        return KOOLADE_TASKS_DIR.to_owned();
-    }
+pub fn task_dir<R: PlanningRoot + ?Sized>(_repo: &R) -> String {
     crate::artifacts::planning_store::paths::TASKS.to_owned()
 }
 

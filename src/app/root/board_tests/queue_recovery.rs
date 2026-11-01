@@ -31,14 +31,14 @@ fn parked_auto_queue_names_the_missing_feature_approval() {
     assert!(
         p.queue
             .last_error
-            .contains(".koolade-packet/planning/tasks/fixture/001-task.md"),
+            .contains("planning/tasks/fixture/001-task.md"),
         "park message must name the affected tickets: {}",
         p.queue.last_error
     );
     assert!(
         !p.queue
             .last_error
-            .contains(".koolade-packet/planning/tasks/fixture/003-task.md"),
+            .contains("planning/tasks/fixture/003-task.md"),
         "completed tasks must not produce stale approval blockers: {}",
         p.queue.last_error
     );

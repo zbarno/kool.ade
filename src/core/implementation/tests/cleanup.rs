@@ -73,7 +73,7 @@ fn cleanup_accepts_integration_evidence_after_task_ticket_rename() {
 
     s.git(&s.repo, &["fetch", "-q", "origin"]);
     s.git(&s.repo, &["merge", "--ff-only", "origin/main"]);
-    let renamed = ".koolade-packet/planning/tasks/implementation/002-implement-ticket-behavior.md";
+    let renamed = "planning/tasks/implementation/002-implement-ticket-behavior.md";
     fs::create_dir_all(s.repo.join(renamed).parent().unwrap()).unwrap();
     fs::rename(s.repo.join(&s.ticket), s.repo.join(renamed)).unwrap();
     s.git(&s.repo, &["add", "-A"]);

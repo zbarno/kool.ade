@@ -69,8 +69,11 @@ fn bootstraps_skeletons_and_reports_creations() {
     assert!(!created.contains(&OPEN_ITEMS_FILE.to_owned()));
     assert!(!repo.join(OPEN_ITEMS_FILE).exists());
     assert!(created.contains(&CONFIG_FILE.to_owned()));
-    assert!(created.contains(&crate::core::project_repos::PROJECT_FILE.to_owned()));
-    assert_eq!(created.len(), 10);
+    assert!(
+        !created.contains(&crate::core::project_repos::PROJECT_FILE.to_owned()),
+        "the test fixture explicitly seeds its required repository manifest"
+    );
+    assert_eq!(created.len(), 9);
     // Second call creates nothing.
     let created2 = st.bootstrap_missing().unwrap();
     assert!(created2.is_empty());
@@ -103,9 +106,6 @@ fn concurrent_bootstrap_rejects_the_stale_initializer_without_overwriting() {
 
 #[path = "tests/managed_store.rs"]
 mod managed_store;
-
-#[path = "tests/managed_store_equivalence.rs"]
-mod managed_store_equivalence;
 
 #[test]
 fn seeded_config_contains_starter_categories() {

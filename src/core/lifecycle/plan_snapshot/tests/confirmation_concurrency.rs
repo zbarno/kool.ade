@@ -12,7 +12,7 @@ fn two_device_approvals_for_one_candidate_commit_only_once() {
         std::env::temp_dir().join(format!("plan-confirmation-race-{}", uuid::Uuid::new_v4()));
     crate::artifacts::migration::bootstrap_product(&root, "Plan Confirmation Race").unwrap();
     let project_id = uuid::Uuid::new_v4();
-    let path = root.join(".koolade-packet");
+    let path = root.clone();
     let first = PlanningStore::new(project_id, path.clone(), StoreMode::ManagedLocal);
     let second = PlanningStore::new(project_id, path, StoreMode::ManagedLocal);
     let (identity, markdown) = identified(&spec());

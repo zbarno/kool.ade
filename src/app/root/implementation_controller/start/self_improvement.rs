@@ -194,7 +194,7 @@ mod tests {
         };
         let metadata = TaskMetadata::new(&identity, "root", vec![]).unwrap();
         let document = crate::artifacts::task_docs::TaskDocument {
-            path: ".koolade-packet/planning/tasks/CHG-175-TASK.md".into(),
+            path: "planning/tasks/CHG-175-TASK.md".into(),
             title: identity.title.clone(),
             text: format!("# {}\n\nFeature ID: CHG-901\n", identity.title),
             identity: Some(identity.clone()),

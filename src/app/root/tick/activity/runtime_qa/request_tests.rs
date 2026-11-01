@@ -16,7 +16,11 @@ fn qa_dispatch_rechecks_local_build_and_start_approval_before_launch() {
     };
 
     let root = tempfile::tempdir().unwrap();
-    let planning = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), root.path());
+    let planning = PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let runtime = ProjectRuntimeStore::new(&planning);
     let workspace_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let _approval_cleanup =

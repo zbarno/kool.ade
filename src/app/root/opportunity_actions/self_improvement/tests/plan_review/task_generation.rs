@@ -28,6 +28,8 @@ pub(super) fn generate_and_sync(
     let Screen::Connected(project) = &mut app.screen else {
         panic!("project remains connected")
     };
+    project.queue.auto_build = false;
+    project.queue.running = false;
     project
         .state
         .resync()
@@ -187,7 +189,12 @@ pub(super) fn generate_and_sync(
     let Screen::Connected(project) = &app.screen else {
         panic!("the app remains connected after a denied dispatch")
     };
-    assert!(project.active_implementations.is_empty());
+    assert!(
+        project.active_implementations.is_empty(),
+        "drifted manifest started workers {:?}; queue error: {}",
+        project.active_implementations.keys().collect::<Vec<_>>(),
+        project.queue.last_error
+    );
     assert!(project.queue.in_flight.is_empty());
     assert!(
         project

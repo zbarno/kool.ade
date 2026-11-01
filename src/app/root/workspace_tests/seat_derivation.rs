@@ -23,7 +23,7 @@ fn derive_caches_projects_the_git_derived_seat_not_third_identities() {
     git(&["init", "-q", "-b", "main"]);
     git(&["config", "user.name", "Sam Lee"]);
     git(&["config", "user.email", "sam@example.org"]);
-    let config = root.join(".koolade-packet/config");
+    let config = root.join("config");
     std::fs::create_dir_all(&config).unwrap();
     std::fs::write(
         config.join("project.md"),

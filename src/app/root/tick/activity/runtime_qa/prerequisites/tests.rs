@@ -89,7 +89,7 @@ fn dependency_inventory_uses_activity_keyed_by_the_task_document_path() {
         capability_state: crate::project_runtime::TargetCapabilityState::ReadyButUntested,
     };
     let document = crate::artifacts::task_docs::TaskDocument {
-        path: ".koolade-packet/tasks/TASK-1.md".into(),
+        path: "planning/tasks/TASK-1.md".into(),
         title: "Synthetic target".into(),
         text: String::new(),
         identity: None,

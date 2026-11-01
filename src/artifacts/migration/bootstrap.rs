@@ -7,8 +7,11 @@ use std::path::Path;
 /// other project artifact.
 #[cfg(test)]
 pub(crate) fn bootstrap_product(repo: &Path, title: &str) -> anyhow::Result<()> {
-    let store =
-        crate::artifacts::planning_store::PlanningStore::legacy_embedded(uuid::Uuid::nil(), repo);
+    let store = crate::artifacts::planning_store::PlanningStore::new(
+        uuid::Uuid::nil(),
+        repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     bootstrap_product_with_store(repo, &store, title)?;
     Ok(())
 }
@@ -52,11 +55,7 @@ fn commit_generated(
 ) -> anyhow::Result<(Vec<String>, String)> {
     let mut changes = Vec::with_capacity(generated.len());
     for file in generated {
-        let relative = file
-            .target
-            .strip_prefix(".koolade-packet/")
-            .ok_or_else(|| anyhow::anyhow!("Generated product path is outside planning root"))?;
-        changes.push((relative.to_owned(), file.bytes));
+        changes.push((file.target, file.bytes));
     }
     let (relative_paths, revision) =
         store.transaction_with_revision(&changes, Some(expected_revision))?;

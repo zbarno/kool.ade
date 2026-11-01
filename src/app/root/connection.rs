@@ -44,13 +44,13 @@ impl KooladeApp {
     }
 
     // ---------------------------------------------------------------- actions
-    /// Start a GitHub clone of `raw` (the connect card's URL field). Runs
+    /// Start a GitHub clone of `raw` (the wizard's repository URL). Runs
     /// synchronously: a blank value is a silent no-op, an unparseable URL
     /// sets the banner and spawns NOTHING (no thread, no subprocess —
     /// quirk-bearing strings never reach git), and a valid target hands the
     /// CANONICAL rebuilt url to a background worker that clones into
-    /// `$HOME/{repo}`.
-    pub(super) fn begin_clone(&mut self, raw: &str) {
+    /// `$HOME/kool-ade-workspaces/{repo}`, then pairs planning before connect.
+    pub(super) fn begin_clone(&mut self, raw: &str, project_title: &str) {
         let url = raw.trim();
         if url.is_empty() {
             return;
@@ -68,12 +68,19 @@ impl KooladeApp {
             Ok(target) => {
                 let url_display = format!("github.com/{}/{}", target.owner, target.repo);
                 let canonical = target.url.clone();
-                let repo = target.repo.clone();
-                let job_repo = repo.clone();
-                let join = if let Some(compute) = self.clone_computation_override.clone() {
-                    std::thread::spawn(move || compute(canonical, job_repo))
+                let repo = target.repo;
+                let title = if project_title.trim().is_empty() {
+                    repo.clone()
                 } else {
-                    std::thread::spawn(move || welcome::perform_clone(&canonical, &job_repo))
+                    project_title.trim().to_owned()
+                };
+                let join = if let Some(compute) = self.clone_computation_override.clone() {
+                    std::thread::spawn(move || compute(canonical, title))
+                } else {
+                    std::thread::spawn(move || {
+                        welcome::perform_clone_and_pair(&canonical, &title)
+                            .map_err(|error| crate::error::AppError::Other(format!("{error:#}")))
+                    })
                 };
                 self.clone_job = Some(CloneJob {
                     url_display,
@@ -82,13 +89,6 @@ impl KooladeApp {
                 });
             }
         }
-    }
-
-    /// The card's 'Clone' entry point: feed the FIELD's value (trimmed) to
-    /// [`Self::begin_clone`].
-    pub(super) fn begin_clone_from_field(&mut self) {
-        let raw = self.conn_github.trim().to_string();
-        self.begin_clone(&raw);
     }
 
     /// Single banner formatter for every connect/clone failure (headline
@@ -113,37 +113,6 @@ impl KooladeApp {
         }
     }
 
-    pub(super) fn submit_connect(&mut self) {
-        if self.conn_path.trim().is_empty() {
-            return;
-        }
-        self.finish_connect(welcome::attempt_connect(&self.conn_path));
-    }
-
-    pub(super) fn submit_create_workspace(&mut self) {
-        if self.clone_job.is_some() {
-            return;
-        }
-        let title = self.conn_create_title.trim();
-        if title.is_empty() {
-            self.conn_error = Some("Enter a project name to create a planning workspace.".into());
-            return;
-        }
-        self.finish_connect(welcome::attempt_create_workspace(title));
-    }
-
-    pub(super) fn submit_join_workspace(&mut self) {
-        if self.clone_job.is_some() {
-            return;
-        }
-        let remote_or_path = self.conn_join_remote.trim();
-        if remote_or_path.is_empty() {
-            self.conn_error = Some("Enter a planning repository remote URL or local path.".into());
-            return;
-        }
-        self.finish_connect(welcome::attempt_join_workspace(remote_or_path));
-    }
-
     pub(super) fn submit_open_local_workspace(&mut self) {
         if self.clone_job.is_some() {
             return;
@@ -155,10 +124,8 @@ impl KooladeApp {
         self.finish_connect(welcome::attempt_open_workspace(id));
     }
 
-    /// Wizard "new project" track: builds the sibling-pair spec from the
-    /// wizard fields (deriving `<name>.packet` when the planning name was
-    /// left empty), opens the parent picker first if no folder was chosen
-    /// yet, and finishes through the regular connect pipeline.
+    /// Wizard "new project" track: creates the code repository at the chosen
+    /// location and keeps planning history in Kool.ad/e's managed workspace area.
     /// Maps an operator-facing project title onto a safe repository folder
     /// name: words separated by hyphens, lower-cased, ASCII letters/digits
     /// only, forced to start with a letter so the pair validator accepts it.
@@ -185,18 +152,10 @@ impl KooladeApp {
         }
     }
 
-    /// Native folder picker serving BOTH welcome cards. The seed follows the
-    /// owning field's own directory (or its nearest surviving ancestor) so
-    /// the chooser opens where the operator last pointed. Cancelling leaves
-    /// the field untouched; selecting a folder only FILLS the field —
-    /// submitting remains the single connect authority.
-    pub(super) fn pick_folder_for_active_target(&mut self) {
-        let target = self.conn_browse_target;
-        let seed = match target {
-            BrowseTarget::CodeRepo => self.conn_path.trim().to_string(),
-            BrowseTarget::PlanningRepo => self.conn_join_remote.trim().to_string(),
-            BrowseTarget::Wizard(which) => self.wiz_seed_for(which),
-        };
+    /// Choose a parent folder only for a new blank project. Existing code and
+    /// planning checkouts are never selected from disk in setup.
+    pub(super) fn pick_wizard_folder(&mut self, which: WizField) {
+        let seed = self.wiz_seed_for(which);
         let current = std::path::PathBuf::from(&seed);
         let start = if current.is_dir() {
             Some(current.clone())
@@ -207,26 +166,17 @@ impl KooladeApp {
                 .map(std::path::Path::to_path_buf)
         }
         .or_else(|| std::env::current_dir().ok());
-        let title = match target {
-            BrowseTarget::CodeRepo => "Choose a workspace folder",
-            BrowseTarget::PlanningRepo => "Choose a planning repository",
-            BrowseTarget::Wizard(which) => match which {
-                WizField::CodePath => "Choose the folder that IS the code repository",
-                WizField::Parent => "Choose the folder for the new project",
-            },
-        };
-        let mut picker = rfd::FileDialog::new().set_title(title);
+        let mut picker = rfd::FileDialog::new().set_title("Choose the folder for the new project");
         if let Some(start) = start {
             picker = picker.set_directory(start);
         }
-        self.apply_folder_pick(target, picker.pick_folder());
+        self.apply_wizard_folder_pick(which, picker.pick_folder());
     }
 
-    /// Field-write half of the folder picker, separated from the OS dialog
-    /// so selection routing is testable without spawning a native picker.
-    pub(in crate::app) fn apply_folder_pick(
+    /// Field-write half of the parent-folder picker for deterministic UI tests.
+    pub(in crate::app::root) fn apply_wizard_folder_pick(
         &mut self,
-        target: BrowseTarget,
+        which: WizField,
         picked: Option<std::path::PathBuf>,
     ) {
         let Some(path) = picked else {
@@ -234,11 +184,7 @@ impl KooladeApp {
         };
         let path = path.canonicalize().unwrap_or(path);
         let path = path.to_string_lossy().into_owned();
-        match target {
-            BrowseTarget::CodeRepo => self.conn_path = path,
-            BrowseTarget::PlanningRepo => self.conn_join_remote = path,
-            BrowseTarget::Wizard(which) => self.wiz_apply_field(which, path),
-        }
+        self.wiz_apply_field(which, path);
     }
 
     pub(super) fn finish_connect(
@@ -256,6 +202,7 @@ impl KooladeApp {
                 // session; the ledger file stays at the project root.
                 crate::core::time_accrual::activate_project(
                     &project.state.repo_root,
+                    project.state.planning_store.project_id,
                     &project.state.repositories,
                     &self.session_id,
                 );
@@ -264,7 +211,6 @@ impl KooladeApp {
                 // Wizard completions land here too: the welcome journey
                 // is OVER wherever the connect succeeded from.
                 self.wiz = None;
-                self.pending_clone_pairing = None;
                 let title = project.state.title.clone();
                 if let Some(workspace) = &project.managed_workspace {
                     let id = workspace.id;
@@ -278,9 +224,6 @@ impl KooladeApp {
                     }
                 }
                 self.screen = Screen::Connected(Box::new(project));
-                // Success: forget the pasted URL (per-launch state only).
-                // A FAILED connect preserves it for typo correction.
-                self.conn_github.clear();
                 self.toasts.success(format!("Connected to {title}"));
             }
             Err(e) => {

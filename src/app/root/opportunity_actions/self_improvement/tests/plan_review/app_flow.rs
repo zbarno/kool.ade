@@ -15,6 +15,10 @@ fn pursued_self_improvement_uses_current_app_plan_review_before_task_generation(
     use std::os::unix::fs::PermissionsExt;
 
     let mut app = crate::app::root::board_tests::fixture();
+    if let Screen::Connected(project) = &mut app.screen {
+        project.queue.auto_build = false;
+        project.queue.running = false;
+    }
     let opportunity_uid = {
         let Screen::Connected(project) = &mut app.screen else {
             panic!("fixture should be connected")
@@ -221,9 +225,17 @@ fn pursued_self_improvement_uses_current_app_plan_review_before_task_generation(
         );
         std::thread::sleep(Duration::from_millis(5));
     }
-    let receipt = plan_snapshot::plan_review_receipt(&planning, &snapshot)
-        .unwrap()
-        .expect("the app reviewer receipt is persisted");
+    let pending = match &app.screen {
+        Screen::Connected(project) => project.activity.pending.clone(),
+        Screen::Welcome => Vec::new(),
+    };
+    let receipt = plan_snapshot::plan_review_receipt(&planning, &snapshot).unwrap();
+    assert!(
+        receipt.is_some(),
+        "the app reviewer receipt is persisted; latest app message: {:?}; activity: {pending:?}",
+        app.toasts.last_message(),
+    );
+    let receipt = receipt.unwrap();
     assert_eq!(
         receipt.actor,
         crate::core::lifecycle::GateActor::IndependentReviewer

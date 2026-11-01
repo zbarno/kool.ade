@@ -69,7 +69,11 @@ fn persist_opportunity(
     let Some(repo_path) = project
         .state
         .repositories
-        .target_if_available(&project.state.repo_root, &repository.id)
+        .target_if_available(
+            project.state.planning_store.project_id,
+            &project.state.repo_root,
+            &repository.id,
+        )
         .ok()
         .flatten()
     else {

@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn main_turn_receives_the_model_selected_authoritative_context() {
     let (mut inputs, dir) = inputs_for("retrieval_pipeline", "The session vanishes after restart.");
-    let product = dir.join(".koolade-packet/planning/product/architecture-and-constraints.md");
+    let product = dir.join("planning/product/architecture-and-constraints.md");
     std::fs::write(
         &product,
         "# Architecture and Constraints\n\nSESSION_CONTEXT_FROM_RETRIEVAL\n",

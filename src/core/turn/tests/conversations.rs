@@ -140,7 +140,7 @@ fn task_conversation_cannot_dispatch_a_project_application_action() {
         "Which export format should the task use?".into(),
         "The task needs a user decision.".into(),
     ));
-    git_stdout(&dir, &["add", ".koolade-packet"]);
+    git_stdout(&dir, &["add", "."]);
     git_stdout(&dir, &["commit", "-m", "Seed planning artifacts"]);
     let before = law_evidence(&dir);
     let response = serde_json::json!({

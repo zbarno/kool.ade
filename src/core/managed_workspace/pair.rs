@@ -1,14 +1,12 @@
-//! Create a visible code + planning sibling pair for a new project.
+//! Create code in the selected parent and planning history in Kool.ad/e's
+//! managed workspace area.
 //!
-//! The wizard's "create new workspace" track materializes two ordinary
-//! Git repositories chosen by the operator, side by side under a parent
-//! folder: `Parent/SomeRepo` (code) and `Parent/SomeRepo.packet` (planning).
-//! The planning repository is seeded exactly like a managed workspace and is
-//! then associated through the regular join path, so it appears in every
-//! operator view with the usual identity handling.
+//! The wizard's "create new workspace" track materializes a fresh code
+//! repository at the selected parent and a planning repository in the managed
+//! workspace area.
 //!
-//! Retrying is safe: already-initialized repositories are recognized and
-//! reused instead of rebuilt.
+//! Reopening is only safe through a saved workspace association. Unassociated
+//! destinations are never adopted, even when they look like Kool.ad/e output.
 
 use std::{
     fs,
@@ -16,49 +14,36 @@ use std::{
 };
 
 use super::{
-    CodeRepositoryRegistration, WorkspaceManager,
-    creation::{self, initialize},
-    git,
-    manager::{ManagedWorkspace, sync_directory},
-    manifest::WorkspaceManifest,
+    CodeRepositoryRegistration, WorkspaceManager, creation, git, manager::ManagedWorkspace,
 };
 
 pub const PAIR_CODE_REPO_ID: &str = "root";
 
-/// Inputs for creating a new sibling repository pair.
-pub struct SiblingPairSpec {
+/// Inputs for creating a new code repository and managed planning workspace.
+pub struct NewProjectSpec {
     pub title: String,
     pub code_repo_name: String,
-    pub planning_repo_name: String,
     pub parent_dir: PathBuf,
-    /// When true the code destination must already be an initialized Git
-    /// repository (ANY contents — the operator explicitly chose it) and is
-    /// paired untouched instead of created.
-    pub code_already_exists: bool,
 }
 
-impl SiblingPairSpec {
-    /// Builds a spec from a project name, suggesting `<name>.packet` for the
-    /// planning repository (operators may rename it afterwards).
+impl NewProjectSpec {
+    /// Builds a spec with a derived code-repository directory name.
     pub fn new(title: impl Into<String>, code_repo_name: impl Into<String>) -> Self {
         let code_repo_name = code_repo_name.into();
         Self {
             title: title.into(),
-            planning_repo_name: format!("{}.packet", code_repo_name),
             code_repo_name,
             parent_dir: PathBuf::new(),
-            code_already_exists: false,
         }
     }
 }
 
-pub(super) fn create_sibling_pair(
+pub(super) fn create_new_project(
     manager: &WorkspaceManager,
-    spec: &SiblingPairSpec,
+    spec: &NewProjectSpec,
 ) -> anyhow::Result<ManagedWorkspace> {
     creation::validate_title(&spec.title)?;
     validate_repo_name(&spec.code_repo_name, "code repository name")?;
-    validate_repo_name(&spec.planning_repo_name, "planning repository name")?;
     let parent = spec.parent_dir.canonicalize().map_err(|error| {
         anyhow::anyhow!(
             "workspace parent folder is missing or unreadable (select an existing folder): {error}"
@@ -66,97 +51,63 @@ pub(super) fn create_sibling_pair(
     })?;
     anyhow::ensure!(parent.is_dir(), "workspace parent must be a folder");
     let code_dest = parent.join(&spec.code_repo_name);
-    let plan_dest = parent.join(&spec.planning_repo_name);
-    anyhow::ensure!(
-        code_dest != plan_dest,
-        "code and planning repository names must differ"
-    );
-    // Classify BOTH destinations before mutating anything: an occupied
-    // planning destination must not leave a freshly created code repository
-    // behind (symmetric with the code-side refusal).
-    classify_destination(&code_dest, "code repository")?;
-    classify_destination(&plan_dest, "planning repository")?;
-
-    let code = prepare_code_repository(&spec.title, &code_dest, spec.code_already_exists)?;
-    prepare_planning_repository(spec, &parent, &plan_dest)?;
-    let workspace = manager.join(&plan_dest)?;
-    register_pair_code_repository(manager, &workspace, &code)
-}
-
-fn classify_destination(destination: &Path, kind: &str) -> anyhow::Result<()> {
-    if !destination.exists() || is_git_repository_root(destination) {
-        return Ok(());
-    }
-    anyhow::bail!(
-        "{kind} destination {} already exists and is not a Git repository root; remove it or choose a different name",
-        destination.display()
-    )
-}
-
-fn prepare_code_repository(
-    title: &str,
-    code_dest: &Path,
-    existing: bool,
-) -> anyhow::Result<PathBuf> {
-    if existing {
-        // Explicit adoption: the operator pointed at THEIR repository. Any
-        // history is accepted (this is not the silent-adoption path, which
-        // applies only when a fresh creation collides with existing content),
-        // and nothing inside it is mutated.
-        anyhow::ensure!(
-            is_git_repository_root(code_dest),
-            "{} is not a Git repository root; choose a folder containing an initialized Git repository",
-            code_dest.display()
-        );
-        return Ok(code_dest.to_path_buf());
-    }
-    if is_git_repository_root(code_dest) {
-        // Existing repository: resume only when it is unmistakably ours.
-        match code_repository_proof(code_dest, title)? {
-            CodeRepositoryProof::Unborn => ground_initial_commit(code_dest, title)?,
-            CodeRepositoryProof::Grounded => {}
+    match fs::symlink_metadata(&code_dest) {
+        Ok(metadata) => {
+            anyhow::ensure!(
+                !metadata.file_type().is_symlink(),
+                "code repository destination is a symbolic link; choose a new project name"
+            );
+            if let Some(workspace) = manager.workspace_for_checkout(&code_dest)? {
+                let canonical_destination = code_dest.canonicalize()?;
+                let registered = workspace.association.code_checkouts.iter().any(|mapping| {
+                    mapping.repository_id == PAIR_CODE_REPO_ID
+                        && mapping.path == canonical_destination
+                });
+                anyhow::ensure!(
+                    registered,
+                    "code repository destination already exists but is not registered as this workspace's primary code checkout"
+                );
+                return Ok(workspace);
+            }
+            anyhow::bail!(
+                "code repository destination {} already exists; Kool.ad/e will not adopt an existing checkout. Choose a new project name or open its saved workspace.",
+                code_dest.display()
+            );
         }
-    } else {
-        let name = code_dest
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("code repository path is not valid UTF-8"))?;
-        git::run(
-            None,
-            &[
-                "-c",
-                "init.templateDir=",
-                "init",
-                "--quiet",
-                "--initial-branch=main",
-                "--",
-                name,
-            ],
-        )
-        .map_err(|error| {
-            let _ = fs::remove_dir_all(code_dest);
-            anyhow::anyhow!("code repository could not be initialized at {name}: {error}")
-        })?;
-        ground_initial_commit(code_dest, title)?;
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
     }
-    Ok(code_dest.to_path_buf())
-}
 
-/// Provenance proof for reusing a repository found at the code destination:
-/// anything Kool.ad/e did not demonstrably create is refused rather than
-/// adopted, so a foreign (even clean) repository can never be silently
-/// enrolled as the project's root code checkout.
-#[derive(Debug, PartialEq, Eq)]
-enum CodeRepositoryProof {
-    /// No commits at all: either our own fresh init or an operator's empty
-    /// repository — installing the grounding commit destroys nothing.
-    Unborn,
-    /// Exactly the grounding commit tracking exactly README.md with a clean
-    /// tree: an earlier interrupted run of THIS creation, safe to resume.
-    Grounded,
-}
+    let staging = parent.join(format!(
+        ".{}.koolade-create-{}",
+        spec.code_repo_name,
+        uuid::Uuid::new_v4().simple()
+    ));
+    fs::create_dir(&staging).map_err(|error| {
+        anyhow::anyhow!("exclusive project staging directory could not be reserved: {error}")
+    })?;
+    let staged = (|| {
+        git::init_planning_repo(&staging)?;
+        ground_initial_commit(&staging, &spec.title)?;
+        creation::sync_tree(&staging)?;
+        Ok::<(), anyhow::Error>(())
+    })();
+    staged.map_err(|error| {
+        anyhow::anyhow!(
+            "{error:#}; Kool.ad/e left its incomplete staging folder at {}",
+            staging.display()
+        )
+    })?;
+    super::application::publish::directory(&staging, &code_dest).map_err(|error| {
+        anyhow::anyhow!(
+            "{error:#}; Kool.ad/e left the new checkout staged at {}",
+            staging.display()
+        )
+    })?;
+    super::manager::sync_directory(&parent)?;
 
-fn ground_commit_message(title: &str) -> String {
-    format!("Kool.ad/e: initialize {title} code repository")
+    let workspace = manager.create(&spec.title)?;
+    register_pair_code_repository(manager, &workspace, &code_dest)
 }
 
 fn ground_initial_commit(code_dest: &Path, title: &str) -> anyhow::Result<()> {
@@ -167,152 +118,14 @@ fn ground_initial_commit(code_dest: &Path, title: &str) -> anyhow::Result<()> {
     })?;
     let commit = crate::core::gitops::commit(
         code_dest,
-        &ground_commit_message(title),
+        &format!("Kool.ad/e: initialize {title} code repository"),
         &["README.md".to_owned()],
     )
     .map(|_| ());
     commit.map_err(|error| {
-        // Restore the found state (unborn, no placeholder) so a retry
-        // starts from the same shape.
         let _ = fs::remove_file(&readme_path);
         anyhow::anyhow!("code repository initial commit failed: {error}")
     })
-}
-
-fn code_repository_proof(code_dest: &Path, title: &str) -> anyhow::Result<CodeRepositoryProof> {
-    let count_raw = git::output(Some(code_dest), &["rev-list", "--count", "HEAD"])
-        .map_err(|error| {
-            anyhow::anyhow!(
-                "{} could not be inspected by Git: {error}",
-                code_dest.display()
-            )
-        })?
-        .stdout;
-    let count = std::str::from_utf8(&count_raw)
-        .ok()
-        .and_then(|text| text.trim().parse::<u32>().ok())
-        .unwrap_or(u32::MAX);
-    match count {
-        0 => {
-            let porcelain = git::output(Some(code_dest), &["status", "--porcelain"])
-                .map_err(|error| {
-                    anyhow::anyhow!(
-                        "{} could not be inspected by Git: {error}",
-                        code_dest.display()
-                    )
-                })?
-                .stdout;
-            let loose: Vec<String> = std::str::from_utf8(&porcelain)
-                .unwrap_or_default()
-                .lines()
-                .map(|line| line.trim().to_owned())
-                .filter(|line| !line.is_empty())
-                .collect();
-            let only_leftover_readme = loose == vec!["?? README.md".to_owned()];
-            if loose.is_empty() || only_leftover_readme {
-                return Ok(CodeRepositoryProof::Unborn);
-            }
-            refuse_foreign_code_repository(code_dest)
-        }
-        1 => {
-            let subject = git::output(Some(code_dest), &["log", "-1", "--pretty=%s"])
-                .map_err(|error| {
-                    anyhow::anyhow!(
-                        "{} could not be inspected by Git: {error}",
-                        code_dest.display()
-                    )
-                })?
-                .stdout;
-            let tracked = git::output(Some(code_dest), &["ls-files"])
-                .map_err(|error| {
-                    anyhow::anyhow!(
-                        "{} could not be inspected by Git: {error}",
-                        code_dest.display()
-                    )
-                })?
-                .stdout;
-            let subject_is_ours = std::str::from_utf8(&subject)
-                .is_ok_and(|text| text.trim() == ground_commit_message(title));
-            let tracked_is_readme =
-                std::str::from_utf8(&tracked).is_ok_and(|text| text.lines().eq(["README.md"]));
-            if subject_is_ours && tracked_is_readme && git::status_paths(code_dest)?.is_empty() {
-                return Ok(CodeRepositoryProof::Grounded);
-            }
-            refuse_foreign_code_repository(code_dest)
-        }
-        _ => refuse_foreign_code_repository(code_dest),
-    }
-}
-
-fn refuse_foreign_code_repository(code_dest: &Path) -> anyhow::Result<CodeRepositoryProof> {
-    anyhow::bail!(
-        "{} already exists as a Git repository Kool.ad/e did not create for this project; move it aside, or use a different project name",
-        code_dest.display()
-    )
-}
-
-fn prepare_planning_repository(
-    spec: &SiblingPairSpec,
-    parent: &Path,
-    plan_dest: &Path,
-) -> anyhow::Result<()> {
-    if is_git_repository_root(plan_dest) {
-        WorkspaceManifest::read(plan_dest).map_err(|error| {
-            anyhow::anyhow!(
-                "{} is a Git repository but its planning manifest is unreadable: {error}",
-                plan_dest.display()
-            )
-        })?;
-        anyhow::ensure!(
-            git::status_paths(plan_dest)?.is_empty(),
-            "{} must be clean before it can be reused as the planning repository; commit or discard the pending planning changes first",
-            plan_dest.display()
-        );
-        return Ok(());
-    }
-    if plan_dest.exists() {
-        anyhow::bail!(
-            "{} already exists and is not a usable planning repository",
-            plan_dest.display()
-        );
-    }
-    let id = uuid::Uuid::new_v4();
-    let staging = parent.join(format!(
-        "{}.__staging__{}",
-        spec.planning_repo_name,
-        id.simple()
-    ));
-    build_planning_staging(&staging, id, &spec.title)?;
-    anyhow::ensure!(
-        !plan_dest.exists(),
-        "{} appeared during creation; it was not overwritten",
-        plan_dest.display()
-    );
-    fs::rename(&staging, plan_dest).map_err(|error| {
-        let _ = fs::remove_dir_all(&staging);
-        anyhow::anyhow!("planning repository could not be moved into place: {error}")
-    })?;
-    sync_directory(parent)
-        .map_err(|error| anyhow::anyhow!("planning repository was not flushed to disk: {error}"))
-}
-
-fn build_planning_staging(staging: &Path, id: uuid::Uuid, title: &str) -> anyhow::Result<()> {
-    let cleanup_on_error = || {
-        let _ = fs::remove_dir_all(staging);
-    };
-    let result = (|| -> anyhow::Result<()> {
-        git::init_planning_repo(staging)?;
-        initialize::populate_and_commit(staging, id, title)
-    })();
-    if result.is_err() {
-        cleanup_on_error();
-    }
-    result?;
-    let flush = initialize::sync_tree(staging);
-    if flush.is_err() {
-        cleanup_on_error();
-    }
-    flush.map_err(|error| anyhow::anyhow!("planning repository staging was not flushed: {error}"))
 }
 
 fn register_pair_code_repository(
@@ -345,10 +158,6 @@ fn register_pair_code_repository(
             checkout: code_dest.to_path_buf(),
         },
     )
-}
-
-fn is_git_repository_root(path: &Path) -> bool {
-    git::repository_root(path).is_ok_and(|root| root == path)
 }
 
 /// The COMPLETE pure rule behind `validate_repo_name` — first character

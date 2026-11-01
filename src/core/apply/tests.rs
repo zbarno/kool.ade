@@ -76,7 +76,7 @@ fn approve_batch_feature(
 ) {
     let id = batch.feature_id.as_deref().unwrap();
     let dir = root
-        .join(".koolade-packet/planning/changes")
+        .join("planning/changes")
         .join(format!("{id}-revision-fenced-generation"));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("specification.md");
@@ -114,7 +114,7 @@ fn approve_batch_feature(
     crate::core::gitops::commit(
         root,
         "fixture: create revision-fenced feature",
-        &[".koolade-packet/planning".into()],
+        &["planning".into()],
     )
     .unwrap();
     state.active_feature = Some((id.to_owned(), markdown.clone()));
@@ -242,7 +242,7 @@ fn refresh_discovery_tasks_are_committed_with_the_planning_transaction() {
         receipt
             .repo_relative_paths
             .iter()
-            .any(|path| path.starts_with(".koolade-packet/state/work/"))
+            .any(|path| path.starts_with("state/work/"))
     );
     let saved = crate::core::planning_work::load(&root).unwrap();
     assert_eq!(saved.len(), 2);

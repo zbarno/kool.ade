@@ -50,6 +50,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+use koolade::artifacts::planning_store::{PlanningStore, StoreMode};
 use koolade::artifacts::{
     CONFIG_FILE, OPEN_ITEMS_FILE, SPEC_FILE, atomic_write, config_io, items_io,
 };
@@ -504,10 +505,14 @@ fn write_planning_seed(root: &Path, args: &Args) -> Result<(), String> {
     let items_md = items_io::serialize(&seed);
     let config_md = seed_config(&args.user, &args.email);
     let spec_md = seed_spec_text();
-    let targets: [(&str, &str); 3] = [
+    let targets: [(&str, &str); 4] = [
         (SPEC_FILE, &spec_md),
         (OPEN_ITEMS_FILE, &items_md),
         (CONFIG_FILE, &config_md),
+        (
+            koolade::core::project_repos::PROJECT_FILE,
+            r#"{"repositories":[{"id":"root","role":"Primary code","remote":""}]}"#,
+        ),
     ];
     for (rel, text) in targets {
         atomic_write(&root.join(rel), text)
@@ -559,13 +564,19 @@ fn git_phase(root: &Path, args: &Args) -> Result<(), String> {
 /// must reload through the app's real loader with the exact seed vectors,
 /// the exact stakeholder shape, a live set of seeded claims, and the seat
 /// actually sitting in the repo and on the seed commit.
-fn verify_phase(root: &Path, args: &Args) -> Result<(String, String), Vec<String>> {
-    let state = match PlannerState::load(root) {
+fn verify_phase(
+    code_root: &Path,
+    planning_root: &Path,
+    args: &Args,
+) -> Result<(String, String), Vec<String>> {
+    let store = PlanningStore::new(uuid::Uuid::nil(), planning_root, StoreMode::ManagedLocal);
+    let state = match PlannerState::load_with_store(code_root, &store) {
         Ok(state) => state,
         Err(e) => {
             return Err(vec![format!(
-                "PlannerState::load({}) failed: {e}",
-                root.display()
+                "PlannerState::load_with_store({}, {}) failed: {e}",
+                code_root.display(),
+                planning_root.display()
             )]);
         }
     };
@@ -573,7 +584,7 @@ fn verify_phase(root: &Path, args: &Args) -> Result<(String, String), Vec<String
     let mut problems: Vec<String> = Vec::new();
 
     // (i) The written queue must round-trip through the strict parser.
-    let items_path = root.join(OPEN_ITEMS_FILE);
+    let items_path = planning_root.join(OPEN_ITEMS_FILE);
     match std::fs::read_to_string(&items_path) {
         Ok(written) => match items_io::parse(&written) {
             Ok(parsed) if parsed == seed => {}
@@ -666,8 +677,8 @@ fn verify_phase(root: &Path, args: &Args) -> Result<(String, String), Vec<String
 
     // (v) The seat must actually sit in the new repo — read back from git,
     //     and on the seed commit itself (outcome (e) attribution).
-    let read_name = git_run(root, &["config", "user.name"]).unwrap_or_default();
-    let read_email = git_run(root, &["config", "user.email"]).unwrap_or_default();
+    let read_name = git_run(code_root, &["config", "user.name"]).unwrap_or_default();
+    let read_email = git_run(code_root, &["config", "user.email"]).unwrap_or_default();
     if read_name != args.user {
         problems.push(format!(
             "git readback: user.name is '{read_name}', expected '{}' — the seat did not land in the repo's local config",
@@ -680,7 +691,7 @@ fn verify_phase(root: &Path, args: &Args) -> Result<(String, String), Vec<String
             args.email
         ));
     }
-    let author_line = match git_run(root, &["log", "--max-count=1", "--pretty=%an|%ae|%s"]) {
+    let author_line = match git_run(code_root, &["log", "--max-count=1", "--pretty=%an|%ae|%s"]) {
         Ok(line) => line,
         Err(e) => {
             problems.push(format!("seed commit readback failed: {e}"));
@@ -745,11 +756,12 @@ fn diff_item(index: usize, loaded: &OpenItem, wanted: &OpenItem, problems: &mut 
 
 /// The success block: fixture path, the seat READ BACK from the new repo,
 /// the three seeded item lines (id|kind|category), runbook entry point.
-fn print_manifest(root: &Path, seat_name: &str, seat_email: &str) {
+fn print_manifest(code_root: &Path, planning_root: &Path, seat_name: &str, seat_email: &str) {
     let seed = seed_items();
     println!();
     println!("EXIT-DEMO FIXTURE — MANIFEST");
-    println!("  fixture path : {}", root.display());
+    println!("  code repo    : {}", code_root.display());
+    println!("  planning repo: {}", planning_root.display());
     println!(
         "  git seat     : user.name={seat_name} | user.email={seat_email}  (read back from the new repo)"
     );
@@ -788,7 +800,29 @@ fn prepare(args: &Args) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    eprintln!("[prep] destination secured: {}", root.display());
+    let planning_path = root.with_file_name(format!(
+        "{}.packet",
+        root.file_name().unwrap_or_default().to_string_lossy()
+    ));
+    let planning_root = match secure_destination(&planning_path) {
+        SecureDestination::Ready(canon) => canon,
+        SecureDestination::Populated => {
+            eprintln!(
+                "Planning destination already exists or is populated: {}",
+                planning_path.display()
+            );
+            return ExitCode::FAILURE;
+        }
+        SecureDestination::Io(e) => {
+            eprintln!(
+                "ERROR: cannot establish planning destination '{}': {e}",
+                planning_path.display()
+            );
+            return ExitCode::FAILURE;
+        }
+    };
+    eprintln!("[prep] code repo secured: {}", root.display());
+    eprintln!("[prep] planning repo secured: {}", planning_root.display());
 
     if let Err(stage) = write_project_files(&root) {
         eprintln!(
@@ -798,7 +832,7 @@ fn prepare(args: &Args) -> ExitCode {
     }
     eprintln!("[prep] project files written (4 literals)");
 
-    if let Err(stage) = write_planning_seed(&root, args) {
+    if let Err(stage) = write_planning_seed(&planning_root, args) {
         eprintln!(
             "ERROR: preparation stopped after the guard; destination left for inspection (remove it or pass a different path): {stage}"
         );
@@ -812,12 +846,18 @@ fn prepare(args: &Args) -> ExitCode {
         );
         return ExitCode::FAILURE;
     }
-    eprintln!("[prep] seed commit created by the seat identity");
+    if let Err(diagnosis) = git_phase(&planning_root, args) {
+        eprintln!(
+            "ERROR: preparation aborted in the planning-repository git phase; destination left for inspection: {diagnosis}"
+        );
+        return ExitCode::FAILURE;
+    }
+    eprintln!("[prep] code and planning seed commits created by the seat identity");
 
-    match verify_phase(&root, args) {
+    match verify_phase(&root, &planning_root, args) {
         Ok((seat_name, seat_email)) => {
             eprintln!("[prep] self-verification passed");
-            print_manifest(&root, &seat_name, &seat_email);
+            print_manifest(&root, &planning_root, &seat_name, &seat_email);
             ExitCode::SUCCESS
         }
         Err(problems) => {

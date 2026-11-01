@@ -68,7 +68,11 @@ impl Controller {
         harness: Box<dyn AiHarness>,
         claim_request: crate::core::task_claim::ClaimRequest,
     ) -> Self {
-        let planning_store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), &planning_root);
+        let planning_store = PlanningStore::new(
+            uuid::Uuid::nil(),
+            &planning_root,
+            crate::artifacts::planning_store::StoreMode::ManagedLocal,
+        );
         Self::start_project_with_store_and_policy_and_claim_request(ProjectStartRequest {
             planning_store,
             state_root: planning_root,

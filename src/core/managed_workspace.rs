@@ -2,15 +2,13 @@
 
 mod application;
 mod association;
-mod existing_project;
 pub use application::ApplicationCreation;
-pub use existing_project::{ExistingProject, ExistingProjectKind};
+pub(crate) use application::publish_directory;
 mod creation;
 mod git;
 mod locking;
 mod manager;
 mod manifest;
-mod migration;
 mod recency;
 mod recovery;
 pub use recovery::{ArtifactPresence, RecoveryItem, RecoveryRequest};
@@ -28,8 +26,8 @@ pub use manager::{
 };
 pub(crate) use manifest::MAX_MANIFEST_BYTES;
 pub use manifest::WorkspaceManifest;
-pub use migration::{MigrationConflictPreview, MigrationPreview, MigrationReport, RollbackOutcome};
-pub use pair::SiblingPairSpec;
+pub use pair::NewProjectSpec;
+pub use pair::PAIR_CODE_REPO_ID;
 pub(crate) use pair::repository_name_allowed;
 
 /// Resolve a directory inside a Git working tree to its actual repository

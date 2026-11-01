@@ -38,7 +38,11 @@ pub(super) fn run_with_project_options(
     ticket: &str,
     options: RunOptions<'_>,
 ) -> anyhow::Result<Implementation> {
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), planning_root);
+    let store = PlanningStore::new(
+        uuid::Uuid::nil(),
+        planning_root,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     run_with_planning_store_options(&store, planning_root, repo, ticket, options)
 }
 
@@ -265,7 +269,11 @@ pub(super) fn persist_source_plan_before_task_state(
     ticket: &str,
     runner: &Runner,
 ) -> anyhow::Result<()> {
-    let planning_store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), planning_root);
+    let planning_store = PlanningStore::new(
+        uuid::Uuid::nil(),
+        planning_root,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let (text, task_uid, metadata) = read_ticket_and_identity(&planning_store, ticket)?;
     let dir = state_dir_for_task(planning_root, ticket, task_uid.as_deref())?;
     fs::create_dir_all(&dir)?;
@@ -289,7 +297,11 @@ pub(super) fn prepare_task_repository_before_reconciliation(
     ticket: &str,
     runner: &Runner,
 ) -> anyhow::Result<Implementation> {
-    let planning_store = PlanningStore::legacy_embedded(uuid::Uuid::nil(), planning_root);
+    let planning_store = PlanningStore::new(
+        uuid::Uuid::nil(),
+        planning_root,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let (text, task_uid, metadata) = read_ticket_and_identity(&planning_store, ticket)?;
     let dir = state_dir_for_task(planning_root, ticket, task_uid.as_deref())?;
     fs::create_dir_all(&dir)?;

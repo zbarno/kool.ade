@@ -1,5 +1,5 @@
 use crate::app::session::Project;
-use crate::artifacts::planning_store::{PlanningStore, StoreMode};
+use crate::artifacts::planning_store::PlanningStore;
 use crate::core::gitops;
 use crate::core::state::PlannerState;
 use crate::error::AppError;
@@ -11,10 +11,7 @@ mod load;
 mod managed;
 use load::connect_canonical_with_key;
 mod prepared;
-pub use managed::{
-    attempt_create_project, attempt_create_workspace, attempt_join_workspace,
-    attempt_open_workspace,
-};
+pub use managed::{attempt_create_project, attempt_open_workspace};
 pub use prepared::{PreparedConnection, prepare_open_workspace};
 /// Normalize user-typed paths (`~` expansion), then load the managed
 /// planning repository or the checkout's associated workspace. A code
@@ -28,9 +25,6 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
             path: canonical.to_string_lossy().into_owned(),
             detail: "no .git directory found \u{2014} Kool.ad/e plans inside a git working tree. Initialize one first (git init) or choose a different folder.".into(),
         });
-    }
-    if managed::is_managed_repository(&canonical)? {
-        return managed::join_workspace_path(&canonical);
     }
     let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
     if let Some(workspace) = manager
@@ -49,14 +43,24 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
 fn missing_planning_repository(checkout: PathBuf) -> AppError {
     AppError::InvalidRepo {
         path: checkout.to_string_lossy().into_owned(),
-        detail: "no planning repository is associated with this checkout. Kool.ad/e keeps planning state in a separate Git repository: create a workspace (or join an existing one) and register this checkout as a code repository.".into(),
+        detail: "no managed planning repository is associated with this code checkout. Clone it from the Kool.ad/e welcome screen so its planning repository is paired automatically.".into(),
     }
 }
 
 /// Connect a code checkout to an explicitly selected managed planning store.
 /// Private project state remains tied to the code checkout.
-pub fn attempt_connect_with_store(raw: &str, store: PlanningStore) -> Result<Project, AppError> {
+#[cfg(test)]
+pub(crate) fn attempt_connect_with_store(
+    raw: &str,
+    store: PlanningStore,
+) -> Result<Project, AppError> {
     let canonical = canonical_repository(raw)?;
+    if canonical.starts_with(&store.root) || store.root.starts_with(&canonical) {
+        return Err(AppError::InvalidRepo {
+            path: canonical.to_string_lossy().into_owned(),
+            detail: "code and planning repositories must be separate".into(),
+        });
+    }
     connect_canonical(canonical, store)
 }
 

@@ -1,29 +1,20 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use super::{PlanningLayout, PlanningStore, StoreError, StoreMode};
+#[cfg(test)]
+use super::StoreMode;
+use super::{PlanningLayout, PlanningStore, StoreError};
 
-/// Surface shared by types that expose the project's planning store.
-///
-/// Planning normally lives in a separate planning repository. Embedded legacy
-/// packet sources expose the owning checkout through
-/// [`PlanningRoot::code_repository_root`].
+/// Surface shared by types that expose the separate planning repository.
 pub trait PlanningRoot {
     fn planning_layout(&self) -> PlanningLayout;
     fn planning_store(&self) -> PlanningStore;
 
-    /// The code checkout owning this planning store, when planning is
-    /// embedded in that checkout rather than a standalone planning repository.
-    fn code_repository_root(&self) -> Option<PathBuf> {
-        None
-    }
-
     fn read_planning(&self, relative: &str) -> Result<Vec<u8>, StoreError> {
-        self.planning_store().read(root_relative(relative))
+        self.planning_store().read(relative)
     }
 
     fn write_planning(&self, relative: &str, bytes: &[u8]) -> Result<(), StoreError> {
-        self.planning_store()
-            .atomic_write(root_relative(relative), bytes)
+        self.planning_store().atomic_write(relative, bytes)
     }
 
     fn read_planning_path(&self, path: &Path) -> Result<Vec<u8>, StoreError> {
@@ -35,12 +26,6 @@ pub trait PlanningRoot {
     }
 }
 
-fn root_relative(relative: &str) -> &str {
-    relative
-        .strip_prefix(".koolade-packet/")
-        .unwrap_or(relative)
-}
-
 impl PlanningRoot for PlanningStore {
     fn planning_layout(&self) -> PlanningLayout {
         self.layout()
@@ -48,10 +33,6 @@ impl PlanningRoot for PlanningStore {
 
     fn planning_store(&self) -> PlanningStore {
         self.clone()
-    }
-
-    fn code_repository_root(&self) -> Option<PathBuf> {
-        (self.mode == StoreMode::LegacyPacketSource).then(|| self.git_root())
     }
 }
 
@@ -63,16 +44,10 @@ impl<T: PlanningRoot + ?Sized> PlanningRoot for &T {
     fn planning_store(&self) -> PlanningStore {
         (**self).planning_store()
     }
-
-    fn code_repository_root(&self) -> Option<PathBuf> {
-        (**self).code_repository_root()
-    }
 }
 
-/// Test-fixture adapter: treats a path as the checkout of a legacy
-/// embedded project (`.koolade-packet/` inside it). Exists so the existing
-/// fixture corpus keeps compiling while production code is moved onto
-/// explicit stores; never usable from non-test builds.
+/// Test-fixture adapter: treats a path as the planning repository root.
+/// Never usable from non-test builds.
 #[cfg(test)]
 impl PlanningRoot for Path {
     fn planning_layout(&self) -> PlanningLayout {
@@ -80,11 +55,7 @@ impl PlanningRoot for Path {
     }
 
     fn planning_store(&self) -> PlanningStore {
-        PlanningStore::legacy_embedded(uuid::Uuid::nil(), self)
-    }
-
-    fn code_repository_root(&self) -> Option<PathBuf> {
-        Some(self.to_path_buf())
+        PlanningStore::new(uuid::Uuid::nil(), self, StoreMode::ManagedLocal)
     }
 }
 
@@ -96,9 +67,5 @@ impl PlanningRoot for std::path::PathBuf {
 
     fn planning_store(&self) -> PlanningStore {
         PlanningRoot::planning_store(self.as_path())
-    }
-
-    fn code_repository_root(&self) -> Option<PathBuf> {
-        Some(self.clone())
     }
 }

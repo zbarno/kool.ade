@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::managed_workspace::WorkspaceManager;
 
 impl KooladeApp {
     pub(super) fn paint_new_project_review(&mut self, ui: &mut egui::Ui, next: &mut Option<Step>) {

@@ -236,7 +236,7 @@ fn activate(root: &Path) {
             display_name: None,
         }],
     };
-    activate_project(root, &manifest, "unit-session");
+    activate_project(root, uuid::Uuid::nil(), &manifest, "unit-session");
 }
 
 fn host_span(root: &Path, ws: &str, item: &str) -> AgentSpan {
@@ -340,7 +340,7 @@ fn app_close_flush_persists_discards_and_the_restart_bill_is_fresh() {
 fn ledger_write_failure_surfaces_and_never_blocks_the_span() {
     with_global("failure", |root| {
         // Occupy the ledger's parent slot with a FILE so every append fails.
-        let state_file = root.join(".koolade-packet/state");
+        let state_file = root.join("state");
         std::fs::create_dir_all(state_file.parent().unwrap()).unwrap();
         std::fs::write(&state_file, b"occupied").unwrap();
         activate(root);
@@ -377,17 +377,39 @@ fn inactive_metering_is_a_complete_noop() {
 
 // ----------------------------- attribution input ----------------------------
 
+fn write_repository_manifest(root: &Path, repositories: &[(&str, &str)]) {
+    let manifest = ProjectManifest {
+        repositories: repositories
+            .iter()
+            .map(|(id, remote)| Repository {
+                id: (*id).into(),
+                role: "Test repository".into(),
+                remote: if remote.is_empty() {
+                    format!("https://github.com/fixture/{id}.git")
+                } else {
+                    (*remote).into()
+                },
+                display_name: None,
+            })
+            .collect(),
+    };
+    let path = root.join(crate::artifacts::planning_store::paths::PROJECT_MANIFEST);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+}
+
 #[test]
 fn span_resolution_prefers_stable_identifiers_over_paths() {
     let root = scratch("attr");
     std::fs::create_dir_all(&root).unwrap();
+    write_repository_manifest(&root, &[("root", "")]);
     let sp = span_for_ticket(
         &root,
         "# Ticket\n\nRepository: root\n",
         None,
         Some("0a1b2c3d-1111-4222-8333-444455556666"),
     )
-    .expect("fallback manifest resolves the sole repository");
+    .expect("the planning manifest resolves the declared repository");
     assert_eq!(sp.repo_root, root);
     assert_eq!(sp.repo_id, "root");
     assert_eq!(sp.workspace_id, "root");
@@ -399,11 +421,13 @@ fn span_resolution_prefers_stable_identifiers_over_paths() {
 fn identifier_hygiene_falls_back_instead_of_poisoning_rows() {
     let root = scratch("hygiene");
     std::fs::create_dir_all(&root).unwrap();
+    write_repository_manifest(&root, &[("root", ""), ("sidecar", "")]);
     let text = "# T\n\nRepository: sidecar\n";
     let sp = span_for_ticket(&root, text, None, Some("bad:id,name"))
-        .expect("legacy marker resolves to the named workspace");
+        .expect("the planning manifest resolves the named repository");
     assert_eq!(sp.workspace_id, "sidecar");
     assert_eq!(sp.item_uid, "task", "colon/comma item uid falls back");
+    write_repository_manifest(&root, &[("root", "")]);
     let stemmed =
         span_for_ticket(&root, "/x/projects/F7-TASK-clean-stem.md", None, None).expect("resolves");
     assert_eq!(

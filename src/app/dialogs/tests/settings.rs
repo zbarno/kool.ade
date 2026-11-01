@@ -66,8 +66,7 @@ fn settings_echo_config_block_seat_flags_override() {
     assert_eq!(dlg.user_name, "Dana");
     assert_eq!(dlg.user_groups, "Ops, Platform");
     assert!(
-        dlg.identity_note
-            .contains(".koolade-packet/config/project.md"),
+        dlg.identity_note.contains("config/project.md"),
         "note: {}",
         dlg.identity_note
     );

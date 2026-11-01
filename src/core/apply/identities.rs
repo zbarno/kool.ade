@@ -120,7 +120,7 @@ mod tests {
             std::process::id(),
             chrono::Utc::now().timestamp_nanos_opt().unwrap()
         ));
-        let dir = root.join(".koolade-packet/planning/changes/F1-feature");
+        let dir = root.join("planning/changes/F1-feature");
         std::fs::create_dir_all(&dir).unwrap();
         let feature_text = ArtifactIdentity::preserve_markdown(
             "# F1: Feature\n\n**Status:** Draft\n\n## Intent\n\nKeep a stable feature identity.\n",

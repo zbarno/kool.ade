@@ -79,9 +79,10 @@ impl Fixture {
         .expect("prepare the polyglot lockfile through the task-bound dependency broker");
         let approval_cleanup =
             crate::persistence::runtime_target_approvals::WorkspaceCleanup::new(&project_id);
-        let planning = PlanningStore::legacy_embedded(
+        let planning = PlanningStore::new(
             uuid::Uuid::parse_str(&project_id).unwrap(),
-            &root.path().join("project"),
+            root.path().join("project"),
+            crate::artifacts::planning_store::StoreMode::ManagedLocal,
         );
         let runtime = ProjectRuntimeStore::new(&planning);
         let context = DiscoveryContext {

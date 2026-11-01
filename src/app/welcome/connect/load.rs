@@ -1,4 +1,5 @@
 use super::*;
+use crate::artifacts::planning_store::StoreMode;
 
 pub(super) fn connect_canonical_with_key(
     canonical: PathBuf,

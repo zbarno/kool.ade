@@ -66,7 +66,7 @@ pub(super) fn run(
     for repo in &state.repositories.repositories {
         let checkout = state
             .repositories
-            .target(&state.repo_root, &repo.id)
+            .target(state.planning_store.project_id, &state.repo_root, &repo.id)
             .map_err(|error| {
                 anyhow::anyhow!("Repository {} has no trusted checkout: {error}", repo.id)
             })?;
@@ -186,10 +186,11 @@ pub(super) fn checkpoint_matches(state: &PlannerState, stories: &[TaskStory]) ->
         else {
             return false;
         };
-        let Ok(checkout) = state
-            .repositories
-            .target(&state.repo_root, &story.target_repository)
-        else {
+        let Ok(checkout) = state.repositories.target(
+            state.planning_store.project_id,
+            &state.repo_root,
+            &story.target_repository,
+        ) else {
             return false;
         };
         repository_source_sha(

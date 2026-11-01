@@ -72,7 +72,7 @@ fn drain_recovers_an_unsaved_reply_once_the_peer_releases_the_lock() {
 fn project_context_keeps_task_identity_and_prioritizes_explicit_task_ids() {
     let mut chats = TaskChats::default();
     chats.messages.insert(
-        ".koolade-packet/planning/tasks/feature/001-login.md".into(),
+        "planning/tasks/feature/001-login.md".into(),
         vec![
             ChatMessage::new(ChatRole::User, "Use corporate SSO", None),
             ChatMessage::new(ChatRole::System, "Task reply applied. Resolved.", None),
@@ -315,17 +315,14 @@ fn independent_streams_survive_restart_without_compaction_or_main_chat() {
     chats
         .append(
             slug,
-            ".koolade-packet/planning/tasks/002.md",
+            "planning/tasks/002.md",
             vec![ChatMessage::new(ChatRole::User, "other task", None)],
         )
         .unwrap();
     let mut reopened = TaskChats::default();
     reopened.ensure_loaded(slug);
     assert_eq!(reopened.messages["CLR-001"], first);
-    assert_eq!(
-        reopened.messages[".koolade-packet/planning/tasks/002.md"].len(),
-        1
-    );
+    assert_eq!(reopened.messages["planning/tasks/002.md"].len(), 1);
     assert!(!dir.join("chat.jsonl").exists());
     std::fs::remove_dir_all(dir).unwrap();
 }

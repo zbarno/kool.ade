@@ -1,6 +1,6 @@
 //! Koolade — conversational project planner.
 //!
-//! See `.koolade-packet/planning/product/index.md` for the current product contract.
+//! See `planning/product/index.md` for the current product contract.
 //! Module map (each file is intentionally small, ~<=300 lines):
 //!
 //! - [`domain`] — value types: open items, stakeholders, current user, chat log

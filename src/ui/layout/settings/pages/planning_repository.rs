@@ -1,7 +1,6 @@
 use crate::ui::{ApplicationCommand, PlanningRepositoryCommand, Surface, theme};
 
 mod conflicts;
-mod migration;
 mod pending;
 #[cfg(test)]
 mod tests;
@@ -116,29 +115,8 @@ pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn Surface) -> Option<Stri
             }));
             if let Some(path) = &repository.checkout {
                 ui.monospace(path.display().to_string());
-                if ui.small_button("Forget local checkout mapping").clicked() {
-                    surface.dispatch(ApplicationCommand::PlanningRepository(
-                        PlanningRepositoryCommand::ForgetCodeCheckout {
-                            repository_id: repository.id.clone(),
-                        },
-                    ));
-                }
-            } else if ui
-                .small_button("Register checkout on this machine…")
-                .clicked()
-            {
-                surface.dispatch(ApplicationCommand::PlanningRepository(
-                    PlanningRepositoryCommand::MapCodeCheckout {
-                        repository_id: repository.id.clone(),
-                    },
-                ));
             }
         });
-    }
-    if ui.button("Register another code repository…").clicked() {
-        surface.dispatch(ApplicationCommand::HeaderAction(
-            crate::ui::HeaderAction::AddCodeRepository,
-        ));
     }
 
     if !view.sync.pending.is_empty() {
@@ -213,25 +191,8 @@ pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn Surface) -> Option<Stri
         });
     }
 
-    if view.migration_available {
-        ui.add_space(theme::spacing::M);
-        ui.label(theme::section_heading("Migrate legacy project"));
-        ui.label("Preview the files, identity collisions, preserved source path, and exclusions before confirming.");
-        if ui.button("Preview migration…").clicked() {
-            match surface.migration_preview() {
-                Ok(preview) => ui.ctx().data_mut(|data| {
-                    data.insert_temp(egui::Id::new("planning_migration_preview"), preview);
-                }),
-                Err(error) => surface
-                    .toasts()
-                    .warning(format!("Migration preview failed: {error}")),
-            }
-        }
-    }
-
     pending::paint_cancel_modal(ui, surface);
     conflicts::paint_modal(ui, surface);
-    migration::paint_modal(ui, surface);
     None
 }
 

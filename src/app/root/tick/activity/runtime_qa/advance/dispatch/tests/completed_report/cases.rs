@@ -12,9 +12,10 @@ use crate::runtime_qa::*;
 // This uses file-backed stores and a real lock; no Docker or network setup.
 fn completed_report_wins_over_a_late_preflight_blocker() {
     let root = tempfile::tempdir().unwrap();
-    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::new_v4(),
         root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, revision) = fixture::queued_task(&lifecycle);
@@ -65,9 +66,10 @@ fn completed_report_wins_over_a_late_preflight_blocker() {
 // This uses a file-backed store and lock; no Docker or network setup.
 fn completed_report_prevents_running_worker_restart() {
     let root = tempfile::tempdir().unwrap();
-    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::new_v4(),
         root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, revision) = fixture::queued_task(&lifecycle);
@@ -109,9 +111,10 @@ fn completed_report_prevents_running_worker_restart() {
 #[test]
 fn mismatched_report_does_not_suppress_a_preflight_blocker() {
     let root = tempfile::tempdir().unwrap();
-    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::new_v4(),
         root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, revision) = fixture::queued_task(&lifecycle);
@@ -154,9 +157,10 @@ fn mismatched_report_does_not_suppress_a_preflight_blocker() {
 #[test]
 fn completed_report_without_gate_receipt_does_not_suppress_a_blocker() {
     let root = tempfile::tempdir().unwrap();
-    let planning = crate::artifacts::planning_store::PlanningStore::legacy_embedded(
+    let planning = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::new_v4(),
         root.path(),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
     let (task_uid, request, revision) = fixture::queued_task(&lifecycle);

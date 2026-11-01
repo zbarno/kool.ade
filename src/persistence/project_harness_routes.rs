@@ -128,7 +128,11 @@ mod tests {
     #[test]
     fn project_routes_roundtrip_through_the_shared_planning_store() {
         let root = root();
-        let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &root);
+        let store = PlanningStore::new(
+            uuid::Uuid::new_v4(),
+            &root,
+            crate::artifacts::planning_store::StoreMode::ManagedLocal,
+        );
         let routes = ProjectHarnessRoutes::with_routes(BTreeMap::from([(
             crate::persistence::harness_settings::IMPLEMENTATION.into(),
             WorkRoute {

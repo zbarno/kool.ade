@@ -17,7 +17,11 @@ fn fixture(name: &str, ids: &[&str]) -> (std::path::PathBuf, PlanningStore) {
             .unwrap()
             .success()
     );
-    let store = PlanningStore::legacy_embedded(uuid::Uuid::new_v4(), &root);
+    let store = PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        &root,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     for id in ids {
         feature(&root, id, &format!("Feature {id}"));
     }
@@ -26,7 +30,7 @@ fn fixture(name: &str, ids: &[&str]) -> (std::path::PathBuf, PlanningStore) {
 
 fn feature(root: &std::path::Path, id: &str, title: &str) -> String {
     let directory = root
-        .join(".koolade-packet/planning/changes")
+        .join("planning/changes")
         .join(format!("{id}-record-fixture"));
     std::fs::create_dir_all(&directory).unwrap();
     let path = directory.join("specification.md");

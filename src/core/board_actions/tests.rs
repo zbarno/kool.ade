@@ -30,10 +30,9 @@ fn board_approval_records_feature_decision_and_resolves_item_atomically() {
     std::fs::create_dir_all(repo.join("planning")).unwrap();
     std::fs::write(repo.join("planning/specification.md"), &legacy).unwrap();
     crate::artifacts::product_docs::migrate(&repo, &legacy).unwrap();
-    std::fs::create_dir_all(repo.join(".koolade-packet/planning")).unwrap();
+    std::fs::create_dir_all(repo.join("planning")).unwrap();
     let feature = "# CHG-001: Saved searches\n\n**Status:** Draft\n\n## Intent\n\nSave searches.\n\n## Current Behavior\n\nNo saved searches.\n\n## Desired Behavior\n\nSearches can be saved.\n\n## Scope\n\nSearch UI.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\nSave search.\n\n## Decisions and Assumptions\n\nAwaiting review.\n\n## Acceptance Criteria\n\nSaved search reopens.\n";
-    let feature_path =
-        repo.join(".koolade-packet/planning/changes/CHG-001-saved-searches/specification.md");
+    let feature_path = repo.join("planning/changes/CHG-001-saved-searches/specification.md");
     std::fs::create_dir_all(feature_path.parent().unwrap()).unwrap();
     std::fs::write(&feature_path, feature).unwrap();
     let mut item = OpenItem::new(
@@ -99,15 +98,13 @@ fn board_approval_records_feature_decision_and_resolves_item_atomically() {
     });
     let decision_uid = item.uid.clone();
     std::fs::write(
-        repo.join(".koolade-packet/planning/open-items.md"),
+        repo.join("planning/open-items.md"),
         crate::artifacts::items_io::serialize(&[item]),
     )
     .unwrap();
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-qm", "seed"]);
-    let before =
-        std::fs::read(repo.join(".koolade-packet/planning/product/current-capabilities.md"))
-            .unwrap();
+    let before = std::fs::read(repo.join("planning/product/current-capabilities.md")).unwrap();
     let mut state = PlannerState::load(&repo).unwrap();
     let commit = approve_review(&mut state, "CLR-001").unwrap();
     assert!(!commit.is_empty());
@@ -127,7 +124,7 @@ fn board_approval_records_feature_decision_and_resolves_item_atomically() {
     let approved_feature = std::fs::read_to_string(&feature_path).unwrap();
     assert!(approved_feature.contains("Keep the last ten searches"));
     assert!(approved_feature.contains("src/search.rs currently stores only the active query."));
-    let decision_dir = repo.join(".koolade-packet/planning/decisions");
+    let decision_dir = repo.join("planning/decisions");
     let decisions = std::fs::read_dir(&decision_dir)
         .unwrap()
         .map(Result::unwrap)
@@ -147,15 +144,17 @@ fn board_approval_records_feature_decision_and_resolves_item_atomically() {
     assert_eq!(adr_identity.parent_uid, decision_uid);
     assert!(
         git(&repo, &["show", "--pretty=format:", "--name-only", "HEAD"])
-            .contains(".koolade-packet/planning/decisions/ADR-001-bound-saved-search-history.md")
+            .contains("planning/decisions/ADR-001-bound-saved-search-history.md")
     );
     assert_eq!(
-        std::fs::read(repo.join(".koolade-packet/planning/product/current-capabilities.md"),)
-            .unwrap(),
+        std::fs::read(repo.join("planning/product/current-capabilities.md"),).unwrap(),
         before
     );
-    let store =
-        crate::artifacts::planning_store::PlanningStore::legacy_embedded(uuid::Uuid::nil(), &repo);
+    let store = crate::artifacts::planning_store::PlanningStore::new(
+        uuid::Uuid::nil(),
+        &repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    );
     let (open_items, resolved_items, _) = crate::artifacts::items_io::load_store(&store).unwrap();
     assert!(open_items.is_empty());
     assert_eq!(resolved_items[0].id, "CLR-001");

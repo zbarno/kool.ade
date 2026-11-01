@@ -8,12 +8,7 @@ pub fn brief_target_problem(
     stamped: Option<&str>,
     feature_dir_exists: &dyn Fn(&str) -> bool,
 ) -> Option<String> {
-    brief_target_problem_at(
-        declared,
-        stamped,
-        feature_dir_exists,
-        ".koolade-packet/planning/changes",
-    )
+    brief_target_problem_at(declared, stamped, feature_dir_exists, "planning/changes")
 }
 
 pub fn brief_target_problem_with_store(
