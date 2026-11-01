@@ -10,7 +10,7 @@ pub(super) struct FinalizationContext<'a> {
     pub seeded_defect_result: Result<(), String>,
     pub cancellation_result: Result<(), String>,
     pub concurrent_runs_result: Result<(), String>,
-    pub preview_failure_result: Result<(), String>,
+    pub failure_paths_result: Result<(), String>,
     pub headless_service_result: Option<Result<crate::runtime_qa::QaDriverOutputV1, String>>,
     pub evidence_root: &'a std::path::Path,
 }
@@ -36,8 +36,8 @@ pub(super) async fn finish(context: FinalizationContext<'_>) {
         .concurrent_runs_result
         .unwrap_or_else(|error| panic!("concurrent browser runs were not isolated: {error}"));
     context
-        .preview_failure_result
-        .unwrap_or_else(|error| panic!("preview process failure was not handled safely: {error}"));
+        .failure_paths_result
+        .unwrap_or_else(|error| panic!("Runtime QA failure path was not handled safely: {error}"));
 
     let output = context.driver_result.unwrap();
     assert!(output.completed);

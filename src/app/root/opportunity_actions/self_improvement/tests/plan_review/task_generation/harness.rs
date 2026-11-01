@@ -50,7 +50,7 @@ pub(super) fn finish_main_turn(app: &mut crate::app::root::KooladeApp) -> bool {
     let Screen::Connected(mut project) = screen else {
         panic!("project remains connected")
     };
-    let _ = app.adopt_turn(&mut project, outcome);
+    let _ = app.adopt_turn(&mut project, outcome, None, None, false);
     app.screen = Screen::Connected(project);
     applied
 }

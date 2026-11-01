@@ -129,6 +129,7 @@ fn a_stranded_last_reply_drains_before_the_instance_is_replaced() {
             panic!()
         };
         p.task_chats = Default::default();
+        p.bind_task_conversation_identities();
         p.task_chats.ensure_loaded(&p.chat_slug);
         assert_eq!(p.task_chats.messages["CLR-001"].len(), memory_len);
         assert!(

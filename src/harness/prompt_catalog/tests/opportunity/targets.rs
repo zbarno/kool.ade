@@ -67,7 +67,7 @@ fn product_proposals_use_bound_public_product_evidence() {
 }
 
 #[test]
-fn manager_v7_requires_both_product_sources_while_v6_remains_compatible() {
+fn manager_v8_requires_both_product_sources_and_historical_roles_remain_compatible() {
     let mut proposal = proposal();
     proposal.target = OpportunityTarget::KooladeProduct;
     proposal.target_repository_ref = "koolade".into();
@@ -93,6 +93,7 @@ fn manager_v7_requires_both_product_sources_while_v6_remains_compatible() {
     );
     let output = manager_output(&proposal);
     assert!(validate_output_with_context(PromptRole::ManagerV6, &output, &context).is_ok());
+    assert!(validate_output_with_context(PromptRole::ManagerV7, &output, &context).is_ok());
     assert!(validate_output_with_context(PromptRole::Manager, &output, &context).is_err());
 }
 

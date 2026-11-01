@@ -1,9 +1,16 @@
 //! Identity-keyed durable conversations, projected onto current board paths.
 use super::storage::{
-    StoredHistories, canonicalize, display_histories, merge, merge_identity, read_stored,
+    StoredHistories, canonicalize, detach_other_history, display_histories, merge, merge_identity,
+    read_stored,
 };
-use crate::{artifacts::task_docs::TaskDocument, domain::ChatMessage};
+use crate::domain::ChatMessage;
 use std::collections::BTreeMap;
+
+mod identity;
+mod proactive;
+mod retry;
+
+pub use retry::{MAX_PLANNING_CONFLICT_RETRIES, PLANNING_CONFLICT_RETRY_PREFIX, TaskReplyLock};
 
 #[derive(Default)]
 pub struct TaskChats {
@@ -18,52 +25,24 @@ pub struct TaskChats {
     updates: Vec<String>,
     identities: BTreeMap<String, String>,
     paths: BTreeMap<String, String>,
+    ambiguous_paths: std::collections::BTreeSet<String>,
+    legacy_migration_keys: std::collections::BTreeSet<String>,
     stored: StoredHistories,
 }
 
 impl TaskChats {
-    /// Refresh the runtime path projection. Histories themselves are keyed by
-    /// task UID on disk, so a moved story immediately keeps its conversation.
-    pub fn bind_task_documents(&mut self, docs: &[TaskDocument]) -> Result<(), String> {
-        let mut identities = BTreeMap::new();
-        let mut paths = BTreeMap::new();
-        for doc in docs {
-            let Some(identity) = &doc.identity else {
-                continue;
-            };
-            if let Some(previous) = paths.insert(identity.uid.clone(), doc.path.clone())
-                && previous != doc.path
-            {
-                return Err(format!(
-                    "Task identity {} appears at both {previous} and {}",
-                    identity.uid, doc.path
-                ));
-            }
-            identities.insert(doc.path.clone(), identity.uid.clone());
-        }
-        self.identities = identities;
-        self.paths = paths;
-        if self.loaded {
-            self.add_current_aliases()?;
-            canonicalize(&mut self.stored);
-            self.messages = display_histories(&self.stored, &self.paths);
-        }
-        Ok(())
-    }
-
-    fn add_current_aliases(&mut self) -> Result<bool, String> {
-        let mut changed = false;
-        for (path, uid) in &self.identities {
-            changed |= merge_identity(&mut self.stored, path, uid)?;
-        }
-        Ok(changed)
-    }
-
     fn storage_key(&self, key: &str, stored: &StoredHistories) -> String {
         self.identities
             .get(key)
+            .filter(|_| !self.ambiguous_paths.contains(key))
             .or_else(|| stored.task_identities.get(key))
+            .filter(|_| !self.ambiguous_paths.contains(key))
             .map(|uid| format!("@task:{uid}"))
+            .or_else(|| {
+                self.ambiguous_paths
+                    .contains(key)
+                    .then(|| format!("@ambiguous:{key}"))
+            })
             .or_else(|| {
                 key.strip_prefix("@unlinked:")
                     .map(|uid| format!("@task:{uid}"))
@@ -87,11 +66,17 @@ impl TaskChats {
         std::mem::take(&mut self.updates)
     }
 
-    /// A project-wide view for the main planner, built from the durable task
-    /// streams rather than copying them into Main Chat. Explicitly mentioned
-    /// tasks get first claim on the budget, then the most recent interactions.
+    /// A project-wide view for the Manager, built from durable task streams
+    /// rather than copying them into Main Chat. Mentioned tasks get first claim
+    /// on the budget, then the most recent interactions.
     pub fn project_context(&self, focus: &str, budget: usize) -> String {
         super::context::build(&self.messages, focus, budget)
+    }
+
+    /// Context for one planning request is limited to conversations it names.
+    /// The Manager uses `project_context` to coordinate across the whole board.
+    pub fn project_context_for_focus(&self, focus: &str, budget: usize) -> String {
+        super::context::build_focused(&self.messages, focus, budget)
     }
 
     pub fn ensure_loaded(&mut self, slug: &str) {
@@ -101,9 +86,17 @@ impl TaskChats {
         self.refreshed = Some(std::time::Instant::now());
         match read_stored(slug) {
             Ok((mut stored, migrated)) => {
+                for key in &self.ambiguous_paths {
+                    detach_other_history(&mut stored, key, "legacy");
+                }
                 let old_messages = display_histories(&stored, &self.paths);
                 for (path, uid) in &self.identities {
-                    if let Err(error) = merge_identity(&mut stored, path, uid) {
+                    if let Err(error) = merge_identity(
+                        &mut stored,
+                        path,
+                        uid,
+                        self.legacy_migration_keys.contains(path),
+                    ) {
                         self.error = Some(error);
                         return;
                     }
@@ -197,15 +190,49 @@ impl TaskChats {
         let dir = crate::persistence::project_dir(slug);
         let _lock = Self::lock_store(slug)?;
         let (mut next, _) = read_stored(slug)?;
+        for key in &self.ambiguous_paths {
+            detach_other_history(&mut next, key, "legacy");
+        }
         for (path, uid) in &self.identities {
-            merge_identity(&mut next, path, uid)?;
+            merge_identity(
+                &mut next,
+                path,
+                uid,
+                self.legacy_migration_keys.contains(path),
+            )?;
         }
         canonicalize(&mut next);
-        for (pending_key, pending) in &self.pending {
-            let storage_key = self.storage_key(pending_key, &next);
-            Self::merge_key(&mut next, &storage_key, pending);
-        }
         let storage_key = self.storage_key(key, &next);
+        let new_user_message = messages.iter().any(|message| {
+            message.role == crate::domain::ChatRole::User
+                && !message.clarification
+                && retry::stored_history(&next, &storage_key)
+                    .is_none_or(|history| history.iter().all(|previous| previous.id != message.id))
+        });
+        if new_user_message
+            && retry::stored_history(&next, &storage_key)
+                .is_some_and(|history| retry::has_active_reply_claim(history))
+        {
+            return Err(
+                "This saved task reply is being retried internally. Your new reply remains a draft until that retry finishes.".into(),
+            );
+        }
+        let pending_user_blocked = self.pending.iter().any(|(pending_key, pending)| {
+            let pending_storage_key = self.storage_key(pending_key, &next);
+            pending.iter().any(|message| {
+                message.role == crate::domain::ChatRole::User && !message.clarification
+            }) && retry::stored_history(&next, &pending_storage_key)
+                .is_some_and(|history| retry::has_active_reply_claim(history))
+        });
+        if pending_user_blocked {
+            return Err(
+                "A saved user reply is waiting for an internal retry to finish before it can be persisted.".into(),
+            );
+        }
+        for (pending_key, pending) in &self.pending {
+            let pending_storage_key = self.storage_key(pending_key, &next);
+            Self::merge_key(&mut next, &pending_storage_key, pending);
+        }
         Self::merge_key(&mut next, &storage_key, messages);
         canonicalize(&mut next);
         let json = serde_json::to_string(&next).map_err(|e| e.to_string())?;

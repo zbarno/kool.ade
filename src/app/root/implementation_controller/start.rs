@@ -2,8 +2,10 @@ use super::*;
 
 mod actions;
 mod claim;
+mod identity;
 mod implementation;
 mod options;
+mod preflight;
 mod publication_retry;
 mod queue_wait;
 mod review;

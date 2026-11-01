@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "conversations/retry_identity.rs"]
+mod retry_identity;
+
 #[test]
 fn quiescence_longer_than_one_poll_interval_is_not_a_vanished_turn() {
     // Regression: `drain` used to declare the turn vanished on the first
@@ -167,4 +170,70 @@ fn task_conversation_cannot_dispatch_a_project_application_action() {
     }
     assert_eq!(law_evidence(&dir), before);
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+/// Production boundary: a task carrying a feature's immutable UID is stopped
+/// before the provider runs when its display ID now belongs to another feature.
+/// A UID-helper unit test cannot prove the turn controller blocks generation;
+/// this uses a temporary local Git project and a scripted harness, with no
+/// Docker or network dependency and a few seconds of setup.
+fn task_link_cannot_retarget_a_reused_feature_id() {
+    let (mut inputs, dir) = inputs_for("stale_feature_link", "Continue the saved planning task.");
+    let identified = crate::domain::ArtifactIdentity::preserve_markdown(
+        "# F1: Replacement feature\n\n**Status:** Draft\n",
+        None,
+        "F1",
+        "Replacement feature",
+    )
+    .unwrap();
+    let replacement_identity = crate::domain::ArtifactIdentity::from_markdown(&identified)
+        .unwrap()
+        .unwrap();
+    let replacement = crate::domain::ChangeMetadata::write_markdown(
+        &identified,
+        &replacement_identity,
+        crate::domain::ChangeStatus::Draft,
+    )
+    .unwrap();
+    inputs
+        .state
+        .active_features
+        .push(("F1".into(), replacement));
+
+    let mut work = crate::core::planning_work::Work::new(
+        String::new(),
+        "Plan original feature".into(),
+        "Continue the original F1 feature planning request.".into(),
+        "Planning in progress".into(),
+    );
+    work.key = format!("task:{}", work.uid);
+    work.feature_id = Some("F1".into());
+    let old_uid = "00000000-0000-4000-8000-000000000001";
+    work.feature_uid = Some(old_uid.into());
+    let key = work.key.clone();
+    crate::core::planning_work::save(&inputs.state.planning_store, &[work]).unwrap();
+
+    let controller = TurnController::start_scoped(
+        inputs,
+        Box::new(ScriptedHarness {
+            canned: None,
+            raw: None,
+        }),
+        Some(key),
+    );
+    match drain(&controller) {
+        TurnOutcome::Rejected { problems, .. } => assert!(
+            problems
+                .iter()
+                .any(|problem| problem.starts_with("Planning task feature identity mismatch:")),
+            "unexpected rejection reason: {problems:?}"
+        ),
+        other => panic!("stale task must be stopped before generation: {other:?}"),
+    }
+
+    let stored = PlannerState::load(&dir).unwrap();
+    assert!(stored.active_features.is_empty());
+    assert_ne!(replacement_identity.uid, old_uid);
+    let _ = std::fs::remove_dir_all(&dir);
 }

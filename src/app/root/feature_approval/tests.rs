@@ -75,7 +75,7 @@ fn finish(app: &mut KooladeApp) -> bool {
     let Screen::Connected(mut p) = std::mem::replace(&mut app.screen, Screen::Welcome) else {
         panic!()
     };
-    let _ = app.adopt_turn(&mut p, outcome);
+    let _ = app.adopt_turn(&mut p, outcome, None, None, false);
     app.screen = Screen::Connected(p);
     applied
 }

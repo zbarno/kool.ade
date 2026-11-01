@@ -74,3 +74,115 @@ fn stale_discovery_keeps_task_reply_as_a_draft_until_refresh() {
         );
     });
 }
+use super::*;
+
+#[path = "tests/exhausted_retry.rs"]
+mod exhausted_retry;
+
+struct WaitingHarness;
+
+impl crate::harness::AiHarness for WaitingHarness {
+    fn label(&self) -> String {
+        "retry fixture".into()
+    }
+
+    fn check_available(&self) -> Result<String, crate::error::AppError> {
+        Ok(self.label())
+    }
+
+    fn execute(
+        &self,
+        request: &crate::harness::PlanningRequest,
+    ) -> Result<crate::harness::HarnessOutcome, crate::error::AppError> {
+        while !request.cancel.load(std::sync::atomic::Ordering::SeqCst) {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        Err(crate::error::AppError::Other("cancelled fixture".into()))
+    }
+}
+
+/// Production boundary: a persisted final planning-revision conflict must
+/// restart the same task reply without appending a duplicate user answer.
+/// Store predicate tests alone cannot establish that the app reconstructs the
+/// original task-scoped turn. Uses temporary local planning files; no Docker,
+/// SSH, or network; setup cost is low.
+#[test]
+fn pending_conflict_reply_restarts_once_in_its_task_conversation() {
+    let mut app = crate::app::root::board_tests::fixture();
+    app.task_harness = Some(Box::new(WaitingHarness));
+    let key = "planning:internal-retry";
+    let slug;
+    if let Screen::Connected(project) = &mut app.screen {
+        let mut work = crate::core::planning_work::Work::new(
+            key.into(),
+            "Continue internal retry".into(),
+            "Continue using the already saved decision.".into(),
+            "The planning files changed while the turn was running.".into(),
+        );
+        work.kind = crate::core::planning_work::WorkKind::Bug;
+        project.planning_work.push(work);
+        project.save_planning_work().unwrap();
+        slug = project.chat_slug.clone();
+        project.task_chats.ensure_loaded(&slug);
+        let user = crate::domain::ChatMessage::new(
+            crate::domain::ChatRole::User,
+            "Use the verified release branch.",
+            Some(key.into()),
+        );
+        let mut conflict = crate::domain::ChatMessage::new(
+            crate::domain::ChatRole::System,
+            "Planning change was not applied; the submitted message is preserved for an internal retry.",
+            None,
+        );
+        crate::persistence::task_chats::TaskChats::mark_planning_conflict_retry(&mut conflict);
+        project
+            .task_chats
+            .append(&slug, key, vec![user, conflict])
+            .unwrap();
+    } else {
+        panic!("fixture must be connected");
+    }
+
+    app.retry_pending_task_reply();
+
+    let Screen::Connected(project) = &mut app.screen else {
+        panic!("fixture must remain connected");
+    };
+    assert!(
+        project.task_turns.contains_key(key),
+        "retry did not start: error={:?}, pending={:?}, conversations={:?}",
+        project.queue.last_error,
+        project.task_chats.pending_planning_conflict_retries(key),
+        project.task_chats.messages.keys().collect::<Vec<_>>()
+    );
+    assert_eq!(
+        project.task_chats.messages[key]
+            .iter()
+            .filter(|message| message.role == crate::domain::ChatRole::User)
+            .count(),
+        1
+    );
+    assert!(project.task_chats.messages[key].iter().any(|message| {
+        message.text == "Kool.ad/e is retrying this saved task reply internally."
+    }));
+    assert_eq!(
+        project.task_chats.pending_planning_conflict_retries(key),
+        None
+    );
+    project.task_turns[key].request_cancel();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if matches!(
+            project.task_turns[key].poll(std::time::Duration::from_millis(10)),
+            Some(crate::core::turn::TurnEvt::Done(_))
+        ) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "retry worker did not stop"
+        );
+    }
+    project.task_turns.remove(key);
+    std::fs::remove_dir_all(slug).unwrap();
+}

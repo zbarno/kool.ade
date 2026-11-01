@@ -28,6 +28,7 @@ fn opening_a_task_shows_its_greeting_in_details_without_starting_a_model_turn() 
     };
     let slug = p.chat_slug.clone();
     p.task_chats = Default::default();
+    p.bind_task_conversation_identities();
     app.prepare_task_chat(key);
     assert_eq!(app.task_messages(key), expected);
     std::fs::remove_dir_all(slug).unwrap();
@@ -78,6 +79,7 @@ fn question_opening_uses_current_context_and_resolved_items_offer_help() {
         panic!()
     };
     item.id = "CLR-002".into();
+    item.uid = Some(uuid::Uuid::new_v4().to_string());
     item.status = crate::domain::ItemStatus::Resolved;
     p.state.resolved_items.push(item);
     app.prepare_task_chat("CLR-002");
@@ -129,6 +131,7 @@ fn task_details_load_persisted_histories_and_switch_without_loading_main_chat() 
             )
             .unwrap();
         p.task_chats = Default::default();
+        p.bind_task_conversation_identities();
         p.task_chats.ensure_loaded(slug);
     }
     frame(&mut app, &ctx, vec![]);

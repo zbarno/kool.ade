@@ -49,7 +49,7 @@ impl KooladeApp {
         // selected earlier must not capture its progress or completion.
         project.task_chats.active = None;
         project.bind_task_conversation_identities();
-        let task_context = project.task_interaction_context(text);
+        let task_context = project.task_interaction_context_for_request(text);
         // Main Chat is retained as history only; planning turns are grounded
         // in board state and task context, never its transcript.
         let recent = Vec::new();

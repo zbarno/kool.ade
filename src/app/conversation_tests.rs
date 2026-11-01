@@ -15,6 +15,10 @@ mod setup_failure;
 mod new_task;
 
 #[cfg(test)]
+#[path = "conversation_tests/reply_recovery.rs"]
+mod reply_recovery;
+
+#[cfg(test)]
 #[path = "conversation_tests/dogfood.rs"]
 mod dogfood;
 

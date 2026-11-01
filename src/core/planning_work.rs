@@ -20,7 +20,7 @@ mod reconcile;
 #[cfg(test)]
 mod tests;
 
-pub use projection::{cards, context, link_feature_identities};
+pub use projection::{cards, context, find_card};
 pub use reconcile::{completed_turn_status, reconcile_inactive, reconcile_inactive_excluding};
 pub use storage::{append_discovered, find, load, load_expected, record_changes};
 
@@ -242,6 +242,17 @@ impl Work {
 
     pub fn board_column(&self) -> usize {
         self.status.board_column()
+    }
+}
+
+/// Match a planning record to the feature it owns. A durable UID is
+/// authoritative; the display ID is only a migration fallback for legacy
+/// records that predate feature UIDs.
+pub(crate) fn belongs_to_feature(work: &Work, feature_id: &str, feature_uid: Option<&str>) -> bool {
+    match (work.feature_uid.as_deref(), feature_uid) {
+        (Some(work_uid), Some(feature_uid)) => work_uid == feature_uid,
+        (Some(_), None) | (None, Some(_)) => false,
+        (None, None) => work.feature_id.as_deref() == Some(feature_id),
     }
 }
 

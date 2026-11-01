@@ -113,8 +113,11 @@ fn question_task_persists_starts_async_answers_and_finishes_without_a_spec() {
         let Screen::Connected(project) = &app.screen else {
             panic!("project remains connected");
         };
-        assert!(project.active_turn.is_some(), "planning starts immediately");
         let item = project.planning_work.last().unwrap();
+        assert!(
+            project.task_turns.contains_key(&item.key),
+            "planning starts in its task conversation"
+        );
         assert_eq!(item.kind, crate::core::planning_work::WorkKind::Question);
         assert_eq!(item.request, "Why does the application use SQLite?");
         let saved = crate::core::planning_work::load(&root).unwrap();
@@ -151,7 +154,7 @@ fn question_task_persists_starts_async_answers_and_finishes_without_a_spec() {
         crate::core::planning_work::WorkStatus::Done
     );
     let prompts = prompts.lock().unwrap();
-    assert!(prompts[0].contains("Task kind and guidance: Question"));
-    assert!(prompts[0].contains("Do not create or update feature specifications"));
+    assert!(prompts[0].contains("Answer this Question task directly"));
+    assert!(prompts[0].contains("Do not create or update specifications"));
     std::fs::remove_dir_all(root).unwrap();
 }

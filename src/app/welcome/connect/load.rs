@@ -87,8 +87,7 @@ pub(super) fn connect_canonical_with_key(
         None,
         &cancelled_planning,
     );
-    let linked = crate::core::planning_work::link_feature_identities(&state, &mut planning_work);
-    let planning_save_error = if linked || !reconciled.is_empty() {
+    let planning_save_error = if !reconciled.is_empty() {
         match crate::core::planning_work::save_expected(
             &store,
             &planning_work,
@@ -150,6 +149,8 @@ pub(super) fn connect_canonical_with_key(
         draft: String::new(),
         active_turn: None,
         task_turns: Default::default(),
+        task_turn_user_message_ids: Default::default(),
+        task_turn_reply_claims: Default::default(),
         task_live: Default::default(),
         planning_work,
         active_planning_work: None,

@@ -1,6 +1,9 @@
 mod decode;
+mod feature_target;
 mod generation;
 mod request;
+mod revision_guard;
+mod task_reply_guard;
 #[cfg(test)]
 pub(super) use decode::decode_envelope;
 pub(super) use decode::{EnvelopeDecode, decode_catalogued_envelope};
@@ -19,15 +22,47 @@ use crate::harness::{AiHarness, LiveProgress};
 
 use super::{TurnInputs, TurnOutcome};
 
+#[derive(Clone, Copy)]
+pub(super) struct TaskReplyGuard<'a> {
+    pub(super) chat_slug: &'a str,
+    pub(super) task_key: &'a str,
+    pub(super) message_id: &'a str,
+    pub(super) claim_id: Option<&'a str>,
+    pub(super) expected_feature_uid: Option<&'a str>,
+}
+
+struct RunOptions<'a> {
+    task: Option<&'a str>,
+    task_reply_guard: Option<TaskReplyGuard<'a>>,
+    timeout: Duration,
+    read_only: bool,
+}
+
+pub(super) fn task_feature_uid(state: &PlannerState, task: &str) -> Option<String> {
+    feature_target::task_feature_uid(state, task)
+}
+
 pub(super) fn run_turn(
     inputs: &TurnInputs,
     harness: &dyn AiHarness,
     cancel: &Arc<AtomicBool>,
     progress_tx: Sender<LiveProgress>,
     task: Option<&str>,
+    task_reply_guard: Option<TaskReplyGuard<'_>>,
     timeout: Duration,
 ) -> TurnOutcome {
-    run_turn_mode(inputs, harness, cancel, progress_tx, task, timeout, false)
+    run_turn_mode(
+        inputs,
+        harness,
+        cancel,
+        progress_tx,
+        RunOptions {
+            task,
+            task_reply_guard,
+            timeout,
+            read_only: false,
+        },
+    )
 }
 
 pub(super) fn run_turn_read_only(
@@ -36,9 +71,21 @@ pub(super) fn run_turn_read_only(
     cancel: &Arc<AtomicBool>,
     progress_tx: Sender<LiveProgress>,
     task: Option<&str>,
+    task_reply_guard: Option<TaskReplyGuard<'_>>,
     timeout: Duration,
 ) -> TurnOutcome {
-    run_turn_mode(inputs, harness, cancel, progress_tx, task, timeout, true)
+    run_turn_mode(
+        inputs,
+        harness,
+        cancel,
+        progress_tx,
+        RunOptions {
+            task,
+            task_reply_guard,
+            timeout,
+            read_only: true,
+        },
+    )
 }
 
 fn run_turn_mode(
@@ -46,11 +93,25 @@ fn run_turn_mode(
     harness: &dyn AiHarness,
     cancel: &Arc<AtomicBool>,
     progress_tx: Sender<LiveProgress>,
-    task: Option<&str>,
-    timeout: Duration,
-    read_only: bool,
+    options: RunOptions<'_>,
 ) -> TurnOutcome {
+    let RunOptions {
+        task,
+        task_reply_guard,
+        timeout,
+        read_only,
+    } = options;
     let started = Instant::now();
+    let expected_feature_uid = task_reply_guard.and_then(|guard| guard.expected_feature_uid);
+    if let Err(problem) =
+        feature_target::validate_task_link(&inputs.state, task, expected_feature_uid)
+    {
+        return TurnOutcome::Rejected {
+            problems: vec![problem],
+            final_text: String::new(),
+            elapsed: started.elapsed(),
+        };
+    }
     let prepared =
         match request::prepare(inputs, harness, cancel, progress_tx, task, timeout, started) {
             Ok(prepared) => prepared,
@@ -87,6 +148,7 @@ fn run_turn_mode(
     if read_only {
         return TurnOutcome::Discussion {
             final_text: outcome.final_text,
+            clarification: read_only,
             elapsed: started.elapsed(),
         };
     }
@@ -177,35 +239,64 @@ fn run_turn_mode(
                     final_text: outcome.final_text,
                     elapsed: started.elapsed(),
                 },
-                Ok(normalized) => {
+                Ok(mut normalized) => {
+                    if let Err(problem) =
+                        feature_target::validate_updates(
+                            &inputs.state,
+                            task,
+                            expected_feature_uid,
+                            &normalized,
+                        )
+                    {
+                        return TurnOutcome::Rejected {
+                            problems: vec![problem],
+                            final_text: outcome.final_text,
+                            elapsed: started.elapsed(),
+                        };
+                    }
+                    let task_reply_lock = if let Some(reply_guard) = task_reply_guard {
+                        match task_reply_guard::lock_latest_reply(
+                            reply_guard.chat_slug,
+                            reply_guard.task_key,
+                            reply_guard.message_id,
+                            reply_guard.claim_id,
+                            &outcome.final_text,
+                            started.elapsed(),
+                        ) {
+                            Ok(lock) => Some(lock),
+                            Err(rejected) => return *rejected,
+                        }
+                    } else {
+                        None
+                    };
                     // Serialize with every other planning writer, then refuse
                     // to apply this snapshot if the project moved on disk in
                     // the meantime (concurrent turn, reconciliation,
                     // investigation, or board action). A stale apply would
                     // clobber the rival's newer commit; resending is cheaper.
                     let guard = crate::core::writer_gate::acquire();
-                    let unchanged = PlannerState::load_with_store(
-                        &inputs.state.repo_root,
-                        &inputs.state.planning_store,
-                    )
-                        .is_ok_and(|current| {
-                            generation::state_matches_revision(
-                                &current,
-                                base_snapshot.as_ref(),
-                                generation_revision.as_deref(),
-                            )
-                        });
-                    if !unchanged {
-                        return TurnOutcome::Rejected {
-                            problems: vec!["Planning files changed on disk while this turn was running, so nothing was saved. Review the latest artifacts and resend this message against the current state.".into()],
-                            final_text: outcome.final_text, elapsed: started.elapsed(),
-                        };
+                    if !revision_guard::unchanged(
+                        &inputs.state,
+                        base_snapshot.as_ref(),
+                        generation_revision.as_deref(),
+                    ) {
+                        return revision_guard::rejected(&outcome.final_text, started.elapsed());
                     }
                     let mut state = inputs.state.clone();
                     generation::adopt_revision(&mut state, generation_revision);
                     let receipt = match apply(&mut state, &normalized) {
                         Ok(rc) => rc,
                         Err(err) => {
+                            if matches!(
+                                err.downcast_ref::<crate::artifacts::planning_store::StoreError>(),
+                                Some(crate::artifacts::planning_store::StoreError::StaleRevision { .. })
+                            ) {
+                                return TurnOutcome::Rejected {
+                                    problems: vec!["Planning files changed on disk while this turn was being saved. The submitted message remains in its conversation for an internal retry; do not ask the user to resend it.".into()],
+                                    final_text: outcome.final_text,
+                                    elapsed: started.elapsed(),
+                                };
+                            }
                             return TurnOutcome::HarnessFailed {
                                 error: AppError::Other(format!("artifact write failed: {err:#}")),
                                 elapsed: started.elapsed(),
@@ -222,6 +313,13 @@ fn run_turn_mode(
                             cancel,
                         )
                     };
+                    if let Some(lock) = &task_reply_lock
+                        && let Err(error) = lock.mark_applied()
+                    {
+                        normalized.warnings.push(format!(
+                            "Planning changes were applied, but the saved task reply retry completion could not be recorded: {error}."
+                        ));
+                    }
                     drop(guard);
                     TurnOutcome::Applied {
                         state: Box::new(state),

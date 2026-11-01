@@ -72,6 +72,7 @@ pub(super) fn validate_input(input: &RoleInputV1) -> Result<(), String> {
         (input.role, &input.payload),
         (
             PromptRole::Manager
+                | PromptRole::ManagerV7
                 | PromptRole::ManagerV6
                 | PromptRole::ManagerV5
                 | PromptRole::ManagerV4

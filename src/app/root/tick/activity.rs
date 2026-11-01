@@ -12,6 +12,7 @@ pub(crate) fn synchronize_self_improvement_run_for_test(
 
 impl KooladeApp {
     pub(super) fn advance_activity(&mut self) {
+        self.retry_pending_task_reply();
         let mut plan_repair = None;
         let mut code_review_repair = None;
         let mut planner_generation_readiness = None;
@@ -122,6 +123,16 @@ impl KooladeApp {
                 project.activity.last_update,
                 Instant::now(),
             ) {
+                // A normal poll may be throttled to avoid rereading the chat
+                // store every frame. Manager decisions must see a peer-window
+                // answer saved since that poll before it decides who owes a
+                // response.
+                project.bind_task_conversation_identities();
+                project.task_chats.refresh_now(&project.chat_slug);
+                project
+                    .activity
+                    .pending
+                    .extend(project.task_chats.take_updates());
                 let events = std::mem::take(&mut project.activity.pending);
                 let harness = crate::app::root::configured_harness_for_project(
                     &mut self.task_harness,

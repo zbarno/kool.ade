@@ -81,6 +81,16 @@ pub(super) fn latest_context_for(
 
 impl KooladeApp {
     pub(super) fn submit_implementation_decision(&mut self, key: &str) -> bool {
+        let ambiguous_identity = match &mut self.screen {
+            Screen::Connected(project) => project.task_conversation_identity_is_ambiguous(key),
+            Screen::Welcome => false,
+        };
+        if ambiguous_identity {
+            self.toasts.warning(
+                "This board conversation has conflicting artifact identities. Your draft is preserved until Kool.ad/e repairs the board link.",
+            );
+            return false;
+        }
         let Screen::Connected(project) = &mut self.screen else {
             return false;
         };
@@ -100,7 +110,6 @@ impl KooladeApp {
         if text.trim().is_empty() {
             return false;
         }
-        project.bind_task_conversation_identities();
         project.task_chats.ensure_loaded(&project.chat_slug);
         let mut message = ChatMessage::new(ChatRole::User, &text, Some(key.into()));
         let detail = project

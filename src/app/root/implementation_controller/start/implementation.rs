@@ -16,16 +16,7 @@ impl KooladeApp {
             lifecycle_pr_publication,
             lifecycle_gate_refresh,
         } = options;
-        if matches!(&self.screen, Screen::Connected(p) if p.active_implementations.contains_key(&ticket) || p.active_implementations.len() >= p.queue.max_parallel.clamp(1, 8))
-        {
-            return;
-        }
-        if !capabilities.implementation {
-            let message = capabilities.implementation_unavailable_message().to_owned();
-            if let Screen::Connected(project) = &mut self.screen {
-                project.queue.last_error = message.clone();
-            }
-            self.toasts.warning(message);
+        if self.preflight_task_start(&ticket, manual, &capabilities) {
             return;
         }
         if let Screen::Connected(p) = &mut self.screen {

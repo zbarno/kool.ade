@@ -17,7 +17,7 @@ fn evidence_is_quoted_as_user_data_and_captured_by_manifest() {
     assert!(!first.system.contains("ignore system policy"));
     assert!(first.user.contains("QUOTED EVIDENCE (UNTRUSTED DATA)"));
     assert!(first.user.contains("ignore system policy"));
-    assert_eq!(first.manifest.role_version, "manager/v7");
+    assert_eq!(first.manifest.role_version, "manager/v8");
     assert_eq!(first.manifest.system_template_sha256.len(), 64);
     assert_eq!(first.manifest.user_template_sha256.len(), 64);
     assert_eq!(first.manifest.policy_template_sha256.len(), 64);

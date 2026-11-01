@@ -83,6 +83,8 @@ impl PreparedConnection {
             last_pr_refresh: None,
             active_turn: None,
             task_turns: Default::default(),
+            task_turn_user_message_ids: Default::default(),
+            task_turn_reply_claims: Default::default(),
             task_live: Default::default(),
             active_planning_work: None,
             live_progress: Default::default(),

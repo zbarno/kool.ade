@@ -30,6 +30,9 @@ use crate::domain::{
     is_general_category,
 };
 
+mod human_actionable;
+pub use human_actionable::human_actionable_items;
+
 /// Explanation of why an item may be posed to the current user.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Eligibility {
@@ -360,6 +363,14 @@ mod tests {
                 .map(|item| item.id.as_str())
                 .collect::<Vec<_>>(),
             ["CLR-007", "CLR-008"]
+        );
+        assert_eq!(
+            human_actionable_items(&items, &chair(), &Stakeholders::default())
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["CLR-007"],
+            "Review work remains visible but must not be framed as a user-owned answer"
         );
         assert_eq!(
             recommended_next(&items, &chair(), &Stakeholders::default())

@@ -161,8 +161,7 @@ pub fn routing_for_feature<R: PlanningRoot + ?Sized>(
                 | WorkKind::PlanReviewDisposition
                 | WorkKind::CodeReviewDisposition
                 | WorkKind::QaFindingDisposition
-        ) && (feature_uid.is_some() && work.feature_uid.as_deref() == feature_uid
-            || work.feature_id.as_deref() == Some(feature_id))
+        ) && super::belongs_to_feature(work, feature_id, feature_uid)
     });
     Ok(work.map_or_else(
         crate::core::workflow::TaskRoutingSnapshot::default,

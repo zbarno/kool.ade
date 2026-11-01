@@ -26,6 +26,17 @@ fn awaiting_approval(app: &mut KooladeApp, ticket: &str) {
         .insert(ticket.to_owned(), record);
 }
 
+fn make_task_identity_ambiguous(project: &mut crate::app::session::Project) {
+    let mut first = crate::domain::ArtifactIdentity::new("TASK-001", "First task");
+    first.uid = uuid::Uuid::new_v4().to_string();
+    let mut second = crate::domain::ArtifactIdentity::new("TASK-001", "First task");
+    second.uid = uuid::Uuid::new_v4().to_string();
+    project.task_documents[0].identity = Some(first);
+    let mut duplicate = project.task_documents[0].clone();
+    duplicate.identity = Some(second);
+    project.task_documents.push(duplicate);
+}
+
 #[test]
 fn verified_work_waiting_approval_is_in_review_with_direct_card_actions() {
     let mut app = fixture();
@@ -74,6 +85,83 @@ fn changes_requested_is_saved_as_a_review_outcome() {
                 && message.text == "I am requesting changes before approving a pull request."
         }));
     }
+}
+
+#[test]
+fn ambiguous_task_identity_preserves_requested_changes_draft() {
+    let mut app = fixture();
+    let ticket = "planning/tasks/fixture/001-task.md";
+    if let Screen::Connected(project) = &mut app.screen {
+        make_task_identity_ambiguous(project);
+
+        let mut record = project
+            .implementation_states
+            .values()
+            .next()
+            .unwrap()
+            .clone();
+        record.ticket = ticket.into();
+        record.status = ImplementationStatus::ChangesRequested;
+        project.implementation_states.insert(ticket.into(), record);
+        project
+            .task_chats
+            .drafts
+            .insert(ticket.into(), "Improve the empty state.".into());
+    }
+
+    app.submit_task_reply(ticket);
+
+    let Screen::Connected(project) = &app.screen else {
+        unreachable!()
+    };
+    assert_eq!(
+        project.task_chats.drafts.get(ticket).map(String::as_str),
+        Some("Improve the empty state.")
+    );
+    assert!(!project.task_chats.messages.contains_key(ticket));
+    assert!(!project.active_implementations.contains_key(ticket));
+}
+
+/// Production action boundary: every task mutation must refuse a display key
+/// that maps to duplicate immutable artifact identities. Conversation-only
+/// storage tests cannot prove review state and implementation workers remain
+/// untouched. Uses the local board fixture; no provider, Docker, SSH, or
+/// network dependencies; low setup cost.
+#[test]
+fn ambiguous_identity_blocks_review_decision_and_worker_start() {
+    let mut app = fixture();
+    let ticket = "planning/tasks/fixture/001-task.md";
+    awaiting_approval(&mut app, ticket);
+    if let Screen::Connected(project) = &mut app.screen {
+        make_task_identity_ambiguous(project);
+        project.queue.blocked.insert(
+            ticket.into(),
+            crate::core::implementation::Failure::other("Needs a decision"),
+        );
+        project
+            .task_chats
+            .drafts
+            .insert(ticket.into(), "Keep the verified result.".into());
+    }
+
+    app.request_publication_changes(ticket);
+    app.approve_publication(ticket);
+    assert!(!app.submit_implementation_decision(ticket));
+    app.start_implementation(ticket.into(), true);
+
+    let Screen::Connected(project) = &app.screen else {
+        unreachable!()
+    };
+    assert_eq!(
+        project.implementation_states[ticket].status,
+        ImplementationStatus::AwaitingApproval
+    );
+    assert_eq!(
+        project.task_chats.drafts.get(ticket).map(String::as_str),
+        Some("Keep the verified result.")
+    );
+    assert!(!project.task_chats.messages.contains_key(ticket));
+    assert!(!project.active_implementations.contains_key(ticket));
 }
 
 // Production modal -> explicit review response -> durable task history/resume

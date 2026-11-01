@@ -3,6 +3,8 @@ use std::sync::{Arc, Mutex};
 
 #[path = "new_task/branch_selection.rs"]
 mod branch_selection;
+#[path = "new_task/parallel_streams.rs"]
+mod parallel_streams;
 
 #[test]
 fn feature_bug_and_new_project_tasks_persist_their_kind_and_start_from_the_board() {
@@ -65,15 +67,15 @@ fn feature_bug_and_new_project_tasks_persist_their_kind_and_start_from_the_board
         click_text(&mut app, &ctx, "Describe what you want to do…");
         frame(&mut app, &ctx, vec![egui::Event::Text(description.into())]);
         click_text(&mut app, &ctx, "Create Task");
-        let uid = {
+        let (uid, key) = {
             let Screen::Connected(project) = &app.screen else {
                 panic!()
             };
-            assert!(
-                project.active_turn.is_some(),
-                "{label} starts planning immediately"
-            );
             let created = project.planning_work.last().unwrap();
+            assert!(
+                project.task_turns.contains_key(&created.key),
+                "{label} starts in its own task conversation"
+            );
             assert_eq!(created.kind, kind);
             assert_eq!(created.request, description);
             assert_eq!(created.source_branch.as_deref(), Some("main"));
@@ -88,11 +90,9 @@ fn feature_bug_and_new_project_tasks_persist_their_kind_and_start_from_the_board
                 persisted.last().unwrap().destination_branch.as_deref(),
                 Some("main")
             );
-            created.uid.clone()
+            (created.uid.clone(), created.key.clone())
         };
-        if let Screen::Connected(project) = &app.screen {
-            project.active_turn.as_ref().unwrap().request_cancel();
-        }
+        app.cancel_task_reply(&key);
         complete(&mut app);
         assert!(
             crate::core::planning_work::load(&root)
@@ -209,15 +209,20 @@ fn question_answer_can_offer_a_linked_feature_task_that_starts_only_on_selection
     assert!(text_position(&output, "Next step").is_some());
     let output = click_text(&mut app, &ctx, "Related task");
     assert!(text_position(&output, "Create related Feature task").is_some());
+    app.task_harness = Some(Box::new(StoppedHarness {
+        wait_for_cancel: true,
+    }));
     click_text(&mut app, &ctx, "Create related Feature task");
     let Screen::Connected(project) = &app.screen else {
         panic!()
     };
-    assert!(
-        project.active_turn.is_some(),
-        "the selected offer starts planning"
-    );
     let child = project.planning_work.last().unwrap();
+    assert!(
+        project.task_turns.contains_key(&child.key),
+        "related task startup failed: toast={:?}, task chat error={:?}, child={child:?}",
+        app.toasts.last_message(),
+        project.task_chats.error
+    );
     assert_eq!(child.kind, crate::core::planning_work::WorkKind::Feature);
     assert_eq!(child.parent_uid.as_deref(), Some(parent_uid.as_str()));
     assert_eq!(
@@ -244,7 +249,8 @@ fn question_answer_can_offer_a_linked_feature_task_that_starts_only_on_selection
         parent.follow_up_task.is_none(),
         "the offer cannot be selected twice"
     );
-    project.active_turn.as_ref().unwrap().request_cancel();
+    let child_key = child.key.clone();
+    app.cancel_task_reply(&child_key);
     complete(&mut app);
     std::fs::remove_dir_all(root).unwrap();
 }

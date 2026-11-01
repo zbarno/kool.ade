@@ -74,9 +74,24 @@ fn submitted_answers_share_history_and_keep_other_chats_out_of_prompts() {
         Some("Use corporate SSO")
     );
     click_text(&mut app, &ctx, "Submit answer");
-    assert_eq!(app.task_messages("CLR-001").len(), 2);
+    assert!(
+        app.task_messages("CLR-001").iter().any(|message| {
+            message.role == ChatRole::User && message.text.contains("Use corporate SSO")
+        }),
+        "history after submit: {:?}",
+        app.task_messages("CLR-001")
+    );
     complete(&mut app);
-    assert_eq!(app.task_messages("CLR-001").len(), 4);
+    assert!(app.task_messages("CLR-001").iter().any(|message| {
+        message.role == ChatRole::Agent
+            && message.text == "Corporate SSO recorded. Any additional requirement?"
+    }));
+    assert!(app.task_messages("CLR-001").iter().any(|message| {
+        message.role == ChatRole::System
+            && message
+                .id
+                .starts_with("internal-task-reply-outcome:applied:")
+    }));
     assert_eq!(app.chat_messages().len(), 1);
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Needs attention · 1").is_some());
@@ -100,9 +115,17 @@ fn submitted_answers_share_history_and_keep_other_chats_out_of_prompts() {
         "open_items_resolved":["CLR-001"]
     }).to_string() }));
     click_text(&mut app, &ctx, "Submit answer");
-    assert_eq!(app.task_messages("CLR-001").len(), 5);
+    assert!(
+        app.task_messages("CLR-001").iter().any(|message| {
+            message.role == ChatRole::User && message.text.contains("Require MFA as well")
+        }),
+        "history after second submit: {:?}",
+        app.task_messages("CLR-001")
+    );
     complete(&mut app);
-    assert_eq!(app.task_messages("CLR-001").len(), 7);
+    assert!(app.task_messages("CLR-001").iter().any(|message| {
+        message.role == ChatRole::Agent && message.text == "Corporate SSO with MFA is confirmed."
+    }));
     assert_eq!(app.chat_messages().len(), 1);
     let captured = prompts.lock().unwrap();
     assert_eq!(captured.len(), 2);
@@ -118,9 +141,11 @@ fn submitted_answers_share_history_and_keep_other_chats_out_of_prompts() {
     let persisted = crate::core::state::PlannerState::load(&repo).unwrap();
     assert!(persisted.spec_text.unwrap().contains("SSO with MFA"));
     assert_eq!(persisted.resolved_items[0].conversation_key(), "CLR-001");
+    let expected_task_history = p.task_chats.messages["CLR-001"].clone();
     p.task_chats = Default::default();
+    p.bind_task_conversation_identities();
     p.task_chats.ensure_loaded(&p.chat_slug);
-    assert_eq!(p.task_chats.messages["CLR-001"].len(), 7);
+    assert_eq!(p.task_chats.messages["CLR-001"], expected_task_history);
     assert_eq!(p.task_chats.messages["CLR-002"].len(), 1);
     let manager_prompt = crate::app::manager::Manager::prompt_body(p.as_ref(), &p.activity.pending);
     for fact in [
@@ -170,9 +195,9 @@ fn submitted_answers_share_history_and_keep_other_chats_out_of_prompts() {
         "Use corporate SSO",
         "Require MFA as well",
         "This question is resolved.",
-        "OTHER TASK PRIVATE SENTINEL",
     ] {
         assert!(main_prompts[0].contains(fact), "main planner missed {fact}");
     }
+    assert!(!main_prompts[0].contains("OTHER TASK PRIVATE SENTINEL"));
     std::fs::remove_dir_all(root).unwrap();
 }

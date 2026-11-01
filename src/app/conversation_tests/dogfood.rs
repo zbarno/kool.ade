@@ -161,8 +161,8 @@ fn create_task_from_board(app: &mut KooladeApp, ctx: &egui::Context, scenario: S
     frame(app, ctx, vec![egui::Event::Text(scenario.request.into())]);
     click_text(app, ctx, "Create Task");
     assert!(
-        app.conversation_busy(),
-        "New Task starts real planning at once"
+        matches!(&app.screen, Screen::Connected(project) if !project.task_turns.is_empty()),
+        "New Task starts an independent planning turn at once"
     );
 }
 

@@ -6,30 +6,40 @@ impl KooladeApp {
         &mut self,
         project: &mut Project,
         outcome: TurnOutcome,
+        task_conversation: Option<&str>,
+        task_author: Option<(String, String)>,
+        superseded_task_reply: bool,
     ) -> Option<crate::harness::RequestedAction> {
-        if let TurnOutcome::Discussion { final_text, .. } = &outcome {
-            remember_turn_messages(
-                project,
-                None,
-                vec![ChatMessage::new(ChatRole::Agent, final_text, None)],
-            );
+        if let Some(key) = task_conversation {
+            project.task_chats.active = Some(key.to_owned());
+        }
+        if let TurnOutcome::Discussion {
+            final_text,
+            clarification,
+            ..
+        } = &outcome
+        {
+            let mut response = ChatMessage::new(ChatRole::Agent, final_text, None);
+            response.clarification = *clarification;
+            remember_turn_messages(project, None, vec![response]);
             project.task_chats.active = None;
             return None;
         }
-        let plan_disposition_conversation = project
-            .active_planning_work
-            .as_ref()
+        let plan_disposition_conversation = task_conversation
+            .or(project.active_planning_work.as_deref())
             .filter(|key| {
                 project.planning_work.iter().any(|work| {
-                    &work.key == *key
+                    work.key == *key
                         && work.kind == crate::core::planning_work::WorkKind::PlanReviewDisposition
                 })
             })
-            .cloned();
-        let author_provenance = project
-            .active_turn
-            .as_ref()
-            .map(|turn| (turn.author_run_id.clone(), turn.author_session_id.clone()));
+            .map(str::to_owned);
+        let author_provenance = task_author.or_else(|| {
+            project
+                .active_turn
+                .as_ref()
+                .map(|turn| (turn.author_run_id.clone(), turn.author_session_id.clone()))
+        });
         let plan_feedback_refresh =
             plan_feedback::capture(project, plan_disposition_conversation.as_deref());
         if let TurnOutcome::HarnessFailed { error, .. } = &outcome
@@ -47,7 +57,7 @@ impl KooladeApp {
         }
         // A selected task chat can change while a planning turn is running.
         // Keep the turn bound to the planning task that started it.
-        if project.active_planning_work.is_some() {
+        if task_conversation.is_none() && project.active_planning_work.is_some() {
             project.task_chats.active = None;
         }
         if let TurnOutcome::Applied {
@@ -58,16 +68,20 @@ impl KooladeApp {
         {
             project.planning_work = work;
         }
-        let cancelled_planning_turn = project
-            .active_planning_work
-            .as_deref()
-            .and_then(|key| project.planning_work.iter().find(|work| work.key == key))
-            .is_some_and(|work| {
-                project
-                    .cancelled_work
-                    .contains(&crate::persistence::cancelled_work::planning_id(&work.uid))
-            });
-        let requested_action = if project.task_chats.active.is_none() && !cancelled_planning_turn {
+        let cancelled_planning_turn = task_conversation.is_none()
+            && project
+                .active_planning_work
+                .as_deref()
+                .and_then(|key| project.planning_work.iter().find(|work| work.key == key))
+                .is_some_and(|work| {
+                    project
+                        .cancelled_work
+                        .contains(&crate::persistence::cancelled_work::planning_id(&work.uid))
+                });
+        let requested_action = if task_conversation.is_none()
+            && project.task_chats.active.is_none()
+            && !cancelled_planning_turn
+        {
             match &outcome {
                 TurnOutcome::Applied { normalized, .. } => normalized.requested_action.clone(),
                 _ => None,
@@ -75,102 +89,36 @@ impl KooladeApp {
         } else {
             None
         };
-        {
-            let work_key = project
-                .task_chats
-                .active
-                .clone()
-                .or_else(|| project.active_planning_work.take());
-            if let Some(key) = work_key {
-                let will_continue = self
-                    .pending_feature_generation
-                    .as_ref()
-                    .is_some_and(|(_, _, _, pending_key)| pending_key == &key);
-                if let Some(work) = project.planning_work.iter_mut().find(|work| {
-                    work.key == key
-                        && !project
-                            .cancelled_work
-                            .contains(&crate::persistence::cancelled_work::planning_id(&work.uid))
-                }) {
-                    match &outcome {
-                        TurnOutcome::Applied { normalized, .. } => {
-                            let model_offer = normalized.follow_up_task.clone().map(|offer| {
-                                crate::core::planning_work::FollowUpTaskOffer {
-                                    title: offer.title,
-                                    description: offer.description,
-                                }
-                            });
-                            work.follow_up_task = model_offer
-                                .or_else(|| planning_work::provider_support_follow_up(work));
-                            if work.kind != crate::core::planning_work::WorkKind::TaskGeneration {
-                                work.feature_id = normalized
-                                    .document_updates
-                                    .iter()
-                                    .find_map(|(id, _)| {
-                                        id.strip_prefix("feature:").map(str::to_owned)
-                                    })
-                                    .or(work.feature_id.clone());
-                            }
-                            let needs_input = normalized.next_question_id.is_some()
-                                || normalized.planning_tasks.iter().any(|task| {
-                                    task.status
-                                        == crate::core::planning_work::WorkStatus::NeedsAttention
-                                })
-                                || normalized.added.iter().any(|item| {
-                                    matches!(
-                                        item.authority,
-                                        crate::domain::Authority::Human
-                                            | crate::domain::Authority::Review
-                                    )
-                                });
-                            work.status = crate::core::planning_work::completed_turn_status(
-                                work.kind,
-                                work.feature_id.is_some(),
-                                needs_input,
-                                normalized.task_batch.is_some(),
-                                will_continue,
-                            );
-                            work.detail = if work.kind
-                                == crate::core::planning_work::WorkKind::PlanReviewDisposition
-                            {
-                                format!(
-                                    "{}\n\nPlanner update: {}",
-                                    work.detail, normalized.assistant_message
-                                )
-                            } else if work.kind
-                                == crate::core::planning_work::WorkKind::TaskGeneration
-                                && normalized.task_batch.is_some()
-                            {
-                                "Implementation tasks were generated and added to the Kanban board."
-                                    .into()
-                            } else {
-                                normalized.assistant_message.clone()
-                            };
-                        }
-                        TurnOutcome::HarnessFailed { error, .. } => {
-                            work.status = crate::core::planning_work::WorkStatus::NeedsAttention;
-                            work.detail = format!(
-                                "Planning needs attention before it can continue.\n\n{}\n\nNext action: fix the reported setup or provider issue, then retry this task.",
-                                error.detail()
-                            );
-                        }
-                        _ => {
-                            work.status = crate::core::planning_work::WorkStatus::NeedsAttention;
-                            work.detail = "Planning needs attention; continue this request in its conversation.".into();
-                        }
-                    }
-                }
-                crate::core::planning_work::link_feature_identities(
-                    &project.state,
-                    &mut project.planning_work,
-                );
-                if let Err(error) = project.save_planning_work() {
-                    self.toasts
-                        .danger(format!("Cannot save planning board: {error}"));
-                }
+        let work_key = task_conversation
+            .map(str::to_owned)
+            .or_else(|| project.active_planning_work.take());
+        if let Some(key) = work_key {
+            let will_continue = self
+                .pending_feature_generation
+                .as_ref()
+                .is_some_and(|(_, _, _, pending_key)| pending_key == &key);
+            work::update(
+                project,
+                &key,
+                &outcome,
+                will_continue,
+                superseded_task_reply,
+            );
+            if let Err(error) = project.save_planning_work() {
+                self.toasts
+                    .danger(format!("Cannot save planning board: {error}"));
             }
         }
-        self.reset_turn_activity(project);
+        if let Some(key) = task_conversation {
+            project
+                .activity
+                .conversations
+                .entry(key.to_owned())
+                .or_default()
+                .update(Default::default());
+        } else {
+            self.reset_turn_activity(project);
+        }
         project.active_turn = None;
         project.live_progress = crate::harness::LiveProgress::default();
         match outcome {
@@ -212,11 +160,19 @@ impl KooladeApp {
                 {
                     project.next_question_id = None;
                 }
-                let mut chat = vec![ChatMessage::new(
-                    ChatRole::Agent,
-                    normalized.assistant_message,
-                    normalized.next_question_id.clone(),
-                )];
+                let mut chat = if superseded_task_reply && task_conversation.is_some() {
+                    vec![ChatMessage::new(
+                        ChatRole::System,
+                        "An earlier saved reply was applied before the newer reply arrived. The newer reply remains saved for processing.",
+                        task_conversation.map(str::to_owned),
+                    )]
+                } else {
+                    vec![ChatMessage::new(
+                        ChatRole::Agent,
+                        normalized.assistant_message,
+                        normalized.next_question_id.clone(),
+                    )]
+                };
                 if !receipt.synthesized_open_items.is_empty() {
                     chat.push(ChatMessage::new(
                         ChatRole::System,
@@ -242,19 +198,23 @@ impl KooladeApp {
                 if let Some(key) = project.task_chats.active.clone() {
                     project.remember_turn_chat(vec![ChatMessage::new(
                         ChatRole::System,
-                        format!(
-                            "Task reply applied to planning artifacts. {}",
-                            if project
-                                .state
-                                .resolved_items
-                                .iter()
-                                .any(|i| i.conversation_key() == key)
-                            {
-                                "This question is resolved."
-                            } else {
-                                "See the current task for any remaining questions."
-                            }
-                        ),
+                        if superseded_task_reply {
+                            "An earlier task reply was applied. The newer reply remains saved for processing.".into()
+                        } else {
+                            format!(
+                                "Task reply applied to planning artifacts. {}",
+                                if project
+                                    .state
+                                    .resolved_items
+                                    .iter()
+                                    .any(|i| i.conversation_key() == key)
+                                {
+                                    "This question is resolved."
+                                } else {
+                                    "See the current task for any remaining questions."
+                                }
+                            )
+                        },
                         Some(key),
                     )]);
                 }

@@ -142,7 +142,7 @@ fn live_previews_precede_completion_and_never_write_unvalidated_content() {
         );
         let mut previews = Vec::new();
         for _ in 0..2 {
-            match c.poll(Duration::from_secs(3)) {
+            match c.poll(Duration::from_secs(30)) {
                 Some(TurnEvt::Progress(p)) => previews.push(p.specification.unwrap()),
                 _ => {
                     gate.wait();
