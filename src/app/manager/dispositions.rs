@@ -11,6 +11,8 @@ mod code_reviews;
 mod fields;
 #[path = "dispositions/kind.rs"]
 mod kind;
+#[path = "dispositions/qa_findings.rs"]
+mod qa_findings;
 pub(crate) use code_reviews::approve_risk as approve_code_review_risk;
 pub(crate) use code_reviews::finish_repair as finish_code_review_repair;
 pub(crate) use code_reviews::has_unpromoted_nonblocking_findings;
@@ -21,6 +23,11 @@ pub(crate) use code_reviews::{
     next_arbitration as next_code_review_arbitration,
 };
 use kind::DispositionWork;
+#[cfg(test)]
+pub(crate) use qa_findings::next_repair_with_store_for_test as next_qa_finding_repair_with_store;
+pub(crate) use qa_findings::{
+    finish_after_qa as finish_qa_finding_repair, next_repair as next_qa_finding_repair,
+};
 use sha2::Digest;
 
 /// Persist validated Manager decisions as ordinary planning work, using a

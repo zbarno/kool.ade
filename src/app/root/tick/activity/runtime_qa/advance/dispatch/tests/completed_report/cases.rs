@@ -40,7 +40,10 @@ fn completed_report_wins_over_a_late_preflight_blocker() {
     )
     .unwrap();
 
-    assert!(matches!(outcome, BlockOutcome::ReportPresent(_)));
+    assert!(matches!(
+        outcome,
+        BlockOutcome::ReportPresent { applied: true, .. }
+    ));
     let execution = lifecycle
         .load_task(&task_uid)
         .unwrap()
