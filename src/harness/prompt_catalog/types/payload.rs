@@ -8,18 +8,36 @@ pub(crate) fn validate_payload(payload: &RolePayloadV1) -> Result<(), String> {
         values.len() <= count && values.iter().all(|value| text(value, max_item))
     }
 
-    let valid = match payload {
-        RolePayloadV1::Manager {
-            board_event_cursor,
-            work_graph,
-            unresolved_findings,
-            latest_review_receipts,
-        } => {
-            text(board_event_cursor, 128)
-                && list(work_graph, 256, 4096)
-                && list(unresolved_findings, 256, 4096)
-                && list(latest_review_receipts, 256, 512)
+    if let RolePayloadV1::Manager {
+        board_event_cursor,
+        work_graph,
+        unresolved_findings,
+        latest_review_receipts,
+    } = payload
+    {
+        if !text(board_event_cursor, 128) {
+            return Err(
+                "role payload field board_event_cursor must be nonempty and at most 128 bytes"
+                    .into(),
+            );
         }
+        if !list(work_graph, 256, 4096) {
+            return Err(
+                "role payload field work_graph contains an empty, oversized, or excessive entry"
+                    .into(),
+            );
+        }
+        if !list(unresolved_findings, 256, 4096) {
+            return Err("role payload field unresolved_findings contains an empty, oversized, or excessive entry".into());
+        }
+        if !list(latest_review_receipts, 256, 512) {
+            return Err("role payload field latest_review_receipts contains an empty, oversized, or excessive entry".into());
+        }
+        return Ok(());
+    }
+
+    let valid = match payload {
+        RolePayloadV1::Manager { .. } => unreachable!("Manager payloads return above"),
         RolePayloadV1::Planner {
             open_questions,
             previous_answers,
