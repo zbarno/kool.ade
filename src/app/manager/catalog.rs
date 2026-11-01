@@ -63,6 +63,11 @@ pub(super) fn render(
                 .map(|(_, text)| crate::core::workflow::feature_contract(text))
         })
         .unwrap_or_else(|| "Provide an accurate update on current workspace activity.".into());
+    let original_goal = if original_goal.trim().is_empty() {
+        "Provide an accurate update on current workspace activity.".into()
+    } else {
+        crate::core::context_build::clip_bytes(&original_goal, 16 * 1024)
+    };
     let approved_spec = project.state.active_feature.as_ref().filter(|(id, _)| {
         crate::core::workflow::feature_approved(
             &project.state.planning_store,

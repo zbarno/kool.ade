@@ -24,6 +24,18 @@ pub(super) fn launch(
         let prepared = match prepared {
             Ok(prepared) => prepared,
             Err(error) => {
+                super::telemetry::persist_invocation(
+                    &invocation.project_root,
+                    &invocation.harness_label,
+                    invocation.route.as_ref(),
+                    &request,
+                    &invocation.execution_id,
+                    super::telemetry::InvocationOutcome {
+                        status: "blocked",
+                        failure_category: Some("prompt_preparation_failed"),
+                        failure_message: Some(&crate::error::redact_secrets(&error)),
+                    },
+                );
                 let _ = done.send(Err(error));
                 return;
             }

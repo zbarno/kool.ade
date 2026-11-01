@@ -53,7 +53,11 @@ pub(super) fn update(
                     work.feature_uid = Some(feature_uid);
                 }
             }
-            let needs_input = normalized.next_question_id.is_some()
+            let missing_documentation = work.kind
+                == crate::core::planning_work::WorkKind::DocumentationRefresh
+                && normalized.document_updates.is_empty();
+            let needs_input = missing_documentation
+                || normalized.next_question_id.is_some()
                 || normalized.planning_tasks.iter().any(|task| {
                     task.status == crate::core::planning_work::WorkStatus::NeedsAttention
                 })
@@ -74,7 +78,9 @@ pub(super) fn update(
                     will_continue,
                 )
             };
-            work.detail = if superseded_reply {
+            work.detail = if missing_documentation {
+                "Documentation refresh returned no document updates. Completion requires a verified refresh or an explicit review of a no-change result.".into()
+            } else if superseded_reply {
                 "An earlier saved reply was applied before a newer reply arrived. The newer reply remains saved for internal processing.".into()
             } else {
                 if work.kind == crate::core::planning_work::WorkKind::PlanReviewDisposition {
@@ -113,3 +119,6 @@ pub(super) fn update(
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
