@@ -70,6 +70,53 @@ fn turn_refuses_to_overwrite_rival_checkpoint_landed_during_the_run() {
 }
 
 #[test]
+fn stale_snapshot_before_turn_start_is_refreshed_and_retried_internally() {
+    struct CurrentSnapshotHarness(Arc<std::sync::atomic::AtomicUsize>);
+    impl AiHarness for CurrentSnapshotHarness {
+        fn label(&self) -> String {
+            "current-snapshot-test".into()
+        }
+        fn check_available(&self) -> Result<String, AppError> {
+            Ok(self.label())
+        }
+        fn execute(&self, _: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(HarnessOutcome {
+                final_text: serde_json::json!({
+                    "schema_version": 1,
+                    "assistant_message": "Recorded the note.",
+                    "change_summary": "record the note"
+                })
+                .to_string(),
+                envelope: None,
+                stderr_tail: String::new(),
+            })
+        }
+    }
+
+    let (inputs, dir) = inputs_for("stale_before_start", "Record this note.");
+    let index = dir.join(crate::artifacts::planning_store::paths::PRODUCT_INDEX);
+    let current = std::fs::read_to_string(&index).unwrap();
+    std::fs::write(&index, format!("{current}\n<!-- external update -->\n")).unwrap();
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+    match drain(&TurnController::start(
+        inputs,
+        Box::new(CurrentSnapshotHarness(Arc::clone(&calls))),
+    )) {
+        TurnOutcome::Applied { .. } => {}
+        other => panic!("stale turn should refresh and retry internally: {other:?}"),
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(
+        std::fs::read_to_string(&index)
+            .unwrap()
+            .contains("<!-- external update -->")
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn overlapping_conversations_retry_and_preserve_both_answers() {
     struct Answer {
         barrier: Arc<std::sync::Barrier>,

@@ -70,6 +70,12 @@ pub(crate) fn reconcile_inactive_planning_work(project: &mut crate::app::session
             })
             .map(|work| work.uid.clone()),
     );
+    excluded.extend(
+        updated
+            .iter()
+            .filter(|work| project.task_turns.contains_key(&work.key))
+            .map(|work| work.uid.clone()),
+    );
     let mut changes = crate::core::planning_work::reconcile_inactive_excluding(
         &project.state,
         &mut updated,

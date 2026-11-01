@@ -86,19 +86,39 @@ pub(super) fn merge(histories: &mut Histories, key: &str, messages: &[ChatMessag
     history.sort_by(|a, b| a.ts.cmp(&b.ts).then_with(|| a.id.cmp(&b.id)));
 }
 
+pub(super) fn detach_other_history(stored: &mut StoredHistories, key: &str, label: &str) {
+    if let Some(history) = stored.other_histories.remove(key) {
+        merge(
+            &mut stored.other_histories,
+            &format!("@{label}:{key}"),
+            &history,
+        );
+    }
+}
+
 pub(super) fn merge_identity(
     stored: &mut StoredHistories,
     path: &str,
     uid: &str,
+    migrate_legacy: bool,
 ) -> Result<bool, String> {
     if let Some(previous) = stored.task_identities.get(path) {
         if previous != uid {
-            // Preserve the historical alias. The current runtime path map is
-            // separate, so a reused filename cannot attach the old history
-            // to the new task.
-            return Ok(false);
+            // A current immutable identity supersedes the old path alias.
+            // The previous UID history remains unlinked; never migrate it to
+            // the replacement artifact just because it reused the display key.
+            detach_other_history(stored, path, "legacy");
+            stored.task_identities.insert(path.into(), uid.into());
+            return Ok(true);
         }
         return Ok(false);
+    }
+    if !migrate_legacy {
+        // Display IDs such as feature:F1 and CLR-001 may be reused. A legacy
+        // chat keyed only by that ID has no proof of which artifact owned it.
+        // Preserve it detached from live board history rather than binding it
+        // to whichever artifact happens to reuse the key now.
+        detach_other_history(stored, path, "legacy");
     }
     stored.task_identities.insert(path.into(), uid.into());
     Ok(true)

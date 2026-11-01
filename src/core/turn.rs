@@ -62,6 +62,7 @@ pub enum TurnOutcome {
     /// Conversation-only output; no planning validation, writes, or adoption.
     Discussion {
         final_text: String,
+        clarification: bool,
         elapsed: Duration,
     },
     /// Success: artifacts written; `commit_result` carries the checkpoint sha

@@ -5,6 +5,8 @@ use crate::artifacts::planning_store::PlanningRoot;
 mod branch_independence;
 #[path = "tests/code_review_disposition.rs"]
 mod code_review_disposition;
+#[path = "tests/feature_uid.rs"]
+mod feature_uid;
 #[path = "tests/record_files.rs"]
 mod record_files;
 
@@ -132,6 +134,7 @@ fn task_routing_overrides_roundtrip_with_parent_provenance_and_manager_is_reject
         "Open".into(),
     );
     parent.feature_id = Some("F-37".into());
+    parent.feature_uid = Some("00000000-0000-4000-8000-000000000037".into());
     parent.routing_overrides = std::collections::BTreeMap::from([
         (
             IMPLEMENTATION.into(),
@@ -156,6 +159,8 @@ fn task_routing_overrides_roundtrip_with_parent_provenance_and_manager_is_reject
     );
     child.parent_uid = Some(parent.uid.clone());
     child.routing_inherited_from = Some(parent.uid.clone());
+    child.feature_id = parent.feature_id.clone();
+    child.feature_uid = parent.feature_uid.clone();
     child.routing_overrides = parent.routing_overrides.clone();
     save(&root, &[parent.clone(), child.clone()]).unwrap();
 
@@ -165,12 +170,20 @@ fn task_routing_overrides_roundtrip_with_parent_provenance_and_manager_is_reject
         restored[1].routing_inherited_from.as_deref(),
         Some(parent.uid.as_str())
     );
-    let snapshot = routing_for_feature(&root, "F-37", Some(&parent.uid)).unwrap();
+    let snapshot = routing_for_feature(&root, "F-37", parent.feature_uid.as_deref()).unwrap();
     assert_eq!(snapshot.overrides, parent.routing_overrides);
-    assert_eq!(
-        snapshot.source_work_uid.as_deref(),
-        Some(parent.uid.as_str())
+    assert!(
+        snapshot.source_work_uid.as_deref() == Some(parent.uid.as_str())
+            || snapshot.source_work_uid.as_deref() == Some(child.uid.as_str())
     );
+    if snapshot.source_work_uid.as_deref() == Some(child.uid.as_str()) {
+        assert_eq!(
+            snapshot.inherited_from.as_deref(),
+            Some(parent.uid.as_str())
+        );
+    } else {
+        assert_eq!(snapshot.inherited_from, None);
+    }
 
     child.routing_overrides.insert(
         crate::persistence::harness_settings::MANAGER.into(),

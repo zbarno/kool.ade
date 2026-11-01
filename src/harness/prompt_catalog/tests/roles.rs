@@ -4,6 +4,7 @@ use super::*;
 fn all_role_templates_are_versioned_and_hashes_are_stable() {
     let roles = [
         PromptRole::Manager,
+        PromptRole::ManagerV7,
         PromptRole::ManagerV6,
         PromptRole::ManagerV5,
         PromptRole::ManagerV4,
@@ -48,6 +49,11 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
     let pinned = [
         (
             PromptRole::Manager,
+            "bd302391bf7b5cbfe2db81a6b8b282760cf21f557f5ada79cee5219cb3dce2da",
+            "b845b50de27043e90e20825ff59ed35cac004e524e18d58f64273802818743ca",
+        ),
+        (
+            PromptRole::ManagerV7,
             "879d8c647d8b7e49b8f522ffe248c039481dd80ff6d5f1744a68c733b469d921",
             "b845b50de27043e90e20825ff59ed35cac004e524e18d58f64273802818743ca",
         ),

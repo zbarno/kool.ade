@@ -84,9 +84,8 @@ fn new_task_can_override_and_persist_source_and_destination_branches() {
         saved.last().unwrap().destination_branch.as_deref(),
         Some("integration")
     );
-    if let Some(turn) = &project.active_turn {
-        turn.request_cancel();
-    }
+    let key = created.key.clone();
+    app.cancel_task_reply(&key);
     complete(&mut app);
     std::fs::remove_dir_all(root).unwrap();
 }

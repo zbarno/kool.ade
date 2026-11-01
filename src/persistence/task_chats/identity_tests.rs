@@ -148,7 +148,7 @@ fn reused_filename_keeps_old_conversation_unlinked_from_new_task() {
         .unwrap();
     assert_eq!(chats.messages[path][0].text, "New answer");
     let (stored, _) = read_stored(slug).unwrap();
-    assert_eq!(stored.task_identities[path], old_identity.uid);
+    assert_eq!(stored.task_identities[path], new_identity.uid);
     assert_eq!(stored.task_histories.len(), 2);
     assert!(stored.task_histories.contains_key(&new_identity.uid));
     std::fs::remove_dir_all(dir).unwrap();

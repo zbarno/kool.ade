@@ -43,6 +43,8 @@ pub struct Project {
     pub last_pr_refresh: Option<std::time::Instant>,
     pub active_turn: Option<Rc<TurnController>>,
     pub task_turns: std::collections::BTreeMap<String, Rc<TurnController>>,
+    pub task_turn_user_message_ids: std::collections::BTreeMap<String, String>,
+    pub task_turn_reply_claims: std::collections::BTreeMap<String, (String, std::time::Instant)>,
     pub task_live: std::collections::BTreeMap<String, crate::harness::LiveProgress>,
     pub planning_work: Vec<crate::core::planning_work::Work>,
     pub active_planning_work: Option<String>,
@@ -120,14 +122,62 @@ impl Project {
                     format!("Task queue references could not be linked: {error}")
             }
         }
-        if let Err(error) = self.task_chats.bind_task_documents(&self.task_documents) {
+        let task_document_identities = self
+            .task_documents
+            .iter()
+            .filter_map(|doc| {
+                doc.identity
+                    .as_ref()
+                    .map(|identity| (doc.path.clone(), identity.uid.clone()))
+            })
+            .collect::<Vec<_>>();
+        let legacy_migration_keys = task_document_identities
+            .iter()
+            .map(|(path, _)| path.clone())
+            .collect::<Vec<_>>();
+        let mut conversation_identities = task_document_identities;
+        conversation_identities.extend(self.state.active_features.iter().filter_map(
+            |(id, markdown)| {
+                let identity = crate::domain::ArtifactIdentity::from_markdown(markdown).ok()??;
+                Some((format!("feature:{id}"), identity.uid))
+            },
+        ));
+        conversation_identities.extend(
+            self.state
+                .items
+                .iter()
+                .chain(&self.state.resolved_items)
+                .filter_map(|item| {
+                    item.uid
+                        .as_ref()
+                        .map(|uid| (item.conversation_key().to_owned(), uid.clone()))
+                }),
+        );
+        if let Err(error) = self
+            .task_chats
+            .bind_conversation_identities(&conversation_identities, &legacy_migration_keys)
+        {
             self.task_chats.error =
                 Some(format!("Task conversations could not be linked: {error}"));
         }
     }
 
+    pub fn task_conversation_identity_is_ambiguous(&mut self, key: &str) -> bool {
+        self.bind_task_conversation_identities();
+        self.task_chats.has_ambiguous_identity(key)
+    }
+
     pub fn task_interaction_context(&self, focus: &str) -> String {
         let context = self.task_chats.project_context(focus, 24000);
+        self.render_task_interaction_context(context)
+    }
+
+    pub fn task_interaction_context_for_request(&self, focus: &str) -> String {
+        let context = self.task_chats.project_context_for_focus(focus, 24000);
+        self.render_task_interaction_context(context)
+    }
+
+    fn render_task_interaction_context(&self, context: String) -> String {
         if context.is_empty() {
             return context;
         }

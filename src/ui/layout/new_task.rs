@@ -49,8 +49,7 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
                 || (!draft.source_branch.is_empty()
                     && !draft.destination_branch.is_empty()
                     && branches.contains(&draft.source_branch)
-                    && destination_branches.contains(&draft.destination_branch)))
-            && !surface.conversation_busy();
+                    && destination_branches.contains(&draft.destination_branch)));
         let closed = crate::ui::overlays::show_medium_modal(
             ui,
             true,

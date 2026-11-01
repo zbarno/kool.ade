@@ -25,6 +25,8 @@ pub(super) fn project_from(root: &std::path::Path) -> Project {
         implementation_states: Default::default(),
         active_turn: None,
         task_turns: Default::default(),
+        task_turn_user_message_ids: Default::default(),
+        task_turn_reply_claims: Default::default(),
         task_live: Default::default(),
         planning_work: Default::default(),
         active_planning_work: None,

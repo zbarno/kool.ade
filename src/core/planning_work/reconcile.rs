@@ -73,9 +73,11 @@ pub fn reconcile_inactive_excluding(
 fn inactive_status(state: &PlannerState, work: &Work) -> WorkStatus {
     let feature = state.active_features.iter().find_map(|(id, body)| {
         let metadata = crate::domain::ChangeMetadata::require_markdown(body).ok()?;
-        let matches_id = work.feature_id.as_deref() == Some(id.as_str());
-        let matches_uid = work.feature_uid.as_deref() == Some(metadata.uid.as_str());
-        (matches_id || matches_uid).then_some((id.as_str(), body.as_str(), metadata.status))
+        super::belongs_to_feature(work, id, Some(&metadata.uid)).then_some((
+            id.as_str(),
+            body.as_str(),
+            metadata.status,
+        ))
     });
 
     if work.kind == WorkKind::TaskGeneration {
@@ -208,6 +210,7 @@ mod tests {
             "Planning in progress".into(),
         );
         feature_work.feature_id = Some("CHG-001".into());
+        feature_work.feature_uid = Some(identity.uid.clone());
         let interrupted = Work::new(
             "planning:interrupted".into(),
             "Plan interrupted work".into(),

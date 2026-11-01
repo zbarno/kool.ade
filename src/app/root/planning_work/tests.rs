@@ -57,7 +57,7 @@ fn unsupported_hosted_anthropic_question_gets_an_optional_offer_only() {
 }
 
 #[test]
-fn planning_only_workspace_creates_tasks_without_code_branches() {
+fn planning_only_workspace_creates_tasks_without_code_branches_and_blocks_stale_generation() {
     let root = std::env::temp_dir().join(format!(
         "koolade-planning-only-task-{}-{}",
         std::process::id(),
@@ -92,6 +92,7 @@ fn planning_only_workspace_creates_tasks_without_code_branches() {
         panic!("task creation keeps the workspace connected")
     };
     let created = project.planning_work.last().unwrap();
+    let task_key = created.key.clone();
     assert_eq!(created.source_branch, None);
     assert_eq!(created.destination_branch, None);
     assert_eq!(
@@ -102,6 +103,12 @@ fn planning_only_workspace_creates_tasks_without_code_branches() {
             .source_branch,
         None
     );
+    let task_turn = project
+        .task_turns
+        .remove(&task_key)
+        .expect("new planning task runs in its own conversation");
+    task_turn.request_cancel();
+    project.task_live.remove(&task_key);
     let task_generation_key;
     {
         let Screen::Connected(project) = &mut app.screen else {
@@ -126,20 +133,23 @@ fn planning_only_workspace_creates_tasks_without_code_branches() {
             .contains_key("F-NO-CODE"),
         "planning-only workspaces must not save code branch targets"
     );
-    let turn = project.active_turn.take().unwrap();
-    turn.request_cancel();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        if matches!(
-            turn.poll(std::time::Duration::from_millis(20)),
-            Some(crate::core::turn::TurnEvt::Done(_))
-        ) {
-            break;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "fixture turn timed out"
-        );
-    }
+    assert!(
+        !project.task_turns.contains_key(&task_generation_key),
+        "task generation without an active, ready feature must remain blocked"
+    );
+    let generation = project
+        .planning_work
+        .iter()
+        .find(|work| work.key == task_generation_key)
+        .unwrap();
+    assert_eq!(
+        generation.status,
+        crate::core::planning_work::WorkStatus::NeedsAttention
+    );
+    assert!(
+        generation
+            .detail
+            .contains("readiness evidence is missing or stale")
+    );
     let _ = std::fs::remove_dir_all(root);
 }

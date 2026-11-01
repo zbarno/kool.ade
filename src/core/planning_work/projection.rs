@@ -1,31 +1,5 @@
 use super::{Work, WorkKind, WorkStatus, load};
 
-/// Attach durable feature UIDs to migrated records using their legacy display
-/// ID. Returns true when the caller should persist the updated records.
-pub fn link_feature_identities(
-    state: &crate::core::state::PlannerState,
-    work: &mut [Work],
-) -> bool {
-    let mut changed = false;
-    for item in work.iter_mut().filter(|item| item.feature_uid.is_none()) {
-        let Some(feature_id) = &item.feature_id else {
-            continue;
-        };
-        let Some((_, markdown)) = state
-            .active_features
-            .iter()
-            .find(|(id, _)| id == feature_id)
-        else {
-            continue;
-        };
-        if let Ok(Some(identity)) = crate::domain::ArtifactIdentity::from_markdown(markdown) {
-            item.feature_uid = Some(identity.uid);
-            changed = true;
-        }
-    }
-    changed
-}
-
 /// Feature documents are durable board identity even after the chat is gone.
 pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Work> {
     let mut cards = work.to_vec();
@@ -82,8 +56,7 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
                     | WorkKind::PlanReviewDisposition
                     | WorkKind::CodeReviewDisposition
                     | WorkKind::QaFindingDisposition
-            ) && (work.feature_uid.as_deref() == Some(&metadata.uid)
-                || (work.feature_uid.is_none() && work.feature_id.as_deref() == Some(id)))
+            ) && work.feature_uid.as_deref() == Some(&metadata.uid)
         }) {
             if card.status != WorkStatus::NeedsAttention {
                 card.status = status;
@@ -118,8 +91,7 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
 }
 
 pub fn context(state: &crate::core::state::PlannerState, key: &str) -> Option<String> {
-    let work = load(&state.planning_store).ok()?;
-    let card = cards(state, &work).into_iter().find(|w| w.key == key)?;
+    let card = find_card(state, key)?;
     let feature = card.feature_uid.as_ref().and_then(|uid| {
         state.active_features.iter().find(|(_, body)| {
             crate::domain::ArtifactIdentity::from_markdown(body)
@@ -138,6 +110,13 @@ pub fn context(state: &crate::core::state::PlannerState, key: &str) -> Option<St
             .map(|(_, body)| body.as_str())
             .unwrap_or("No feature specification recorded yet.")
     ))
+}
+
+/// Resolve a visible planning card by its conversation key, including feature
+/// cards projected directly from feature documents.
+pub fn find_card(state: &crate::core::state::PlannerState, key: &str) -> Option<Work> {
+    let work = load(&state.planning_store).ok()?;
+    cards(state, &work).into_iter().find(|work| work.key == key)
 }
 
 #[cfg(test)]
@@ -178,6 +157,7 @@ mod tests {
         );
         work.status = WorkStatus::InProgress;
         work.feature_id = Some("CHG-001".into());
+        work.feature_uid = Some(identity.uid);
 
         let cards = cards(&state, &[work]);
 
@@ -222,10 +202,53 @@ mod tests {
             String::new(),
         );
         work.feature_id = Some("CHG-002".into());
+        work.feature_uid = Some(identity.uid);
 
         let cards = cards(&state, &[work]);
 
         assert_eq!(cards[0].status, WorkStatus::InProgress);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_work_does_not_attach_to_a_reused_feature_id() {
+        let root = std::env::temp_dir().join(format!(
+            "koolade_planning_projection_identity_{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut state = crate::core::state::PlannerState::load(&root).unwrap();
+        let markdown = crate::domain::ArtifactIdentity::preserve_markdown(
+            "# F1: Replacement feature\n\n**Status:** Draft\n",
+            None,
+            "F1",
+            "Replacement feature",
+        )
+        .unwrap();
+        let identity = crate::domain::ArtifactIdentity::from_markdown(&markdown)
+            .unwrap()
+            .unwrap();
+        let feature = crate::domain::ChangeMetadata::write_markdown(
+            &markdown,
+            &identity,
+            crate::domain::ChangeStatus::Draft,
+        )
+        .unwrap();
+        state.active_features.push(("F1".into(), feature));
+        let mut legacy = Work::new(
+            "planning:old-f1".into(),
+            "Plan original F1".into(),
+            "Original feature request".into(),
+            "Historical planning work".into(),
+        );
+        legacy.feature_id = Some("F1".into());
+
+        let cards = cards(&state, &[legacy]);
+
+        assert_eq!(cards.len(), 2, "ambiguous legacy identity stays separate");
+        assert_eq!(cards[0].key, "planning:old-f1");
+        assert_eq!(cards[1].key, "feature:F1");
         std::fs::remove_dir_all(root).unwrap();
     }
 }

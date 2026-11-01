@@ -4,7 +4,9 @@ mod store;
 
 #[cfg(test)]
 use storage::read;
-pub use store::TaskChats;
+pub use store::{
+    MAX_PLANNING_CONFLICT_RETRIES, PLANNING_CONFLICT_RETRY_PREFIX, TaskChats, TaskReplyLock,
+};
 
 #[cfg(test)]
 #[path = "task_chats/identity_tests.rs"]

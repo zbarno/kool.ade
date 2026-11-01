@@ -8,7 +8,7 @@ use crate::core::state::PlannerState;
 use crate::domain::Authority;
 use crate::harness::{AiHarness, LiveProgress};
 
-use super::execute::{run_turn, run_turn_read_only};
+use super::execute::{TaskReplyGuard, run_turn, run_turn_read_only};
 use super::{TurnEvt, TurnInputs, TurnOutcome, configured_turn_timeout};
 
 /// Lifetime handle for one running turn; polled from the UI tick loop.
@@ -23,6 +23,14 @@ pub struct TurnController {
     pub(super) worker: Option<JoinHandle<()>>,
 }
 
+struct TaskReplyContext {
+    chat_slug: String,
+    task_key: String,
+    user_message_id: String,
+    reply_claim_id: Option<String>,
+    expected_feature_uid: Option<String>,
+}
+
 impl TurnController {
     pub fn start(inputs: TurnInputs, harness: Box<dyn AiHarness>) -> TurnController {
         Self::start_scoped(inputs, harness, None)
@@ -33,7 +41,34 @@ impl TurnController {
         harness: Box<dyn AiHarness>,
         task: Option<String>,
     ) -> TurnController {
-        Self::start_mode(inputs, harness, task, false)
+        Self::start_mode(inputs, harness, task, false, None)
+    }
+
+    pub fn start_task_reply(
+        inputs: TurnInputs,
+        harness: Box<dyn AiHarness>,
+        task: Option<String>,
+        chat_slug: String,
+        user_message_id: String,
+        reply_claim_id: Option<String>,
+    ) -> TurnController {
+        let Some(task_key) = task.clone() else {
+            return Self::start_scoped(inputs, harness, task);
+        };
+        let expected_feature_uid = super::execute::task_feature_uid(&inputs.state, &task_key);
+        Self::start_mode(
+            inputs,
+            harness,
+            task,
+            false,
+            Some(TaskReplyContext {
+                chat_slug,
+                task_key,
+                user_message_id,
+                reply_claim_id,
+                expected_feature_uid,
+            }),
+        )
     }
 
     pub fn start_read_only(
@@ -41,7 +76,7 @@ impl TurnController {
         harness: Box<dyn AiHarness>,
         task: Option<String>,
     ) -> TurnController {
-        Self::start_mode(inputs, harness, task, true)
+        Self::start_mode(inputs, harness, task, true, None)
     }
 
     fn start_mode(
@@ -49,6 +84,7 @@ impl TurnController {
         harness: Box<dyn AiHarness>,
         task: Option<String>,
         read_only: bool,
+        task_reply: Option<TaskReplyContext>,
     ) -> TurnController {
         let (evt_tx, evt_rx) = channel();
         let (act_tx, act_rx) = channel::<LiveProgress>();
@@ -90,12 +126,20 @@ impl TurnController {
             } else {
                 run_turn
             };
+            let reply_guard = task_reply.as_ref().map(|reply| TaskReplyGuard {
+                chat_slug: reply.chat_slug.as_str(),
+                task_key: reply.task_key.as_str(),
+                message_id: reply.user_message_id.as_str(),
+                claim_id: reply.reply_claim_id.as_deref(),
+                expected_feature_uid: reply.expected_feature_uid.as_deref(),
+            });
             let mut outcome = run(
                 &inputs,
                 &*harness,
                 &worker_cancel,
                 act_tx.clone(),
                 task.as_deref(),
+                reply_guard,
                 budget,
             );
             // Independent chats may finish against the same base. Re-plan
@@ -130,6 +174,7 @@ impl TurnController {
                     &worker_cancel,
                     act_tx.clone(),
                     task.as_deref(),
+                    reply_guard,
                     remaining,
                 );
             }

@@ -16,6 +16,12 @@ pub(super) struct ReplyHarness {
     pub(super) reply: String,
 }
 
+pub(super) struct SynchronizedReplyHarness {
+    pub(super) prompts: Arc<Mutex<Vec<String>>>,
+    pub(super) rendezvous: Arc<(Mutex<usize>, std::sync::Condvar)>,
+    pub(super) reply: String,
+}
+
 pub(super) struct StoppedHarness {
     pub(super) wait_for_cancel: bool,
 }
@@ -70,6 +76,51 @@ impl crate::harness::AiHarness for ReplyHarness {
     }
 }
 
+impl crate::harness::AiHarness for SynchronizedReplyHarness {
+    fn label(&self) -> String {
+        "synchronized task conversation fixture".into()
+    }
+
+    fn check_available(&self) -> Result<String, crate::error::AppError> {
+        Ok(self.label())
+    }
+
+    fn execute(
+        &self,
+        request: &crate::harness::PlanningRequest,
+    ) -> Result<crate::harness::HarnessOutcome, crate::error::AppError> {
+        self.prompts
+            .lock()
+            .unwrap()
+            .push(request.prompt_body.clone());
+        let (arrived, changed) = &*self.rendezvous;
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut count = arrived.lock().unwrap();
+        *count += 1;
+        changed.notify_all();
+        while *count < 2 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(crate::error::AppError::Other(
+                    "second synchronized task turn did not start".into(),
+                ));
+            }
+            let (next, timeout) = changed.wait_timeout(count, remaining).unwrap();
+            count = next;
+            if timeout.timed_out() && *count < 2 {
+                return Err(crate::error::AppError::Other(
+                    "second synchronized task turn did not start".into(),
+                ));
+            }
+        }
+        Ok(crate::harness::HarnessOutcome {
+            final_text: self.reply.clone(),
+            envelope: None,
+            stderr_tail: String::new(),
+        })
+    }
+}
+
 pub(super) fn complete(app: &mut KooladeApp) {
     let mut project = match std::mem::replace(&mut app.screen, Screen::Welcome) {
         Screen::Connected(project) => project,
@@ -104,7 +155,7 @@ pub(super) fn complete(app: &mut KooladeApp) {
         None
     };
     let live = std::mem::take(&mut project.live_progress);
-    let _ = app.adopt_turn(&mut project, outcome);
+    let _ = app.adopt_turn(&mut project, outcome, key.as_deref(), None, false);
     project.active_turn = main;
     project.live_progress = live;
     app.screen = Screen::Connected(project);
@@ -149,6 +200,41 @@ pub(super) fn persisted_len_helper(
     let Screen::Connected(p) = &app.screen else {
         panic!()
     };
+    let mut identities = p
+        .task_documents
+        .iter()
+        .filter_map(|doc| {
+            doc.identity
+                .as_ref()
+                .map(|identity| (doc.path.clone(), identity.uid.clone()))
+        })
+        .collect::<Vec<_>>();
+    identities.extend(p.state.active_features.iter().filter_map(|(id, markdown)| {
+        let identity = crate::domain::ArtifactIdentity::from_markdown(markdown)
+            .ok()
+            .flatten()?;
+        Some((format!("feature:{id}"), identity.uid))
+    }));
+    identities.extend(
+        p.state
+            .items
+            .iter()
+            .chain(&p.state.resolved_items)
+            .filter_map(|item| {
+                item.uid
+                    .as_ref()
+                    .map(|uid| (item.conversation_key().to_owned(), uid.clone()))
+            }),
+    );
+    let legacy_migration_keys = p
+        .task_documents
+        .iter()
+        .filter(|doc| doc.identity.is_some())
+        .map(|doc| doc.path.clone())
+        .collect::<Vec<_>>();
+    store
+        .bind_conversation_identities(&identities, &legacy_migration_keys)
+        .expect("reloaded task histories use the board's stable identities");
     store.ensure_loaded(&p.chat_slug);
     store.messages["CLR-001"].len()
 }

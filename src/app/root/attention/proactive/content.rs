@@ -13,55 +13,16 @@ pub(super) fn event_id(repo: &std::path::Path, ticket: &str, detail: &str, kind:
         Kind::Blocker => 0,
         Kind::Approval => 1,
         Kind::Clarification => 2,
-        Kind::PlanningWork => 3,
     });
     format!("needs-attention:{}", fingerprint(&material))
 }
 
-pub(super) fn planning_work_detail(work: &crate::core::planning_work::Work) -> String {
+pub(super) fn clarification_event_id(item: &crate::domain::OpenItem) -> String {
+    let identity = item.uid.as_deref().unwrap_or(&item.id);
     format!(
-        "{}\n{}\n{}\n{}",
-        work.kind.label(),
-        work.title,
-        work.request,
-        work.detail
+        "needs-attention:clarification:{}",
+        fingerprint(identity.as_bytes())
     )
-}
-
-pub(super) fn planning_work_brief(detail: &str) -> Brief {
-    let mut parts = detail.splitn(4, '\n');
-    let kind = parts.next().unwrap_or("").trim();
-    let title = parts.next().unwrap_or("This planning task").trim();
-    let request = parts.next().unwrap_or("").trim();
-    let status = parts.next().unwrap_or("").trim();
-    let task_generation = kind == crate::core::planning_work::WorkKind::TaskGeneration.label();
-    Brief {
-        problem: if task_generation {
-            format!(
-                "Kool.ad/e paused task-story generation for {title}. The feature request is: {request}. {status}"
-            )
-        } else {
-            format!("Kool.ad/e needs your help to continue {title}. {status}")
-        },
-        recommendation: None,
-        options: Vec::new(),
-        steps: vec![HumanStep {
-            owner: "You".into(),
-            action: if task_generation {
-                "Review the issue described above and resolve it. Then choose Generate tasks on the task card to retry story generation.".into()
-            } else if request.is_empty() {
-                "Open this conversation and reply with the information or decision needed to continue."
-                    .into()
-            } else {
-                format!("Review the request, then reply in this conversation: {request}")
-            },
-        }],
-        after: if task_generation {
-            "Return to the task card and choose Generate tasks to try again. Any stories already saved remain available.".into()
-        } else {
-            format!("Open {title}, send your reply, and Kool.ad/e will continue the task.")
-        },
-    }
 }
 
 pub(super) fn clarification_detail(item: &crate::domain::OpenItem) -> String {
@@ -69,15 +30,11 @@ pub(super) fn clarification_detail(item: &crate::domain::OpenItem) -> String {
     format!("{}\n{}\n{decision}", item.question, item.reason)
 }
 
-pub(super) fn clarification_brief(detail: &str) -> Brief {
-    let question = detail.lines().next().unwrap_or(detail).trim();
-    let mut sections = detail.splitn(3, '\n');
-    let _ = sections.next();
-    let reason = sections.next().unwrap_or("").trim();
-    let decision = sections
-        .next()
-        .and_then(|raw| serde_json::from_str::<Option<crate::domain::DecisionBrief>>(raw).ok())
-        .flatten();
+pub(super) fn clarification_brief(item: &crate::domain::OpenItem) -> Option<Brief> {
+    if item.authority != crate::domain::Authority::Human && !item.is_ownership_gap() {
+        return None;
+    }
+    let decision = item.decision_brief.clone();
     let options = decision
         .as_ref()
         .map(|brief| {
@@ -110,11 +67,11 @@ pub(super) fn clarification_brief(detail: &str) -> Brief {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let mut problem = format!("Kool.ad/e needs your decision: {question}");
-    if !reason.is_empty() {
-        problem.push_str(&format!(" This matters because {reason}"));
+    let mut problem = format!("Kool.ad/e needs your decision: {}", item.question.trim());
+    if !item.reason.trim().is_empty() {
+        problem.push_str(&format!(" This matters because {}", item.reason.trim()));
     }
-    Brief {
+    Some(Brief {
         problem,
         recommendation: decision.and_then(|brief| {
             brief
@@ -133,7 +90,7 @@ pub(super) fn clarification_brief(detail: &str) -> Brief {
         }],
         after: "Open this conversation, send your answer, and Kool.ad/e will update the plan."
             .into(),
-    }
+    })
 }
 
 pub(super) fn approval_brief(ticket: &str) -> Brief {
@@ -209,4 +166,47 @@ fn fingerprint(bytes: &[u8]) -> String {
         hash = (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3);
     }
     format!("{hash:016x}-{}", bytes.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_human_owned_items_can_be_rendered_as_user_decisions() {
+        let mut agent = crate::domain::OpenItem::new(
+            "CLR-001".into(),
+            crate::domain::Priority::Blocking,
+            crate::domain::ItemKind::Question,
+            "General".into(),
+            None,
+            "Inspect the source.".into(),
+            "Evidence is missing.".into(),
+        );
+        agent.authority = crate::domain::Authority::Agent;
+        assert!(clarification_brief(&agent).is_none());
+
+        agent.authority = crate::domain::Authority::Review;
+        assert!(clarification_brief(&agent).is_none());
+
+        agent.authority = crate::domain::Authority::Human;
+        assert!(clarification_brief(&agent).is_some());
+    }
+
+    #[test]
+    fn clarification_identity_does_not_depend_on_question_copy() {
+        let mut item = crate::domain::OpenItem::new(
+            "CLR-001".into(),
+            crate::domain::Priority::High,
+            crate::domain::ItemKind::Question,
+            "General".into(),
+            None,
+            "Which branch should receive this task?".into(),
+            "The task needs a destination.".into(),
+        );
+        let first = clarification_event_id(&item);
+        item.question = "What is the destination branch?".into();
+        item.reason = "This task needs its target.".into();
+        assert_eq!(clarification_event_id(&item), first);
+    }
 }

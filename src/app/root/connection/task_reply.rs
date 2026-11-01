@@ -6,6 +6,16 @@ impl KooladeApp {
     }
 
     pub(in crate::app::root) fn submit_task_reply_mode(&mut self, key: &str, read_only: bool) {
+        let ambiguous_identity = match &mut self.screen {
+            Screen::Connected(project) => project.task_conversation_identity_is_ambiguous(key),
+            Screen::Welcome => false,
+        };
+        if ambiguous_identity {
+            self.toasts.warning(
+                "This board conversation has conflicting artifact identities. Your draft is preserved until Kool.ad/e repairs the board link.",
+            );
+            return;
+        }
         let review_changes = !read_only
             && matches!(&self.screen, Screen::Connected(project)
             if project.implementation_states.get(key).is_some_and(|state|
@@ -34,7 +44,7 @@ impl KooladeApp {
             self.toasts.warning(error);
             return;
         }
-        let work = crate::core::planning_work::find(&project.state, key);
+        let work = crate::core::planning_work::find_card(&project.state, key);
         let work_type = work.as_ref().map(|work| work.kind.harness_route_category());
         let task_routes = work
             .as_ref()
@@ -52,18 +62,33 @@ impl KooladeApp {
             ));
             return;
         }
-        project.bind_task_conversation_identities();
         project.task_chats.ensure_loaded(&project.chat_slug);
         let mut user_message = ChatMessage::new(ChatRole::User, &text, Some(key.into()));
         user_message.clarification = read_only;
         let sent_id = user_message.id.clone();
-        if let Err(error) = project
-            .task_chats
-            .append(&project.chat_slug, key, vec![user_message])
-        {
-            self.toasts.warning(error);
-            return;
-        }
+        let reply_claim = if read_only {
+            if let Err(error) =
+                project
+                    .task_chats
+                    .append(&project.chat_slug, key, vec![user_message])
+            {
+                self.toasts.warning(error);
+                return;
+            }
+            None
+        } else {
+            match project.task_chats.append_user_reply_and_claim(
+                &project.chat_slug,
+                key,
+                user_message,
+            ) {
+                Ok(claim_id) => Some(claim_id),
+                Err(error) => {
+                    self.toasts.warning(error);
+                    return;
+                }
+            }
+        };
         project.activity.pending.push(format!(
             "User replied in task {key}: {}",
             crate::core::context_build::clip(&text, 1600)
@@ -100,15 +125,31 @@ impl KooladeApp {
         };
         project.task_chats.drafts.remove(key);
         let route_label = harness.label();
-        let start = if read_only {
-            TurnController::start_read_only
+        let controller = if read_only {
+            TurnController::start_read_only(inputs, harness, Some(key.into()))
         } else {
-            TurnController::start_scoped
+            TurnController::start_task_reply(
+                inputs,
+                harness,
+                Some(key.into()),
+                project.chat_slug.clone(),
+                sent_id.clone(),
+                reply_claim.clone(),
+            )
         };
-        project.task_turns.insert(
-            key.into(),
-            std::rc::Rc::new(start(inputs, harness, Some(key.into()))),
-        );
+        project
+            .task_turns
+            .insert(key.into(), std::rc::Rc::new(controller));
+        if !read_only {
+            project
+                .task_turn_user_message_ids
+                .insert(key.into(), sent_id.clone());
+            if let Some(claim_id) = reply_claim {
+                project
+                    .task_turn_reply_claims
+                    .insert(key.into(), (claim_id, std::time::Instant::now()));
+            }
+        }
         project.task_live.insert(
             key.into(),
             crate::harness::LiveProgress {

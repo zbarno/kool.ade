@@ -28,7 +28,7 @@ pub fn presentation(
         || key.starts_with("task-generation:")
     {
         let context = crate::core::planning_work::context(state, key)?;
-        let kind = crate::core::planning_work::find(state, key)?.kind;
+        let kind = crate::core::planning_work::find_card(state, key)?.kind;
         let greeting = match kind {
             crate::core::planning_work::WorkKind::Question => {
                 "Continue investigating this question here. Any user decision Kool.ad/e discovers will appear on the board."
@@ -169,7 +169,7 @@ pub fn prompt(
     } else {
         let context = crate::core::planning_work::context(state, key)
             .ok_or_else(|| format!("Board item {key} no longer exists; refresh the board."))?;
-        let work = crate::core::planning_work::find(state, key)
+        let work = crate::core::planning_work::find_card(state, key)
             .ok_or_else(|| format!("Board item {key} no longer exists; refresh the board."))?;
         let history = history
             .iter()

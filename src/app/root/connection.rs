@@ -2,6 +2,7 @@ use super::*;
 
 mod documentation_refresh;
 mod task_reply;
+mod task_retry;
 
 impl KooladeApp {
     fn submit_review_changes(&mut self, key: &str) {

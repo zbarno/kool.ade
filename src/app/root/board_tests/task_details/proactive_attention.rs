@@ -1,5 +1,25 @@
 use super::*;
 
+fn legacy_clarification_prompt_id(item: &crate::domain::OpenItem) -> String {
+    // Prior versions keyed proactive questions by display ID and question
+    // copy. This fixture reproduces that format to cover upgrade behavior.
+    let decision = serde_json::to_string(&item.decision_brief).unwrap_or_default();
+    let detail = format!("{}\n{}\n{decision}", item.question, item.reason);
+    let mut material = detail.into_bytes();
+    material.extend_from_slice(item.conversation_key().as_bytes());
+    material.push(2);
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in &material {
+        hash = (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3);
+    }
+    format!("needs-attention:{hash:016x}-{}", material.len())
+}
+
+#[path = "proactive_attention/recurrence.rs"]
+mod recurrence;
+#[path = "proactive_attention/reply_pending.rs"]
+mod reply_pending;
+
 #[test]
 fn new_blocker_opens_its_conversation_once_and_changed_blocker_surfaces_again() {
     let _environment = crate::test_support::lock_process_environment();
@@ -252,43 +272,5 @@ fn newly_actionable_clarification_focuses_its_persistent_conversation() {
     }
     if let Screen::Connected(project) = &app.screen {
         assert_eq!(project.task_chats.messages["CLR-030"].len(), 1);
-    }
-}
-
-#[test]
-fn planning_work_attention_opens_its_conversation_tab() {
-    let _environment = crate::test_support::lock_process_environment();
-    let mut app = fixture();
-    let key = "task-generation:fixture";
-    let mut work = crate::core::planning_work::Work::new(
-        key.into(),
-        "Generate task stories".into(),
-        "Prepare implementation stories for the approved feature.".into(),
-        "The saved stories need a correction before generation can resume.".into(),
-    );
-    work.kind = crate::core::planning_work::WorkKind::TaskGeneration;
-    work.status = crate::core::planning_work::WorkStatus::NeedsAttention;
-    if let Screen::Connected(project) = &mut app.screen {
-        project.planning_work.push(work);
-    }
-    let ctx = egui::Context::default();
-    app.tick(0.016, &ctx);
-    frame(&mut app, &ctx, vec![]);
-    let output = frame(&mut app, &ctx, vec![]);
-    assert_eq!(
-        ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_planning")))
-            .as_deref(),
-        Some(key)
-    );
-    let conversation = canvas_text(&output);
-    for text in [
-        "Generate task stories",
-        "The saved stories need a correction",
-        "Generate tasks",
-    ] {
-        assert!(
-            conversation.contains(text),
-            "missing {text}: {conversation}"
-        );
     }
 }

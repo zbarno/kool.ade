@@ -60,6 +60,43 @@ fn task_story_prompt_includes_explicit_dependency_and_referenced_specification()
 }
 
 #[test]
+fn synthetic_feature_card_opens_a_planning_conversation() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut state = PlannerState::load(temp.path()).unwrap();
+    let identified = crate::domain::ArtifactIdentity::preserve_markdown(
+        "# F1: Independent feature\n\n**Status:** Draft\n\n## Intent\n\nKeep this feature's plan isolated.\n",
+        None,
+        "F1",
+        "Independent feature",
+    )
+    .unwrap();
+    let identity = crate::domain::ArtifactIdentity::from_markdown(&identified)
+        .unwrap()
+        .unwrap();
+    let markdown = crate::domain::ChangeMetadata::write_markdown(
+        &identified,
+        &identity,
+        crate::domain::ChangeStatus::Draft,
+    )
+    .unwrap();
+    state.active_features = vec![("F1".into(), markdown)];
+
+    let (context, greeting) = presentation(&state, &[], "feature:F1").unwrap();
+    assert!(context.contains("Keep this feature's plan isolated."));
+    assert!(greeting.contains("Continue planning this task here"));
+    let body = prompt(
+        &state,
+        "feature:F1",
+        "Add an independent acceptance check.",
+        &[],
+    )
+    .unwrap();
+    assert!(body.contains("Independent feature"));
+    assert!(body.contains("Add an independent acceptance check."));
+    assert!(body.contains("Resolve Agent-owned questions from evidence."));
+}
+
+#[test]
 fn improvement_proposal_conversation_is_scoped_to_read_only_evidence() {
     let temp = tempfile::tempdir().unwrap();
     let state = PlannerState::load(temp.path()).unwrap();

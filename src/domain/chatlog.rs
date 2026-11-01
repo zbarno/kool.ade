@@ -34,7 +34,7 @@ pub struct ChatMessage {
     /// Fingerprint of the task blocker explicitly answered by this message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answer_context: Option<String>,
-    /// A question can never serve as decision authority.
+    /// Marks a clarification-only exchange, which cannot serve as a submitted decision.
     #[serde(default)]
     pub clarification: bool,
     pub ts: DateTime<Utc>,

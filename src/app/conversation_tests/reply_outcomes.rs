@@ -78,8 +78,106 @@ fn rejected_failed_and_cancelled_replies_stay_in_task_and_preserve_project_state
             "Planning stopped"
         }));
         p.task_chats = Default::default();
+        p.bind_task_conversation_identities();
         p.task_chats.ensure_loaded(&p.chat_slug);
         assert_eq!(p.task_chats.messages["CLR-001"], expected);
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+/// Production boundary: a concurrent planning-store rejection is adopted into
+/// the same durable task conversation without presenting model success prose or
+/// asking for the already-saved answer again. A unit test of the retry predicate
+/// cannot prove task-message routing and planning-work status adoption together.
+/// Uses a temporary local Git project and fixture outcome; no Docker or network,
+/// with setup cost of a few seconds.
+#[test]
+fn concurrent_write_rejection_keeps_the_answer_for_internal_retry() {
+    let _environment = crate::test_support::lock_process_environment();
+    let root = std::env::temp_dir().join(format!(
+        "koolade-conflict-adoption-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    init_git(&root);
+    let mut app = fixture();
+    let key;
+    let slug;
+    if let Screen::Connected(project) = &mut app.screen {
+        project.state = crate::core::state::PlannerState::load(&root).unwrap();
+        project.state.bootstrap_missing().unwrap();
+        project.chat_slug = root.join("runtime").to_string_lossy().into_owned();
+        slug = project.chat_slug.clone();
+        let mut work = crate::core::planning_work::Work::new(
+            String::new(),
+            "Investigate saved reply".into(),
+            "Use the user answer already recorded in this conversation".into(),
+            "Planning in progress".into(),
+        );
+        work.kind = crate::core::planning_work::WorkKind::Bug;
+        work.key = format!("task:{}", work.uid);
+        key = work.key.clone();
+        project.planning_work.push(work);
+        project.save_planning_work().unwrap();
+        project.task_chats.ensure_loaded(&slug);
+        project
+            .task_chats
+            .append(
+                &slug,
+                &key,
+                vec![ChatMessage::new(
+                    ChatRole::User,
+                    "The verified branch is release/2.1.",
+                    Some(key.clone()),
+                )],
+            )
+            .unwrap();
+    } else {
+        panic!("fixture must be connected");
+    }
+    let Screen::Connected(mut project) = std::mem::replace(&mut app.screen, Screen::Welcome) else {
+        panic!("fixture remains connected")
+    };
+    app.adopt_turn(
+        &mut project,
+        crate::core::turn::TurnOutcome::Rejected {
+            problems: vec!["Planning files changed on disk while this turn was running, so nothing from it was saved. The submitted message remains in its conversation for an internal retry; do not ask the user to resend it.".into()],
+            final_text: "The decision was successfully applied.".into(),
+            elapsed: std::time::Duration::ZERO,
+        },
+        Some(&key),
+        None,
+        false,
+    );
+    assert_eq!(
+        project
+            .planning_work
+            .iter()
+            .find(|work| work.key == key)
+            .unwrap()
+            .status,
+        crate::core::planning_work::WorkStatus::NeedsAttention
+    );
+    let messages = &project.task_chats.messages[&key];
+    assert!(messages.iter().any(|message| {
+        message.role == ChatRole::User && message.text == "The verified branch is release/2.1."
+    }));
+    assert!(messages.iter().any(|message| {
+        message.role == ChatRole::System && message.text.contains("internal retry")
+    }));
+    assert!(
+        messages
+            .iter()
+            .all(|message| { message.text != "The decision was successfully applied." })
+    );
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| message.role == ChatRole::User)
+            .count(),
+        1
+    );
+    app.screen = Screen::Connected(project);
+    std::fs::remove_dir_all(root).unwrap();
 }
