@@ -96,8 +96,9 @@ fn submitted_answers_share_history_and_keep_other_chats_out_of_prompts() {
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Needs attention · 1").is_some());
     let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "Waiting for your response").is_some());
+    assert!(text_position(&output, "Answer recorded; awaiting remaining work").is_some());
     assert!(text_contains(&output, "Use corporate SSO"));
+    click_text(&mut app, &ctx, "Change saved answer");
     click_text(&mut app, &ctx, "Enter your answer…");
     frame(
         &mut app,

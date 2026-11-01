@@ -184,7 +184,9 @@ impl TaskChats {
             .filter(|message| message.role == ChatRole::System && message.id.starts_with(&scope))
             .collect::<Vec<_>>();
         if claims.len() >= MAX_PLANNING_CONFLICT_CLAIMS_PER_RETRY
-            || claims.last().is_some_and(|claim| claim_is_fresh(&claim.ts))
+            || claims.last().is_some_and(|claim| {
+                claim_is_fresh(claim.lease_renewed_at.as_ref().unwrap_or(&claim.ts))
+            })
         {
             return Ok(None);
         }
@@ -242,6 +244,8 @@ fn retry_claim_state(messages: &[ChatMessage], latest_user: usize) -> Option<(us
     Some((
         retries,
         claims.len(),
-        claims.last().is_some_and(|claim| claim_is_fresh(&claim.ts)),
+        claims.last().is_some_and(|claim| {
+            claim_is_fresh(claim.lease_renewed_at.as_ref().unwrap_or(&claim.ts))
+        }),
     ))
 }

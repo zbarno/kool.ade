@@ -15,6 +15,12 @@ impl AiHarness for StaticHarness {
     fn execute(&self, request: &PlanningRequest) -> Result<HarnessOutcome, crate::error::AppError> {
         assert_eq!(request.mode, ExecutionMode::Investigation);
         assert_eq!(request.reasoning_level, "off");
+        let workspace = request
+            .execution_workspace
+            .as_ref()
+            .expect("investigation receives pinned read-only tools");
+        workspace.validate().unwrap();
+        assert_eq!(request.task_id.as_deref(), Some(workspace.task_id.as_str()));
         assert!(
             request
                 .prompt_body
@@ -49,6 +55,20 @@ fn fixture() -> (PathBuf, PlannerState, String) {
         ["init", "-q"].as_slice(),
         ["config", "user.name", "Fixture"].as_slice(),
         ["config", "user.email", "fixture@example.test"].as_slice(),
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    std::fs::write(root.join("README.md"), "Synthetic source snapshot\n").unwrap();
+    for args in [
+        ["add", "README.md"].as_slice(),
+        ["commit", "-qm", "Synthetic source baseline"].as_slice(),
     ] {
         assert!(
             std::process::Command::new("git")

@@ -65,6 +65,17 @@ impl KooladeApp {
         project.task_chats.ensure_loaded(&project.chat_slug);
         let mut user_message = ChatMessage::new(ChatRole::User, &text, Some(key.into()));
         user_message.clarification = read_only;
+        if !read_only
+            && let Some(item) = project
+                .state
+                .items
+                .iter()
+                .find(|item| item.conversation_key() == key)
+        {
+            user_message.answer_context = Some(
+                crate::core::task_conversation::answer_receipt::context(item),
+            );
+        }
         let sent_id = user_message.id.clone();
         let reply_claim = if read_only {
             if let Err(error) =

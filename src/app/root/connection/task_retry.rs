@@ -167,7 +167,7 @@ impl KooladeApp {
                     continue;
                 }
             };
-            let recent_chat = project
+            let mut recent_chat: Vec<_> = project
                 .task_chats
                 .messages
                 .get(&key)
@@ -176,6 +176,9 @@ impl KooladeApp {
                 .filter(|message| message.id != user_id)
                 .map(|message| (format!("{:?}", message.role), message.text.clone()))
                 .collect();
+            if project.task_chats.has_failed_task_reply(&key) {
+                recent_chat.push(("System".into(), "Recover the original saved answer from its prior pre-application failure. Repair the reported response format, preserve the submitted choice and scope, and return the full validated envelope. Omit open_items_updated for an item you resolve. Do not repeat the question or bypass authorization checks.".into()));
+            }
             let purpose = if crate::core::task_conversation::is_opportunity_conversation_key(&key)
                 || work
                     .as_ref()

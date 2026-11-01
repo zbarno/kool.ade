@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "tests/exhausted.rs"]
 mod exhausted;
+#[path = "tests/safe_recovery.rs"]
+mod safe_recovery;
 
 #[test]
 fn conflict_retry_is_keyed_to_latest_answer_and_bounded_by_caller() {

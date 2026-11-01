@@ -52,3 +52,5 @@ pub mod task_claim;
 pub mod task_conversation;
 pub mod time_accrual;
 pub mod time_totals;
+
+pub(crate) mod source_workspace;

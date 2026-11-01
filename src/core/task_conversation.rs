@@ -1,6 +1,7 @@
 //! Focused prompts assembled from board identity and durable planning artifacts.
 use crate::core::{context_build::clip, state::PlannerState};
 
+pub(crate) mod answer_receipt;
 mod documentation_refresh;
 mod feature_planning;
 mod opportunity;

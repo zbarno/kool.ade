@@ -39,7 +39,7 @@ impl KooladeApp {
             None,
         )];
         if concurrent_write_conflict {
-            if conversation.is_some()
+            if (conversation.is_some() || project.task_chats.active.is_some())
                 && let Some(message) = chat.first_mut()
             {
                 crate::persistence::task_chats::TaskChats::mark_planning_conflict_retry(message);
@@ -53,7 +53,17 @@ impl KooladeApp {
         if project.task_chats.active.is_some()
             && let Some(message) = chat.first_mut()
         {
-            crate::persistence::task_chats::TaskChats::mark_task_reply_outcome(message);
+            if !problems.is_empty()
+                && problems.iter().all(|problem| {
+                    problem.starts_with("Structured JSON block is malformed")
+                        || problem.contains("did not include the required structured JSON block")
+                        || problem.contains("cannot update and resolve the same item in one turn")
+                })
+            {
+                crate::persistence::task_chats::TaskChats::mark_recoverable_task_reply(message);
+            } else {
+                crate::persistence::task_chats::TaskChats::mark_task_reply_outcome(message);
+            }
         }
         remember_turn_messages(project, conversation, chat);
         self.toasts.danger(format!(
@@ -74,12 +84,22 @@ impl KooladeApp {
                 crate::error::AppError::InvalidResponse { .. } => {
                     format!("Task generation needs attention: {}", error.detail())
                 }
-                _ => format!("Planning stopped: {}", error.headline()),
+                _ => format!(
+                    "Planning stopped: {}",
+                    crate::error::redact_secrets(&error.detail())
+                ),
             },
             None,
         );
         if project.task_chats.active.is_some() {
-            crate::persistence::task_chats::TaskChats::mark_task_reply_outcome(&mut stopped);
+            if matches!(&error, crate::error::AppError::HarnessExecutionFailed { failure } if failure.retryable)
+            {
+                crate::persistence::task_chats::TaskChats::mark_recoverable_task_reply(
+                    &mut stopped,
+                );
+            } else {
+                crate::persistence::task_chats::TaskChats::mark_task_reply_outcome(&mut stopped);
+            }
         }
         remember_turn_messages(project, conversation, vec![stopped]);
         self.toasts.danger(error.headline());

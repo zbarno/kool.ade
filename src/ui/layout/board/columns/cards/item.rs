@@ -11,6 +11,8 @@ pub(in crate::ui::layout::board::columns) fn item(
 ) {
     let key = item.conversation_key();
     let active = s.activity_active(key);
+    let saved =
+        crate::core::task_conversation::answer_receipt::is_saved(item, s.task_messages(key));
     let open_details = task_cards::board_card(
         ui,
         &item.id,
@@ -29,7 +31,11 @@ pub(in crate::ui::layout::board::columns) fn item(
                 if column == 3 {
                     super::super::attention::badge(
                         ui,
-                        super::super::attention::Kind::WaitingOnUser,
+                        if saved {
+                            super::super::attention::Kind::Blocked
+                        } else {
+                            super::super::attention::Kind::WaitingOnUser
+                        },
                     );
                 } else if column == 4 {
                     theme::badge(ui, "Resolved", theme::PANEL, theme::TEXT_DIM);
@@ -50,6 +56,8 @@ pub(in crate::ui::layout::board::columns) fn item(
             }
             let summary = if item.status == crate::domain::ItemStatus::Resolved {
                 "Decision recorded"
+            } else if saved {
+                crate::ui::saved_reply::label(s.task_messages(key)).unwrap_or("Answer saved")
             } else if crate::core::routing::has_open_prerequisite(&board.planning_items, item) {
                 "Waiting for a prerequisite"
             } else if item.authority == crate::domain::Authority::Review {
@@ -62,7 +70,9 @@ pub(in crate::ui::layout::board::columns) fn item(
             ui.label(theme::helper_text(summary));
             super::super::super::super::activity::paint_card(ui, s, key, false);
             if column == 3 {
-                let action = if item.authority == crate::domain::Authority::Review {
+                let action = if saved {
+                    "View details"
+                } else if item.authority == crate::domain::Authority::Review {
                     "Review"
                 } else {
                     "Respond"

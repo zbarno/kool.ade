@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 mod opportunities;
 #[path = "tests/routing_and_retry.rs"]
 mod routing_and_retry;
+#[path = "tests/schema_repair.rs"]
+mod schema_repair;
 
 #[test]
 fn manager_cannot_grant_custom_npm_registry_without_user_action() {

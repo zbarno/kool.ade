@@ -171,7 +171,8 @@ fn human_decision_brief_shows_issue_specific_buttons_and_advisory_details() {
     }
 
     let details = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&details, "Choose one").is_some());
+    assert!(text_position(&details, "Choose one").is_none());
+    assert!(text_position(&details, "Change saved answer").is_some());
     assert!(text_contains(
         &details,
         "Kool.ad/e recommends Ask people to sign in again after one hour"

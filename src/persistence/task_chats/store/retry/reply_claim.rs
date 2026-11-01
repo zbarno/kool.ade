@@ -176,20 +176,38 @@ impl TaskChats {
         }
         if let Some(claim_id) = task_reply_claim_id(messages, user_id)
             && let Some(claim) = messages.iter().find(|message| message.id == claim_id)
-            && claim_is_fresh(&claim.ts)
+            && claim_is_fresh(claim.lease_renewed_at.as_ref().unwrap_or(&claim.ts))
         {
             return Ok(None);
         }
+        let exhausted = after
+            .iter()
+            .position(super::safe_recovery::is_recoverable)
+            .is_some_and(|failure| {
+                after[failure + 1..].iter().any(|message| {
+                    message.role == ChatRole::System
+                        && message.id.starts_with(TASK_REPLY_CLAIM_PREFIX)
+                })
+            });
         let mut claim = ChatMessage::new(
             ChatRole::System,
-            "Kool.ad/e is processing this saved task reply internally.",
+            if exhausted {
+                "The internal recovery limit was reached. Your original answer remains saved; internal investigation is required. Do not submit the answer again."
+            } else {
+                "Kool.ad/e is processing this saved task reply internally."
+            },
             Some(key.into()),
         );
-        claim.id = format!(
-            "{TASK_REPLY_CLAIM_PREFIX}{user_id}:{}",
-            uuid::Uuid::new_v4()
-        );
-        let claim_id = claim.id.clone();
+        let claim_id = if exhausted {
+            Self::mark_task_reply_retry_exhausted(&mut claim, user_id);
+            None
+        } else {
+            claim.id = format!(
+                "{TASK_REPLY_CLAIM_PREFIX}{user_id}:{}",
+                uuid::Uuid::new_v4()
+            );
+            Some(claim.id.clone())
+        };
         messages.push(claim);
         super::super::canonicalize(&mut stored);
         let json = serde_json::to_string(&stored).map_err(|error| error.to_string())?;
@@ -203,7 +221,7 @@ impl TaskChats {
         self.pending.clear();
         self.refreshed = Some(std::time::Instant::now());
         self.error = None;
-        Ok(Some(claim_id))
+        Ok(claim_id)
     }
 
     /// Renew a live retry claim. Tick polling keeps long-running model calls
@@ -240,7 +258,7 @@ impl TaskChats {
         else {
             return Ok(false);
         };
-        claim.ts = chrono::Utc::now();
+        claim.lease_renewed_at = Some(chrono::Utc::now());
         let json = serde_json::to_string(&stored).map_err(|error| error.to_string())?;
         let dir = crate::persistence::project_dir(slug);
         crate::artifacts::atomic_write(&dir.join("task-conversations.json"), &json)

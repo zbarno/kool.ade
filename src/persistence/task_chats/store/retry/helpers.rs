@@ -40,6 +40,11 @@ pub(super) fn task_reply_claim_id<'a>(
         return None;
     }
     let prefix = format!("{TASK_REPLY_CLAIM_PREFIX}{user_id}:");
+    let after = after
+        .iter()
+        .rposition(super::safe_recovery::is_recoverable)
+        .map(|index| &after[index + 1..])
+        .unwrap_or(after);
     after
         .iter()
         .rev()
