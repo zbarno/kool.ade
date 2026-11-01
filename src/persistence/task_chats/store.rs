@@ -7,6 +7,7 @@ use crate::domain::ChatMessage;
 use std::collections::BTreeMap;
 
 mod identity;
+mod lock;
 mod proactive;
 mod retry;
 
@@ -160,29 +161,6 @@ impl TaskChats {
     pub fn refresh_now(&mut self, slug: &str) {
         self.refreshed = None;
         self.ensure_loaded(slug);
-    }
-
-    fn lock_store(slug: &str) -> Result<std::fs::File, String> {
-        let dir = crate::persistence::project_dir(slug);
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let lock = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(dir.join("task-conversations.lock"))
-            .map_err(|e| e.to_string())?;
-        if lock.try_lock().is_err() {
-            for delay_ms in [4u64, 8, 12, 15, 15, 15] {
-                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-                if lock.try_lock().is_ok() {
-                    break;
-                }
-            }
-        }
-        lock.try_lock().map_err(|_| {
-            "Another window is saving a task conversation; retry shortly.".to_string()
-        })?;
-        Ok(lock)
     }
 
     fn persist(&mut self, slug: &str, key: &str, messages: &[ChatMessage]) -> Result<(), String> {
