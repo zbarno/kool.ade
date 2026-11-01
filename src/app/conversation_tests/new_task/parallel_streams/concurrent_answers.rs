@@ -123,6 +123,60 @@ fn concurrent_task_answers_apply_to_their_own_streams() {
 
     complete(&mut app);
     complete(&mut app);
+    // The normal app tick dispatches this same internal recovery. Drive it
+    // explicitly here because this test adopts turns without running UI ticks.
+    for _ in 0..=crate::persistence::task_chats::MAX_PLANNING_CONFLICT_RETRIES {
+        let pending_key = match &app.screen {
+            Screen::Connected(project) => keys.iter().find(|key| {
+                project
+                    .task_chats
+                    .pending_planning_conflict_retries(key)
+                    .is_some()
+            }),
+            Screen::Welcome => None,
+        }
+        .cloned();
+        let Some(pending_key) = pending_key else {
+            break;
+        };
+        let task_index = keys
+            .iter()
+            .position(|key| key == &pending_key)
+            .expect("pending retry belongs to one captured task reply");
+        let (_, _, answer, evidence) = &captured[task_index];
+        let reply = serde_json::json!({
+            "schema_version": 1,
+            "assistant_message": answer,
+            "open_items_updated": [{"id": pending_key, "evidence": evidence}]
+        })
+        .to_string();
+        app.task_harness = Some(Box::new(ReplyHarness {
+            prompts: Arc::clone(&captured[task_index].0),
+            reply,
+        }));
+        app.retry_pending_task_reply();
+        let Screen::Connected(project) = &app.screen else {
+            panic!("project remains connected");
+        };
+        assert!(
+            project.task_turns.contains_key(&pending_key),
+            "internal retry did not start for {pending_key}: error={:?}, pending={:?}",
+            project.queue.last_error,
+            project
+                .task_chats
+                .pending_planning_conflict_retries(&pending_key)
+        );
+        complete(&mut app);
+    }
+    if let Screen::Connected(project) = &app.screen {
+        for key in &keys {
+            assert_eq!(
+                project.task_chats.pending_planning_conflict_retries(key),
+                None,
+                "internal retry should clear the pending conflict for {key}"
+            );
+        }
+    }
     let mut prompt_counts = captured
         .iter()
         .map(|(prompts, _, _, _)| prompts.lock().unwrap().len())
@@ -155,7 +209,8 @@ fn concurrent_task_answers_apply_to_their_own_streams() {
         assert!(
             history.iter().any(|message| {
                 message.role == ChatRole::Agent && message.text == answer.as_str()
-            })
+            }),
+            "task conversation {key} did not retain its own answer {answer:?}; history={history:#?}"
         );
         assert!(history.iter().any(|message| {
             message.role == ChatRole::System
