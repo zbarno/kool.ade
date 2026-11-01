@@ -4,6 +4,7 @@ mod blocking;
 mod dispatch;
 mod queue;
 mod recipe;
+mod record_report;
 mod worker_completion;
 
 pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
@@ -126,21 +127,19 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                     "Runtime QA for task {} changed before its worker failure could be recorded.",
                     task.task_uid
                 )),
-                Ok(blocking::BlockOutcome::ReportPresent(notice)) => notices.push(notice),
+                Ok(blocking::BlockOutcome::ReportPresent { notice, applied }) => {
+                    if applied {
+                        record_report::finish_present(project, &task, request, &qa_store);
+                    }
+                    notices.push(notice);
+                }
                 Err(error) => project.activity.pending.push(format!(
                     "Runtime QA worker failure could not be persisted: {error}"
                 )),
             }
             continue;
         }
-        match reports::record_persisted_report(
-            &project.state.planning_store,
-            &mut project.planning_work,
-            &mut project.state.baseline_planning_revision,
-            &LifecycleStore::new(&project.state.planning_store),
-            &qa_store,
-            &task,
-        ) {
+        match record_report::record(project, &task, request, &qa_store) {
             Ok(Some(notice)) => {
                 notices.push(notice);
                 continue;
@@ -174,7 +173,12 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                         "Runtime QA report for task {} changed before the report could be rejected.",
                         task.task_uid
                     )),
-                    Ok(blocking::BlockOutcome::ReportPresent(notice)) => notices.push(notice),
+                    Ok(blocking::BlockOutcome::ReportPresent { notice, applied }) => {
+                        if applied {
+                            record_report::finish_present(project, &task, request, &qa_store);
+                        }
+                        notices.push(notice);
+                    }
                     Err(block_error) => project.activity.pending.push(format!(
                         "Runtime QA report for task {} could not be recorded or blocked: {block_error}",
                         task.task_uid
@@ -201,7 +205,12 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                     Ok(blocking::BlockOutcome::Persisted) => notices.push(format!("Runtime QA for task {} was blocked because its queued request is stale; issue a fresh reviewed request.", task.task_uid)),
                     Ok(blocking::BlockOutcome::ActiveWorker) => notices.push(format!("Runtime QA for task {} is still owned by an active worker; its state was left unchanged.", task.task_uid)),
                     Ok(blocking::BlockOutcome::Stale) => notices.push(format!("Runtime QA for task {} changed before its stale request could be blocked.", task.task_uid)),
-                    Ok(blocking::BlockOutcome::ReportPresent(notice)) => notices.push(notice),
+                    Ok(blocking::BlockOutcome::ReportPresent { notice, applied }) => {
+                        if applied {
+                            record_report::finish_present(project, &task, request, &qa_store);
+                        }
+                        notices.push(notice);
+                    }
                     Err(error) => project.activity.pending.push(format!("Stale Runtime QA request could not be blocked: {error}")),
                 }
                 continue;
@@ -234,7 +243,12 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                         "Runtime QA for task {} changed before its input blocker could be recorded.",
                         task.task_uid
                     )),
-                    Ok(blocking::BlockOutcome::ReportPresent(notice)) => notices.push(notice),
+                    Ok(blocking::BlockOutcome::ReportPresent { notice, applied }) => {
+                        if applied {
+                            record_report::finish_present(project, &task, request, &qa_store);
+                        }
+                        notices.push(notice);
+                    }
                     Err(error) => project.activity.pending.push(format!(
                         "Runtime QA input blocker could not be persisted: {error}"
                     )),
@@ -276,7 +290,10 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
                     ));
                     false
                 }
-                Ok(blocking::BlockOutcome::ReportPresent(notice)) => {
+                Ok(blocking::BlockOutcome::ReportPresent { notice, applied }) => {
+                    if applied {
+                        record_report::finish_present(project, &task, request, &qa_store);
+                    }
                     notices.push(notice);
                     false
                 }

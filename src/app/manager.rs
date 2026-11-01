@@ -8,13 +8,15 @@ mod telemetry;
 pub(crate) const MAX_PLAN_ARBITRATION_ATTEMPTS: usize = 2;
 pub(crate) use dependency::{DependencyReview, DependencyTriage, enforce_policy};
 pub(crate) use dispositions::has_unpromoted_nonblocking_findings;
+#[cfg(test)]
+pub(crate) use dispositions::next_qa_finding_repair_with_store;
 pub(super) use dispositions::persist_dispositions;
 #[cfg(test)]
 pub(super) use dispositions::persist_plan_dispositions;
 pub(crate) use dispositions::{
     CodeReviewArbitrationRequest, approve_code_review_risk, finish_code_review_arbitration,
-    finish_code_review_repair, mark_code_review_repair_failed, next_code_review_arbitration,
-    next_code_review_repair,
+    finish_code_review_repair, finish_qa_finding_repair, mark_code_review_repair_failed,
+    next_code_review_arbitration, next_code_review_repair, next_qa_finding_repair,
 };
 pub(super) use dispositions::{
     has_pending_plan_contest, has_pending_plan_repair, next_plan_arbitration, next_plan_repair,

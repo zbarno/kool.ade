@@ -12,7 +12,12 @@ pub(crate) fn mark_repair_failed(project: &mut Project, ticket: &str, reason: &s
         return;
     };
     let Some(work) = project.planning_work.iter_mut().find(|work| {
-        work.kind == WorkKind::CodeReviewDisposition
+        work.kind
+            == if context.is_runtime_qa() {
+                WorkKind::QaFindingDisposition
+            } else {
+                WorkKind::CodeReviewDisposition
+            }
             && work.parent_uid.as_deref() == Some(context.task_uid.as_str())
             && work.uid == context.work_id
     }) else {
