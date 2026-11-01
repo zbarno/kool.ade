@@ -4,6 +4,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -226,6 +227,15 @@ class PublicationOrderingTests(unittest.TestCase):
                         qa.index('image_digest="$(jq -er'))
         self.assertIn('type=image,name=$registry_tag,push=false,rewrite-timestamp=true', workflow)
         self.assertIn('type=image,name=$image_tag,push=true,rewrite-timestamp=true', workflow)
+
+    def test_qa_candidate_removes_buildkit_cache_before_sbom_scan(self):
+        qa = (SCRIPTS / "build-qa-image-candidate.sh").read_text()
+        build_calls = [match.start() for match in re.finditer(r"docker buildx build", qa)]
+        cache_removal = qa.index('docker buildx rm --force "$builder_name"')
+        sbom_scan = qa.index('"$SYFT" "docker:$scan_reference"')
+        self.assertTrue(build_calls)
+        self.assertLess(max(build_calls), cache_removal)
+        self.assertLess(cache_removal, sbom_scan)
 
     def test_workflow_preflights_both_families_before_authentication(self):
         workflow = (SCRIPTS.parent / ".github/workflows/executor-images.yml").read_text()

@@ -19,6 +19,7 @@ docker info --format '{{json .SecurityOptions}}' \
 output_directory="$RUNNER_TEMP/executor-image-candidate-${profile}-${architecture}"
 metadata_file="$RUNNER_TEMP/qa-image-build.json"
 tag="koolade-runtime-qa:${profile}-candidate"
+builder_name="qa-${profile}-candidate"
 build_output=(--output "type=docker,name=$tag,rewrite-timestamp=true")
 normalize_build_context() {
   find "$1" -exec touch -h -d '@0' {} +
@@ -46,7 +47,7 @@ case "$profile" in
       scripts/build-qa-image-candidate.sh
     )
     recipe_sha256="sha256:$(sha256sum "${recipe_files[@]}" | awk '{printf "%s  %s\n", $1, $2}' | sha256sum | awk '{print $1}')"
-    docker buildx create --name qa-browser-candidate --driver docker-container \
+    docker buildx create --name "$builder_name" --driver docker-container \
       --driver-opt "image=$buildkit_image" --use
     docker buildx inspect --bootstrap
     normalize_build_context "$build_context"
@@ -147,7 +148,7 @@ PY
     cp "$binary" "$context/koolade-qa-desktop"
     build_context="$context"
     normalize_build_context "$build_context"
-    docker buildx create --name qa-desktop-candidate --driver docker-container \
+    docker buildx create --name "$builder_name" --driver docker-container \
       --driver-opt "image=$buildkit_image" --use
     docker buildx inspect --bootstrap
     docker buildx build --platform "$platform" --network=none --provenance=false --sbom=false \
@@ -281,6 +282,11 @@ if [[ "$build_mode" == publish ]]; then
     --output "type=image,name=$tag,push=true,rewrite-timestamp=true" "$build_context"
   metadata_file="$publish_metadata"
 fi
+
+# The docker-container driver stores its BuildKit cache in a dedicated Docker
+# volume. Remove it after all builds, before Syft unpacks the image into /tmp;
+# retaining the cache can exhaust the hosted runner's root filesystem.
+docker buildx rm --force "$builder_name"
 
 image_digest="$(jq -er '."containerimage.digest"' "$metadata_file")"
 [[ "$image_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
