@@ -1,30 +1,14 @@
 # Runtime QA release evidence
 
-## Current snapshot (2026-10-30, 21:43 UTC)
+## Snapshot (2026-11-01, 10:25 UTC)
 
-Current `main` is [`abad2af3`](https://github.com/zbarno/kool.ade/commit/abad2af35d6cd9c0334edbe731ac333e1e872f72),
-which merged PR #435. Exact-main [quality](https://github.com/zbarno/kool.ade/actions/runs/41130466227)
-and [CodeQL](https://github.com/zbarno/kool.ade/actions/runs/41130465745) passed.
-The [native package](https://github.com/zbarno/kool.ade/actions/runs/41130466222)
-and [trusted executor image](https://github.com/zbarno/kool.ade/actions/runs/41130466301)
-workflows were still running at this snapshot. Runtime QA profile publication
-remains disabled; candidate checks do not approve release or enable either profile.
+Current `main` is [`387b5a71`](https://github.com/zbarno/kool.ade/commit/387b5a71ba760ba66cb380002556a6b04b9db465). Exact-main [quality](https://github.com/zbarno/kool.ade/actions/runs/41249181353), [CodeQL](https://github.com/zbarno/kool.ade/actions/runs/41249181292), [trusted executor images](https://github.com/zbarno/kool.ade/actions/runs/41249181394), and [native desktop packages](https://github.com/zbarno/kool.ade/actions/runs/41249181372) all passed. Browser and desktop Runtime QA profiles remain disabled; the skipped publication jobs and these candidate checks do not authorize release or enable either profile.
 
-PR [#435](https://github.com/zbarno/kool.ade/pull/435) merged as `abad2af3`.
-Its final candidate head `5f1a0aaa` passed quality, CodeQL, all five native
-package targets, rootless browser and desktop candidate verification,
-published-image smokes, and reviewed-digest verification. The exact-main
-workflows above are the post-merge checks.
+PRs [#442](https://github.com/zbarno/kool.ade/pull/442), [#445](https://github.com/zbarno/kool.ade/pull/445), [#448](https://github.com/zbarno/kool.ade/pull/448), and [#449](https://github.com/zbarno/kool.ade/pull/449) are merged. PR #445 routes persisted blocking QA findings into durable Manager work. PR #449 verifies the persisted proposal reaches the Manager conversation with the failed run, code revision, and fresh review/QA instructions.
 
-PR [#436](https://github.com/zbarno/kool.ade/pull/436) has been updated to
-include `abad2af3` using a normal merge commit; its refreshed hosted checks must
-complete before it can merge. Maintainer review is still required and normal
-auto-merge remains enabled.
+PR [#447](https://github.com/zbarno/kool.ade/pull/447) is based on current `main`. Its rootless browser candidate test and published-browser smoke failed because the combined test stopped the shared preview before starting the browser-driver crash probe. A local correction runs the crash probe while the preview is alive; it is being validated and is not counted as hosted evidence yet. Other quality, CodeQL, and native package checks on the failed PR head passed.
 
-These results establish candidate and exact-main CI status only. Technical
-#171 acceptance criteria remain open. Deferred human readiness/status/screenshot
-review is a prelaunch activity and does not block issue closure after technical
-acceptance is complete.
+Issue #171 remains open for broader rootless security/failure coverage, completion of the repair loop through fresh review and QA, and verified readiness/status/screenshot UX plus release documentation. Human readiness/status/screenshot review is deferred to prelaunch and will not block issue closure after technical acceptance is complete.
 
 ## Historical exact-main snapshot (2026-10-30, 15:59 UTC)
 
