@@ -11,7 +11,7 @@ pub(super) async fn assert(
     preview: &super::super::super::QaWebPreview,
     resources: &crate::execution::contract::ResourceBudgetV1,
 ) -> Result<(), String> {
-    super::super::preview_failure::assert_preview_exit_fails_the_active_browser_run(
+    super::super::driver_crash::assert_driver_crash_fails_closed(
         docker,
         request,
         browser_image,
@@ -22,7 +22,7 @@ pub(super) async fn assert(
         resources,
     )
     .await?;
-    super::super::driver_crash::assert_driver_crash_fails_closed(
+    super::super::preview_failure::assert_preview_exit_fails_the_active_browser_run(
         docker,
         request,
         browser_image,
