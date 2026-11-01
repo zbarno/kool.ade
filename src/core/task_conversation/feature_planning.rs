@@ -1,5 +1,34 @@
 //! Strict response contract for focused planning-feature conversations.
 
+pub(super) fn for_work(
+    state: &crate::core::state::PlannerState,
+    work: &crate::core::planning_work::Work,
+    context: &str,
+    history: &str,
+    message: &str,
+) -> String {
+    let context = format!(
+        "{context}\nTask-specific guidance: {}\nAuthoritative linked feature: {:?}; immutable UID: {:?}. If no feature is linked, this task has no existing feature approval control. Never reuse another task's feature ID from conversation history or the global interview. A next-feature ID is only a candidate for new work. Do not promise an approval control for a Draft feature or after a rejected update.",
+        work.kind.planning_guidance(),
+        work.feature_id,
+        work.feature_uid
+    );
+    let brief = if work.feature_id.is_some()
+        && work.feature_id.as_deref() == state.active_feature.as_ref().map(|(id, _)| id.as_str())
+    {
+        serde_json::to_string_pretty(&state.workflow.brief).unwrap_or_default()
+    } else {
+        "null".into()
+    };
+    build(
+        &context,
+        &brief,
+        history,
+        message,
+        crate::artifacts::product_docs::next_feature_id(&state.planning_store),
+    )
+}
+
 pub(super) fn build(
     context: &str,
     current_brief: &str,
@@ -20,6 +49,27 @@ pub(super) fn build(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unlinked_work_cannot_inherit_another_tasks_interview() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut state = crate::core::state::PlannerState::load(temp.path()).unwrap();
+        state.workflow.brief = Some(crate::core::workflow::InterviewBrief {
+            feature_name: "UNRELATED FEATURE INTERVIEW".into(),
+            ..Default::default()
+        });
+        state.active_feature = Some(("F7".into(), "Unrelated feature".into()));
+        let work = crate::core::planning_work::Work::new(
+            "task:unlinked".into(),
+            "Reorder board".into(),
+            "Reorder lanes".into(),
+            "".into(),
+        );
+        let prompt = for_work(&state, &work, "Reorder board", "", "Where is approval?");
+        assert!(!prompt.contains("UNRELATED FEATURE INTERVIEW"));
+        assert!(prompt.contains("Authoritative linked feature: None"));
+        assert!(prompt.contains("has no existing feature approval control"));
+    }
 
     #[test]
     fn feature_planning_prompt_requires_the_application_wire_shape() {

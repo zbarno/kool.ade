@@ -189,16 +189,8 @@ pub fn prompt(
                     .git_path(crate::artifacts::planning_store::paths::PRODUCT),
             ));
         }
-        let context = format!(
-            "{context}\nTask-specific guidance: {}",
-            work.kind.planning_guidance()
-        );
-        return Ok(feature_planning::build(
-            &context,
-            &serde_json::to_string_pretty(&state.workflow.brief).unwrap_or_default(),
-            &history,
-            message,
-            crate::artifacts::product_docs::next_feature_id(&state.planning_store),
+        return Ok(feature_planning::for_work(
+            state, &work, &context, &history, message,
         ));
     };
     if let Some(worker) =
