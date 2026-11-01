@@ -1,16 +1,18 @@
 use sha2::Digest;
 use std::collections::{HashMap, HashSet};
 
-use super::ManagerOutput;
 use crate::harness::prompt_catalog::{
     EvidenceConfidentiality, EvidenceItem, EvidenceOrigin, OutputValidationContext, PromptRole,
-    RenderedPrompt, RoleInputV1, RoleOutputV1, RolePayloadV1,
+    RenderedPrompt, RoleInputV1, RolePayloadV1,
 };
 
 pub(in crate::app::manager) mod code_reviews;
+mod decode;
 mod opportunities;
+mod payload;
 mod product;
 pub(in crate::app::manager) mod reviews;
+pub(super) use decode::decode;
 pub(super) use opportunities::persist_opportunities;
 pub(super) use product::render_product;
 pub(super) const KOOLADE_PRODUCT_TARGET_REF: &str = "koolade-product";
@@ -175,15 +177,10 @@ pub(super) fn render(
         execution_policy_ref: "manager-policy/application-actions/v1".into(),
         output_schema_version: PromptRole::Manager.output_schema_version().into(),
         payload: RolePayloadV1::Manager {
-            board_event_cursor: events.last().cloned().unwrap_or_default(),
-            work_graph: project.active_implementations.keys().cloned().collect(),
-            unresolved_findings: project
-                .queue
-                .blocked
-                .iter()
-                .map(|(task, issue)| format!("{task}: {}", issue.message))
-                .collect(),
-            latest_review_receipts,
+            board_event_cursor: payload::event_cursor(events),
+            work_graph: payload::work_graph(project),
+            unresolved_findings: payload::unresolved_findings(project),
+            latest_review_receipts: payload::latest_review_receipts(latest_review_receipts),
         },
     };
     Ok(ManagerPrompt {
@@ -260,61 +257,4 @@ fn is_koolade_product_remote(remote: &str) -> bool {
             | "git@github.com:zbarno/kool.ade"
             | "ssh://git@github.com/zbarno/kool.ade"
     )
-}
-
-pub(super) fn decode(
-    text: &str,
-    context: &OutputValidationContext<'_>,
-    evidence_hashes: std::collections::HashMap<String, String>,
-    evidence_confidentialities: std::collections::HashMap<String, EvidenceConfidentiality>,
-    planning_revision: String,
-    review_targets: &std::collections::HashMap<String, reviews::ReviewTarget>,
-    code_review_targets: &std::collections::HashMap<String, code_reviews::FindingTarget>,
-) -> Result<ManagerOutput, String> {
-    let RoleOutputV1::Manager(output) =
-        crate::harness::prompt_catalog::validate_output_with_context(
-            PromptRole::Manager,
-            text,
-            context,
-        )?
-    else {
-        return Err("manager returned the wrong output schema".into());
-    };
-    reviews::validate_dispositions(
-        &output.proposed_actions,
-        review_targets,
-        &context.evidence_ids,
-        &context.evidence_content,
-    )?;
-    code_reviews::validate_dispositions(
-        &output.proposed_actions,
-        code_review_targets,
-        &context.evidence_ids,
-    )?;
-    let proposed_actions = output.proposed_actions;
-    let mut lines = vec![output.summary];
-    for action in &proposed_actions {
-        lines.push(format!(
-            "{:?}: {} — {}",
-            action.kind, action.target, action.reason
-        ));
-    }
-    for opportunity in &output.opportunities {
-        lines.push(format!(
-            "Proposed improvement for {}: {} — {} (target repository {})",
-            opportunity.target_repository_ref,
-            opportunity.problem_or_opportunity,
-            opportunity.user_value,
-            opportunity.target_repository
-        ));
-    }
-    Ok(ManagerOutput {
-        summary: lines.join("\n"),
-        proposed_actions,
-        opportunities: output.opportunities,
-        evidence_hashes,
-        evidence_confidentialities,
-        planning_revision,
-        code_review_targets: code_review_targets.clone(),
-    })
 }

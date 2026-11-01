@@ -11,7 +11,21 @@ fn oversized_role_payload_is_rejected_before_rendering() {
             latest_review_receipts: vec![],
         },
     );
-    assert!(render(&input).unwrap_err().contains("role payload"));
+    assert!(render(&input).unwrap_err().contains("work_graph"));
+}
+
+#[test]
+fn manager_payload_reports_the_invalid_cursor_field() {
+    let input = base(
+        PromptRole::Manager,
+        RolePayloadV1::Manager {
+            board_event_cursor: String::new(),
+            work_graph: vec![],
+            unresolved_findings: vec![],
+            latest_review_receipts: vec![],
+        },
+    );
+    assert!(render(&input).unwrap_err().contains("board_event_cursor"));
 }
 
 #[test]

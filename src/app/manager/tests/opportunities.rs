@@ -115,6 +115,34 @@ pub(super) fn initialized_repository() -> (tempfile::TempDir, crate::app::sessio
     )
 }
 
+/// Production boundary: Manager::start validates the assembled typed prompt
+/// before invoking a provider. This proves long event text cannot invalidate
+/// the role payload; a validator-only unit test cannot prove the Manager builder
+/// keeps event content out of the bounded cursor field. Uses a temporary Git
+/// repository and fake local harness; no Docker or network, with a few Git calls.
+#[test]
+fn manager_accepts_long_event_text_without_using_it_as_the_cursor() {
+    let (_temp, project, _) = initialized_repository();
+    let event = format!("Task conversation updated: {}", "é".repeat(100));
+    assert!(event.len() > 128);
+    let output = serde_json::json!({
+        "summary": "The board update was reviewed.",
+        "proposed_actions": [],
+    })
+    .to_string();
+    let manager = Manager::start(&project, &[event], Box::new(OpportunityHarness(output)));
+    let deadline = Instant::now() + std::time::Duration::from_secs(10);
+    let result = loop {
+        if let Some(result) = manager.result() {
+            break result.expect("valid event payload reaches the fake harness");
+        }
+        assert!(Instant::now() < deadline, "manager harness timed out");
+        thread::sleep(std::time::Duration::from_millis(5));
+    };
+
+    assert!(result.summary.contains("The board update was reviewed."));
+}
+
 #[test]
 fn manager_generation_persists_only_valid_opportunity_proposals() {
     let (_temp, project, repository) = initialized_repository();
