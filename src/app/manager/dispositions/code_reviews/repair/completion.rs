@@ -10,6 +10,10 @@ pub(crate) fn finish_repair(project: &mut Project, ticket: &str) {
     let Some(context) = state.manager_repair_context.clone() else {
         return;
     };
+    if context.is_runtime_qa() {
+        finish_runtime_qa_repair_review(project, ticket, &context);
+        return;
+    }
     let review = implementation::manager_findings_for_task(
         &project.state.repo_root,
         ticket,
@@ -142,6 +146,56 @@ pub(crate) fn finish_repair(project: &mut Project, ticket: &str) {
     } else {
         format!("The assigned code-review repair remains unresolved for task {ticket}; Manager triage is required.")
     });
+}
+
+fn finish_runtime_qa_repair_review(
+    project: &mut Project,
+    ticket: &str,
+    context: &crate::core::implementation::ManagerRepairContextV1,
+) {
+    let lifecycle = LifecycleStore::new(&project.state.planning_store);
+    let current = lifecycle
+        .task_for_planning_item(&context.task_uid)
+        .ok()
+        .flatten();
+    let review_is_current = current.as_ref().is_some_and(|task| {
+        task.phase == TaskPhase::AwaitingRuntimeQa
+            && task.reviewed_code_head_sha.as_deref()
+                == project
+                    .implementation_states
+                    .get(ticket)
+                    .and_then(|state| state.verified_head.as_deref())
+            && task.reviewed_code_head_sha.as_deref() != Some(context.reviewed_head_sha.as_str())
+    });
+    let Some(index) = project.planning_work.iter().position(|work| {
+        work.uid == context.work_id
+            && work.kind == WorkKind::QaFindingDisposition
+            && work.parent_uid.as_deref() == Some(context.task_uid.as_str())
+    }) else {
+        project.activity.pending.push(format!(
+            "Fresh code review completed for task {ticket}, but its Runtime QA repair record {} is missing.",
+            context.work_id
+        ));
+        return;
+    };
+    if !review_is_current {
+        project.planning_work[index].status = WorkStatus::NeedsAttention;
+        project.planning_work[index].detail.push_str(
+            "\n\nThe changed head did not reach the fresh-review-passed Runtime QA phase; Manager must re-evaluate the current task state.",
+        );
+        let _ = project.save_planning_work();
+        return;
+    }
+    project.planning_work[index].status = WorkStatus::InReview;
+    project.planning_work[index].detail.push_str(
+        "\n\nFresh independent code review passed on the changed head. The repair remains unresolved until a new Runtime QA report passes.",
+    );
+    if let Err(error) = project.save_planning_work() {
+        project.activity.pending.push(format!(
+            "Fresh code review passed for Runtime QA repair {}, but its board state could not be saved: {error}",
+            context.work_id
+        ));
+    }
 }
 
 fn repair_finding_resolved(

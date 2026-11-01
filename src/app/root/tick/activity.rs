@@ -145,6 +145,9 @@ impl KooladeApp {
             if plan_repair.is_none() {
                 code_review_repair = crate::app::manager::next_code_review_repair(project);
             }
+            if code_review_repair.is_none() {
+                code_review_repair = crate::app::manager::next_qa_finding_repair(project);
+            }
         }
         if let Some((key, request, feature_id)) = plan_repair {
             self.start_turn_for_work(
@@ -167,7 +170,7 @@ impl KooladeApp {
                 {
                     work.status = crate::core::planning_work::WorkStatus::NeedsAttention;
                     work.detail.push_str(&format!(
-                        "\n\nBlocked: the application could not start the scoped repair worker. {}",
+                        "\n\nBlocked: the application could not start the scoped Manager repair worker. {}",
                         if start_error.trim().is_empty() {
                             "Check implementation capability and queue state before retrying."
                                 .into()
@@ -177,7 +180,7 @@ impl KooladeApp {
                     ));
                     if let Err(error) = project.save_planning_work() {
                         project.activity.pending.push(format!(
-                            "The scoped code-review repair could not start, and its attention state could not be saved: {error}"
+                            "The scoped Manager repair could not start, and its attention state could not be saved: {error}"
                         ));
                     }
                 }

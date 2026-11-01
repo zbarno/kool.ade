@@ -37,3 +37,23 @@ fn manager_repair_context_rejects_invalid_identity_and_unbounded_evidence() {
     invalid.finding_record = "x".repeat(8193);
     assert!(invalid.validate().is_err());
 }
+
+#[test]
+fn manager_repair_context_accepts_persisted_runtime_qa_identity() {
+    let finding_id = "00000000-0000-4000-8000-000000000003";
+    let context = ManagerRepairContextV1 {
+        finding_id: finding_id.into(),
+        evidence_ref: format!("runtime-qa-finding:{finding_id}"),
+        finding_fingerprint: None,
+        finding_record: r#"{"smallest_fix":"restore expected behavior"}"#.into(),
+        ..valid_context()
+    };
+    assert!(context.is_runtime_qa());
+    assert!(context.validate().is_ok());
+
+    let invalid = ManagerRepairContextV1 {
+        evidence_ref: "runtime-qa-finding:not-a-uuid".into(),
+        ..context
+    };
+    assert!(invalid.validate().is_err());
+}

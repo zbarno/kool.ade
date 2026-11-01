@@ -10,7 +10,7 @@ pub(super) enum BlockOutcome {
     Persisted,
     ActiveWorker,
     Stale,
-    ReportPresent(String),
+    ReportPresent { notice: String, applied: bool },
 }
 
 pub(super) struct PlanningWorkState<'a> {
@@ -96,21 +96,16 @@ pub(super) fn persist_block_with_work(
         if super::super::reports::persisted_report_state(&qa_store, request, running_restart)
             == super::super::reports::PersistedReportState::Recordable
         {
-            let notice = match super::super::reports::record_persisted_report(
-                planning_store,
-                planning_work.items,
-                planning_work.baseline_revision,
-                &lifecycle,
-                &qa_store,
-                &current,
-            ) {
-                Ok(Some(notice)) => notice,
-                Ok(None) => "A completed Runtime QA report was preserved for the next tick.".into(),
-                Err(error) => format!(
-                    "A completed Runtime QA report was preserved and could not yet be applied: {error}"
-                ),
-            };
-            return Ok(BlockOutcome::ReportPresent(notice));
+            let (notice, applied) =
+                report_application_outcome(super::super::reports::record_persisted_report(
+                    planning_store,
+                    planning_work.items,
+                    planning_work.baseline_revision,
+                    &lifecycle,
+                    &qa_store,
+                    &current,
+                ));
+            return Ok(BlockOutcome::ReportPresent { notice, applied });
         }
     }
     let id = event_uid(&current.task_uid, current.revision, event_kind);
@@ -126,6 +121,22 @@ pub(super) fn persist_block_with_work(
     Ok(BlockOutcome::Persisted)
 }
 
+fn report_application_outcome(result: Result<Option<String>, String>) -> (String, bool) {
+    match result {
+        Ok(Some(notice)) => (notice, true),
+        Ok(None) => (
+            "A completed Runtime QA report was preserved for the next tick.".into(),
+            false,
+        ),
+        Err(error) => (
+            format!(
+                "A completed Runtime QA report was preserved and could not yet be applied: {error}"
+            ),
+            false,
+        ),
+    }
+}
+
 fn matches_snapshot(current: &TaskRecord, snapshot: &TaskRecord, request: &QaRunRequestV1) -> bool {
     current.revision == snapshot.revision
         && current.phase == TaskPhase::AwaitingRuntimeQa
@@ -135,4 +146,17 @@ fn matches_snapshot(current: &TaskRecord, snapshot: &TaskRecord, request: &QaRun
                 QaExecutionStatusV1::Pending | QaExecutionStatusV1::Running
             ) && execution.request.as_ref() == Some(request)
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::report_application_outcome;
+
+    #[test]
+    fn deferred_or_failed_report_application_cannot_finish_repair_work() {
+        for result in [Ok(None), Err("stale lifecycle revision".into())] {
+            let (_, applied) = report_application_outcome(result);
+            assert!(!applied);
+        }
+    }
 }

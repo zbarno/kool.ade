@@ -13,8 +13,8 @@ pub(super) use dispositions::persist_dispositions;
 pub(super) use dispositions::persist_plan_dispositions;
 pub(crate) use dispositions::{
     CodeReviewArbitrationRequest, approve_code_review_risk, finish_code_review_arbitration,
-    finish_code_review_repair, mark_code_review_repair_failed, next_code_review_arbitration,
-    next_code_review_repair,
+    finish_code_review_repair, finish_qa_finding_repair, mark_code_review_repair_failed,
+    next_code_review_arbitration, next_code_review_repair, next_qa_finding_repair,
 };
 pub(super) use dispositions::{
     has_pending_plan_contest, has_pending_plan_repair, next_plan_arbitration, next_plan_repair,
