@@ -24,6 +24,7 @@ mod reasoning;
 mod route;
 pub use activity::{
     ActivityTelemetry, CleanLaunchTelemetry, LivePost, LiveProgress, ModelCallUsage,
+    ProviderAuthStrategy,
 };
 pub use bootstrap_conversation::{
     BootstrapConversationReplyV1, BootstrapConversationResponseV1, BootstrapImageProfileV1,

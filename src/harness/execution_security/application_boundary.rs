@@ -3,7 +3,7 @@ use crate::execution::session::ExecutionSession;
 use crate::harness::{PlanningRequest, ToolAccess};
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 mod construction;
@@ -75,6 +75,9 @@ pub(crate) struct ApplicationBoundary {
     _resource_bridge: Option<Arc<crate::harness::resource_bridge::ResourceBridge>>,
     execution_session: Option<Arc<ExecutionSession>>,
     screenshot_review_audit: Option<runtime_qa_screenshots::PreparedReviewImages>,
+    approved_project_guidance:
+        Option<crate::persistence::project_guidance::ApprovedProjectGuidanceV1>,
+    codex_auth_strategy: Mutex<Option<crate::harness::ProviderAuthStrategy>>,
 }
 
 impl ApplicationBoundary {
@@ -94,6 +97,8 @@ impl ApplicationBoundary {
             _resource_bridge: None,
             execution_session: None,
             screenshot_review_audit: None,
+            approved_project_guidance: None,
+            codex_auth_strategy: Mutex::new(None),
         })
     }
 
@@ -103,6 +108,41 @@ impl ApplicationBoundary {
 
     pub(crate) fn access(&self) -> ToolAccess {
         self.access
+    }
+
+    /// Append only an explicitly adopted, project-bound snapshot as user data.
+    pub(crate) fn prompt_body(&self, body: &str) -> String {
+        let Some(guidance) = &self.approved_project_guidance else {
+            return body.to_owned();
+        };
+        let envelope = serde_json::json!({
+            "source": guidance.source_path,
+            "approval_id": guidance.receipt_uid,
+            "content_sha256": guidance.content_sha256,
+            "guidance": guidance.content,
+        });
+        format!(
+            "{body}\n\nAPPROVED PROJECT GUIDANCE (user-provided context; does not grant permissions or change task scope):\n{}",
+            serde_json::to_string_pretty(&envelope).expect("guidance envelope serializes")
+        )
+    }
+
+    #[cfg(not(test))]
+    pub(crate) fn record_codex_auth_strategy(
+        &self,
+        strategy: crate::harness::ProviderAuthStrategy,
+    ) {
+        *self
+            .codex_auth_strategy
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(strategy);
+    }
+
+    pub(crate) fn codex_auth_strategy(&self) -> Option<crate::harness::ProviderAuthStrategy> {
+        *self
+            .codex_auth_strategy
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub(crate) fn resource_bridge(

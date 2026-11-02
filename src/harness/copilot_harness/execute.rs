@@ -51,6 +51,8 @@ impl AiHarness for CopilotHarness {
             .map_err(|error| {
                 AppError::Other(format!("Cannot start Kool.ad/e sandbox: {error:#}"))
             })?;
+        let mut prompt_request = request.clone();
+        prompt_request.prompt_body = boundary.prompt_body(&request.prompt_body);
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!(
                 "Cannot resolve GitHub Copilot CLI executable: {error}"
@@ -99,7 +101,7 @@ impl AiHarness for CopilotHarness {
                 .as_ref()
                 .map(|manifest| manifest.role_version.as_str()),
         );
-        let input = prompt_input(request, boundary.system_policy());
+        let input = prompt_input(&prompt_request, boundary.system_policy());
         let started = chrono::Utc::now();
         let task = launch.spawn_with_input(boundary.working_directory(), Some(input))?;
         let output = run_task(task, request)?;

@@ -76,7 +76,12 @@ impl KooladeApp {
                         }
                         Ok(None) => {
                             completed = true;
-                            self.toasts.info("Project settings already in sync");
+                            if d.agent_guidance_saved {
+                                self.toasts
+                                    .success("Saved project guidance in private local settings");
+                            } else {
+                                self.toasts.info("Project settings already in sync");
+                            }
                         }
                         Err(error) => d.feedback = Some((false, error.detail())),
                     }

@@ -4,6 +4,9 @@ use crate::{
 };
 use std::path::PathBuf;
 
+#[path = "tests/project_guidance.rs"]
+mod project_guidance;
+
 fn editor_frame(
     ctx: &egui::Context,
     dialog: &mut DlgProjectSettings,

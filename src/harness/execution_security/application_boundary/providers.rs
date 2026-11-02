@@ -112,7 +112,7 @@ impl CliProvider {
                     "--skip-git-repo-check",
                     "--config",
                 ],
-                environment_keys: &[],
+                environment_keys: &["CODEX_HOME"],
             },
             Self::Pi => ProfileRequirements {
                 minimum_version: None,
@@ -239,7 +239,7 @@ pub(super) fn configure(
     env: &mut Vec<(String, String)>,
 ) -> anyhow::Result<()> {
     match provider {
-        CliProvider::Codex => codex::configure(boundary, argv)?,
+        CliProvider::Codex => codex::configure(boundary, argv, env)?,
         CliProvider::Claude => claude::configure(boundary, argv, env)?,
         CliProvider::Antigravity => antigravity::configure(boundary, argv, env)?,
         CliProvider::OpenCode => opencode::configure(boundary, argv, env)?,

@@ -31,7 +31,7 @@ directories do not need to be added to child `PATH`.
 | Provider | Runtime-checked profile controls | App-owned setup | Authentication and remaining limits |
 | --- | --- | --- | --- |
 | Pi | print/JSON mode, no session, no context files, no extension/skill/template/theme discovery, no built-in tools, explicit tool list/extension, selected provider/model/thinking level | `PI_CODING_AGENT_DIR`, package/session directories, explicit Kool.ad/e extension, offline mode | API auth variables remain controller-side. A real installed Pi smoke test is not part of mandatory CI. |
-| Codex | JSON exec, read-only sandbox, ephemeral session, explicit model/config, ignored user config, skipped Git repository check, explicit feature disables | Private MCP config and only the application-owned tool server | `OPENAI_API_KEY` and an explicitly provided `CODEX_ACCESS_TOKEN` are passed to the controller-side Codex process. Saved subscription login import and project-instruction suppression need real CLI verification. |
+| Codex | JSON exec, read-only sandbox, ephemeral session, explicit model/config, ignored user config, skipped Git repository check, explicit feature disables | Private per-run `CODEX_HOME`; only the saved `auth.json` is copied when no explicit API/access/federated auth source is selected. User config, hooks, sessions, and other files are not copied. Only the application-owned tool server is configured. | API-key, access-token, and federation-selector variables are passed to the controller-side process. The saved auth file is held in controller-private scratch and is never mounted into a Docker worker. A real CLI smoke is still required to verify subscription behavior and project-instruction suppression. |
 | Claude Code | prompt/stream JSON, no session persistence, restricted mode, no native tools, no permission prompts, explicit permission mode and strict generated MCP config | Private MCP config and explicit app bridge allowlist | API key/auth token variables remain controller-side. Machine-managed settings that can run host code are rejected. Subscription authentication and project instruction suppression need real CLI verification. |
 | OpenCode | pure mode, JSON event output, automatic tool mode, explicit directory/agent/model | Generated config, private OpenCode HOME/config/cache, no default plugins, explicit deny-by-default permissions and MCP | Known API-key variables remain controller-side; saved OpenCode auth is copied only into the private home. Real provider startup is not part of mandatory CI. |
 | GitHub Copilot CLI | silent prompt mode, no ask-user, no auto-update, explicit tool allowlist and MCP config, built-in MCPs/custom instructions/remote access/export disabled | Private `COPILOT_HOME` and cache, generated MCP config | Only Copilot GitHub token variables are passed, with saved token import limited to supported token formats. Host machine policy hooks from filesystem and Windows registry are rejected. |
@@ -41,6 +41,14 @@ Exact tokens and environment keys are defined in
 `src/harness/execution_security/application_boundary/providers.rs`. Runtime
 configuration is in the matching provider modules under
 `src/harness/execution_security/application_boundary/providers/`.
+
+Project guidance is entered and reviewed in Project Settings. Saving changed
+text requires an explicit approval checkbox; the private local receipt binds
+the exact content hash and project identity. Each launch reloads and validates
+the receipt, and only enabled receipts are appended to project prompt bodies as
+user-provided data. Repository instruction files and ordinary evidence are
+never treated as approval. Real-provider instruction-discovery semantics still
+require opt-in smoke validation.
 
 ## Role and CI coverage
 
@@ -73,9 +81,10 @@ CLI behavior or Docker execution.
 
 Task activity stores the provider name, normalized CLI version, selected prompt
 role version when available, a SHA-256 profile identity, and the capability
-names accepted by the probe. The record omits argv, environment values, paths,
-prompts, and credentials. It is compatibility evidence, not an attestation from
-the provider or a replacement for the Docker execution boundary. API
+names accepted by the probe. Codex records only whether its selected auth source
+was environment-provided or saved locally. The record omits argv, environment
+values, paths, prompts, and credentials. It is compatibility evidence, not an
+attestation from the provider or a replacement for the Docker execution boundary. API
 credentials are only available to the controller-side CLI process; they are
 never added to the Docker worker environment.
 
@@ -94,8 +103,10 @@ never added to the Docker worker environment.
   startup, stream completion, model selection, and bridge calls.
 - Verify that each provider's supported flags actually suppress all user and
   project customization sources; help output alone cannot establish semantics.
-- Add provider-specific auth-strategy and role/task identifiers to telemetry
-  only when those values can be obtained without recording secrets.
+- Extend auth-strategy telemetry to other providers only when their selected
+  auth source can be identified without recording secrets. Codex auth-source
+  telemetry is implemented. Add role/task identifiers only when those values
+  can be obtained without recording secrets.
 - A mock-process integration test proves concurrent same-provider tasks receive
   separate private OpenCode homes/configs and that cancellation kills only the
   selected process tree. It captures the child's `OPENCODE_CONFIG` and

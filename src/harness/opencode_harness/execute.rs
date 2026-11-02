@@ -37,6 +37,8 @@ impl AiHarness for OpenCodeHarness {
             .map_err(|error| {
                 AppError::Other(format!("Cannot start Kool.ad/e sandbox: {error:#}"))
             })?;
+        let mut prompt_request = request.clone();
+        prompt_request.prompt_body = boundary.prompt_body(&request.prompt_body);
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!("Cannot resolve OpenCode executable: {error}"))
         })?;
@@ -58,7 +60,7 @@ impl AiHarness for OpenCodeHarness {
             argv.extend(["--model".into(), model.clone()]);
         }
         argv.extend(["--variant".into(), reasoning_variant.into()]);
-        let prompt = prompt_input(request, boundary.system_policy());
+        let prompt = prompt_input(&prompt_request, boundary.system_policy());
         let mut env = Vec::new();
         boundary
             .configure(
