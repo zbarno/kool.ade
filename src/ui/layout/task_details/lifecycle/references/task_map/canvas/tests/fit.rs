@@ -21,9 +21,7 @@ fn fit_state_keeps_one_ten_and_one_hundred_relationship_nodes_inside_the_canvas(
             let fitted = egui::Rect::from_min_size(position, egui::vec2(190.0, 62.0) * state.zoom);
             assert!(
                 rect.contains_rect(fitted),
-                "{count} fitted node {:?} exceeds canvas {:?}",
-                node.relationship_uid,
-                fitted
+                "{count} fitted node {fitted:?} exceeds canvas {rect:?}"
             );
         }
         if count == 100 {
