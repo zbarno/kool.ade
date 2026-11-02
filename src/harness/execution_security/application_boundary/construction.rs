@@ -18,6 +18,11 @@ pub(super) fn new(request: &PlanningRequest) -> anyhow::Result<ApplicationBounda
     if crate::harness::uncontained_provider_test_execution_enabled() {
         return ApplicationBoundary::new_for_uncontained_test(request);
     }
+    let approved_project_guidance = if mode_uses_project_guidance(request.mode) {
+        crate::persistence::project_guidance::load_for_root(&request.repo_root)?
+    } else {
+        None
+    };
     let scratch = super::PrivateDirectory::create("koolade-cli-session")?;
     let requested_access = request.mode.tool_access();
     let app_binary = if requested_access == ToolAccess::None {
@@ -152,7 +157,19 @@ pub(super) fn new(request: &PlanningRequest) -> anyhow::Result<ApplicationBounda
         _resource_bridge: resource_bridge,
         execution_session,
         screenshot_review_audit,
+        approved_project_guidance,
+        codex_auth_strategy: std::sync::Mutex::new(None),
     })
+}
+
+pub(super) fn mode_uses_project_guidance(mode: crate::harness::ExecutionMode) -> bool {
+    matches!(
+        mode,
+        crate::harness::ExecutionMode::Planning
+            | crate::harness::ExecutionMode::TaskGeneration
+            | crate::harness::ExecutionMode::Investigation
+            | crate::harness::ExecutionMode::Implementation
+    )
 }
 
 fn runtime_profile(root: &std::path::Path) -> RuntimeProfile {

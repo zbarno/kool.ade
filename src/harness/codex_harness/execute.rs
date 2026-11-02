@@ -56,9 +56,11 @@ impl AiHarness for CodexHarness {
         let requested_model_name = requested_model
             .as_ref()
             .map(|model: &std::ffi::OsString| model.to_string_lossy().into_owned());
+        let mut prompt_request = request.clone();
+        prompt_request.prompt_body = boundary.prompt_body(&request.prompt_body);
         let (mut argv, prompt) = command(
             &binary,
-            request,
+            &prompt_request,
             requested_model,
             boundary.working_directory(),
         );
@@ -89,12 +91,13 @@ impl AiHarness for CodexHarness {
             .map_err(|error| {
                 AppError::Other(format!("Codex launch profile is invalid: {error}"))
             })?;
-        let launch_profile = launch.telemetry(
+        let mut launch_profile = launch.telemetry(
             request
                 .prompt_manifest
                 .as_ref()
                 .map(|manifest| manifest.role_version.as_str()),
         );
+        launch_profile.auth_strategy = boundary.codex_auth_strategy();
         let prompt = format!("{prompt}\n\n{}", boundary.system_policy());
         let task = launch.spawn_with_input(boundary.working_directory(), Some(prompt))?;
         let deadline = Instant::now() + request.timeout;

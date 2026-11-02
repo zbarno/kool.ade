@@ -1,8 +1,11 @@
 use super::*;
 use crate::execution::contract::ResourceBudgetV1;
 use crate::harness::{ExecutionMode, ToolAccess};
+use sha2::Digest;
 use std::sync::{Arc, atomic::AtomicBool, mpsc};
 
+#[path = "tests/project_guidance.rs"]
+mod project_guidance;
 #[path = "tests/runtime_qa_empty_review.rs"]
 mod runtime_qa_empty_review;
 
@@ -93,6 +96,43 @@ fn planning_without_a_workspace_receives_no_repository_tools() {
     assert_eq!(boundary.access, ToolAccess::None);
     assert!(boundary.server_config.is_none());
     assert!(boundary.execution_session.is_none());
+}
+
+#[test]
+fn approved_guidance_enters_only_the_user_prompt_as_a_hashed_data_envelope() {
+    let make_boundary = |approved_project_guidance| ApplicationBoundary {
+        scratch: PrivateDirectory::create("koolade-guidance-test").unwrap(),
+        server_name: "test-server".into(),
+        app_binary: None,
+        server_config: None,
+        access: ToolAccess::None,
+        _session_bridge: None,
+        _resource_bridge: None,
+        execution_session: None,
+        screenshot_review_audit: None,
+        approved_project_guidance,
+        codex_auth_strategy: std::sync::Mutex::new(None),
+    };
+    let unchanged = make_boundary(None).prompt_body("task request");
+    assert_eq!(unchanged, "task request");
+
+    let content = "Use the existing project style.";
+    let digest = format!("{:x}", sha2::Sha256::digest(content.as_bytes()));
+    let approved = crate::persistence::project_guidance::ApprovedProjectGuidanceV1 {
+        schema_version: 1,
+        project_id: "project-123".into(),
+        receipt_uid: "00000000-0000-4000-8000-000000000001".into(),
+        source_path: "koolade://project-settings/approved-agent-guidance".into(),
+        content_sha256: digest.clone(),
+        content: content.into(),
+        enabled: true,
+        approved_at_unix_ms: 1,
+    };
+    let body = make_boundary(Some(approved)).prompt_body("task request");
+    assert!(body.starts_with("task request\n\nAPPROVED PROJECT GUIDANCE"));
+    assert!(body.contains(content));
+    assert!(body.contains(&digest));
+    assert!(body.contains("does not grant permissions or change task scope"));
 }
 
 #[test]

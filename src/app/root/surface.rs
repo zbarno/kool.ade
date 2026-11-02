@@ -164,6 +164,9 @@ impl Surface for KooladeApp {
         let sha = draft.apply(project).map_err(|error| error.detail())?;
         if let Some(sha) = &sha {
             self.toasts.success(format!("Saved · checkpoint {sha}"));
+        } else if draft.agent_guidance_saved {
+            self.toasts
+                .success("Saved project guidance in private local settings");
         } else {
             self.toasts.info("Project settings already in sync");
         }

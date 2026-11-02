@@ -4,6 +4,7 @@ use super::{
     super::super::ApplicationBoundary,
     shared::{set_option, toml_array, toml_string},
 };
+mod auth;
 #[cfg(not(test))]
 use std::{
     env,
@@ -22,6 +23,7 @@ const SYSTEM_HOOKS: &str = "/etc/codex/hooks.json";
 pub(super) fn configure(
     boundary: &ApplicationBoundary,
     argv: &mut Vec<String>,
+    env: &mut Vec<(String, String)>,
 ) -> anyhow::Result<()> {
     #[cfg(not(test))]
     {
@@ -30,7 +32,7 @@ pub(super) fn configure(
             SYSTEM_SETTINGS.iter().map(Path::new),
         )?;
         managed_hooks::ensure_no_hook_file(Path::new(SYSTEM_HOOKS), "Codex")?;
-        if let Some(codex_home) = codex_home()? {
+        if let Some(codex_home) = codex_source_home()? {
             managed_hooks::ensure_no_hook_file(&codex_home.join("hooks.json"), "Codex")?;
         }
     }
@@ -40,6 +42,20 @@ pub(super) fn configure(
         boundary.working_directory().to_string_lossy().into_owned(),
     );
     set_option(argv, "--sandbox", "read-only".into());
+    let private_home = boundary.scratch.create_directory("codex-home")?;
+    #[cfg(not(test))]
+    let auth_source = auth::prepare_auth(
+        &boundary.scratch,
+        codex_source_home()?.as_deref(),
+        &private_home,
+        codex_environment_auth_present(),
+    )?;
+    #[cfg(not(test))]
+    boundary.record_codex_auth_strategy(auth_source.into());
+    env.push((
+        "CODEX_HOME".into(),
+        private_home.to_string_lossy().into_owned(),
+    ));
     argv.extend([
         "--skip-git-repo-check".into(),
         "--ignore-user-config".into(),
@@ -100,15 +116,27 @@ pub(super) fn configure(
 }
 
 #[cfg(not(test))]
-fn codex_home() -> anyhow::Result<Option<PathBuf>> {
+fn codex_source_home() -> anyhow::Result<Option<PathBuf>> {
     let path = env::var_os("CODEX_HOME")
         .map(PathBuf::from)
         .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".codex")));
     if let Some(path) = &path {
         anyhow::ensure!(
             path.is_absolute(),
-            "Codex configuration directory must be absolute to inspect local hooks"
+            "Codex configuration directory must be absolute"
         );
     }
     Ok(path)
+}
+
+#[cfg(not(test))]
+fn codex_environment_auth_present() -> bool {
+    [
+        "OPENAI_API_KEY",
+        "CODEX_ACCESS_TOKEN",
+        "OPENAI_FEDERATION_RULE_ID",
+        "OPENAI_IDENTITY_TOKEN_FILE",
+    ]
+    .iter()
+    .any(|name| env::var_os(name).is_some_and(|value| !value.to_string_lossy().trim().is_empty()))
 }

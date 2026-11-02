@@ -1,12 +1,12 @@
 use super::*;
 
-/// Production boundary: persisted opportunity, approval, clone, code-review, and runtime-QA
-/// records flow through the app synchronizer into the durable self-improvement run projection,
-/// including the first synchronization after reopening the project.
-/// A unit test of receipt matching cannot prove the synchronizer reads the persisted gates in
-/// order, restores project state after restart, or keeps the run from advancing before each
-/// receipt exists. Uses temporary local stores and Git only; no Docker or network. Setup cost is
-/// one headless project fixture and local writes.
+/// Production boundary: persisted opportunity, approval, clone, repair, code-review, runtime-QA,
+/// spec, and PR-preparation records flow through the app synchronizer into the durable
+/// self-improvement run projection. It proves repair evidence is visible, a changed implementation
+/// invalidates prior gates, fresh receipts reach PR-ready state, and reopening/replaying the local
+/// stores converges without duplicate transitions. Receipt-matching unit tests cannot prove this
+/// cross-record projection. Uses synthetic reviewer/QA evidence, temporary local stores and Git;
+/// no provider, Docker, SSH, or network. Setup cost is one headless project fixture and local writes.
 #[test]
 #[cfg(unix)]
 fn synchronize_requires_persisted_user_and_independent_plan_approval_before_ready() {

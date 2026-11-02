@@ -156,6 +156,23 @@ fn self_improvement_requires_reviews_qa_specs_before_pr_and_activation() {
         },
     )
     .unwrap();
+    // A head-only change during PR preparation invalidates downstream run
+    // evidence even when the implementation subject hash is unchanged.
+    let mut refreshed_head = run.clone();
+    refreshed_head
+        .apply(
+            9,
+            Event::ImplementationFinished {
+                head_sha: commit('d'),
+                subject_sha256: sha('c'),
+            },
+        )
+        .unwrap();
+    assert_eq!(refreshed_head.phase, Phase::Reviewing);
+    assert!(refreshed_head.code_review_uids.is_empty());
+    assert!(refreshed_head.runtime_qa_uids.is_empty());
+    assert!(refreshed_head.spec_receipt_uid.is_none());
+    assert!(refreshed_head.pr_work_item_uid.is_none());
     run.apply(
         9,
         Event::PrOpened {

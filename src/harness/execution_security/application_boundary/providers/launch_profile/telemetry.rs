@@ -21,6 +21,7 @@ pub(super) fn for_launch(
         provider: provider.name().to_owned(),
         cli_version: version,
         prompt_role_version: prompt_role_version.map(str::to_owned),
+        auth_strategy: None,
         profile_hash: format!("{:x}", sha2::Sha256::digest(identity.as_bytes())),
         verified_capabilities: launch.evidence.capabilities.clone(),
     }
