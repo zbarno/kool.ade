@@ -1,4 +1,7 @@
-use super::{code_review, runtime_qa_evidence, task_relations::relation_for_planning_uid};
+use super::{
+    code_review, runtime_qa_evidence,
+    task_relations::{relation_for_planning_uid, unavailable_relation},
+};
 use crate::{app::session::Project, core::lifecycle::LifecycleStore};
 
 pub fn for_ticket(
@@ -40,21 +43,32 @@ pub fn for_ticket(
         Ok(entries) => entries.len(),
         Err(error) => return (None, Some(error.to_string())),
     };
-    let parent_task = task
-        .parent_task_uid
-        .as_deref()
-        .and_then(|parent_uid| lifecycle.load_task(parent_uid).ok())
-        .and_then(|parent| {
-            relation_for_planning_uid(project, Some(parent.planning_item_uid.as_deref()?))
-        });
-    let dependencies = document
+    let parent_task =
+        task.parent_task_uid
+            .as_deref()
+            .map(|parent_uid| match lifecycle.load_task(parent_uid) {
+                Ok(parent) => parent
+                    .planning_item_uid
+                    .as_deref()
+                    .and_then(|uid| relation_for_planning_uid(project, Some(uid)))
+                    .unwrap_or_else(|| unavailable_relation(parent_uid)),
+                Err(_) => unavailable_relation(parent_uid),
+            });
+    let dependency_uids = document
         .metadata
         .as_ref()
         .into_iter()
         .flat_map(|metadata| metadata.dependency_uids.iter())
-        .filter_map(|uid| relation_for_planning_uid(project, Some(uid)))
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let dependencies = dependency_uids
+        .iter()
+        .map(|uid| {
+            relation_for_planning_uid(project, Some(uid))
+                .unwrap_or_else(|| unavailable_relation(uid))
+        })
         .collect();
-    let subtasks = project
+    let subtask_uids = project
         .task_documents
         .iter()
         .filter(|candidate| {
@@ -62,14 +76,13 @@ pub fn for_ticket(
                 metadata.parent_task_uid.as_deref() == Some(planning_item_uid)
             })
         })
-        .filter_map(|child| {
-            relation_for_planning_uid(
-                project,
-                child
-                    .metadata
-                    .as_ref()
-                    .map(|metadata| metadata.uid.as_str()),
-            )
+        .filter_map(|child| child.metadata.as_ref().map(|metadata| metadata.uid.clone()))
+        .collect::<std::collections::BTreeSet<_>>();
+    let subtasks = subtask_uids
+        .iter()
+        .map(|uid| {
+            relation_for_planning_uid(project, Some(uid))
+                .unwrap_or_else(|| unavailable_relation(uid))
         })
         .collect();
     let specification_deltas = match lifecycle.spec_revision_history(&task.feature_uid) {

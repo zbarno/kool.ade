@@ -8,6 +8,7 @@ mod opportunities;
 mod planning_modal;
 pub(super) mod presentation;
 mod relationships;
+mod selection;
 mod task_chat;
 
 pub(super) fn paint(
@@ -36,6 +37,37 @@ pub(super) fn paint(
         .ctx()
         .data_mut(|d| d.get_temp::<String>(egui::Id::new("koolade_selected_planning")));
     let relationship_map = relationships::build(board);
+    let task_paths = relationships::unique_task_paths(board);
+    let task_titles = board
+        .task_documents
+        .iter()
+        .map(|doc| (doc.path.clone(), doc.title.clone()))
+        .collect::<std::collections::HashMap<_, _>>();
+    let dependents = relationships::task_dependents(board);
+    let task_children = relationships::task_children(board);
+    let planning_work_relations = relationships::planning_work_relations(&board.planning_work);
+    let planning_work_keys = relationships::unique_planning_work_keys(&board.planning_work);
+    let feature_uids_by_id = relationships::unique_feature_uids_by_id(&board.planning_work);
+    let planning_item_relations = relationships::planning_item_relations(
+        &board.planning_items,
+        &feature_uids_by_id,
+        |item| {
+            crate::core::task_conversation::answer_receipt::is_saved(
+                item,
+                s.task_messages(item.conversation_key()),
+            )
+        },
+    );
+    let planning_item_keys = relationships::unique_planning_item_keys(&board.planning_items);
+    let task_uids_by_path = relationships::unique_task_uids_by_path(board);
+    let opportunity_relations = relationships::opportunity_relations(board);
+    selection::restore(
+        ui,
+        &mut selected_path,
+        docs,
+        &task_paths,
+        &task_uids_by_path,
+    );
     ui.ctx().data_mut(|data| {
         data.insert_temp(
             egui::Id::new("koolade_board_relationship_map"),
@@ -45,6 +77,42 @@ pub(super) fn paint(
             egui::Id::new("koolade_board_hover_next"),
             std::collections::HashSet::<String>::new(),
         );
+        data.insert_temp(egui::Id::new("koolade_task_paths_by_uid"), task_paths);
+        data.insert_temp(egui::Id::new("koolade_task_titles_by_path"), task_titles);
+        data.insert_temp(egui::Id::new("koolade_task_dependents"), dependents);
+        data.insert_temp(egui::Id::new("koolade_task_children"), task_children);
+        data.insert_temp(
+            egui::Id::new("koolade_task_planning_work_relations"),
+            planning_work_relations,
+        );
+        data.insert_temp(
+            egui::Id::new("koolade_task_planning_work_keys"),
+            planning_work_keys,
+        );
+        data.insert_temp(
+            egui::Id::new("koolade_task_planning_item_relations"),
+            planning_item_relations,
+        );
+        data.insert_temp(
+            egui::Id::new("koolade_task_planning_item_keys"),
+            planning_item_keys,
+        );
+        data.insert_temp(
+            egui::Id::new("koolade_task_uids_by_path"),
+            task_uids_by_path.clone(),
+        );
+        data.insert_temp(
+            egui::Id::new("koolade_task_opportunity_relations"),
+            opportunity_relations,
+        );
+        if let Some(error) = &board.opportunity_error {
+            data.insert_temp(
+                egui::Id::new("koolade_task_opportunity_error"),
+                error.clone(),
+            );
+        } else {
+            data.remove::<String>(egui::Id::new("koolade_task_opportunity_error"));
+        }
     });
     if let Some(error) = board.lifecycle_error.as_deref() {
         ui.colored_label(
@@ -100,7 +168,7 @@ pub(super) fn paint(
             .as_ref()
             .and_then(|path| docs.iter().position(|doc| &doc.path == path))
         {
-            let closed = crate::ui::overlays::show_task_modal(
+            let closed = crate::ui::overlays::show_task_details_modal(
                 ui,
                 &docs[selected].path,
                 panel_bounds,
@@ -114,16 +182,54 @@ pub(super) fn paint(
                     );
                 },
             );
-            if closed {
+            let navigation = ui.ctx().data_mut(|data| {
+                data.remove_temp::<String>(egui::Id::new("koolade_task_relationship_navigation"))
+            });
+            if let Some(path) = navigation {
+                selected_path = Some(path);
+            } else if closed {
                 selected_path = None;
+                ui.ctx().data_mut(|data| {
+                    data.remove::<Vec<String>>(egui::Id::new("koolade_task_relationship_history"));
+                    data.remove::<Vec<Option<String>>>(egui::Id::new(
+                        "koolade_task_relationship_history_uids",
+                    ));
+                });
             }
         } else {
             selected_path = None;
         }
-        planning_modal::paint(ui, s, board, &mut planning_selection, panel_bounds);
+        let planning_navigation = ui.ctx().data_mut(|data| {
+            data.remove_temp::<String>(egui::Id::new(
+                "koolade_task_relationship_planning_navigation",
+            ))
+        });
+        let navigated_to_planning = planning_navigation.is_some();
+        if let Some(key) = planning_navigation {
+            selected_path = None;
+            planning_selection = Some(key);
+            ui.ctx().request_repaint();
+        }
+        if !navigated_to_planning {
+            planning_modal::paint(ui, s, board, &mut planning_selection, panel_bounds);
+        }
+        let task_navigation = ui.ctx().data_mut(|data| {
+            data.remove_temp::<String>(egui::Id::new("koolade_task_relationship_task_navigation"))
+        });
+        if let Some(path) = task_navigation {
+            planning_selection = None;
+            selected_path = Some(path);
+        }
     }
     if ui.ctx().input(|input| input.key_pressed(egui::Key::Escape)) {
         selected_path = None;
+        ui.ctx().data_mut(|data| {
+            data.remove::<Vec<String>>(egui::Id::new("koolade_task_relationship_history"));
+            data.remove::<Vec<Option<String>>>(egui::Id::new(
+                "koolade_task_relationship_history_uids",
+            ));
+            data.remove::<String>(egui::Id::new("koolade_task_relationship_work_return"));
+        });
         planning_selection = None;
         activity_path = None;
     }
@@ -159,6 +265,9 @@ pub(super) fn paint(
         });
         selected_path = None;
         planning_selection = None;
+        ui.ctx().data_mut(|data| {
+            data.remove::<String>(egui::Id::new("koolade_task_relationship_work_return"));
+        });
         activity_path = None;
     }
     if ui.ctx().data_mut(|data| {
@@ -176,11 +285,6 @@ pub(super) fn paint(
         }
     });
     ui.ctx().data_mut(|d| {
-        if let Some(path) = selected_path {
-            d.insert_temp(id, path);
-        } else {
-            d.remove::<String>(id);
-        }
         let id = egui::Id::new("koolade_selected_planning");
         if let Some(item) = planning_selection {
             d.insert_temp(id, item);
@@ -188,4 +292,5 @@ pub(super) fn paint(
             d.remove::<String>(id);
         }
     });
+    selection::persist(ui, selected_path, &task_uids_by_path);
 }
