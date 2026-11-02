@@ -46,6 +46,7 @@ fn relationship_edge_labels_match_parent_dependency_and_child_direction() {
             egui::CentralPanel::default().show(ctx, |ui| {
                 let mut nodes = vec![Node {
                     kind: "Selected task",
+                    relationship_uid: None,
                     title: "Selected".into(),
                     status: "Running".into(),
                     path: Some("selected.md".into()),
@@ -92,6 +93,39 @@ fn relationship_edge_labels_match_parent_dependency_and_child_direction() {
         .collect::<Vec<_>>();
     assert!(edge_labels.iter().any(|label| label == "blocks"));
     output.textures_delta.clear();
+}
+
+#[test]
+fn duplicate_child_relationships_render_one_node_and_edge() {
+    let context = egui::Context::default();
+    let mut lifecycle = super::super::tests::lifecycle_view();
+    lifecycle.subtasks.push(lifecycle.subtasks[0].clone());
+    let mut output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 480.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                paint(ui, &lifecycle, "selected.md");
+            });
+        },
+    );
+    let child_labels = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text().contains("Child relationship node") => {
+                Some(text.galley.text().to_owned())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    output.textures_delta.clear();
+    assert_eq!(child_labels.len(), 1, "duplicate relation renders one node");
 }
 
 #[test]

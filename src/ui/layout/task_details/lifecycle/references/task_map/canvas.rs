@@ -19,6 +19,7 @@ impl Default for CanvasState {
 
 struct Node {
     kind: &'static str,
+    relationship_uid: Option<String>,
     title: String,
     status: String,
     path: Option<String>,
@@ -90,6 +91,7 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) 
     );
     let mut nodes = vec![Node {
         kind: "Selected task",
+        relationship_uid: None,
         title: task_title(ui, ticket),
         status: crate::ui::task_detail::task_phase_label(lifecycle.task_phase).to_owned(),
         path: Some(ticket.to_owned()),
@@ -148,6 +150,7 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) 
         let node_index = nodes.len();
         nodes.push(Node {
             kind: "Dependent",
+            relationship_uid: Some(path.clone()),
             title: title.clone(),
             status: status.clone(),
             path: Some(path.clone()),
@@ -231,9 +234,20 @@ fn add_relation(
     kind: &'static str,
     placement: Placement,
 ) {
+    let relationship_uid = relation
+        .lifecycle_task_uid
+        .as_deref()
+        .unwrap_or(&relation.planning_item_uid);
+    if nodes
+        .iter()
+        .any(|node| node.kind == kind && node.relationship_uid.as_deref() == Some(relationship_uid))
+    {
+        return;
+    }
     let node_index = nodes.len();
     nodes.push(Node {
         kind,
+        relationship_uid: Some(relationship_uid.to_owned()),
         title: relation.title.clone(),
         status: relation.status.clone(),
         path: relation_path(ui, relation),
