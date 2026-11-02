@@ -1,8 +1,10 @@
 use super::*;
 #[path = "lifecycle/code_review.rs"]
 mod code_review;
+mod phase;
 mod qa_gallery;
 mod references;
+use phase::feature_phase_label;
 
 pub(super) fn paint(
     ui: &mut egui::Ui,
@@ -89,6 +91,7 @@ pub(super) fn paint(
         ui.label(theme::helper_text(
             "Read-only lifecycle receipts. Missing evidence is shown as not recorded.",
         ));
+        references::task_map_canvas(ui, lifecycle, ticket);
     });
 }
 
@@ -97,22 +100,6 @@ fn state_row(ui: &mut egui::Ui, label: &str, hash: Option<&str>) {
         ui.label(RichText::new(label).strong());
         ui.label(hash.unwrap_or("Not recorded"));
     });
-}
-
-fn feature_phase_label(phase: crate::core::lifecycle::FeaturePhase) -> &'static str {
-    use crate::core::lifecycle::FeaturePhase;
-    match phase {
-        FeaturePhase::Exploring => "Exploring",
-        FeaturePhase::AwaitingAnswers => "Awaiting answers",
-        FeaturePhase::AwaitingPlanConfirmation => "Awaiting plan confirmation",
-        FeaturePhase::PlanReviewPending => "Independent plan review",
-        FeaturePhase::PlanRework => "Plan rework",
-        FeaturePhase::ReadyToDecompose => "Ready to generate tasks",
-        FeaturePhase::Decomposing => "Generating tasks",
-        FeaturePhase::Executing => "In implementation",
-        FeaturePhase::Complete => "Complete",
-        FeaturePhase::Cancelled => "Cancelled",
-    }
 }
 
 #[cfg(test)]

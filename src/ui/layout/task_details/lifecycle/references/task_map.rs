@@ -1,5 +1,6 @@
 use crate::ui::{Surface, task_detail::LifecycleView};
 
+mod canvas;
 mod nested;
 mod opportunities;
 mod planning_items;
@@ -208,6 +209,10 @@ pub(crate) fn relationships(
             "Related opportunity records are unavailable because the planning store could not load them.",
         ));
     }
+}
+
+pub(super) fn canvas(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) {
+    canvas::paint(ui, lifecycle, ticket);
 }
 
 fn relation_link(

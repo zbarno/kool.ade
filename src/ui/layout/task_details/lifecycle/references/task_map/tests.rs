@@ -1,6 +1,6 @@
 use super::{navigate_back, navigate_to, relation_link, status::node_status_text};
 
-fn lifecycle_view() -> crate::ui::task_detail::LifecycleView {
+pub(super) fn lifecycle_view() -> crate::ui::task_detail::LifecycleView {
     use crate::core::lifecycle::{FeaturePhase, SpecReconciliationStatusV1, TaskPhase};
     crate::ui::task_detail::LifecycleView {
         feature_uid: "feature-uid".into(),

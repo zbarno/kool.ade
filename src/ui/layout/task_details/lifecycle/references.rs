@@ -3,6 +3,10 @@ use crate::ui::{Surface, task_detail::LifecycleView};
 mod task_map;
 pub(crate) use task_map::relationships;
 
+pub(super) fn task_map_canvas(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) {
+    task_map::canvas(ui, lifecycle, ticket);
+}
+
 pub(super) fn deltas(
     ui: &mut egui::Ui,
     surface: &mut Option<&mut dyn Surface>,
