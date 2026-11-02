@@ -101,6 +101,133 @@ fn ambiguous_planning_work_uids_are_not_navigable() {
 }
 
 #[test]
+fn task_map_planning_items_follow_blocker_ids_and_current_authority() {
+    use crate::domain::item::{Authority, ItemKind, ItemStatus, OpenItem, Priority};
+    let mut prerequisite = OpenItem::new(
+        "CLR-001".into(),
+        Priority::Blocking,
+        ItemKind::Question,
+        "Product".into(),
+        None,
+        "Choose a policy".into(),
+        "The implementation depends on it".into(),
+    );
+    prerequisite.feature_uid = Some("feature-uid".into());
+    prerequisite.status = ItemStatus::Resolved;
+    let mut decision = OpenItem::new(
+        "CLR-002".into(),
+        Priority::High,
+        ItemKind::Ambiguity,
+        "Product".into(),
+        None,
+        "Confirm the fallback".into(),
+        "The chosen policy defines fallback behavior".into(),
+    );
+    decision.blocked_by = vec![prerequisite.id.clone()];
+    decision.authority = Authority::Review;
+    let unrelated = OpenItem::new(
+        "CLR-003".into(),
+        Priority::Normal,
+        ItemKind::Question,
+        "General".into(),
+        None,
+        "Unrelated question".into(),
+        "No relation to this feature".into(),
+    );
+
+    let relations = planning_item_relations(
+        &[prerequisite.clone(), decision.clone(), unrelated],
+        &std::collections::HashMap::new(),
+        |_| false,
+    );
+    let related = &relations["feature-uid"];
+    assert_eq!(related.len(), 2);
+    assert!(
+        related
+            .iter()
+            .any(|node| node.planning_item_id == prerequisite.id && node.status == "Resolved")
+    );
+    assert!(related.iter().any(|node| {
+        node.planning_item_id == decision.id
+            && node.status == "Needs user review"
+            && node.blocked_by == vec![prerequisite.id.clone()]
+    }));
+
+    let mut saved_decision = decision.clone();
+    saved_decision.feature_uid = Some("feature-uid".into());
+    let answer_saved =
+        planning_item_relations(&[saved_decision], &std::collections::HashMap::new(), |_| {
+            true
+        });
+    assert_eq!(answer_saved["feature-uid"][0].status, "Answer saved");
+}
+
+#[test]
+fn legacy_feature_id_links_are_visible_and_feature_uid_conflicts_are_flagged() {
+    use crate::domain::item::{ItemKind, OpenItem, Priority};
+    let mut feature = crate::core::planning_work::Work::new(
+        "feature:F12".into(),
+        "Feature planning".into(),
+        "Plan feature".into(),
+        String::new(),
+    );
+    feature.feature_id = Some("F12".into());
+    feature.feature_uid = Some("feature-uid".into());
+    let feature_uids = unique_feature_uids_by_id(&[feature]);
+    let mut legacy = OpenItem::new(
+        "CLR-010".into(),
+        Priority::Normal,
+        ItemKind::Question,
+        "Product".into(),
+        None,
+        "Legacy linked question".into(),
+        "Old artifact has no feature UID".into(),
+    );
+    legacy.feature_id = Some("F12".into());
+    let mut conflict = OpenItem::new(
+        "CLR-011".into(),
+        Priority::Normal,
+        ItemKind::Question,
+        "Product".into(),
+        None,
+        "Conflicting feature reference".into(),
+        "Its UID and feature ID disagree".into(),
+    );
+    conflict.feature_id = Some("F12".into());
+    conflict.feature_uid = Some("different-feature-uid".into());
+
+    let relations = planning_item_relations(&[legacy, conflict.clone()], &feature_uids, |_| false);
+    let linked = &relations["feature-uid"];
+    assert!(linked.iter().any(|node| node.planning_item_id == "CLR-010"
+        && node.legacy_feature_link
+        && !node.feature_reference_conflict));
+    assert!(
+        linked.iter().any(|node| {
+            node.planning_item_id == conflict.id && node.feature_reference_conflict
+        })
+    );
+    assert!(
+        relations["different-feature-uid"]
+            .iter()
+            .any(|node| node.planning_item_id == conflict.id && node.feature_reference_conflict)
+    );
+}
+
+#[test]
+fn ambiguous_planning_item_ids_are_not_navigable() {
+    let item = crate::domain::item::OpenItem::new(
+        "CLR-001".into(),
+        crate::domain::Priority::Normal,
+        crate::domain::ItemKind::Question,
+        "General".into(),
+        None,
+        "One question".into(),
+        "Context".into(),
+    );
+    assert!(unique_planning_item_keys(&[item.clone(), item.clone()]).is_empty());
+}
+
+#[test]
 fn task_cards_link_through_shared_batch_and_feature_path() {
     let mut board = crate::ui::planning_board::ViewModel::default();
     let batch_uid = uuid::Uuid::new_v4().to_string();

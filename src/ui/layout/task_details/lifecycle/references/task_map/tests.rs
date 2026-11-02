@@ -1,4 +1,4 @@
-use super::{navigate_back, navigate_to, node_status_text, relation_link};
+use super::{navigate_back, navigate_to, relation_link, status::node_status_text};
 
 fn lifecycle_view() -> crate::ui::task_detail::LifecycleView {
     use crate::core::lifecycle::{FeaturePhase, SpecReconciliationStatusV1, TaskPhase};
@@ -72,6 +72,8 @@ fn related_node_statuses_keep_exceptions_visible_without_color() {
     );
     assert_eq!(node_status_text("Cancelled"), "× Cancelled");
     assert_eq!(node_status_text("Failed"), "! Failed");
+    assert_eq!(node_status_text("Resolved"), "✓ Completed");
+    assert_eq!(node_status_text("Answer saved"), "◷ Answer saved");
     assert_eq!(
         node_status_text("Implementation complete · PR awaiting authorization"),
         "◷ Implementation complete · PR awaiting authorization"
@@ -289,6 +291,103 @@ fn planning_work_navigation_preserves_the_returning_task_path() {
 
     assert_eq!(selected_work.as_deref(), Some("question:F12"));
     assert_eq!(return_path.as_deref(), Some("feature/task.md"));
+}
+
+#[test]
+fn planning_item_relationships_keep_one_hundred_entries_bounded() {
+    let records = (0..100)
+        .map(|index| crate::ui::task_detail::PlanningItemRelationView {
+            planning_item_id: format!("CLR-{index:03}"),
+            title: format!("Question {index}"),
+            kind: "Question".to_owned(),
+            status: "Needs user input".to_owned(),
+            blocked_by: Vec::new(),
+            legacy_feature_link: false,
+            feature_reference_conflict: false,
+        })
+        .collect::<Vec<_>>();
+    let context = egui::Context::default();
+    context.data_mut(|data| {
+        data.insert_temp(
+            egui::Id::new("koolade_task_planning_item_keys"),
+            (0..100)
+                .map(|index| (format!("CLR-{index:03}"), format!("CLR-{index:03}")))
+                .collect::<std::collections::HashMap<_, _>>(),
+        );
+    });
+    let mut output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(640.0, 720.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                super::planning_items::paint(ui, "feature-uid", &records);
+            });
+        },
+    );
+    let texts = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    output.textures_delta.clear();
+
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains("Questions and decisions · 100 items"))
+    );
+    assert!(texts.iter().any(|text| text.contains("Question 0")));
+}
+
+#[test]
+fn missing_planning_item_prerequisites_remain_visible_as_unavailable() {
+    let context = egui::Context::default();
+    context.data_mut(|data| {
+        data.insert_temp(
+            egui::Id::new("koolade_task_planning_item_keys"),
+            std::collections::HashMap::<String, String>::from([(
+                "CLR-001".into(),
+                "CLR-001".into(),
+            )]),
+        );
+    });
+    let relations = vec![crate::ui::task_detail::PlanningItemRelationView {
+        planning_item_id: "CLR-001".into(),
+        title: "Choose an access policy".into(),
+        kind: "Question".into(),
+        status: "Needs user input".into(),
+        blocked_by: vec!["CLR-MISSING".into()],
+        legacy_feature_link: false,
+        feature_reference_conflict: false,
+    }];
+    let mut output = context.run_ui(egui::RawInput::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            super::planning_items::paint(ui, "feature-uid", &relations);
+        });
+    });
+    let rendered = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    output.textures_delta.clear();
+
+    assert!(
+        rendered
+            .iter()
+            .any(|text| text.contains("Prerequisite unavailable · CLR-MISSING"))
+    );
 }
 
 #[test]

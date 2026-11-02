@@ -235,6 +235,7 @@ pub(super) fn paint_planning_item(
     item: &crate::domain::item::OpenItem,
     height: f32,
 ) {
+    planning::paint_relationship_back(ui);
     planning::paint_item(ui, surface, board, item, height);
 }
 

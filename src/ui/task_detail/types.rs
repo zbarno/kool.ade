@@ -152,6 +152,17 @@ pub struct TaskRelationView {
     pub acceptance_criteria: Vec<String>,
 }
 
+#[derive(Clone)]
+pub struct PlanningItemRelationView {
+    pub planning_item_id: String,
+    pub title: String,
+    pub kind: String,
+    pub status: String,
+    pub blocked_by: Vec<String>,
+    pub legacy_feature_link: bool,
+    pub feature_reference_conflict: bool,
+}
+
 pub fn task_phase_label(phase: crate::core::lifecycle::TaskPhase) -> &'static str {
     use crate::core::lifecycle::TaskPhase as Phase;
     match phase {

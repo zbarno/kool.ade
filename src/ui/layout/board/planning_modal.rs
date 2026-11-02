@@ -22,6 +22,11 @@ pub(super) fn paint(
                 );
             });
         clear_if_closed(selection, closed);
+        if closed {
+            ui.ctx().data_mut(|data| {
+                data.remove::<String>(egui::Id::new("koolade_task_relationship_work_return"));
+            });
+        }
     } else if let Some(work) = selection
         .as_ref()
         .and_then(|key| board.planning_work.iter().find(|work| &work.key == key))

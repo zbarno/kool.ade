@@ -19,6 +19,30 @@ pub fn unique_planning_work_keys(
     keys
 }
 
+pub fn unique_feature_uids_by_id(
+    work: &[crate::core::planning_work::Work],
+) -> HashMap<String, String> {
+    let mut feature_uids = HashMap::new();
+    let mut ambiguous = HashSet::new();
+    for item in work {
+        let (Some(feature_id), Some(feature_uid)) =
+            (item.feature_id.as_ref(), item.feature_uid.as_ref())
+        else {
+            continue;
+        };
+        if feature_uids
+            .get(feature_id)
+            .is_some_and(|existing| existing != feature_uid)
+        {
+            feature_uids.remove(feature_id);
+            ambiguous.insert(feature_id.clone());
+        } else if !ambiguous.contains(feature_id) {
+            feature_uids.insert(feature_id.clone(), feature_uid.clone());
+        }
+    }
+    feature_uids
+}
+
 pub fn planning_work_relations(work: &[crate::core::planning_work::Work]) -> PlanningWorkRelations {
     let mut relations = PlanningWorkRelations::new();
     for anchor in work.iter().filter_map(|work| work.feature_uid.as_deref()) {

@@ -1,6 +1,9 @@
 use crate::ui::{Surface, task_detail::LifecycleView};
 
+mod planning_items;
 mod planning_work;
+mod status;
+pub(super) use status::node_status;
 #[cfg(test)]
 mod tests;
 
@@ -53,11 +56,20 @@ pub(crate) fn relationships(
             .and_then(|relations| relations.get(&lifecycle.feature_uid).cloned())
             .unwrap_or_default()
     });
+    let decision_relations = ui.ctx().data_mut(|data| {
+        data.get_temp::<std::collections::HashMap<
+            String,
+            Vec<crate::ui::task_detail::PlanningItemRelationView>,
+        >>(egui::Id::new("koolade_task_planning_item_relations"))
+            .and_then(|relations| relations.get(&lifecycle.feature_uid).cloned())
+            .unwrap_or_default()
+    });
     if lifecycle.parent_task.is_none()
         && lifecycle.dependencies.is_empty()
         && lifecycle.subtasks.is_empty()
         && dependents.is_empty()
         && planning_relations.is_empty()
+        && decision_relations.is_empty()
     {
         ui.label(crate::ui::theme::helper_text(
             "No recorded task relationships.",
@@ -149,68 +161,9 @@ pub(crate) fn relationships(
     if !planning_relations.is_empty() {
         planning_work::paint(ui, &lifecycle.feature_uid, &planning_relations);
     }
-}
-
-fn node_status(ui: &mut egui::Ui, status: &str) {
-    ui.label(node_status_text(status));
-}
-
-fn node_status_text(status: &str) -> String {
-    let normalized = status.to_ascii_lowercase().replace('_', " ");
-    if normalized.contains("pr ") {
-        let marker = if normalized.contains("attention") || normalized.contains("closed") {
-            "!"
-        } else if normalized.contains("merged") {
-            "✓"
-        } else if normalized.contains("open") {
-            "↗"
-        } else {
-            "◷"
-        };
-        return format!("{marker} {status}");
+    if !decision_relations.is_empty() {
+        planning_items::paint(ui, &lifecycle.feature_uid, &decision_relations);
     }
-    let (marker, label) = if normalized.contains("running")
-        || normalized.contains("implementing")
-        || normalized.contains("inprogress")
-        || normalized.contains("in progress")
-    {
-        ("●", "Running")
-    } else if normalized.contains("awaiting review") || normalized.contains("review") {
-        ("◷", "Awaiting review")
-    } else if normalized.contains("runtime qa") || normalized.contains("quality assurance") {
-        ("◷", "Awaiting runtime QA")
-    } else if normalized.contains("spec") && normalized.contains("sync") {
-        ("◷", "Awaiting specification sync")
-    } else if normalized.contains("user")
-        || normalized.contains("decision")
-        || normalized.contains("input")
-    {
-        ("✋", "Needs user input")
-    } else if normalized.contains("blocked") || normalized.contains("dependency") {
-        ("⚠", "Blocked")
-    } else if normalized.contains("cancel") {
-        ("×", "Cancelled")
-    } else if normalized.contains("fail") {
-        ("!", "Failed")
-    } else if normalized.contains("attention") || normalized.contains("needsattention") {
-        ("!", "Needs attention")
-    } else if normalized.contains("interrupt") {
-        ("↻", "Interrupted")
-    } else if normalized.contains("todo") {
-        ("○", "Not started")
-    } else if normalized.contains("done")
-        || normalized.contains("complete")
-        || normalized.contains("merged")
-    {
-        ("✓", "Completed")
-    } else if normalized.contains("not recorded") || normalized.contains("unavailable") {
-        ("?", "Status not recorded")
-    } else if normalized.contains("waiting") || normalized.contains("awaiting") {
-        ("…", status)
-    } else {
-        ("·", status)
-    };
-    format!("{marker} {label}")
 }
 
 fn relation_link(

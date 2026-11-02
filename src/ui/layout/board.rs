@@ -45,6 +45,18 @@ pub(super) fn paint(
     let dependents = relationships::task_dependents(board);
     let planning_work_relations = relationships::planning_work_relations(&board.planning_work);
     let planning_work_keys = relationships::unique_planning_work_keys(&board.planning_work);
+    let feature_uids_by_id = relationships::unique_feature_uids_by_id(&board.planning_work);
+    let planning_item_relations = relationships::planning_item_relations(
+        &board.planning_items,
+        &feature_uids_by_id,
+        |item| {
+            crate::core::task_conversation::answer_receipt::is_saved(
+                item,
+                s.task_messages(item.conversation_key()),
+            )
+        },
+    );
+    let planning_item_keys = relationships::unique_planning_item_keys(&board.planning_items);
     ui.ctx().data_mut(|data| {
         data.insert_temp(
             egui::Id::new("koolade_board_relationship_map"),
@@ -64,6 +76,14 @@ pub(super) fn paint(
         data.insert_temp(
             egui::Id::new("koolade_task_planning_work_keys"),
             planning_work_keys,
+        );
+        data.insert_temp(
+            egui::Id::new("koolade_task_planning_item_relations"),
+            planning_item_relations,
+        );
+        data.insert_temp(
+            egui::Id::new("koolade_task_planning_item_keys"),
+            planning_item_keys,
         );
     });
     if let Some(error) = board.lifecycle_error.as_deref() {
@@ -174,6 +194,7 @@ pub(super) fn paint(
         selected_path = None;
         ui.ctx().data_mut(|data| {
             data.remove::<Vec<String>>(egui::Id::new("koolade_task_relationship_history"));
+            data.remove::<String>(egui::Id::new("koolade_task_relationship_work_return"));
         });
         planning_selection = None;
         activity_path = None;
@@ -210,6 +231,9 @@ pub(super) fn paint(
         });
         selected_path = None;
         planning_selection = None;
+        ui.ctx().data_mut(|data| {
+            data.remove::<String>(egui::Id::new("koolade_task_relationship_work_return"));
+        });
         activity_path = None;
     }
     if ui.ctx().data_mut(|data| {
