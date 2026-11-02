@@ -50,6 +50,26 @@ pub(super) fn rootless_packages_plan() -> (RemediationPlan, HostIdentity) {
     (plan, identity)
 }
 
+pub(super) fn windows_wsl_features_plan() -> (RemediationPlan, HostIdentity) {
+    let identity = HostIdentity::from_facts(
+        Host::Windows,
+        "windows-11-amd64-build-26100",
+        "synthetic-machine",
+        "synthetic-user",
+    )
+    .unwrap();
+    let proposal = Proposal {
+        schema_version: 1,
+        operation: Operation::EnableWindowsWslFeatures,
+        host: Host::Windows,
+        prerequisite_id: "setup:windows:wsl-features".into(),
+        image_profile: None,
+    };
+    let request = RemediationRequest::from_proposal_for_test(&proposal, &identity).unwrap();
+    let plan = RemediationPlan::build_for_test(&request, &identity).unwrap();
+    (plan, identity)
+}
+
 pub(super) fn ready_store(task_id: &str) -> SetupTaskStoreV1 {
     SetupTaskStoreV1 {
         schema_version: 2,

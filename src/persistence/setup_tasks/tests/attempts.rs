@@ -1,7 +1,9 @@
 use crate::app::setup_attention::catalog::FindingStatus;
 
 use super::super::{
-    AttemptState, AuthorizationBindingV1, FailureCode, SetupTaskStateV1, authorization_scope_digest,
+    AttemptState, AuthorizationBindingV1, FailureCode, RemediationAttemptResultV1,
+    RemediationProcessStatusV1, RemediationVerificationStatusV1, RemediationVerificationV1,
+    SetupTaskStateV1, authorization_scope_digest,
 };
 use super::support::{ready_store, rootless_smoke_fact, scan, snapshot};
 
@@ -70,6 +72,146 @@ fn consent_metadata_binds_exact_attempt_and_verification_requires_fresh_evidence
     );
     assert!(task.attempts[0].authorization_binding.is_none());
     assert!(task.attempts[0].authorization_history.is_some());
+    store.validate().unwrap();
+}
+
+#[test]
+fn consumed_approval_is_durable_and_cannot_be_replayed() {
+    let mut store = ready_store(TASK_ID);
+    let scopes = vec![TASK_ID.to_owned()];
+    store
+        .request_attempt(TASK_ID, OPERATION_ID.into(), 1, scopes.clone(), OWNER_ID, 2)
+        .unwrap();
+    let approved = binding(TASK_ID, OPERATION_ID, 1, &scopes);
+    store
+        .authorize_attempt(TASK_ID, OPERATION_ID, approved.clone(), OWNER_ID, 3)
+        .unwrap();
+    store
+        .consume_authorization(
+            TASK_ID,
+            OPERATION_ID,
+            &approved.receipt_id,
+            &approved.scope_digest,
+            OWNER_ID,
+            4,
+        )
+        .unwrap();
+    let attempt = &store.tasks[TASK_ID].attempts[0];
+    assert!(attempt.authorization_binding.is_none());
+    assert_eq!(attempt.authorization_history.as_ref(), Some(&approved));
+    assert!(
+        store
+            .consume_authorization(
+                TASK_ID,
+                OPERATION_ID,
+                &approved.receipt_id,
+                &approved.scope_digest,
+                OWNER_ID,
+                5,
+            )
+            .is_err()
+    );
+    store.validate().unwrap();
+}
+
+#[test]
+fn reboot_required_result_survives_restart_without_reusing_elevation_approval() {
+    let mut store = ready_store(TASK_ID);
+    let scopes = vec![TASK_ID.to_owned()];
+    store
+        .request_attempt(TASK_ID, OPERATION_ID.into(), 1, scopes.clone(), OWNER_ID, 2)
+        .unwrap();
+    let approved = binding(TASK_ID, OPERATION_ID, 1, &scopes);
+    store
+        .authorize_attempt(TASK_ID, OPERATION_ID, approved.clone(), OWNER_ID, 3)
+        .unwrap();
+    store
+        .consume_authorization(
+            TASK_ID,
+            OPERATION_ID,
+            &approved.receipt_id,
+            &approved.scope_digest,
+            OWNER_ID,
+            4,
+        )
+        .unwrap();
+    store
+        .record_remediation_result(
+            TASK_ID,
+            OPERATION_ID,
+            RemediationAttemptResultV1 {
+                process_status: RemediationProcessStatusV1::RebootRequired,
+                exit_code: Some(3010),
+                sanitized_diagnostic: None,
+                verification: Some(RemediationVerificationV1 {
+                    status: RemediationVerificationStatusV1::NeedsFreshProbe,
+                    probe_ids: vec!["setup:windows:wsl-features".into()],
+                    observed_at_unix_ms: 4,
+                    evidence_digest: None,
+                }),
+                rollback_guidance:
+                    "Restart Windows, then run a fresh setup scan before approving another change."
+                        .into(),
+            },
+            OWNER_ID,
+            4,
+        )
+        .unwrap();
+
+    assert!(store.recover_interrupted(5, RECOVERY_OWNER_ID, |_| false));
+    let task = &store.tasks[TASK_ID];
+    let attempt = &task.attempts[0];
+    assert_eq!(task.state, SetupTaskStateV1::Interrupted);
+    assert_eq!(attempt.state, AttemptState::Interrupted);
+    assert!(attempt.authorization_binding.is_none());
+    assert_eq!(attempt.authorization_history.as_ref(), Some(&approved));
+    let reboot = attempt.remediation_result.as_ref().unwrap();
+    assert_eq!(
+        reboot.process_status,
+        RemediationProcessStatusV1::RebootRequired
+    );
+    assert_eq!(reboot.exit_code, Some(3010));
+    assert_eq!(
+        reboot.verification.as_ref().unwrap().status,
+        RemediationVerificationStatusV1::NeedsFreshProbe
+    );
+    assert!(
+        store
+            .request_attempt(
+                TASK_ID,
+                NEXT_OPERATION_ID.into(),
+                1,
+                scopes.clone(),
+                RECOVERY_OWNER_ID,
+                6,
+            )
+            .is_err()
+    );
+
+    scan(
+        &mut store,
+        &snapshot(&[(TASK_ID, FindingStatus::NeedsAttention, &[])], &[], 7),
+    )
+    .unwrap();
+    store
+        .request_attempt(
+            TASK_ID,
+            NEXT_OPERATION_ID.into(),
+            1,
+            scopes,
+            RECOVERY_OWNER_ID,
+            8,
+        )
+        .unwrap();
+    assert_eq!(
+        store.tasks[TASK_ID].attempts[1].state,
+        AttemptState::NeedsApproval
+    );
+    assert!(
+        store.tasks[TASK_ID].attempts[1]
+            .authorization_binding
+            .is_none()
+    );
     store.validate().unwrap();
 }
 

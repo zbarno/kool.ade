@@ -51,6 +51,20 @@ fn apply_to_store(
             binding,
             at_unix_ms,
         } => store.authorize_attempt(&task_id, &operation_id, binding, owner_id, at_unix_ms),
+        Transition::ConsumeAuthorization {
+            task_id,
+            operation_id,
+            receipt_id,
+            scope_digest,
+            at_unix_ms,
+        } => store.consume_authorization(
+            &task_id,
+            &operation_id,
+            &receipt_id,
+            &scope_digest,
+            owner_id,
+            at_unix_ms,
+        ),
         Transition::RecordRemediationResult {
             task_id,
             operation_id,

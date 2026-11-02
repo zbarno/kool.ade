@@ -37,3 +37,34 @@ impl NativeElevation for LinuxNativeElevation {
         }
     }
 }
+
+pub(crate) struct WindowsNativeElevation;
+
+impl NativeElevation for WindowsNativeElevation {
+    fn request(
+        &self,
+        plan: &RemediationPlan,
+        identity: &HostIdentity,
+        invocation: &TrustedInvocation,
+        cancellation: &Cancellation,
+    ) -> anyhow::Result<Option<ElevationReceipt>> {
+        anyhow::ensure!(
+            plan.operation == Operation::EnableWindowsWslFeatures
+                && plan.host == crate::app::bootstrap_repair_policy::Host::Windows
+                && invocation.program()
+                    == crate::app::bootstrap_remediation::TrustedProgram::WindowsWslFeatures
+                && identity.host() == plan.host,
+            "Windows elevation is available only for the reviewed WSL feature operation"
+        );
+        if cancellation.is_cancelled() {
+            return Ok(None);
+        }
+        crate::app::bootstrap_remediation::validate_before_elevated_launch(invocation)?;
+        // The operator has approved the fixed effect in Kool.ad/e. Windows
+        // asks for administrator consent when ShellExecuteEx starts the
+        // authenticated helper, immediately before the bounded mutation.
+        Ok(Some(ElevationReceipt::issued_after_native_prompt(
+            plan, identity, invocation,
+        )?))
+    }
+}

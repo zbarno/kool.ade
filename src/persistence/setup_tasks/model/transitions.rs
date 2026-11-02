@@ -23,6 +23,15 @@ pub enum SetupTaskTransitionV1 {
         binding: AuthorizationBindingV1,
         at_unix_ms: u64,
     },
+    /// Consume a persisted operator approval before starting a privileged
+    /// helper. The receipt remains in audit history and cannot be reused.
+    ConsumeAuthorization {
+        task_id: String,
+        operation_id: String,
+        receipt_id: String,
+        scope_digest: String,
+        at_unix_ms: u64,
+    },
     RecordRemediationResult {
         task_id: String,
         operation_id: String,

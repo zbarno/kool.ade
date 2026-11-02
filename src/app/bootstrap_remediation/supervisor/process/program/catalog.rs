@@ -26,6 +26,8 @@ pub(crate) enum TrustedProgram {
     LinuxRootlessService,
     /// Internal, app-owned signed Docker repository and package bootstrap.
     LinuxRootlessPackageSetup,
+    /// Internal, one-operation Windows WSL feature helper.
+    WindowsWslFeatures,
     Dnf,
     Zypper,
     MacInstaller,
@@ -88,6 +90,7 @@ impl TrustedProgram {
             | Self::Zypper => host == Host::Linux,
             Self::MacInstaller => host == Host::MacOs,
             Self::WindowsMsiExec => host == Host::Windows,
+            Self::WindowsWslFeatures => host == Host::Windows,
             Self::ClaudeCodeInstall | Self::ClaudeCodeDownload => host == Host::Linux,
             #[cfg(test)]
             Self::TestHelper => true,
@@ -97,7 +100,7 @@ impl TrustedProgram {
     pub(in crate::app::bootstrap_remediation::supervisor::process) fn is_internal(self) -> bool {
         matches!(
             self,
-            Self::LinuxRootlessService | Self::LinuxRootlessPackageSetup
+            Self::LinuxRootlessService | Self::LinuxRootlessPackageSetup | Self::WindowsWslFeatures
         )
     }
 
@@ -130,6 +133,9 @@ impl TrustedProgram {
             }
             Self::LinuxRootlessPackageSetup => {
                 anyhow::bail!("internal remediation programs must use the trusted app dispatcher")
+            }
+            Self::WindowsWslFeatures => {
+                anyhow::bail!("Windows setup must use the authenticated elevation helper")
             }
             Self::Dnf => Ok(PathBuf::from("/usr/bin/dnf5")),
             Self::Zypper => Ok(PathBuf::from("/usr/bin/zypper")),

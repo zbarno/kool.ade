@@ -95,6 +95,19 @@ fn wsl_feature_task_gives_safe_windows_settings_steps() {
     assert!(finding.next_step.contains("Virtual Machine Platform"));
     assert!(finding.next_step.contains("ask your administrator"));
     assert!(finding.next_step.contains("do not change security policy"));
+    if !crate::windows_setup_helper::publisher_trust_configured() {
+        assert!(
+            finding
+                .next_step
+                .contains("trusted Windows setup publisher")
+        );
+    } else {
+        assert!(
+            finding
+                .next_step
+                .contains("authenticated one-use setup handoff")
+        );
+    }
 }
 
 #[test]

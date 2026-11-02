@@ -8,6 +8,9 @@ pub enum RemediationProcessStatusV1 {
     NotStarted,
     Succeeded,
     Failed,
+    /// The operation completed but Windows requires a reboot before probes
+    /// can establish the resulting host state.
+    RebootRequired,
     InterruptedAfterLaunch,
     UnknownAfterLaunch,
     InterruptedByRestart,
@@ -19,6 +22,7 @@ pub enum RemediationVerificationStatusV1 {
     Ready,
     NotReady,
     Unavailable,
+    NeedsFreshProbe,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -65,6 +69,12 @@ impl SetupTaskStoreV1 {
                 && attempt.owner_instance_id.as_deref() == Some(owner_instance_id),
             "remediation result belongs to an inactive attempt"
         );
+        if result.process_status == RemediationProcessStatusV1::RebootRequired {
+            anyhow::ensure!(
+                attempt.authorization_binding.is_none() && attempt.authorization_history.is_some(),
+                "restart-required result must follow one-use approval consumption"
+            );
+        }
         attempt.remediation_result = Some(result);
         attempt.updated_at_unix_ms = at_unix_ms;
         Ok(())
@@ -121,13 +131,25 @@ pub(crate) fn validate_remediation_result(
             );
         }
         anyhow::ensure!(
-            (receipt.status == RemediationVerificationStatusV1::Unavailable)
-                == receipt.evidence_digest.is_none(),
+            (matches!(
+                receipt.status,
+                RemediationVerificationStatusV1::Unavailable
+                    | RemediationVerificationStatusV1::NeedsFreshProbe
+            )) == receipt.evidence_digest.is_none(),
             "verification status and evidence digest disagree"
         );
     }
     let recovery_interruption =
         result.process_status == RemediationProcessStatusV1::InterruptedByRestart;
+    if result.process_status == RemediationProcessStatusV1::RebootRequired {
+        anyhow::ensure!(
+            result.exit_code == Some(3010)
+                && result.verification.as_ref().is_some_and(|verification| {
+                    verification.status == RemediationVerificationStatusV1::NeedsFreshProbe
+                }),
+            "restart-required remediation lacks its fresh-probe fence"
+        );
+    }
     anyhow::ensure!(
         result.verification.is_none()
             == (result.process_status == RemediationProcessStatusV1::NotStarted
@@ -138,7 +160,9 @@ pub(crate) fn validate_remediation_result(
         result.exit_code.is_some()
             == matches!(
                 result.process_status,
-                RemediationProcessStatusV1::Succeeded | RemediationProcessStatusV1::Failed
+                RemediationProcessStatusV1::Succeeded
+                    | RemediationProcessStatusV1::Failed
+                    | RemediationProcessStatusV1::RebootRequired
             ),
         "process exit code does not match the recorded execution state"
     );

@@ -47,5 +47,6 @@ pub(crate) use supervisor::{
     ProcessRunError, ProcessRunFailure, PublisherSignatureVerifier, ReadinessVerifier,
     RemediationResult, RemediationSupervisor, StagedRpm, SystemCommandRunner, TrustedArgument,
     TrustedInvocation, TrustedProgram, VerificationReceipt, VerifiedArtifact, VerifiedDnfRpm,
-    parse_installed_package_names, verify_plan_artifact,
+    WindowsNativeElevation, WindowsReadinessVerifier, parse_installed_package_names,
+    verify_plan_artifact,
 };

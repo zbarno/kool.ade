@@ -18,7 +18,9 @@ pub(crate) use process::{
     SystemCommandRunner, TrustedArgument, TrustedInvocation, TrustedProgram, VerifiedArtifact,
     VerifiedDnfRpm, parse_installed_package_names, verify_plan_artifact,
 };
-pub(crate) use production::{LinuxNativeElevation, LinuxReadinessVerifier};
+pub(crate) use production::{
+    LinuxNativeElevation, LinuxReadinessVerifier, WindowsNativeElevation, WindowsReadinessVerifier,
+};
 
 pub(crate) struct Cancellation(AtomicBool);
 
@@ -53,8 +55,10 @@ pub(crate) struct PreconditionReceipt {
 }
 
 pub(crate) trait NativeElevation {
-    /// Run a fixed, read-only elevation preflight to trigger the OS-native
-    /// authorization prompt. Return `None` when the operator declines it.
+    /// Establish an OS-specific elevation receipt after the app-level
+    /// authorization. The runner may request native consent at the final
+    /// process launch (Windows UAC) or through a bounded read-only preflight
+    /// (Linux). Return `None` when consent is declined.
     fn request(
         &self,
         plan: &RemediationPlan,
@@ -82,6 +86,17 @@ pub(crate) struct ElevationReceipt {
     plan_digest: String,
     host_digest: String,
     invocation_digest: String,
+    setup_authorization: Option<SetupAuthorizationContext>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SetupAuthorizationContext {
+    pub(crate) task_id: String,
+    pub(crate) operation_id: String,
+    pub(crate) owner_instance_id: String,
+    pub(crate) receipt_id: String,
+    pub(crate) scope_digest: String,
+    pub(crate) expires_at_unix_ms: u64,
 }
 
 impl ElevationReceipt {
@@ -102,7 +117,23 @@ impl ElevationReceipt {
             plan_digest: plan.digest()?,
             host_digest: identity.digest()?,
             invocation_digest: invocation.binding_digest()?,
+            setup_authorization: None,
         })
+    }
+
+    pub(crate) fn with_setup_authorization(
+        mut self,
+        approved: &crate::app::bootstrap_remediation::approval::ApprovedRemediation,
+    ) -> Self {
+        self.setup_authorization = Some(SetupAuthorizationContext {
+            task_id: approved.task_id.clone(),
+            operation_id: approved.operation_id.clone(),
+            owner_instance_id: approved.owner_instance_id.clone(),
+            receipt_id: approved.receipt_id.clone(),
+            scope_digest: approved.scope_digest.clone(),
+            expires_at_unix_ms: approved.expires_at_unix_ms,
+        });
+        self
     }
 
     #[cfg(test)]

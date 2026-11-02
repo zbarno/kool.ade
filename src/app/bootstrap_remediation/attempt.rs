@@ -205,5 +205,9 @@ fn operation_code(operation: crate::app::bootstrap_repair_policy::Operation) -> 
         Operation::InstallLinuxRootlessPackages => "install_linux_rootless_packages",
         Operation::ConfigureLinuxSubordinateIds => "configure_linux_subordinate_ids",
         Operation::InstallLinuxRootlessService => "install_linux_rootless_service",
+        Operation::EnableWindowsWslFeatures => "windows_enable_wsl_features",
     }
 }
+
+#[cfg(test)]
+mod tests;

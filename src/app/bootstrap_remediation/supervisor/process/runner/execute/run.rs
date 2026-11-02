@@ -46,6 +46,18 @@ impl NativeCommandRunner for SystemCommandRunner {
         elevation: ElevationReceipt,
         cancellation: &Cancellation,
     ) -> Result<ProcessOutput, ProcessRunError> {
+        #[cfg(windows)]
+        if invocation.program() == program::TrustedProgram::WindowsWslFeatures {
+            if !matches!(elevation.matches_invocation(&invocation), Ok(true))
+                || crate::app::bootstrap_remediation::validate_before_elevated_launch(&invocation)
+                    .is_err()
+            {
+                return Err(ProcessRunError::not_started(
+                    ProcessRunFailure::FailedBeforeLaunch,
+                ));
+            }
+            return super::super::windows_setup::run(invocation, elevation, cancellation);
+        }
         if matches!(
             invocation.program,
             program::TrustedProgram::ClaudeCodeInstall

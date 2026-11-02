@@ -45,6 +45,29 @@ fn service_registry_compiles_only_the_internal_app_owned_operation() {
 }
 
 #[test]
+fn windows_wsl_registry_compiles_only_the_fixed_internal_helper_operation() {
+    let identity =
+        HostIdentity::from_facts(Host::Windows, "23H2", "synthetic-machine", "synthetic-user")
+            .unwrap();
+    let proposal = Proposal {
+        schema_version: 1,
+        operation: Operation::EnableWindowsWslFeatures,
+        host: Host::Windows,
+        prerequisite_id: "setup:windows:wsl-features".into(),
+        image_profile: None,
+    };
+    let request = RemediationRequest::from_proposal_for_test(&proposal, &identity).unwrap();
+    let plan = RemediationPlan::build_for_test(&request, &identity).unwrap();
+    let invocation = ProductionOperationRegistry.compile(&plan).unwrap();
+    assert_eq!(
+        invocation.program_for_test(),
+        TrustedProgram::WindowsWslFeatures
+    );
+    assert!(invocation.arguments_for_test().is_empty());
+    assert!(invocation.is_windows_wsl_feature_operation());
+}
+
+#[test]
 fn apt_invocation_has_fixed_packages_and_cannot_upgrade_remove_or_recommend() {
     let invocation = TrustedInvocation::new(
         Host::Linux,

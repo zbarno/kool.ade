@@ -95,9 +95,9 @@ pub(super) fn parameters_from_plan(plan: &RemediationPlan) -> anyhow::Result<Ope
             .ok_or_else(|| anyhow::anyhow!("plan host has no exact rootless recipe"))
     };
     match plan.operation {
-        Operation::RecheckPrerequisites | Operation::OpenCodingTools => {
-            Ok(OperationParameters::None)
-        }
+        Operation::RecheckPrerequisites
+        | Operation::OpenCodingTools
+        | Operation::EnableWindowsWslFeatures => Ok(OperationParameters::None),
         Operation::PrepareLockedImage => {
             let (profile, architecture, _) = parse_locked_image_task_id(&plan.prerequisite_id)
                 .ok_or_else(|| anyhow::anyhow!("locked image task identity is not canonical"))?;
@@ -179,5 +179,43 @@ mod tests {
         let mut elevated = plan;
         elevated.privilege = PrivilegeLevel::Administrator;
         assert!(elevated.validate().is_err());
+    }
+
+    #[test]
+    fn windows_wsl_plan_is_fixed_host_bound_and_requires_administrator_consent() {
+        let identity =
+            HostIdentity::from_facts(Host::Windows, "23H2", "synthetic-machine", "synthetic-user")
+                .unwrap();
+        let proposal = Proposal {
+            schema_version: 1,
+            operation: Operation::EnableWindowsWslFeatures,
+            host: Host::Windows,
+            prerequisite_id: "setup:windows:wsl-features".into(),
+            image_profile: None,
+        };
+        let request = RemediationRequest::from_proposal_for_test(&proposal, &identity).unwrap();
+        let plan = RemediationPlan::build_for_test(&request, &identity).unwrap();
+
+        assert_eq!(plan.host, Host::Windows);
+        assert_eq!(plan.privilege, PrivilegeLevel::Administrator);
+        assert!(plan.requires_consent);
+        assert_eq!(plan.effects, [PlanEffect::EnableWindowsWslFeatures]);
+        assert_eq!(
+            plan.precondition_probe_ids,
+            [
+                "host:windows:edition",
+                "host:windows:architecture",
+                "host:windows:virtualization",
+                "host:windows:wsl_policy",
+                "host:windows:wsl_feature",
+                "host:windows:vm_platform_feature",
+                "host:windows:reboot",
+            ]
+        );
+        assert!(plan.validate().is_ok());
+
+        let mut tampered = plan;
+        tampered.precondition_probe_ids.clear();
+        assert!(tampered.validate().is_err());
     }
 }

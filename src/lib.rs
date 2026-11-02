@@ -22,6 +22,7 @@ pub mod project_runtime;
 pub mod project_runtime_capability;
 pub mod runtime_qa;
 pub mod ui;
+pub mod windows_setup_helper;
 
 #[cfg(test)]
 pub(crate) mod test_support;

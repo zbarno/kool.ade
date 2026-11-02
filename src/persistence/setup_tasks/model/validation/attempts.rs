@@ -105,15 +105,18 @@ fn validate_attempt_state(attempt: &SetupAttemptV1) -> anyhow::Result<()> {
             "unapproved operation carries authorization metadata"
         ),
         AttemptState::InProgress | AttemptState::AwaitingVerification => {
-            let binding = attempt
-                .authorization_binding
-                .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("active operation lacks authorization binding"))?;
-            validate_binding(binding)?;
-            anyhow::ensure!(
-                attempt.authorization_history.as_ref() == Some(binding),
-                "active authorization binding is not auditable"
-            );
+            if let Some(binding) = attempt.authorization_binding.as_ref() {
+                validate_binding(binding)?;
+                anyhow::ensure!(
+                    attempt.authorization_history.as_ref() == Some(binding),
+                    "active authorization binding is not auditable"
+                );
+            } else {
+                anyhow::ensure!(
+                    attempt.authorization_history.is_some(),
+                    "active operation lacks authorization history"
+                );
+            }
             anyhow::ensure!(
                 attempt
                     .owner_instance_id
