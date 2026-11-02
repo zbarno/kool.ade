@@ -76,6 +76,89 @@ fn task_cards_open_persisted_conversation_in_details_and_keep_each_draft_isolate
 }
 
 #[test]
+fn relationship_navigation_and_back_restore_each_tasks_own_chat_and_draft() {
+    let mut app = fixture();
+    let ctx = egui::Context::default();
+    let first = "planning/tasks/fixture/001-task.md";
+    let second = "planning/tasks/fixture/002-task.md";
+    *app.task_draft(first).unwrap() = "Draft for original task".into();
+    *app.task_draft(second).unwrap() = "Draft for related task".into();
+    if let Screen::Connected(project) = &mut app.screen {
+        project.task_chats.messages.insert(
+            first.into(),
+            vec![ChatMessage::new(
+                ChatRole::Agent,
+                "Original task thread",
+                None,
+            )],
+        );
+        project.task_chats.messages.insert(
+            second.into(),
+            vec![ChatMessage::new(
+                ChatRole::Agent,
+                "Related task thread",
+                None,
+            )],
+        );
+    }
+    frame(&mut app, &ctx, vec![]);
+    let original = click_text(&mut app, &ctx, "First task");
+    assert!(text_contains(&original, "Original task thread"));
+    assert!(text_contains(&original, "Draft for original task"));
+
+    ctx.data_mut(|data| {
+        data.insert_temp(
+            egui::Id::new("koolade_task_relationship_history"),
+            vec![first.to_owned()],
+        );
+        data.insert_temp(
+            egui::Id::new("koolade_task_relationship_navigation"),
+            second.to_owned(),
+        );
+    });
+    frame(&mut app, &ctx, vec![]);
+    assert_eq!(
+        ctx.data_mut(|data| { data.get_temp::<String>(egui::Id::new("koolade_selected_task")) })
+            .as_deref(),
+        Some(second),
+        "the board consumes the relationship navigation intent"
+    );
+    let related = frame(&mut app, &ctx, vec![]);
+    let shown = related
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) => Some(text.galley.text().to_string()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        text_contains(&related, "Related task thread"),
+        "related task transcript should be scoped to its selected path: {shown:?}"
+    );
+    assert!(text_contains(&related, "Draft for related task"));
+    assert!(!text_contains(&related, "Original task thread"));
+    assert!(!text_contains(&related, "Draft for original task"));
+
+    ctx.data_mut(|data| {
+        data.insert_temp(
+            egui::Id::new("koolade_task_relationship_history"),
+            Vec::<String>::new(),
+        );
+        data.insert_temp(
+            egui::Id::new("koolade_task_relationship_navigation"),
+            first.to_owned(),
+        );
+    });
+    frame(&mut app, &ctx, vec![]);
+    let restored = frame(&mut app, &ctx, vec![]);
+    assert!(text_contains(&restored, "Original task thread"));
+    assert!(text_contains(&restored, "Draft for original task"));
+    assert!(!text_contains(&restored, "Related task thread"));
+    assert!(!text_contains(&restored, "Draft for related task"));
+}
+
+#[test]
 fn narrow_workspace_does_not_restore_main_chat_for_questions() {
     let mut app = fixture();
     if let Screen::Connected(p) = &mut app.screen {

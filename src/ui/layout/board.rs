@@ -160,7 +160,7 @@ pub(super) fn paint(
             .as_ref()
             .and_then(|path| docs.iter().position(|doc| &doc.path == path))
         {
-            let closed = crate::ui::overlays::show_task_modal(
+            let closed = crate::ui::overlays::show_task_details_modal(
                 ui,
                 &docs[selected].path,
                 panel_bounds,
