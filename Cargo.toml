@@ -92,6 +92,7 @@ tower-service = "0.3.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10.1"
+core-foundation-sys = "0.8.7"
 plist = "1.8.0"
 security-framework = "3.7.0"
 

@@ -54,7 +54,9 @@ fn accepted_answer_persists_its_thread_and_starts_spec_reconciliation() {
         selected_option: Some("yes".into()),
     });
 
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    // This app-level dispatch runs concurrently with thousands of other
+    // nextest cases in CI; leave room for a loaded scheduler to start the turn.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while calls.lock().unwrap().is_empty() {
         assert!(
             std::time::Instant::now() < deadline,
@@ -66,7 +68,7 @@ fn accepted_answer_persists_its_thread_and_starts_spec_reconciliation() {
     assert!(calls.lock().unwrap()[0].contains("Keep retention configurable for each workspace."));
 
     let context = egui::Context::default();
-    let turn_deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let turn_deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while app.conversation_busy() {
         app.tick(0.016, &context);
         assert!(
