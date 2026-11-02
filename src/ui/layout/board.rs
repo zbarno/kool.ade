@@ -43,6 +43,7 @@ pub(super) fn paint(
         .map(|doc| (doc.path.clone(), doc.title.clone()))
         .collect::<std::collections::HashMap<_, _>>();
     let dependents = relationships::task_dependents(board);
+    let task_children = relationships::task_children(board);
     let planning_work_relations = relationships::planning_work_relations(&board.planning_work);
     let planning_work_keys = relationships::unique_planning_work_keys(&board.planning_work);
     let feature_uids_by_id = relationships::unique_feature_uids_by_id(&board.planning_work);
@@ -71,6 +72,7 @@ pub(super) fn paint(
         data.insert_temp(egui::Id::new("koolade_task_paths_by_uid"), task_paths);
         data.insert_temp(egui::Id::new("koolade_task_titles_by_path"), task_titles);
         data.insert_temp(egui::Id::new("koolade_task_dependents"), dependents);
+        data.insert_temp(egui::Id::new("koolade_task_children"), task_children);
         data.insert_temp(
             egui::Id::new("koolade_task_planning_work_relations"),
             planning_work_relations,

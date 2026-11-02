@@ -199,6 +199,40 @@ fn task_path_projection_rejects_ambiguous_duplicate_uids() {
     }));
 }
 
+#[test]
+fn task_child_projection_follows_explicit_parent_uids_through_nested_levels() {
+    let mut board = crate::ui::planning_board::ViewModel::default();
+    let batch = uuid::Uuid::new_v4().to_string();
+    let root = task_identity("TASK-ROOT", &batch);
+    let child = task_identity("TASK-CHILD", &batch);
+    let grandchild = task_identity("TASK-LEAF", &batch);
+    for (path, identity, parent_uid) in [
+        ("root.md", root.clone(), None),
+        ("child.md", child.clone(), Some(root.uid.as_str())),
+        ("leaf.md", grandchild.clone(), Some(child.uid.as_str())),
+    ] {
+        let metadata =
+            crate::artifacts::task_docs::TaskMetadata::new(&identity, "root", Vec::new())
+                .unwrap()
+                .with_parent_task_uid(parent_uid)
+                .unwrap();
+        board
+            .task_documents
+            .push(task_doc(path, identity, metadata));
+    }
+
+    let children = task_children(&board);
+    assert_eq!(
+        children["planning/tasks/root.md"][0].0,
+        "planning/tasks/child.md"
+    );
+    assert_eq!(
+        children["planning/tasks/child.md"][0].0,
+        "planning/tasks/leaf.md"
+    );
+    assert!(!children.contains_key("planning/tasks/leaf.md"));
+}
+
 fn task_identity(id: &str, batch_uid: &str) -> crate::domain::ArtifactIdentity {
     let mut identity = crate::domain::ArtifactIdentity::new(id, id);
     identity.parent_uid = Some(batch_uid.into());

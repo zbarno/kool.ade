@@ -73,6 +73,38 @@ pub(super) fn task_dependents(board: &ViewModel) -> Dependents {
         .collect()
 }
 
+pub(super) fn task_children(board: &ViewModel) -> Dependents {
+    let unique_paths = unique_task_paths(board);
+    let mut children = HashMap::<String, Vec<(String, String, String)>>::new();
+    for doc in &board.task_documents {
+        let Some(identity) = &doc.identity else {
+            continue;
+        };
+        if unique_paths.get(&identity.uid) != Some(&doc.path) {
+            continue;
+        }
+        let Some(parent_uid) = doc
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.parent_task_uid.as_ref())
+        else {
+            continue;
+        };
+        let Some(parent_path) = unique_paths.get(parent_uid) else {
+            continue;
+        };
+        children.entry(parent_path.clone()).or_default().push((
+            doc.path.clone(),
+            doc.title.clone(),
+            task_status(board, &doc.path),
+        ));
+    }
+    for rows in children.values_mut() {
+        rows.sort_by(|left, right| left.1.cmp(&right.1).then(left.0.cmp(&right.0)));
+    }
+    children
+}
+
 fn task_status(board: &ViewModel, path: &str) -> String {
     let phase = board
         .lifecycle_tasks

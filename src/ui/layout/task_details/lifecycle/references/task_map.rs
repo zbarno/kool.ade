@@ -1,5 +1,6 @@
 use crate::ui::{Surface, task_detail::LifecycleView};
 
+mod nested;
 mod opportunities;
 mod planning_items;
 mod planning_work;
@@ -164,6 +165,7 @@ pub(crate) fn relationships(
                                 for criterion in &subtask.acceptance_criteria {
                                     ui.label(format!("  • {criterion}"));
                                 }
+                                nested::paint(ui, subtask);
                             });
                         }
                     });
