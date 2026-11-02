@@ -94,16 +94,16 @@ def signals(test_id, source):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--nextest-json", type=pathlib.Path, required=True)
+    parser.add_argument("--nextest-json", type=pathlib.Path)
     parser.add_argument("--junit", type=pathlib.Path, required=True)
     parser.add_argument("--repo", type=pathlib.Path, default=pathlib.Path.cwd())
     parser.add_argument("--output", type=pathlib.Path, required=True)
     args = parser.parse_args()
 
-    listing = json.loads(args.nextest_json.read_text())["rust-suites"]
     junit = ET.parse(args.junit).getroot()
     timing = {}
     outcome = {}
+    outcome_detail = {}
     for case in junit.iter("testcase"):
         case_name = case.attrib["name"]
         classname = case.attrib.get("classname", "")
@@ -112,17 +112,30 @@ def main():
         # prepended because their testcase names are local function names.
         key = case_name if classname == "koolade" else f"{classname}::{case_name}"
         timing[key] = float(case.attrib.get("time", "0"))
-        outcome[key] = "skipped" if case.find("skipped") is not None else "passed"
+        skipped = case.find("skipped")
+        outcome[key] = "skipped" if skipped is not None else "passed"
+        outcome_detail[key] = skipped.attrib.get("message", "") if skipped is not None else ""
 
     sources = test_sources(args.repo)
     entries = []
-    for suite, data in listing.items():
-        for test, details in data["testcases"].items():
-            if details.get("kind") != "test":
-                continue
-            # The primary `koolade` library suite already emits fully qualified
-            # Rust test paths. Prefix only auxiliary integration-test targets,
-            # whose test function names are not globally unique.
+    if args.nextest_json:
+        listing = json.loads(args.nextest_json.read_text())["rust-suites"]
+        for suite, data in listing.items():
+            for test, details in data["testcases"].items():
+                if details.get("kind") != "test":
+                    continue
+                # The primary `koolade` library suite already emits fully qualified
+                # Rust test paths. Prefix only auxiliary integration-test targets,
+                # whose test function names are not globally unique.
+                test_id = test if suite == "koolade" else f"{suite}::{test}"
+                entries.append((suite, test, test_id))
+    else:
+        # Nextest's JUnit artifact includes the discovered testcases, including
+        # filtered and ignored cases, so it can produce a current inventory
+        # without requiring an extra build-time `nextest list` capture.
+        for case in junit.iter("testcase"):
+            suite = case.attrib.get("classname", "koolade")
+            test = case.attrib["name"]
             test_id = test if suite == "koolade" else f"{suite}::{test}"
             entries.append((suite, test, test_id))
 
@@ -148,6 +161,7 @@ def main():
                 "; ".join(candidates) if candidates else "no exact test-name collision",
                 "Review same-name candidate" if candidates else "No name collision; semantic review pending",
                 "Name/source/duration inventory only; name collision is not proof of duplication",
+                outcome_detail.get(test_id, ""),
             ]
         )
 
@@ -177,6 +191,7 @@ def main():
                 "overlap candidate",
                 "decision",
                 "evidence / review status",
+                "CI skip detail",
             ]
         )
         writer.writerows(sorted(rows, key=lambda row: row[0]))
