@@ -135,3 +135,31 @@ fn clicking_a_canvas_task_node_requests_its_own_task_path() {
     });
     assert_eq!(path.as_deref(), Some("planning/tasks/child.md"));
 }
+
+#[test]
+fn task_map_canvas_stays_hidden_when_a_task_has_no_graph_relationships() {
+    let context = egui::Context::default();
+    let mut lifecycle = super::super::tests::lifecycle_view();
+    lifecycle.parent_task = None;
+    lifecycle.dependencies.clear();
+    lifecycle.subtasks.clear();
+    let mut output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 480.0),
+            )),
+            ..Default::default()
+        },
+        |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                paint(ui, &lifecycle, "planning/tasks/leaf.md");
+            });
+        },
+    );
+    let shows_canvas = output.shapes.iter().any(|shape| {
+        matches!(&shape.shape, egui::Shape::Text(text) if text.galley.text().contains("Scroll to zoom"))
+    });
+    output.textures_delta.clear();
+    assert!(!shows_canvas);
+}

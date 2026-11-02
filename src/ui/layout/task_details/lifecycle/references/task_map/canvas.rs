@@ -44,6 +44,20 @@ struct Placement {
 mod tests;
 
 pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) {
+    let dependents = ui.ctx().data_mut(|data| {
+        data.get_temp::<std::collections::HashMap<String, Vec<(String, String, String)>>>(
+            egui::Id::new("koolade_task_dependents"),
+        )
+        .and_then(|rows| rows.get(ticket).cloned())
+        .unwrap_or_default()
+    });
+    if lifecycle.parent_task.is_none()
+        && lifecycle.dependencies.is_empty()
+        && lifecycle.subtasks.is_empty()
+        && dependents.is_empty()
+    {
+        return;
+    }
     let width = ui.available_width().clamp(320.0, 960.0);
     let (canvas_rect, response) =
         ui.allocate_exact_size(egui::vec2(width, 320.0), egui::Sense::click_and_drag());
@@ -130,13 +144,6 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) 
             },
         );
     }
-    let dependents = ui.ctx().data_mut(|data| {
-        data.get_temp::<std::collections::HashMap<String, Vec<(String, String, String)>>>(
-            egui::Id::new("koolade_task_dependents"),
-        )
-        .and_then(|rows| rows.get(ticket).cloned())
-        .unwrap_or_default()
-    });
     for (index, (path, title, status)) in dependents.iter().enumerate() {
         let node_index = nodes.len();
         nodes.push(Node {
