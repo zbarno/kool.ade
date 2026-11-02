@@ -1,5 +1,23 @@
 use super::*;
 
+/// Production UI boundary: cards with legacy implementation records but no
+/// lifecycle record retain an explicit unknown lifecycle label. A helper-only
+/// test cannot prove the card avoids presenting its fallback lane as completion.
+/// Uses the synthetic board fixture, no external services, low setup cost.
+#[test]
+fn task_card_without_lifecycle_record_does_not_claim_completion() {
+    let mut app = fixture();
+    let ctx = super::mockup_layout::styled_context();
+    for _ in 0..4 {
+        frame(&mut app, &ctx, vec![]);
+    }
+    let output = frame(&mut app, &ctx, vec![]);
+    let rendered = canvas_text(&output);
+
+    assert!(rendered.contains("Lifecycle status not recorded"));
+    assert!(rendered.contains("Implementation complete · lifecycle status not recorded"));
+}
+
 #[test]
 fn hovering_a_task_highlights_its_batch_mates_and_leaves_unrelated_cards_alone() {
     let mut app = fixture();

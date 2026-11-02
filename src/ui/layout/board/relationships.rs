@@ -1,7 +1,160 @@
 use crate::ui::planning_board::ViewModel;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+mod opportunities;
+mod planning_items;
+pub(super) use opportunities::opportunity_relations;
+mod planning_work;
+pub(super) use planning_items::{planning_item_relations, unique_planning_item_keys};
+pub(super) use planning_work::{
+    planning_work_relations, unique_feature_uids_by_id, unique_planning_work_keys,
+};
+
 pub(super) type Map = HashMap<String, HashSet<String>>;
+
+pub(super) type RelatedTasks = HashMap<String, Vec<crate::ui::task_detail::TaskRelationView>>;
+
+pub(super) fn unique_task_paths(board: &ViewModel) -> HashMap<String, String> {
+    let mut paths = HashMap::new();
+    let mut ambiguous = HashSet::new();
+    for doc in &board.task_documents {
+        let Some(identity) = &doc.identity else {
+            continue;
+        };
+        if paths.contains_key(&identity.uid) {
+            paths.remove(&identity.uid);
+            ambiguous.insert(identity.uid.clone());
+        } else if !ambiguous.contains(&identity.uid) {
+            paths.insert(identity.uid.clone(), doc.path.clone());
+        }
+    }
+    paths
+}
+
+pub(super) fn unique_task_uids_by_path(board: &ViewModel) -> HashMap<String, String> {
+    unique_task_paths(board)
+        .into_iter()
+        .map(|(uid, path)| (path, uid))
+        .collect()
+}
+
+pub(super) fn task_dependents(board: &ViewModel) -> RelatedTasks {
+    let unique_paths = unique_task_paths(board);
+    unique_paths
+        .iter()
+        .map(|(uid, path)| {
+            let mut seen = HashSet::new();
+            let dependents = board
+                .task_documents
+                .iter()
+                .filter_map(|candidate| {
+                    let metadata = candidate.metadata.as_ref()?;
+                    seen.insert(metadata.uid.clone())
+                        .then_some((candidate, metadata))
+                })
+                .filter(|(_, metadata)| metadata.dependency_uids.contains(uid))
+                .map(
+                    |(candidate, metadata)| crate::ui::task_detail::TaskRelationView {
+                        planning_item_uid: metadata.uid.clone(),
+                        lifecycle_task_uid: None,
+                        title: if unique_paths.get(&metadata.uid) == Some(&candidate.path) {
+                            candidate.title.clone()
+                        } else {
+                            "Related task unavailable".to_owned()
+                        },
+                        status: if unique_paths.get(&metadata.uid) == Some(&candidate.path) {
+                            task_status(board, &candidate.path)
+                        } else {
+                            "Relationship data incomplete".to_owned()
+                        },
+                        acceptance_criteria: Vec::new(),
+                    },
+                )
+                .collect();
+            (path.clone(), dependents)
+        })
+        .collect()
+}
+
+pub(super) fn task_children(board: &ViewModel) -> RelatedTasks {
+    let unique_paths = unique_task_paths(board);
+    let mut children = HashMap::<String, Vec<crate::ui::task_detail::TaskRelationView>>::new();
+    let mut seen_children = HashMap::<String, HashSet<String>>::new();
+    for doc in &board.task_documents {
+        let Some(metadata) = &doc.metadata else {
+            continue;
+        };
+        let uid = doc
+            .identity
+            .as_ref()
+            .map(|identity| identity.uid.as_str())
+            .unwrap_or(&metadata.uid);
+        let navigable = unique_paths.get(uid) == Some(&doc.path);
+        let Some(parent_uid) = metadata.parent_task_uid.as_ref() else {
+            continue;
+        };
+        let Some(parent_path) = unique_paths.get(parent_uid) else {
+            continue;
+        };
+        if !seen_children
+            .entry(parent_path.clone())
+            .or_default()
+            .insert(uid.to_owned())
+        {
+            continue;
+        }
+        children.entry(parent_path.clone()).or_default().push(
+            crate::ui::task_detail::TaskRelationView {
+                planning_item_uid: uid.to_owned(),
+                lifecycle_task_uid: None,
+                title: if navigable {
+                    doc.title.clone()
+                } else {
+                    "Related task unavailable".to_owned()
+                },
+                status: if navigable {
+                    task_status(board, &doc.path)
+                } else {
+                    "Relationship data incomplete".to_owned()
+                },
+                acceptance_criteria: Vec::new(),
+            },
+        );
+    }
+    for rows in children.values_mut() {
+        rows.sort_by(|left, right| {
+            left.title
+                .cmp(&right.title)
+                .then(left.planning_item_uid.cmp(&right.planning_item_uid))
+        });
+    }
+    children
+}
+
+fn task_status(board: &ViewModel, path: &str) -> String {
+    let phase = board
+        .lifecycle_tasks
+        .get(path)
+        .copied()
+        .map(crate::ui::task_detail::task_phase_label);
+    let pr_status = board.lifecycle_pr_statuses.get(path).map(|status| {
+        use crate::core::lifecycle::PullRequestPreparationStatus as Pr;
+        match status {
+            Pr::AwaitingAuthorization => "PR awaiting authorization",
+            Pr::Publishing => "PR publishing",
+            Pr::NeedsAttention => "PR needs attention",
+            Pr::Opened => "PR open",
+            Pr::ClosedUnmerged => "PR closed unmerged",
+            Pr::Merged => "PR merged",
+        }
+    });
+    match (phase, pr_status) {
+        (Some(phase), Some(pr)) => format!("{phase} · {pr}"),
+        (Some(phase), None) => phase.to_owned(),
+        (None, Some(pr)) => pr.to_owned(),
+        (None, None) => "Status not recorded".to_owned(),
+    }
+}
 
 pub(super) fn build(board: &ViewModel) -> Map {
     let mut tags = BTreeMap::<String, Vec<String>>::new();
