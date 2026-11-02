@@ -26,6 +26,7 @@ pub(crate) mod linux_rootless_docker_selection;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod linux_rootless_smoke_receipt;
 pub mod persona;
+pub(crate) mod project_guidance;
 pub mod project_harness_routes;
 pub mod remote_execution_telemetry;
 pub(crate) mod remote_private_file_executions;

@@ -143,7 +143,13 @@ fn filter_environment(
                 || match provider {
                     CliProvider::Copilot => COPILOT_AUTH_ENV.contains(&name.as_str()),
                     CliProvider::Codex => {
-                        matches!(name.as_str(), "OPENAI_API_KEY" | "CODEX_ACCESS_TOKEN")
+                        matches!(
+                            name.as_str(),
+                            "OPENAI_API_KEY"
+                                | "CODEX_ACCESS_TOKEN"
+                                | "OPENAI_FEDERATION_RULE_ID"
+                                | "OPENAI_IDENTITY_TOKEN_FILE"
+                        )
                     }
                     CliProvider::Claude => {
                         matches!(name.as_str(), "ANTHROPIC_API_KEY" | "ANTHROPIC_AUTH_TOKEN")
@@ -198,6 +204,8 @@ mod tests {
             ("HOME", "/home/host"),
             ("OPENAI_API_KEY", "synthetic-key"),
             ("CODEX_ACCESS_TOKEN", "synthetic-codex-token"),
+            ("OPENAI_FEDERATION_RULE_ID", "synthetic-rule"),
+            ("OPENAI_IDENTITY_TOKEN_FILE", "/synthetic/token"),
         ];
         let env = selected(CliProvider::Codex, &source);
         for required in [
@@ -207,6 +215,8 @@ mod tests {
             "LC_ALL",
             "OPENAI_API_KEY",
             "CODEX_ACCESS_TOKEN",
+            "OPENAI_FEDERATION_RULE_ID",
+            "OPENAI_IDENTITY_TOKEN_FILE",
         ] {
             assert!(env.iter().any(|(name, _)| name == required), "{required}");
         }
@@ -236,9 +246,13 @@ mod tests {
     }
 
     #[test]
-    fn codex_access_token_is_not_forwarded_to_other_providers() {
-        let source = [("CODEX_ACCESS_TOKEN", "synthetic-codex-token")]
-            .map(|(name, value)| (name.to_owned(), value.to_owned()));
+    fn codex_credentials_are_not_forwarded_to_other_providers() {
+        let source = [
+            ("CODEX_ACCESS_TOKEN", "synthetic-codex-token"),
+            ("OPENAI_FEDERATION_RULE_ID", "synthetic-rule"),
+            ("OPENAI_IDENTITY_TOKEN_FILE", "/synthetic/token"),
+        ]
+        .map(|(name, value)| (name.to_owned(), value.to_owned()));
         for provider in [
             CliProvider::Pi,
             CliProvider::Claude,

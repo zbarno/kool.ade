@@ -41,6 +41,7 @@ impl AiHarness for ClaudeHarness {
             .map_err(|error| {
                 AppError::Other(format!("Cannot start Kool.ad/e sandbox: {error:#}"))
             })?;
+        let prompt_body = boundary.prompt_body(&request.prompt_body);
         let binary = Self::locate_binary()?.canonicalize().map_err(|error| {
             AppError::Other(format!("Cannot resolve Claude Code executable: {error}"))
         })?;
@@ -95,7 +96,7 @@ impl AiHarness for ClaudeHarness {
 
         let task = launch.spawn_with_input(
             boundary.working_directory(),
-            Some(prompt_input(&request.prompt_body)),
+            Some(prompt_input(&prompt_body)),
         )?;
         let deadline = Instant::now() + request.timeout;
         let mut stderr = Vec::new();

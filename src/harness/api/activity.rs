@@ -69,6 +69,16 @@ pub struct ActivityTelemetry {
     pub launch_profile: Option<CleanLaunchTelemetry>,
 }
 
+/// Redacted indication of which local authentication source was selected.
+/// It never contains credential values or file paths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderAuthStrategy {
+    Environment,
+    Saved,
+    Unavailable,
+}
+
 /// Redacted evidence for the provider profile validated before process launch.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -77,6 +87,8 @@ pub struct CleanLaunchTelemetry {
     pub cli_version: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_role_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_strategy: Option<ProviderAuthStrategy>,
     pub profile_hash: String,
     pub verified_capabilities: Vec<String>,
 }
@@ -208,9 +220,14 @@ mod tests {
             provider: "codex".into(),
             cli_version: "codex 1.2.3".into(),
             prompt_role_version: None,
+            auth_strategy: Some(ProviderAuthStrategy::Saved),
             profile_hash: "sha256:synthetic".into(),
             verified_capabilities: vec!["--ignore-user-config".into()],
         };
+        let encoded = serde_json::to_string(&profile).unwrap();
+        assert!(encoded.contains("\"authStrategy\":\"saved\""));
+        assert!(!encoded.contains("auth.json"));
+        assert!(!encoded.contains("credential"));
         let mut progress = LiveProgress {
             telemetry: ActivityTelemetry {
                 launch_profile: Some(profile.clone()),
