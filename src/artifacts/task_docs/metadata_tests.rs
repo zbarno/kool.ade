@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "metadata_tests/task_parent_persistence.rs"]
+mod task_parent_persistence;
+
 fn init_git(root: &std::path::Path) {
     assert!(
         std::process::Command::new("git")
