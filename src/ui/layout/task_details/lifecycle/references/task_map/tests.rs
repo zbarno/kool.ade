@@ -263,6 +263,35 @@ fn clicking_a_recorded_task_node_requests_its_own_modal_path() {
 }
 
 #[test]
+fn planning_work_navigation_preserves_the_returning_task_path() {
+    let context = egui::Context::default();
+    context.data_mut(|data| {
+        data.insert_temp(
+            egui::Id::new("koolade_selected_task"),
+            "feature/task.md".to_owned(),
+        );
+    });
+
+    let mut output = context.run_ui(egui::RawInput::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            super::navigate_to_planning(ui, "question:F12".into());
+        });
+    });
+    let selected_work = context.data_mut(|data| {
+        data.get_temp::<String>(egui::Id::new(
+            "koolade_task_relationship_planning_navigation",
+        ))
+    });
+    let return_path = context.data_mut(|data| {
+        data.get_temp::<String>(egui::Id::new("koolade_task_relationship_work_return"))
+    });
+    output.textures_delta.clear();
+
+    assert_eq!(selected_work.as_deref(), Some("question:F12"));
+    assert_eq!(return_path.as_deref(), Some("feature/task.md"));
+}
+
+#[test]
 fn task_navigation_pushes_current_path_and_back_restores_previous_path() {
     let context = egui::Context::default();
     let selected = egui::Id::new("koolade_selected_task");

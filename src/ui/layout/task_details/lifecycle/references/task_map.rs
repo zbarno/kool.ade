@@ -1,5 +1,6 @@
 use crate::ui::{Surface, task_detail::LifecycleView};
 
+mod planning_work;
 #[cfg(test)]
 mod tests;
 
@@ -44,10 +45,19 @@ pub(crate) fn relationships(
         .and_then(|dependents| dependents.get(ticket).cloned())
         .unwrap_or_default()
     });
+    let planning_relations = ui.ctx().data_mut(|data| {
+        data.get_temp::<std::collections::HashMap<
+            String,
+            Vec<(String, String, String, String, Option<String>)>,
+        >>(egui::Id::new("koolade_task_planning_work_relations"))
+            .and_then(|relations| relations.get(&lifecycle.feature_uid).cloned())
+            .unwrap_or_default()
+    });
     if lifecycle.parent_task.is_none()
         && lifecycle.dependencies.is_empty()
         && lifecycle.subtasks.is_empty()
         && dependents.is_empty()
+        && planning_relations.is_empty()
     {
         ui.label(crate::ui::theme::helper_text(
             "No recorded task relationships.",
@@ -136,6 +146,9 @@ pub(crate) fn relationships(
                     });
             });
     }
+    if !planning_relations.is_empty() {
+        planning_work::paint(ui, &lifecycle.feature_uid, &planning_relations);
+    }
 }
 
 fn node_status(ui: &mut egui::Ui, status: &str) {
@@ -143,7 +156,7 @@ fn node_status(ui: &mut egui::Ui, status: &str) {
 }
 
 fn node_status_text(status: &str) -> String {
-    let normalized = status.to_ascii_lowercase();
+    let normalized = status.to_ascii_lowercase().replace('_', " ");
     if normalized.contains("pr ") {
         let marker = if normalized.contains("attention") || normalized.contains("closed") {
             "!"
@@ -156,7 +169,11 @@ fn node_status_text(status: &str) -> String {
         };
         return format!("{marker} {status}");
     }
-    let (marker, label) = if normalized.contains("running") || normalized.contains("implementing") {
+    let (marker, label) = if normalized.contains("running")
+        || normalized.contains("implementing")
+        || normalized.contains("inprogress")
+        || normalized.contains("in progress")
+    {
         ("●", "Running")
     } else if normalized.contains("awaiting review") || normalized.contains("review") {
         ("◷", "Awaiting review")
@@ -175,10 +192,12 @@ fn node_status_text(status: &str) -> String {
         ("×", "Cancelled")
     } else if normalized.contains("fail") {
         ("!", "Failed")
-    } else if normalized.contains("attention") {
+    } else if normalized.contains("attention") || normalized.contains("needsattention") {
         ("!", "Needs attention")
     } else if normalized.contains("interrupt") {
         ("↻", "Interrupted")
+    } else if normalized.contains("todo") {
+        ("○", "Not started")
     } else if normalized.contains("done")
         || normalized.contains("complete")
         || normalized.contains("merged")
@@ -247,6 +266,21 @@ fn navigate_back(ui: &egui::Ui, previous_path: String) {
         data.insert_temp(
             egui::Id::new("koolade_task_relationship_navigation"),
             previous_path,
+        );
+    });
+}
+
+fn navigate_to_planning(ui: &egui::Ui, key: String) {
+    ui.ctx().data_mut(|data| {
+        if let Some(current) = data.get_temp::<String>(egui::Id::new("koolade_selected_task")) {
+            data.insert_temp(
+                egui::Id::new("koolade_task_relationship_work_return"),
+                current,
+            );
+        }
+        data.insert_temp(
+            egui::Id::new("koolade_task_relationship_planning_navigation"),
+            key,
         );
     });
 }

@@ -245,6 +245,7 @@ pub(super) fn paint_planning_work(
     work: &crate::core::planning_work::Work,
     height: f32,
 ) {
+    planning::paint_relationship_back(ui);
     planning::paint_work(ui, surface, board, work, height);
 }
 

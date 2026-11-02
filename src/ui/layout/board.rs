@@ -43,6 +43,8 @@ pub(super) fn paint(
         .map(|doc| (doc.path.clone(), doc.title.clone()))
         .collect::<std::collections::HashMap<_, _>>();
     let dependents = relationships::task_dependents(board);
+    let planning_work_relations = relationships::planning_work_relations(&board.planning_work);
+    let planning_work_keys = relationships::unique_planning_work_keys(&board.planning_work);
     ui.ctx().data_mut(|data| {
         data.insert_temp(
             egui::Id::new("koolade_board_relationship_map"),
@@ -55,6 +57,14 @@ pub(super) fn paint(
         data.insert_temp(egui::Id::new("koolade_task_paths_by_uid"), task_paths);
         data.insert_temp(egui::Id::new("koolade_task_titles_by_path"), task_titles);
         data.insert_temp(egui::Id::new("koolade_task_dependents"), dependents);
+        data.insert_temp(
+            egui::Id::new("koolade_task_planning_work_relations"),
+            planning_work_relations,
+        );
+        data.insert_temp(
+            egui::Id::new("koolade_task_planning_work_keys"),
+            planning_work_keys,
+        );
     });
     if let Some(error) = board.lifecycle_error.as_deref() {
         ui.colored_label(
@@ -138,7 +148,27 @@ pub(super) fn paint(
         } else {
             selected_path = None;
         }
-        planning_modal::paint(ui, s, board, &mut planning_selection, panel_bounds);
+        let planning_navigation = ui.ctx().data_mut(|data| {
+            data.remove_temp::<String>(egui::Id::new(
+                "koolade_task_relationship_planning_navigation",
+            ))
+        });
+        let navigated_to_planning = planning_navigation.is_some();
+        if let Some(key) = planning_navigation {
+            selected_path = None;
+            planning_selection = Some(key);
+            ui.ctx().request_repaint();
+        }
+        if !navigated_to_planning {
+            planning_modal::paint(ui, s, board, &mut planning_selection, panel_bounds);
+        }
+        let task_navigation = ui.ctx().data_mut(|data| {
+            data.remove_temp::<String>(egui::Id::new("koolade_task_relationship_task_navigation"))
+        });
+        if let Some(path) = task_navigation {
+            planning_selection = None;
+            selected_path = Some(path);
+        }
     }
     if ui.ctx().input(|input| input.key_pressed(egui::Key::Escape)) {
         selected_path = None;

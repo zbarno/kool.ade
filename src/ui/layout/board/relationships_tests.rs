@@ -51,6 +51,56 @@ fn related_cards_follow_parent_feature_dependency_and_batch_links() {
 }
 
 #[test]
+fn task_map_planning_work_projection_follows_explicit_parent_uids() {
+    let mut parent = crate::core::planning_work::Work::new(
+        "feature:F12".into(),
+        "Feature planning".into(),
+        "Plan feature".into(),
+        String::new(),
+    );
+    parent.feature_uid = Some("feature-uid".into());
+    let mut child = crate::core::planning_work::Work::new(
+        "question:F12".into(),
+        "Release decision".into(),
+        "Resolve decision".into(),
+        String::new(),
+    );
+    child.parent_uid = Some(parent.uid.clone());
+    let unrelated = crate::core::planning_work::Work::new(
+        "feature:F13".into(),
+        "Unrelated feature".into(),
+        "Plan another feature".into(),
+        String::new(),
+    );
+
+    let relations = planning_work_relations(&[parent.clone(), child.clone(), unrelated]);
+    let related = &relations["feature-uid"];
+    assert_eq!(related.len(), 2);
+    assert!(related.iter().any(|node| node.0 == parent.uid));
+    assert!(
+        related
+            .iter()
+            .any(|node| node.0 == child.uid && node.4.as_deref() == Some(parent.uid.as_str()))
+    );
+}
+
+#[test]
+fn ambiguous_planning_work_uids_are_not_navigable() {
+    let original = crate::core::planning_work::Work::new(
+        "feature:F12".into(),
+        "Feature planning".into(),
+        "Plan feature".into(),
+        String::new(),
+    );
+    let mut duplicate = original.clone();
+    duplicate.key = "different-record".into();
+    let keys = unique_planning_work_keys(&[original.clone(), duplicate.clone()]);
+
+    assert!(!keys.contains_key(&original.uid));
+    assert!(keys.is_empty());
+}
+
+#[test]
 fn task_cards_link_through_shared_batch_and_feature_path() {
     let mut board = crate::ui::planning_board::ViewModel::default();
     let batch_uid = uuid::Uuid::new_v4().to_string();

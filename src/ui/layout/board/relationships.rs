@@ -1,6 +1,9 @@
 use crate::ui::planning_board::ViewModel;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+mod planning_work;
+pub(super) use planning_work::{planning_work_relations, unique_planning_work_keys};
+
 pub(super) type Map = HashMap<String, HashSet<String>>;
 
 pub(super) type Dependents = HashMap<String, Vec<(String, String, String)>>;
