@@ -4,21 +4,37 @@ use std::collections::BTreeMap;
 
 mod project_routes;
 use project_routes::paint_routes;
+mod agent_guidance;
 
 #[derive(Clone, Default)]
 pub struct DlgProjectSettings {
     pub repositories: Vec<RepositoryNameRow>,
     pub harness_routes: BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
     pub feedback: Option<(bool, String)>,
+    pub agent_guidance: String,
+    pub agent_guidance_enabled: bool,
+    pub(super) saved_agent_guidance:
+        Option<crate::persistence::project_guidance::ApprovedProjectGuidanceV1>,
+    pub(super) approve_agent_guidance: bool,
+    pub(super) agent_guidance_error: Option<String>,
+    pub(crate) agent_guidance_saved: bool,
 }
 
 impl DlgProjectSettings {
     pub fn from_project(project: &Project) -> Self {
-        Self {
+        let mut draft = Self {
             repositories: repository_names::rows(&project.state.repositories),
             harness_routes: project.state.harness_routes.routes.clone(),
             feedback: None,
-        }
+            agent_guidance: String::new(),
+            agent_guidance_enabled: false,
+            saved_agent_guidance: None,
+            approve_agent_guidance: false,
+            agent_guidance_error: None,
+            agent_guidance_saved: false,
+        };
+        agent_guidance::load(project, &mut draft);
+        draft
     }
 
     pub fn apply(&mut self, project: &mut Project) -> Result<Option<String>, AppError> {
@@ -26,6 +42,7 @@ impl DlgProjectSettings {
         let repositories_changed = repository_names::persist(project, &mut self.repositories)?;
         let routes_changed = self.harness_routes != project.state.harness_routes.routes;
         if !repositories_changed && !routes_changed {
+            agent_guidance::apply(project, self)?;
             return Ok(None);
         }
         let mut paths = Vec::new();
@@ -62,7 +79,14 @@ impl DlgProjectSettings {
             &paths,
         )?;
         project.refresh_git();
-        Ok(Some(sha.chars().take(7).collect()))
+        let short_sha = sha.chars().take(7).collect::<String>();
+        if let Err(error) = agent_guidance::apply(project, self) {
+            return Err(AppError::Other(format!(
+                "Shared project settings were saved at checkpoint {short_sha}, but approved guidance was not saved: {}",
+                error.detail()
+            )));
+        }
+        Ok(Some(short_sha))
     }
 }
 
@@ -74,6 +98,7 @@ pub fn paint_project_settings_card(
     ui.label("Choose shared display names for this project's registered repositories.");
     ui.add_space(8.0);
     repository_names::paint(ui, &mut dialog.repositories);
+    agent_guidance::paint(ui, dialog);
     ui.add_space(12.0);
     ui.label(crate::ui::theme::section_heading("Harness routes"));
     ui.label("Choose project-wide provider routes by role. Task overrides take precedence, followed by these project routes and then Coding tools defaults.");

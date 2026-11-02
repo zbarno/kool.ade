@@ -36,6 +36,7 @@ impl AiHarness for PiHarness {
                     "Cannot start Kool.ad/e execution session: {error:#}"
                 ))
             })?;
+        let prompt_body = boundary.prompt_body(&req.prompt_body);
         let exe = Self::locate_binary()?;
         let exe = exe
             .canonicalize()
@@ -119,7 +120,7 @@ impl AiHarness for PiHarness {
                 .as_ref()
                 .map(|manifest| manifest.role_version.as_str()),
         );
-        let task = launch.spawn_with_input(boundary.working_directory(), Some(user_input(req)))?;
+        let task = launch.spawn_with_input(boundary.working_directory(), Some(prompt_body))?;
         stream::run(
             task,
             req,
@@ -147,6 +148,7 @@ pub(in crate::harness) fn system_instructions(
     format!("{}\n\n{}", req.system_instructions, boundary_policy)
 }
 
+#[cfg(test)]
 pub(in crate::harness) fn user_input(req: &PlanningRequest) -> String {
     req.prompt_body.clone()
 }

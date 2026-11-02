@@ -13,6 +13,7 @@ fn launch_profiles_carry_the_discoverable_version_and_capability_gates() {
 
     let codex = CliProvider::Codex.profile_requirements();
     assert_eq!(codex.minimum_version, None);
+    assert!(codex.requires_environment_key("CODEX_HOME"));
     let missing = codex.missing_capabilities(&[
         "--json",
         "--cd",
@@ -55,7 +56,8 @@ fn launch_profiles_carry_the_discoverable_version_and_capability_gates() {
 fn codex_receives_only_the_private_application_mcp_server() {
     let boundary = test_boundary(ToolAccess::BoundedImplementation);
     let mut args = Vec::new();
-    configure(&boundary, CliProvider::Codex, &mut args, &mut Vec::new()).unwrap();
+    let mut env = Vec::new();
+    configure(&boundary, CliProvider::Codex, &mut args, &mut env).unwrap();
     assert!(
         args.windows(2)
             .any(|pair| pair == ["--sandbox", "read-only"])
@@ -82,6 +84,12 @@ fn codex_receives_only_the_private_application_mcp_server() {
             .any(|arg| arg.contains(boundary.server_name.as_str()))
     );
     assert!(args.iter().any(|arg| arg.contains("--internal-mcp-server")));
+    let codex_home = env
+        .iter()
+        .find_map(|(name, value)| (name == "CODEX_HOME").then_some(value))
+        .expect("Codex home is scoped to the application scratch directory");
+    assert!(codex_home.starts_with(boundary.scratch.path.to_str().unwrap()));
+    assert!(!codex_home.contains("/.codex"));
 }
 
 #[test]

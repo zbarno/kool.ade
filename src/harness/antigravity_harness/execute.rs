@@ -69,6 +69,8 @@ impl AiHarness for AntigravityHarness {
             .map_err(|error| {
                 AppError::Other(format!("Cannot start Kool.ad/e sandbox: {error:#}"))
             })?;
+        let mut prompt_request = request.clone();
+        prompt_request.prompt_body = boundary.prompt_body(&request.prompt_body);
         let binary = Self::locate_binary()?.canonicalize().map_err(|e| {
             AppError::Other(format!("Cannot resolve Antigravity CLI executable: {e}"))
         })?;
@@ -117,7 +119,10 @@ impl AiHarness for AntigravityHarness {
         );
         let task = launch.spawn_with_input(
             boundary.working_directory(),
-            Some(prompt_input_with_policy(request, boundary.system_policy())),
+            Some(prompt_input_with_policy(
+                &prompt_request,
+                boundary.system_policy(),
+            )),
         )?;
         let started_at = chrono::Utc::now();
         let started = Instant::now();

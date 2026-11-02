@@ -218,6 +218,8 @@ mod tests {
             _resource_bridge: None,
             execution_session: None,
             screenshot_review_audit: None,
+            approved_project_guidance: None,
+            codex_auth_strategy: std::sync::Mutex::new(None),
         }
     }
 }
