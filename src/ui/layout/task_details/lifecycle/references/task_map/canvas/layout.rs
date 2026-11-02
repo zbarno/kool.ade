@@ -1,14 +1,38 @@
 use crate::ui::task_detail::TaskRelationView;
 
-pub(super) fn node_position(width: f32, direction: u8, index: usize, count: usize) -> egui::Vec2 {
+pub(super) struct NarrowRows {
+    pub(super) parent: f32,
+    pub(super) dependencies: f32,
+    pub(super) selected: f32,
+    pub(super) children: f32,
+    pub(super) dependents: f32,
+}
+
+impl NarrowRows {
+    pub(super) fn new(has_parent: bool, dependencies: usize, children: usize) -> Self {
+        let parent = 24.0;
+        let dependency_start = parent + if has_parent { 74.0 } else { 0.0 } + 12.0;
+        let selected = dependency_start + dependencies as f32 * 74.0 + 16.0;
+        let child_start = selected + 82.0;
+        Self {
+            parent,
+            dependencies: dependency_start,
+            selected,
+            children: child_start,
+            dependents: child_start + children as f32 * 74.0 + 20.0,
+        }
+    }
+}
+
+pub(super) fn node_position(
+    width: f32,
+    direction: u8,
+    index: usize,
+    count: usize,
+    narrow_y: f32,
+) -> egui::Vec2 {
     if width < 560.0 {
-        let base = match direction {
-            0 => 28.0,
-            1 => 80.0,
-            2 => 230.0,
-            _ => 304.0,
-        };
-        return egui::vec2(8.0, base + index as f32 * 74.0);
+        return egui::vec2(8.0, narrow_y + index as f32 * 74.0);
     }
     let center_y = 126.0;
     let row_y = |index: usize, count: usize| {

@@ -1,49 +1,13 @@
 use crate::ui::task_detail::{LifecycleView, TaskRelationView};
 mod descendants;
 mod fit;
+mod graph;
 mod layout;
 use descendants::append_descendants;
 use fit::fit_state;
+use graph::{CanvasState, Edge, Node, Placement};
 pub(super) use layout::relation_path;
-use layout::{draw_arrow, node_position, screen_position, task_title};
-
-#[derive(Clone, Copy)]
-struct CanvasState {
-    pan: egui::Vec2,
-    zoom: f32,
-}
-
-impl Default for CanvasState {
-    fn default() -> Self {
-        Self {
-            pan: egui::Vec2::ZERO,
-            zoom: 1.0,
-        }
-    }
-}
-
-pub(super) struct Node {
-    kind: &'static str,
-    relationship_uid: Option<String>,
-    title: String,
-    status: String,
-    path: Option<String>,
-    local: egui::Vec2,
-}
-
-pub(super) struct Edge {
-    from: usize,
-    to: usize,
-    label: &'static str,
-    color: egui::Color32,
-}
-
-struct Placement {
-    direction: u8,
-    width: f32,
-    index: usize,
-    count: usize,
-}
+use layout::{NarrowRows, draw_arrow, node_position, screen_position, task_title};
 
 #[cfg(test)]
 #[path = "canvas/tests.rs"]
@@ -65,6 +29,11 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) 
         return;
     }
     let width = ui.available_width().clamp(320.0, 960.0);
+    let narrow_rows = NarrowRows::new(
+        lifecycle.parent_task.is_some(),
+        lifecycle.dependencies.len(),
+        lifecycle.subtasks.len(),
+    );
     let mut fit_graph = false;
     ui.horizontal(|ui| {
         fit_graph = ui.button("Fit graph").clicked();
@@ -103,7 +72,11 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) 
         path: Some(ticket.to_owned()),
         local: egui::vec2(
             width * 0.5 - 95.0,
-            if width < 560.0 { 150.0 } else { 126.0 },
+            if width < 560.0 {
+                narrow_rows.selected
+            } else {
+                126.0
+            },
         ),
     }];
     let mut edges = Vec::new();
@@ -119,6 +92,7 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) 
                 width,
                 index: 0,
                 count: 1,
+                narrow_y: narrow_rows.parent,
             },
         );
     }
@@ -134,6 +108,7 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) 
                 width,
                 index,
                 count: lifecycle.dependencies.len(),
+                narrow_y: narrow_rows.dependencies,
             },
         );
     }
@@ -149,6 +124,7 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) 
                 width,
                 index,
                 count: lifecycle.subtasks.len(),
+                narrow_y: narrow_rows.children,
             },
         );
     }
@@ -160,7 +136,7 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) 
             title: dependent.title.clone(),
             status: dependent.status.clone(),
             path: relation_path(ui, dependent),
-            local: node_position(width, 3, index, dependents.len()),
+            local: node_position(width, 3, index, dependents.len(), narrow_rows.dependents),
         });
         edges.push(Edge {
             from: 0,
@@ -287,6 +263,7 @@ fn add_relation(
             placement.direction,
             placement.index,
             placement.count,
+            placement.narrow_y,
         ),
     });
     let incoming = placement.direction <= 1;

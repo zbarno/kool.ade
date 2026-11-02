@@ -76,6 +76,7 @@ fn relationship_edge_labels_match_parent_dependency_and_child_direction() {
                             width: 640.0,
                             index: 0,
                             count: 1,
+                            narrow_y: 0.0,
                         },
                     );
                 }

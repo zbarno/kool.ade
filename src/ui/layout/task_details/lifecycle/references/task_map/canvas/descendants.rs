@@ -80,7 +80,11 @@ pub(super) fn append_descendants(
     }
 }
 
-fn descendant_column_x(width: f32, depth: usize) -> f32 {
-    let child_column = if width < 560.0 { 8.0 } else { width - 198.0 };
-    child_column + depth as f32 * 210.0
+pub(super) fn descendant_column_x(width: f32, depth: usize) -> f32 {
+    let descendant_column = if width < 560.0 {
+        width + 20.0
+    } else {
+        width - 198.0 + 210.0
+    };
+    descendant_column + depth.saturating_sub(1) as f32 * 210.0
 }
