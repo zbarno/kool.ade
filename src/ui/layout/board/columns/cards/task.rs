@@ -64,6 +64,18 @@ pub(in crate::ui::layout::board::columns) fn task(
     let pr_status = (lifecycle_phase != Some(crate::core::lifecycle::TaskPhase::Done))
         .then(|| board.lifecycle_pr_statuses.get(&doc.path).copied())
         .flatten();
+    let lifecycle_record = doc.identity.as_ref().and_then(|identity| {
+        let mut records = board
+            .lifecycle_feature_tasks
+            .iter()
+            .filter(|task| task.planning_item_uid.as_deref() == Some(identity.uid.as_str()));
+        let record = records.next()?;
+        records.next().is_none().then_some(record)
+    });
+    let gate_track = super::task_semantics::gate_track(
+        lifecycle_record,
+        board.lifecycle_pr_statuses.get(&doc.path).copied(),
+    );
     let needs_input = super::super::attention::linked_user_action(board, &doc.path);
     let pr_needs_user_action = matches!(
         pr_status,
@@ -152,6 +164,9 @@ pub(in crate::ui::layout::board::columns) fn task(
                 *selected_path = Some(doc.path.clone());
             }
             ui.label(theme::helper_text(status));
+            if let Some(track) = &gate_track {
+                ui.label(theme::helper_text(track));
+            }
             if let Some(summary) = &child_summary {
                 ui.label(theme::helper_text(summary));
             }

@@ -68,53 +68,72 @@ pub(crate) fn relationships(
         });
     }
     if !lifecycle.dependencies.is_empty() {
-        ui.label("Dependencies");
-        ui.label(crate::ui::theme::helper_text(
-            "Execution dependency edge · prerequisite → selected task.",
-        ));
-        egui::ScrollArea::vertical()
+        egui::CollapsingHeader::new("Dependencies")
+            .default_open(true)
             .id_salt(("task_dependencies", &lifecycle.feature_uid))
-            .max_height(180.0)
             .show(ui, |ui| {
-                for dependency in &lifecycle.dependencies {
-                    ui.group(|ui| {
-                        relation_link(ui, "Dependency", dependency);
-                        node_status(ui, &dependency.status);
+                ui.small(format!("{} prerequisites", lifecycle.dependencies.len()));
+                ui.label(crate::ui::theme::helper_text(
+                    "Execution dependency edge · prerequisite → selected task.",
+                ));
+                egui::ScrollArea::vertical()
+                    .id_salt(("task_dependencies_scroll", &lifecycle.feature_uid))
+                    .max_height(180.0)
+                    .show(ui, |ui| {
+                        for dependency in &lifecycle.dependencies {
+                            ui.group(|ui| {
+                                relation_link(ui, "← Dependency", dependency);
+                                node_status(ui, &dependency.status);
+                            });
+                        }
                     });
-                }
             });
     }
     if !lifecycle.subtasks.is_empty() {
-        ui.label("Children → owned subtasks; changes join this parent's single pull request");
-        egui::ScrollArea::vertical()
+        egui::CollapsingHeader::new(format!("Children · {} subtasks", lifecycle.subtasks.len()))
+            .default_open(true)
             .id_salt(("task_subtasks", &lifecycle.feature_uid))
-            .max_height(220.0)
             .show(ui, |ui| {
-                for subtask in &lifecycle.subtasks {
-                    ui.group(|ui| {
-                        relation_link(ui, "Subtask", subtask);
-                        node_status(ui, &subtask.status);
-                        for criterion in &subtask.acceptance_criteria {
-                            ui.label(format!("  • {criterion}"));
+                ui.label(crate::ui::theme::helper_text(
+                    "Parent-child edge · children join this parent's single pull request.",
+                ));
+                egui::ScrollArea::vertical()
+                    .id_salt(("task_subtasks_scroll", &lifecycle.feature_uid))
+                    .max_height(220.0)
+                    .show(ui, |ui| {
+                        for subtask in &lifecycle.subtasks {
+                            ui.group(|ui| {
+                                relation_link(ui, "↓ Subtask", subtask);
+                                node_status(ui, &subtask.status);
+                                for criterion in &subtask.acceptance_criteria {
+                                    ui.label(format!("  • {criterion}"));
+                                }
+                            });
                         }
                     });
-                }
             });
     }
     if !dependents.is_empty() {
-        ui.label("Downstream · tasks that require this task");
-        egui::ScrollArea::vertical()
+        egui::CollapsingHeader::new(format!("Downstream · {} tasks", dependents.len()))
+            .default_open(true)
             .id_salt(("task_dependents", ticket))
-            .max_height(180.0)
             .show(ui, |ui| {
-                for (path, title, status) in dependents {
-                    ui.group(|ui| {
-                        if ui.link(format!("→ {title}")).clicked() {
-                            navigate_to(ui, path);
+                ui.label(crate::ui::theme::helper_text(
+                    "Execution dependency edge · selected task → dependent task.",
+                ));
+                egui::ScrollArea::vertical()
+                    .id_salt(("task_dependents_scroll", ticket))
+                    .max_height(180.0)
+                    .show(ui, |ui| {
+                        for (path, title, status) in dependents {
+                            ui.group(|ui| {
+                                if ui.link(format!("→ Dependent task · {title}")).clicked() {
+                                    navigate_to(ui, path);
+                                }
+                                node_status(ui, &status);
+                            });
                         }
-                        node_status(ui, &status);
                     });
-                }
             });
     }
 }

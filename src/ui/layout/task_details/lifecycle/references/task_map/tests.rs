@@ -1,5 +1,48 @@
 use super::{navigate_back, navigate_to, node_status_text, relation_link};
 
+fn lifecycle_view() -> crate::ui::task_detail::LifecycleView {
+    use crate::core::lifecycle::{FeaturePhase, SpecReconciliationStatusV1, TaskPhase};
+    crate::ui::task_detail::LifecycleView {
+        feature_uid: "feature-uid".into(),
+        feature_phase: FeaturePhase::Executing,
+        task_phase: TaskPhase::Running,
+        parent_task_uid: None,
+        parent_task: None,
+        dependencies: Vec::new(),
+        subtasks: vec![crate::ui::task_detail::TaskRelationView {
+            planning_item_uid: "child-uid".into(),
+            lifecycle_task_uid: Some("child-task-uid".into()),
+            title: "Child relationship node".into(),
+            status: "Running".into(),
+            acceptance_criteria: Vec::new(),
+        }],
+        task_revision: 1,
+        code_review: None,
+        code_review_attempts: Vec::new(),
+        current_code_review: None,
+        code_review_dispositions: Vec::new(),
+        code_review_load_error: None,
+        runtime_qa: None,
+        runtime_qa_run_id: None,
+        spec_reconciliation: None,
+        current_spec_hash: None,
+        implementation_head_sha: None,
+        approved_target_hash: None,
+        deployed_spec_hash: None,
+        deployment_status: None,
+        deployment_observed_at_ms: None,
+        spec_revision: None,
+        spec_status: Some(SpecReconciliationStatusV1::Synchronized),
+        pending_spec_triggers: 0,
+        specification_deltas: Vec::new(),
+        pull_request_status: None,
+        merged_commit_sha: None,
+        runtime_qa_evidence: None,
+        runtime_qa_evidence_error: None,
+        runtime_qa_applicability: None,
+    }
+}
+
 fn pointer_input(position: egui::Pos2, pressed: bool) -> egui::RawInput {
     egui::RawInput {
         screen_rect: Some(egui::Rect::from_min_size(
@@ -46,6 +89,116 @@ fn related_node_statuses_keep_exceptions_visible_without_color() {
         node_status_text("Status not recorded"),
         "? Status not recorded"
     );
+}
+
+#[test]
+fn task_map_relationships_fit_narrow_and_wide_viewports() {
+    let lifecycle = lifecycle_view();
+    for width in [360.0, 1280.0] {
+        let context = egui::Context::default();
+        context.data_mut(|data| {
+            data.insert_temp(
+                egui::Id::new("koolade_task_titles_by_path"),
+                std::collections::HashMap::from([(
+                    "task.md".to_owned(),
+                    "Selected task".to_owned(),
+                )]),
+            );
+            data.insert_temp(
+                egui::Id::new("koolade_task_paths_by_uid"),
+                std::collections::HashMap::from([("child-uid".to_owned(), "child.md".to_owned())]),
+            );
+        });
+        let mut surface = None;
+        let mut output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(width, 720.0),
+                )),
+                ..Default::default()
+            },
+            |context| {
+                egui::CentralPanel::default().show(context, |ui| {
+                    super::relationships(ui, &mut surface, &lifecycle, "task.md");
+                });
+            },
+        );
+        let texts = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => {
+                    Some((text.galley.text().to_owned(), text.pos, text.galley.size()))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(texts.iter().any(|(text, _, _)| text == "Selected task"));
+        assert!(
+            texts
+                .iter()
+                .any(|(text, _, _)| text.contains("Child relationship node"))
+        );
+        assert!(
+            texts
+                .iter()
+                .all(|(_, pos, size)| pos.x >= 0.0 && pos.x + size.x <= width)
+        );
+        output.textures_delta.clear();
+    }
+}
+
+#[test]
+fn large_sibling_map_reports_all_direct_nodes_in_a_bounded_section() {
+    let mut lifecycle = lifecycle_view();
+    lifecycle.subtasks = (0..100)
+        .map(|index| crate::ui::task_detail::TaskRelationView {
+            planning_item_uid: format!("child-{index}"),
+            lifecycle_task_uid: Some(format!("child-task-{index}")),
+            title: format!("Child {index}"),
+            status: "Running".into(),
+            acceptance_criteria: Vec::new(),
+        })
+        .collect();
+    let context = egui::Context::default();
+    let mut surface = None;
+    let mut output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(640.0, 720.0),
+            )),
+            ..Default::default()
+        },
+        |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                super::relationships(ui, &mut surface, &lifecycle, "task.md");
+            });
+        },
+    );
+    let rendered = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) => Some(text.galley.text().to_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let has_full_child_count = rendered
+        .iter()
+        .any(|text| text.contains("Children · 100 subtasks"));
+    let first_child_is_visible = rendered.iter().any(|text| text.contains("Child 0"));
+    output.textures_delta.clear();
+    assert!(
+        has_full_child_count,
+        "the section reports all 100 direct children"
+    );
+    assert!(
+        first_child_is_visible,
+        "the bounded viewport shows its first child"
+    );
+    assert_eq!(lifecycle.subtasks.len(), 100);
 }
 
 #[test]

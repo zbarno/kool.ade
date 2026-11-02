@@ -94,6 +94,46 @@ pub(super) fn pr_action_label(
     }
 }
 
+pub(super) fn gate_track(
+    task: Option<&crate::core::lifecycle::TaskRecord>,
+    pr_status: Option<crate::core::lifecycle::PullRequestPreparationStatus>,
+) -> Option<String> {
+    let task = task?;
+    let pr = pr_status.map_or_else(
+        || "not recorded".to_owned(),
+        |status| {
+            pr_status_label(status)
+                .strip_prefix("PR ")
+                .unwrap_or(pr_status_label(status))
+                .to_owned()
+        },
+    );
+    let merged = if pr_status == Some(crate::core::lifecycle::PullRequestPreparationStatus::Merged)
+        || task.phase == TaskPhase::PrMerged
+    {
+        "recorded"
+    } else {
+        "not recorded"
+    };
+    Some(format!(
+        "Review {} · Runtime QA {} · Spec sync {} · PR {pr} · Merge {merged}",
+        evidence_label(task.code_review.as_ref()),
+        evidence_label(task.runtime_qa.as_ref()),
+        evidence_label(task.spec_reconciliation.as_ref()),
+    ))
+}
+
+fn evidence_label(receipt: Option<&crate::core::lifecycle::GateReceipt>) -> &'static str {
+    use crate::core::lifecycle::GateDecision;
+    match receipt.map(|receipt| receipt.decision) {
+        Some(GateDecision::Approved) => "approved",
+        Some(GateDecision::ChangesRequested) => "changes requested",
+        Some(GateDecision::Rejected) => "rejected",
+        Some(GateDecision::NotApplicable) => "not applicable",
+        None => "not recorded",
+    }
+}
+
 pub(super) fn board_column(
     status: Option<crate::core::lifecycle::PullRequestPreparationStatus>,
     fallback: usize,
@@ -120,8 +160,41 @@ pub(super) fn task_board_column(
 
 #[cfg(test)]
 mod tests {
-    use super::{board_column, kind_label, next_step, pr_action_label, task_board_column};
+    use super::{
+        board_column, gate_track, kind_label, next_step, pr_action_label, task_board_column,
+    };
     use crate::core::lifecycle::TaskPhase;
+
+    fn lifecycle_task(phase: TaskPhase) -> crate::core::lifecycle::TaskRecord {
+        crate::core::lifecycle::TaskRecord {
+            schema_version: 1,
+            task_uid: "task-uid".into(),
+            feature_uid: "feature-uid".into(),
+            planning_item_uid: Some("planning-uid".into()),
+            task_spec_sha256: None,
+            parent_task_uid: None,
+            subtask_uids: Vec::new(),
+            dependency_task_uids: Vec::new(),
+            approved_requirement_ids: Vec::new(),
+            phase,
+            revision: 1,
+            approved_plan_sha256: "a".repeat(64),
+            implementation_sha256: None,
+            reviewed_code_head_sha: None,
+            reviewed_code_subject_sha256: None,
+            code_review: None,
+            review_history: Vec::new(),
+            repair_attempts: 0,
+            runtime_qa: None,
+            qa_execution: None,
+            spec_reconciliation: None,
+            spec_reconciliation_blocker: None,
+            spec_reconciliation_proposal_sha256: None,
+            spec_reconciliation_spec_sha256: None,
+            spec_reconciliation_proposal_json: None,
+            pr_work_item_uid: None,
+        }
+    }
 
     #[test]
     fn lifecycle_cards_name_the_current_review_qa_spec_and_pr_work() {
@@ -200,6 +273,26 @@ mod tests {
                 2,
             ),
             3
+        );
+    }
+
+    #[test]
+    fn card_gate_track_keeps_missing_receipts_and_merge_state_unknown() {
+        let task = lifecycle_task(TaskPhase::Done);
+        assert_eq!(
+            gate_track(Some(&task), None).as_deref(),
+            Some(
+                "Review not recorded · Runtime QA not recorded · Spec sync not recorded · PR not recorded · Merge not recorded"
+            )
+        );
+        assert!(gate_track(None, None).is_none());
+        assert!(
+            gate_track(
+                Some(&task),
+                Some(crate::core::lifecycle::PullRequestPreparationStatus::Merged)
+            )
+            .unwrap()
+            .contains("PR merged · Merge recorded")
         );
     }
 }
