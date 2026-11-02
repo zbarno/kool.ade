@@ -90,8 +90,7 @@ pub(super) fn run(
     let pipe_id = uuid::Uuid::new_v4();
     let pipe = pipe::create(pipe_id)
         .map_err(|_| ProcessRunError::not_started(ProcessRunFailure::FailedBeforeLaunch))?;
-    let process =
-        launch_helper(pipe_id).map_err(|failure| ProcessRunError::not_started(failure))?;
+    let process = launch_helper(pipe_id).map_err(ProcessRunError::not_started)?;
 
     let run = communicate(pipe, process, request, cancellation);
     run.map_err(ProcessRunError::after_launch)
@@ -104,8 +103,10 @@ fn launch_helper(pipe_id: uuid::Uuid) -> Result<Handle, ProcessRunFailure> {
         "--windows-setup-helper enable-wsl-features --handoff-pipe {pipe_id}"
     ));
     let verb = wide("runas");
-    let mut info = SHELLEXECUTEINFOW::default();
-    info.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+    let mut info = SHELLEXECUTEINFOW {
+        cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+        ..Default::default()
+    };
     info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
     info.lpVerb = verb.as_ptr();
     info.lpFile = executable.as_ptr();

@@ -120,10 +120,9 @@ pub(super) fn connect(
         std::thread::sleep(Duration::from_millis(50));
     };
     let channel = HandoffChannel(handle);
-    let mut mode = PIPE_READMODE_MESSAGE;
+    let mode = PIPE_READMODE_MESSAGE;
     anyhow::ensure!(
-        unsafe { SetNamedPipeHandleState(handle, &mut mode, std::ptr::null(), std::ptr::null(),) }
-            != 0,
+        unsafe { SetNamedPipeHandleState(handle, &mode, std::ptr::null(), std::ptr::null(),) } != 0,
         "Windows setup handoff pipe mode is invalid"
     );
     verify_server_publisher(handle, expected_publisher)?;
