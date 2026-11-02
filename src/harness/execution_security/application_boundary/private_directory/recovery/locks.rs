@@ -99,7 +99,7 @@ pub(super) fn process_is_alive(pid: u32) -> bool {
         let mut exit_code = 0_u32;
         let queried = unsafe { GetExitCodeProcess(process, &mut exit_code) } != 0;
         unsafe { CloseHandle(process) };
-        !queried || exit_code == STILL_ACTIVE
+        !queried || exit_code == STILL_ACTIVE as u32
     }
     #[cfg(not(any(unix, windows)))]
     {
