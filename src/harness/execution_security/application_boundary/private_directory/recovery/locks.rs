@@ -96,7 +96,7 @@ pub(super) fn process_is_alive(pid: u32) -> bool {
         if process.is_null() {
             return unsafe { GetLastError() } != 87;
         }
-        let mut exit_code = 0;
+        let mut exit_code = 0_u32;
         let queried = unsafe { GetExitCodeProcess(process, &mut exit_code) } != 0;
         unsafe { CloseHandle(process) };
         !queried || exit_code == STILL_ACTIVE
