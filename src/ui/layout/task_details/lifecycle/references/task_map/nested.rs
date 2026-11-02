@@ -1,5 +1,9 @@
 use crate::ui::task_detail::TaskRelationView;
 
+#[cfg(test)]
+#[path = "nested/tests.rs"]
+mod tests;
+
 pub(super) fn paint(ui: &mut egui::Ui, relation: &TaskRelationView) {
     let uid = relation
         .lifecycle_task_uid
