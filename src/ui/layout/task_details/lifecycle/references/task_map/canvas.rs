@@ -1,6 +1,9 @@
 use crate::ui::task_detail::{LifecycleView, TaskRelationView};
+mod fit;
 mod layout;
-use layout::{draw_arrow, node_position, relation_path, screen_position, task_title};
+use fit::fit_state;
+pub(super) use layout::relation_path;
+use layout::{draw_arrow, node_position, screen_position, task_title};
 
 #[derive(Clone, Copy)]
 struct CanvasState {
@@ -46,9 +49,9 @@ mod tests;
 
 pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) {
     let dependents = ui.ctx().data_mut(|data| {
-        data.get_temp::<std::collections::HashMap<String, Vec<(String, String, String)>>>(
-            egui::Id::new("koolade_task_dependents"),
-        )
+        data.get_temp::<std::collections::HashMap<String, Vec<TaskRelationView>>>(egui::Id::new(
+            "koolade_task_dependents",
+        ))
         .and_then(|rows| rows.get(ticket).cloned())
         .unwrap_or_default()
     });
@@ -60,6 +63,11 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) 
         return;
     }
     let width = ui.available_width().clamp(320.0, 960.0);
+    let mut fit_graph = false;
+    ui.horizontal(|ui| {
+        fit_graph = ui.button("Fit graph").clicked();
+        ui.small("Scroll to zoom · right-drag to pan · double-click to reset");
+    });
     let (canvas_rect, response) =
         ui.allocate_exact_size(egui::vec2(width, 320.0), egui::Sense::click_and_drag());
     let id = egui::Id::new(("task_map_canvas_state", ticket));
@@ -73,14 +81,12 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) 
     if response.hovered() {
         let scroll = ui.input(|input| input.smooth_scroll_delta.y);
         if scroll != 0.0 {
-            state.zoom = (state.zoom * (1.0 + scroll * 0.001)).clamp(0.35, 2.5);
+            state.zoom = (state.zoom * (1.0 + scroll * 0.001)).clamp(0.02, 2.5);
         }
     }
     if response.double_clicked() {
         state = CanvasState::default();
     }
-    ui.ctx().data_mut(|data| data.insert_temp(id, state));
-
     let painter = ui.painter_at(canvas_rect);
     painter.rect_filled(canvas_rect, 6.0, ui.visuals().extreme_bg_color);
     painter.rect_stroke(
@@ -146,14 +152,14 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) 
             },
         );
     }
-    for (index, (path, title, status)) in dependents.iter().enumerate() {
+    for (index, dependent) in dependents.iter().enumerate() {
         let node_index = nodes.len();
         nodes.push(Node {
             kind: "Dependent",
-            relationship_uid: Some(path.clone()),
-            title: title.clone(),
-            status: status.clone(),
-            path: Some(path.clone()),
+            relationship_uid: Some(dependent.planning_item_uid.clone()),
+            title: dependent.title.clone(),
+            status: dependent.status.clone(),
+            path: relation_path(ui, dependent),
             local: node_position(width, 3, index, dependents.len()),
         });
         edges.push(Edge {
@@ -221,9 +227,11 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) 
             }
         }
     }
-    ui.small(
-        "Scroll to zoom · right-drag to pan · double-click to reset · click a task node to open it",
-    );
+    if fit_graph {
+        state = fit_state(&nodes, canvas_rect);
+    }
+    ui.ctx().data_mut(|data| data.insert_temp(id, state));
+    ui.small("Click a task node to open its Task Details.");
 }
 
 fn add_relation(

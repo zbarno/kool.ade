@@ -105,7 +105,40 @@ fn acceptance_criteria(markdown: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{acceptance_criteria, unavailable_relation};
+    use super::{acceptance_criteria, relation_for_planning_uid, unavailable_relation};
+
+    #[test]
+    fn duplicate_task_uids_project_as_unavailable_instead_of_navigating_to_first_match() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut project = crate::app::session::test_support::project_from(temp.path());
+        let mut identity = crate::domain::ArtifactIdentity::new("TASK-DUP", "First duplicate");
+        identity.parent_uid = Some(uuid::Uuid::new_v4().to_string());
+        let metadata =
+            crate::artifacts::task_docs::TaskMetadata::new(&identity, "root", Vec::new()).unwrap();
+        for (path, title) in [
+            ("planning/tasks/first.md", "First duplicate"),
+            ("planning/tasks/second.md", "Second duplicate"),
+        ] {
+            project
+                .task_documents
+                .push(crate::artifacts::task_docs::TaskDocument {
+                    path: path.into(),
+                    title: title.into(),
+                    text: String::new(),
+                    identity: Some(identity.clone()),
+                    metadata: Some(metadata.clone()),
+                    task_state: None,
+                    metadata_error: None,
+                });
+        }
+
+        let relation = relation_for_planning_uid(&project, Some(&identity.uid)).unwrap();
+
+        assert_eq!(relation.planning_item_uid, identity.uid);
+        assert_eq!(relation.title, "Related task unavailable");
+        assert_eq!(relation.status, "Relationship data incomplete");
+        assert_eq!(relation.lifecycle_task_uid, None);
+    }
 
     #[test]
     fn acceptance_criteria_are_read_only_and_bounded_to_their_markdown_section() {

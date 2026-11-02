@@ -42,16 +42,12 @@ pub(super) fn task_title(ui: &egui::Ui, ticket: &str) -> String {
         .unwrap_or_else(|| ticket.to_owned())
 }
 
-pub(super) fn relation_path(ui: &egui::Ui, relation: &TaskRelationView) -> Option<String> {
-    let uid = relation
-        .lifecycle_task_uid
-        .as_deref()
-        .unwrap_or(&relation.planning_item_uid);
+pub fn relation_path(ui: &egui::Ui, relation: &TaskRelationView) -> Option<String> {
     ui.ctx().data_mut(|data| {
         data.get_temp::<std::collections::HashMap<String, String>>(egui::Id::new(
             "koolade_task_paths_by_uid",
         ))
-        .and_then(|paths| paths.get(uid).cloned())
+        .and_then(|paths| paths.get(&relation.planning_item_uid).cloned())
     })
 }
 

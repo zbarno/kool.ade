@@ -144,59 +144,66 @@ fn downstream_task_projection_uses_only_recorded_dependency_uids() {
     let projection = task_dependents(&board);
     let dependents = &projection[&board.task_documents[0].path];
     assert_eq!(dependents.len(), 1);
-    assert_eq!(dependents[0].0, board.task_documents[1].path);
-    assert_eq!(dependents[0].1, "TASK-2");
-    assert_eq!(dependents[0].2, "Status not recorded");
+    assert_eq!(
+        dependents[0].planning_item_uid,
+        board.task_documents[1].identity.as_ref().unwrap().uid
+    );
+    assert_eq!(dependents[0].title, "TASK-2");
+    assert_eq!(dependents[0].status, "Status not recorded");
     board.lifecycle_tasks.insert(
         board.task_documents[1].path.clone(),
         crate::core::lifecycle::TaskPhase::Blocked,
     );
     let refreshed = task_dependents(&board);
-    assert_eq!(refreshed[&board.task_documents[0].path][0].2, "Blocked");
+    assert_eq!(
+        refreshed[&board.task_documents[0].path][0].status,
+        "Blocked"
+    );
 }
 
 #[test]
 fn task_path_projection_rejects_ambiguous_duplicate_uids() {
     let mut board = crate::ui::planning_board::ViewModel::default();
     let batch = uuid::Uuid::new_v4().to_string();
-    let duplicate = task_identity("TASK-DUP", &batch);
-    for path in ["first.md", "second.md"] {
-        board.task_documents.push(task_doc(
-            path,
-            duplicate.clone(),
-            crate::artifacts::task_docs::TaskMetadata::new(&duplicate, "root", Vec::new()).unwrap(),
-        ));
-    }
     let unique = task_identity("TASK-UNIQUE", &batch);
     board.task_documents.push(task_doc(
         "unique.md",
         unique.clone(),
         crate::artifacts::task_docs::TaskMetadata::new(&unique, "root", Vec::new()).unwrap(),
     ));
-    let dependent = task_identity("TASK-DEP", &batch);
-    board.task_documents.push(task_doc(
-        "dependent.md",
-        dependent.clone(),
-        crate::artifacts::task_docs::TaskMetadata::new(
-            &dependent,
-            "root",
-            vec![duplicate.uid.clone()],
-        )
-        .unwrap(),
-    ));
+    let duplicate = task_identity("TASK-DUP", &batch);
+    for path in ["first.md", "second.md"] {
+        board.task_documents.push(task_doc(
+            path,
+            duplicate.clone(),
+            crate::artifacts::task_docs::TaskMetadata::new(
+                &duplicate,
+                "root",
+                vec![unique.uid.clone()],
+            )
+            .unwrap(),
+        ));
+    }
     let paths = unique_task_paths(&board);
-    assert_eq!(paths.len(), 2);
+    assert_eq!(paths.len(), 1);
     assert_eq!(paths[&unique.uid], "planning/tasks/unique.md");
-    assert_eq!(paths[&dependent.uid], "planning/tasks/dependent.md");
     assert!(!paths.contains_key(&duplicate.uid));
     let dependents = task_dependents(&board);
     assert!(!dependents.contains_key("planning/tasks/first.md"));
     assert!(!dependents.contains_key("planning/tasks/second.md"));
-    assert!(dependents.values().all(|items| {
-        items
-            .iter()
-            .all(|(path, _, _)| path != "planning/tasks/dependent.md")
-    }));
+    assert_eq!(dependents["planning/tasks/unique.md"].len(), 1);
+    assert_eq!(
+        dependents["planning/tasks/unique.md"][0].title,
+        "Related task unavailable"
+    );
+    assert_eq!(
+        dependents["planning/tasks/unique.md"][0].status,
+        "Relationship data incomplete"
+    );
+    assert_eq!(
+        dependents["planning/tasks/unique.md"][0].planning_item_uid,
+        duplicate.uid
+    );
 }
 
 #[test]
@@ -220,16 +227,53 @@ fn task_child_projection_follows_explicit_parent_uids_through_nested_levels() {
             .task_documents
             .push(task_doc(path, identity, metadata));
     }
+    let ambiguous_child = task_identity("TASK-DUP-CHILD", &batch);
+    for path in ["ambiguous-one.md", "ambiguous-two.md"] {
+        let metadata =
+            crate::artifacts::task_docs::TaskMetadata::new(&ambiguous_child, "root", Vec::new())
+                .unwrap()
+                .with_parent_task_uid(Some(root.uid.as_str()))
+                .unwrap();
+        board
+            .task_documents
+            .push(task_doc(path, ambiguous_child.clone(), metadata));
+    }
+    let missing_identity = task_identity("TASK-MISSING-IDENTITY", &batch);
+    let missing_metadata =
+        crate::artifacts::task_docs::TaskMetadata::new(&missing_identity, "root", Vec::new())
+            .unwrap()
+            .with_parent_task_uid(Some(root.uid.as_str()))
+            .unwrap();
+    let mut missing_doc = task_doc(
+        "missing-identity.md",
+        missing_identity.clone(),
+        missing_metadata,
+    );
+    missing_doc.identity = None;
+    board.task_documents.push(missing_doc);
 
     let children = task_children(&board);
-    assert_eq!(
-        children["planning/tasks/root.md"][0].0,
-        "planning/tasks/child.md"
+    assert!(
+        children["planning/tasks/root.md"]
+            .iter()
+            .any(|relation| relation.planning_item_uid == child.uid)
     );
     assert_eq!(
-        children["planning/tasks/child.md"][0].0,
-        "planning/tasks/leaf.md"
+        children["planning/tasks/child.md"][0].planning_item_uid,
+        grandchild.uid
     );
+    let unavailable = children["planning/tasks/root.md"]
+        .iter()
+        .find(|child| child.planning_item_uid == ambiguous_child.uid)
+        .unwrap();
+    assert_eq!(unavailable.title, "Related task unavailable");
+    assert_eq!(unavailable.status, "Relationship data incomplete");
+    let missing_identity = children["planning/tasks/root.md"]
+        .iter()
+        .find(|child| child.planning_item_uid == missing_identity.uid)
+        .unwrap();
+    assert_eq!(missing_identity.title, "Related task unavailable");
+    assert_eq!(missing_identity.status, "Relationship data incomplete");
     assert!(!children.contains_key("planning/tasks/leaf.md"));
 }
 

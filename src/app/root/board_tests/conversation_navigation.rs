@@ -246,3 +246,49 @@ fn document_switcher_displays_product_and_multiple_features_without_task_story_t
     assert!(text_position(&second, "Second proposal marker").is_some());
     assert!(text_position(&second, "First proposal marker").is_none());
 }
+
+#[test]
+fn selected_task_follows_its_uid_across_path_rename() {
+    let mut app = fixture();
+    let ctx = egui::Context::default();
+    let old_path = "planning/tasks/fixture/001-task.md";
+    let renamed_path = "planning/tasks/renamed/001-task.md";
+    if let Screen::Connected(project) = &mut app.screen {
+        let mut identity = crate::domain::ArtifactIdentity::new("TASK-RENAME", "First task");
+        identity.parent_uid = Some(uuid::Uuid::new_v4().to_string());
+        let metadata =
+            crate::artifacts::task_docs::TaskMetadata::new(&identity, "root", Vec::new()).unwrap();
+        let document = project
+            .task_documents
+            .iter_mut()
+            .find(|document| document.path == old_path)
+            .unwrap();
+        document.identity = Some(identity);
+        document.metadata = Some(metadata);
+        project.bind_task_conversation_identities();
+    }
+    frame(&mut app, &ctx, vec![]);
+    click_text(&mut app, &ctx, "First task");
+    frame(&mut app, &ctx, vec![]);
+    assert!(
+        ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_task_uid")))
+            .is_some()
+    );
+
+    if let Screen::Connected(project) = &mut app.screen {
+        let document = project
+            .task_documents
+            .iter_mut()
+            .find(|document| document.path == old_path)
+            .unwrap();
+        document.path = renamed_path.into();
+        project.bind_task_conversation_identities();
+    }
+    frame(&mut app, &ctx, vec![]);
+
+    assert_eq!(
+        ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_task")))
+            .as_deref(),
+        Some(renamed_path)
+    );
+}

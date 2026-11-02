@@ -12,7 +12,7 @@ pub(super) use planning_work::{
 
 pub(super) type Map = HashMap<String, HashSet<String>>;
 
-pub(super) type Dependents = HashMap<String, Vec<(String, String, String)>>;
+pub(super) type RelatedTasks = HashMap<String, Vec<crate::ui::task_detail::TaskRelationView>>;
 
 pub(super) fn unique_task_paths(board: &ViewModel) -> HashMap<String, String> {
     let mut paths = HashMap::new();
@@ -38,69 +38,95 @@ pub(super) fn unique_task_uids_by_path(board: &ViewModel) -> HashMap<String, Str
         .collect()
 }
 
-pub(super) fn task_dependents(board: &ViewModel) -> Dependents {
+pub(super) fn task_dependents(board: &ViewModel) -> RelatedTasks {
     let unique_paths = unique_task_paths(board);
-    board
-        .task_documents
+    unique_paths
         .iter()
-        .filter_map(|doc| {
-            let uid = doc.identity.as_ref()?.uid.clone();
-            if unique_paths.get(&uid) != Some(&doc.path) {
-                return None;
-            }
-            Some((
-                doc.path.clone(),
-                board
-                    .task_documents
-                    .iter()
-                    .filter_map(|candidate| {
-                        let metadata = candidate.metadata.as_ref()?;
-                        let identity = candidate.identity.as_ref()?;
-                        if unique_paths.get(&identity.uid) != Some(&candidate.path) {
-                            return None;
-                        }
-                        metadata.dependency_uids.contains(&uid).then(|| {
-                            (
-                                candidate.path.clone(),
-                                candidate.title.clone(),
-                                task_status(board, &candidate.path),
-                            )
-                        })
-                    })
-                    .collect(),
-            ))
+        .map(|(uid, path)| {
+            let mut seen = HashSet::new();
+            let dependents = board
+                .task_documents
+                .iter()
+                .filter_map(|candidate| {
+                    let metadata = candidate.metadata.as_ref()?;
+                    seen.insert(metadata.uid.clone())
+                        .then_some((candidate, metadata))
+                })
+                .filter(|(_, metadata)| metadata.dependency_uids.contains(uid))
+                .map(
+                    |(candidate, metadata)| crate::ui::task_detail::TaskRelationView {
+                        planning_item_uid: metadata.uid.clone(),
+                        lifecycle_task_uid: None,
+                        title: if unique_paths.get(&metadata.uid) == Some(&candidate.path) {
+                            candidate.title.clone()
+                        } else {
+                            "Related task unavailable".to_owned()
+                        },
+                        status: if unique_paths.get(&metadata.uid) == Some(&candidate.path) {
+                            task_status(board, &candidate.path)
+                        } else {
+                            "Relationship data incomplete".to_owned()
+                        },
+                        acceptance_criteria: Vec::new(),
+                    },
+                )
+                .collect();
+            (path.clone(), dependents)
         })
         .collect()
 }
 
-pub(super) fn task_children(board: &ViewModel) -> Dependents {
+pub(super) fn task_children(board: &ViewModel) -> RelatedTasks {
     let unique_paths = unique_task_paths(board);
-    let mut children = HashMap::<String, Vec<(String, String, String)>>::new();
+    let mut children = HashMap::<String, Vec<crate::ui::task_detail::TaskRelationView>>::new();
+    let mut seen_children = HashMap::<String, HashSet<String>>::new();
     for doc in &board.task_documents {
-        let Some(identity) = &doc.identity else {
+        let Some(metadata) = &doc.metadata else {
             continue;
         };
-        if unique_paths.get(&identity.uid) != Some(&doc.path) {
-            continue;
-        }
-        let Some(parent_uid) = doc
-            .metadata
+        let uid = doc
+            .identity
             .as_ref()
-            .and_then(|metadata| metadata.parent_task_uid.as_ref())
-        else {
+            .map(|identity| identity.uid.as_str())
+            .unwrap_or(&metadata.uid);
+        let navigable = unique_paths.get(uid) == Some(&doc.path);
+        let Some(parent_uid) = metadata.parent_task_uid.as_ref() else {
             continue;
         };
         let Some(parent_path) = unique_paths.get(parent_uid) else {
             continue;
         };
-        children.entry(parent_path.clone()).or_default().push((
-            doc.path.clone(),
-            doc.title.clone(),
-            task_status(board, &doc.path),
-        ));
+        if !seen_children
+            .entry(parent_path.clone())
+            .or_default()
+            .insert(uid.to_owned())
+        {
+            continue;
+        }
+        children.entry(parent_path.clone()).or_default().push(
+            crate::ui::task_detail::TaskRelationView {
+                planning_item_uid: uid.to_owned(),
+                lifecycle_task_uid: None,
+                title: if navigable {
+                    doc.title.clone()
+                } else {
+                    "Related task unavailable".to_owned()
+                },
+                status: if navigable {
+                    task_status(board, &doc.path)
+                } else {
+                    "Relationship data incomplete".to_owned()
+                },
+                acceptance_criteria: Vec::new(),
+            },
+        );
     }
     for rows in children.values_mut() {
-        rows.sort_by(|left, right| left.1.cmp(&right.1).then(left.0.cmp(&right.0)));
+        rows.sort_by(|left, right| {
+            left.title
+                .cmp(&right.title)
+                .then(left.planning_item_uid.cmp(&right.planning_item_uid))
+        });
     }
     children
 }

@@ -234,6 +234,63 @@ fn clicking_a_recorded_task_node_requests_its_own_modal_path() {
 }
 
 #[test]
+fn task_back_navigation_resolves_a_renamed_path_from_its_uid() {
+    let context = egui::Context::default();
+    context.data_mut(|data| {
+        data.insert_temp(
+            egui::Id::new("koolade_selected_task"),
+            "planning/tasks/old.md".to_owned(),
+        );
+        data.insert_temp(
+            egui::Id::new("koolade_task_uids_by_path"),
+            std::collections::HashMap::from([(
+                "planning/tasks/old.md".to_owned(),
+                "stable-task-uid".to_owned(),
+            )]),
+        );
+        data.insert_temp(
+            egui::Id::new("koolade_task_paths_by_uid"),
+            std::collections::HashMap::from([(
+                "stable-task-uid".to_owned(),
+                "planning/tasks/old.md".to_owned(),
+            )]),
+        );
+    });
+    let mut output = context.run_ui(egui::RawInput::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            super::navigate_to(ui, "planning/tasks/other.md".to_owned());
+        });
+    });
+    output.textures_delta.clear();
+    context.data_mut(|data| {
+        data.insert_temp(
+            egui::Id::new("koolade_task_paths_by_uid"),
+            std::collections::HashMap::from([(
+                "stable-task-uid".to_owned(),
+                "planning/tasks/renamed.md".to_owned(),
+            )]),
+        );
+    });
+    let mut output = context.run_ui(egui::RawInput::default(), |ctx| {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let previous = super::previous_task_path(ui).unwrap();
+            assert_eq!(previous, "planning/tasks/renamed.md");
+            super::navigate_back(ui, previous);
+        });
+    });
+    output.textures_delta.clear();
+
+    assert_eq!(
+        context
+            .data_mut(|data| {
+                data.get_temp::<String>(egui::Id::new("koolade_task_relationship_navigation"))
+            })
+            .as_deref(),
+        Some("planning/tasks/renamed.md")
+    );
+}
+
+#[test]
 fn planning_work_navigation_preserves_the_returning_task_path() {
     let context = egui::Context::default();
     context.data_mut(|data| {

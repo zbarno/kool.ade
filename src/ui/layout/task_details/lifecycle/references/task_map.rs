@@ -1,11 +1,13 @@
 use crate::ui::{Surface, task_detail::LifecycleView};
 
 mod canvas;
+mod navigation;
 mod nested;
 mod opportunities;
 mod planning_items;
 mod planning_work;
 mod status;
+use navigation::{navigate_back, navigate_to, navigate_to_planning, previous_task_path};
 pub(super) use status::node_status;
 #[cfg(test)]
 mod tests;
@@ -17,10 +19,7 @@ pub(crate) fn relationships(
     ticket: &str,
 ) {
     ui.label(crate::ui::theme::section_heading("Task Map · Related Work"));
-    let previous = ui.ctx().data_mut(|data| {
-        data.get_temp::<Vec<String>>(egui::Id::new("koolade_task_relationship_history"))
-            .and_then(|history| history.last().cloned())
-    });
+    let previous = previous_task_path(ui);
     if let Some(previous) = previous
         && ui.button("← Back to previous task").clicked()
     {
@@ -45,7 +44,7 @@ pub(crate) fn relationships(
         ));
     });
     let dependents = ui.ctx().data_mut(|data| {
-        data.get_temp::<std::collections::HashMap<String, Vec<(String, String, String)>>>(
+        data.get_temp::<std::collections::HashMap<String, Vec<crate::ui::task_detail::TaskRelationView>>>(
             egui::Id::new("koolade_task_dependents"),
         )
         .and_then(|dependents| dependents.get(ticket).cloned())
@@ -184,12 +183,10 @@ pub(crate) fn relationships(
                     .id_salt(("task_dependents_scroll", ticket))
                     .max_height(180.0)
                     .show(ui, |ui| {
-                        for (path, title, status) in dependents {
+                        for dependent in dependents {
                             ui.group(|ui| {
-                                if ui.link(format!("→ Dependent task · {title}")).clicked() {
-                                    navigate_to(ui, path);
-                                }
-                                node_status(ui, &status);
+                                relation_link(ui, "→ Dependent task", &dependent);
+                                node_status(ui, &dependent.status);
                             });
                         }
                     });
@@ -239,50 +236,4 @@ fn relation_link(
         ui.small(&relation.title);
         ui.small("Task details unavailable for this recorded relationship.");
     }
-}
-
-fn navigate_to(ui: &egui::Ui, target_path: String) {
-    ui.ctx().data_mut(|data| {
-        let selected = egui::Id::new("koolade_selected_task");
-        if let Some(current) = data.get_temp::<String>(selected) {
-            let history_id = egui::Id::new("koolade_task_relationship_history");
-            let mut history = data.get_temp::<Vec<String>>(history_id).unwrap_or_default();
-            if history.last() != Some(&current) {
-                history.push(current);
-            }
-            data.insert_temp(history_id, history);
-        }
-        data.insert_temp(
-            egui::Id::new("koolade_task_relationship_navigation"),
-            target_path,
-        );
-    });
-}
-
-fn navigate_back(ui: &egui::Ui, previous_path: String) {
-    ui.ctx().data_mut(|data| {
-        let id = egui::Id::new("koolade_task_relationship_history");
-        let mut history = data.get_temp::<Vec<String>>(id).unwrap_or_default();
-        history.pop();
-        data.insert_temp(id, history);
-        data.insert_temp(
-            egui::Id::new("koolade_task_relationship_navigation"),
-            previous_path,
-        );
-    });
-}
-
-fn navigate_to_planning(ui: &egui::Ui, key: String) {
-    ui.ctx().data_mut(|data| {
-        if let Some(current) = data.get_temp::<String>(egui::Id::new("koolade_selected_task")) {
-            data.insert_temp(
-                egui::Id::new("koolade_task_relationship_work_return"),
-                current,
-            );
-        }
-        data.insert_temp(
-            egui::Id::new("koolade_task_relationship_planning_navigation"),
-            key,
-        );
-    });
 }

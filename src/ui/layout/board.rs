@@ -8,6 +8,7 @@ mod opportunities;
 mod planning_modal;
 pub(super) mod presentation;
 mod relationships;
+mod selection;
 mod task_chat;
 
 pub(super) fn paint(
@@ -60,6 +61,13 @@ pub(super) fn paint(
     let planning_item_keys = relationships::unique_planning_item_keys(&board.planning_items);
     let task_uids_by_path = relationships::unique_task_uids_by_path(board);
     let opportunity_relations = relationships::opportunity_relations(board);
+    selection::restore(
+        ui,
+        &mut selected_path,
+        docs,
+        &task_paths,
+        &task_uids_by_path,
+    );
     ui.ctx().data_mut(|data| {
         data.insert_temp(
             egui::Id::new("koolade_board_relationship_map"),
@@ -91,7 +99,7 @@ pub(super) fn paint(
         );
         data.insert_temp(
             egui::Id::new("koolade_task_uids_by_path"),
-            task_uids_by_path,
+            task_uids_by_path.clone(),
         );
         data.insert_temp(
             egui::Id::new("koolade_task_opportunity_relations"),
@@ -183,6 +191,9 @@ pub(super) fn paint(
                 selected_path = None;
                 ui.ctx().data_mut(|data| {
                     data.remove::<Vec<String>>(egui::Id::new("koolade_task_relationship_history"));
+                    data.remove::<Vec<Option<String>>>(egui::Id::new(
+                        "koolade_task_relationship_history_uids",
+                    ));
                 });
             }
         } else {
@@ -214,6 +225,9 @@ pub(super) fn paint(
         selected_path = None;
         ui.ctx().data_mut(|data| {
             data.remove::<Vec<String>>(egui::Id::new("koolade_task_relationship_history"));
+            data.remove::<Vec<Option<String>>>(egui::Id::new(
+                "koolade_task_relationship_history_uids",
+            ));
             data.remove::<String>(egui::Id::new("koolade_task_relationship_work_return"));
         });
         planning_selection = None;
@@ -271,11 +285,6 @@ pub(super) fn paint(
         }
     });
     ui.ctx().data_mut(|d| {
-        if let Some(path) = selected_path {
-            d.insert_temp(id, path);
-        } else {
-            d.remove::<String>(id);
-        }
         let id = egui::Id::new("koolade_selected_planning");
         if let Some(item) = planning_selection {
             d.insert_temp(id, item);
@@ -283,4 +292,5 @@ pub(super) fn paint(
             d.remove::<String>(id);
         }
     });
+    selection::persist(ui, selected_path, &task_uids_by_path);
 }

@@ -6,32 +6,40 @@ fn expanded_cyclic_child_relationship_stops_at_the_visited_task() {
     context.data_mut(|data| {
         data.insert_temp(
             egui::Id::new("koolade_task_paths_by_uid"),
-            std::collections::HashMap::<String, String>::from([(
-                "root-uid".into(),
-                "root.md".into(),
-            )]),
+            std::collections::HashMap::<String, String>::from([
+                ("root-planning-uid".into(), "root.md".into()),
+                ("child-planning-uid".into(), "child.md".into()),
+            ]),
         );
         data.insert_temp(
             egui::Id::new("koolade_task_children"),
-            std::collections::HashMap::<String, Vec<(String, String, String)>>::from([
+            std::collections::HashMap::<String, Vec<TaskRelationView>>::from([
                 (
                     "root.md".into(),
-                    vec![("child.md".into(), "Child task".into(), "Running".into())],
+                    vec![TaskRelationView {
+                        planning_item_uid: "child-planning-uid".into(),
+                        lifecycle_task_uid: Some("child-lifecycle-uid".into()),
+                        title: "Child task".into(),
+                        status: "Running".into(),
+                        acceptance_criteria: Vec::new(),
+                    }],
                 ),
                 (
                     "child.md".into(),
-                    vec![(
-                        "root.md".into(),
-                        "Cycle back to root".into(),
-                        "Running".into(),
-                    )],
+                    vec![TaskRelationView {
+                        planning_item_uid: "root-planning-uid".into(),
+                        lifecycle_task_uid: Some("root-lifecycle-uid".into()),
+                        title: "Cycle back to root".into(),
+                        status: "Running".into(),
+                        acceptance_criteria: Vec::new(),
+                    }],
                 ),
             ]),
         );
     });
     let relation = TaskRelationView {
-        planning_item_uid: "root-uid".into(),
-        lifecycle_task_uid: Some("root-uid".into()),
+        planning_item_uid: "root-planning-uid".into(),
+        lifecycle_task_uid: Some("root-lifecycle-uid".into()),
         title: "Root task".into(),
         status: "Running".into(),
         acceptance_criteria: Vec::new(),
