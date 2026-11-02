@@ -101,6 +101,7 @@ pub(crate) enum PlanEffect {
     RefuseConflictingExistingRootlessInstallation,
     InstallAndEnableCurrentUserRootlessDockerService,
     PreserveSystemRootfulDockerService,
+    EnableWindowsWslFeatures,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

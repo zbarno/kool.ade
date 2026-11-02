@@ -54,6 +54,20 @@ impl RemediationJournal for InMemoryJournal<'_> {
                 self.owner_instance_id,
                 at_unix_ms,
             )?,
+            Transition::ConsumeAuthorization {
+                task_id,
+                operation_id,
+                receipt_id,
+                scope_digest,
+                at_unix_ms,
+            } => self.store.consume_authorization(
+                &task_id,
+                &operation_id,
+                &receipt_id,
+                &scope_digest,
+                self.owner_instance_id,
+                at_unix_ms,
+            )?,
             Transition::AwaitVerification {
                 task_id,
                 operation_id,

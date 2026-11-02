@@ -5,6 +5,21 @@ fn main() -> eframe::Result {
     let mut args = std::env::args_os();
     let _binary = args.next();
     let command = args.next();
+    if command.as_deref() == Some(std::ffi::OsStr::new("--windows-setup-helper")) {
+        let helper_args = std::iter::once(command.expect("helper command was checked")).chain(args);
+        match koolade::windows_setup_helper::run_helper(helper_args) {
+            Ok(Some(koolade::windows_setup_helper::HelperOutcome::Completed)) => return Ok(()),
+            Ok(Some(koolade::windows_setup_helper::HelperOutcome::RebootRequired)) => {
+                std::process::exit(3010)
+            }
+            Ok(Some(koolade::windows_setup_helper::HelperOutcome::Failed)) => std::process::exit(1),
+            Ok(None) => unreachable!("helper dispatch rejected its own command"),
+            Err(error) => {
+                eprintln!("Kool.ad/e Windows setup helper refused the operation: {error:#}");
+                std::process::exit(1);
+            }
+        }
+    }
     if command.as_deref() == Some(std::ffi::OsStr::new("--version"))
         || command.as_deref() == Some(std::ffi::OsStr::new("-V"))
     {

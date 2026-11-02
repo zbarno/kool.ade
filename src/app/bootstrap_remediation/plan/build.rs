@@ -139,6 +139,31 @@ impl RemediationPlan {
                 Operation::InstallLinuxRootlessService,
                 OperationParameters::InstallLinuxRootlessService { recipe },
             ) => rootless::install_service(&mut plan, *recipe)?,
+            (Operation::EnableWindowsWslFeatures, OperationParameters::None) => {
+                anyhow::ensure!(
+                    request.host == crate::app::bootstrap_repair_policy::Host::Windows
+                        && request.prerequisite_id == "setup:windows:wsl-features",
+                    "WSL feature plan requires its canonical Windows setup task"
+                );
+                plan.effects.push(PlanEffect::EnableWindowsWslFeatures);
+                plan.precondition_probe_ids = vec![
+                    "host:windows:edition".into(),
+                    "host:windows:architecture".into(),
+                    "host:windows:virtualization".into(),
+                    "host:windows:wsl_policy".into(),
+                    "host:windows:wsl_feature".into(),
+                    "host:windows:vm_platform_feature".into(),
+                    "host:windows:reboot".into(),
+                ];
+                plan.verification_probe_ids = vec![
+                    "host:windows:wsl_feature".into(),
+                    "host:windows:vm_platform_feature".into(),
+                    "host:windows:reboot".into(),
+                ];
+                plan.privilege = PrivilegeLevel::Administrator;
+                plan.rollback = RollbackGuidance::KeepWindowsFeaturesForManualRecovery;
+                plan.requires_consent = true;
+            }
             _ => anyhow::bail!("remediation plan does not match its typed request"),
         }
         Ok(plan)

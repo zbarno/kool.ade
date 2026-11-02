@@ -79,6 +79,43 @@ pub(super) fn finish_launched(
     )
 }
 
+pub(super) fn finish_reboot_required(
+    journal: &mut dyn RemediationJournal,
+    approved: &ApprovedRemediation,
+    plan: &RemediationPlan,
+    exit_code: i32,
+    now: u64,
+) -> anyhow::Result<RemediationResult> {
+    anyhow::ensure!(
+        plan.operation == crate::app::bootstrap_repair_policy::Operation::EnableWindowsWslFeatures
+            && exit_code == 3010,
+        "restart-required result does not match a supported Windows operation"
+    );
+    let verification = crate::persistence::setup_tasks::RemediationVerificationV1 {
+        status: RemediationVerificationStatusV1::NeedsFreshProbe,
+        probe_ids: plan.verification_probe_ids.clone(),
+        observed_at_unix_ms: now,
+        evidence_digest: None,
+    };
+    journal.apply(SetupTaskTransitionV1::RecordRemediationResult {
+        task_id: approved.task_id.clone(),
+        operation_id: approved.operation_id.clone(),
+        result: RemediationAttemptResultV1 {
+            process_status: RemediationProcessStatusV1::RebootRequired,
+            exit_code: Some(3010),
+            sanitized_diagnostic: Some(
+                "Windows must restart before setup readiness can be checked again.".into(),
+            ),
+            verification: Some(verification),
+            rollback_guidance: plan.rollback.description().to_owned(),
+        },
+        at_unix_ms: now,
+    })?;
+    anyhow::bail!(
+        "Windows must restart to finish setup. After restarting, run the setup check again; this approval cannot be reused."
+    )
+}
+
 pub(super) fn record_not_started(
     journal: &mut dyn RemediationJournal,
     approved: &ApprovedRemediation,

@@ -43,6 +43,7 @@ pub(crate) enum InternalInvocation {
     ClaudeCodeInstall {
         target: std::path::PathBuf,
     },
+    WindowsWslFeatures,
     #[cfg(target_os = "linux")]
     ClaudeCodeDownload {
         asset: ClaudeReleaseAsset,
@@ -78,6 +79,19 @@ impl TrustedInvocation {
 
     pub(crate) fn program(&self) -> TrustedProgram {
         self.program
+    }
+
+    pub(crate) fn timeout(&self) -> Duration {
+        self.timeout
+    }
+
+    pub(crate) fn is_windows_wsl_feature_operation(&self) -> bool {
+        self.program == TrustedProgram::WindowsWslFeatures
+            && matches!(
+                self.internal.as_ref(),
+                Some(InternalInvocation::WindowsWslFeatures)
+            )
+            && self.arguments.is_empty()
     }
 
     pub(crate) fn current_user_identity(&self) -> anyhow::Result<(u32, &str)> {
@@ -161,7 +175,9 @@ impl TrustedInvocation {
         anyhow::ensure!(
             !matches!(
                 program,
-                TrustedProgram::ClaudeCodeInstall | TrustedProgram::ClaudeCodeDownload
+                TrustedProgram::ClaudeCodeInstall
+                    | TrustedProgram::ClaudeCodeDownload
+                    | TrustedProgram::WindowsWslFeatures
             ),
             "internal remediation programs require a typed constructor"
         );
@@ -241,6 +257,20 @@ impl TrustedInvocation {
             arguments,
             timeout,
             internal: None,
+            progress: None,
+            environment: TrustedEnvironment::Isolated,
+            #[cfg(test)]
+            test_mode: None,
+        })
+    }
+
+    pub(in crate::app::bootstrap_remediation) fn windows_wsl_features() -> anyhow::Result<Self> {
+        Ok(Self {
+            host: Host::Windows,
+            program: TrustedProgram::WindowsWslFeatures,
+            arguments: Vec::new(),
+            timeout: Duration::from_secs(300),
+            internal: Some(InternalInvocation::WindowsWslFeatures),
             progress: None,
             environment: TrustedEnvironment::Isolated,
             #[cfg(test)]
@@ -366,6 +396,9 @@ impl TrustedInvocation {
         }
         if let Some(internal) = &self.internal {
             let value = match internal {
+                InternalInvocation::WindowsWslFeatures => {
+                    "internal:windows_wsl_features".to_owned()
+                }
                 InternalInvocation::ClaudeCodeInstall { target } => {
                     format!("internal:claude_install:{}", target.display())
                 }

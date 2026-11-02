@@ -1,6 +1,8 @@
 use std::sync::mpsc::{self, SyncSender, TryRecvError};
 
-use crate::persistence::setup_tasks::{self, FailureCode, SetupTaskStoreV1, SetupTaskTransitionV1};
+use crate::persistence::setup_tasks::{
+    self, FailureCode, RemediationProcessStatusV1, SetupTaskStoreV1, SetupTaskTransitionV1,
+};
 
 use super::super::{
     ApprovalGate, ApprovalPreview, ApprovalRequest, AttemptContext, RemediationPlan,
@@ -165,9 +167,27 @@ impl Controller {
                 result,
                 store_update,
             }) => {
+                let reboot_required = store_update.as_ref().is_some_and(|store| {
+                    self.attempt.as_ref().is_some_and(|attempt| {
+                        store
+                            .tasks
+                            .get(attempt.task_id())
+                            .and_then(|task| {
+                                task.attempts
+                                    .iter()
+                                    .find(|record| record.operation_id == attempt.operation_id())
+                            })
+                            .and_then(|record| record.remediation_result.as_ref())
+                            .is_some_and(|result| {
+                                result.process_status == RemediationProcessStatusV1::RebootRequired
+                            })
+                    })
+                });
                 self.gate = Some(gate);
                 self.store_update = store_update;
-                self.result = Some(if result.is_ok() {
+                self.result = Some(if reboot_required {
+                    Err("Windows needs to restart to finish enabling WSL. Save your work, restart, then run the setup check again; this approval cannot be reused.".into())
+                } else if result.is_ok() {
                     Ok(())
                 } else {
                     Err("The approved repair did not complete. Check setup history, then retry the setup check.".into())

@@ -1,11 +1,13 @@
 use std::{sync::mpsc, thread};
 
+use crate::app::bootstrap_repair_policy::Host;
 use crate::persistence::setup_tasks::{FailureCode, SetupTaskTransitionV1, apply_transition, load};
 
 use super::super::super::{
     ApprovalGate, ApprovalPreview, ApprovalRequest, AttemptContext, Cancellation,
     LinuxNativeElevation, LinuxReadinessVerifier, ProductionOperationRegistry, RemediationPlan,
-    RemediationRequest, RemediationSupervisor, SystemCommandRunner,
+    RemediationRequest, RemediationSupervisor, SystemCommandRunner, WindowsNativeElevation,
+    WindowsReadinessVerifier,
 };
 use super::super::{Controller, WorkKind};
 use super::Completion;
@@ -119,17 +121,35 @@ fn execute_supervised(
     approved: super::super::super::ApprovedRemediation,
     plan: &RemediationPlan,
 ) -> anyhow::Result<super::super::super::RemediationResult> {
-    let readiness = LinuxReadinessVerifier;
-    RemediationSupervisor::execute(
-        approved,
-        plan,
-        &ProductionOperationRegistry,
-        &readiness,
-        &SystemCommandRunner,
-        &LinuxNativeElevation,
-        &readiness,
-        &Cancellation::new(),
-    )
+    match plan.host {
+        Host::Linux => {
+            let readiness = LinuxReadinessVerifier;
+            RemediationSupervisor::execute(
+                approved,
+                plan,
+                &ProductionOperationRegistry,
+                &readiness,
+                &SystemCommandRunner,
+                &LinuxNativeElevation,
+                &readiness,
+                &Cancellation::new(),
+            )
+        }
+        Host::Windows => {
+            let readiness = WindowsReadinessVerifier;
+            RemediationSupervisor::execute(
+                approved,
+                plan,
+                &ProductionOperationRegistry,
+                &readiness,
+                &SystemCommandRunner,
+                &WindowsNativeElevation,
+                &readiness,
+                &Cancellation::new(),
+            )
+        }
+        Host::MacOs => anyhow::bail!("native setup remediation is not supported on macOS"),
+    }
 }
 
 pub(super) fn begin_cancel(controller: &mut Controller, attempt: AttemptContext) {

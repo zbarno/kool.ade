@@ -25,6 +25,29 @@ pub(crate) struct PackageSourceArtifacts {
 pub(crate) fn validate_before_elevated_launch(
     invocation: &TrustedInvocation,
 ) -> anyhow::Result<()> {
+    if invocation.program() == TrustedProgram::WindowsWslFeatures {
+        anyhow::ensure!(
+            invocation.host() == Host::Windows
+                && invocation.is_windows_wsl_feature_operation()
+                && invocation.timeout() <= Duration::from_secs(300),
+            "Windows setup invocation is outside its fixed operation"
+        );
+        let expected = crate::windows_setup_helper::configured_publisher()?;
+        #[cfg(windows)]
+        {
+            let image = std::env::current_exe()?.canonicalize()?;
+            anyhow::ensure!(
+                crate::execution::docker::engine::endpoint::named_pipe::image::signature::
+                    authenticode_publisher(&image)
+                    .as_deref()
+                    == Some(expected),
+                "Windows setup helper publisher is not trusted"
+            );
+        }
+        #[cfg(not(windows))]
+        let _ = expected;
+        return Ok(());
+    }
     anyhow::ensure!(
         invocation.host() == Host::Linux,
         "rootless Docker elevation is Linux-only"
@@ -103,6 +126,22 @@ fn verify_package_source(recipe: LinuxRootlessRecipeV1) -> anyhow::Result<()> {
 
 impl OperationRegistry for ProductionOperationRegistry {
     fn compile(&self, plan: &RemediationPlan) -> anyhow::Result<TrustedInvocation> {
+        if plan.operation == Operation::EnableWindowsWslFeatures {
+            plan.validate()?;
+            anyhow::ensure!(
+                plan.host == Host::Windows
+                    && plan.prerequisite_id == "setup:windows:wsl-features"
+                    && plan.privilege
+                        == crate::app::bootstrap_remediation::PrivilegeLevel::Administrator
+                    && plan.requires_consent
+                    && plan.effects
+                        == [
+                            crate::app::bootstrap_remediation::plan::PlanEffect::EnableWindowsWslFeatures
+                        ],
+                "Windows WSL feature setup plan is not canonical"
+            );
+            return TrustedInvocation::windows_wsl_features();
+        }
         validate_rootless_plan(plan)?;
         match plan.operation {
             Operation::InstallLinuxRootlessPackages => {

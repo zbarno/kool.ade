@@ -42,6 +42,9 @@ impl PlanEffect {
             Self::PreserveSystemRootfulDockerService => {
                 "Leave the system rootful Docker service, socket, and configuration untouched; never stop, disable, or modify them."
             }
+            Self::EnableWindowsWslFeatures => {
+                "Enable only Windows Subsystem for Linux and Virtual Machine Platform after fresh Windows 11 x64, virtualization, WSL policy, feature, and reboot-state checks. Restart Windows only if the operating system reports that it is required."
+            }
         }
     }
 }
@@ -132,6 +135,7 @@ pub(crate) enum RollbackGuidance {
     KeepInstalledPackagesForManualRecovery,
     KeepSubordinateIdMappingsForManualRecovery,
     KeepRootlessUserStateForManualRecovery,
+    KeepWindowsFeaturesForManualRecovery,
 }
 
 impl PrivilegeLevel {
@@ -207,6 +211,9 @@ impl RollbackGuidance {
             }
             Self::KeepRootlessUserStateForManualRecovery => {
                 "Do not remove or disable the app-owned rootless unit, delete user Docker data, or change the system rootful daemon after failure; preserve state for manual recovery."
+            }
+            Self::KeepWindowsFeaturesForManualRecovery => {
+                "Leave successfully enabled Windows features in place. If setup does not become ready after a fresh scan and any required restart, stop automatic retries and ask the device administrator to inspect Windows feature state."
             }
         }
     }

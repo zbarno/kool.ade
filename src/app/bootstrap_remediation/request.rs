@@ -107,7 +107,9 @@ impl RemediationRequest {
         bootstrap_repair_policy::validate(&self.proposal(), self.host)?;
         match (&self.operation, &self.parameters) {
             (
-                Operation::RecheckPrerequisites | Operation::OpenCodingTools,
+                Operation::RecheckPrerequisites
+                | Operation::OpenCodingTools
+                | Operation::EnableWindowsWslFeatures,
                 OperationParameters::None,
             ) => {}
             (
@@ -230,9 +232,9 @@ fn kernel_meets_rootless_floor(release: &str) -> bool {
 fn parameters_for(proposal: &Proposal, os_version: &str) -> anyhow::Result<OperationParameters> {
     let recipe = LinuxRootlessRecipeV1::from_os_version(os_version);
     match proposal.operation {
-        Operation::RecheckPrerequisites | Operation::OpenCodingTools => {
-            Ok(OperationParameters::None)
-        }
+        Operation::RecheckPrerequisites
+        | Operation::OpenCodingTools
+        | Operation::EnableWindowsWslFeatures => Ok(OperationParameters::None),
         Operation::PrepareLockedImage => {
             let profile = proposal
                 .image_profile

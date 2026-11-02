@@ -108,11 +108,16 @@ pub(super) fn append_findings(
         && (state(Capability::WindowsWslFeature) == EvidenceState::Missing
             || state(Capability::WindowsVmPlatformFeature) == EvidenceState::Missing)
     {
+        let unsigned_guidance = if crate::windows_setup_helper::publisher_trust_configured() {
+            "The authenticated one-use setup handoff is unavailable, so this build cannot run the privileged helper. From Start, search for ‘Turn Windows features on or off’. Select both ‘Windows Subsystem for Linux’ and ‘Virtual Machine Platform’, choose OK, and restart when Windows asks. If your device blocks the change or requires an administrator, ask your administrator; do not change security policy."
+        } else {
+            "This build has no trusted Windows setup publisher configured, so its privileged helper is disabled. From Start, search for ‘Turn Windows features on or off’. Select both ‘Windows Subsystem for Linux’ and ‘Virtual Machine Platform’, choose OK, and restart when Windows asks. If your device blocks the change or requires an administrator, ask your administrator; do not change security policy."
+        };
         findings.push(Finding::action(
             "setup:windows:wsl-features",
             "Enable WSL2 Windows features",
             "Windows Subsystem for Linux and Virtual Machine Platform must both be enabled.",
-            "From Start, search for ‘Turn Windows features on or off’. Select both ‘Windows Subsystem for Linux’ and ‘Virtual Machine Platform’, choose OK, and restart when Windows asks. If your device blocks the change or requires an administrator, ask your administrator; do not change security policy.",
+            unsigned_guidance,
         ));
     }
     match state(Capability::WindowsReboot) {

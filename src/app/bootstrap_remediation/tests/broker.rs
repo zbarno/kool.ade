@@ -5,6 +5,7 @@ use crate::{app::bootstrap_repair_policy::Host, persistence::setup_tasks::Attemp
 mod launch;
 mod preconditions;
 mod recovery;
+mod windows;
 
 // Production boundary: exercises plan-bound consent, attempt journaling,
 // runner dispatch, and independent probe outcomes with fake platform adapters.

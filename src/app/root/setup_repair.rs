@@ -102,7 +102,7 @@ impl KooladeApp {
             .find(|task| task.id == task_id)
             .is_some_and(can_approve);
         if !still_ready {
-            if is_rootless_task(task_id) {
+            if is_remediation_task(task_id) {
                 self.setup_remediation.cancel_review();
             } else if task_id == "setup:cli:claude:install" {
                 let _ = self.claude_install.cancel_review();
@@ -115,7 +115,7 @@ impl KooladeApp {
             );
             return;
         }
-        if is_rootless_task(task_id) {
+        if is_remediation_task(task_id) {
             let Some(request) = self.setup_remediation.take_approval(task_id) else {
                 self.toasts
                     .warning("The repair approval expired. Review it again before continuing.");
@@ -161,7 +161,7 @@ fn claude_install_busy(app: &KooladeApp) -> bool {
 }
 
 fn can_prepare(task: &LocalTask) -> bool {
-    (supported_image_task(task) || is_rootless_task(&task.id))
+    (supported_image_task(task) || is_remediation_task(&task.id))
         && task.blocked_by.is_empty()
         && matches!(
             task.state,
@@ -174,7 +174,7 @@ fn can_prepare(task: &LocalTask) -> bool {
 }
 
 fn can_approve(task: &LocalTask) -> bool {
-    (supported_image_task(task) || is_rootless_task(&task.id))
+    (supported_image_task(task) || is_remediation_task(&task.id))
         && task.blocked_by.is_empty()
         && task.state == State::NeedsApproval
 }
@@ -183,11 +183,54 @@ fn supported_image_task(task: &LocalTask) -> bool {
     crate::app::bootstrap_repair_policy::parse_locked_image_task_id(&task.id).is_some()
 }
 
-fn is_rootless_task(task_id: &str) -> bool {
+fn is_remediation_task(task_id: &str) -> bool {
     matches!(
         task_id,
         "setup:linux:rootless:packages"
             | "setup:linux:rootless:subids"
             | "setup:linux:rootless:service"
-    )
+    ) || windows_setup_task_enabled(task_id)
+}
+
+fn windows_setup_task_enabled(task_id: &str) -> bool {
+    cfg!(windows)
+        && task_id == "setup:windows:wsl-features"
+        && crate::windows_setup_helper::publisher_trust_configured()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wsl_features_task(state: State) -> LocalTask {
+        LocalTask {
+            schema_version: 1,
+            id: "setup:windows:wsl-features".into(),
+            title: "Enable WSL2 Windows features".into(),
+            explanation: String::new(),
+            next_step: String::new(),
+            dependencies: Vec::new(),
+            blocked_by: Vec::new(),
+            state,
+            created_at_unix_ms: 1,
+            observed_at_unix_ms: 1,
+            scan_generation: 1,
+            verified_at_unix_ms: None,
+            verified_result: None,
+            attempts: Vec::new(),
+            events: Vec::new(),
+            legacy_source_id: None,
+            superseded_by: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn windows_feature_task_requires_a_signed_windows_build_for_live_routing() {
+        let ready = wsl_features_task(State::ReadyToFix);
+        let awaiting_approval = wsl_features_task(State::NeedsApproval);
+        let enabled = cfg!(windows) && crate::windows_setup_helper::publisher_trust_configured();
+        assert_eq!(can_prepare(&ready), enabled);
+        assert_eq!(can_approve(&awaiting_approval), enabled);
+        assert_eq!(is_remediation_task(&ready.id), enabled);
+    }
 }

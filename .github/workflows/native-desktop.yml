@@ -114,6 +114,10 @@ jobs:
 
       - name: Build the native desktop application
         shell: bash
+        # Native CI artifacts are unsigned. Keep the privileged helper's
+        # compile-time publisher trust gate explicitly unset in every target.
+        env:
+          KOOLADE_WINDOWS_SETUP_PUBLISHER: ''
         run: cargo +1.98.1 build --locked --release --bin koolade 2>&1 | tee dist/native/build.log
 
       - name: Smoke-check the native executable
@@ -168,6 +172,7 @@ jobs:
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
           This job produces an unsigned, CI-only build artifact. It does not certify installation, runtime support, signing, notarization, Gatekeeper, or Defender behavior.
+          The Windows privileged setup helper has no configured publisher identity in this workflow and refuses to run.
           EOF
 
       - name: Upload traceable native package artifact

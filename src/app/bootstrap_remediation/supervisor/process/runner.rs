@@ -8,3 +8,5 @@ mod rootless_service;
 #[cfg(target_os = "linux")]
 mod rootless_service_unit;
 mod user_environment;
+#[cfg(windows)]
+mod windows_setup;

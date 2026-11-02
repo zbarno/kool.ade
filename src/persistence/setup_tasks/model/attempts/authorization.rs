@@ -168,6 +168,57 @@ impl SetupTaskStoreV1 {
         record(task, at_unix_ms, self.latest_scan_generation);
         Ok(())
     }
+
+    /// Atomically invalidate active consent before a privileged process is
+    /// launched. The receipt remains in history so this operation cannot be
+    /// approved or replayed a second time.
+    pub(crate) fn consume_authorization(
+        &mut self,
+        task_id: &str,
+        operation_id: &str,
+        receipt_id: &str,
+        scope_digest: &str,
+        owner_instance_id: &str,
+        at_unix_ms: u64,
+    ) -> anyhow::Result<()> {
+        let task = self
+            .tasks
+            .get_mut(task_id)
+            .ok_or_else(|| anyhow::anyhow!("setup task does not exist"))?;
+        anyhow::ensure!(
+            task.state == SetupTaskStateV1::InProgress,
+            "setup task is not actively approved"
+        );
+        anyhow::ensure!(
+            task.scan_generation == self.latest_scan_generation,
+            "setup approval needs a fresh readiness scan"
+        );
+        let attempt = task
+            .attempts
+            .iter_mut()
+            .find(|attempt| attempt.operation_id == operation_id)
+            .ok_or_else(|| anyhow::anyhow!("setup operation does not exist"))?;
+        anyhow::ensure!(
+            attempt.owner_instance_id.as_deref() == Some(owner_instance_id),
+            "setup operation belongs to another app instance"
+        );
+        anyhow::ensure!(
+            attempt.state == AttemptState::InProgress,
+            "setup operation is not actively approved"
+        );
+        let binding = attempt
+            .authorization_binding
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("setup approval was already consumed"))?;
+        anyhow::ensure!(
+            binding.receipt_id == receipt_id && binding.scope_digest == scope_digest,
+            "setup approval does not match this helper invocation"
+        );
+        attempt.authorization_binding = None;
+        attempt.updated_at_unix_ms = at_unix_ms;
+        record(task, at_unix_ms, self.latest_scan_generation);
+        Ok(())
+    }
 }
 
 pub(crate) fn valid_operation_id(value: &str) -> bool {

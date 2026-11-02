@@ -32,6 +32,8 @@ pub enum Operation {
     ConfigureLinuxSubordinateIds,
     /// Install and enable the current user's rootless Docker service.
     InstallLinuxRootlessService,
+    /// Enable the fixed Windows features required by WSL2.
+    EnableWindowsWslFeatures,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -160,6 +162,18 @@ pub fn validate(proposal: &Proposal, detected_host: Host) -> anyhow::Result<Revi
             );
             (true, false)
         }
+        Operation::EnableWindowsWslFeatures => {
+            anyhow::ensure!(
+                proposal.host == Host::Windows,
+                "WSL feature repair is Windows-only"
+            );
+            anyhow::ensure!(
+                proposal.prerequisite_id == "setup:windows:wsl-features",
+                "WSL feature repair requires its canonical setup task"
+            );
+            anyhow::ensure!(proposal.image_profile.is_none(), "unexpected image profile");
+            (true, true)
+        }
     };
     Ok(ReviewedAction {
         operation: proposal.operation,
@@ -265,5 +279,25 @@ mod tests {
 
         proposal.prerequisite_id = image_task("general", "x86_64");
         assert!(validate(&proposal, Host::Linux).is_err());
+    }
+
+    #[test]
+    fn windows_wsl_feature_intent_is_exact_host_bound_and_requires_consent() {
+        let mut proposal = action(
+            Operation::EnableWindowsWslFeatures,
+            "setup:windows:wsl-features",
+            None,
+        );
+        proposal.host = Host::Windows;
+        let action = validate(&proposal, Host::Windows).unwrap();
+        assert!(action.requires_consent);
+        assert!(action.requires_engine_verification);
+        assert!(validate(&proposal, Host::Linux).is_err());
+
+        proposal.prerequisite_id = "setup:windows:wsl-kernel".into();
+        assert!(validate(&proposal, Host::Windows).is_err());
+        proposal.prerequisite_id = "setup:windows:wsl-features".into();
+        proposal.image_profile = Some("general".into());
+        assert!(validate(&proposal, Host::Windows).is_err());
     }
 }

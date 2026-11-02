@@ -14,6 +14,7 @@ use crate::app::{
 
 mod mapping;
 mod system;
+mod windows;
 
 const PACKAGE: &[&str] = &[
     "host:linux:rootless_recipe",
@@ -61,6 +62,7 @@ const VERIFICATIONS: &[&[&str]] = &[&["docker:rootless"], HELPERS, UID_MAPPINGS,
 static GENERATION: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) struct LinuxReadinessVerifier;
+pub(crate) use windows::WindowsReadinessVerifier;
 
 impl PreconditionVerifier for LinuxReadinessVerifier {
     fn verify(&self, probe_ids: &[String]) -> anyhow::Result<PreconditionReceipt> {

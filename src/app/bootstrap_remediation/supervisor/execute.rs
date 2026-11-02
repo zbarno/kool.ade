@@ -24,7 +24,8 @@ use journal::InMemoryJournal;
 use journal::{DurableJournal, RemediationJournal};
 use launch::prepare_launch;
 use outcome::{
-    apply_cancel, apply_failure, ensure_active_authorization, finish_launched, record_not_started,
+    apply_cancel, apply_failure, ensure_active_authorization, finish_launched,
+    finish_reboot_required, record_not_started,
 };
 use preconditions::check_preconditions;
 use verification::sanitize_diagnostic;
@@ -234,13 +235,41 @@ impl RemediationSupervisor {
 
         let launched_at_unix_ms =
             prepare_launch(journal, &approved, plan, identity, require_current_identity)?;
+        if plan.operation
+            == crate::app::bootstrap_repair_policy::Operation::EnableWindowsWslFeatures
+        {
+            journal.apply(
+                crate::persistence::setup_tasks::SetupTaskTransitionV1::ConsumeAuthorization {
+                    task_id: approved.task_id.clone(),
+                    operation_id: approved.operation_id.clone(),
+                    receipt_id: approved.receipt_id.clone(),
+                    scope_digest: approved.scope_digest.clone(),
+                    at_unix_ms: launched_at_unix_ms,
+                },
+            )?;
+        }
         let process_result = match elevation_receipt {
-            Some(receipt) => runner.run_elevated(invocation, receipt, cancellation),
+            Some(receipt) => runner.run_elevated(
+                invocation,
+                receipt.with_setup_authorization(&approved),
+                cancellation,
+            ),
             None => runner.run(invocation, cancellation),
         };
         match process_result {
             Ok(output) => {
-                let status = if output.exit_code == 0 {
+                let status = if plan.operation
+                    == crate::app::bootstrap_repair_policy::Operation::EnableWindowsWslFeatures
+                    && output.exit_code == 3010
+                {
+                    return finish_reboot_required(
+                        journal,
+                        &approved,
+                        plan,
+                        output.exit_code,
+                        now_unix_ms().unwrap_or(now),
+                    );
+                } else if output.exit_code == 0 {
                     RemediationProcessStatusV1::Succeeded
                 } else {
                     RemediationProcessStatusV1::Failed
