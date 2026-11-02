@@ -1,13 +1,16 @@
-use super::{event_uid, hash_text, now_ms, stable_uid};
+use super::{event_uid, hash_text, now_ms};
 use crate::harness::prompt_catalog::SpecDeltaV1;
 use crate::{
     app::session::Project,
     core::lifecycle::{GateActor, GateDecision, GateReceipt, LifecycleStore},
 };
 
+mod blocker;
 mod history;
+mod identity;
 mod pr_observation;
 mod summary;
+pub(super) use blocker::record_blocker;
 pub(super) use history::record_feature;
 use summary::{delta_summary, hash_json};
 
@@ -148,6 +151,12 @@ pub(super) fn finish(
                 ));
                 return;
             };
+            let Some(reviewed_head_sha) = task.reviewed_code_head_sha.as_deref() else {
+                project.activity.pending.push(format!(
+                    "SpecReconciler result for task {task_uid} has no reviewed code head."
+                ));
+                return;
+            };
             if let Err(error) = history::record(
                 &*project,
                 &task_uid,
@@ -160,16 +169,33 @@ pub(super) fn finish(
                 ));
                 return;
             }
-            let receipt_uid = stable_uid(
+            let receipt_uid = identity::spec_receipt_uid(
                 &task_uid,
-                &format!("spec-reconcile-receipt:v1:{spec_sha256}:{proposal_sha256}"),
+                code_sha256,
+                reviewed_head_sha,
+                &spec_sha256,
+                &proposal_sha256,
             );
-            let pr_work_uid = stable_uid(
+            // Reuse the current PR identity only for a persisted head refresh;
+            // ordinary first completion derives it from the approved plan and
+            // implementation subject, even if the task carries a placeholder.
+            let existing_pr_work_uid = match lifecycle
+                .publication_gate_refresh_pending(&task.feature_uid, &task_uid)
+            {
+                Ok(true) => task.pr_work_item_uid.as_deref(),
+                Ok(false) => None,
+                Err(error) => {
+                    project.activity.pending.push(format!(
+                        "Publication refresh state for task {task_uid} could not be checked: {error}"
+                    ));
+                    return;
+                }
+            };
+            let pr_work_uid = identity::pr_work_item_uid(
                 &task_uid,
-                &format!(
-                    "lifecycle-pr-work:v1:{}:{code_sha256}",
-                    task.approved_plan_sha256
-                ),
+                existing_pr_work_uid,
+                &task.approved_plan_sha256,
+                code_sha256,
             );
             let receipt = GateReceipt {
                 receipt_uid,
@@ -244,49 +270,5 @@ pub(super) fn finish(
                 )),
             }
         }
-    }
-}
-
-pub(super) fn record_blocker(
-    project: &mut Project,
-    task_uid: &str,
-    expected_revision: u64,
-    spec_sha256: &str,
-    proposal_sha256: String,
-    reason: String,
-    proposal_json: Option<String>,
-) {
-    let lifecycle = LifecycleStore::new(&project.state.planning_store);
-    let event_uid = event_uid(
-        task_uid,
-        expected_revision,
-        "spec-reconciliation-blocked-v1",
-        &proposal_sha256,
-    );
-    match lifecycle.block_spec_reconciliation(
-        task_uid,
-        expected_revision,
-        &event_uid,
-        crate::core::lifecycle::SpecReconciliationBlockV1 {
-            reason: reason.clone(),
-            proposal_sha256,
-            spec_sha256: spec_sha256.to_owned(),
-            proposal_json,
-        },
-    ) {
-        Ok(_) => {
-            let notice = format!(
-                "Specification reconciliation for task {task_uid} is blocked: {reason} The approved specification was not changed; resolve the decision and update the specification before retrying."
-            );
-            project.activity.pending.push(notice.clone());
-            project.remember_chat(vec![crate::domain::chatlog::ChatMessage::new(
-                crate::domain::chatlog::ChatRole::System,
-                notice,
-                None,
-            )]);
-        }
-        Err(error) => project.activity.pending.push(format!(
-            "Specification reconciliation blocker for task {task_uid} could not be persisted: {error}"
-        )),
     }
 }

@@ -124,8 +124,10 @@ impl SelfImprovementRunV1 {
                         | SelfImprovementPhaseV1::Qa
                         | SelfImprovementPhaseV1::SpecSync
                         | SelfImprovementPhaseV1::DoneAwaitingPr
-                ) && self.implementation_subject_sha256.as_deref()
-                    != Some(subject_sha256.as_str()))
+                        | SelfImprovementPhaseV1::PrPending
+                ) && (self.implementation_subject_sha256.as_deref()
+                    != Some(subject_sha256.as_str())
+                    || self.implementation_head_sha.as_deref() != Some(head_sha.as_str())))
                 && is_git_sha(&head_sha)
                 && is_digest(&subject_sha256) =>
             {
