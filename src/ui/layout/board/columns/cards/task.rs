@@ -86,23 +86,21 @@ pub(in crate::ui::layout::board::columns) fn task(
         )
     );
     let status = if active {
-        "Kool.ad/e is working on this task"
+        "Kool.ad/e is working on this task".to_owned()
     } else if let Some(prerequisite) = prerequisite.as_deref() {
-        prerequisite
+        prerequisite.to_owned()
     } else if waiting {
-        "Queued · implementation slots are full"
+        "Queued · implementation slots are full".to_owned()
     } else if needs_input.is_some() {
-        "Waiting for your decision"
+        "Waiting for your decision".to_owned()
     } else {
         lifecycle_phase.map_or_else(
-            || match column {
-                0 => "Ready for implementation",
-                1 => "In progress",
-                2 => "Ready for review",
-                3 => "Needs attention",
-                _ => "Completed",
+            || {
+                super::task_semantics::lifecycle_unavailable_status(
+                    s.implementation_state(&doc.path).map(|state| state.status),
+                )
             },
-            |phase| super::task_semantics::next_step(phase, pr_status),
+            |phase| super::task_semantics::next_step(phase, pr_status).to_owned(),
         )
     };
     let open_details =
@@ -135,6 +133,14 @@ pub(in crate::ui::layout::board::columns) fn task(
                         ui,
                         crate::ui::task_detail::task_phase_label(phase),
                         theme::ACCENT_SOFT,
+                        theme::TEXT,
+                    );
+                }
+                if lifecycle_phase.is_none() && pr_status.is_none() {
+                    theme::badge(
+                        ui,
+                        "Lifecycle not recorded",
+                        theme::WARNING.gamma_multiply(0.16),
                         theme::TEXT,
                     );
                 }

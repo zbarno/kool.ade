@@ -20,6 +20,13 @@ fn task_map_canvas_zoom_responds_to_scroll_over_the_graph() {
         },
     );
     output.textures_delta.clear();
+    let initial_state = context.data_mut(|data| {
+        data.get_temp::<CanvasState>(egui::Id::new(("task_map_canvas_state", ticket)))
+    });
+    assert!(
+        initial_state.expect("initial graph view is persisted").zoom > 1.0,
+        "the first canvas frame fits the selected task and its immediate child"
+    );
     let mut output = context.run_ui(
         egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -100,7 +107,31 @@ fn clicking_a_canvas_task_node_requests_its_own_task_path() {
         );
         data.insert_temp(egui::Id::new("koolade_selected_task"), ticket.to_owned());
     });
-    let node_center = egui::pos2(689.0, 165.0);
+    let mut initial = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 480.0),
+            )),
+            ..Default::default()
+        },
+        |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                paint(ui, &lifecycle, ticket);
+            });
+        },
+    );
+    let node_center = initial
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text() == "Child relationship node" => {
+                Some(text.pos + text.galley.mesh_bounds.center().to_vec2())
+            }
+            _ => None,
+        })
+        .expect("fitted canvas paints the child title");
+    initial.textures_delta.clear();
     for event in [
         egui::Event::PointerMoved(node_center),
         egui::Event::PointerButton {

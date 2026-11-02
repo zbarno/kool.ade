@@ -66,6 +66,20 @@ pub(super) fn next_step(
     }
 }
 
+pub(super) fn lifecycle_unavailable_status(
+    implementation_status: Option<crate::core::implementation::ImplementationStatus>,
+) -> String {
+    use crate::core::implementation::ImplementationStatus as Status;
+    match implementation_status {
+        Some(Status::Completed) => "Implementation complete · lifecycle status not recorded".into(),
+        Some(status) => format!(
+            "Implementation {} · lifecycle status not recorded",
+            status.label()
+        ),
+        None => "Lifecycle status not recorded".into(),
+    }
+}
+
 pub(super) fn pr_status_label(
     status: crate::core::lifecycle::PullRequestPreparationStatus,
 ) -> &'static str {
@@ -161,7 +175,8 @@ pub(super) fn task_board_column(
 #[cfg(test)]
 mod tests {
     use super::{
-        board_column, gate_track, kind_label, next_step, pr_action_label, task_board_column,
+        board_column, gate_track, kind_label, lifecycle_unavailable_status, next_step,
+        pr_action_label, task_board_column,
     };
     use crate::core::lifecycle::TaskPhase;
 
@@ -273,6 +288,20 @@ mod tests {
                 2,
             ),
             3
+        );
+    }
+
+    #[test]
+    fn missing_lifecycle_evidence_does_not_inherit_a_completed_lane_label() {
+        assert_eq!(
+            lifecycle_unavailable_status(None),
+            "Lifecycle status not recorded"
+        );
+        assert_eq!(
+            lifecycle_unavailable_status(Some(
+                crate::core::implementation::ImplementationStatus::Completed
+            )),
+            "Implementation complete · lifecycle status not recorded"
         );
     }
 

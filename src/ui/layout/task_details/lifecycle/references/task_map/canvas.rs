@@ -1,6 +1,8 @@
 use crate::ui::task_detail::{LifecycleView, TaskRelationView};
+mod descendants;
 mod fit;
 mod layout;
+use descendants::append_descendants;
 use fit::fit_state;
 pub(super) use layout::relation_path;
 use layout::{draw_arrow, node_position, screen_position, task_title};
@@ -20,7 +22,7 @@ impl Default for CanvasState {
     }
 }
 
-struct Node {
+pub(super) struct Node {
     kind: &'static str,
     relationship_uid: Option<String>,
     title: String,
@@ -29,7 +31,7 @@ struct Node {
     local: egui::Vec2,
 }
 
-struct Edge {
+pub(super) struct Edge {
     from: usize,
     to: usize,
     label: &'static str,
@@ -71,10 +73,8 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) 
     let (canvas_rect, response) =
         ui.allocate_exact_size(egui::vec2(width, 320.0), egui::Sense::click_and_drag());
     let id = egui::Id::new(("task_map_canvas_state", ticket));
-    let mut state = ui
-        .ctx()
-        .data_mut(|data| data.get_temp::<CanvasState>(id))
-        .unwrap_or_default();
+    let saved_state = ui.ctx().data_mut(|data| data.get_temp::<CanvasState>(id));
+    let mut state = saved_state.unwrap_or_default();
     if response.dragged_by(egui::PointerButton::Secondary) {
         state.pan += ui.input(|input| input.pointer.delta());
     }
@@ -169,6 +169,30 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) 
             color: egui::Color32::from_rgb(205, 144, 72),
         });
     }
+    let expand_id = egui::Id::new(("task_map_expand_descendants", ticket));
+    let mut expand_descendants = ui
+        .ctx()
+        .data_mut(|data| data.get_temp::<bool>(expand_id))
+        .unwrap_or(false);
+    let mut graph_changed = false;
+    if !lifecycle.subtasks.is_empty()
+        && ui
+            .button(if expand_descendants {
+                "Collapse descendants"
+            } else {
+                "Expand descendants in graph"
+            })
+            .clicked()
+    {
+        expand_descendants = !expand_descendants;
+        graph_changed = true;
+    }
+    if expand_descendants {
+        append_descendants(ui, ticket, width, &mut nodes, &mut edges);
+    }
+    if fit_graph || graph_changed || saved_state.is_none() {
+        state = fit_state(&nodes, canvas_rect);
+    }
     for edge in &edges {
         let from = screen_position(canvas_rect, nodes[edge.from].local, state.pan, state.zoom);
         let to = screen_position(canvas_rect, nodes[edge.to].local, state.pan, state.zoom);
@@ -227,10 +251,9 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) 
             }
         }
     }
-    if fit_graph {
-        state = fit_state(&nodes, canvas_rect);
-    }
     ui.ctx().data_mut(|data| data.insert_temp(id, state));
+    ui.ctx()
+        .data_mut(|data| data.insert_temp(expand_id, expand_descendants));
     ui.small("Click a task node to open its Task Details.");
 }
 

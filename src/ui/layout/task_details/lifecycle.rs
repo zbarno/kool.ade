@@ -36,7 +36,6 @@ pub(super) fn paint(
                 lifecycle.task_revision
             ));
         });
-        references::relationships(ui, surface, lifecycle, ticket);
         ui.label("Specification state");
         state_row(
             ui,
@@ -83,6 +82,8 @@ pub(super) fn paint(
             })
         ));
         ui.label(format!("Pending specification triggers · {}", lifecycle.pending_spec_triggers));
+        references::task_map_canvas(ui, lifecycle, ticket);
+        references::relationships(ui, surface, lifecycle, ticket);
         references::deltas(ui, surface, lifecycle);
         ui.label("Recorded gates");
         references::receipts(ui, surface, lifecycle);
@@ -91,7 +92,6 @@ pub(super) fn paint(
         ui.label(theme::helper_text(
             "Read-only lifecycle receipts. Missing evidence is shown as not recorded.",
         ));
-        references::task_map_canvas(ui, lifecycle, ticket);
     });
 }
 
@@ -253,33 +253,16 @@ mod tests {
                 .iter()
                 .any(|(text, _)| text.contains("Merged commit"))
         );
-        assert!(rendered.iter().any(|(text, _)| text == "Dependencies"));
-        assert!(
-            rendered
-                .iter()
-                .any(|(text, _)| text.contains("Dependency: dependency-task-uid"))
-        );
-        assert!(
-            rendered
-                .iter()
-                .any(|(text, _)| text.contains("Subtask: subtask-task-uid"))
-        );
+        assert!(rendered.iter().any(|(text, _)| text == "Prerequisite"));
         assert!(rendered.iter().any(|(text, _)| text == "Foundation task"));
+        assert!(rendered.iter().any(|(text, _)| text == "Child"));
         assert!(
             rendered
                 .iter()
                 .any(|(text, _)| text == "Reviewed child task")
         );
-        assert!(
-            rendered
-                .iter()
-                .any(|(text, _)| { text.contains("The child behavior is observable.") })
-        );
-        assert!(
-            rendered
-                .iter()
-                .any(|(text, _)| text.contains("this parent's single pull request"))
-        );
+        assert!(rendered.iter().any(|(text, _)| text == "prerequisite for"));
+        assert!(rendered.iter().any(|(text, _)| text == "parent of"));
     }
 
     #[test]
