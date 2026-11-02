@@ -1,6 +1,100 @@
 use super::*;
 
 #[test]
+fn relationship_edge_labels_match_parent_dependency_and_child_direction() {
+    let context = egui::Context::default();
+    let mut lifecycle = super::super::tests::lifecycle_view();
+    lifecycle.parent_task = Some(TaskRelationView {
+        planning_item_uid: "parent".into(),
+        lifecycle_task_uid: Some("parent".into()),
+        title: "Parent".into(),
+        status: "Running".into(),
+        acceptance_criteria: Vec::new(),
+    });
+    lifecycle.dependencies = vec![TaskRelationView {
+        planning_item_uid: "prerequisite".into(),
+        lifecycle_task_uid: Some("prerequisite".into()),
+        title: "Prerequisite".into(),
+        status: "Completed".into(),
+        acceptance_criteria: Vec::new(),
+    }];
+    context.data_mut(|data| {
+        data.insert_temp(
+            egui::Id::new("koolade_task_dependents"),
+            std::collections::HashMap::<String, Vec<(String, String, String)>>::from([(
+                "selected.md".into(),
+                vec![("dependent.md".into(), "Dependent".into(), "Blocked".into())],
+            )]),
+        );
+    });
+    let relation = |title: &str| TaskRelationView {
+        planning_item_uid: title.to_owned(),
+        lifecycle_task_uid: Some(title.to_owned()),
+        title: title.to_owned(),
+        status: "Status not recorded".into(),
+        acceptance_criteria: Vec::new(),
+    };
+    let mut output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(800.0, 480.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let mut nodes = vec![Node {
+                    kind: "Selected task",
+                    title: "Selected".into(),
+                    status: "Running".into(),
+                    path: Some("selected.md".into()),
+                    local: egui::Vec2::ZERO,
+                }];
+                let mut edges = Vec::new();
+                for (kind, direction) in [("Parent", 0), ("Prerequisite", 1), ("Child", 2)] {
+                    add_relation(
+                        ui,
+                        &mut nodes,
+                        &mut edges,
+                        &relation(kind),
+                        kind,
+                        Placement {
+                            direction,
+                            width: 640.0,
+                            index: 0,
+                            count: 1,
+                        },
+                    );
+                }
+                assert_eq!(
+                    edges
+                        .iter()
+                        .map(|edge| (edge.from, edge.to, edge.label))
+                        .collect::<Vec<_>>(),
+                    [
+                        (1, 0, "parent of"),
+                        (2, 0, "prerequisite for"),
+                        (0, 3, "parent of"),
+                    ]
+                );
+                paint(ui, &lifecycle, "selected.md");
+            });
+        },
+    );
+    let edge_labels = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) => Some(text.galley.text().to_string()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(edge_labels.iter().any(|label| label == "blocks"));
+    output.textures_delta.clear();
+}
+
+#[test]
 fn task_map_canvas_zoom_responds_to_scroll_over_the_graph() {
     let context = egui::Context::default();
     let ticket = "planning/tasks/selected.md";
