@@ -113,6 +113,89 @@ fn task_cards_link_to_chg_feature_decisions() {
     assert!(map["CLR-900"].contains(&board.task_documents[0].path));
 }
 
+#[test]
+fn downstream_task_projection_uses_only_recorded_dependency_uids() {
+    let mut board = crate::ui::planning_board::ViewModel::default();
+    let batch = uuid::Uuid::new_v4().to_string();
+    let dependency = task_identity("TASK-1", &batch);
+    let dependent = task_identity("TASK-2", &batch);
+    let unrelated = task_identity("TASK-3", &batch);
+    let dependency_uid = dependency.uid.clone();
+    board.task_documents.push(task_doc(
+        "TASK-1.md",
+        dependency.clone(),
+        crate::artifacts::task_docs::TaskMetadata::new(&dependency, "root", Vec::new()).unwrap(),
+    ));
+    board.task_documents.push(task_doc(
+        "TASK-2.md",
+        dependent.clone(),
+        crate::artifacts::task_docs::TaskMetadata::new(&dependent, "root", vec![dependency_uid])
+            .unwrap(),
+    ));
+    board.task_documents.push(task_doc(
+        "TASK-3.md",
+        unrelated.clone(),
+        crate::artifacts::task_docs::TaskMetadata::new(&unrelated, "root", Vec::new()).unwrap(),
+    ));
+
+    let projection = task_dependents(&board);
+    let dependents = &projection[&board.task_documents[0].path];
+    assert_eq!(dependents.len(), 1);
+    assert_eq!(dependents[0].0, board.task_documents[1].path);
+    assert_eq!(dependents[0].1, "TASK-2");
+    assert_eq!(dependents[0].2, "Status not recorded");
+    board.lifecycle_tasks.insert(
+        board.task_documents[1].path.clone(),
+        crate::core::lifecycle::TaskPhase::Blocked,
+    );
+    let refreshed = task_dependents(&board);
+    assert_eq!(refreshed[&board.task_documents[0].path][0].2, "Blocked");
+}
+
+#[test]
+fn task_path_projection_rejects_ambiguous_duplicate_uids() {
+    let mut board = crate::ui::planning_board::ViewModel::default();
+    let batch = uuid::Uuid::new_v4().to_string();
+    let duplicate = task_identity("TASK-DUP", &batch);
+    for path in ["first.md", "second.md"] {
+        board.task_documents.push(task_doc(
+            path,
+            duplicate.clone(),
+            crate::artifacts::task_docs::TaskMetadata::new(&duplicate, "root", Vec::new()).unwrap(),
+        ));
+    }
+    let unique = task_identity("TASK-UNIQUE", &batch);
+    board.task_documents.push(task_doc(
+        "unique.md",
+        unique.clone(),
+        crate::artifacts::task_docs::TaskMetadata::new(&unique, "root", Vec::new()).unwrap(),
+    ));
+    let dependent = task_identity("TASK-DEP", &batch);
+    board.task_documents.push(task_doc(
+        "dependent.md",
+        dependent.clone(),
+        crate::artifacts::task_docs::TaskMetadata::new(
+            &dependent,
+            "root",
+            vec![duplicate.uid.clone()],
+        )
+        .unwrap(),
+    ));
+    let paths = unique_task_paths(&board);
+    assert_eq!(paths.len(), 2);
+    assert_eq!(paths[&unique.uid], "planning/tasks/unique.md");
+    assert_eq!(paths[&dependent.uid], "planning/tasks/dependent.md");
+    assert!(!paths.contains_key(&duplicate.uid));
+    let dependents = task_dependents(&board);
+    assert!(!dependents.contains_key("planning/tasks/first.md"));
+    assert!(!dependents.contains_key("planning/tasks/second.md"));
+    assert!(dependents.values().all(|items| {
+        items
+            .iter()
+            .all(|(path, _, _)| path != "planning/tasks/dependent.md")
+    }));
+}
+
 fn task_identity(id: &str, batch_uid: &str) -> crate::domain::ArtifactIdentity {
     let mut identity = crate::domain::ArtifactIdentity::new(id, id);
     identity.parent_uid = Some(batch_uid.into());

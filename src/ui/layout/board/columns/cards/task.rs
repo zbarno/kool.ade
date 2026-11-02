@@ -18,6 +18,49 @@ pub(in crate::ui::layout::board::columns) fn task(
         &doc.title, &doc.path,
     ));
     let lifecycle_phase = board.lifecycle_tasks.get(&doc.path).copied();
+    let child_summary = doc.metadata.as_ref().and_then(|metadata| {
+        let uid = metadata.uid.as_str();
+        let children = board
+            .task_documents
+            .iter()
+            .filter(|candidate| {
+                candidate
+                    .metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.parent_task_uid.as_deref())
+                    == Some(uid)
+            })
+            .collect::<Vec<_>>();
+        (!children.is_empty()).then(|| {
+            let complete = children
+                .iter()
+                .filter(|child| {
+                    board.lifecycle_tasks.get(&child.path)
+                        == Some(&crate::core::lifecycle::TaskPhase::Done)
+                        || s.implementation_state(&child.path).is_some_and(|state| {
+                            state.status
+                                == crate::core::implementation::ImplementationStatus::Completed
+                        })
+                })
+                .count();
+            let blocked = children
+                .iter()
+                .filter(|child| {
+                    board.lifecycle_tasks.get(&child.path)
+                        == Some(&crate::core::lifecycle::TaskPhase::Blocked)
+                        || dependency_blocker(s, board, child).is_some()
+                })
+                .count();
+            if blocked == 0 {
+                format!("{complete} of {} subtasks complete", children.len())
+            } else {
+                format!(
+                    "{complete} of {} subtasks complete · {blocked} blocked",
+                    children.len()
+                )
+            }
+        })
+    });
     let pr_status = (lifecycle_phase != Some(crate::core::lifecycle::TaskPhase::Done))
         .then(|| board.lifecycle_pr_statuses.get(&doc.path).copied())
         .flatten();
@@ -109,6 +152,9 @@ pub(in crate::ui::layout::board::columns) fn task(
                 *selected_path = Some(doc.path.clone());
             }
             ui.label(theme::helper_text(status));
+            if let Some(summary) = &child_summary {
+                ui.label(theme::helper_text(summary));
+            }
             super::super::super::super::activity::paint_card(ui, s, &doc.path, true);
             let pr_action = pr_status.and_then(super::task_semantics::pr_action_label);
             if (column == 2 || column == 3 || pr_action.is_some())

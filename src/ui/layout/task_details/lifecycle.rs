@@ -34,7 +34,7 @@ pub(super) fn paint(
                 lifecycle.task_revision
             ));
         });
-        references::relationships(ui, surface, lifecycle);
+        references::relationships(ui, surface, lifecycle, ticket);
         ui.label("Specification state");
         state_row(
             ui,

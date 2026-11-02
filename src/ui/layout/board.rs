@@ -36,6 +36,13 @@ pub(super) fn paint(
         .ctx()
         .data_mut(|d| d.get_temp::<String>(egui::Id::new("koolade_selected_planning")));
     let relationship_map = relationships::build(board);
+    let task_paths = relationships::unique_task_paths(board);
+    let task_titles = board
+        .task_documents
+        .iter()
+        .map(|doc| (doc.path.clone(), doc.title.clone()))
+        .collect::<std::collections::HashMap<_, _>>();
+    let dependents = relationships::task_dependents(board);
     ui.ctx().data_mut(|data| {
         data.insert_temp(
             egui::Id::new("koolade_board_relationship_map"),
@@ -45,6 +52,9 @@ pub(super) fn paint(
             egui::Id::new("koolade_board_hover_next"),
             std::collections::HashSet::<String>::new(),
         );
+        data.insert_temp(egui::Id::new("koolade_task_paths_by_uid"), task_paths);
+        data.insert_temp(egui::Id::new("koolade_task_titles_by_path"), task_titles);
+        data.insert_temp(egui::Id::new("koolade_task_dependents"), dependents);
     });
     if let Some(error) = board.lifecycle_error.as_deref() {
         ui.colored_label(
@@ -114,8 +124,16 @@ pub(super) fn paint(
                     );
                 },
             );
-            if closed {
+            let navigation = ui.ctx().data_mut(|data| {
+                data.remove_temp::<String>(egui::Id::new("koolade_task_relationship_navigation"))
+            });
+            if let Some(path) = navigation {
+                selected_path = Some(path);
+            } else if closed {
                 selected_path = None;
+                ui.ctx().data_mut(|data| {
+                    data.remove::<Vec<String>>(egui::Id::new("koolade_task_relationship_history"));
+                });
             }
         } else {
             selected_path = None;
@@ -124,6 +142,9 @@ pub(super) fn paint(
     }
     if ui.ctx().input(|input| input.key_pressed(egui::Key::Escape)) {
         selected_path = None;
+        ui.ctx().data_mut(|data| {
+            data.remove::<Vec<String>>(egui::Id::new("koolade_task_relationship_history"));
+        });
         planning_selection = None;
         activity_path = None;
     }

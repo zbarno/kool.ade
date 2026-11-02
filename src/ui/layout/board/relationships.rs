@@ -3,6 +3,85 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub(super) type Map = HashMap<String, HashSet<String>>;
 
+pub(super) type Dependents = HashMap<String, Vec<(String, String, String)>>;
+
+pub(super) fn unique_task_paths(board: &ViewModel) -> HashMap<String, String> {
+    let mut paths = HashMap::new();
+    let mut ambiguous = HashSet::new();
+    for doc in &board.task_documents {
+        let Some(identity) = &doc.identity else {
+            continue;
+        };
+        if paths.contains_key(&identity.uid) {
+            paths.remove(&identity.uid);
+            ambiguous.insert(identity.uid.clone());
+        } else if !ambiguous.contains(&identity.uid) {
+            paths.insert(identity.uid.clone(), doc.path.clone());
+        }
+    }
+    paths
+}
+
+pub(super) fn task_dependents(board: &ViewModel) -> Dependents {
+    let unique_paths = unique_task_paths(board);
+    board
+        .task_documents
+        .iter()
+        .filter_map(|doc| {
+            let uid = doc.identity.as_ref()?.uid.clone();
+            if unique_paths.get(&uid) != Some(&doc.path) {
+                return None;
+            }
+            Some((
+                doc.path.clone(),
+                board
+                    .task_documents
+                    .iter()
+                    .filter_map(|candidate| {
+                        let metadata = candidate.metadata.as_ref()?;
+                        let identity = candidate.identity.as_ref()?;
+                        if unique_paths.get(&identity.uid) != Some(&candidate.path) {
+                            return None;
+                        }
+                        metadata.dependency_uids.contains(&uid).then(|| {
+                            (
+                                candidate.path.clone(),
+                                candidate.title.clone(),
+                                task_status(board, &candidate.path),
+                            )
+                        })
+                    })
+                    .collect(),
+            ))
+        })
+        .collect()
+}
+
+fn task_status(board: &ViewModel, path: &str) -> String {
+    let phase = board
+        .lifecycle_tasks
+        .get(path)
+        .copied()
+        .map(crate::ui::task_detail::task_phase_label);
+    let pr_status = board.lifecycle_pr_statuses.get(path).map(|status| {
+        use crate::core::lifecycle::PullRequestPreparationStatus as Pr;
+        match status {
+            Pr::AwaitingAuthorization => "PR awaiting authorization",
+            Pr::Publishing => "PR publishing",
+            Pr::NeedsAttention => "PR needs attention",
+            Pr::Opened => "PR open",
+            Pr::ClosedUnmerged => "PR closed unmerged",
+            Pr::Merged => "PR merged",
+        }
+    });
+    match (phase, pr_status) {
+        (Some(phase), Some(pr)) => format!("{phase} · {pr}"),
+        (Some(phase), None) => phase.to_owned(),
+        (None, Some(pr)) => pr.to_owned(),
+        (None, None) => "Status not recorded".to_owned(),
+    }
+}
+
 pub(super) fn build(board: &ViewModel) -> Map {
     let mut tags = BTreeMap::<String, Vec<String>>::new();
     let mut card_keys = Vec::new();
