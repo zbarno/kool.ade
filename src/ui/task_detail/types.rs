@@ -163,6 +163,17 @@ pub struct PlanningItemRelationView {
     pub feature_reference_conflict: bool,
 }
 
+#[derive(Clone)]
+pub struct OpportunityRelationView {
+    pub opportunity_uid: String,
+    pub conversation_key: String,
+    pub title: String,
+    pub kind: String,
+    pub status: String,
+    pub relation: String,
+    pub navigable: bool,
+}
+
 pub fn task_phase_label(phase: crate::core::lifecycle::TaskPhase) -> &'static str {
     use crate::core::lifecycle::TaskPhase as Phase;
     match phase {

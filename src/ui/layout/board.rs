@@ -57,6 +57,8 @@ pub(super) fn paint(
         },
     );
     let planning_item_keys = relationships::unique_planning_item_keys(&board.planning_items);
+    let task_uids_by_path = relationships::unique_task_uids_by_path(board);
+    let opportunity_relations = relationships::opportunity_relations(board);
     ui.ctx().data_mut(|data| {
         data.insert_temp(
             egui::Id::new("koolade_board_relationship_map"),
@@ -85,6 +87,22 @@ pub(super) fn paint(
             egui::Id::new("koolade_task_planning_item_keys"),
             planning_item_keys,
         );
+        data.insert_temp(
+            egui::Id::new("koolade_task_uids_by_path"),
+            task_uids_by_path,
+        );
+        data.insert_temp(
+            egui::Id::new("koolade_task_opportunity_relations"),
+            opportunity_relations,
+        );
+        if let Some(error) = &board.opportunity_error {
+            data.insert_temp(
+                egui::Id::new("koolade_task_opportunity_error"),
+                error.clone(),
+            );
+        } else {
+            data.remove::<String>(egui::Id::new("koolade_task_opportunity_error"));
+        }
     });
     if let Some(error) = board.lifecycle_error.as_deref() {
         ui.colored_label(

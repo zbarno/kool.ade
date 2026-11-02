@@ -294,6 +294,54 @@ fn planning_work_navigation_preserves_the_returning_task_path() {
 }
 
 #[test]
+fn planning_details_back_button_restores_the_originating_task() {
+    let context = egui::Context::default();
+    context.data_mut(|data| {
+        data.insert_temp(
+            egui::Id::new("koolade_task_relationship_work_return"),
+            "feature/task.md".to_owned(),
+        );
+    });
+    let mut output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(600.0, 400.0),
+            )),
+            ..Default::default()
+        },
+        |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                crate::ui::layout::task_details::planning::paint_relationship_back(ui)
+            });
+        },
+    );
+    let position = output
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text() == "← Back to task map" => {
+                Some(text.pos + text.galley.mesh_bounds.center().to_vec2())
+            }
+            _ => None,
+        })
+        .expect("back link is rendered");
+    output.textures_delta.clear();
+    for pressed in [true, false] {
+        let mut output = context.run_ui(pointer_input(position, pressed), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                crate::ui::layout::task_details::planning::paint_relationship_back(ui)
+            });
+        });
+        output.textures_delta.clear();
+    }
+    let return_path = context.data_mut(|data| {
+        data.get_temp::<String>(egui::Id::new("koolade_task_relationship_task_navigation"))
+    });
+    assert_eq!(return_path.as_deref(), Some("feature/task.md"));
+}
+
+#[test]
 fn planning_item_relationships_keep_one_hundred_entries_bounded() {
     let records = (0..100)
         .map(|index| crate::ui::task_detail::PlanningItemRelationView {

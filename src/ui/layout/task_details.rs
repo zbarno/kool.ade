@@ -258,6 +258,7 @@ pub(super) fn paint_opportunity(
     record_revision: u64,
     height: f32,
 ) {
+    planning::paint_relationship_back(ui);
     planning::paint_opportunity(ui, surface, board, proposal, record_revision, height);
 }
 

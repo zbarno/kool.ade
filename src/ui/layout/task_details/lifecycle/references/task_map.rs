@@ -1,5 +1,6 @@
 use crate::ui::{Surface, task_detail::LifecycleView};
 
+mod opportunities;
 mod planning_items;
 mod planning_work;
 mod status;
@@ -64,12 +65,45 @@ pub(crate) fn relationships(
             .and_then(|relations| relations.get(&lifecycle.feature_uid).cloned())
             .unwrap_or_default()
     });
+    let task_uid = ui.ctx().data_mut(|data| {
+        data.get_temp::<std::collections::HashMap<String, String>>(egui::Id::new(
+            "koolade_task_uids_by_path",
+        ))
+        .and_then(|uids| uids.get(ticket).cloned())
+    });
+    let opportunity_relations = ui.ctx().data_mut(|data| {
+        let relations =
+            data.get_temp::<std::collections::HashMap<
+                String,
+                Vec<crate::ui::task_detail::OpportunityRelationView>,
+            >>(egui::Id::new("koolade_task_opportunity_relations"));
+        let mut related = relations
+            .as_ref()
+            .and_then(|relations| relations.get(&lifecycle.feature_uid))
+            .cloned()
+            .unwrap_or_default();
+        if let Some(task_uid) = &task_uid
+            && let Some(task_related) = relations
+                .as_ref()
+                .and_then(|relations| relations.get(task_uid))
+        {
+            related.extend(task_related.iter().cloned());
+        }
+        let mut seen = std::collections::HashSet::new();
+        related.retain(|item| seen.insert((item.opportunity_uid.clone(), item.relation.clone())));
+        related
+    });
+    let opportunity_error = ui
+        .ctx()
+        .data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_task_opportunity_error")));
     if lifecycle.parent_task.is_none()
         && lifecycle.dependencies.is_empty()
         && lifecycle.subtasks.is_empty()
         && dependents.is_empty()
         && planning_relations.is_empty()
         && decision_relations.is_empty()
+        && opportunity_relations.is_empty()
+        && opportunity_error.is_none()
     {
         ui.label(crate::ui::theme::helper_text(
             "No recorded task relationships.",
@@ -163,6 +197,14 @@ pub(crate) fn relationships(
     }
     if !decision_relations.is_empty() {
         planning_items::paint(ui, &lifecycle.feature_uid, &decision_relations);
+    }
+    if !opportunity_relations.is_empty() {
+        opportunities::paint(ui, &opportunity_relations);
+    }
+    if opportunity_error.is_some() {
+        ui.label(crate::ui::theme::helper_text(
+            "Related opportunity records are unavailable because the planning store could not load them.",
+        ));
     }
 }
 

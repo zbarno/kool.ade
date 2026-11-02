@@ -1,7 +1,9 @@
 use crate::ui::planning_board::ViewModel;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+mod opportunities;
 mod planning_items;
+pub(super) use opportunities::opportunity_relations;
 mod planning_work;
 pub(super) use planning_items::{planning_item_relations, unique_planning_item_keys};
 pub(super) use planning_work::{
@@ -27,6 +29,13 @@ pub(super) fn unique_task_paths(board: &ViewModel) -> HashMap<String, String> {
         }
     }
     paths
+}
+
+pub(super) fn unique_task_uids_by_path(board: &ViewModel) -> HashMap<String, String> {
+    unique_task_paths(board)
+        .into_iter()
+        .map(|(uid, path)| (path, uid))
+        .collect()
 }
 
 pub(super) fn task_dependents(board: &ViewModel) -> Dependents {

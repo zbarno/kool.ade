@@ -85,6 +85,11 @@ pub(super) fn paint(
             );
         });
         clear_if_closed(selection, closed);
+        if closed {
+            ui.ctx().data_mut(|data| {
+                data.remove::<String>(egui::Id::new("koolade_task_relationship_work_return"));
+            });
+        }
     } else if let Some(feature_uid) = selection
         .as_deref()
         .and_then(|key| key.strip_prefix("feature-plan-review:"))
