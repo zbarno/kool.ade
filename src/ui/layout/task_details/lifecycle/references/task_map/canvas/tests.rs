@@ -163,3 +163,49 @@ fn task_map_canvas_stays_hidden_when_a_task_has_no_graph_relationships() {
     output.textures_delta.clear();
     assert!(!shows_canvas);
 }
+
+#[test]
+fn task_map_canvas_keeps_one_hundred_direct_children_available_to_pan_and_zoom() {
+    let context = egui::Context::default();
+    let mut lifecycle = super::super::tests::lifecycle_view();
+    lifecycle.subtasks = (0..100)
+        .map(|index| TaskRelationView {
+            planning_item_uid: format!("child-{index}"),
+            lifecycle_task_uid: Some(format!("child-task-{index}")),
+            title: format!("Child {index}"),
+            status: "Running".into(),
+            acceptance_criteria: Vec::new(),
+        })
+        .collect();
+    let mut output = context.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(640.0, 360.0),
+            )),
+            ..Default::default()
+        },
+        |context| {
+            egui::CentralPanel::default().show(context, |ui| {
+                paint(ui, &lifecycle, "planning/tasks/selected.md");
+            });
+        },
+    );
+    let child_titles = output
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) if text.galley.text().starts_with("Child ") => {
+                Some(text.galley.text().to_owned())
+            }
+            _ => None,
+        })
+        .collect::<std::collections::HashSet<_>>();
+    let shape_count = output.shapes.len();
+    output.textures_delta.clear();
+    assert_eq!(child_titles.len(), 100);
+    assert!(
+        shape_count < 1_000,
+        "the bounded canvas emits {shape_count} shapes"
+    );
+}
