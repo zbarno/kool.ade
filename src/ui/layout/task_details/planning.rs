@@ -59,6 +59,23 @@ pub(super) fn paint_work(
     );
 }
 
+pub(super) fn paint_relationship_back(ui: &mut egui::Ui) {
+    let return_path = ui.ctx().data_mut(|data| {
+        data.get_temp::<String>(egui::Id::new("koolade_task_relationship_work_return"))
+    });
+    if let Some(return_path) = return_path
+        && ui.button("← Back to task map").clicked()
+    {
+        ui.ctx().data_mut(|data| {
+            data.remove::<String>(egui::Id::new("koolade_task_relationship_work_return"));
+            data.insert_temp(
+                egui::Id::new("koolade_task_relationship_task_navigation"),
+                return_path,
+            );
+        });
+    }
+}
+
 pub(super) fn paint_opportunity(
     ui: &mut egui::Ui,
     surface: &mut dyn Surface,

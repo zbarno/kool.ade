@@ -11,6 +11,7 @@ type ModalFooter<'a> = Option<Box<dyn FnOnce(&mut egui::Ui) + 'a>>;
 struct ModalConfig<'a> {
     title: &'a str,
     identity: &'a str,
+    modal_identity: Option<&'a str>,
     width: f32,
     kind: SurfaceKind,
     bounds: Option<egui::Rect>,
@@ -35,6 +36,7 @@ where
         ModalConfig {
             title,
             identity: title,
+            modal_identity: None,
             width,
             kind,
             bounds: None,
@@ -64,6 +66,7 @@ where
         ModalConfig {
             title,
             identity: title,
+            modal_identity: None,
             width: 800.0,
             kind: SurfaceKind::Medium,
             bounds: None,
@@ -88,6 +91,7 @@ pub fn show_workspace_modal(
         ModalConfig {
             title,
             identity: title,
+            modal_identity: None,
             width: 0.0,
             kind: SurfaceKind::Workspace,
             bounds: None,
@@ -113,6 +117,7 @@ pub fn show_settings_modal(
         ModalConfig {
             title,
             identity: title,
+            modal_identity: None,
             width: 1120.0,
             kind: SurfaceKind::Workspace,
             bounds: None,
@@ -152,6 +157,7 @@ pub fn show_panel_modal(
         ModalConfig {
             title,
             identity: title,
+            modal_identity: None,
             width: bounds.width(),
             kind: SurfaceKind::Workspace,
             bounds: Some(bounds),
@@ -173,6 +179,29 @@ pub fn show_task_modal(
         ModalConfig {
             title: "Task details",
             identity: ticket,
+            modal_identity: None,
+            width: bounds.width(),
+            kind: SurfaceKind::Workspace,
+            bounds: None,
+            footer: None,
+            body_owns_scroll: false,
+        },
+        body,
+    )
+}
+
+pub fn show_task_details_modal(
+    ui: &mut egui::Ui,
+    ticket: &str,
+    bounds: egui::Rect,
+    body: impl FnOnce(&mut egui::Ui),
+) -> bool {
+    modal(
+        ui,
+        ModalConfig {
+            title: "Task details",
+            identity: ticket,
+            modal_identity: Some("task-details-navigation"),
             width: bounds.width(),
             kind: SurfaceKind::Workspace,
             bounds: None,
@@ -187,6 +216,7 @@ fn modal(ui: &mut egui::Ui, config: ModalConfig<'_>, body: impl FnOnce(&mut egui
     let ModalConfig {
         title,
         identity,
+        modal_identity,
         width,
         kind,
         bounds,
@@ -205,7 +235,7 @@ fn modal(ui: &mut egui::Ui, config: ModalConfig<'_>, body: impl FnOnce(&mut egui
     let width = (rect.width() - if task_details { 64.0 } else { 34.0 }).max(80.0);
     let footer_height = if footer.is_some() { 62.0 } else { 0.0 };
     let height = (rect.height() - 84.0 - footer_height).max(40.0);
-    let id = egui::Id::new("koolade_modal").with(identity);
+    let id = egui::Id::new("koolade_modal").with(modal_identity.unwrap_or(identity));
     let mut modal = egui::Modal::new(id).frame(
         Frame::NONE
             .fill(if task_details {

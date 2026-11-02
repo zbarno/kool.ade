@@ -76,6 +76,89 @@ fn task_cards_open_persisted_conversation_in_details_and_keep_each_draft_isolate
 }
 
 #[test]
+fn relationship_navigation_and_back_restore_each_tasks_own_chat_and_draft() {
+    let mut app = fixture();
+    let ctx = egui::Context::default();
+    let first = "planning/tasks/fixture/001-task.md";
+    let second = "planning/tasks/fixture/002-task.md";
+    *app.task_draft(first).unwrap() = "Draft for original task".into();
+    *app.task_draft(second).unwrap() = "Draft for related task".into();
+    if let Screen::Connected(project) = &mut app.screen {
+        project.task_chats.messages.insert(
+            first.into(),
+            vec![ChatMessage::new(
+                ChatRole::Agent,
+                "Original task thread",
+                None,
+            )],
+        );
+        project.task_chats.messages.insert(
+            second.into(),
+            vec![ChatMessage::new(
+                ChatRole::Agent,
+                "Related task thread",
+                None,
+            )],
+        );
+    }
+    frame(&mut app, &ctx, vec![]);
+    let original = click_text(&mut app, &ctx, "First task");
+    assert!(text_contains(&original, "Original task thread"));
+    assert!(text_contains(&original, "Draft for original task"));
+
+    ctx.data_mut(|data| {
+        data.insert_temp(
+            egui::Id::new("koolade_task_relationship_history"),
+            vec![first.to_owned()],
+        );
+        data.insert_temp(
+            egui::Id::new("koolade_task_relationship_navigation"),
+            second.to_owned(),
+        );
+    });
+    frame(&mut app, &ctx, vec![]);
+    assert_eq!(
+        ctx.data_mut(|data| { data.get_temp::<String>(egui::Id::new("koolade_selected_task")) })
+            .as_deref(),
+        Some(second),
+        "the board consumes the relationship navigation intent"
+    );
+    let related = frame(&mut app, &ctx, vec![]);
+    let shown = related
+        .shapes
+        .iter()
+        .filter_map(|shape| match &shape.shape {
+            egui::Shape::Text(text) => Some(text.galley.text().to_string()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        text_contains(&related, "Related task thread"),
+        "related task transcript should be scoped to its selected path: {shown:?}"
+    );
+    assert!(text_contains(&related, "Draft for related task"));
+    assert!(!text_contains(&related, "Original task thread"));
+    assert!(!text_contains(&related, "Draft for original task"));
+
+    ctx.data_mut(|data| {
+        data.insert_temp(
+            egui::Id::new("koolade_task_relationship_history"),
+            Vec::<String>::new(),
+        );
+        data.insert_temp(
+            egui::Id::new("koolade_task_relationship_navigation"),
+            first.to_owned(),
+        );
+    });
+    frame(&mut app, &ctx, vec![]);
+    let restored = frame(&mut app, &ctx, vec![]);
+    assert!(text_contains(&restored, "Original task thread"));
+    assert!(text_contains(&restored, "Draft for original task"));
+    assert!(!text_contains(&restored, "Related task thread"));
+    assert!(!text_contains(&restored, "Draft for related task"));
+}
+
+#[test]
 fn narrow_workspace_does_not_restore_main_chat_for_questions() {
     let mut app = fixture();
     if let Screen::Connected(p) = &mut app.screen {
@@ -162,4 +245,50 @@ fn document_switcher_displays_product_and_multiple_features_without_task_story_t
     let second = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&second, "Second proposal marker").is_some());
     assert!(text_position(&second, "First proposal marker").is_none());
+}
+
+#[test]
+fn selected_task_follows_its_uid_across_path_rename() {
+    let mut app = fixture();
+    let ctx = egui::Context::default();
+    let old_path = "planning/tasks/fixture/001-task.md";
+    let renamed_path = "planning/tasks/renamed/001-task.md";
+    if let Screen::Connected(project) = &mut app.screen {
+        let mut identity = crate::domain::ArtifactIdentity::new("TASK-RENAME", "First task");
+        identity.parent_uid = Some(uuid::Uuid::new_v4().to_string());
+        let metadata =
+            crate::artifacts::task_docs::TaskMetadata::new(&identity, "root", Vec::new()).unwrap();
+        let document = project
+            .task_documents
+            .iter_mut()
+            .find(|document| document.path == old_path)
+            .unwrap();
+        document.identity = Some(identity);
+        document.metadata = Some(metadata);
+        project.bind_task_conversation_identities();
+    }
+    frame(&mut app, &ctx, vec![]);
+    click_text(&mut app, &ctx, "First task");
+    frame(&mut app, &ctx, vec![]);
+    assert!(
+        ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_task_uid")))
+            .is_some()
+    );
+
+    if let Screen::Connected(project) = &mut app.screen {
+        let document = project
+            .task_documents
+            .iter_mut()
+            .find(|document| document.path == old_path)
+            .unwrap();
+        document.path = renamed_path.into();
+        project.bind_task_conversation_identities();
+    }
+    frame(&mut app, &ctx, vec![]);
+
+    assert_eq!(
+        ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_task")))
+            .as_deref(),
+        Some(renamed_path)
+    );
 }

@@ -1,8 +1,10 @@
 use super::*;
 #[path = "lifecycle/code_review.rs"]
 mod code_review;
+mod phase;
 mod qa_gallery;
 mod references;
+use phase::feature_phase_label;
 
 pub(super) fn paint(
     ui: &mut egui::Ui,
@@ -34,7 +36,6 @@ pub(super) fn paint(
                 lifecycle.task_revision
             ));
         });
-        references::relationships(ui, surface, lifecycle);
         ui.label("Specification state");
         state_row(
             ui,
@@ -81,6 +82,8 @@ pub(super) fn paint(
             })
         ));
         ui.label(format!("Pending specification triggers · {}", lifecycle.pending_spec_triggers));
+        references::task_map_canvas(ui, lifecycle, ticket);
+        references::relationships(ui, surface, lifecycle, ticket);
         references::deltas(ui, surface, lifecycle);
         ui.label("Recorded gates");
         references::receipts(ui, surface, lifecycle);
@@ -97,22 +100,6 @@ fn state_row(ui: &mut egui::Ui, label: &str, hash: Option<&str>) {
         ui.label(RichText::new(label).strong());
         ui.label(hash.unwrap_or("Not recorded"));
     });
-}
-
-fn feature_phase_label(phase: crate::core::lifecycle::FeaturePhase) -> &'static str {
-    use crate::core::lifecycle::FeaturePhase;
-    match phase {
-        FeaturePhase::Exploring => "Exploring",
-        FeaturePhase::AwaitingAnswers => "Awaiting answers",
-        FeaturePhase::AwaitingPlanConfirmation => "Awaiting plan confirmation",
-        FeaturePhase::PlanReviewPending => "Independent plan review",
-        FeaturePhase::PlanRework => "Plan rework",
-        FeaturePhase::ReadyToDecompose => "Ready to generate tasks",
-        FeaturePhase::Decomposing => "Generating tasks",
-        FeaturePhase::Executing => "In implementation",
-        FeaturePhase::Complete => "Complete",
-        FeaturePhase::Cancelled => "Cancelled",
-    }
 }
 
 #[cfg(test)]
@@ -266,33 +253,16 @@ mod tests {
                 .iter()
                 .any(|(text, _)| text.contains("Merged commit"))
         );
-        assert!(rendered.iter().any(|(text, _)| text == "Dependencies"));
-        assert!(
-            rendered
-                .iter()
-                .any(|(text, _)| text.contains("Dependency: dependency-task-uid"))
-        );
-        assert!(
-            rendered
-                .iter()
-                .any(|(text, _)| text.contains("Subtask: subtask-task-uid"))
-        );
+        assert!(rendered.iter().any(|(text, _)| text == "Prerequisite"));
         assert!(rendered.iter().any(|(text, _)| text == "Foundation task"));
+        assert!(rendered.iter().any(|(text, _)| text == "Child"));
         assert!(
             rendered
                 .iter()
                 .any(|(text, _)| text == "Reviewed child task")
         );
-        assert!(
-            rendered
-                .iter()
-                .any(|(text, _)| { text.contains("The child behavior is observable.") })
-        );
-        assert!(
-            rendered
-                .iter()
-                .any(|(text, _)| text.contains("this parent's single pull request"))
-        );
+        assert!(rendered.iter().any(|(text, _)| text == "prerequisite for"));
+        assert!(rendered.iter().any(|(text, _)| text == "parent of"));
     }
 
     #[test]

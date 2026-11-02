@@ -1,41 +1,10 @@
 use crate::ui::{Surface, task_detail::LifecycleView};
 
-pub(super) fn relationships(
-    ui: &mut egui::Ui,
-    surface: &mut Option<&mut dyn Surface>,
-    lifecycle: &LifecycleView,
-) {
-    if lifecycle.parent_task.is_none()
-        && lifecycle.dependencies.is_empty()
-        && lifecycle.subtasks.is_empty()
-    {
-        return;
-    }
-    ui.label(crate::ui::theme::section_heading("Task relationships"));
-    if let Some(parent) = &lifecycle.parent_task {
-        relation_link(ui, surface, lifecycle, "Subtask of", parent);
-        ui.label(crate::ui::theme::helper_text(format!(
-            "{} · changes are included in the parent's single pull request.",
-            parent.status
-        )));
-    }
-    if !lifecycle.dependencies.is_empty() {
-        ui.label("Dependencies");
-        for dependency in &lifecycle.dependencies {
-            relation_link(ui, surface, lifecycle, "Dependency", dependency);
-            ui.label(crate::ui::theme::helper_text(&dependency.status));
-        }
-    }
-    if !lifecycle.subtasks.is_empty() {
-        ui.label("Owned subtasks · all changes are included in this parent's single pull request");
-        for subtask in &lifecycle.subtasks {
-            relation_link(ui, surface, lifecycle, "Subtask", subtask);
-            ui.label(crate::ui::theme::helper_text(&subtask.status));
-            for criterion in &subtask.acceptance_criteria {
-                ui.label(format!("  • {criterion}"));
-            }
-        }
-    }
+mod task_map;
+pub(crate) use task_map::relationships;
+
+pub(super) fn task_map_canvas(ui: &mut egui::Ui, lifecycle: &LifecycleView, ticket: &str) {
+    task_map::canvas(ui, lifecycle, ticket);
 }
 
 pub(super) fn deltas(
@@ -143,28 +112,6 @@ pub(super) fn receipts(
         "Specification reconciliation",
         lifecycle.spec_reconciliation.as_ref(),
     );
-}
-
-fn relation_link(
-    ui: &mut egui::Ui,
-    surface: &mut Option<&mut dyn Surface>,
-    lifecycle: &LifecycleView,
-    label: &str,
-    relation: &crate::ui::task_detail::TaskRelationView,
-) {
-    if let Some(task_uid) = relation.lifecycle_task_uid.as_deref() {
-        trace_link(
-            ui,
-            surface,
-            lifecycle,
-            crate::core::lifecycle::SpecTraceReferenceKindV1::Task,
-            label,
-            task_uid,
-        );
-    } else {
-        ui.label(label);
-    }
-    ui.small(&relation.title);
 }
 
 fn receipt_row(

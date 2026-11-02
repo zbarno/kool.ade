@@ -235,6 +235,7 @@ pub(super) fn paint_planning_item(
     item: &crate::domain::item::OpenItem,
     height: f32,
 ) {
+    planning::paint_relationship_back(ui);
     planning::paint_item(ui, surface, board, item, height);
 }
 
@@ -245,6 +246,7 @@ pub(super) fn paint_planning_work(
     work: &crate::core::planning_work::Work,
     height: f32,
 ) {
+    planning::paint_relationship_back(ui);
     planning::paint_work(ui, surface, board, work, height);
 }
 
@@ -256,6 +258,7 @@ pub(super) fn paint_opportunity(
     record_revision: u64,
     height: f32,
 ) {
+    planning::paint_relationship_back(ui);
     planning::paint_opportunity(ui, surface, board, proposal, record_revision, height);
 }
 
