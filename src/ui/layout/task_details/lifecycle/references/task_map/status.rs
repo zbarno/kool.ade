@@ -62,3 +62,7 @@ pub(super) fn node_status_text(status: &str) -> String {
     };
     format!("{marker} {label}")
 }
+
+#[cfg(test)]
+#[path = "status_tests.rs"]
+mod tests;

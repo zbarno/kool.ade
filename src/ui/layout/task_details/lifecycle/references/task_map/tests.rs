@@ -1,4 +1,4 @@
-use super::{navigate_back, navigate_to, relation_link, status::node_status_text};
+use super::{navigate_back, navigate_to, relation_link};
 
 pub(super) fn lifecycle_view() -> crate::ui::task_detail::LifecycleView {
     use crate::core::lifecycle::{FeaturePhase, SpecReconciliationStatusV1, TaskPhase};
@@ -60,37 +60,6 @@ fn pointer_input(position: egui::Pos2, pressed: bool) -> egui::RawInput {
         ],
         ..Default::default()
     }
-}
-
-#[test]
-fn related_node_statuses_keep_exceptions_visible_without_color() {
-    assert_eq!(node_status_text("Running"), "● Running");
-    assert_eq!(node_status_text("Blocked"), "⚠ Blocked");
-    assert_eq!(
-        node_status_text("Waiting for your decision"),
-        "✋ Needs user input"
-    );
-    assert_eq!(node_status_text("Cancelled"), "× Cancelled");
-    assert_eq!(node_status_text("Failed"), "! Failed");
-    assert_eq!(node_status_text("Resolved"), "✓ Completed");
-    assert_eq!(node_status_text("Answer saved"), "◷ Answer saved");
-    assert_eq!(
-        node_status_text("Implementation complete · PR awaiting authorization"),
-        "◷ Implementation complete · PR awaiting authorization"
-    );
-    assert_eq!(
-        node_status_text("Implementation complete · PR merged"),
-        "✓ Implementation complete · PR merged"
-    );
-    assert_eq!(node_status_text("Waiting for review"), "◷ Awaiting review");
-    assert_eq!(
-        node_status_text("Waiting for capacity"),
-        "… Waiting for capacity"
-    );
-    assert_eq!(
-        node_status_text("Status not recorded"),
-        "? Status not recorded"
-    );
 }
 
 #[test]
