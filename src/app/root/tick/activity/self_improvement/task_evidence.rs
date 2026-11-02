@@ -71,7 +71,15 @@ pub(super) fn synchronize(
         return Ok(());
     }
     if let Some(implementation) = implementation_for(project, &task)
-        && run.phase == Phase::Implementing
+        && matches!(
+            run.phase,
+            Phase::Implementing
+                | Phase::Reviewing
+                | Phase::Qa
+                | Phase::SpecSync
+                | Phase::DoneAwaitingPr
+                | Phase::PrPending
+        )
         && run.parent_task_progress.iter().all(|progress| {
             progress.implementation_sha256.is_some() && progress.pr_head_sha.is_some()
         })
@@ -79,6 +87,9 @@ pub(super) fn synchronize(
             implementation.verified_head.as_ref(),
             task.implementation_sha256.as_ref(),
         )
+        && (run.phase == Phase::Implementing
+            || run.implementation_head_sha.as_deref() != Some(head_sha.as_str())
+            || run.implementation_subject_sha256.as_deref() != Some(subject_sha256.as_str()))
     {
         apply(
             runs,
@@ -154,12 +165,13 @@ pub(super) fn synchronize(
             .parent_task_progress
             .iter()
             .all(|progress| progress.pr_work_item_uid.is_some())
+        && let Some(spec_receipt_uid) = run.spec_receipt_uid.as_ref()
         && let Some(work_item_uid) = task.pr_work_item_uid.as_ref()
     {
         apply(
             runs,
             run,
-            &format!("pr-prepared:{work_item_uid}"),
+            &format!("pr-prepared:{work_item_uid}:{spec_receipt_uid}"),
             Event::PrPrepared {
                 work_item_uid: work_item_uid.clone(),
             },

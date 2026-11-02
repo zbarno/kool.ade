@@ -1,6 +1,8 @@
 use crate::core::lifecycle::{GateActor, GateDecision, GateReceipt, TaskEvent, TaskPhase};
 use crate::core::self_improvement::SelfImprovementPhaseV1 as Phase;
-use crate::harness::prompt_catalog::{PromptRole, RoleInputV1, RolePayloadV1, render};
+use crate::harness::prompt_catalog::PromptRole;
+
+use fixtures::{apply_task, reviewer_receipt};
 
 pub(super) fn verify_reviewer_and_qa_projection(
     app: &mut crate::app::root::KooladeApp,
@@ -192,11 +194,11 @@ pub(super) fn verify_reviewer_and_qa_projection(
         "specification completion was blocked: {:?}",
         project.activity.pending
     );
-    let work_uid = completed
+    let old_work_uid = completed
         .pr_work_item_uid
         .as_deref()
         .expect("spec reconciliation creates a scoped PR-preparation item");
-    let work = lifecycle.load_pr_preparation(work_uid).unwrap();
+    let work = lifecycle.load_pr_preparation(old_work_uid).unwrap();
     assert_eq!(work.task_uid, task_uid);
     assert_eq!(work.included_task_uids, vec![task_uid.to_owned()]);
     assert_eq!(
@@ -206,89 +208,62 @@ pub(super) fn verify_reviewer_and_qa_projection(
     assert!(work.publication_authorization.is_none());
 
     super::synchronize_app_run(app, lifecycle, runs, run_uid).unwrap();
+    assert_eq!(runs.load(run_uid).unwrap().phase, Phase::PrPending);
+    let work_uid = repair_replay::verify_post_qa_spec_repair(
+        app,
+        lifecycle,
+        runs,
+        run_uid,
+        task_uid,
+        old_work_uid,
+    );
+    let completed = lifecycle.load_task(task_uid).unwrap();
+    assert_eq!(completed.phase, TaskPhase::Done);
+    assert_eq!(
+        completed.pr_work_item_uid.as_deref(),
+        Some(work_uid.as_str())
+    );
+
+    super::synchronize_app_run(app, lifecycle, runs, run_uid).unwrap();
     let run = runs.load(run_uid).unwrap();
     assert_eq!(run.phase, Phase::PrPending);
     assert_eq!(run.parent_task_progress.len(), 1);
     assert_eq!(
         run.parent_task_progress[0].pr_work_item_uid.as_deref(),
-        Some(work_uid)
+        Some(work_uid.as_str())
     );
     assert!(run.pr_url.is_none());
     super::assert_app_idle(app);
 
+    // Reopen both file-backed stores and replay the app projection twice. The
+    // deterministic transition IDs and evidence snapshot must converge without
+    // adding duplicate run events or changing the final PR-ready phase.
+    let planning = match &app.screen {
+        crate::app::root::Screen::Connected(project) => project.state.planning_store.clone(),
+        _ => panic!("fixture should remain connected"),
+    };
+    let reopened_lifecycle = crate::core::lifecycle::LifecycleStore::new(&planning);
+    let reopened_runs = crate::core::self_improvement::SelfImprovementStore::new(&planning);
+    let revision_before_replay = reopened_runs.load(run_uid).unwrap().revision;
+    super::synchronize_app_run(app, &reopened_lifecycle, &reopened_runs, run_uid).unwrap();
+    super::synchronize_app_run(app, &reopened_lifecycle, &reopened_runs, run_uid).unwrap();
+    let replayed = reopened_runs.load(run_uid).unwrap();
+    assert_eq!(replayed.phase, Phase::PrPending);
+    assert_eq!(replayed.revision, revision_before_replay);
+    assert_eq!(replayed.code_review_uids.len(), 1);
+    assert_eq!(replayed.runtime_qa_uids.len(), 1);
+    assert!(replayed.spec_receipt_uid.is_some());
+
     pr_lifecycle::verify_persisted_pr_state_projection(
-        app, lifecycle, runs, run_uid, task_uid, work_uid,
+        app, lifecycle, runs, run_uid, task_uid, &work_uid,
     );
 }
 
+#[path = "review_qa/fixtures.rs"]
+mod fixtures;
 #[path = "review_qa/pr_lifecycle.rs"]
 mod pr_lifecycle;
 #[path = "review_qa/qa_completion.rs"]
 mod qa_completion;
-
-fn apply_task(
-    lifecycle: &crate::core::lifecycle::LifecycleStore<'_>,
-    task: &crate::core::lifecycle::TaskRecord,
-    event: TaskEvent,
-) -> crate::core::lifecycle::TaskRecord {
-    lifecycle
-        .apply_task_event(
-            &task.task_uid,
-            task.revision,
-            &uuid::Uuid::new_v4().hyphenated().to_string(),
-            event,
-        )
-        .unwrap()
-}
-
-fn reviewer_receipt(
-    role: PromptRole,
-    task: &crate::core::lifecycle::TaskRecord,
-    subject_sha256: &str,
-    subject_revision: &str,
-    author_run_id: String,
-    author_session_id: String,
-) -> GateReceipt {
-    let reviewer_run_id = uuid::Uuid::new_v4().hyphenated().to_string();
-    let reviewer_session_id = uuid::Uuid::new_v4().hyphenated().to_string();
-    let manifest = render(&RoleInputV1 {
-        role,
-        workspace_uid: "fixture-workspace".into(),
-        feature_uid: task.feature_uid.clone(),
-        task_uid: Some(task.task_uid.clone()),
-        original_goal: "Exercise self-improvement review synchronization".into(),
-        approved_spec_ref: Some(task.feature_uid.clone()),
-        approved_spec_hash: Some(task.approved_plan_sha256.clone()),
-        decision_refs: Vec::new(),
-        evidence_manifest: Vec::new(),
-        execution_policy_ref: "self-improvement-review-fixture/v1".into(),
-        output_schema_version: role.output_schema_version().into(),
-        payload: RolePayloadV1::Review {
-            subject_revision: subject_revision.into(),
-            subject_hash: subject_sha256.into(),
-            author_run_id: author_run_id.clone(),
-            reviewer_run_id: reviewer_run_id.clone(),
-            author_session_id: Some(author_session_id.clone()),
-            reviewer_session_id: Some(reviewer_session_id.clone()),
-            requirements_matrix: vec!["REQ-001".into()],
-            explicit_exclusions: Vec::new(),
-        },
-    })
-    .unwrap()
-    .manifest;
-    GateReceipt {
-        receipt_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
-        subject_uid: task.task_uid.clone(),
-        subject_sha256: subject_sha256.into(),
-        actor: GateActor::IndependentReviewer,
-        decision: GateDecision::Approved,
-        recorded_at_unix_ms: 1,
-        evidence_refs: vec!["fixture/independent-review".into()],
-        prompt_sha256: Some(manifest.identity_sha256()),
-        prompt_manifest: Some(manifest),
-        reviewer_run_id: Some(reviewer_run_id),
-        author_run_id: Some(author_run_id),
-        reviewer_session_id: Some(reviewer_session_id),
-        author_session_id: Some(author_session_id),
-    }
-}
+#[path = "review_qa/repair_replay.rs"]
+mod repair_replay;

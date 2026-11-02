@@ -36,6 +36,10 @@ fn both_standalone_candidates_complete_without_starving_a_sibling() {
             .unwrap()
             .task_uid
             .clone();
+        let placeholder_work_uid = LifecycleStore::new(&store)
+            .load_task(&uid)
+            .unwrap()
+            .pr_work_item_uid;
         assert!(!visited.contains(&uid));
         complete(project, &uid, SpecDeltaV1 { deltas: Vec::new() }, false);
         let lifecycle = LifecycleStore::new(&store);
@@ -45,6 +49,11 @@ fn both_standalone_candidates_complete_without_starving_a_sibling() {
             .pr_work_item_uid
             .as_deref()
             .expect("standalone Done transition creates its separate PR work item");
+        assert_ne!(
+            completed.pr_work_item_uid.as_ref(),
+            placeholder_work_uid.as_ref(),
+            "ordinary precompletion must not reuse a placeholder PR identity"
+        );
         let work = lifecycle.load_pr_preparation(work_uid).unwrap();
         assert_eq!(work.task_uid, uid);
         assert_eq!(

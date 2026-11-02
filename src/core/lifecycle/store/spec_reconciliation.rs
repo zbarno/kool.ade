@@ -210,7 +210,7 @@ impl LifecycleStore<'_> {
         )
     }
 
-    fn publication_gate_refresh_pending(
+    pub(crate) fn publication_gate_refresh_pending(
         &self,
         feature_uid: &str,
         task_uid: &str,
