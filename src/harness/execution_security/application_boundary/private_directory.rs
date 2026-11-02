@@ -4,12 +4,22 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod recovery;
+
 pub(crate) struct PrivateDirectory {
     pub(crate) path: PathBuf,
+    active_lock: Option<fs::File>,
 }
 
 impl PrivateDirectory {
     pub(crate) fn create(prefix: &str) -> anyhow::Result<Self> {
+        if prefix == "koolade-cli-session" {
+            return recovery::create_session(&std::env::temp_dir());
+        }
+        Self::create_unlocked(prefix)
+    }
+
+    fn create_unlocked(prefix: &str) -> anyhow::Result<Self> {
         let path = std::env::temp_dir().join(format!(
             "{prefix}-{}-{}",
             std::process::id(),
@@ -20,7 +30,15 @@ impl PrivateDirectory {
             let _ = fs::remove_dir_all(&path);
             return Err(error);
         }
-        Ok(Self { path })
+        Ok(Self {
+            path,
+            active_lock: None,
+        })
+    }
+
+    #[cfg(test)]
+    fn create_session_at(root: &Path) -> anyhow::Result<Self> {
+        recovery::create_session(root)
     }
 
     pub(super) fn write_json<T: serde::Serialize>(
@@ -78,6 +96,7 @@ impl PrivateDirectory {
 
 impl Drop for PrivateDirectory {
     fn drop(&mut self) {
+        drop(self.active_lock.take());
         let _ = fs::remove_dir_all(&self.path);
     }
 }
