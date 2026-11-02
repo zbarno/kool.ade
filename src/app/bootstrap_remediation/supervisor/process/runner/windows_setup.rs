@@ -24,7 +24,7 @@ use crate::{
     },
     windows_setup_helper::{
         HelperOutcome,
-        protocol::{self, HandoffResultV1, HandoffV1, WSL_FEATURE_OPERATION, WSL_FEATURE_TASK},
+        protocol::{self, HandoffResultV1, HandoffV1, WSL_FEATURE_OPERATION},
     },
 };
 

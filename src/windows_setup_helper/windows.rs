@@ -28,7 +28,7 @@ pub(super) fn run(operation: Operation, pipe_id: uuid::Uuid) -> anyhow::Result<H
         is_elevated()?,
         "Windows setup helper requires an administrator token"
     );
-    let mut channel = handoff::connect(pipe_id, configured_publisher()?)?;
+    let mut channel = handoff::connect(pipe_id, super::configured_publisher()?)?;
     let request = channel.receive_request()?;
     request.validate(handoff::now_unix_ms()?)?;
     host::validate_supported_windows_host()?;

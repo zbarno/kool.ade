@@ -5,10 +5,8 @@ use windows_sys::Win32::{
             HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, REG_DWORD, RRF_RT_REG_DWORD, RRF_RT_REG_SZ,
             RegCloseKey, RegGetValueW, RegOpenKeyExW,
         },
-        SystemInformation::{
-            GetNativeSystemInfo, IsProcessorFeaturePresent, PROCESSOR_ARCHITECTURE_AMD64,
-            SYSTEM_INFO,
-        },
+        SystemInformation::{GetNativeSystemInfo, PROCESSOR_ARCHITECTURE_AMD64, SYSTEM_INFO},
+        Threading::IsProcessorFeaturePresent,
     },
 };
 
