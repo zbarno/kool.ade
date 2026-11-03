@@ -99,19 +99,37 @@ fn board_approval_adds_a_task_generation_card_that_generates_stories_on_request(
 fn reviewed_plan_without_board_handler_gets_durable_generation_card() {
     let _shield = crate::core::gitops::test_support::shield("generation-reconcile");
     let (mut app, root, _) = setup();
-    let Screen::Connected(project) = &mut app.screen else { panic!() };
+    let Screen::Connected(project) = &mut app.screen else {
+        panic!()
+    };
     let status = crate::core::planning_work::WorkStatus::Todo;
     super::super::board::reconcile_task_generation_work(
-        project, "CHG-004", status, "Independent review approved.".into(),
-    ).unwrap();
+        project,
+        "CHG-004",
+        status,
+        "Independent review approved.".into(),
+    )
+    .unwrap();
     super::super::board::reconcile_task_generation_work(
-        project, "CHG-004", status, "Independent review approved.".into(),
-    ).unwrap();
-    let generation = project.planning_work.iter().filter(|work| {
-        work.kind == crate::core::planning_work::WorkKind::TaskGeneration
-            && work.feature_id.as_deref() == Some("CHG-004")
-    }).collect::<Vec<_>>();
-    assert_eq!(generation.len(), 1, "reconciliation must not duplicate the action");
+        project,
+        "CHG-004",
+        status,
+        "Independent review approved.".into(),
+    )
+    .unwrap();
+    let generation = project
+        .planning_work
+        .iter()
+        .filter(|work| {
+            work.kind == crate::core::planning_work::WorkKind::TaskGeneration
+                && work.feature_id.as_deref() == Some("CHG-004")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        generation.len(),
+        1,
+        "reconciliation must not duplicate the action"
+    );
     assert_eq!(generation[0].status, status);
     assert!(!generation[0].key.is_empty());
     drop(app);

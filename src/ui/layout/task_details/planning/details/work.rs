@@ -18,13 +18,15 @@ pub(super) fn paint(
     ui.add_space(crate::ui::theme::spacing::M);
     ui.label(crate::ui::theme::section_heading("Next step"));
     if work.kind == WorkKind::TaskGeneration {
-        let can_generate = work.feature_id.as_ref().is_some_and(|feature_id| {
-            surface.feature_approved(feature_id)
-        }) && matches!(
-            work.status,
-            crate::core::planning_work::WorkStatus::Todo
-                | crate::core::planning_work::WorkStatus::NeedsAttention
-        );
+        let can_generate = work
+            .feature_id
+            .as_ref()
+            .is_some_and(|feature_id| surface.feature_approved(feature_id))
+            && matches!(
+                work.status,
+                crate::core::planning_work::WorkStatus::Todo
+                    | crate::core::planning_work::WorkStatus::NeedsAttention
+            );
         if can_generate {
             ui.label("The independently approved specification is ready for task generation.");
             if ui
@@ -92,17 +94,13 @@ fn paint_approval(
     let Some(feature_id) = work.feature_id.as_deref() else {
         return;
     };
-    let Some(action) = surface
-        .feature_actions(None)
-        .into_iter()
-        .find(|action| {
-            action.id == feature_id
-                && action.plan_snapshot.as_ref().is_some_and(|snapshot| {
-                    crate::ui::feature_approval::belongs_to_root(work, &snapshot.feature_uid)
-                })
-                && (!action.approved || action.retry_review)
-        })
-    else {
+    let Some(action) = surface.feature_actions(None).into_iter().find(|action| {
+        action.id == feature_id
+            && action.plan_snapshot.as_ref().is_some_and(|snapshot| {
+                crate::ui::feature_approval::belongs_to_root(work, &snapshot.feature_uid)
+            })
+            && (!action.approved || action.retry_review)
+    }) else {
         return;
     };
     egui::CollapsingHeader::new("Plan confirmation")

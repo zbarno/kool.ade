@@ -168,7 +168,9 @@ fn confirmation_fails_closed_for_missing_readiness_binding() {
         .unwrap()
     );
     assert!(
-        app.feature_actions(None).iter().all(|action| !action.ready && !action.prepare_tasks),
+        app.feature_actions(None)
+            .iter()
+            .all(|action| !action.ready && !action.prepare_tasks),
         "missing readiness evidence must not expose an enabled confirmation"
     );
     drop(app);
@@ -204,7 +206,9 @@ fn confirmation_fails_closed_for_stale_spec_and_newer_question_revisions() {
         .unwrap()
     );
     assert!(
-        app.feature_actions(None).iter().all(|action| !action.ready && !action.prepare_tasks),
+        app.feature_actions(None)
+            .iter()
+            .all(|action| !action.ready && !action.prepare_tasks),
         "stale readiness evidence must disable confirmation"
     );
     let Screen::Connected(project) = &mut app.screen else {
@@ -263,7 +267,9 @@ fn confirmation_fails_closed_for_stale_spec_and_newer_question_revisions() {
         .unwrap()
     );
     assert!(
-        app.feature_actions(None).iter().all(|action| !action.ready && !action.prepare_tasks),
+        app.feature_actions(None)
+            .iter()
+            .all(|action| !action.ready && !action.prepare_tasks),
         "a newer clarification record keeps the old candidate unavailable"
     );
     drop(app);

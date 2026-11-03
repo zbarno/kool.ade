@@ -145,7 +145,10 @@ impl Action {
             return format!("Start or retry independent plan review for {}", self.id);
         }
         if self.user_confirmed
-            && self.review_verdict.as_ref().is_some_and(|verdict| !verdict.pass)
+            && self
+                .review_verdict
+                .as_ref()
+                .is_some_and(|verdict| !verdict.pass)
             && !self.retry_review
         {
             return format!("Plan changes required for {}", self.id);

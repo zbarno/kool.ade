@@ -54,7 +54,10 @@ fn action() -> Action {
 fn feature_approval_is_owned_only_by_the_matching_task_intent_root() {
     use crate::core::planning_work::{Work, WorkKind};
     let mut root = Work::new(
-        "intent:one".into(), "Feature root".into(), "Request".into(), String::new(),
+        "intent:one".into(),
+        "Feature root".into(),
+        "Request".into(),
+        String::new(),
     );
     root.feature_id = Some("CHG-004".into());
     root.feature_uid = Some("stable-feature-uid".into());
@@ -62,7 +65,10 @@ fn feature_approval_is_owned_only_by_the_matching_task_intent_root() {
     assert!(!super::belongs_to_root(&root, "different-feature-uid"));
 
     let mut child = Work::new(
-        "intent:child".into(), "Planning child".into(), "Request".into(), String::new(),
+        "intent:child".into(),
+        "Planning child".into(),
+        "Request".into(),
+        String::new(),
     );
     child.feature_id = root.feature_id.clone();
     child.feature_uid = root.feature_uid.clone();
