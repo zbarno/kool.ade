@@ -1,24 +1,15 @@
-use super::{SCHEMA_VERSION, Work, WorkFile, WorkRecord, validate};
-use crate::artifacts::planning_store::{PlanningRoot, RecordRevisionCheck, StoreError, paths};
-use serde::Deserialize;
+use super::{Work, WorkRecord, normalize_task_intents, validate};
+use crate::artifacts::planning_store::{PlanningRoot, RecordRevisionCheck, paths};
 
-const RECORD_SCHEMA_VERSION: u32 = 1;
+const RECORD_SCHEMA_VERSION: u32 = 3;
 
 mod discovered;
 mod legacy;
+mod task_intent_events;
+mod task_intent_history;
 pub use discovered::{append_discovered, find};
-use legacy::{legacy_work_exists, migrate_legacy, now_ms};
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LegacyWork {
-    key: String,
-    title: String,
-    request: String,
-    column: usize,
-    feature: Option<String>,
-    detail: String,
-}
+use legacy::{legacy_work_exists, now_ms, read_legacy_work};
+pub(crate) use task_intent_events::linked_executable_task_changes;
 
 pub fn load<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<Vec<Work>> {
     read_work(repo).map(|(work, _)| work)
@@ -33,7 +24,12 @@ pub fn load_expected<R: PlanningRoot + ?Sized>(
 ) -> anyhow::Result<(Vec<Work>, String)> {
     let store = repo.planning_store();
     let (work, needs_migration) = read_work(repo)?;
-    if needs_migration {
+    let needs_intent_backfill = work.iter().any(|item| {
+        item.record_baseline
+            .as_deref()
+            .is_some_and(|baseline| serde_json::to_string(item).ok().as_deref() != Some(baseline))
+    });
+    if needs_migration || needs_intent_backfill {
         let (changes, checks, _) = record_changes(&store, &work)?;
         let (_, revision) = store.transaction_with_revision_and_record_revisions(
             &changes,
@@ -58,10 +54,11 @@ fn read_work_unlocked(
 ) -> anyhow::Result<(Vec<Work>, bool)> {
     let records = read_record_files(store)?;
     if !records.is_empty() {
-        let work = records
+        let mut work = records
             .into_iter()
             .map(|record| record.data)
             .collect::<Vec<_>>();
+        normalize_task_intents(&mut work);
         validate(&work)?;
         return Ok((work, false));
     }
@@ -84,7 +81,7 @@ fn read_record_files(
         let bytes = store.read(&relative)?;
         let mut record: WorkRecord = serde_json::from_slice(&bytes)?;
         anyhow::ensure!(
-            record.schema_version == RECORD_SCHEMA_VERSION,
+            (1..=RECORD_SCHEMA_VERSION).contains(&record.schema_version),
             "Unsupported work record schema version {} in {relative}",
             record.schema_version
         );
@@ -112,35 +109,6 @@ fn read_record_files(
     Ok(records)
 }
 
-fn read_legacy_work(
-    store: &crate::artifacts::planning_store::PlanningStore,
-) -> anyhow::Result<(Vec<Work>, bool)> {
-    let bytes = match store.read(paths::WORK) {
-        Ok(bytes) => bytes,
-        Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
-            return Ok((Vec::new(), false));
-        }
-        Err(error) => return Err(error.into()),
-    };
-    let value: serde_json::Value = serde_json::from_slice(&bytes)?;
-    let work = if value.is_array() {
-        serde_json::from_value::<Vec<LegacyWork>>(value)?
-            .into_iter()
-            .map(migrate_legacy)
-            .collect::<anyhow::Result<Vec<_>>>()?
-    } else {
-        let file: WorkFile = serde_json::from_value(value)?;
-        anyhow::ensure!(
-            (1..=SCHEMA_VERSION).contains(&file.schema_version),
-            "Unsupported planning work schema version {}",
-            file.schema_version
-        );
-        file.items
-    };
-    validate(&work)?;
-    Ok((work, true))
-}
-
 /// Build atomic record writes and their revision fences. Legacy aggregate
 /// contents are included when the collection has not yet been migrated.
 pub fn record_changes(
@@ -154,7 +122,6 @@ fn record_changes_unlocked(
     store: &crate::artifacts::planning_store::PlanningStore,
     work: &[Work],
 ) -> anyhow::Result<crate::artifacts::planning_store::RecordChangePlan> {
-    validate(work)?;
     let existing_records = read_record_files(store)?;
     let legacy_migration = existing_records.is_empty() && legacy_work_exists(store)?;
     let mut current = std::collections::BTreeMap::<String, WorkRecord>::new();
@@ -193,6 +160,64 @@ fn record_changes_unlocked(
             }
         }
     }
+
+    for item in &mut desired {
+        if item.parent_uid.is_some() || !item.kind.starts_task_intent() {
+            continue;
+        }
+        if let Some(previous) = current.get(&item.uid) {
+            if let Some(original_goal) = previous.data.original_goal.as_deref() {
+                anyhow::ensure!(
+                    item.original_goal.as_deref() == Some(original_goal),
+                    "TaskIntent original goal is immutable"
+                );
+            } else {
+                item.original_goal = Some(previous.data.request.clone());
+            }
+        } else {
+            item.original_goal
+                .get_or_insert_with(|| item.request.clone());
+        }
+    }
+    let mut complete = current
+        .values()
+        .map(|record| record.data.clone())
+        .collect::<Vec<_>>();
+    for item in &desired {
+        if let Some(existing) = complete
+            .iter_mut()
+            .find(|existing| existing.uid == item.uid)
+        {
+            *existing = item.clone();
+        } else {
+            complete.push(item.clone());
+        }
+    }
+    normalize_task_intents(&mut complete);
+    task_intent_history::append_events(&current, &mut desired, &mut complete)?;
+    let normalized = complete
+        .into_iter()
+        .map(|item| (item.uid.clone(), item))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    desired = desired
+        .into_iter()
+        .map(|item| normalized.get(&item.uid).cloned().unwrap_or(item))
+        .collect();
+    let mut complete = current
+        .values()
+        .map(|record| record.data.clone())
+        .collect::<Vec<_>>();
+    for item in &desired {
+        if let Some(existing) = complete
+            .iter_mut()
+            .find(|existing| existing.uid == item.uid)
+        {
+            *existing = item.clone();
+        } else {
+            complete.push(item.clone());
+        }
+    }
+    validate(&complete)?;
 
     let mut changes = Vec::new();
     let mut checks = Vec::new();

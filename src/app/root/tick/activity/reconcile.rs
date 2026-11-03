@@ -91,6 +91,13 @@ pub(crate) fn reconcile_inactive_planning_work(project: &mut crate::app::session
     if retry {
         changes.push("previously reconciled planning work".to_owned());
     }
+    if crate::app::session::task_intent_history::capture(
+        &project.state,
+        &project.task_documents,
+        &mut updated,
+    ) {
+        changes.push("recorded TaskIntent decision and delivery outcomes".into());
+    }
     if changes.is_empty() {
         return;
     }

@@ -107,6 +107,12 @@ impl KooladeApp {
         work.status = status;
         work.feature_id = Some(id.to_owned());
         work.feature_uid = Some(identity.uid);
+        work.task_intent_uid = crate::core::planning_work::Work::task_intent_uid_for_feature(
+            &project.planning_work,
+            work.feature_uid
+                .as_deref()
+                .expect("feature identity was set"),
+        );
         work.key = format!("task-generation:{}", work.uid);
         project.planning_work.push(work);
         if let Err(error) = project.save_planning_work() {

@@ -24,6 +24,7 @@ pub(super) fn preserve(
     initial.uid = uid;
     initial.key = format!("task:{}", initial.uid);
     initial.kind = WorkKind::NewProject;
+    initial.task_intent_uid = Some(initial.uid.clone());
     work.push(initial);
     planning_work::save_expected(&workspace.store, &work, &revision)?;
     Ok(())

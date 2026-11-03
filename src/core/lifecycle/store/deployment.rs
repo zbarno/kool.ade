@@ -49,6 +49,15 @@ impl DeploymentEvidenceV1 {
         .then_some(&self.specification_hash)
     }
 
+    /// True only when this receipt proves production deployment of the
+    /// current implementation and specification revision.
+    pub fn is_successful_production_for_current(
+        &self,
+        current: &CurrentImplementationEvidenceV1,
+    ) -> bool {
+        self.deployed_spec_hash(current).is_some()
+    }
+
     fn validate(&self) -> Result<(), StoreError> {
         let valid_sha = |value: &str| {
             matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())

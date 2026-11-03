@@ -53,6 +53,7 @@ impl KooladeApp {
         // Main Chat is retained as history only; planning turns are grounded
         // in board state and task context, never its transcript.
         let recent = Vec::new();
+        let is_project_planning_turn = work_key.is_none();
         let key = work_key.unwrap_or_else(|| {
             format!(
                 "planning:{}",
@@ -67,8 +68,14 @@ impl KooladeApp {
                 text.into(),
                 "Planning in progress".into(),
             );
+            if is_project_planning_turn {
+                work.kind = crate::core::planning_work::WorkKind::ProjectPlanning;
+            }
             if purpose == crate::core::workflow::TurnPurpose::Question {
                 work.kind = crate::core::planning_work::WorkKind::Question;
+            }
+            if work.kind.starts_task_intent() {
+                work.task_intent_uid = Some(work.uid.clone());
             }
             if key.starts_with("plan-confirmation-changes:") {
                 work.kind = crate::core::planning_work::WorkKind::PlanReviewDisposition;
@@ -136,7 +143,7 @@ impl KooladeApp {
             }
             _ => "Building project context…",
         };
-        project.active_planning_work = Some(key);
+        project.active_planning_work = Some(key.clone());
         let inputs = crate::core::turn::TurnInputs {
             state: project.state.clone(),
             user_message: format!(
@@ -161,6 +168,10 @@ impl KooladeApp {
             .as_ref()
             .map(|work| work.routing_overrides.clone())
             .unwrap_or_default();
+        let scoped_task = work
+            .as_ref()
+            .filter(|work| work.task_intent_root_uid().is_some())
+            .map(|_| key.clone());
         let harness = crate::app::root::configured_harness_for_project_task(
             &mut self.task_harness,
             work_type,
@@ -168,7 +179,7 @@ impl KooladeApp {
             &task_routes,
         );
         let route_label = harness.label();
-        let ctrl = TurnController::start(inputs, harness);
+        let ctrl = TurnController::start_scoped(inputs, harness, scoped_task);
         project.active_turn = Some(std::rc::Rc::new(ctrl));
         project.live_progress = crate::harness::LiveProgress {
             activity: Some(format!("{activity} via {route_label}")),

@@ -58,12 +58,12 @@ fn unsupported_hosted_anthropic_question_gets_an_optional_offer_only() {
 
 #[test]
 fn planning_only_workspace_creates_tasks_without_code_branches_and_blocks_stale_generation() {
-    let root = std::env::temp_dir().join(format!(
+    let temp_root = std::env::temp_dir().join(format!(
         "koolade-planning-only-task-{}-{}",
         std::process::id(),
         uuid::Uuid::new_v4()
     ));
-    let manager = crate::core::managed_workspace::WorkspaceManager::new(root.join("home"));
+    let manager = crate::core::managed_workspace::WorkspaceManager::new(temp_root.join("home"));
     let workspace = manager.create("Planning only").unwrap();
     let mut app = crate::app::root::board_tests::fixture();
     let Screen::Connected(project) = &mut app.screen else {
@@ -151,5 +151,82 @@ fn planning_only_workspace_creates_tasks_without_code_branches_and_blocks_stale_
             .detail
             .contains("readiness evidence is missing or stale")
     );
-    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[test]
+fn follow_up_command_persists_the_cycle_before_starting_its_scoped_conversation() {
+    // Production boundary: the TaskIntent Details command mutates the shared
+    // planning store and starts a cycle-specific Manager conversation. The
+    // store reload and task-turn assertion cover more than the cycle model's
+    // unit test alone. Uses only a local temporary planning repo and fixture
+    // harness; setup cost is low.
+    let temp_root = std::env::temp_dir().join(format!(
+        "koolade-task-intent-cycle-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    let manager = crate::core::managed_workspace::WorkspaceManager::new(temp_root.join("home"));
+    let workspace = manager.create("Cycle fixture").unwrap();
+    let mut app = crate::app::root::board_tests::fixture();
+    let Screen::Connected(project) = &mut app.screen else {
+        panic!("fixture must be connected")
+    };
+    project.state = crate::core::state::PlannerState::load_with_store(
+        &workspace.planning_repo,
+        &workspace.store,
+    )
+    .unwrap();
+    project.planning_work = crate::core::planning_work::load(&workspace.store).unwrap();
+    project.git = crate::core::gitops::snapshot(&workspace.planning_repo);
+    project.managed_workspace = Some(workspace.clone());
+    let mut intent = Work::new(
+        String::new(),
+        "Original request".into(),
+        "Keep the first request intact".into(),
+        "Original work finished".into(),
+    );
+    intent.kind = WorkKind::Question;
+    intent.status = crate::core::planning_work::WorkStatus::Done;
+    intent.key = format!("task:{}", intent.uid);
+    intent.task_intent_uid = Some(intent.uid.clone());
+    let root_uid = intent.uid.clone();
+    let root_key = intent.key.clone();
+    project.planning_work.push(intent);
+    project.save_planning_work().unwrap();
+    app.task_harness = Some(Box::new(FixtureHarness));
+
+    app.start_task_intent_follow_up(&root_uid, "Answer a new follow-up question");
+
+    let Screen::Connected(project) = &app.screen else {
+        panic!("cycle start keeps the workspace connected")
+    };
+    let root_work = project
+        .planning_work
+        .iter()
+        .find(|work| work.uid == root_uid)
+        .unwrap();
+    assert_eq!(
+        root_work.original_goal.as_deref(),
+        Some("Keep the first request intact")
+    );
+    let cycle = root_work.task_intent_cycles.last().unwrap();
+    let cycle_work = project
+        .planning_work
+        .iter()
+        .find(|work| work.uid == cycle.work_uid)
+        .unwrap();
+    assert_eq!(cycle.sequence, 2);
+    assert_eq!(cycle_work.parent_uid.as_deref(), Some(root_uid.as_str()));
+    assert_ne!(cycle_work.key, root_key);
+    let cycle_key = cycle_work.key.clone();
+    assert!(project.task_turns.contains_key(&cycle_key));
+    let persisted = crate::core::planning_work::load(&workspace.store).unwrap();
+    assert!(persisted.iter().any(|work| work.uid == cycle_work.uid));
+    if let Screen::Connected(project) = &mut app.screen
+        && let Some(turn) = project.task_turns.remove(&cycle_key)
+    {
+        turn.request_cancel();
+    }
+    let _ = std::fs::remove_dir_all(temp_root);
 }

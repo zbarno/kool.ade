@@ -11,6 +11,7 @@ use crate::persistence::chat_store;
 
 mod cancellation;
 mod implementations;
+pub(crate) mod task_intent_history;
 mod task_status;
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -71,6 +72,7 @@ impl Project {
 
     pub fn save_planning_work(&mut self) -> Result<(), String> {
         let _guard = crate::core::writer_gate::acquire();
+        task_intent_history::capture(&self.state, &self.task_documents, &mut self.planning_work);
         match crate::core::planning_work::save_expected(
             &self.state.planning_store,
             &self.planning_work,

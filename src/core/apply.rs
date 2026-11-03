@@ -141,8 +141,22 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
             }
         }
     }
-    // 3) Agent-added items (validated + numbered already).
-    state.items.extend(nt.added.iter().cloned());
+    // 3) Agent-added items (validated + numbered already). The request root is
+    // resolved by application context after validation, never model-selected.
+    let mut added = nt.added.clone();
+    if let Some(context) = &nt.task_intent_context {
+        for item in &mut added {
+            anyhow::ensure!(
+                item.task_intent_uid
+                    .as_deref()
+                    .is_none_or(|uid| uid == context.root_uid),
+                "A planning decision cannot be linked to a different TaskIntent"
+            );
+            item.task_intent_uid = Some(context.root_uid.clone());
+            item.task_intent_cycle_uid = context.cycle_uid.clone();
+        }
+    }
+    state.items.extend(added);
 
     // 4) Ownership-gap synthesis (always after agent mutations, §8).
     let mut synthetic = ownership::synthesize_for_state(state);
@@ -204,7 +218,10 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
         record_checks.extend(workflow_checks);
     }
     changes.extend(nt.additional_planning_artifacts.iter().cloned());
-    let discovered = crate::core::planning_work::append_discovered(&nt.planning_tasks)?;
+    let discovered = crate::core::planning_work::append_discovered(
+        &nt.planning_tasks,
+        nt.task_intent_context.as_ref(),
+    )?;
     if !discovered.is_empty() {
         let (work_changes, checks, _) =
             crate::core::planning_work::record_changes(&state.planning_store, &discovered)?;

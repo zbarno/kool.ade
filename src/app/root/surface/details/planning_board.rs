@@ -34,6 +34,15 @@ impl KooladeApp {
                 .into_iter()
                 .map(|item| item.id.clone())
                 .collect();
+                let active_work_keys = p
+                    .active_implementations
+                    .keys()
+                    .chain(p.task_turns.keys())
+                    .chain(p.queue.in_flight.iter())
+                    .chain(p.queue.waiting_for_capacity.iter())
+                    .chain(p.queue.current_ticket.iter())
+                    .cloned()
+                    .collect();
                 let (clarification_questions, clarification_error) =
                     match crate::core::planning::QuestionStore::new(&p.state.planning_store).list()
                     {
@@ -112,6 +121,29 @@ impl KooladeApp {
                         Vec::new()
                     }
                 };
+                let mut lifecycle_deployment_evidence = std::collections::BTreeMap::new();
+                for feature in &lifecycle_features {
+                    let current =
+                        match lifecycle_store.load_current_implementation(&feature.feature_uid) {
+                            Ok(Some(current)) => current,
+                            Ok(None) => continue,
+                            Err(error) => {
+                                lifecycle_error.get_or_insert_with(|| error.to_string());
+                                continue;
+                            }
+                        };
+                    let deployment =
+                        match lifecycle_store.load_deployment_evidence(&feature.feature_uid) {
+                            Ok(Some(deployment)) => deployment,
+                            Ok(None) => continue,
+                            Err(error) => {
+                                lifecycle_error.get_or_insert_with(|| error.to_string());
+                                continue;
+                            }
+                        };
+                    lifecycle_deployment_evidence
+                        .insert(feature.feature_uid.clone(), (deployment, current));
+                }
                 let mut lifecycle_pr_statuses = std::collections::BTreeMap::new();
                 let mut lifecycle_pr_work = Vec::new();
                 for task in &lifecycle_feature_tasks {
@@ -148,6 +180,16 @@ impl KooladeApp {
                         }
                     }
                 }
+                let mut archived = p.archived_tasks.clone();
+                for work in &planning_work {
+                    if work.task_intent_archived_at_ms.is_some() {
+                        archived.insert(work.key.clone());
+                    } else if work.task_intent_root_uid() == Some(work.uid.as_str())
+                        && work.task_intent_cycles.len() > 1
+                    {
+                        archived.remove(&work.key);
+                    }
+                }
                 let active_setup_tasks = self
                     .machine_setup_tasks
                     .iter()
@@ -176,13 +218,15 @@ impl KooladeApp {
                     setup_tasks: self.machine_setup_tasks.clone(),
                     setup_checking: self.setup_probe.is_some(),
                     eligible_item_ids,
-                    archived: p.archived_tasks.clone(),
+                    active_work_keys,
+                    archived,
                     cancelled: p.cancelled_work.clone(),
                     lifecycle_tasks,
                     lifecycle_pr_statuses,
                     lifecycle_pr_work,
                     lifecycle_features,
                     lifecycle_feature_tasks,
+                    lifecycle_deployment_evidence,
                     lifecycle_error,
                 }
             }

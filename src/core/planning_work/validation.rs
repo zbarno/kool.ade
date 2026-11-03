@@ -1,6 +1,9 @@
 use super::{CodeReviewDispositionStatusV1, Work, WorkKind, WorkStatus, load, record_changes};
 use crate::artifacts::planning_store::PlanningRoot;
 
+mod cycles;
+mod history;
+
 pub(super) fn validate(work: &[Work]) -> anyhow::Result<()> {
     let mut uids = std::collections::BTreeSet::new();
     for item in work {
@@ -71,6 +74,16 @@ pub(super) fn validate(work: &[Work]) -> anyhow::Result<()> {
                 uuid::Uuid::parse_str(uid).is_ok(),
                 "Invalid parent work UID"
             );
+            anyhow::ensure!(uid != &item.uid, "Planning work cannot parent itself");
+        }
+        if let Some(uid) = &item.task_intent_uid {
+            anyhow::ensure!(
+                uuid::Uuid::parse_str(uid).is_ok(),
+                "Invalid TaskIntent root UID"
+            );
+            if item.kind.starts_task_intent() && item.parent_uid.is_none() {
+                anyhow::ensure!(uid == &item.uid, "TaskIntent root must own itself");
+            }
         }
         if let Some(uid) = &item.feature_uid {
             anyhow::ensure!(uuid::Uuid::parse_str(uid).is_ok(), "Invalid feature UID");
@@ -112,6 +125,81 @@ pub(super) fn validate(work: &[Work]) -> anyhow::Result<()> {
                     "Task routing has an invalid model ID"
                 );
             }
+        }
+    }
+    for item in work {
+        let Some(intent_uid) = item.task_intent_uid.as_deref() else {
+            continue;
+        };
+        if intent_uid == item.uid {
+            anyhow::ensure!(
+                item.parent_uid.is_none() && item.kind.starts_task_intent(),
+                "TaskIntent UID must identify a supported root request"
+            );
+            cycles::validate(item, work)?;
+            continue;
+        }
+        let root = work
+            .iter()
+            .find(|candidate| candidate.uid == intent_uid)
+            .ok_or_else(|| anyhow::anyhow!("TaskIntent root does not exist in planning work"))?;
+        anyhow::ensure!(
+            root.parent_uid.is_none()
+                && root.kind.starts_task_intent()
+                && root.task_intent_root_uid() == Some(intent_uid),
+            "Planning work references an invalid TaskIntent root"
+        );
+        if let Some(cycle_uid) = item.task_intent_cycle_uid.as_deref() {
+            anyhow::ensure!(
+                root.task_intent_cycles
+                    .iter()
+                    .any(|cycle| cycle.uid == cycle_uid),
+                "Planning work references an invalid TaskIntent cycle"
+            );
+        }
+        if let Some(parent_uid) = item.parent_uid.as_deref()
+            && let Some(parent) = work.iter().find(|candidate| candidate.uid == parent_uid)
+            && let Some(parent_intent_uid) = parent.task_intent_root_uid()
+        {
+            anyhow::ensure!(
+                intent_uid == parent_intent_uid,
+                "Planning work ownership must match its parent work"
+            );
+        }
+    }
+    for item in work {
+        if item.parent_uid.is_none() && item.kind.starts_task_intent() {
+            anyhow::ensure!(
+                item.original_goal
+                    .as_deref()
+                    .is_some_and(|goal| !goal.trim().is_empty()),
+                "TaskIntent root must preserve its original goal"
+            );
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        let mut parent_uid = item.parent_uid.as_deref();
+        while let Some(uid) = parent_uid {
+            anyhow::ensure!(
+                seen.insert(uid),
+                "Planning work parent links contain a cycle"
+            );
+            parent_uid = work
+                .iter()
+                .find(|candidate| candidate.uid == uid)
+                .and_then(|candidate| candidate.parent_uid.as_deref());
+        }
+        if !item.task_intent_history.is_empty() {
+            anyhow::ensure!(
+                item.task_intent_root_uid() == Some(item.uid.as_str()),
+                "Only a TaskIntent root may store its shared history"
+            );
+            history::validate(item, work)?;
+        }
+        if let Some(archived_at_ms) = item.task_intent_archived_at_ms {
+            anyhow::ensure!(
+                item.task_intent_root_uid() == Some(item.uid.as_str()) && archived_at_ms > 0,
+                "Only a TaskIntent root may have a valid archive timestamp"
+            );
         }
     }
     Ok(())

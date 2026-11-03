@@ -51,6 +51,9 @@ pub struct NormalizedTurn {
     pub document_updates: Vec<(String, String)>,
     /// Newly discovered follow-up tasks emitted only by Documentation Refresh.
     pub planning_tasks: Vec<crate::harness::PlanningTaskDraft>,
+    /// Authenticated application-side parent identity for generated planning
+    /// tasks; never accepted from model output.
+    pub task_intent_context: Option<TaskIntentWorkContext>,
     /// Typed lifecycle changes requested for feature documents in this turn.
     pub change_status_updates: BTreeMap<String, crate::domain::ChangeStatus>,
     /// Application-owned planning records included in the same artifact transaction.
@@ -69,6 +72,13 @@ pub struct NormalizedTurn {
     pub workflow: Option<crate::core::workflow::Workflow>,
     pub task_batch: Option<crate::core::workflow::TaskBatch>,
     pub plan_comparison: Option<crate::domain::PlanComparison>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct TaskIntentWorkContext {
+    pub parent_work_uid: String,
+    pub root_uid: String,
+    pub cycle_uid: Option<String>,
 }
 
 const QUESTION_CHAR_CAP: usize = 2000;
@@ -751,6 +761,7 @@ pub fn validate_for_turn_with_user_message(
         spec_markdown,
         document_updates,
         planning_tasks,
+        task_intent_context: None,
         change_status_updates,
         additional_planning_artifacts: remediation_artifact.into_iter().collect(),
         added,

@@ -23,6 +23,7 @@ fn record_changes_unlocked(
     resolved_items: &[OpenItem],
 ) -> anyhow::Result<RecordChangePlan> {
     validate_items(open_items.iter().chain(resolved_items))?;
+    super::task_intent::validate_links(store, open_items.iter().chain(resolved_items).cloned())?;
     let records = read_records(store)?;
     let legacy_migration = records.is_empty() && legacy_files_exist(store)?;
     let current = records

@@ -50,6 +50,7 @@ pub mod managed_workspace;
 pub mod project_repos;
 pub mod task_claim;
 pub mod task_conversation;
+pub mod task_intent;
 pub mod time_accrual;
 pub mod time_totals;
 

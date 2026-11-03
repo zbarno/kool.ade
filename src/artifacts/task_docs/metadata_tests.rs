@@ -53,6 +53,8 @@ fn invalid_metadata_fails_closed_and_legacy_parser_is_bounded_to_dependency_sect
         uid: identity.uid.clone(),
         batch_uid: uuid::Uuid::new_v4().to_string(),
         repository_id: "../api".into(),
+        task_intent_uid: None,
+        task_intent_cycle_uid: None,
         dependency_uids: vec![],
         parent_task_uid: None,
         source_branch: None,
@@ -126,6 +128,135 @@ fn branch_targets_round_trip_and_legacy_metadata_keeps_optional_intent_empty() {
     assert_eq!(
         legacy_snake_case.destination_branch.as_deref(),
         Some("develop")
+    );
+}
+
+#[test]
+fn legacy_task_intent_resolves_from_its_authenticated_routing_source() {
+    let (identity, _, _) = identified_story();
+    let mut root = crate::core::planning_work::Work::new(
+        "planning:root".into(),
+        "Feature request".into(),
+        "Preserve the user's request".into(),
+        String::new(),
+    );
+    root.task_intent_uid = Some(root.uid.clone());
+    let expected_uid = root.uid.clone();
+    let metadata = TaskMetadata::new(&identity, "root", vec![])
+        .unwrap()
+        .with_task_routing(&Default::default(), Some(&root.uid), None)
+        .unwrap();
+    let document = crate::artifacts::task_docs::TaskDocument {
+        path: "planning/tasks/fixture/001-story.md".into(),
+        title: "Story".into(),
+        text: "# Story".into(),
+        identity: Some(identity),
+        metadata: Some(metadata),
+        task_state: None,
+        metadata_error: None,
+    };
+    assert_eq!(
+        crate::artifacts::task_docs::task_intent_uid_for_document(
+            &document,
+            std::slice::from_ref(&document),
+            std::slice::from_ref(&root),
+        ),
+        Some(expected_uid)
+    );
+}
+
+#[test]
+fn task_intent_link_is_persisted_separately_from_batch_and_task_parent() {
+    let (identity, batch_uid, dependency) = identified_story();
+    let intent_uid = uuid::Uuid::new_v4().to_string();
+    let metadata = TaskMetadata::new(&identity, "api", vec![dependency.clone()])
+        .unwrap()
+        .with_task_intent_uid(Some(&intent_uid))
+        .unwrap();
+    let persisted = parse(&embed("# Story\n", &metadata).unwrap())
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        persisted.task_intent_uid.as_deref(),
+        Some(intent_uid.as_str())
+    );
+    assert_eq!(persisted.batch_uid, batch_uid);
+    assert_eq!(persisted.parent_task_uid, None);
+    assert_eq!(persisted.dependency_uids, vec![dependency]);
+    assert!(
+        metadata
+            .clone()
+            .with_task_intent_uid(Some("not-a-uid"))
+            .is_err()
+    );
+}
+
+#[test]
+fn task_intent_cycle_is_persisted_and_resolved_from_its_routing_source() {
+    let (identity, _, _) = identified_story();
+    let root_uid = uuid::Uuid::new_v4().to_string();
+    let cycle_uid = uuid::Uuid::new_v4().to_string();
+    let mut cycle_work = crate::core::planning_work::Work::new(
+        "task:cycle-work".into(),
+        "Follow-up cycle".into(),
+        "Keep this cycle scoped".into(),
+        String::new(),
+    );
+    cycle_work.uid = uuid::Uuid::new_v4().to_string();
+    cycle_work.task_intent_uid = Some(root_uid.clone());
+    cycle_work.task_intent_cycle_uid = Some(cycle_uid.clone());
+    let mut root_work = crate::core::planning_work::Work::new(
+        format!("task:{root_uid}"),
+        "Root intent".into(),
+        "Original request".into(),
+        String::new(),
+    );
+    root_work.uid = root_uid.clone();
+    root_work.task_intent_uid = Some(root_uid.clone());
+    root_work.task_intent_cycle_uid = Some(cycle_uid.clone());
+    root_work
+        .task_intent_cycles
+        .push(crate::core::planning_work::TaskIntentCycleV1 {
+            uid: cycle_uid.clone(),
+            sequence: 2,
+            goal: "Keep this cycle scoped".into(),
+            work_uid: cycle_work.uid.clone(),
+            started_at_ms: Some(1),
+        });
+    let metadata = TaskMetadata::new(&identity, "root", vec![])
+        .unwrap()
+        .with_task_intent_uid(Some(&root_uid))
+        .unwrap()
+        .with_task_intent_cycle_uid(Some(&cycle_uid))
+        .unwrap()
+        .with_task_routing(&Default::default(), Some(&cycle_work.uid), None)
+        .unwrap();
+    let mut legacy_metadata = metadata.clone();
+    legacy_metadata.task_intent_cycle_uid = None;
+    let document = crate::artifacts::task_docs::TaskDocument {
+        path: "planning/tasks/fixture/001-story.md".into(),
+        title: "Story".into(),
+        text: "# Story".into(),
+        identity: Some(identity),
+        metadata: Some(legacy_metadata),
+        task_state: None,
+        metadata_error: None,
+    };
+    let persisted = parse(&embed("# Story\n", &metadata).unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        persisted.task_intent_cycle_uid.as_deref(),
+        Some(cycle_uid.as_str())
+    );
+    assert_eq!(
+        crate::artifacts::task_docs::task_intent_cycle_uid_for_document(
+            &document,
+            std::slice::from_ref(&document),
+            &[root_work, cycle_work],
+        ),
+        Some(cycle_uid)
     );
 }
 

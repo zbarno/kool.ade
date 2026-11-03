@@ -25,6 +25,7 @@ pub(crate) fn load_store_unlocked(
             }
         }
         validate_items(open.iter().chain(&resolved))?;
+        super::task_intent::validate_links(store, open.iter().chain(&resolved).cloned())?;
         return Ok((open, resolved, false));
     }
     let content_files = store.list_files(paths::ITEM_CONTENTS)?;
@@ -42,6 +43,7 @@ pub(crate) fn load_store_unlocked(
     let (open, open_exists) = read_open_items(store)?;
     let (resolved, resolved_exists) = read_resolved_items(store)?;
     validate_items(open.iter().chain(&resolved))?;
+    super::task_intent::validate_links(store, open.iter().chain(&resolved).cloned())?;
     Ok((open, resolved, open_exists || resolved_exists))
 }
 
@@ -65,7 +67,7 @@ pub(super) fn read_records(store: &PlanningStore) -> anyhow::Result<Vec<LoadedIt
         }
         let record: ItemRecord = serde_json::from_slice(&bytes)?;
         anyhow::ensure!(
-            record.schema_version == RECORD_SCHEMA_VERSION,
+            (1..=RECORD_SCHEMA_VERSION).contains(&record.schema_version),
             "Unsupported item record schema version {} in {relative}",
             record.schema_version
         );

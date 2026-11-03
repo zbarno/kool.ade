@@ -4,9 +4,12 @@ use serde::{Deserialize, Serialize};
 
 pub const FILE: &str = crate::artifacts::layout::store::WORK;
 pub const STORE_FILE: &str = crate::artifacts::planning_store::paths::WORK;
-const SCHEMA_VERSION: u32 = 3;
+const SCHEMA_VERSION: u32 = 5;
 
 mod code_review_disposition;
+mod cycles;
+mod history;
+mod intent;
 mod projection;
 mod storage;
 mod validation;
@@ -14,6 +17,12 @@ pub use code_review_disposition::{
     CodeReviewDispositionStatusV1, CodeReviewFindingDispositionV1,
     MAX_CODE_REVIEW_ARBITRATION_ATTEMPTS,
 };
+pub use cycles::{MAX_TASK_INTENT_CYCLE_GOAL_BYTES, TaskIntentCycleV1, start_follow_up_cycle};
+pub use history::{
+    TaskIntentEventEvidenceV1, TaskIntentEventKindV1, TaskIntentEventV1, TaskIntentGateKindV1,
+    capture_authoritative_events,
+};
+pub(super) use intent::normalize_task_intents;
 use validation::validate;
 pub use validation::{routing_for_feature, save, save_expected};
 mod answered;
@@ -24,6 +33,7 @@ mod tests;
 
 pub use projection::{cards, context, find_card};
 pub use reconcile::{completed_turn_status, reconcile_inactive, reconcile_inactive_excluding};
+pub(crate) use storage::linked_executable_task_changes;
 pub use storage::{append_discovered, find, load, load_expected, record_changes};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,6 +41,7 @@ pub use storage::{append_discovered, find, load, load_expected, record_changes};
 pub enum WorkKind {
     #[default]
     Feature,
+    ProjectPlanning,
     Bug,
     NewProject,
     DocumentationRefresh,
@@ -42,9 +53,22 @@ pub enum WorkKind {
 }
 
 impl WorkKind {
+    /// New Task request types that create a durable TaskIntent root.
+    pub fn starts_task_intent(self) -> bool {
+        matches!(
+            self,
+            Self::Feature
+                | Self::Bug
+                | Self::NewProject
+                | Self::DocumentationRefresh
+                | Self::Question
+        )
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Feature => "Feature",
+            Self::ProjectPlanning => "Project planning",
             Self::Bug => "Bug",
             Self::NewProject => "New Project",
             Self::DocumentationRefresh => "Refresh Documentation",
@@ -60,6 +84,7 @@ impl WorkKind {
         use crate::persistence::harness_settings as routes;
         match self {
             Self::Feature => routes::FEATURE_PLANNING,
+            Self::ProjectPlanning => routes::FEATURE_PLANNING,
             Self::Bug | Self::Question => routes::INVESTIGATION,
             Self::NewProject => routes::SPECIFICATION,
             Self::DocumentationRefresh => routes::DOCUMENTATION,
@@ -74,6 +99,9 @@ impl WorkKind {
         match self {
             Self::Feature => {
                 "Plan the requested new behavior and create a concise feature specification. Ground it in relevant existing documents and avoid boilerplate or repeating details in multiple sections."
+            }
+            Self::ProjectPlanning => {
+                "Continue the shared project specification conversation. Preserve its global identity and context; create a TaskIntent only when the user explicitly starts a typed New Task."
             }
             Self::Bug => {
                 "Inspect current behavior and repository evidence in bug-triage mode: first reproduce the reported failure or trace the relevant execution path, then identify and record the most likely root cause with exact repository evidence before planning a fix. Separate observed facts from hypotheses, and state what evidence would confirm or rule out each hypothesis. Inspect only the relevant repository slice and continue in bounded chunks; do not attempt a whole-repository survey. Once the cause is supported, write a concise corrective specification with the smallest fix, affected behavior, regression checks, and any risks. Do not plan a speculative fix while the cause is unknown. Do not ask about already established intended behavior unless expected behavior is genuinely unclear; ask only for missing reproduction details or evidence the user uniquely has. If evidence cannot be obtained safely, record the precise blocker and next diagnostic step rather than guessing. Avoid duplicating the report or repeating a requirement across sections."
@@ -145,6 +173,9 @@ pub struct Work {
     pub key: String,
     pub kind: WorkKind,
     pub title: String,
+    /// Immutable first user-authored goal retained as the request is refined.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_goal: Option<String>,
     pub request: String,
     pub status: WorkStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -153,6 +184,23 @@ pub struct Work {
     pub feature_uid: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_uid: Option<String>,
+    /// Canonical TaskIntent root that owns this planning work. For a root
+    /// request this is its own stable UID; descendants keep the same UID even
+    /// when their nesting and dependency relationships differ.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_intent_uid: Option<String>,
+    /// Append-only shared history for the TaskIntent root.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub task_intent_history: Vec<TaskIntentEventV1>,
+    /// Explicit work cycles preserve earlier approved or released outcomes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub task_intent_cycles: Vec<TaskIntentCycleV1>,
+    /// Cycle for this planning work; descendants inherit it from their parent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_intent_cycle_uid: Option<String>,
+    /// Shared archive marker; history remains on the root Work record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_intent_archived_at_ms: Option<u64>,
     #[serde(
         default,
         alias = "source_branch",
@@ -188,63 +236,11 @@ pub struct Work {
     pub record_baseline: Option<String>,
 }
 
-impl PartialEq for Work {
-    fn eq(&self, other: &Self) -> bool {
-        self.uid == other.uid
-            && self.key == other.key
-            && self.kind == other.kind
-            && self.title == other.title
-            && self.request == other.request
-            && self.status == other.status
-            && self.feature_id == other.feature_id
-            && self.feature_uid == other.feature_uid
-            && self.parent_uid == other.parent_uid
-            && self.source_branch == other.source_branch
-            && self.destination_branch == other.destination_branch
-            && self.routing_overrides == other.routing_overrides
-            && self.routing_inherited_from == other.routing_inherited_from
-            && self.follow_up_task == other.follow_up_task
-            && self.code_review_disposition == other.code_review_disposition
-            && self.detail == other.detail
-    }
-}
-
-impl Eq for Work {}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct FollowUpTaskOffer {
     pub title: String,
     pub description: String,
-}
-
-impl Work {
-    pub fn new(key: String, title: String, request: String, detail: String) -> Self {
-        Self {
-            uid: uuid::Uuid::new_v4().hyphenated().to_string(),
-            key,
-            kind: WorkKind::Feature,
-            title,
-            request,
-            status: WorkStatus::InProgress,
-            feature_id: None,
-            feature_uid: None,
-            parent_uid: None,
-            source_branch: None,
-            destination_branch: None,
-            routing_overrides: std::collections::BTreeMap::new(),
-            routing_inherited_from: None,
-            follow_up_task: None,
-            code_review_disposition: None,
-            detail,
-            record_revision: 0,
-            record_baseline: None,
-        }
-    }
-
-    pub fn board_column(&self) -> usize {
-        self.status.board_column()
-    }
 }
 
 /// Match a planning record to the feature it owns. A durable UID is

@@ -83,7 +83,7 @@ fn legacy_open_and_resolved_items_migrate_to_content_and_state_records() {
     let state: serde_json::Value =
         serde_json::from_slice(&std::fs::read(state_path).unwrap()).unwrap();
     let content = std::fs::read_to_string(content_path).unwrap();
-    assert_eq!(state["schemaVersion"], 1);
+    assert_eq!(state["schemaVersion"], 2);
     assert_eq!(state["uid"].as_str(), Some(uid.as_str()));
     assert_eq!(state["revision"], 1);
     assert!(state["createdAtMs"].is_u64());
@@ -173,4 +173,97 @@ fn corrupt_record_fails_without_falling_back_to_legacy_aggregate() {
     store.atomic_write(path, b"{broken").unwrap();
     assert!(load_store(&store).is_err());
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn task_intent_item_link_requires_exactly_one_persisted_root() {
+    let (root_dir, store) = root();
+    let mut root = crate::core::planning_work::Work::new(
+        "task:intent-root".into(),
+        "Original goal".into(),
+        "Preserve this request".into(),
+        "Planning".into(),
+    );
+    root.task_intent_uid = Some(root.uid.clone());
+    crate::core::planning_work::save(&store, std::slice::from_ref(&root)).unwrap();
+
+    let mut scoped_item = item("CLR-401", "Should this belong to the request?");
+    scoped_item.task_intent_uid = Some(root.uid.clone());
+    scoped_item.task_intent_cycle_uid = Some(root.uid.clone());
+    save(&store, std::slice::from_ref(&scoped_item), &[]).unwrap();
+    let (open, _, _) = load_store(&store).unwrap();
+    assert_eq!(open[0].task_intent_uid.as_deref(), Some(root.uid.as_str()));
+    assert_eq!(
+        open[0].task_intent_cycle_uid.as_deref(),
+        Some(root.uid.as_str())
+    );
+
+    let missing_uid = uuid::Uuid::new_v4().to_string();
+    scoped_item.task_intent_uid = Some(missing_uid);
+    let error = record_changes(&store, &[scoped_item.clone()], &[])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("exactly one valid root"), "{error}");
+
+    scoped_item.task_intent_uid = Some(root.uid.clone());
+    scoped_item.task_intent_cycle_uid = Some(uuid::Uuid::new_v4().to_string());
+    let error = record_changes(&store, &[scoped_item], &[])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("unknown TaskIntent cycle"), "{error}");
+    std::fs::remove_dir_all(root_dir).unwrap();
+}
+
+#[test]
+fn persisted_task_intent_item_link_rejects_a_missing_root() {
+    let (root_dir, store) = root();
+    let mut scoped_item = item("CLR-402", "Which request owns this decision?");
+    scoped_item.task_intent_uid = None;
+    save(&store, std::slice::from_ref(&scoped_item), &[]).unwrap();
+
+    let uid = scoped_item.uid.as_ref().unwrap();
+    let path = format!("{}/{uid}.json", paths::ITEM_STATES);
+    let mut record: serde_json::Value =
+        serde_json::from_slice(&store.read(&path).unwrap()).unwrap();
+    record["data"]["taskIntentUid"] = serde_json::Value::String(uuid::Uuid::new_v4().to_string());
+    store
+        .atomic_write(path, &serde_json::to_vec(&record).unwrap())
+        .unwrap();
+
+    let error = load_store(&store).unwrap_err().to_string();
+    assert!(
+        error.contains("TaskIntent root does not exist")
+            || error.contains("exactly one valid root"),
+        "{error}"
+    );
+    std::fs::remove_dir_all(root_dir).unwrap();
+}
+
+#[test]
+fn task_intent_item_link_rejects_ambiguous_roots() {
+    let (root_dir, store) = root();
+    let mut root = crate::core::planning_work::Work::new(
+        "task:intent-root".into(),
+        "Original goal".into(),
+        "Preserve this request".into(),
+        "Planning".into(),
+    );
+    root.task_intent_uid = Some(root.uid.clone());
+    store
+        .atomic_write(
+            paths::WORK,
+            &serde_json::to_vec(&serde_json::json!({
+                "schemaVersion": 4,
+                "items": [&root, &root],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    let mut scoped_item = item("CLR-403", "Which duplicate root owns this decision?");
+    scoped_item.task_intent_uid = Some(root.uid);
+    let error = record_changes(&store, &[scoped_item], &[])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("exactly one valid root"), "{error}");
+    std::fs::remove_dir_all(root_dir).unwrap();
 }

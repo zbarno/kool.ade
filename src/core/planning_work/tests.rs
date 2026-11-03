@@ -9,6 +9,8 @@ mod code_review_disposition;
 mod feature_uid;
 #[path = "tests/record_files.rs"]
 mod record_files;
+#[path = "tests/task_intent.rs"]
+mod task_intent;
 
 fn root() -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!(
@@ -58,7 +60,7 @@ fn legacy_work_reads_are_pure_and_upgrade_with_revision_fencing() {
     let record_path = store.layout().work_record(&work[0].uid).unwrap();
     let migrated: serde_json::Value =
         serde_json::from_slice(&std::fs::read(record_path).unwrap()).unwrap();
-    assert_eq!(migrated["schemaVersion"], 1);
+    assert_eq!(migrated["schemaVersion"], 3);
     assert_eq!(migrated["uid"], work[0].uid);
     assert_eq!(migrated["revision"], 1);
     assert_eq!(migrated["data"]["status"], "needs_attention");
@@ -213,7 +215,7 @@ fn discovered_refresh_tasks_keep_questions_in_attention_and_findings_in_todo() {
             status: WorkStatus::Todo,
         },
     ];
-    let work = append_discovered(&drafts).unwrap();
+    let work = append_discovered(&drafts, None).unwrap();
     let store = root.planning_store();
     let (changes, checks, _) = record_changes(&store, &work).unwrap();
     store
@@ -226,6 +228,49 @@ fn discovered_refresh_tasks_keep_questions_in_attention_and_findings_in_todo() {
     assert_eq!(items[1].status, WorkStatus::Todo);
     assert_eq!(items[1].kind, WorkKind::Bug);
     assert!(items[1].detail.contains("triage before acting"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn discovered_refresh_tasks_inherit_the_authenticated_root_context() {
+    let root = root();
+    let mut intent = Work::new(
+        "task:docs-refresh".into(),
+        "Refresh documentation".into(),
+        "Review the current docs".into(),
+        String::new(),
+    );
+    intent.kind = WorkKind::DocumentationRefresh;
+    intent.task_intent_uid = Some(intent.uid.clone());
+    let intent_uid = intent.uid.clone();
+    save(&root, &[intent.clone()]).unwrap();
+    let drafts = [crate::harness::PlanningTaskDraft {
+        title: "Triage documentation gap".into(),
+        description: "The setup guide omits a recovery step.".into(),
+        kind: WorkKind::Question,
+        status: WorkStatus::NeedsAttention,
+    }];
+    let context = crate::core::validation::TaskIntentWorkContext {
+        parent_work_uid: intent.uid.clone(),
+        root_uid: intent_uid.clone(),
+        cycle_uid: Some(intent.uid.clone()),
+    };
+    let child = append_discovered(&drafts, Some(&context)).unwrap();
+    let store = root.planning_store();
+    let (changes, checks, _) = record_changes(&store, &child).unwrap();
+    store
+        .transaction_with_record_revisions(&changes, &checks)
+        .unwrap();
+    let persisted = find(
+        &crate::core::state::PlannerState::load(&root).unwrap(),
+        &child[0].key,
+    )
+    .unwrap();
+    assert_eq!(persisted.parent_uid.as_deref(), Some(intent_uid.as_str()));
+    assert_eq!(
+        persisted.task_intent_uid.as_deref(),
+        Some(intent_uid.as_str())
+    );
     std::fs::remove_dir_all(root).unwrap();
 }
 

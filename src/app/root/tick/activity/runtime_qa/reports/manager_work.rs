@@ -66,6 +66,7 @@ pub(super) fn persist(
         proposal.status = WorkStatus::Todo;
         proposal.feature_uid = Some(task.feature_uid.clone());
         proposal.parent_uid = Some(task.task_uid.clone());
+        proposal.task_intent_uid = Work::task_intent_uid_for_feature(work, &task.feature_uid);
         work.push(proposal);
         changed = true;
     }

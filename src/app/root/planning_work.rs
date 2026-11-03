@@ -1,6 +1,7 @@
 use super::{KooladeApp, Screen};
 use crate::core::planning_work::{Work, WorkKind};
 
+mod cycles;
 mod generation;
 
 pub(super) fn provider_support_follow_up(
@@ -48,6 +49,11 @@ impl KooladeApp {
             let inherited_routes = inherited.map(|work| work.routing_overrides.clone());
             let inherited_feature =
                 inherited.map(|work| (work.feature_id.clone(), work.feature_uid.clone()));
+            let inherited_task_intent_uid =
+                inherited.and_then(|work| work.task_intent_root_uid().map(str::to_owned));
+            let inherited_source_branch = inherited.and_then(|work| work.source_branch.clone());
+            let inherited_destination_branch =
+                inherited.and_then(|work| work.destination_branch.clone());
             let routes = inherited_routes.unwrap_or(routing_overrides);
             let referenced_feature = (parent_uid.is_none())
                 .then(|| {
@@ -85,12 +91,10 @@ impl KooladeApp {
             } else {
                 Some(project.git.default_branch.as_str())
             };
-            let source_branch = inherited
-                .and_then(|work| work.source_branch.clone())
+            let source_branch = inherited_source_branch
                 .or(source_branch)
                 .or_else(|| default_branch.map(str::to_owned));
-            let destination_branch = inherited
-                .and_then(|work| work.destination_branch.clone())
+            let destination_branch = inherited_destination_branch
                 .or(destination_branch)
                 .or_else(|| default_branch.map(str::to_owned));
             let destinations = if !project.git.has_origin {
@@ -145,6 +149,8 @@ impl KooladeApp {
                     );
                     work.kind = kind;
                     work.parent_uid = parent_uid.clone();
+                    work.task_intent_uid = inherited_task_intent_uid
+                        .or_else(|| kind.starts_task_intent().then(|| work.uid.clone()));
                     work.feature_id = inherited_feature
                         .as_ref()
                         .and_then(|(feature_id, _)| feature_id.clone())
