@@ -2818,6 +2818,7 @@ dependencies = [
  "bollard",
  "chrono",
  "core-foundation 0.10.1",
+ "core-foundation-sys",
  "eframe",
  "egui",
  "flate2",

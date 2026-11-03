@@ -5,6 +5,8 @@ use serde_json::json;
 use std::fs;
 #[cfg(not(test))]
 use std::path::Path;
+#[cfg(any(windows, target_os = "macos"))]
+mod managed_policy;
 
 #[cfg(all(not(test), target_os = "linux"))]
 const SYSTEM_SETTINGS: &str = "/etc/claude-code/managed-settings.json";
@@ -99,7 +101,12 @@ pub(super) fn ensure_no_local_managed_host_execution() -> anyhow::Result<()> {
         Path::new(SYSTEM_SETTINGS),
         Path::new(SYSTEM_SETTINGS_DROPINS),
     )?;
-    managed_hooks::ensure_no_json_mcp_servers(Path::new(SYSTEM_MANAGED_MCP), "Claude Code")
+    managed_hooks::ensure_no_json_mcp_servers(Path::new(SYSTEM_MANAGED_MCP), "Claude Code")?;
+    #[cfg(windows)]
+    managed_policy::ensure_no_windows_registry_settings()?;
+    #[cfg(target_os = "macos")]
+    managed_policy::ensure_no_forced_host_execution_preferences()?;
+    Ok(())
 }
 
 fn ensure_no_local_managed_settings(

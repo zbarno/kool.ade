@@ -5,19 +5,22 @@ use super::{
     shared::{set_option, toml_array, toml_string},
 };
 mod auth;
+#[cfg(any(windows, target_os = "macos", test))]
+mod managed_policy;
 #[cfg(not(test))]
-use std::{
-    env,
-    path::{Path, PathBuf},
-};
+use std::env;
+#[cfg(all(not(test), unix))]
+use std::path::Path;
+#[cfg(not(test))]
+use std::path::PathBuf;
 
-#[cfg(not(test))]
+#[cfg(all(not(test), unix))]
 const SYSTEM_SETTINGS: &[&str] = &[
     "/etc/codex/config.toml",
     "/etc/codex/managed_config.toml",
     "/etc/codex/requirements.toml",
 ];
-#[cfg(not(test))]
+#[cfg(all(not(test), unix))]
 const SYSTEM_HOOKS: &str = "/etc/codex/hooks.json";
 
 pub(super) fn configure(
@@ -27,11 +30,18 @@ pub(super) fn configure(
 ) -> anyhow::Result<()> {
     #[cfg(not(test))]
     {
-        managed_hooks::ensure_no_toml_host_execution(
-            "Codex",
-            SYSTEM_SETTINGS.iter().map(Path::new),
-        )?;
-        managed_hooks::ensure_no_hook_file(Path::new(SYSTEM_HOOKS), "Codex")?;
+        #[cfg(unix)]
+        {
+            managed_hooks::ensure_no_toml_host_execution(
+                "Codex",
+                SYSTEM_SETTINGS.iter().map(Path::new),
+            )?;
+            managed_hooks::ensure_no_hook_file(Path::new(SYSTEM_HOOKS), "Codex")?;
+        }
+        #[cfg(windows)]
+        managed_policy::ensure_no_system_host_execution()?;
+        #[cfg(target_os = "macos")]
+        managed_policy::ensure_no_forced_host_execution_preferences()?;
         if let Some(codex_home) = codex_source_home()? {
             managed_hooks::ensure_no_hook_file(&codex_home.join("hooks.json"), "Codex")?;
         }
