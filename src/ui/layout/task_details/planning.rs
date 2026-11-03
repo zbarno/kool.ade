@@ -130,6 +130,12 @@ pub(super) fn paint_feature_approval(
     ));
     ui.add_space(crate::ui::theme::spacing::M);
     crate::ui::feature_approval::paint_candidate(ui, action);
+    if !action.ready {
+        ui.label("This plan cannot be confirmed yet. Resolve the readiness blockers in planning.");
+    }
+    if let Some(verdict) = &action.review_verdict {
+        crate::ui::feature_approval::paint_review(ui, verdict);
+    }
     if action
         .plan_comparison
         .as_ref()
@@ -152,8 +158,16 @@ pub(super) fn paint_feature_approval(
         ui.horizontal_wrapped(|ui| {
             if ui
                 .add_enabled(
-                    !surface.conversation_busy(),
-                    egui::Button::new(action.label()).fill(crate::ui::theme::ACTION),
+                    !surface.conversation_busy()
+                        && action.ready
+                        && (action.retry_review
+                            || !action.review_verdict.as_ref().is_some_and(|v| !v.pass)),
+                    egui::Button::new(if !action.user_confirmed && !action.compare_plans {
+                        "Confirm this plan".to_owned()
+                    } else {
+                        action.label()
+                    })
+                    .fill(crate::ui::theme::ACTION),
                 )
                 .clicked()
             {

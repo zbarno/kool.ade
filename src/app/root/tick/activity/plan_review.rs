@@ -266,25 +266,15 @@ pub(super) fn advance_plan_review(project: &mut crate::app::session::Project) {
     };
     {
         let (status, detail) = task_gate;
-        if let Some((_, markdown)) = reviewed_feature.as_deref().and_then(|feature_id| {
-            project
-                .state
-                .active_features
-                .iter()
-                .find(|(id, _)| id == feature_id)
-        }) && let Ok(Some(identity)) = crate::domain::ArtifactIdentity::from_markdown(markdown)
-            && let Some(work) = project.planning_work.iter_mut().find(|work| {
-                work.kind == crate::core::planning_work::WorkKind::TaskGeneration
-                    && work.feature_uid.as_deref() == Some(identity.uid.as_str())
-            })
+        if let Some(feature_id) = reviewed_feature.as_deref()
+            && let Err(error) =
+                crate::app::root::feature_approval::board::reconcile_task_generation_work(
+                    project, feature_id, status, detail,
+                )
         {
-            work.status = status;
-            work.detail = detail;
-            if let Err(error) = project.save_planning_work() {
-                project.activity.pending.push(format!(
-                            "Plan review finished, but its task-generation status could not be saved: {error}"
-                        ));
-            }
+            project.activity.pending.push(format!(
+                "Plan review finished, but its task-generation status could not be saved: {error}"
+            ));
         }
     }
     project.remember_chat(vec![crate::domain::chatlog::ChatMessage::new(

@@ -33,7 +33,7 @@ fn board_approval_adds_a_task_generation_card_that_generates_stories_on_request(
     assert!(text_position(&output, "CHG-004: Saved searches").is_some());
     click_text(&mut app, &ctx, "Review specification");
     let details = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&details, "Ask a question").is_some());
+    assert!(text_position(&details, "Confirm this plan").is_some());
     assert!(text_position(&details, "Request changes").is_some());
     click_text(&mut app, &ctx, "Confirm this plan");
     assert_current_test_plan_confirmation(&mut app, "CHG-004");
@@ -87,6 +87,33 @@ fn board_approval_adds_a_task_generation_card_that_generates_stories_on_request(
     assert!(app.feature_actions(Some("CLR-026")).is_empty());
     assert!(app.implementation_offer());
     assert!(matches!(&app.screen, Screen::Connected(project) if !project.queue.auto_publish));
+    drop(app);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// Production boundary: plan review completion persists its task action even
+/// when confirmation did not originate from the board. Pure UI tests cannot
+/// verify the durable planning-work store. External dependency: local Git;
+/// setup cost: one isolated temporary planning repository.
+#[test]
+fn reviewed_plan_without_board_handler_gets_durable_generation_card() {
+    let _shield = crate::core::gitops::test_support::shield("generation-reconcile");
+    let (mut app, root, _) = setup();
+    let Screen::Connected(project) = &mut app.screen else { panic!() };
+    let status = crate::core::planning_work::WorkStatus::Todo;
+    super::super::board::reconcile_task_generation_work(
+        project, "CHG-004", status, "Independent review approved.".into(),
+    ).unwrap();
+    super::super::board::reconcile_task_generation_work(
+        project, "CHG-004", status, "Independent review approved.".into(),
+    ).unwrap();
+    let generation = project.planning_work.iter().filter(|work| {
+        work.kind == crate::core::planning_work::WorkKind::TaskGeneration
+            && work.feature_id.as_deref() == Some("CHG-004")
+    }).collect::<Vec<_>>();
+    assert_eq!(generation.len(), 1, "reconciliation must not duplicate the action");
+    assert_eq!(generation[0].status, status);
+    assert!(!generation[0].key.is_empty());
     drop(app);
     std::fs::remove_dir_all(root).unwrap();
 }

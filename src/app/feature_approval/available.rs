@@ -95,7 +95,7 @@ impl KooladeApp {
                         .as_ref()
                         .is_some_and(|snapshot| self.review_action_available(project, snapshot));
                 let review_attention = review_verdict.as_ref().is_some_and(|verdict| !verdict.pass);
-                (((!user_confirmed && ready)
+                (((!user_confirmed && plan_snapshot.is_some())
                     || prepare_tasks
                     || retry_review
                     || review_attention

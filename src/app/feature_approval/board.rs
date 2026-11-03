@@ -75,55 +75,78 @@ impl KooladeApp {
         } else {
             "Blocked: independent PlanReviewer approval is required for the exact confirmed plan snapshot before task generation.".to_owned()
         };
-        let Ok(Some(identity)) = crate::domain::ArtifactIdentity::from_markdown(body) else {
-            return;
-        };
-        if let Some(work) = project.planning_work.iter_mut().find(|work| {
-            work.kind == crate::core::planning_work::WorkKind::TaskGeneration
-                && work.feature_uid.as_deref() == Some(identity.uid.as_str())
-        }) {
-            work.status = status;
-            work.detail = detail;
-            if let Err(error) = project.save_planning_work() {
-                self.toasts.danger(format!("Plan confirmation was recorded, but the review blocker could not be saved: {error}"));
-            }
-            return;
-        }
-        let title = body
-            .lines()
-            .next()
-            .unwrap_or(id)
-            .trim_start_matches('#')
-            .trim();
-        let mut work = crate::core::planning_work::Work::new(
-            String::new(),
-            format!("Generate tasks: {title}"),
-            format!(
-                "Generate implementation tasks for confirmed feature {id} after independent plan review."
-            ),
-            detail,
-        );
-        work.kind = crate::core::planning_work::WorkKind::TaskGeneration;
-        work.status = status;
-        work.feature_id = Some(id.to_owned());
-        work.feature_uid = Some(identity.uid);
-        work.task_intent_uid = crate::core::planning_work::Work::task_intent_uid_for_feature(
-            &project.planning_work,
-            work.feature_uid
-                .as_deref()
-                .expect("feature identity was set"),
-        );
-        work.key = format!("task-generation:{}", work.uid);
-        project.planning_work.push(work);
-        if let Err(error) = project.save_planning_work() {
-            project.planning_work.pop();
+        if let Err(error) = reconcile_task_generation_work(project, id, status, detail) {
             self.toasts.danger(format!(
-                "Feature was approved, but the task generation card could not be saved: {error}"
+                "Plan confirmation was recorded, but its task-generation card could not be saved: {error}"
             ));
             return;
         }
-        self.toasts.warning(format!(
-            "{id} is confirmed. Task generation is blocked until the independent PlanReviewer approves this exact snapshot."
-        ));
+        if !approved {
+            self.toasts.warning(format!(
+                "{id} is confirmed. Task generation is blocked until the independent PlanReviewer approves this exact snapshot."
+            ));
+        }
     }
+}
+
+/// Keep a durable task-generation action in sync for both board confirmation
+/// and independently completed plan reviews. Review may finish through a path
+/// that never visited the board's confirmation handler.
+pub(crate) fn reconcile_task_generation_work(
+    project: &mut crate::app::session::Project,
+    feature_id: &str,
+    status: crate::core::planning_work::WorkStatus,
+    detail: String,
+) -> Result<(), String> {
+    use crate::core::planning_work::{Work, WorkKind};
+    let (_, body) = project
+        .state
+        .active_features
+        .iter()
+        .find(|(id, _)| id == feature_id)
+        .ok_or_else(|| format!("Feature {feature_id} is not loaded"))?;
+    let identity = crate::domain::ArtifactIdentity::from_markdown(body)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| format!("Feature {feature_id} has no immutable identity"))?;
+    let title = body
+        .lines()
+        .next()
+        .unwrap_or(feature_id)
+        .trim_start_matches('#')
+        .trim()
+        .to_owned();
+    let previous = project.planning_work.clone();
+    if let Some(work) = project.planning_work.iter_mut().find(|work| {
+        work.kind == WorkKind::TaskGeneration
+            && work.feature_uid.as_deref() == Some(identity.uid.as_str())
+    }) {
+        // An already finished generation card must never be resurrected.
+        if work.status == crate::core::planning_work::WorkStatus::Done {
+            return Ok(());
+        }
+        work.status = status;
+        work.detail = detail;
+    } else {
+        let mut work = Work::new(
+            String::new(),
+            format!("Generate tasks: {title}"),
+            format!(
+                "Generate implementation tasks for confirmed feature {feature_id} after independent plan review."
+            ),
+            detail,
+        );
+        work.kind = WorkKind::TaskGeneration;
+        work.status = status;
+        work.feature_id = Some(feature_id.to_owned());
+        work.feature_uid = Some(identity.uid.clone());
+        work.task_intent_uid =
+            Work::task_intent_uid_for_feature(&project.planning_work, &identity.uid);
+        work.key = format!("task-generation:{}", work.uid);
+        project.planning_work.push(work);
+    }
+    if let Err(error) = project.save_planning_work() {
+        project.planning_work = previous;
+        return Err(error.to_string());
+    }
+    Ok(())
 }

@@ -48,6 +48,33 @@ fn action() -> Action {
     }
 }
 
+/// Production boundary: approval ownership is resolved by immutable feature
+/// identity, not a shared display ID. No external dependencies or setup cost.
+#[test]
+fn feature_approval_is_owned_only_by_the_matching_task_intent_root() {
+    use crate::core::planning_work::{Work, WorkKind};
+    let mut root = Work::new(
+        "intent:one".into(), "Feature root".into(), "Request".into(), String::new(),
+    );
+    root.feature_id = Some("CHG-004".into());
+    root.feature_uid = Some("stable-feature-uid".into());
+    assert!(super::belongs_to_root(&root, "stable-feature-uid"));
+    assert!(!super::belongs_to_root(&root, "different-feature-uid"));
+
+    let mut child = Work::new(
+        "intent:child".into(), "Planning child".into(), "Request".into(), String::new(),
+    );
+    child.feature_id = root.feature_id.clone();
+    child.feature_uid = root.feature_uid.clone();
+    child.parent_uid = Some(root.uid.clone());
+    child.task_intent_uid = Some(root.uid.clone());
+    assert!(!super::belongs_to_root(&child, "stable-feature-uid"));
+
+    let mut generation = root.clone();
+    generation.kind = WorkKind::TaskGeneration;
+    assert!(!super::belongs_to_root(&generation, "stable-feature-uid"));
+}
+
 #[test]
 fn retry_review_action_has_an_explicit_label() {
     let mut action = action();

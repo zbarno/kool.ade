@@ -1,9 +1,9 @@
 use super::*;
 
 #[test]
-fn plan_confirmation_card_is_not_created_until_readiness_passes() {
-    // Production boundary: the board action projection consumes persisted readiness before exposing a confirmation card.
-    // Invariant: a feature with failed readiness has no confirm/request action; testing only the approval command would miss a misleading card.
+fn unready_plan_remains_visible_but_cannot_be_confirmed() {
+    // Production boundary: the board projects a pending plan even when readiness is blocked.
+    // Invariant: users can find the card, but readiness still blocks confirmation.
     // External dependencies: none. Setup cost: one temporary Git repository.
     let _shield = crate::core::gitops::test_support::shield("plan-confirmation-readiness-card");
     let (mut app, root, _) = setup();
@@ -21,11 +21,12 @@ fn plan_confirmation_card_is_not_created_until_readiness_passes() {
     questions.save_readiness(&readiness, revision).unwrap();
     project.state.baseline_planning_revision = project.state.planning_store.revision().unwrap();
     let actions = app.feature_actions(None);
-    assert!(
-        actions.is_empty(),
-        "a failed readiness assessment exposed {} feature action(s)",
-        actions.len()
-    );
+    assert_eq!(actions.len(), 1, "blocked plan must not disappear from the board");
+    assert_eq!(actions[0].id, "CHG-004");
+    assert!(!actions[0].ready);
+    assert!(!actions[0].approved);
+    app.approve_feature_from_board("CHG-004");
+    assert!(!app.feature_approved("CHG-004"), "readiness gate must still fail closed");
     drop(app);
     std::fs::remove_dir_all(root).unwrap();
 }

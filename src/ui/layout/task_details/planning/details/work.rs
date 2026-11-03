@@ -18,19 +18,30 @@ pub(super) fn paint(
     ui.add_space(crate::ui::theme::spacing::M);
     ui.label(crate::ui::theme::section_heading("Next step"));
     if work.kind == WorkKind::TaskGeneration {
-        ui.label("The approved specification is ready for task generation.");
-        if ui
-            .add_enabled(
-                !surface.conversation_busy(),
-                egui::Button::new("Generate tasks").fill(crate::ui::theme::ACTION),
-            )
-            .clicked()
-            && let Some(feature_id) = work.feature_id.as_ref()
-        {
-            surface.dispatch(crate::ui::ApplicationCommand::GenerateTasksForFeature {
-                work_key: work.key.clone(),
-                feature_id: feature_id.clone(),
-            });
+        let can_generate = work.feature_id.as_ref().is_some_and(|feature_id| {
+            surface.feature_approved(feature_id)
+        }) && matches!(
+            work.status,
+            crate::core::planning_work::WorkStatus::Todo
+                | crate::core::planning_work::WorkStatus::NeedsAttention
+        );
+        if can_generate {
+            ui.label("The independently approved specification is ready for task generation.");
+            if ui
+                .add_enabled(
+                    !surface.conversation_busy(),
+                    egui::Button::new("Generate tasks").fill(crate::ui::theme::ACTION),
+                )
+                .clicked()
+                && let Some(feature_id) = work.feature_id.as_ref()
+            {
+                surface.dispatch(crate::ui::ApplicationCommand::GenerateTasksForFeature {
+                    work_key: work.key.clone(),
+                    feature_id: feature_id.clone(),
+                });
+            }
+        } else {
+            ui.label(&work.detail);
         }
     } else if work.status == crate::core::planning_work::WorkStatus::InProgress {
         ui.label("Kool.ad/e is working on this task.");
@@ -84,16 +95,33 @@ fn paint_approval(
     let Some(action) = surface
         .feature_actions(None)
         .into_iter()
-        .find(|action| action.id == feature_id && (!action.approved || action.retry_review))
+        .find(|action| {
+            action.id == feature_id
+                && action.plan_snapshot.as_ref().is_some_and(|snapshot| {
+                    crate::ui::feature_approval::belongs_to_root(work, &snapshot.feature_uid)
+                })
+                && (!action.approved || action.retry_review)
+        })
     else {
         return;
     };
     egui::CollapsingHeader::new("Plan confirmation")
-        .default_open(!action.user_confirmed || action.retry_review)
+        .default_open(
+            !action.user_confirmed
+                || action.retry_review
+                || action.review_verdict.as_ref().is_some_and(|verdict| !verdict.pass),
+        )
         .show(ui, |ui| {
             crate::ui::feature_approval::paint_candidate(ui, &action);
             if let Some(verdict) = &action.review_verdict {
                 crate::ui::feature_approval::paint_review(ui, verdict);
+            }
+            if !action.ready {
+                ui.label("This plan cannot be confirmed yet. Resolve the readiness blockers in planning.");
+            } else if action.review_verdict.as_ref().is_some_and(|v| !v.pass)
+                && !action.retry_review
+            {
+                ui.label("Independent review found issues. Revise the plan before reconfirming.");
             }
             let needs_choice = action
                 .plan_comparison
@@ -135,7 +163,10 @@ fn paint_approval(
                     if action.user_confirmed
                         && ui
                             .add_enabled(
-                                !surface.conversation_busy() && action.ready,
+                                !surface.conversation_busy()
+                                    && action.ready
+                                    && (action.retry_review
+                                        || !action.review_verdict.as_ref().is_some_and(|v| !v.pass)),
                                 egui::Button::new(action.label()).fill(crate::ui::theme::ACTION),
                             )
                             .clicked()

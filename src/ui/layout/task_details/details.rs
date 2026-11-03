@@ -11,6 +11,19 @@ mod runtime_qa_applicability;
 mod runtime_qa_scenarios;
 mod target;
 
+/// Surface state-bound approval actions in the primary action area, not inside
+/// the collapsed technical-details disclosure.
+pub(super) fn paint_required_actions(
+    ui: &mut egui::Ui,
+    s: &mut dyn Surface,
+    ticket: &str,
+    view: &crate::ui::task_detail::ViewModel,
+) {
+    runtime_qa_scenarios::paint(ui, s, ticket, view);
+    runtime_qa_applicability::paint(ui, s, ticket, view);
+    lifecycle_spec::paint(ui, s, ticket, view);
+}
+
 pub(super) fn paint(
     ui: &mut egui::Ui,
     s: &mut dyn Surface,
@@ -33,9 +46,6 @@ pub(super) fn paint(
     target::paint(ui, s, presentation.ticket, presentation.view);
     target::paint_execution_evidence(ui, presentation.view);
     runtime_capability::paint(ui, s, presentation.ticket, presentation.view);
-    runtime_qa_scenarios::paint(ui, s, presentation.ticket, presentation.view);
-    runtime_qa_applicability::paint(ui, s, presentation.ticket, presentation.view);
-    lifecycle_spec::paint(ui, s, presentation.ticket, presentation.view);
     lifecycle_qa::paint(ui, presentation.view.lifecycle.as_ref());
     linkage::paint(ui, doc);
     activity::paint(ui, view, ticket, active, activity_path);

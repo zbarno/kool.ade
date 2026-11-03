@@ -9,7 +9,7 @@ mod approval;
 #[path = "feature_approval/available.rs"]
 mod available;
 #[path = "feature_approval/board.rs"]
-mod board;
+pub(super) mod board;
 #[path = "feature_approval/continuation.rs"]
 mod continuation;
 #[path = "feature_approval/readiness.rs"]
