@@ -15,6 +15,15 @@ pub struct Action {
     pub plan_comparison: Option<crate::domain::PlanComparison>,
 }
 
+/// Show a feature approval on its owning TaskIntent, never on a child task
+/// that happens to carry the same human-readable feature ID.
+pub fn belongs_to_root(work: &crate::core::planning_work::Work, feature_uid: &str) -> bool {
+    work.kind.starts_task_intent()
+        && work.parent_uid.is_none()
+        && work.task_intent_root_uid() == Some(work.uid.as_str())
+        && work.feature_uid.as_deref() == Some(feature_uid)
+}
+
 pub fn paint_candidate(ui: &mut egui::Ui, action: &Action) {
     confirmation::paint(ui, action, "Plan confirmation");
 }
@@ -134,6 +143,15 @@ impl Action {
     pub fn label(&self) -> String {
         if self.retry_review {
             return format!("Start or retry independent plan review for {}", self.id);
+        }
+        if self.user_confirmed
+            && self
+                .review_verdict
+                .as_ref()
+                .is_some_and(|verdict| !verdict.pass)
+            && !self.retry_review
+        {
+            return format!("Plan changes required for {}", self.id);
         }
         if self.compare_plans {
             return format!("Compare plans for {}", self.id);

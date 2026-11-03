@@ -117,6 +117,7 @@ pub(super) fn paint(
     };
     ui.add(egui::Label::new(RichText::new(explanation).size(18.0).color(theme::TEXT_DIM)).wrap());
     ui.add_space(24.0);
+    details::paint_required_actions(ui, surface, state.ticket, state.view);
     if needs_answer {
         ui.label(RichText::new("Choose one").font(theme::task_heading_font(ui.ctx(), 21.0)));
         ui.add_space(8.0);

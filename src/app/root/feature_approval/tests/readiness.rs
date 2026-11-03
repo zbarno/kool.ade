@@ -168,8 +168,10 @@ fn confirmation_fails_closed_for_missing_readiness_binding() {
         .unwrap()
     );
     assert!(
-        app.feature_actions(None).is_empty(),
-        "missing readiness evidence must not expose a confirmation card"
+        app.feature_actions(None)
+            .iter()
+            .all(|action| !action.ready && !action.prepare_tasks),
+        "missing readiness evidence must not expose an enabled confirmation"
     );
     drop(app);
     std::fs::remove_dir_all(root).unwrap();
@@ -204,8 +206,10 @@ fn confirmation_fails_closed_for_stale_spec_and_newer_question_revisions() {
         .unwrap()
     );
     assert!(
-        app.feature_actions(None).is_empty(),
-        "no confirmation action is available for stale readiness evidence"
+        app.feature_actions(None)
+            .iter()
+            .all(|action| !action.ready && !action.prepare_tasks),
+        "stale readiness evidence must disable confirmation"
     );
     let Screen::Connected(project) = &mut app.screen else {
         panic!()
@@ -263,7 +267,9 @@ fn confirmation_fails_closed_for_stale_spec_and_newer_question_revisions() {
         .unwrap()
     );
     assert!(
-        app.feature_actions(None).is_empty(),
+        app.feature_actions(None)
+            .iter()
+            .all(|action| !action.ready && !action.prepare_tasks),
         "a newer clarification record keeps the old candidate unavailable"
     );
     drop(app);

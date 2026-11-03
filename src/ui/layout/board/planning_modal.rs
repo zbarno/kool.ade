@@ -121,18 +121,15 @@ pub(super) fn paint(
             .into_iter()
             .find(|action| action.board_key() == key)
     }) {
-        let work = board.planning_work.iter().find(|work| {
-            !matches!(
-                work.kind,
-                crate::core::planning_work::WorkKind::TaskGeneration
-                    | crate::core::planning_work::WorkKind::PlanReviewDisposition
-                    | crate::core::planning_work::WorkKind::CodeReviewDisposition
-            ) && (work.feature_uid.as_deref()
-                == action
-                    .plan_snapshot
-                    .as_ref()
-                    .map(|snapshot| snapshot.feature_uid.as_str())
-                || work.feature_id.as_deref() == Some(action.id.as_str()))
+        // Only the immutable TaskIntent owner may host this approval.
+        // Choosing a random related work item made confirmation controls
+        // appear alongside unrelated task details.
+        let work = action.plan_snapshot.as_ref().and_then(|snapshot| {
+            let mut owners = board.planning_work.iter().filter(|work| {
+                crate::ui::feature_approval::belongs_to_root(work, &snapshot.feature_uid)
+            });
+            let owner = owners.next()?;
+            owners.next().is_none().then_some(owner)
         });
         let key = work.map_or_else(|| action.board_key(), |work| work.key.clone());
         let closed = crate::ui::overlays::show_task_modal(ui, &key, bounds, |ui| {
