@@ -143,6 +143,7 @@ fn managed_store_keeps_create_edit_approval_and_generation_across_code_branch_sw
             ("feature:F1".into(), feature.into()),
         ],
         planning_tasks: Vec::new(),
+        task_intent_context: None,
         change_status_updates: [("F1".into(), ChangeStatus::Ready)].into(),
         additional_planning_artifacts: Vec::new(),
         added: vec![item],

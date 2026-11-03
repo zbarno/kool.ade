@@ -1,6 +1,7 @@
 pub(super) mod content;
 pub(super) mod model;
 mod read;
+mod task_intent;
 mod write;
 
 #[cfg(test)]

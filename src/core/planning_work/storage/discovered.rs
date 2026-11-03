@@ -1,7 +1,8 @@
-use super::super::{Work, validate};
+use super::super::Work;
 
 pub fn append_discovered(
     drafts: &[crate::harness::PlanningTaskDraft],
+    intent_context: Option<&crate::core::validation::TaskIntentWorkContext>,
 ) -> anyhow::Result<Vec<Work>> {
     let mut items = Vec::with_capacity(drafts.len());
     for draft in drafts {
@@ -14,9 +15,13 @@ pub fn append_discovered(
         work.key = format!("task:{}", work.uid);
         work.kind = draft.kind;
         work.status = draft.status;
+        if let Some(context) = intent_context {
+            work.parent_uid = Some(context.parent_work_uid.clone());
+            work.task_intent_uid = Some(context.root_uid.clone());
+            work.task_intent_cycle_uid = context.cycle_uid.clone();
+        }
         items.push(work);
     }
-    validate(&items)?;
     Ok(items)
 }
 

@@ -122,6 +122,12 @@ impl KooladeApp {
                     routing_overrides,
                 );
             }
+            ApplicationCommand::StartTaskIntentFollowUp { root_uid, goal } => {
+                self.start_task_intent_follow_up(&root_uid, &goal);
+            }
+            ApplicationCommand::RestoreTaskIntent { root_uid } => {
+                self.restore_task_intent(&root_uid);
+            }
             ApplicationCommand::DrainTaskChatSaves => self.drain_task_chat_saves(),
             ApplicationCommand::CancelTask => self.cancel_task(),
             ApplicationCommand::SetMaxParallelTasks { count } => self.set_max_parallel_tasks(count),

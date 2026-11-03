@@ -59,6 +59,7 @@ pub(super) fn paint(
     height: f32,
     activity_path: &mut Option<String>,
 ) {
+    planning::paint_relationship_back(ui);
     if ui.available_width() < 500.0 {
         ui.spacing_mut().item_spacing.y = 4.0;
     }

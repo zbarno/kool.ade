@@ -1,6 +1,18 @@
 use super::super::{Work, WorkKind, WorkStatus};
 use crate::artifacts::planning_store::{PlanningStore, StoreError, paths};
+use serde::Deserialize;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyWork {
+    key: String,
+    title: String,
+    request: String,
+    column: usize,
+    feature: Option<String>,
+    detail: String,
+}
 
 pub(super) fn legacy_work_exists(store: &PlanningStore) -> anyhow::Result<bool> {
     match store.read(paths::WORK) {
@@ -20,17 +32,52 @@ pub(super) fn now_ms() -> u64 {
         .min(u128::from(u64::MAX)) as u64
 }
 
-pub(super) fn migrate_legacy(work: super::LegacyWork) -> anyhow::Result<Work> {
+pub(super) fn read_legacy_work(store: &PlanningStore) -> anyhow::Result<(Vec<Work>, bool)> {
+    let bytes = match store.read(paths::WORK) {
+        Ok(bytes) => bytes,
+        Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+            return Ok((Vec::new(), false));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let value: serde_json::Value = serde_json::from_slice(&bytes)?;
+    let work = if value.is_array() {
+        serde_json::from_value::<Vec<LegacyWork>>(value)?
+            .into_iter()
+            .map(migrate_legacy)
+            .collect::<anyhow::Result<Vec<_>>>()?
+    } else {
+        let file: super::super::WorkFile = serde_json::from_value(value)?;
+        anyhow::ensure!(
+            (1..=super::super::SCHEMA_VERSION).contains(&file.schema_version),
+            "Unsupported planning work schema version {}",
+            file.schema_version
+        );
+        file.items
+    };
+    let mut work = work;
+    super::super::normalize_task_intents(&mut work);
+    super::validate(&work)?;
+    Ok((work, true))
+}
+
+fn migrate_legacy(work: LegacyWork) -> anyhow::Result<Work> {
     Ok(Work {
         uid: legacy_uid(&work.key),
         key: work.key,
         kind: WorkKind::Feature,
         title: work.title,
+        original_goal: Some(work.request.clone()),
         request: work.request,
         status: WorkStatus::from_legacy_column(work.column)?,
         feature_id: work.feature,
         feature_uid: None,
         parent_uid: None,
+        task_intent_uid: None,
+        task_intent_history: Vec::new(),
+        task_intent_cycles: Vec::new(),
+        task_intent_cycle_uid: None,
+        task_intent_archived_at_ms: None,
         source_branch: None,
         destination_branch: None,
         routing_overrides: std::collections::BTreeMap::new(),

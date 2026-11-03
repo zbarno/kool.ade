@@ -27,6 +27,7 @@ fn update(document_id: &str) -> NormalizedTurn {
         spec_markdown: None,
         document_updates: vec![(document_id.into(), "replacement".into())],
         planning_tasks: Vec::new(),
+        task_intent_context: None,
         change_status_updates: Default::default(),
         additional_planning_artifacts: Vec::new(),
         added: Vec::new(),

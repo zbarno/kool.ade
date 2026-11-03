@@ -55,7 +55,7 @@ pub(super) fn paint_work(
         surface,
         key,
         height,
-        details::PlanningDetails::Work(work, &board.planning_work),
+        details::PlanningDetails::Work(work, &board.planning_work, board),
     );
 }
 
@@ -71,6 +71,20 @@ pub(super) fn paint_relationship_back(ui: &mut egui::Ui) {
             data.insert_temp(
                 egui::Id::new("koolade_task_relationship_task_navigation"),
                 return_path,
+            );
+        });
+    }
+    let return_intent = ui.ctx().data_mut(|data| {
+        data.get_temp::<String>(egui::Id::new("koolade_task_relationship_intent_return"))
+    });
+    if let Some(return_key) = return_intent
+        && ui.button("← Back to TaskIntent").clicked()
+    {
+        ui.ctx().data_mut(|data| {
+            data.remove::<String>(egui::Id::new("koolade_task_relationship_intent_return"));
+            data.insert_temp(
+                egui::Id::new("koolade_task_relationship_work_navigation"),
+                return_key,
             );
         });
     }

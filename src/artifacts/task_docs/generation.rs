@@ -68,6 +68,8 @@ pub fn save_progress_expected<R: PlanningRoot + ?Sized>(
         .collect();
     ensure_unique_task_names(&names)?;
     let mut changes = Vec::new();
+    let task_intent_uid = super::task_intent_uid_for_batch(repo, batch)?;
+    let task_intent_cycle_uid = super::task_intent_cycle_uid_for_batch(repo, batch)?;
     let mut identified = Vec::with_capacity(batch.stories.len());
     let mut task_uids = Vec::with_capacity(batch.stories.len());
     for (i, story) in batch.stories.iter().enumerate() {
@@ -117,6 +119,8 @@ pub fn save_progress_expected<R: PlanningRoot + ?Sized>(
             },
             dependency_uids,
         )?
+        .with_task_intent_uid(task_intent_uid.as_deref())?
+        .with_task_intent_cycle_uid(task_intent_cycle_uid.as_deref())?
         .with_parent_task_uid(
             story
                 .parent_task_index

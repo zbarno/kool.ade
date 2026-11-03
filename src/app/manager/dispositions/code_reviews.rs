@@ -120,6 +120,8 @@ pub(super) fn prepare(
         record.status = status;
         record.feature_uid = Some(target.feature_uid.clone());
         record.parent_uid = Some(target.task_uid.clone());
+        record.task_intent_uid =
+            Work::task_intent_uid_for_feature(&project.planning_work, &target.feature_uid);
         record.code_review_disposition = Some(CodeReviewFindingDispositionV1 {
             finding_id: target.finding_id.clone(),
             subject_hash: target.subject_hash.clone(),

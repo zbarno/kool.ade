@@ -67,6 +67,9 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
                 }
                 let selected_help = match draft.kind {
                     WorkKind::Feature => "Plan a capability or improve how the project works.",
+                    WorkKind::ProjectPlanning => {
+                        "Continue the shared project specification conversation."
+                    }
                     WorkKind::Bug => "Investigate a problem and plan a fix.",
                     WorkKind::NewProject => {
                         "Define the purpose, scope, and architecture of a project."

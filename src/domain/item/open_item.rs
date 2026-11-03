@@ -29,6 +29,12 @@ pub struct OpenItem {
     /// Stable feature relationship, populated when the feature has a Koolade UID.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feature_uid: Option<String>,
+    /// Owning user-intent root, when this decision/action belongs to a scoped request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_intent_uid: Option<String>,
+    /// Follow-up work cycle in which this decision was created.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_intent_cycle_uid: Option<String>,
     #[serde(default)]
     pub recommendation: String,
     #[serde(default)]
@@ -63,6 +69,8 @@ impl PartialEq for OpenItem {
             && self.reason == other.reason
             && self.feature_id == other.feature_id
             && self.feature_uid == other.feature_uid
+            && self.task_intent_uid == other.task_intent_uid
+            && self.task_intent_cycle_uid == other.task_intent_cycle_uid
             && self.recommendation == other.recommendation
             && self.evidence == other.evidence
             && self.decision_brief == other.decision_brief
@@ -96,6 +104,8 @@ impl OpenItem {
             reason,
             feature_id: None,
             feature_uid: None,
+            task_intent_uid: None,
+            task_intent_cycle_uid: None,
             recommendation: String::new(),
             evidence: String::new(),
             decision_brief: None,

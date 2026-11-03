@@ -126,6 +126,27 @@ pub(crate) fn write_batch_expected_with_revision_and_checks<R: PlanningRoot + ?S
             changes.push((path, bytes));
             record_checks.push(check);
         }
+        if let Some(root_uid) = super::task_intent_uid_for_batch(repo, batch)? {
+            let task_uids = task_paths
+                .iter()
+                .map(|task_path| {
+                    let text = String::from_utf8(
+                        repo.read_planning(&format!("{directory}/{task_path}"))?,
+                    )?;
+                    super::metadata::parse(&text)?
+                        .map(|metadata| metadata.uid)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("Generated task {task_path} has no metadata")
+                        })
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            let (history_changes, history_checks, _) =
+                crate::core::planning_work::linked_executable_task_changes(
+                    &store, &root_uid, &task_uids,
+                )?;
+            changes.extend(history_changes);
+            record_checks.extend(history_checks);
+        }
         let (committed, revision) = store.transaction_with_removals_and_record_revisions(
             &changes,
             &[progress_relative.to_string_lossy().replace('\\', "/")],

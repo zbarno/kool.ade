@@ -150,6 +150,7 @@ pub(crate) fn persist_dispositions(
         work.status = kind.status();
         work.feature_id = Some(feature_id.to_owned());
         work.feature_uid = Some(identity.uid);
+        work.inherit_task_intent(&project.planning_work);
         work.key = key;
         project.planning_work.push(work);
         changed = true;

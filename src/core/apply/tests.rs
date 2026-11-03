@@ -29,6 +29,7 @@ fn make_norm(change: Option<&str>, spec: Option<&str>) -> NormalizedTurn {
         spec_markdown: spec.map(str::to_string),
         document_updates: Vec::new(),
         planning_tasks: Vec::new(),
+        task_intent_context: None,
         change_status_updates: Default::default(),
         additional_planning_artifacts: vec![],
         added: vec![],

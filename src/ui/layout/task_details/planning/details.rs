@@ -12,6 +12,7 @@ pub(super) enum PlanningDetails<'a> {
     Work(
         &'a crate::core::planning_work::Work,
         &'a [crate::core::planning_work::Work],
+        &'a crate::ui::planning_board::ViewModel,
     ),
 }
 
@@ -56,7 +57,9 @@ pub(super) fn paint_panes(
 fn paint_details(ui: &mut egui::Ui, surface: &mut dyn Surface, details: PlanningDetails<'_>) {
     match details {
         PlanningDetails::Item(item, items) => paint_item_details(ui, surface, item, items),
-        PlanningDetails::Work(work, planning) => work::paint(ui, surface, work, planning),
+        PlanningDetails::Work(work, planning, board) => {
+            work::paint(ui, surface, work, planning, board)
+        }
     }
 }
 

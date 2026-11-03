@@ -1,7 +1,10 @@
 use super::super::*;
 
+mod archive;
 mod attention;
 mod cards;
+mod header;
+mod task_intents;
 
 pub(super) fn paint(
     ui: &mut egui::Ui,
@@ -43,9 +46,18 @@ pub(super) fn paint(
                 {
                     let planning = work
                         .iter()
-                        .filter(|item| item.board_column() == column
-                            && !board.is_archived(&item.key)
-                            && !board.cancelled.contains(&crate::persistence::cancelled_work::planning_id(&item.uid)))
+                        .filter(|item| {
+                            item.board_column() == column
+                                && (!board.is_archived(&item.key)
+                                    || item.task_intent_root_uid() == Some(item.uid.as_str())
+                                        && !board.is_task_intent_archived(&item.uid))
+                                && item
+                                    .task_intent_root_uid()
+                                    .is_none_or(|uid| !board.is_task_intent_archived(uid))
+                                && !board.cancelled.contains(
+                                    &crate::persistence::cancelled_work::planning_id(&item.uid),
+                                )
+                        })
                         .collect::<Vec<_>>();
                     let pr_work = board
                         .lifecycle_pr_work
@@ -57,13 +69,24 @@ pub(super) fn paint(
                         .filter(|doc| {
                             !doc.path.ends_with("/README.md")
                                 && !board.is_archived(&doc.path)
-                                && !board.cancelled.contains(&crate::persistence::cancelled_work::task_id(doc))
+                                && crate::artifacts::task_docs::task_intent_uid_for_document(
+                                    doc, docs, work,
+                                )
+                                .is_none_or(|uid| !board.is_task_intent_archived(&uid))
+                                && !board
+                                    .cancelled
+                                    .contains(&crate::persistence::cancelled_work::task_id(doc))
                                 && cards::task_card_column(s, board, doc) == column
                         })
                         .collect::<Vec<_>>();
                     let questions = items
                         .iter()
                         .filter(|item| !board.is_archived(item.conversation_key()))
+                        .filter(|item| {
+                            item.task_intent_uid
+                                .as_deref()
+                                .is_none_or(|uid| !board.is_task_intent_archived(uid))
+                        })
                         .filter(|item| {
                             let base = planning_column(item, items);
                             let displayed =
@@ -88,6 +111,26 @@ pub(super) fn paint(
                     } else {
                         &[]
                     };
+                    let visible_count = cards.len()
+                        + pr_work.len()
+                        + questions.len()
+                        + planning.len()
+                        + clarifications
+                            .iter()
+                            .filter(|question| attention::clarification_is_visible(question.status))
+                            .count()
+                        + usize::from(column == 2) * plan_reviews.len()
+                        + usize::from(column == 3) * feature_approvals.len()
+                        + if column == 3 {
+                            board
+                                .setup_tasks
+                                .iter()
+                                .filter(|task| task.is_active())
+                                .count()
+                                + board.setup_attention.len()
+                        } else {
+                            0
+                        };
                     egui::Frame::NONE
                         .fill(theme::COLUMN)
                         .stroke(egui::Stroke::new(1.0, theme::BORDER))
@@ -97,101 +140,7 @@ pub(super) fn paint(
                             ui.vertical(|ui| {
                                 ui.set_width(column_width);
                                 ui.set_min_height(height);
-                                ui.horizontal(|ui| {
-                                    let count = cards.len()
-                                        + pr_work.len()
-                                        + questions.len()
-                                        + planning.len()
-                                        + clarifications
-                                            .iter()
-                                            .filter(|question| {
-                                                attention::clarification_is_visible(question.status)
-                                            })
-                                            .count()
-                                        + usize::from(column == 2) * plan_reviews.len()
-                                        + usize::from(column == 3) * feature_approvals.len()
-                                        + if column == 3 {
-                                            board.setup_tasks.iter().filter(|task| {
-                                                task.is_active()
-                                            }).count()
-                                                + board.setup_attention.len()
-                                        } else {
-                                            0
-                                        };
-                                    let lane_color = theme::TEXT_DIM;
-                                    let (dot, _) = ui.allocate_exact_size(
-                                        egui::vec2(7.0, 7.0),
-                                        egui::Sense::hover(),
-                                    );
-                                    ui.painter().circle_filled(
-                                        dot.center(),
-                                        6.0,
-                                        lane_color.gamma_multiply(0.2),
-                                    );
-                                    ui.painter().circle_filled(dot.center(), 3.5, lane_color);
-                                    ui.label(
-                                        RichText::new(*label)
-                                            .size(15.0)
-                                            .strong()
-                                            .color(theme::TEXT),
-                                    );
-                                    ui.with_layout(
-                                        Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            theme::badge(
-                                                ui,
-                                                &format!("{count}"),
-                                                lane_color.gamma_multiply(0.12),
-                                                lane_color,
-                                            );
-                                        },
-                                    );
-                                });
-                                let subtitle = ui.label(
-                                    RichText::new(match column {
-                                        0 => "Ready for the next step",
-                                        1 => "Ideas becoming reality",
-                                        2 => "A fresh pair of eyes",
-                                        3 => "Your input moves things forward",
-                                        _ => "Look what you made happen",
-                                    })
-                                    .size(11.0)
-                                    .color(theme::TEXT_MUTED),
-                                );
-                                if column == 3 {
-                                    subtitle.on_hover_text(
-                                        "Most recent task or conversation activity appears first. Cards without a recorded time keep a stable order.",
-                                    );
-                                }
-                                let (line, _) = ui.allocate_exact_size(
-                                    egui::vec2(ui.available_width(), 2.0),
-                                    egui::Sense::hover(),
-                                );
-                                ui.painter().rect_filled(
-                                    line,
-                                    1,
-                                    theme::BORDER.gamma_multiply(0.65),
-                                );
-                                let visible_count = cards.len()
-                                    + pr_work.len()
-                                    + questions.len()
-                                    + planning.len()
-                                    + clarifications
-                                        .iter()
-                                        .filter(|question| {
-                                            attention::clarification_is_visible(question.status)
-                                        })
-                                        .count()
-                                    + usize::from(column == 2) * plan_reviews.len()
-                                    + usize::from(column == 3) * feature_approvals.len()
-                                    + if column == 3 {
-                                        board.setup_tasks.iter().filter(|task| {
-                                            task.is_active()
-                                        }).count()
-                                            + board.setup_attention.len()
-                                    } else {
-                                        0
-                                    };
+                                header::paint(ui, column, label, visible_count);
                                 if visible_count == 0 {
                                     let (headline, detail) = match column {
                                         0 => (
@@ -225,18 +174,49 @@ pub(super) fn paint(
                                             cards::pr_task(ui, task, column, selected_path);
                                         }
                                         if column == 3 {
+                                            let (grouped_work, grouped_tasks, grouped_items) =
+                                                task_intents::paint(
+                                                    ui,
+                                                    task_intents::Lane {
+                                                        surface: s,
+                                                        board,
+                                                        planning: &planning,
+                                                        tasks: &cards,
+                                                        items: &questions,
+                                                        column,
+                                                        selected_path,
+                                                        planning_selection,
+                                                    },
+                                                );
+                                            let remaining_planning = planning
+                                                .iter()
+                                                .copied()
+                                                .filter(|work| !grouped_work.contains(&work.uid))
+                                                .collect::<Vec<_>>();
+                                            let remaining_tasks = cards
+                                                .iter()
+                                                .copied()
+                                                .filter(|task| !grouped_tasks.contains(&task.path))
+                                                .collect::<Vec<_>>();
+                                            let remaining_questions = questions
+                                                .iter()
+                                                .copied()
+                                                .filter(|item| !grouped_items.contains(&item.id))
+                                                .collect::<Vec<_>>();
                                             attention::paint(
                                                 ui,
                                                 s,
                                                 board,
                                                 attention::Lane {
-                                                    planning: &planning,
+                                                    planning: &remaining_planning,
                                                     issues: &board.setup_attention,
                                                     setup_tasks: &board.setup_tasks,
-                                                    items: &questions,
-                                                    tasks: &cards,
+                                                    items: &remaining_questions,
+                                                    tasks: &remaining_tasks,
                                                     clarifications,
-                                                    clarification_error: board.clarification_error.as_deref(),
+                                                    clarification_error: board
+                                                        .clarification_error
+                                                        .as_deref(),
                                                 },
                                                 selected_path,
                                                 planning_selection,
@@ -245,6 +225,20 @@ pub(super) fn paint(
                                                 cards::approval(ui, action, planning_selection);
                                             }
                                         } else {
+                                            let (grouped_work, grouped_tasks, grouped_items) =
+                                                task_intents::paint(
+                                                    ui,
+                                                    task_intents::Lane {
+                                                        surface: s,
+                                                        board,
+                                                        planning: &planning,
+                                                        tasks: &cards,
+                                                        items: &questions,
+                                                        column,
+                                                        selected_path,
+                                                        planning_selection,
+                                                    },
+                                                );
                                             if column == 2 {
                                                 for feature in &plan_reviews {
                                                     cards::plan_review(
@@ -255,20 +249,40 @@ pub(super) fn paint(
                                                 }
                                             }
                                             for item in &planning {
-                                                cards::work(ui, s, item, &planning, column, planning_selection);
+                                                if !grouped_work.contains(&item.uid) {
+                                                    cards::work(
+                                                        ui,
+                                                        s,
+                                                        item,
+                                                        &planning,
+                                                        column,
+                                                        planning_selection,
+                                                    );
+                                                }
                                             }
                                             for item in &questions {
-                                                cards::item(
-                                                    ui,
-                                                    s,
-                                                    board,
-                                                    item,
-                                                    column,
-                                                    planning_selection,
-                                                );
+                                                if !grouped_items.contains(&item.id) {
+                                                    cards::item(
+                                                        ui,
+                                                        s,
+                                                        board,
+                                                        item,
+                                                        column,
+                                                        planning_selection,
+                                                    );
+                                                }
                                             }
                                             for doc in &cards {
-                                                cards::task(ui, s, board, doc, column, selected_path);
+                                                if !grouped_tasks.contains(&doc.path) {
+                                                    cards::task(
+                                                        ui,
+                                                        s,
+                                                        board,
+                                                        doc,
+                                                        column,
+                                                        selected_path,
+                                                    );
+                                                }
                                             }
                                         }
                                     });
@@ -277,4 +291,5 @@ pub(super) fn paint(
                 }
             });
         });
+    archive::paint(ui, board, work, planning_selection);
 }

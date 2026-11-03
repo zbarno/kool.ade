@@ -210,6 +210,14 @@ pub(super) fn paint(
             planning_selection = Some(key);
             ui.ctx().request_repaint();
         }
+        let work_navigation = ui.ctx().data_mut(|data| {
+            data.remove_temp::<String>(egui::Id::new("koolade_task_relationship_work_navigation"))
+        });
+        if let Some(key) = work_navigation {
+            selected_path = None;
+            planning_selection = Some(key);
+            ui.ctx().request_repaint();
+        }
         if !navigated_to_planning {
             planning_modal::paint(ui, s, board, &mut planning_selection, panel_bounds);
         }

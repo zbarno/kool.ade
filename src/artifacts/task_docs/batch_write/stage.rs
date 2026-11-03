@@ -32,6 +32,8 @@ pub(super) fn write_new_batch<R: PlanningRoot + ?Sized>(
         .map(|(i, s)| task_name(batch.feature_id.as_deref(), i, s))
         .collect();
     ensure_unique_task_names(&names)?;
+    let task_intent_uid = super::super::task_intent_uid_for_batch(repo, batch)?;
+    let task_intent_cycle_uid = super::super::task_intent_cycle_uid_for_batch(repo, batch)?;
     let result = (|| -> anyhow::Result<(Vec<String>, String)> {
         let mut index = format!(
             "# {} — task stories\n\nGenerated after user approval of the interview and specification.\n\n## Goal\n\n{}\n\n## Intended users\n\n{}\n\n## Intended outcome\n\n{}\n\n[Approved specification](specification.md)\n\n## Implementation order\n\n",
@@ -83,6 +85,8 @@ pub(super) fn write_new_batch<R: PlanningRoot + ?Sized>(
                 },
                 dependency_uids,
             )?
+            .with_task_intent_uid(task_intent_uid.as_deref())?
+            .with_task_intent_cycle_uid(task_intent_cycle_uid.as_deref())?
             .with_branch_targets(batch.branch_targets.as_ref())?
             .with_source_sha(story.source_sha.as_deref())?
             .with_parallelizable(story.parallelizable)?
@@ -150,6 +154,14 @@ pub(super) fn write_new_batch<R: PlanningRoot + ?Sized>(
                 .collect::<anyhow::Result<Vec<_>>>()?,
         );
         changes.extend(staged_task_state);
+        if let Some(root_uid) = task_intent_uid.as_deref() {
+            let (history_changes, history_checks, _) =
+                crate::core::planning_work::linked_executable_task_changes(
+                    &store, root_uid, &task_uids,
+                )?;
+            changes.extend(history_changes);
+            record_checks.extend(history_checks);
+        }
         let (committed, revision) = store.transaction_with_revision_and_record_revisions(
             &changes,
             Some(expected_revision),

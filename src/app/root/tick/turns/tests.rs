@@ -94,6 +94,7 @@ fn newer_saved_task_reply_keeps_an_older_applied_outcome_without_stale_prose() {
         spec_markdown: None,
         document_updates: Vec::new(),
         planning_tasks: Vec::new(),
+        task_intent_context: None,
         change_status_updates: Default::default(),
         additional_planning_artifacts: Vec::new(),
         added: Vec::new(),

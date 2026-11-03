@@ -208,14 +208,21 @@ fn run_turn_mode(
             if let Some(task) = task {
                 let item_id = inputs.state.items.iter().find(|item| item.conversation_key() == task)
                     .map(|item| item.id.as_str()).unwrap_or(task);
+                let work = crate::core::planning_work::find(&inputs.state, task);
                 let feature_planning = task.starts_with("planning:")
                     || task.starts_with("feature:")
-                    || crate::core::planning_work::find(&inputs.state, task)
-                        .is_some_and(|work| work.kind != crate::core::planning_work::WorkKind::Question);
+                    || work.as_ref().is_some_and(|work| work.kind != crate::core::planning_work::WorkKind::Question);
+                let authorized_task_generation = inputs.purpose
+                    == crate::core::workflow::TurnPurpose::GenerateTasks
+                    && work.as_ref().is_some_and(|work| {
+                        work.kind == crate::core::planning_work::WorkKind::TaskGeneration
+                            && work.task_intent_uid.is_some()
+                            && work.feature_uid.is_some()
+                    });
                 if env.requested_action.is_some()
                     || (!feature_planning && env.interview.is_some())
-                    || env.task_stories.is_some()
-                    || env.task_outline.is_some()
+                    || (env.task_stories.is_some() && !authorized_task_generation)
+                    || (env.task_outline.is_some() && !authorized_task_generation)
                     || (!feature_planning && env.next_question_id.as_deref().is_some_and(|id| id != item_id)) {
                     return TurnOutcome::Rejected {
                         problems: vec!["Task conversations cannot advance the project interview, generate tasks, or redirect the conversation to another item; they also cannot run project-level actions.".into()],
@@ -240,6 +247,15 @@ fn run_turn_mode(
                     elapsed: started.elapsed(),
                 },
                 Ok(mut normalized) => {
+                    normalized.task_intent_context = task
+                        .and_then(|key| crate::core::planning_work::find(&inputs.state, key))
+                        .and_then(|work| {
+                            Some(crate::core::validation::TaskIntentWorkContext {
+                                parent_work_uid: work.uid.clone(),
+                                root_uid: work.task_intent_root_uid()?.to_owned(),
+                                cycle_uid: work.task_intent_cycle_uid.clone(),
+                            })
+                        });
                     if let Err(problem) =
                         feature_target::validate_updates(
                             &inputs.state,

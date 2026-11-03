@@ -7,7 +7,7 @@ mod routing;
 
 pub use legacy::legacy_dependencies;
 
-const VERSION: u32 = 5;
+const VERSION: u32 = 7;
 const MAX_FRONTMATTER_BYTES: usize = 8192;
 const MAX_DEPENDENCIES: usize = 16;
 
@@ -18,6 +18,13 @@ pub struct TaskMetadata {
     pub uid: String,
     pub batch_uid: String,
     pub repository_id: String,
+    /// Stable user-intent root owning this executable task. Kept separate
+    /// from batch, parent-task, and dependency identities.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_intent_uid: Option<String>,
+    /// Explicit work cycle within the stable TaskIntent root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_intent_cycle_uid: Option<String>,
     pub dependency_uids: Vec<String>,
     /// Standalone task UID that owns this internal subtask, when applicable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -61,6 +68,8 @@ impl TaskMetadata {
                 .clone()
                 .ok_or_else(|| anyhow::anyhow!("Generated task identity has no batch identity"))?,
             repository_id: repository_id.into(),
+            task_intent_uid: None,
+            task_intent_cycle_uid: None,
             dependency_uids,
             parent_task_uid: None,
             source_branch: None,
@@ -77,6 +86,21 @@ impl TaskMetadata {
 
     pub fn with_parent_task_uid(mut self, parent_task_uid: Option<&str>) -> anyhow::Result<Self> {
         self.parent_task_uid = parent_task_uid.map(str::to_owned);
+        self.validate(None)?;
+        Ok(self)
+    }
+
+    pub fn with_task_intent_uid(mut self, task_intent_uid: Option<&str>) -> anyhow::Result<Self> {
+        self.task_intent_uid = task_intent_uid.map(str::to_owned);
+        self.validate(None)?;
+        Ok(self)
+    }
+
+    pub fn with_task_intent_cycle_uid(
+        mut self,
+        task_intent_cycle_uid: Option<&str>,
+    ) -> anyhow::Result<Self> {
+        self.task_intent_cycle_uid = task_intent_cycle_uid.map(str::to_owned);
         self.validate(None)?;
         Ok(self)
     }
@@ -140,6 +164,18 @@ impl TaskMetadata {
             valid_repository_id(&self.repository_id),
             "Task metadata has an invalid repository ID"
         );
+        if let Some(uid) = self.task_intent_uid.as_deref() {
+            anyhow::ensure!(
+                uuid::Uuid::parse_str(uid).is_ok(),
+                "Task metadata has an invalid TaskIntent UID"
+            );
+        }
+        if let Some(uid) = self.task_intent_cycle_uid.as_deref() {
+            anyhow::ensure!(
+                uuid::Uuid::parse_str(uid).is_ok() && self.task_intent_uid.is_some(),
+                "Task metadata has an invalid or unowned TaskIntent cycle UID"
+            );
+        }
         if let Some(parent_uid) = self.parent_task_uid.as_deref() {
             anyhow::ensure!(
                 uuid::Uuid::parse_str(parent_uid).is_ok() && parent_uid != self.uid,

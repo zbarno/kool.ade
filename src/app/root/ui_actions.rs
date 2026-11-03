@@ -7,6 +7,7 @@ mod intent;
 mod pr_publication;
 mod private_file_grants;
 mod runtime_capability;
+mod task_intent_archive;
 
 impl KooladeApp {
     pub(crate) fn prepare_task_chat(&mut self, key: &str) {
@@ -163,47 +164,6 @@ impl KooladeApp {
             if let Err(error) = persist_automation_settings(project) {
                 project.queue.last_error = error;
             }
-        }
-    }
-
-    fn archive_task(&mut self, ticket: &str) {
-        let done = matches!(&self.screen, Screen::Connected(project)
-            if crate::core::planning_work::cards(&project.state, &project.planning_work)
-                .iter().any(|work| work.key == ticket && work.status == crate::core::planning_work::WorkStatus::Done))
-            || match &self.screen {
-                Screen::Connected(project) => {
-                    project
-                        .state
-                        .resolved_items
-                        .iter()
-                        .any(|item| item.conversation_key() == ticket)
-                        || project
-                            .implementation_states
-                            .get(ticket)
-                            .is_some_and(|state| {
-                                state.status == super::ImplementationStatus::Completed
-                            })
-                }
-                _ => false,
-            };
-        let result = {
-            let Screen::Connected(project) = &mut self.screen else {
-                return;
-            };
-            if project.active_implementations.contains_key(ticket)
-                || project.task_turns.contains_key(ticket)
-                || !done
-            {
-                return;
-            }
-            let mut archived = project.archived_tasks.clone();
-            archived.insert(ticket.to_string());
-            crate::persistence::archived_tasks::save(&project.chat_slug, &archived)
-                .inspect(|()| project.archived_tasks = archived)
-        };
-        if let Err(error) = result {
-            self.toasts
-                .danger(format!("Could not archive task: {error}"));
         }
     }
 

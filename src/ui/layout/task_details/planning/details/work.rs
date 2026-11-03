@@ -1,12 +1,18 @@
 use super::*;
+mod task_intent;
 
 pub(super) fn paint(
     ui: &mut egui::Ui,
     surface: &mut dyn Surface,
     work: &crate::core::planning_work::Work,
     planning: &[crate::core::planning_work::Work],
+    board: &crate::ui::planning_board::ViewModel,
 ) {
     use crate::core::planning_work::WorkKind;
+    // Put a pending approval before the TaskIntent history/map so the action
+    // remains visible in the bounded details viewport.
+    paint_approval(ui, surface, work);
+    task_intent::paint(ui, Some(surface), board, work);
     ui.heading(&work.title);
     ui.label(super::super::super::action::concise_detail(&work.detail));
     ui.add_space(crate::ui::theme::spacing::M);
@@ -49,7 +55,6 @@ pub(super) fn paint(
         )));
         ui.label(&work.detail);
     });
-    paint_approval(ui, surface, work);
     if let Some(offer) = &work.follow_up_task {
         ui.collapsing("Related task", |ui| {
             ui.label(&offer.description);
@@ -65,7 +70,7 @@ pub(super) fn paint(
             }
         });
     }
-    paint_controls(ui, surface, work);
+    paint_controls(ui, surface, work, board);
 }
 
 fn paint_approval(
@@ -166,7 +171,12 @@ fn paint_controls(
     ui: &mut egui::Ui,
     surface: &mut dyn Surface,
     work: &crate::core::planning_work::Work,
+    board: &crate::ui::planning_board::ViewModel,
 ) {
+    let is_intent_root = work.parent_uid.is_none()
+        && work.kind.starts_task_intent()
+        && work.task_intent_root_uid() == Some(work.uid.as_str());
+    let archived = work.task_intent_archived_at_ms.is_some() || board.is_archived(&work.key);
     ui.horizontal(|ui| {
         if work.status != crate::core::planning_work::WorkStatus::Done
             && ui.button("Cancel").clicked()
@@ -175,7 +185,14 @@ fn paint_controls(
                 data.insert_temp(egui::Id::new("koolade_cancel_pending"), work.key.clone())
             });
         }
-        if work.status == crate::core::planning_work::WorkStatus::Done
+        if is_intent_root && archived {
+            if ui.button("Restore TaskIntent").clicked() {
+                surface.dispatch(crate::ui::ApplicationCommand::RestoreTaskIntent {
+                    root_uid: work.uid.clone(),
+                });
+            }
+        } else if work.status == crate::core::planning_work::WorkStatus::Done
+            && (!is_intent_root || board.can_archive_task_intent(work))
             && ui.button("Archive").clicked()
         {
             surface.dispatch(crate::ui::ApplicationCommand::ArchiveTask {
@@ -184,6 +201,13 @@ fn paint_controls(
             ui.ctx().data_mut(|data| {
                 data.insert_temp(egui::Id::new("koolade_task_details_close"), true);
             });
+        } else if is_intent_root
+            && work.status == crate::core::planning_work::WorkStatus::Done
+            && !board.can_archive_task_intent(work)
+        {
+            ui.label(crate::ui::theme::helper_text(
+                "Archive is available after the current work cycle reaches a verified terminal outcome.",
+            ));
         }
     });
     let cancel_id = egui::Id::new("koolade_cancel_pending");

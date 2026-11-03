@@ -35,6 +35,7 @@ fn documentation_refresh_cannot_finish_without_document_updates() {
                 spec_markdown: None,
                 document_updates: updates,
                 planning_tasks: vec![],
+                task_intent_context: None,
                 change_status_updates: Default::default(),
                 additional_planning_artifacts: vec![],
                 added: vec![],

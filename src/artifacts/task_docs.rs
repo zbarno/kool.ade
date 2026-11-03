@@ -7,6 +7,7 @@ mod metadata;
 mod naming;
 mod progress;
 mod record_files;
+mod task_intent;
 mod task_state;
 mod workflow;
 
@@ -22,6 +23,10 @@ pub use metadata::TaskMetadata;
 pub(crate) use metadata::legacy_dependencies;
 pub(crate) use metadata::parse as parse_metadata;
 pub use naming::{is_task_story_filename, slug};
+pub(crate) use task_intent::cycle_uid_for_batch as task_intent_cycle_uid_for_batch;
+pub use task_intent::cycle_uid_for_document as task_intent_cycle_uid_for_document;
+pub(crate) use task_intent::uid_for_batch as task_intent_uid_for_batch;
+pub use task_intent::uid_for_document as task_intent_uid_for_document;
 pub use task_state::{
     ExecutionPublicationStatus, PullRequestLinkage, TaskExecutionLinkage, TaskState,
 };

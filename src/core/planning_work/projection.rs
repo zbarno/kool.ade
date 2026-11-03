@@ -70,11 +70,17 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
                 key: format!("feature:{id}"),
                 kind: WorkKind::Feature,
                 title: format!("Plan {title}"),
+                original_goal: Some(body.clone()),
                 request: body.clone(),
                 status,
                 feature_id: Some(id.clone()),
                 feature_uid: Some(metadata.uid),
                 parent_uid: None,
+                task_intent_uid: None,
+                task_intent_history: Vec::new(),
+                task_intent_cycles: Vec::new(),
+                task_intent_cycle_uid: None,
+                task_intent_archived_at_ms: None,
                 source_branch: None,
                 destination_branch: None,
                 routing_overrides: Default::default(),
@@ -85,6 +91,21 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
                 record_revision: 0,
                 record_baseline: None,
             });
+        }
+    }
+    for card in cards.iter_mut().filter(|work| {
+        work.parent_uid.is_none() && work.task_intent_root_uid() == Some(work.uid.as_str())
+    }) {
+        let Some(cycle) = card.task_intent_cycles.last() else {
+            continue;
+        };
+        if cycle.work_uid == card.uid {
+            continue;
+        }
+        if let Some(current) = work.iter().find(|work| work.uid == cycle.work_uid) {
+            card.status = current.status;
+            card.feature_id = current.feature_id.clone();
+            card.feature_uid = current.feature_uid.clone();
         }
     }
     cards
@@ -122,6 +143,61 @@ pub fn find_card(state: &crate::core::state::PlannerState, key: &str) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn root_card_projects_the_current_follow_up_cycle_state() {
+        let root_dir = std::env::temp_dir().join(format!(
+            "koolade_intent_cycle_projection_{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root_dir).unwrap();
+        let state = crate::core::state::PlannerState::load(&root_dir).unwrap();
+        let mut root = Work::new(
+            "task:intent-root".into(),
+            "Original request".into(),
+            "Original goal".into(),
+            String::new(),
+        );
+        root.kind = WorkKind::Question;
+        root.status = WorkStatus::Done;
+        root.task_intent_uid = Some(root.uid.clone());
+        root.feature_uid = Some(uuid::Uuid::new_v4().to_string());
+        let cycle_uid = uuid::Uuid::new_v4().to_string();
+        let mut cycle_work = Work::new(
+            "task:follow-up".into(),
+            "Follow-up request".into(),
+            "Current goal".into(),
+            String::new(),
+        );
+        cycle_work.parent_uid = Some(root.uid.clone());
+        cycle_work.task_intent_uid = Some(root.uid.clone());
+        cycle_work.task_intent_cycle_uid = Some(cycle_uid.clone());
+        cycle_work.status = WorkStatus::InProgress;
+        root.task_intent_cycles = vec![
+            crate::core::planning_work::TaskIntentCycleV1 {
+                uid: root.uid.clone(),
+                sequence: 1,
+                goal: "Original goal".into(),
+                work_uid: root.uid.clone(),
+                started_at_ms: None,
+            },
+            crate::core::planning_work::TaskIntentCycleV1 {
+                uid: cycle_uid.clone(),
+                sequence: 2,
+                goal: "Current goal".into(),
+                work_uid: cycle_work.uid.clone(),
+                started_at_ms: Some(1),
+            },
+        ];
+        root.task_intent_cycle_uid = Some(cycle_uid);
+
+        let cards = cards(&state, &[root.clone(), cycle_work]);
+        let root_card = cards.iter().find(|card| card.uid == root.uid).unwrap();
+        assert_eq!(root_card.status, WorkStatus::InProgress);
+        assert_eq!(root_card.feature_uid, None);
+        std::fs::remove_dir_all(root_dir).unwrap();
+    }
 
     #[test]
     fn completed_draft_feature_is_review_not_active_work() {

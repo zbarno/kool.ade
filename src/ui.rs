@@ -105,6 +105,13 @@ pub enum ApplicationCommand {
         routing_overrides:
             std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
     },
+    StartTaskIntentFollowUp {
+        root_uid: String,
+        goal: String,
+    },
+    RestoreTaskIntent {
+        root_uid: String,
+    },
     DrainTaskChatSaves,
     CancelTask,
     SetMaxParallelTasks {

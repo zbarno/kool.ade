@@ -53,6 +53,8 @@ mod setup_cards;
 mod task_completion;
 #[path = "board_tests/task_details.rs"]
 mod task_details;
+#[path = "board_tests/task_intent_grouping.rs"]
+mod task_intent_grouping;
 #[path = "board_tests/workspace_actions.rs"]
 mod workspace_actions;
 

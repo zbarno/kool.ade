@@ -78,10 +78,18 @@ fn feature_bug_and_new_project_tasks_persist_their_kind_and_start_from_the_board
             );
             assert_eq!(created.kind, kind);
             assert_eq!(created.request, description);
+            assert_eq!(
+                created.task_intent_uid.as_deref(),
+                Some(created.uid.as_str())
+            );
             assert_eq!(created.source_branch.as_deref(), Some("main"));
             assert_eq!(created.destination_branch.as_deref(), Some("main"));
             let persisted = crate::core::planning_work::load(&root).unwrap();
             assert_eq!(persisted.last().unwrap().uid, created.uid);
+            assert_eq!(
+                persisted.last().unwrap().task_intent_root_uid(),
+                Some(created.uid.as_str())
+            );
             assert_eq!(
                 persisted.last().unwrap().source_branch.as_deref(),
                 Some("main")
@@ -171,6 +179,7 @@ fn question_answer_can_offer_a_linked_feature_task_that_starts_only_on_selection
         };
         let parent = project.planning_work.last_mut().unwrap();
         assert_eq!(parent.kind, crate::core::planning_work::WorkKind::Question);
+        assert_eq!(parent.task_intent_uid.as_deref(), Some(parent.uid.as_str()));
         assert_eq!(parent.status, crate::core::planning_work::WorkStatus::Done);
         parent.source_branch = Some("release/2.1".into());
         parent.destination_branch = Some("integration".into());
@@ -225,6 +234,7 @@ fn question_answer_can_offer_a_linked_feature_task_that_starts_only_on_selection
     );
     assert_eq!(child.kind, crate::core::planning_work::WorkKind::Feature);
     assert_eq!(child.parent_uid.as_deref(), Some(parent_uid.as_str()));
+    assert_eq!(child.task_intent_uid.as_deref(), Some(parent_uid.as_str()));
     assert_eq!(
         child.routing_inherited_from.as_deref(),
         Some(parent_uid.as_str())

@@ -15,6 +15,7 @@ fn record_turn() -> NormalizedTurn {
         spec_markdown: None,
         document_updates: Vec::new(),
         planning_tasks: Vec::new(),
+        task_intent_context: None,
         change_status_updates: Default::default(),
         additional_planning_artifacts: Vec::new(),
         added: Vec::new(),
