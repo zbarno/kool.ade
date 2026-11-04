@@ -129,7 +129,6 @@ pub(crate) fn capture(
 ) -> Result<WorkspaceSnapshot, ExecutionError> {
     workspace.revalidate()?;
     let limit = budget.min(MAX_STAGED_BYTES);
-    let excluded_paths = ["target".to_owned()];
     archive::capture_excluding(
         workspace.root(),
         workspace.root_identity(),
@@ -137,7 +136,31 @@ pub(crate) fn capture(
         limit,
         read_only,
         MAX_ENTRIES,
-        &excluded_paths,
+        &[],
+    )
+    .map(|mut snapshot| {
+        snapshot.scope_root = None;
+        snapshot
+    })
+    .map_err(|_| failure("Workspace cannot be staged safely within its size limit"))
+}
+
+/// Capture planning input without potentially huge local Cargo build output.
+/// This baseline is read-only and is never used to synchronize workspace writes.
+pub(crate) fn capture_planning_read_only(
+    workspace: &ValidatedWorkspace,
+    budget: u64,
+) -> Result<WorkspaceSnapshot, ExecutionError> {
+    workspace.revalidate()?;
+    let limit = budget.min(MAX_STAGED_BYTES);
+    archive::capture_excluding(
+        workspace.root(),
+        workspace.root_identity(),
+        None,
+        limit,
+        true,
+        MAX_ENTRIES,
+        &["target".to_owned()],
     )
     .map(|mut snapshot| {
         snapshot.scope_root = None;
@@ -157,10 +180,6 @@ pub(crate) fn capture_remote(
 ) -> Result<WorkspaceSnapshot, ExecutionError> {
     workspace.revalidate()?;
     let limit = budget.min(MAX_STAGED_BYTES);
-    let mut excluded_paths = excluded_paths.to_vec();
-    if !excluded_paths.iter().any(|path| path == "target") {
-        excluded_paths.push("target".to_owned());
-    }
     archive::capture_excluding(
         workspace.root(),
         workspace.root_identity(),
@@ -168,7 +187,7 @@ pub(crate) fn capture_remote(
         limit,
         read_only,
         MAX_ENTRIES,
-        &excluded_paths,
+        excluded_paths,
     )
     .map(|mut snapshot| {
         snapshot.scope_root = None;
@@ -184,11 +203,7 @@ pub(crate) fn capture_scoped(
 ) -> Result<WorkspaceSnapshot, ExecutionError> {
     workspace.revalidate()?;
     let limit = budget.min(MAX_STAGED_BYTES);
-    let excluded_paths = if root_relative == "." {
-        vec!["target".to_owned()]
-    } else {
-        Vec::new()
-    };
+    let excluded_paths: Vec<String> = Vec::new();
     #[cfg(windows)]
     let captured = archive::capture_excluding(
         workspace.root(),
