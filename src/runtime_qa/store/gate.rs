@@ -61,6 +61,9 @@ fn validate_gate_receipt(
 ) -> Result<(), String> {
     use crate::core::lifecycle::{GateActor, GateDecision};
 
+    if request.mode == super::super::QaRunMode::Experimental {
+        return Err("experimental Runtime QA has no production gate receipt".into());
+    }
     receipt.validate()?;
     let expected_decision = match result.outcome {
         QaOutcome::Pass => GateDecision::Approved,

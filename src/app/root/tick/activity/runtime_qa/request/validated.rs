@@ -1,7 +1,10 @@
 use crate::{
     core::lifecycle::{GateDecision, TaskPhase},
+    execution::docker::images::{ImageLock, RuntimeProfile},
     project_runtime::{AppSurface, RuntimeOperation, RuntimeReceiptState},
-    runtime_qa::{QaBoundedLimitsV1, QaDependencyCacheRefV1, QaPlatform, QaRunRequestV1},
+    runtime_qa::{
+        QaBoundedLimitsV1, QaDependencyCacheRefV1, QaPlatform, QaRunMode, QaRunRequestV1,
+    },
 };
 use sha2::Digest;
 
@@ -93,6 +96,24 @@ pub(super) fn from_reviewed_task(inputs: ReviewedTaskInputs<'_>) -> Result<QaRun
             );
         }
     };
+    let profile_key = match platform {
+        QaPlatform::Web | QaPlatform::HeadlessService => "browser_qa",
+        QaPlatform::LinuxDesktop => "desktop_qa",
+    };
+    let image_lock = ImageLock::bundled().map_err(|error| error.message)?;
+    let variant = image_lock
+        .profiles
+        .get(profile_key)
+        .into_iter()
+        .flatten()
+        .find(|variant| variant.platform == "linux/amd64")
+        .ok_or_else(|| format!("the locked {profile_key} image has no Linux amd64 digest"))?;
+    let release_enabled = variant.runtime_enabled;
+    let mode = if release_enabled {
+        QaRunMode::Production
+    } else {
+        QaRunMode::Experimental
+    };
     let review = task.code_review.as_ref().expect("validated above");
     let cache_refs = qa_dependency_cache_refs(dependency_cache_refs);
     let cache_identity = format!(
@@ -103,7 +124,10 @@ pub(super) fn from_reviewed_task(inputs: ReviewedTaskInputs<'_>) -> Result<QaRun
         )
     );
     let execution_key = format!(
-        "runtime-qa-v2:{}:{}:{}:{}:{}",
+        "runtime-qa-v3:{:?}:{}:{}:{}:{}:{}:{}:{}",
+        mode,
+        profile_key,
+        variant.digest,
         request_task_revision,
         build.source_sha,
         task.implementation_sha256.as_deref().unwrap_or_default(),
@@ -113,7 +137,14 @@ pub(super) fn from_reviewed_task(inputs: ReviewedTaskInputs<'_>) -> Result<QaRun
     let namespace =
         uuid::Uuid::parse_str(&task.task_uid).map_err(|_| "runtime QA task identity is invalid")?;
     let request = QaRunRequestV1 {
-        schema_version: 1,
+        schema_version: 2,
+        mode,
+        runtime_image_digest: Some(variant.digest.clone()),
+        runtime_image_profile: Some(if profile_key == "browser_qa" {
+            RuntimeProfile::BrowserQa
+        } else {
+            RuntimeProfile::DesktopQa
+        }),
         qa_run_id: uuid::Uuid::new_v5(&namespace, execution_key.as_bytes())
             .hyphenated()
             .to_string(),

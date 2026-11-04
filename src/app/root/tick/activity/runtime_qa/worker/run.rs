@@ -98,6 +98,18 @@ pub(super) fn run(
     _progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
 ) -> Result<(), String> {
     let (request, artifact_upload) = prepare_dispatch_artifacts(&prepared)?;
+    if request.mode == crate::runtime_qa::QaRunMode::Experimental {
+        let engine = crate::execution::docker::environment::DockerEnvironmentStatus::detect();
+        if !super::super::prerequisites::experimental_engine_supported(
+            cfg!(target_os = "linux"),
+            engine.engine_ready,
+            engine.rootless,
+            engine.architecture.as_deref(),
+            engine.desktop_vm,
+        ) {
+            return Err("experimental Runtime QA requires a ready rootless Linux amd64 Docker Engine; Docker Desktop, rootful Docker, other architectures, and host execution are unsupported".into());
+        }
+    }
     let store = RuntimeQaStore::new(store_root);
     let profile = profile_for_platforms(&request.relevant_platforms)?;
     let resources = ResourceBudgetV1 {
@@ -162,9 +174,21 @@ pub(super) fn run(
         );
     }
     let lock = ImageLock::bundled().map_err(|error| error.message)?;
-    let qa_image = lock
-        .select(profile, &architecture)
-        .map_err(|error| error.message)?;
+    let qa_image = if request.mode == crate::runtime_qa::QaRunMode::Experimental {
+        lock.select_experimental_qa(
+            profile,
+            &architecture,
+            &crate::persistence::experimental_features::load().0,
+        )
+    } else {
+        lock.select(profile, &architecture)
+    }
+    .map_err(|error| error.message)?;
+    if request.runtime_image_digest.as_deref() != Some(qa_image.digest.as_str()) {
+        return Err(
+            "selected Runtime QA image digest differs from the immutable request identity".into(),
+        );
+    }
     let artifact_mount = QaArtifactMount::inspect(&prepared.task_clone, "/workspace")
         .map_err(|error| error.message)?;
     match profile {

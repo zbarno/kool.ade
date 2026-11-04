@@ -29,7 +29,14 @@ pub(crate) async fn start_web_preview_with_lock(
     cancel: &mut tokio::sync::watch::Receiver<bool>,
     lock: &ImageLock,
 ) -> Result<QaWebPreview, ExecutionError> {
-    start_web_preview_for_lock(docker, spec, cancel, lock).await
+    let settings = if spec.request.mode == crate::runtime_qa::QaRunMode::Experimental {
+        crate::execution::docker::qa_container::experimental_qa_test_settings(
+            RuntimeProfile::BrowserQa,
+        )
+    } else {
+        crate::persistence::experimental_features::load().0
+    };
+    start_web_preview_for_lock_with_settings(docker, spec, cancel, lock, &settings).await
 }
 
 async fn start_web_preview_for_lock(
@@ -37,6 +44,28 @@ async fn start_web_preview_for_lock(
     spec: QaWebPreviewSpec<'_>,
     cancel: &mut tokio::sync::watch::Receiver<bool>,
     lock: &ImageLock,
+) -> Result<QaWebPreview, ExecutionError> {
+    let settings = crate::persistence::experimental_features::load().0;
+    start_web_preview_for_lock_with_settings(docker, spec, cancel, lock, &settings).await
+}
+
+#[cfg(test)]
+pub(crate) async fn start_web_preview_with_lock_and_settings(
+    docker: &Docker,
+    spec: QaWebPreviewSpec<'_>,
+    cancel: &mut tokio::sync::watch::Receiver<bool>,
+    lock: &ImageLock,
+    settings: &crate::persistence::experimental_features::ExperimentalFeatureSettingsV1,
+) -> Result<QaWebPreview, ExecutionError> {
+    start_web_preview_for_lock_with_settings(docker, spec, cancel, lock, settings).await
+}
+
+async fn start_web_preview_for_lock_with_settings(
+    docker: &Docker,
+    spec: QaWebPreviewSpec<'_>,
+    cancel: &mut tokio::sync::watch::Receiver<bool>,
+    lock: &ImageLock,
+    settings: &crate::persistence::experimental_features::ExperimentalFeatureSettingsV1,
 ) -> Result<QaWebPreview, ExecutionError> {
     validate_spec(&spec)?;
     if *cancel.borrow() {
@@ -52,9 +81,12 @@ async fn start_web_preview_for_lock(
         .filter(|tool| crate::project_runtime::is_logical_tool_id(tool))
         .map(str::to_owned)
         .collect::<Vec<_>>();
-    if lock
-        .select(RuntimeProfile::BrowserQa, architecture)
-        .map_err(|_| denied("Browser QA image is unavailable"))?
+    let selected_browser = if spec.request.mode == crate::runtime_qa::QaRunMode::Experimental {
+        lock.select_experimental_qa(RuntimeProfile::BrowserQa, architecture, settings)
+    } else {
+        lock.select(RuntimeProfile::BrowserQa, architecture)
+    };
+    if selected_browser.map_err(|_| denied("Browser QA image is unavailable"))?
         != *spec.browser_image
         || lock
             .select_with_tools(

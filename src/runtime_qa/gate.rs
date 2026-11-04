@@ -18,6 +18,9 @@ pub fn approved_gate_receipt(
     recorded_at_unix_ms: u64,
 ) -> Result<GateReceipt, String> {
     request.validate()?;
+    if request.mode == super::QaRunMode::Experimental {
+        return Err("experimental Runtime QA cannot authorize a production lifecycle gate".into());
+    }
     validate_current_report(request, scenarios, evidence, result)?;
     if result.run_id != request.qa_run_id
         || result.subject_sha != request.code_head_sha

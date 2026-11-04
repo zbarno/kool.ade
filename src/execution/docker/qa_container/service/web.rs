@@ -18,6 +18,8 @@ pub(crate) use dependency_cache::archive_for_runtime_user;
 pub use launch::start_web_preview;
 #[cfg(test)]
 pub(crate) use launch::start_web_preview_with_lock;
+#[cfg(test)]
+pub(crate) use launch::start_web_preview_with_lock_and_settings;
 
 const OWNER: &str = "com.koolade.qa.owner";
 const RUN: &str = "com.koolade.qa.run";

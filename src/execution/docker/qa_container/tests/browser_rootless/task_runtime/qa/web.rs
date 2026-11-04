@@ -54,6 +54,17 @@ async fn run_async(
     readiness_path: &str,
     expected_browser_outcome: super::ExpectedBrowserOutcome,
 ) {
+    let experimental_settings =
+        crate::persistence::experimental_features::ExperimentalFeatureSettingsV1 {
+            schema_version: 1,
+            enabled: true,
+            confirmed_at_unix_ms: Some(1),
+            enabled_features: [
+                crate::persistence::experimental_features::ExperimentalFeature::BrowserQa,
+            ]
+            .into_iter()
+            .collect(),
+        };
     request.validate().unwrap();
     scenario.validate(request).unwrap();
     let browser_request = build_browser_request(request, scenario).unwrap();
@@ -61,7 +72,7 @@ async fn run_async(
     let mut resources = resources();
     resources.process_count = 128;
     let (_cancel_sender, mut cancel) = tokio::sync::watch::channel(false);
-    let preview = super::super::super::super::service::start_web_preview_with_lock(
+    let preview = super::super::super::super::service::start_web_preview_with_lock_and_settings(
         docker,
         QaWebPreviewSpec {
             request,
@@ -76,6 +87,7 @@ async fn run_async(
         },
         &mut cancel,
         lock,
+        &experimental_settings,
     )
     .await
     .unwrap();
@@ -119,7 +131,7 @@ async fn run_async(
             resources: &resources,
         };
         let body = spec
-            .create_body_with_lock(lock)
+            .create_body_with_lock_and_settings(lock, &experimental_settings)
             .map_err(|error| error.message)?;
         let expected_env = body.env.clone().unwrap_or_default();
         let container_id = create_driver_container(

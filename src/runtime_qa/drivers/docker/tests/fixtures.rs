@@ -31,6 +31,9 @@ pub(super) fn driver_output() -> QaDriverOutputV1 {
 pub(super) fn request() -> QaRunRequestV1 {
     QaRunRequestV1 {
         schema_version: 1,
+        mode: Default::default(),
+        runtime_image_digest: Some(format!("sha256:{}", "a".repeat(64))),
+        runtime_image_profile: None,
         qa_run_id: uuid(),
         parent_task_uid: uuid(),
         target_id: Some("fixture-target".into()),

@@ -36,5 +36,6 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeQaSce
         scenarios: proposal.map_or_else(Vec::new, |proposal| proposal.scenarios),
         approved,
         stale,
+        experimental: request.mode == crate::runtime_qa::QaRunMode::Experimental,
     })
 }

@@ -30,6 +30,12 @@ pub(super) fn paint(ui: &mut egui::Ui, lifecycle: Option<&crate::ui::task_detail
     };
     ui.group(|ui| {
         ui.label(theme::section_heading("Runtime QA evidence"));
+        if evidence.experimental {
+            ui.colored_label(
+                theme::WARNING,
+                "Experimental local evidence · does not pass production lifecycle or release gates",
+            );
+        }
         ui.label(format!(
             "Run · {} · {}",
             evidence.run_id,

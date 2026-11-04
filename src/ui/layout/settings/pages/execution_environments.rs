@@ -3,6 +3,7 @@ use crate::{
     persistence::{execution_environment_settings::ExecutionEnvironmentSettings, remote_workers},
     ui::theme,
 };
+mod experimental;
 mod runtime_qa;
 mod smoke;
 mod target;
@@ -134,6 +135,8 @@ pub(super) fn paint_view(
 
     ui.add_space(theme::spacing::L);
     runtime_qa::paint(ui, status);
+    ui.add_space(theme::spacing::L);
+    experimental::paint(ui, status, runtime_qa::image_lock());
 
     ui.add_space(theme::spacing::L);
     ui.label(theme::section_heading("Remote Workers"));

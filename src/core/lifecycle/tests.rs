@@ -84,6 +84,9 @@ fn qa_request(task: &TaskRecord) -> crate::runtime_qa::QaRunRequestV1 {
         .expect("approved code review fixture");
     crate::runtime_qa::QaRunRequestV1 {
         schema_version: 1,
+        mode: Default::default(),
+        runtime_image_digest: Some(format!("sha256:{}", "a".repeat(64))),
+        runtime_image_profile: None,
         qa_run_id: id(),
         parent_task_uid: task.task_uid.clone(),
         target_id: Some("fixture-target".into()),

@@ -8,6 +8,7 @@ mod observation;
 mod validation;
 pub use observation::{
     approved_available_images, verify_derived_image_observation, verify_image_observation,
+    verify_qa_image_observation,
 };
 
 #[cfg(not(feature = "qa-desktop-driver-image"))]
@@ -152,6 +153,40 @@ impl ImageLock {
         profile: RuntimeProfile,
         daemon_arch: &str,
     ) -> Result<SelectedImage, PrerequisiteFailure> {
+        self.select_inner(profile, daemon_arch, false)
+    }
+
+    pub(crate) fn select_experimental_qa(
+        &self,
+        profile: RuntimeProfile,
+        daemon_arch: &str,
+        settings: &crate::persistence::experimental_features::ExperimentalFeatureSettingsV1,
+    ) -> Result<SelectedImage, PrerequisiteFailure> {
+        let feature = match profile {
+            RuntimeProfile::BrowserQa => {
+                crate::persistence::experimental_features::ExperimentalFeature::BrowserQa
+            }
+            RuntimeProfile::DesktopQa => {
+                crate::persistence::experimental_features::ExperimentalFeature::LinuxDesktopQa
+            }
+            _ => return self.select(profile, daemon_arch),
+        };
+        if !settings.feature_enabled(feature) {
+            return Err(failure(
+                PrerequisiteCode::ProfileUnsupported,
+                "QA runtime remains disabled by release policy; enable local Experimental Mode and this feature to use its pinned digest for dogfooding",
+                false,
+            ));
+        }
+        self.select_inner(profile, daemon_arch, true)
+    }
+
+    fn select_inner(
+        &self,
+        profile: RuntimeProfile,
+        daemon_arch: &str,
+        experimental_authorized: bool,
+    ) -> Result<SelectedImage, PrerequisiteFailure> {
         let architecture = parse_architecture(daemon_arch).ok_or_else(|| {
             failure(
                 PrerequisiteCode::UnsupportedArchitecture,
@@ -164,10 +199,11 @@ impl ImageLock {
             profile,
             RuntimeProfile::BrowserQa | RuntimeProfile::DesktopQa
         ) && !variant.runtime_enabled
+            && !experimental_authorized
         {
             return Err(failure(
                 PrerequisiteCode::ProfileUnsupported,
-                "QA runtime remains disabled until its derived image digest and isolated Docker lifecycle are approved",
+                "QA runtime remains disabled until release approval or explicit local experimental authorization",
                 false,
             ));
         }

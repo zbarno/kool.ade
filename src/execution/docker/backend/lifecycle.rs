@@ -85,6 +85,32 @@ impl ExecutionBackend for DockerExecutionBackend {
             if *cancel.borrow() {
                 return Err(state_error("checking QA driver cancellation"));
             }
+            let inspected = self
+                .docker
+                .inspect_image(&spec.image.reference)
+                .await
+                .map_err(|_| state_error("inspecting the exact locked QA driver image"))?;
+            let observation = crate::execution::docker::images::ImageObservation {
+                image_id: inspected.id.unwrap_or_default(),
+                repo_digests: inspected.repo_digests.unwrap_or_default(),
+                os: inspected.os.unwrap_or_default(),
+                architecture: inspected.architecture.unwrap_or_default(),
+                configured_user: inspected
+                    .config
+                    .as_ref()
+                    .and_then(|config| config.user.clone())
+                    .unwrap_or_default(),
+                labels: inspected
+                    .config
+                    .and_then(|config| config.labels)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .collect(),
+            };
+            crate::execution::docker::images::verify_qa_image_observation(spec.image, &observation)
+                .map_err(|_| {
+                    state_error("verifying the locked QA digest, platform, and non-root user")
+                })?;
             if let (Some(lease), Some(binding)) = (spec.service_lease, spec.relay_binding) {
                 crate::execution::docker::qa_container::validate_preview_relay_network(
                     &self.docker,

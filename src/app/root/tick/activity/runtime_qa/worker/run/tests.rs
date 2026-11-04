@@ -213,6 +213,9 @@ fn worker_rejects_revoked_prepared_start_after_selection_changes_to_new_target()
     );
     let request = QaRunRequestV1 {
         schema_version: 1,
+        mode: Default::default(),
+        runtime_image_digest: Some(format!("sha256:{}", "a".repeat(64))),
+        runtime_image_profile: None,
         qa_run_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         parent_task_uid: task_id.clone(),
         target_id: Some("qa-target".into()),

@@ -1,3 +1,4 @@
+use sha2::Digest as _;
 use std::{fs, io::ErrorKind, path::Path};
 
 use crate::{
@@ -33,6 +34,41 @@ pub(super) fn record_persisted_report(
     };
     validate_request_identity(request, &persisted_request)?;
     validate_current_report(&persisted_request, &scenarios, &evidence, &result)?;
+    if persisted_request.mode == crate::runtime_qa::QaRunMode::Experimental {
+        let namespace = uuid::Uuid::parse_str(&task.task_uid)
+            .map_err(|_| "experimental Runtime QA task identity is invalid")?;
+        let event_uid = uuid::Uuid::new_v5(
+            &namespace,
+            format!("runtime-qa-experimental-v1:{}", request.qa_run_id).as_bytes(),
+        )
+        .hyphenated()
+        .to_string();
+        let reason = format!(
+            "Experimental Runtime QA {:?} was retained for local verification; it does not satisfy production Runtime QA or release acceptance.",
+            result.outcome
+        );
+        lifecycle
+            .record_experimental_runtime_qa(
+                &task.task_uid,
+                task.revision,
+                &event_uid,
+                request,
+                format!(
+                    "{:x}",
+                    sha2::Sha256::digest(
+                        serde_json::to_vec(&result).map_err(|error| error.to_string())?
+                    )
+                ),
+                evidence.sha256()?,
+                reason,
+            )
+            .map_err(|error| error.to_string())?;
+        return Ok(Some(format!(
+            "Experimental Runtime QA {:?} evidence was saved for task {}. It does not advance the task lifecycle or production release gates.",
+            result.outcome,
+            task.planning_item_uid.as_deref().unwrap_or(&task.task_uid)
+        )));
+    }
     if matches!(result.outcome, QaOutcome::Pass | QaOutcome::Fail) {
         // Validate the reviewer attestation before creating durable Manager
         // decisions. LifecycleStore repeats this check when it records the
@@ -123,6 +159,7 @@ pub(super) fn record_persisted_report(
 pub(super) enum PersistedReportState {
     Missing,
     Recordable,
+    Experimental,
     Invalid,
 }
 
@@ -159,6 +196,9 @@ pub(super) fn persisted_report_state(
     }
     if validate_current_report(&persisted, &scenarios, &evidence, &result).is_err() {
         return PersistedReportState::Invalid;
+    }
+    if persisted.mode == crate::runtime_qa::QaRunMode::Experimental {
+        return PersistedReportState::Experimental;
     }
     match result.outcome {
         QaOutcome::Pass | QaOutcome::Fail

@@ -115,3 +115,45 @@ fn enabled_desktop_profile_requires_candidate_chromium_and_dbus_metadata() {
         .insert("dbus".into(), "1.14.10-4ubuntu4.1".into());
     lock.validate().unwrap();
 }
+
+#[test]
+fn experimental_qa_selection_requires_feature_opt_in_and_keeps_release_policy_off() {
+    use crate::persistence::experimental_features::{
+        ExperimentalFeature, ExperimentalFeatureSettingsV1,
+    };
+
+    let lock = ImageLock::bundled().unwrap();
+    let browser = &lock.profiles["browser_qa"][0];
+    assert!(!browser.runtime_enabled);
+    assert!(lock.select(RuntimeProfile::BrowserQa, "amd64").is_err());
+
+    let settings = ExperimentalFeatureSettingsV1 {
+        enabled: true,
+        confirmed_at_unix_ms: Some(1),
+        enabled_features: [ExperimentalFeature::BrowserQa].into(),
+        ..ExperimentalFeatureSettingsV1::default()
+    };
+    let selected = lock
+        .select_experimental_qa(RuntimeProfile::BrowserQa, "amd64", &settings)
+        .unwrap();
+    assert_eq!(selected.digest, browser.digest);
+    assert!(browser.build_recipe_sha256.as_deref().is_some_and(|hash| {
+        hash.strip_prefix("sha256:")
+            .is_some_and(|hex| hex.len() == 64)
+    }));
+    assert!(
+        lock.select_experimental_qa(RuntimeProfile::DesktopQa, "amd64", &settings)
+            .is_err(),
+        "Browser authorization must not enable desktop QA"
+    );
+    assert!(
+        lock.select_experimental_qa(RuntimeProfile::BrowserQa, "arm64", &settings)
+            .is_err(),
+        "unsupported candidate architecture must remain blocked"
+    );
+    assert!(
+        lock.profiles["browser_qa"]
+            .iter()
+            .all(|variant| !variant.runtime_enabled)
+    );
+}

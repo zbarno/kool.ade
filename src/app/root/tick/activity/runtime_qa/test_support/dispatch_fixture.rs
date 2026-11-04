@@ -214,6 +214,9 @@ pub(crate) fn queued_task(lifecycle: &LifecycleStore<'_>) -> (String, QaRunReque
         .unwrap();
     let request = QaRunRequestV1 {
         schema_version: 1,
+        mode: Default::default(),
+        runtime_image_digest: Some(format!("sha256:{}", "a".repeat(64))),
+        runtime_image_profile: None,
         qa_run_id: id(),
         parent_task_uid: task_uid.clone(),
         target_id: Some("target:fixture".into()),

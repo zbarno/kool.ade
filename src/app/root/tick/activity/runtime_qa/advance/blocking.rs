@@ -93,9 +93,11 @@ pub(super) fn persist_block_with_work(
             .qa_execution
             .as_ref()
             .is_some_and(|execution| execution.status == QaExecutionStatusV1::Running);
-        if super::super::reports::persisted_report_state(&qa_store, request, running_restart)
-            == super::super::reports::PersistedReportState::Recordable
-        {
+        if matches!(
+            super::super::reports::persisted_report_state(&qa_store, request, running_restart),
+            super::super::reports::PersistedReportState::Recordable
+                | super::super::reports::PersistedReportState::Experimental
+        ) {
             let (notice, applied) =
                 report_application_outcome(super::super::reports::record_persisted_report(
                     planning_store,

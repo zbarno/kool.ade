@@ -12,6 +12,7 @@ pub struct RuntimeQaScenarioProposal {
     pub scenarios: Vec<crate::runtime_qa::QaScenarioV1>,
     pub approved: bool,
     pub stale: bool,
+    pub experimental: bool,
 }
 
 #[derive(Clone)]
@@ -77,6 +78,7 @@ pub struct LifecycleView {
 #[derive(Clone)]
 pub struct RuntimeQaEvidenceView {
     pub run_id: String,
+    pub experimental: bool,
     pub outcome: crate::runtime_qa::QaOutcome,
     pub target_id: Option<String>,
     pub code_sha: String,

@@ -94,5 +94,12 @@ pub fn validate_current_report(
     if request.target_id.is_none() || manifest.target_id != request.target_id {
         return Err("new runtime QA records must bind the selected runtime target".into());
     }
+    if request.schema_version >= 2
+        && (request.runtime_image_digest.is_none() || request.runtime_image_profile.is_none())
+    {
+        return Err(
+            "new runtime QA records must bind their immutable image digest and profile".into(),
+        );
+    }
     Ok(())
 }

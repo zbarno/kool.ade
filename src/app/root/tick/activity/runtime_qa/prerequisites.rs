@@ -29,6 +29,37 @@ pub(super) fn unavailable_reason(
     task: &TaskRecord,
     request: &crate::runtime_qa::QaRunRequestV1,
 ) -> Option<String> {
+    if request.mode == crate::runtime_qa::QaRunMode::Experimental {
+        let engine = crate::execution::docker::environment::DockerEnvironmentStatus::detect();
+        if !experimental_engine_supported(
+            cfg!(target_os = "linux"),
+            engine.engine_ready,
+            engine.rootless,
+            engine.architecture.as_deref(),
+            engine.desktop_vm,
+        ) {
+            return Some("experimental Runtime QA requires a ready rootless Linux amd64 Docker Engine; Docker Desktop, rootful Docker, other architectures, and host execution are unsupported.".into());
+        }
+        let feature = match request.relevant_platforms.as_slice() {
+            [
+                crate::runtime_qa::QaPlatform::Web | crate::runtime_qa::QaPlatform::HeadlessService,
+            ] => crate::persistence::experimental_features::ExperimentalFeature::BrowserQa,
+            [crate::runtime_qa::QaPlatform::LinuxDesktop] => {
+                crate::persistence::experimental_features::ExperimentalFeature::LinuxDesktopQa
+            }
+            _ => {
+                return Some(
+                    "experimental QA request does not name one supported driver profile".into(),
+                );
+            }
+        };
+        if !crate::persistence::experimental_features::load()
+            .0
+            .feature_enabled(feature)
+        {
+            return Some("Experimental Mode or this QA feature is now OFF. No new run will start; re-enable it and create a fresh reviewed Runtime QA request if dogfooding should continue.".into());
+        }
+    }
     let runtime = ProjectRuntimeStore::new(&project.state.planning_store);
     let manifest = match runtime.load_manifest() {
         Ok(Some(manifest)) => manifest,
@@ -165,8 +196,29 @@ pub(super) fn unavailable_reason(
             );
         }
     };
-    let amd64 = lock.select(profile, "amd64");
-    let arm64 = lock.select(profile, "arm64");
+    let select = |architecture| {
+        if request.mode == crate::runtime_qa::QaRunMode::Experimental {
+            lock.select_experimental_qa(
+                profile,
+                architecture,
+                &crate::persistence::experimental_features::load().0,
+            )
+        } else {
+            lock.select(profile, architecture)
+        }
+    };
+    let amd64 = select("amd64");
+    let arm64 = select("arm64");
+    if request
+        .runtime_image_digest
+        .as_deref()
+        .is_some_and(|digest| {
+            !amd64.as_ref().is_ok_and(|image| image.digest == digest)
+                && !arm64.as_ref().is_ok_and(|image| image.digest == digest)
+        })
+    {
+        return Some("the immutable QA runtime image digest changed after this request was created; issue a fresh reviewed Runtime QA request".into());
+    }
     if amd64.is_err() && arm64.is_err() {
         let error = amd64.err().or_else(|| arm64.err()).expect("both failed");
         return Some(format!(
@@ -180,6 +232,20 @@ pub(super) fn unavailable_reason(
         ));
     }
     None
+}
+
+pub(super) fn experimental_engine_supported(
+    host_linux: bool,
+    engine_ready: bool,
+    rootless: Option<bool>,
+    architecture: Option<&str>,
+    desktop_vm: bool,
+) -> bool {
+    host_linux
+        && !desktop_vm
+        && engine_ready
+        && rootless == Some(true)
+        && architecture == Some("amd64")
 }
 
 fn requested_surface(platforms: &[QaPlatform]) -> Option<AppSurface> {
@@ -222,9 +288,13 @@ pub(super) fn locked_capabilities(lock: &ImageLock) -> (BTreeSet<String>, BTreeS
         RuntimeProfile::Go,
     ];
     let mut tools = BTreeSet::new();
+    let experimental = crate::persistence::experimental_features::load().0;
     for profile in profiles {
         for architecture in ["amd64", "arm64"] {
-            if let Ok(image) = lock.select(profile, architecture) {
+            if let Ok(image) = lock
+                .select(profile, architecture)
+                .or_else(|_| lock.select_experimental_qa(profile, architecture, &experimental))
+            {
                 tools.extend(
                     image
                         .tool_versions
@@ -240,9 +310,12 @@ pub(super) fn locked_capabilities(lock: &ImageLock) -> (BTreeSet<String>, BTreeS
     ]
     .into_iter()
     .filter(|(_, profile)| {
-        ["amd64", "arm64"]
-            .into_iter()
-            .any(|architecture| lock.select(*profile, architecture).is_ok())
+        ["amd64", "arm64"].into_iter().any(|architecture| {
+            lock.select(*profile, architecture).is_ok()
+                || lock
+                    .select_experimental_qa(*profile, architecture, &experimental)
+                    .is_ok()
+        })
     })
     .map(|(id, _)| id.to_owned())
     .collect();

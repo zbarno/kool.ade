@@ -103,6 +103,9 @@ fn request() -> crate::runtime_qa::QaRunRequestV1 {
     let sha = || "a".repeat(64);
     crate::runtime_qa::QaRunRequestV1 {
         schema_version: 1,
+        mode: Default::default(),
+        runtime_image_digest: Some(format!("sha256:{}", "a".repeat(64))),
+        runtime_image_profile: None,
         qa_run_id: uid(),
         parent_task_uid: uid(),
         target_id: Some("fixture-target".into()),

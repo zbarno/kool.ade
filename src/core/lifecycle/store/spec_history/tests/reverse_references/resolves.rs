@@ -74,6 +74,9 @@ fn reverse_lookup_resolves_decision_task_review_qa_and_pr_state_references() {
     );
     let qa_request = crate::runtime_qa::QaRunRequestV1 {
         schema_version: 1,
+        mode: Default::default(),
+        runtime_image_digest: Some(format!("sha256:{}", "a".repeat(64))),
+        runtime_image_profile: None,
         qa_run_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         parent_task_uid: task_uid.clone(),
         target_id: Some("fixture-target".into()),
