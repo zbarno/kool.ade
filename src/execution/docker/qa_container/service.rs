@@ -15,4 +15,6 @@ pub use runner::{
 };
 #[cfg(test)]
 pub(crate) use web::start_web_preview_with_lock;
+#[cfg(test)]
+pub(crate) use web::start_web_preview_with_lock_and_settings;
 pub use web::{cleanup_web_preview, recover_owned_web_preview, start_web_preview};

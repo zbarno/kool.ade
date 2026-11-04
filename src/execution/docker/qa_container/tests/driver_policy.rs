@@ -112,6 +112,64 @@ fn only_desktop_driver_workspace_allows_executing_staged_artifacts() {
 }
 
 #[test]
+fn experimental_driver_image_requires_local_feature_opt_in_at_launch() {
+    use crate::persistence::experimental_features::{
+        ExperimentalFeature, ExperimentalFeatureSettingsV1,
+    };
+
+    let mut request = request();
+    request.schema_version = 2;
+    request.mode = crate::runtime_qa::QaRunMode::Experimental;
+    request.relevant_platforms = vec![crate::runtime_qa::QaPlatform::LinuxDesktop];
+    request.runtime_image_profile = Some(RuntimeProfile::DesktopQa);
+
+    let lock = ImageLock::bundled().unwrap();
+    let mut enabled = ExperimentalFeatureSettingsV1 {
+        schema_version: 1,
+        enabled: true,
+        confirmed_at_unix_ms: Some(1),
+        enabled_features: [ExperimentalFeature::LinuxDesktopQa].into_iter().collect(),
+    };
+    let image = lock
+        .select_experimental_qa(RuntimeProfile::DesktopQa, "amd64", &enabled)
+        .unwrap();
+    request.runtime_image_digest = Some(image.digest.clone());
+
+    let root = tempfile::tempdir().unwrap();
+    let artifact = QaArtifactMount::inspect(root.path(), "/workspace").unwrap();
+    let resources = resources();
+    let spec = QaDriverContainerSpec {
+        owner_id: &request.execution_session_id,
+        request: &request,
+        task_uid: &request.parent_task_uid,
+        driver: "desktop",
+        image: &image,
+        artifacts: std::slice::from_ref(&artifact),
+        dependency_caches: &[],
+        network: QaDriverNetwork::Disabled,
+        service_lease: None,
+        relay_binding: None,
+        resources: &resources,
+    };
+
+    let disabled = ExperimentalFeatureSettingsV1::default();
+    assert!(
+        spec.create_body_with_lock_and_settings(&lock, &disabled)
+            .is_err()
+    );
+    assert!(
+        spec.create_body_with_lock_and_settings(&lock, &enabled)
+            .is_ok()
+    );
+
+    enabled.enabled_features.clear();
+    assert!(
+        spec.create_body_with_lock_and_settings(&lock, &enabled)
+            .is_err()
+    );
+}
+
+#[test]
 fn service_driver_requires_headless_platform_and_exact_preview_lease() {
     let mut request = request();
     request.relevant_platforms = vec![crate::runtime_qa::QaPlatform::HeadlessService];

@@ -38,6 +38,28 @@ async fn start_web_preview_for_lock(
     cancel: &mut tokio::sync::watch::Receiver<bool>,
     lock: &ImageLock,
 ) -> Result<QaWebPreview, ExecutionError> {
+    let settings = crate::persistence::experimental_features::load().0;
+    start_web_preview_for_lock_with_settings(docker, spec, cancel, lock, &settings).await
+}
+
+#[cfg(test)]
+pub(crate) async fn start_web_preview_with_lock_and_settings(
+    docker: &Docker,
+    spec: QaWebPreviewSpec<'_>,
+    cancel: &mut tokio::sync::watch::Receiver<bool>,
+    lock: &ImageLock,
+    settings: &crate::persistence::experimental_features::ExperimentalFeatureSettingsV1,
+) -> Result<QaWebPreview, ExecutionError> {
+    start_web_preview_for_lock_with_settings(docker, spec, cancel, lock, settings).await
+}
+
+async fn start_web_preview_for_lock_with_settings(
+    docker: &Docker,
+    spec: QaWebPreviewSpec<'_>,
+    cancel: &mut tokio::sync::watch::Receiver<bool>,
+    lock: &ImageLock,
+    settings: &crate::persistence::experimental_features::ExperimentalFeatureSettingsV1,
+) -> Result<QaWebPreview, ExecutionError> {
     validate_spec(&spec)?;
     if *cancel.borrow() {
         return Err(denied("QA web preview was cancelled before launch"));
@@ -53,11 +75,7 @@ async fn start_web_preview_for_lock(
         .map(str::to_owned)
         .collect::<Vec<_>>();
     let selected_browser = if spec.request.mode == crate::runtime_qa::QaRunMode::Experimental {
-        lock.select_experimental_qa(
-            RuntimeProfile::BrowserQa,
-            architecture,
-            &crate::persistence::experimental_features::load().0,
-        )
+        lock.select_experimental_qa(RuntimeProfile::BrowserQa, architecture, settings)
     } else {
         lock.select(RuntimeProfile::BrowserQa, architecture)
     };

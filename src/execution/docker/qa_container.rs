@@ -105,6 +105,24 @@ impl QaDriverContainerSpec<'_> {
         &self,
         lock: &ImageLock,
     ) -> Result<ContainerCreateBody, ExecutionError> {
+        let settings = crate::persistence::experimental_features::load().0;
+        self.create_body_for_lock_with_settings(lock, &settings)
+    }
+
+    #[cfg(test)]
+    fn create_body_with_lock_and_settings(
+        &self,
+        lock: &ImageLock,
+        settings: &crate::persistence::experimental_features::ExperimentalFeatureSettingsV1,
+    ) -> Result<ContainerCreateBody, ExecutionError> {
+        self.create_body_for_lock_with_settings(lock, settings)
+    }
+
+    fn create_body_for_lock_with_settings(
+        &self,
+        lock: &ImageLock,
+        settings: &crate::persistence::experimental_features::ExperimentalFeatureSettingsV1,
+    ) -> Result<ContainerCreateBody, ExecutionError> {
         self.validate()?;
         let architecture = self
             .image
@@ -112,11 +130,7 @@ impl QaDriverContainerSpec<'_> {
             .strip_prefix("linux/")
             .unwrap_or_default();
         let approved = if self.request.mode == crate::runtime_qa::QaRunMode::Experimental {
-            lock.select_experimental_qa(
-                self.image.profile,
-                architecture,
-                &crate::persistence::experimental_features::load().0,
-            )
+            lock.select_experimental_qa(self.image.profile, architecture, settings)
         } else {
             lock.select(self.image.profile, architecture)
         }

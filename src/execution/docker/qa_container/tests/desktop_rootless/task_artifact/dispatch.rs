@@ -53,7 +53,19 @@ pub(super) async fn run(
         relay_binding: None,
         resources,
     };
-    let body = spec.create_body_with_lock(lock).unwrap();
+    let settings = crate::persistence::experimental_features::ExperimentalFeatureSettingsV1 {
+        schema_version: 1,
+        enabled: true,
+        confirmed_at_unix_ms: Some(1),
+        enabled_features: [
+            crate::persistence::experimental_features::ExperimentalFeature::LinuxDesktopQa,
+        ]
+        .into_iter()
+        .collect(),
+    };
+    let body = spec
+        .create_body_with_lock_and_settings(lock, &settings)
+        .unwrap();
     let name = format!("koolade-qa-{}", request.qa_run_id);
     let (_cancel, mut cancel) = tokio::sync::watch::channel(false);
     let output = crate::execution::docker::qa_container::run_ephemeral_driver(
