@@ -1,6 +1,9 @@
 use super::*;
 use std::sync::mpsc::channel;
 
+#[path = "specification_chat/feature_scope.rs"]
+mod feature_scope;
+
 fn target(inputs: &TurnInputs) -> crate::core::specification_chat::Target {
     crate::core::specification_chat::capture_target(
         &inputs.state,
