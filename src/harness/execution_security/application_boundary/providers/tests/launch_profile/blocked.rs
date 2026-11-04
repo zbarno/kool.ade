@@ -1,4 +1,6 @@
-use super::{CliProvider, ValidatedProviderLaunch, complete_evidence};
+use super::{
+    CliProvider, ValidatedProviderLaunch, antigravity_environment, complete_evidence, provider_argv,
+};
 use std::path::Path;
 
 fn claude_argv() -> Vec<String> {
@@ -79,4 +81,21 @@ fn claude_task_launch_is_blocked_even_with_a_valid_update_lock() {
     .err()
     .expect("Claude task launch must remain blocked");
     assert!(error.to_string().contains("organization-managed hooks"));
+}
+
+#[test]
+fn antigravity_manager_launch_is_rejected_when_instruction_sources_are_unverified() {
+    let provider = CliProvider::Antigravity;
+    let error = ValidatedProviderLaunch::bind_for_workspace(
+        complete_evidence(provider, "99.0.0"),
+        crate::harness::ExecutionMode::Manager,
+        provider_argv(provider),
+        Path::new("/tmp"),
+        antigravity_environment(),
+        Path::new("/tmp"),
+    )
+    .err()
+    .expect("Antigravity has no verified strict Manager profile");
+
+    assert!(error.to_string().contains("not for Man.ager"));
 }

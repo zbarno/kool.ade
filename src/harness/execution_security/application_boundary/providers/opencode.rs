@@ -80,6 +80,10 @@ pub(super) fn configure(
         ("OPENCODE_CONFIG_CONTENT".into(), config.to_string()),
         ("OPENCODE_DISABLE_AUTOUPDATE".into(), "1".into()),
         ("OPENCODE_DISABLE_DEFAULT_PLUGINS".into(), "1".into()),
+        // Manager runs with a private cwd/config, and these kill switches also
+        // prevent future cwd changes from enabling project AGENTS.md or skills.
+        ("OPENCODE_DISABLE_PROJECT_CONFIG".into(), "1".into()),
+        ("OPENCODE_DISABLE_EXTERNAL_SKILLS".into(), "1".into()),
         ("OPENCODE_DISABLE_CLAUDE_CODE".into(), "1".into()),
         ("OPENCODE_DISABLE_LSP_DOWNLOAD".into(), "1".into()),
         ("OPENCODE_AUTO_SHARE".into(), "false".into()),

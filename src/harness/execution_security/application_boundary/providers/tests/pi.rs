@@ -1,6 +1,6 @@
 use super::super::{CliProvider, configure};
 use super::test_boundary;
-use crate::harness::ToolAccess;
+use crate::harness::{ExecutionProfile, ToolAccess};
 
 #[test]
 fn pi_only_registers_read_only_application_mcp_for_planning() {
@@ -8,7 +8,6 @@ fn pi_only_registers_read_only_application_mcp_for_planning() {
     let mut argv = Vec::new();
     let mut env = Vec::new();
     configure(&boundary, CliProvider::Pi, &mut argv, &mut env).unwrap();
-    assert!(argv.contains(&"--no-builtin-tools".into()));
     assert!(
         argv.windows(2)
             .any(|args| args == ["--tools", "koolade_bash"])
@@ -35,7 +34,6 @@ fn pi_implementation_registers_only_application_owned_brokered_tools() {
     let mut argv = Vec::new();
     let mut env = Vec::new();
     configure(&boundary, CliProvider::Pi, &mut argv, &mut env).unwrap();
-    assert!(argv.contains(&"--no-builtin-tools".into()));
     assert!(argv.windows(2).any(|args| {
         args == [
             "--tools",
@@ -54,9 +52,34 @@ fn pi_implementation_registers_only_application_owned_brokered_tools() {
         tools,
         ["koolade_bash", "koolade_resource", "koolade_dependency"]
     );
+    let skill_args = argv
+        .windows(2)
+        .find(|pair| pair[0] == "--skill")
+        .expect("worker receives one explicitly selected app-owned skill");
+    let skill_path = std::path::Path::new(&skill_args[1]);
+    assert!(skill_path.starts_with(boundary.working_directory()));
+    let skill = std::fs::read_to_string(skill_path).unwrap();
+    assert!(skill.contains("Use only the Kool.ad/e tools provided in this session"));
+    assert!(!skill.contains("shell"));
     assert!(!env.iter().any(|(key, _)| {
         key.contains("API_KEY") || key.contains("TOKEN") || key.contains("SECRET")
     }));
+}
+
+#[test]
+fn pi_manager_suppresses_skills_and_keeps_read_only_brokered_tools() {
+    let mut boundary = test_boundary(ToolAccess::ReadOnly);
+    boundary.profile = ExecutionProfile::Manager;
+    let mut argv = Vec::new();
+    let mut env = Vec::new();
+    configure(&boundary, CliProvider::Pi, &mut argv, &mut env).unwrap();
+
+    assert!(!argv.iter().any(|argument| argument == "--skill"));
+    assert!(!argv.iter().any(|argument| argument == "read,grep,find,ls"));
+    assert!(
+        argv.windows(2)
+            .any(|pair| pair == ["--tools", "koolade_bash"])
+    );
 }
 
 #[test]
@@ -66,7 +89,6 @@ fn pi_runtime_qa_reviewer_registers_the_screenshot_inspection_tool() {
     let mut env = Vec::new();
     configure(&boundary, CliProvider::Pi, &mut argv, &mut env).unwrap();
 
-    assert!(argv.contains(&"--no-builtin-tools".into()));
     assert!(
         argv.windows(2)
             .any(|args| { args == ["--tools", "koolade_runtime_qa_screenshot"] })

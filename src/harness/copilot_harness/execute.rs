@@ -87,6 +87,7 @@ impl AiHarness for CopilotHarness {
         let launch =
             crate::harness::execution_security::ValidatedProviderLaunch::bind_for_workspace(
                 evidence,
+                request.mode,
                 argv,
                 boundary.working_directory(),
                 child_env,

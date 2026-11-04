@@ -16,8 +16,10 @@ pub use ids::{
 };
 pub use phase_timings::ExecutionPhaseTimingsV1;
 pub use readiness::{
-    HarnessCapabilitySnapshotV1, HarnessRole, ModeReadinessV1, ProviderReadinessV1, ReadinessState,
-    RoleReadinessV1,
+    AuthenticationModeV1, HarnessCapabilitySnapshotV1, HarnessRole, ModeReadinessV1,
+    ProviderReadinessV1, ReadinessState, RoleReadinessV1, current_authentication_mode,
+    profile_evidence_id, profile_evidence_id_for_current_snapshot,
+    profile_evidence_id_for_snapshot,
 };
 pub use request::{
     DependencyCacheEcosystemV1, DependencyCacheRefV1, ExecutionModeV1, ExecutionRequestV1,

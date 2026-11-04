@@ -88,8 +88,15 @@ fn every_role_route_selects_each_supported_provider_and_pins_its_model() {
                 crate::app::root::harness_selection::role_for_work_category(category)
                     .expect("every configured role has a mode")
                     .harness_mode();
-            let provenance = harness
-                .route_provenance(&role_request)
+            let provenance = harness.route_provenance(&role_request);
+            if category == categories::MANAGER && provider != "pi" {
+                assert!(
+                    provenance.is_none(),
+                    "{provider} unexpectedly routed Manager"
+                );
+                continue;
+            }
+            let provenance = provenance
                 .unwrap_or_else(|| panic!("{provider} route for {category} lacks provenance"));
 
             assert_eq!(provenance.provider_id, provider, "{category}");

@@ -68,6 +68,7 @@ impl AiHarness for PiHarness {
             "--no-skills".into(),
             "--no-prompt-templates".into(),
             "--no-themes".into(),
+            "--no-builtin-tools".into(),
             "--append-system-prompt".into(),
             format!("PROCESS OWNERSHIP — mandatory for every tool call: Kool.ad/e is the supervising application (PID {}). Never signal or terminate Kool.ad/e, its ancestors, other operator windows, or unrelated workers. Do not use pkill/killall, command-name or command-line matching, or machine-wide process sweeps to select kill targets. Test cleanup may stop only processes you launched and recorded for that test run. For detached GUI children, require a unique inherited run marker plus the exact executable and test display; verify ownership before each signal and use pidfds where available to avoid PID reuse. Inspect existing cleanup helpers before running them; repair broad process matching first. If ownership cannot be established, preserve the process and report it. A private test display alone does not isolate processes or authorize killing other app instances.\n\n{}", std::process::id(), system_instructions),
             "--thinking".into(),
@@ -109,6 +110,7 @@ impl AiHarness for PiHarness {
         let launch =
             crate::harness::execution_security::ValidatedProviderLaunch::bind_for_workspace(
                 evidence,
+                req.mode,
                 argv,
                 boundary.working_directory(),
                 child_env,

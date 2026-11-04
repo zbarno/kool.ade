@@ -98,6 +98,18 @@ mod tests {
         HarnessCapabilitySnapshotV1 {
             schema_version: 1,
             provider_id: provider.into(),
+            authentication_mode: crate::execution::contract::current_authentication_mode(provider),
+            manager_profile_id:
+                crate::execution::contract::profile_evidence_id_for_current_snapshot(
+                    provider,
+                    Some("1.0.0"),
+                    crate::harness::ExecutionProfile::Manager,
+                ),
+            worker_profile_id: crate::execution::contract::profile_evidence_id_for_current_snapshot(
+                provider,
+                Some("1.0.0"),
+                crate::harness::ExecutionProfile::Worker,
+            ),
             probe_id: uuid::Uuid::new_v4().hyphenated().to_string(),
             probe_cancellation_generation: 1,
             probe_sequence: 1,

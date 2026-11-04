@@ -2,6 +2,8 @@ use super::ExecutionMode;
 
 mod application_boundary;
 mod mcp_server;
+#[path = "execution_security/profiles.rs"]
+mod profiles;
 #[cfg(unix)]
 mod session_bridge;
 #[cfg(windows)]
@@ -86,6 +88,7 @@ pub(crate) fn verify_scriptable_invocation(
     ProfileProbeEvidence::probe(provider, executable, version.to_owned()).map(|_| ())
 }
 pub(crate) use mcp_server::serve as serve_mcp_server;
+pub(crate) use profiles::{profile_block_reason, profile_evidence_id, task_execution_block_reason};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FilesystemScope {
@@ -154,9 +157,7 @@ impl HarnessCapabilities {
     }
 }
 
-static SUPPORTED_MODES: [ExecutionMode; 8] = ExecutionMode::ALL;
-const CLAUDE_TASK_EXECUTION_BLOCK: &str = "Claude Code task execution is unavailable until Kool.ad/e can sandbox organization-managed hooks; the CLI does not provide a supported way to disable those hooks while keeping normal sign-in.";
-const CODEX_TASK_EXECUTION_BLOCK: &str = "Codex task execution is unavailable until Kool.ad/e can contain organization-managed hooks; Codex feature-disable flags do not override admin-enforced hook policy.";
+static SUPPORTED_MODES: [ExecutionMode; 9] = ExecutionMode::ALL;
 const APPLICATION_CAPABILITIES: HarnessCapabilities = HarnessCapabilities {
     policy: ExecutionSecurityPolicy {
         filesystem: FilesystemScope::PrivateCliDirectoryAndAssignedCloneAllowlist,
@@ -191,34 +192,17 @@ pub(crate) fn implementation_route_available(id: &str) -> bool {
     supports_mode_contract(id, ExecutionMode::Implementation)
 }
 
-pub(crate) fn task_execution_block_reason(id: &str) -> Option<&'static str> {
-    let id = id.trim();
-    if ["claude", "claude code"]
-        .iter()
-        .any(|name| id.eq_ignore_ascii_case(name))
-    {
-        Some(CLAUDE_TASK_EXECUTION_BLOCK)
-    } else if ["codex", "codex cli"]
-        .iter()
-        .any(|name| id.eq_ignore_ascii_case(name))
-    {
-        Some(CODEX_TASK_EXECUTION_BLOCK)
-    } else {
-        None
-    }
-}
-
 /// Whether a provider adapter in this build implements the selected mode.
 /// Discovery combines this with the installed CLI's verified launch profile.
 pub(crate) fn supports_mode_contract(id: &str, mode: ExecutionMode) -> bool {
-    task_execution_block_reason(id).is_none()
+    profile_block_reason(id, mode.profile()).is_none()
         && for_harness(id).is_some_and(|capabilities| capabilities.supports(mode))
 }
 
 /// Whether this build has a configured app-owned MCP adapter and execution
 /// policy for every public mode and role of a supported CLI. This records the
 /// application bridge contract; a live Docker target is probed separately.
-pub(crate) fn supports_universal_role_contract(id: &str) -> bool {
+pub(crate) fn supports_provider_adapter_contract(id: &str) -> bool {
     let Some(provider) = CliProvider::from_id(id) else {
         return false;
     };
@@ -226,15 +210,9 @@ pub(crate) fn supports_universal_role_contract(id: &str) -> bool {
         return false;
     }
     let profile = provider.profile_requirements();
-    if profile.launch_tokens.is_empty() || profile.capabilities.is_empty() {
-        return false;
-    }
-    ExecutionMode::ALL
-        .into_iter()
-        .all(|mode| supports_mode_contract(id, mode))
-        && crate::execution::contract::HarnessRole::ALL
-            .into_iter()
-            .all(|role| supports_mode_contract(id, role.harness_mode()))
+    !profile.capabilities.is_empty()
+        && !profile.launch_tokens.is_empty()
+        && !profile.environment_keys.is_empty()
 }
 
 pub(crate) fn summary_for_harness(id: &str) -> &'static str {
@@ -259,7 +237,8 @@ mod tests {
             assert!(
                 ExecutionMode::ALL
                     .into_iter()
-                    .all(|mode| capabilities.supports(mode))
+                    .filter(|mode| mode.profile() == crate::harness::ExecutionProfile::Worker)
+                    .all(|mode| supports_mode_contract(id, mode))
             );
             assert_eq!(
                 capabilities.policy.process_isolation,
@@ -267,6 +246,22 @@ mod tests {
             );
             assert!(implementation_route_available(id), "{id}");
         }
+        assert!(supports_mode_contract("pi", ExecutionMode::Manager));
+        for id in ["opencode", "copilot"] {
+            assert!(!supports_mode_contract(id, ExecutionMode::Manager), "{id}");
+            assert!(
+                supports_mode_contract(id, ExecutionMode::Implementation),
+                "{id}"
+            );
+        }
+        assert!(!supports_mode_contract(
+            "antigravity",
+            ExecutionMode::Manager
+        ));
+        assert!(supports_mode_contract(
+            "antigravity",
+            ExecutionMode::Implementation
+        ));
         assert!(!supports_mode_contract("claude", ExecutionMode::Planning));
         assert!(!supports_mode_contract(
             "claude",

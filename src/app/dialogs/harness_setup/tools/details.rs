@@ -62,6 +62,14 @@ pub(super) fn paint_tool_details(
         "Security boundary: {}",
         crate::harness::execution_security::summary_for_harness(id)
     )));
+    let manager_profile = crate::harness::execution_security::profile_block_reason(
+        id,
+        crate::harness::ExecutionProfile::Manager,
+    )
+    .unwrap_or("Strict Man.ager profile is available when its current discovery and route prerequisites pass.");
+    ui.label(theme::helper_text(format!(
+        "Man.ager eligibility: {manager_profile}"
+    )));
     if fresh && harness.ready && !harness.implementation_available {
         ui.label(theme::helper_text(implementation_guidance(id)));
     }
@@ -240,13 +248,14 @@ fn paint_provider_guidance(
     ui.label(theme::helper_text(provider.install_channel_note(host)));
     ui.label("Man.ager helps plan your project, answer questions and coordinate work. Your provider's account and usage charges still apply.");
     if ui.add_enabled(
-        dialog.onboarding_model(id).is_some(),
+        dialog.onboarding_model(id).is_some()
+            && dialog.onboarding_manager_profile_available(id),
         egui::Button::new(if dialog.onboarding_manager_ready(id) {
             "Use as Man.ager and setup helper"
         } else {
             "Choose for Man.ager; enable setup help"
         }),
-    ).on_disabled_hover_text("Check this tool again after signing in and selecting a default model. It must support verified planning help.").clicked() {
+    ).on_disabled_hover_text(dialog.onboarding_manager_block_reason(id).unwrap_or("Check this tool again after signing in, selecting a default model, and verifying its strict Manager profile.")).clicked() {
         dialog.select_onboarding_manager(id);
     }
     ui.label(theme::helper_text("This saves your Manager choice and setup helper. Repository work remains gated by the separate Manager and safe-execution checks; selecting a provider does not grant access."));

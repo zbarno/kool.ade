@@ -50,7 +50,10 @@ fn fixture() -> (KooladeApp, std::path::PathBuf) {
 
 fn run_to_idle(app: &mut KooladeApp) {
     let ctx = egui::Context::default();
-    let deadline = Instant::now() + Duration::from_secs(5);
+    // The app's asynchronous test harness still needs a scheduled turn under
+    // the parallel all-target suite; a five-second wall-clock budget flakes
+    // when other integration tests are active.
+    let deadline = Instant::now() + Duration::from_secs(30);
     while app.conversation_busy() {
         app.tick(0.016, &ctx);
         assert!(Instant::now() < deadline, "scripted turn did not finish");

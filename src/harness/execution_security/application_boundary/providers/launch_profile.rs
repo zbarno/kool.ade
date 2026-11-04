@@ -107,6 +107,8 @@ impl ProfileProbeEvidence {
 /// cannot mutate launch inputs between validation and process creation.
 pub(crate) struct ValidatedProviderLaunch {
     evidence: ProfileProbeEvidence,
+    mode: crate::harness::ExecutionMode,
+    profile: crate::harness::ExecutionProfile,
     argv: Vec<String>,
     cwd: PathBuf,
     env: Vec<(String, String)>,
@@ -131,11 +133,19 @@ impl ValidatedProviderLaunch {
         cwd: &Path,
         explicit_env: Vec<(String, String)>,
     ) -> anyhow::Result<Self> {
-        Self::bind_for_workspace(evidence, argv, cwd, explicit_env, cwd)
+        Self::bind_for_workspace(
+            evidence,
+            crate::harness::ExecutionMode::Implementation,
+            argv,
+            cwd,
+            explicit_env,
+            cwd,
+        )
     }
 
     pub(crate) fn bind_for_workspace(
         evidence: ProfileProbeEvidence,
+        mode: crate::harness::ExecutionMode,
         argv: Vec<String>,
         cwd: &Path,
         explicit_env: Vec<(String, String)>,
@@ -149,6 +159,8 @@ impl ValidatedProviderLaunch {
         )?;
         let launch = Self {
             evidence,
+            mode,
+            profile: mode.profile(),
             argv,
             cwd: cwd.to_path_buf(),
             env,

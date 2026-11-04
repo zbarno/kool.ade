@@ -45,6 +45,10 @@ impl AiHarness for UsageHarness {
             requested_model: Some("model-a".into()),
             capability_probe_id: Some("synthetic-probe".into()),
             capability_generation: Some(4),
+            authentication_mode: None,
+            profile_evidence_id: None,
+            cli_version: Some("1.0.0".into()),
+            capability_expires_at_unix_ms: Some(u64::MAX),
         })
     }
     fn execute(&self, request: &PlanningRequest) -> Result<HarnessOutcome, crate::error::AppError> {
