@@ -22,7 +22,10 @@ fn explicit_implementation_route_rejects_unsupported_provider_capability() {
         let harness =
             configured_harness_for_task(&mut override_harness, Some(IMPLEMENTATION), &routes);
         let error = harness.check_available().unwrap_err().detail();
-        assert!(error.contains("no supported application-owned implementation route"));
+        assert!(
+            error.contains("no verified application-owned execution profile"),
+            "{error}"
+        );
     });
     let _ = std::fs::remove_file(path);
 }

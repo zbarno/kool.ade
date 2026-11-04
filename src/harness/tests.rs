@@ -109,20 +109,30 @@ fn application_boundary_blocks_uncontained_clis_across_every_mode() {
     for mode in ExecutionMode::ALL {
         let request = planning_request(mode);
         for provider in ["pi", "opencode", "copilot", "antigravity"] {
-            require_application_implementation_boundary(provider, &request).unwrap();
+            let result = require_application_implementation_boundary(provider, &request);
+            if mode.profile() == crate::harness::ExecutionProfile::Manager && provider != "pi" {
+                let error = result.unwrap_err().detail();
+                assert!(
+                    error.contains("not for Man.ager") || error.contains("not verified"),
+                    "{provider}: {error}"
+                );
+                assert!(error.contains("No CLI was started"), "{provider}: {error}");
+            } else {
+                result.unwrap();
+            }
         }
         for provider in ["codex", "Codex CLI", "claude", "Claude Code"] {
             let error = require_application_implementation_boundary(provider, &request)
                 .unwrap_err()
                 .detail();
-            assert!(error.contains("task execution is unavailable"), "{error}");
+            assert!(error.contains("execution is unavailable"), "{error}");
             assert!(error.contains("No CLI was started"), "{error}");
         }
         let error = require_application_implementation_boundary("unsupported", &request)
             .unwrap_err()
             .detail();
         assert!(
-            error.contains("no configured application-owned Docker execution policy"),
+            error.contains("no verified application-owned execution profile"),
             "{error}"
         );
         assert!(error.contains("No CLI was started"), "{error}");
@@ -141,11 +151,8 @@ fn providers_fail_closed_when_the_application_cannot_prepare_a_workspace() {
     ];
     for (name, provider) in providers {
         let error = provider.execute(&request).unwrap_err().detail();
-        if name == "Codex" {
-            assert!(
-                error.contains("organization-managed hooks"),
-                "{name}: {error}"
-            );
+        if name == "Codex" || name == "Claude Code" {
+            assert!(error.contains("managed hooks"), "{name}: {error}");
             assert!(error.contains("No CLI was started"), "{name}: {error}");
         } else {
             assert!(

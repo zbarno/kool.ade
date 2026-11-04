@@ -9,6 +9,10 @@ pub(super) fn fake_route() -> crate::harness::HarnessRouteProvenance {
         requested_model: Some("synthetic-model".into()),
         capability_probe_id: Some("synthetic-probe".into()),
         capability_generation: Some(1),
+        authentication_mode: None,
+        profile_evidence_id: None,
+        cli_version: Some("1.0.0".into()),
+        capability_expires_at_unix_ms: Some(u64::MAX),
     }
 }
 

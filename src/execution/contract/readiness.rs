@@ -2,6 +2,14 @@ use serde::{Deserialize, Serialize};
 
 use super::request::ExecutionModeV1;
 
+mod profile_support;
+#[path = "readiness/profiles.rs"]
+mod profiles;
+pub use profiles::{
+    AuthenticationModeV1, current_authentication_mode, profile_evidence_id,
+    profile_evidence_id_for_current_snapshot, profile_evidence_id_for_snapshot,
+};
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum HarnessRole {
@@ -45,7 +53,7 @@ impl HarnessRole {
     pub fn harness_mode(self) -> crate::harness::ExecutionMode {
         use crate::harness::ExecutionMode;
         match self {
-            Self::Manager => ExecutionMode::Planning,
+            Self::Manager => ExecutionMode::Manager,
             Self::PlanningAnalyst => ExecutionMode::Planning,
             Self::PlanReviewer | Self::CodeReviewer => ExecutionMode::Investigation,
             Self::DecisionExplainer => ExecutionMode::DecisionExplanation,
@@ -110,6 +118,12 @@ pub struct ModeReadinessV1 {
 pub struct HarnessCapabilitySnapshotV1 {
     pub schema_version: u16,
     pub provider_id: String,
+    #[serde(default)]
+    pub authentication_mode: AuthenticationModeV1,
+    #[serde(default)]
+    pub manager_profile_id: String,
+    #[serde(default)]
+    pub worker_profile_id: String,
     pub probe_id: String,
     pub probe_cancellation_generation: u64,
     pub probe_sequence: u64,
@@ -132,7 +146,7 @@ impl HarnessCapabilitySnapshotV1 {
     /// Whether the provider and application can satisfy an operation mode.
     /// Context-only modes do not require a Docker target.
     pub fn supports_mode(&self, mode: crate::harness::ExecutionMode) -> bool {
-        if self.validate().is_err() {
+        if !self.supports_profile(mode.profile()) {
             return false;
         }
         let provider_ready = self.cli_binary == ReadinessState::Ready
@@ -169,7 +183,10 @@ impl HarnessCapabilitySnapshotV1 {
             .is_some_and(|readiness| readiness.available == ReadinessState::Ready);
         let target_ready =
             !role.requires_execution_target() || self.execution_target == ReadinessState::Ready;
-        self.supports_mode(role.harness_mode()) && role_ready && target_ready
+        self.supports_profile(role.harness_mode().profile())
+            && self.supports_mode(role.harness_mode())
+            && role_ready
+            && target_ready
     }
 
     /// Whether Planning can run from app-supplied context when no repository
@@ -196,10 +213,11 @@ impl HarnessCapabilitySnapshotV1 {
             && self.authentication == ReadinessState::Ready
             && self.model_catalog == ReadinessState::Ready
             && self.scriptable_invocation == ReadinessState::Ready;
-        let planning_ready = self.modes.iter().any(|readiness| {
-            readiness.mode == crate::harness::ExecutionMode::Planning
-                && readiness.available == ReadinessState::Ready
-        });
+        let planning_ready = self.supports_profile(crate::harness::ExecutionProfile::Worker)
+            && self.modes.iter().any(|readiness| {
+                readiness.mode == crate::harness::ExecutionMode::Planning
+                    && readiness.available == ReadinessState::Ready
+            });
         provider_ready && planning_ready
     }
 

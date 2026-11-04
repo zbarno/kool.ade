@@ -47,7 +47,7 @@ impl CliProvider {
         }
     }
 
-    pub(super) fn telemetry_id(self) -> &'static str {
+    pub(crate) fn telemetry_id(self) -> &'static str {
         match self {
             Self::Codex => "codex",
             Self::Claude => "claude",
@@ -146,6 +146,7 @@ impl CliProvider {
                     "--no-skills",
                     "--no-prompt-templates",
                     "--no-themes",
+                    "--no-builtin-tools",
                     "--thinking",
                 ],
                 environment_keys: &["PI_CODING_AGENT_DIR", "PI_OFFLINE"],
@@ -192,7 +193,13 @@ impl CliProvider {
                     "--dir",
                     "--variant",
                 ],
-                environment_keys: &["HOME", "OPENCODE_CONFIG", "OPENCODE_CONFIG_CONTENT"],
+                environment_keys: &[
+                    "HOME",
+                    "OPENCODE_CONFIG",
+                    "OPENCODE_CONFIG_CONTENT",
+                    "OPENCODE_DISABLE_PROJECT_CONFIG",
+                    "OPENCODE_DISABLE_EXTERNAL_SKILLS",
+                ],
             },
             Self::Copilot => ProfileRequirements {
                 minimum_version: None,

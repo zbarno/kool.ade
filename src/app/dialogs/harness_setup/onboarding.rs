@@ -35,7 +35,41 @@ impl DlgHarnessSetup {
             })
     }
 
+    pub(super) fn onboarding_manager_profile_available(&self, id: &str) -> bool {
+        self.settings.discovered.get(id).is_some_and(|harness| {
+            crate::harness::execution_security::profile_block_reason(
+                id,
+                crate::harness::ExecutionProfile::Manager,
+            )
+            .is_none()
+                && harness
+                    .capability_snapshot
+                    .as_ref()
+                    .is_some_and(|snapshot| {
+                        snapshot.supports_profile(crate::harness::ExecutionProfile::Manager)
+                    })
+        })
+    }
+
+    pub(super) fn onboarding_manager_block_reason(&self, id: &str) -> Option<&'static str> {
+        crate::harness::execution_security::profile_block_reason(
+            id,
+            crate::harness::ExecutionProfile::Manager,
+        )
+    }
+
     pub(super) fn select_onboarding_manager(&mut self, id: &str) {
+        if !self.onboarding_manager_profile_available(id) {
+            self.set_feedback(
+                false,
+                self.onboarding_manager_block_reason(id)
+                    .unwrap_or(
+                        "Kool.ad/e has not verified this provider's strict Manager profile yet.",
+                    )
+                    .into(),
+            );
+            return;
+        }
         let Some(model) = self.onboarding_model(id) else {
             self.set_feedback(
                 false,

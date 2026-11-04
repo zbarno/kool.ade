@@ -153,6 +153,7 @@ pub(super) fn new(request: &PlanningRequest) -> anyhow::Result<ApplicationBounda
         app_binary,
         server_config,
         access,
+        profile: request.mode.profile(),
         _session_bridge: session_bridge,
         _resource_bridge: resource_bridge,
         execution_session,

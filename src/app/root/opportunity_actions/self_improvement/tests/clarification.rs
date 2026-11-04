@@ -74,8 +74,16 @@ fn readiness_diagnostics(
     let feature_updated = project.state.active_features.iter().any(|(id, body)| {
         id == feature_id && body.contains("The user chose workspace-specific retention periods.")
     });
+    let recent_chat = project
+        .chat
+        .iter()
+        .rev()
+        .take(6)
+        .map(|message| message.text.replace('\n', " "))
+        .collect::<Vec<_>>()
+        .join(" | ");
     format!(
-        "active_turn={}, planner_running={}, pending_planner={}, active_work={}, question={question_status:?}, readiness={readiness:?}, manager_requests={manager_requests}, planner_requests={planner_requests}, feature_updated={feature_updated}",
+        "active_turn={}, planner_running={}, pending_planner={}, active_work={}, question={question_status:?}, readiness={readiness:?}, manager_requests={manager_requests}, planner_requests={planner_requests}, feature_updated={feature_updated}, recent_chat={recent_chat}",
         project.active_turn.is_some(),
         project.activity.clarification_planner.is_some(),
         project.activity.pending_clarification_planner.is_some(),
@@ -94,7 +102,10 @@ fn wait_for_readiness(
     question_uid: &str,
 ) {
     let context = egui::Context::default();
-    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    // Manager and Planner replies cross asynchronous app ticks. Allow the
+    // production-boundary fixture to finish while the parallel full suite is
+    // exercising other lifecycle and execution tests on the same host.
+    let deadline = std::time::Instant::now() + Duration::from_secs(180);
     loop {
         app.task_harness = Some(Box::new(ScriptedEvolveHarness {
             output: planner_output.to_owned(),

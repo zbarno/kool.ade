@@ -13,7 +13,18 @@ fn id() -> String {
 fn provider_readiness_has_cancellable_versioned_probes_and_unique_roles() {
     let mut readiness = ProviderReadinessV1 {
         schema_version: 1,
-        provider_id: "provider-a".into(),
+        provider_id: "pi".into(),
+        authentication_mode: crate::execution::contract::current_authentication_mode("pi"),
+        manager_profile_id: crate::execution::contract::profile_evidence_id_for_current_snapshot(
+            "pi",
+            Some("1.2.3"),
+            crate::harness::ExecutionProfile::Manager,
+        ),
+        worker_profile_id: crate::execution::contract::profile_evidence_id_for_current_snapshot(
+            "pi",
+            Some("1.2.3"),
+            crate::harness::ExecutionProfile::Worker,
+        ),
         probe_id: id(),
         probe_cancellation_generation: 1,
         probe_sequence: 1,
@@ -90,10 +101,100 @@ fn canonical_harness_roles_preserve_legacy_serialized_names() {
 }
 
 #[test]
-fn provider_role_routing_requires_only_the_authority_needed_by_that_role() {
+fn persisted_profile_ids_are_provider_specific_and_versioned_by_snapshot() {
+    use crate::execution::contract::profile_evidence_id;
+    use crate::harness::ExecutionProfile;
+
+    assert_eq!(
+        profile_evidence_id("Pi", ExecutionProfile::Manager),
+        "pi-manager-cli-v1"
+    );
+    assert!(profile_evidence_id("OpenCode", ExecutionProfile::Manager).is_empty());
+    assert_eq!(
+        profile_evidence_id("OpenCode", ExecutionProfile::Worker),
+        "opencode-worker-cli-v1"
+    );
+    assert!(profile_evidence_id("unknown", ExecutionProfile::Worker).is_empty());
+
+    let authentication_mode = crate::execution::contract::current_authentication_mode("pi");
     let mut readiness = ProviderReadinessV1 {
         schema_version: 1,
-        provider_id: "provider-a".into(),
+        provider_id: "pi".into(),
+        authentication_mode,
+        manager_profile_id: crate::execution::contract::profile_evidence_id_for_snapshot(
+            "pi",
+            Some("0.30.1"),
+            authentication_mode,
+            ExecutionProfile::Manager,
+        ),
+        worker_profile_id: crate::execution::contract::profile_evidence_id_for_snapshot(
+            "pi",
+            Some("0.30.1"),
+            authentication_mode,
+            ExecutionProfile::Worker,
+        ),
+        probe_id: id(),
+        probe_cancellation_generation: 1,
+        probe_sequence: 1,
+        cli_binary: ReadinessState::Ready,
+        cli_version: Some("0.30.1".into()),
+        authentication: ReadinessState::Ready,
+        model_catalog: ReadinessState::Ready,
+        scriptable_invocation: ReadinessState::Ready,
+        docker_mcp_bridge: ReadinessState::Ready,
+        execution_target: ReadinessState::Ready,
+        failure: None,
+        modes: ExecutionMode::ALL
+            .into_iter()
+            .map(|mode| ModeReadinessV1 {
+                mode,
+                available: ReadinessState::Ready,
+                failure: None,
+            })
+            .collect(),
+        roles: HarnessRole::ALL
+            .into_iter()
+            .map(|role| RoleReadinessV1 {
+                role,
+                available: ReadinessState::Ready,
+                failure: None,
+            })
+            .collect(),
+    };
+    assert!(readiness.supports_profile(ExecutionProfile::Manager));
+    readiness.cli_version = Some("0.30.2".into());
+    assert!(!readiness.supports_profile(ExecutionProfile::Manager));
+    readiness.cli_version = Some("0.30.1".into());
+    readiness.authentication_mode = match authentication_mode {
+        crate::execution::contract::AuthenticationModeV1::Environment => {
+            crate::execution::contract::AuthenticationModeV1::ProviderProfile
+        }
+        _ => crate::execution::contract::AuthenticationModeV1::Environment,
+    };
+    assert!(!readiness.profile_evidence_is_current());
+    readiness.cli_version = None;
+    assert!(!readiness.supports_profile(ExecutionProfile::Manager));
+}
+
+#[test]
+fn provider_role_routing_requires_only_the_authority_needed_by_that_role() {
+    let authentication_mode = crate::execution::contract::current_authentication_mode("pi");
+    let mut readiness = ProviderReadinessV1 {
+        schema_version: 1,
+        provider_id: "pi".into(),
+        authentication_mode,
+        manager_profile_id: crate::execution::contract::profile_evidence_id_for_snapshot(
+            "pi",
+            Some("1.2.3"),
+            authentication_mode,
+            crate::harness::ExecutionProfile::Manager,
+        ),
+        worker_profile_id: crate::execution::contract::profile_evidence_id_for_snapshot(
+            "pi",
+            Some("1.2.3"),
+            authentication_mode,
+            crate::harness::ExecutionProfile::Worker,
+        ),
         probe_id: id(),
         probe_cancellation_generation: 1,
         probe_sequence: 1,
@@ -131,10 +232,18 @@ fn provider_role_routing_requires_only_the_authority_needed_by_that_role() {
     assert!(!readiness.supports_role(HarnessRole::Implementer));
     readiness.docker_mcp_bridge = ReadinessState::Ready;
     readiness.execution_target = ReadinessState::Ready;
+    assert!(readiness.supports_role(HarnessRole::Manager));
     assert!(readiness.supports_role(HarnessRole::PlanReviewer));
     assert!(readiness.supports_role(HarnessRole::RuntimeQaReviewer));
     assert!(readiness.supports_mode(ExecutionMode::Planning));
     assert!(readiness.supports_role(HarnessRole::Implementer));
+    readiness.manager_profile_id = "stale-manager-profile".into();
+    assert!(!readiness.supports_role(HarnessRole::Manager));
+    assert!(readiness.supports_role(HarnessRole::PlanningAnalyst));
+    readiness.manager_profile_id = "manager-cli-v1".into();
+    readiness.authentication_mode = crate::execution::contract::AuthenticationModeV1::Unknown;
+    assert!(!readiness.supports_role(HarnessRole::Manager));
+    readiness.authentication_mode = crate::execution::contract::current_authentication_mode("pi");
     readiness.authentication = ReadinessState::Unknown;
     assert!(!readiness.supports_role(HarnessRole::Implementer));
     readiness.authentication = ReadinessState::Ready;

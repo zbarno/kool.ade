@@ -52,6 +52,14 @@ pub(crate) fn configured_bootstrap_harness(
             requested_model: None,
             capability_probe_id: Some(snapshot.probe_id.clone()),
             capability_generation: Some(snapshot.probe_sequence),
+            authentication_mode: Some(snapshot.authentication_mode),
+            profile_evidence_id: Some(snapshot.worker_profile_id.clone()),
+            cli_version: snapshot.cli_version.clone(),
+            capability_expires_at_unix_ms: Some(
+                entry
+                    .checked_at_unix_ms
+                    .saturating_add(crate::persistence::harness_settings::DISCOVERY_FRESHNESS_MS),
+            ),
         },
     })
 }

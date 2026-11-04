@@ -120,6 +120,10 @@ fn manager_blocks_instead_of_invoking_without_a_pinned_read_only_workspace() {
                 requested_model: None,
                 capability_probe_id: None,
                 capability_generation: None,
+                authentication_mode: None,
+                profile_evidence_id: None,
+                cli_version: None,
+                capability_expires_at_unix_ms: None,
             },
             observed: observed_tx,
         }),
@@ -155,7 +159,7 @@ fn manager_does_not_retry_a_typed_provider_failure_marked_unsafe() {
     let failure = crate::harness::HarnessExecutionFailure {
         provider_id: "codex".into(),
         role: crate::execution::contract::HarnessRole::Manager,
-        mode: crate::harness::ExecutionMode::Planning,
+        mode: crate::harness::ExecutionMode::Manager,
         target: Some(uuid::Uuid::new_v4().hyphenated().to_string()),
         category: crate::harness::HarnessFailureCategory::HostCodeModeDisabled,
         provider_code: None,
@@ -179,6 +183,10 @@ fn manager_does_not_retry_a_typed_provider_failure_marked_unsafe() {
                 requested_model: None,
                 capability_probe_id: Some("synthetic-probe".into()),
                 capability_generation: Some(3),
+                authentication_mode: None,
+                profile_evidence_id: None,
+                cli_version: None,
+                capability_expires_at_unix_ms: None,
             },
             observed: observed_tx,
         }),
@@ -194,7 +202,7 @@ fn manager_does_not_retry_a_typed_provider_failure_marked_unsafe() {
     }
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let (mode, workspace) = observed_rx.try_recv().unwrap();
-    assert_eq!(mode, crate::harness::ExecutionMode::Planning);
+    assert_eq!(mode, crate::harness::ExecutionMode::Manager);
     assert!(
         workspace.is_some(),
         "Manager should receive Docker read tools"
@@ -209,7 +217,7 @@ fn manager_does_not_retry_a_typed_provider_failure_marked_unsafe() {
     assert_eq!(records[0].requested_model, None);
     assert_eq!(records[0].capability_generation, Some(3));
     assert_eq!(records[0].thinking_level.as_deref(), Some("xhigh"));
-    assert_eq!(records[0].execution_mode.as_deref(), Some("Planning"));
+    assert_eq!(records[0].execution_mode.as_deref(), Some("Manager"));
     assert_eq!(
         records[0].execution_target.as_deref(),
         workspace.map(|w| w.task_id).as_deref()

@@ -58,7 +58,9 @@ pub(crate) fn require_application_implementation_boundary(
         "Copilot CLI" => "copilot",
         other => other,
     };
-    if let Some(reason) = execution_security::task_execution_block_reason(policy_id) {
+    if let Some(reason) =
+        execution_security::profile_block_reason(policy_id, request.mode.profile())
+    {
         return Err(crate::error::AppError::HarnessFailed {
             reason: format!("{reason} No CLI was started."),
             stderr_tail: String::new(),
@@ -241,12 +243,12 @@ pub use api::{
     DependencyAuthorizationSource, DependencyDecision, DependencyFailureCategory, DependencyKind,
     DependencyNeed, DependencyPackageIdentity, DependencyPreparationStatus,
     DependencyPreparationTelemetry, DependencyRequest, DependencyRequestStatus,
-    DependencyRetryResult, DocumentUpdate, ExecutionMode, HarnessExecutionFailure,
-    HarnessFailureCategory, HarnessOutcome, HarnessRouteProvenance, LivePost, LiveProgress,
-    ModelCallUsage, PackageEcosystem, PlanningRequest, PlanningTaskDraft, PlanningTaskOffer,
-    ProviderAuthStrategy, RequestedAction, RetrievalPlan, ReviewExecutionIdentity,
-    RuntimeQaReviewScreenshot, RuntimeQaScreenshotReview, ToolAccess, TurnEnvelope, TurnItem,
-    TurnItemUpdate,
+    DependencyRetryResult, DocumentUpdate, ExecutionMode, ExecutionProfile,
+    HarnessExecutionFailure, HarnessFailureCategory, HarnessOutcome, HarnessRouteProvenance,
+    LivePost, LiveProgress, ModelCallUsage, PackageEcosystem, PlanningRequest, PlanningTaskDraft,
+    PlanningTaskOffer, ProviderAuthStrategy, RequestedAction, RetrievalPlan,
+    ReviewExecutionIdentity, RuntimeQaReviewScreenshot, RuntimeQaScreenshotReview, ToolAccess,
+    TurnEnvelope, TurnItem, TurnItemUpdate,
 };
 pub use claude_harness::ClaudeHarness;
 pub use codex_harness::CodexHarness;

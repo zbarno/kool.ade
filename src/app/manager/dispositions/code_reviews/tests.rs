@@ -1,6 +1,26 @@
 use super::*;
 
 #[test]
+fn disposition_identity_is_task_scoped_and_stable_for_retries() {
+    let target = FindingTarget {
+        task_uid: "00000000-0000-4000-8000-000000000001".into(),
+        feature_uid: "00000000-0000-4000-8000-000000000002".into(),
+        subject_hash: "a".repeat(64),
+        finding_id: "F-1".into(),
+        finding_fingerprint: "c".repeat(64),
+        scope: crate::harness::prompt_catalog::FindingScopeV1::NonBlocking,
+    };
+    let retry = target.clone();
+    let other_task = FindingTarget {
+        task_uid: "00000000-0000-4000-8000-000000000003".into(),
+        ..target.clone()
+    };
+
+    assert_eq!(code_review_uid(&target), code_review_uid(&retry));
+    assert_ne!(code_review_uid(&target), code_review_uid(&other_task));
+}
+
+#[test]
 fn only_current_subject_follow_up_or_explicit_risk_approval_satisfies_nonblocking_disposition() {
     let target = FindingTarget {
         task_uid: "00000000-0000-4000-8000-000000000001".into(),

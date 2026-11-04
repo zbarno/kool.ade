@@ -3,7 +3,7 @@ mod fixture;
 #[path = "support/receipts.rs"]
 mod receipts;
 pub(super) use fixture::decomposer_graph;
-pub(crate) use fixture::{private_store_root, setup};
+pub(crate) use fixture::{planning_store, private_store_root, setup};
 pub(crate) use receipts::{
     assert_current_test_plan_confirmation, ensure_test_plan_adopted, record_test_plan_author,
     record_test_plan_review, record_test_plan_review_and_merge,

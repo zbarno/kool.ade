@@ -97,8 +97,9 @@ pub(crate) fn persist_dispositions(
             continue;
         };
         let key = format!(
-            "task:manager-plan-{}:{}:{}",
+            "task:manager-plan-{}:{}:{}:{}",
             kind.key(),
+            feature_id,
             action.expected_revision,
             finding_id
         );
@@ -146,6 +147,7 @@ pub(crate) fn persist_dispositions(
             arbitration_detail,
         );
         let mut work = Work::new(String::new(), title, request, detail);
+        work.uid = super::plan_disposition_uid(feature_id, &action.expected_revision, finding_id);
         work.kind = WorkKind::PlanReviewDisposition;
         work.status = kind.status();
         work.feature_id = Some(feature_id.to_owned());

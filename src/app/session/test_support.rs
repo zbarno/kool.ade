@@ -24,12 +24,23 @@ pub(crate) fn remove_planning_store_for(root: &Path) {
 pub(crate) fn project_from(root: &Path) -> Project {
     crate::core::state::test_support::seed_published_product_document(root).unwrap();
     crate::test_support::set_test_origin_default(root);
+    project_from_prepared(root)
+}
+
+pub(crate) fn project_from_prepared(root: &Path) -> Project {
     let store = planning_store_for(root);
+    project_from_store(root, &store)
+}
+
+pub(crate) fn project_from_store(
+    root: &Path,
+    store: &crate::artifacts::planning_store::PlanningStore,
+) -> Project {
     Project {
         specification_trace_navigation: None,
         task_chats: Default::default(),
         activity: Default::default(),
-        state: PlannerState::load_with_store(root, &store).unwrap(),
+        state: PlannerState::load_with_store(root, store).unwrap(),
         chat_slug: "test-repository-names".into(),
         chat: Vec::new(),
         draft: String::new(),

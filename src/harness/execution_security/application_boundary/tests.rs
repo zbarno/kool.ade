@@ -72,13 +72,14 @@ fn context_only_request_does_not_probe_or_require_a_repository_sandbox() {
 #[test]
 fn planning_without_a_workspace_receives_no_repository_tools() {
     let (progress_tx, _progress_rx) = mpsc::channel();
+    let repository = tempfile::tempdir().unwrap();
     let request = PlanningRequest {
         prompt_manifest: None,
         mode: ExecutionMode::Planning,
         task_id: None,
         reasoning_level: "off".into(),
         telemetry_phase: None,
-        repo_root: PathBuf::new(),
+        repo_root: repository.path().to_path_buf(),
         runtime_config_source: None,
         prompt_body: "synthetic context".into(),
         system_instructions: String::new(),
@@ -106,6 +107,7 @@ fn approved_guidance_enters_only_the_user_prompt_as_a_hashed_data_envelope() {
         app_binary: None,
         server_config: None,
         access: ToolAccess::None,
+        profile: crate::harness::ExecutionProfile::Worker,
         _session_bridge: None,
         _resource_bridge: None,
         execution_session: None,
