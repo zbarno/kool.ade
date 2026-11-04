@@ -165,7 +165,7 @@ pub(super) fn run(fixture: Fixture, dependency_request_id: String) {
             &dispatch.startup_recipe,
             &dispatch.artifact_upload,
             &dispatch.task_clone,
-            fixture.root.path(),
+            &fixture.planning.local_root(),
             "/",
             super::super::qa::ExpectedBrowserOutcome::Pass,
         );

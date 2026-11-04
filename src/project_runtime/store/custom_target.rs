@@ -109,7 +109,6 @@ impl<'a> ProjectRuntimeStore<'a> {
             target.readiness_probe_ref = Some(probe_id.clone());
             manifest.readiness_probes.insert(probe_id, probe);
         }
-        let store_revision = self.store.revision()?;
         let current = self.load_manifest()?;
         let actual = current.as_ref().map_or(0, |saved| saved.revision);
         if actual != expected_manifest_revision {
@@ -187,16 +186,26 @@ impl<'a> ProjectRuntimeStore<'a> {
                 ))
             })?;
         }
+        // Operator-local approval bindings share the private project store.
+        // Include those writes in the store snapshot, and fence the manifest
+        // revision separately so a concurrent manifest update cannot be lost.
+        let store_revision = self.store.revision()?;
         self.store.transaction_with_revision_and_record_revisions(
             &[
                 (super::MANIFEST_PATH.into(), manifest_bytes),
                 (record_path.clone(), record_bytes),
             ],
             Some(&store_revision),
-            &[crate::artifacts::planning_store::RecordRevisionCheck {
-                path: record_path,
-                expected_revision: 0,
-            }],
+            &[
+                crate::artifacts::planning_store::RecordRevisionCheck {
+                    path: super::MANIFEST_PATH.into(),
+                    expected_revision: expected_manifest_revision,
+                },
+                crate::artifacts::planning_store::RecordRevisionCheck {
+                    path: record_path,
+                    expected_revision: 0,
+                },
+            ],
         )?;
         Ok(manifest)
     }

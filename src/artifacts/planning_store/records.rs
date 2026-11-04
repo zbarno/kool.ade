@@ -35,10 +35,16 @@ pub(crate) fn record_revision(store: &PlanningStore, path: &str) -> Result<u64, 
     })?;
     if path == "state/opportunity_discovery_settings.json"
         || path == "state/self_improvement_active_runs.json"
+        || path == "state/project-runtime.json"
         || is_opportunity_quota_record(path)
     {
+        let schema_version_key = if path == "state/project-runtime.json" {
+            "schema_version"
+        } else {
+            "schemaVersion"
+        };
         if object
-            .get("schemaVersion")
+            .get(schema_version_key)
             .and_then(serde_json::Value::as_u64)
             != Some(1)
         {
@@ -188,10 +194,16 @@ pub(crate) fn validate_record_revisions(
         })?;
         if check.path == "state/opportunity_discovery_settings.json"
             || check.path == "state/self_improvement_active_runs.json"
+            || check.path == "state/project-runtime.json"
             || is_opportunity_quota_record(&check.path)
         {
+            let schema_version_key = if check.path == "state/project-runtime.json" {
+                "schema_version"
+            } else {
+                "schemaVersion"
+            };
             if object
-                .get("schemaVersion")
+                .get(schema_version_key)
                 .and_then(serde_json::Value::as_u64)
                 != Some(1)
             {

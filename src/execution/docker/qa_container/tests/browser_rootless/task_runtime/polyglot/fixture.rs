@@ -14,7 +14,7 @@ use crate::{
 mod recipes;
 
 pub(super) struct Fixture {
-    pub root: tempfile::TempDir,
+    _root: tempfile::TempDir,
     pub projects_root: PathBuf,
     pub task_clone: PathBuf,
     pub planning: PlanningStore,
@@ -81,7 +81,7 @@ impl Fixture {
             crate::persistence::runtime_target_approvals::WorkspaceCleanup::new(&project_id);
         let planning = PlanningStore::new(
             uuid::Uuid::parse_str(&project_id).unwrap(),
-            root.path().join("project"),
+            operator_home.path().join("projects").join(&project_id),
             crate::artifacts::planning_store::StoreMode::ManagedLocal,
         );
         let runtime = ProjectRuntimeStore::new(&planning);
@@ -194,7 +194,7 @@ impl Fixture {
         );
 
         Self {
-            root,
+            _root: root,
             projects_root,
             task_clone,
             planning,

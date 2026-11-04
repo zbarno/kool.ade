@@ -112,7 +112,7 @@ pub(super) struct Fixture {
     _approval_cleanup: crate::persistence::runtime_target_approvals::WorkspaceCleanup,
     _home: crate::test_support::KooladeHomeGuard,
     _home_root: tempfile::TempDir,
-    pub root: tempfile::TempDir,
+    _root: tempfile::TempDir,
 }
 
 impl Fixture {

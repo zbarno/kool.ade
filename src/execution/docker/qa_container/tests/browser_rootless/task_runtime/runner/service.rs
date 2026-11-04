@@ -202,7 +202,7 @@ pub(crate) fn run(
         &dispatch.startup_recipe,
         &dispatch.artifact_upload,
         &dispatch.task_clone,
-        fixture.root.path(),
+        &fixture.planning.local_root(),
         &fixture.readiness_path,
         if fixture.expect_browser_failure {
             super::super::qa::ExpectedBrowserOutcome::Fail
