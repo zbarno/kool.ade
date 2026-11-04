@@ -63,7 +63,7 @@ Do not claim the task is complete until:
 
 - Keep each source module under about 300 lines. Split growing modules into focused submodules before they become substantially larger.
 - Use Rust's directory module layout: declare a module in `foo.rs` and place its child modules in `foo/` (for example, `core.rs` and `core/implementation.rs`).
-- Keep published product, feature, and architecture documents in the primary code Git repository. Keep TaskIntents, child tasks, conversations, decisions, approvals, execution state, and QA evidence in private local application storage. Never discover, read, write, migrate, or fall back to `.koolade-packet/` artifacts.
+- Keep published product, feature, and architecture documents in the primary code Git repository. Keep TaskIntents, child tasks, conversations, decisions, approvals, execution state, and QA evidence in private local application storage. Agents may inspect private local application artifacts when needed for diagnosis and self-triage; never copy private state into public repository content.
 - Keep Markdown human-readable and derive workflow behavior from structured metadata and state.
 - Treat plan recommendations as advisory; only explicit operator adoption selects a plan and unlocks approval.
 - Before an agent marks a task complete, run the repository quality gates: `cargo +1.98.1 fmt --all --check`, `cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast`, `cargo +1.98.1 test --locked --doc`, and `cargo +1.98.1 clippy --locked --all-targets -- -D warnings`.

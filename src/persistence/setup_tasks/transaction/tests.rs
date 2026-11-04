@@ -5,6 +5,23 @@ mod cancellation;
 mod cross_process;
 mod ordering;
 
+#[test]
+fn loads_schema_v2_store_without_required_image_profiles() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("tasks.json");
+    std::fs::write(
+        &path,
+        r#"{"schemaVersion":2,"latestScanGeneration":36,"tasks":{}}"#,
+    )
+    .unwrap();
+
+    let store = load_from(&path).unwrap();
+
+    assert_eq!(store.schema_version, 2);
+    assert_eq!(store.latest_scan_generation, 36);
+    assert!(store.required_image_profiles.is_empty());
+}
+
 fn snapshot(at: u64, title: &str) -> MachineSnapshot {
     use crate::app::setup_attention::catalog::{
         EvidenceCode, EvidenceOrigin, EvidenceState, PrerequisiteCapability as Capability,

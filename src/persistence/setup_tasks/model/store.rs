@@ -14,6 +14,7 @@ pub struct SetupTaskStoreV1 {
     pub tasks: BTreeMap<String, SetupTaskV1>,
     /// Profiles requested by actual workloads; the next scan binds them to
     /// the current trusted engine identity and architecture.
+    #[serde(default)]
     pub required_image_profiles: BTreeSet<RuntimeProfile>,
 }
 
