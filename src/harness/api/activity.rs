@@ -85,6 +85,7 @@ pub enum ProviderAuthStrategy {
 pub struct CleanLaunchTelemetry {
     pub provider: String,
     pub cli_version: String,
+    pub execution_profile: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_role_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -219,6 +220,7 @@ mod tests {
         let profile = CleanLaunchTelemetry {
             provider: "codex".into(),
             cli_version: "codex 1.2.3".into(),
+            execution_profile: "manager-cli-v1".into(),
             prompt_role_version: None,
             auth_strategy: Some(ProviderAuthStrategy::Saved),
             profile_hash: "sha256:synthetic".into(),

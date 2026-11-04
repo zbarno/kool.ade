@@ -158,6 +158,14 @@ fn opencode_denies_native_tools_and_allows_only_the_private_server() {
     assert!(env.iter().any(|(key, _)| key == "OPENCODE_CONFIG_CONTENT"));
     assert!(env.iter().any(|(key, _)| key == "XDG_CONFIG_HOME"));
     assert!(
+        env.iter()
+            .any(|(key, value)| { key == "OPENCODE_DISABLE_PROJECT_CONFIG" && value == "1" })
+    );
+    assert!(
+        env.iter()
+            .any(|(key, value)| { key == "OPENCODE_DISABLE_EXTERNAL_SKILLS" && value == "1" })
+    );
+    assert!(
         args.windows(2)
             .any(|pair| pair == ["--agent", boundary.server_name.as_str()])
     );

@@ -19,6 +19,8 @@ mod conversation_tests;
 #[path = "feature_approval.rs"]
 mod feature_approval;
 #[cfg(test)]
+pub(crate) use feature_approval::tests as feature_approval_test_support;
+#[cfg(test)]
 pub(crate) mod harness_selection;
 #[cfg(not(test))]
 mod harness_selection;

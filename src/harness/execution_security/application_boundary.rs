@@ -1,6 +1,6 @@
 use super::session_bridge::SessionBridge;
 use crate::execution::session::ExecutionSession;
-use crate::harness::{PlanningRequest, ToolAccess};
+use crate::harness::{ExecutionProfile, PlanningRequest, ToolAccess};
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -71,6 +71,7 @@ pub(crate) struct ApplicationBoundary {
     app_binary: Option<PathBuf>,
     server_config: Option<PathBuf>,
     access: ToolAccess,
+    profile: ExecutionProfile,
     _session_bridge: Option<SessionBridge>,
     _resource_bridge: Option<Arc<crate::harness::resource_bridge::ResourceBridge>>,
     execution_session: Option<Arc<ExecutionSession>>,
@@ -93,6 +94,7 @@ impl ApplicationBoundary {
             app_binary: None,
             server_config: None,
             access: ToolAccess::None,
+            profile: _request.mode.profile(),
             _session_bridge: None,
             _resource_bridge: None,
             execution_session: None,
@@ -108,6 +110,15 @@ impl ApplicationBoundary {
 
     pub(crate) fn access(&self) -> ToolAccess {
         self.access
+    }
+
+    pub(crate) fn profile(&self) -> ExecutionProfile {
+        self.profile
+    }
+
+    pub(crate) fn allows_curated_worker_skill(&self) -> bool {
+        self.profile() == ExecutionProfile::Worker
+            && self.access == ToolAccess::BoundedImplementation
     }
 
     /// Append only an explicitly adopted, project-bound snapshot as user data.

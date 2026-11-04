@@ -5,9 +5,9 @@ use crate::execution::contract::{
 fn fixture() -> DlgHarnessSetup {
     let now = crate::persistence::harness_settings::current_unix_ms();
     let harness = crate::persistence::harness_settings::DetectedHarness {
-        status: "opencode ready".into(),
+        status: "pi ready".into(),
         version: Some("1.0.0".into()),
-        executable: Some("/synthetic/bin/opencode".into()),
+        executable: Some("/synthetic/bin/pi".into()),
         diagnostic: None,
         ready: true,
         models: vec!["local-test-model".into()],
@@ -18,7 +18,19 @@ fn fixture() -> DlgHarnessSetup {
         checked_at_unix_ms: now,
         capability_snapshot: Some(HarnessCapabilitySnapshotV1 {
             schema_version: 1,
-            provider_id: "opencode".into(),
+            provider_id: "pi".into(),
+            authentication_mode: crate::execution::contract::current_authentication_mode("pi"),
+            manager_profile_id:
+                crate::execution::contract::profile_evidence_id_for_current_snapshot(
+                    "pi",
+                    Some("1.0.0"),
+                    crate::harness::ExecutionProfile::Manager,
+                ),
+            worker_profile_id: crate::execution::contract::profile_evidence_id_for_current_snapshot(
+                "pi",
+                Some("1.0.0"),
+                crate::harness::ExecutionProfile::Worker,
+            ),
             probe_id: "123e4567-e89b-12d3-a456-426614174000".into(),
             probe_cancellation_generation: 1,
             probe_sequence: 1,
@@ -34,7 +46,11 @@ fn fixture() -> DlgHarnessSetup {
                 .into_iter()
                 .map(|mode| ModeReadinessV1 {
                     mode,
-                    available: if mode == crate::harness::ExecutionMode::Planning {
+                    available: if matches!(
+                        mode,
+                        crate::harness::ExecutionMode::Manager
+                            | crate::harness::ExecutionMode::Planning
+                    ) {
                         ReadinessState::Ready
                     } else {
                         ReadinessState::Unknown
@@ -53,7 +69,7 @@ fn fixture() -> DlgHarnessSetup {
         }),
     };
     let mut settings = harness_settings::HarnessSettings::default();
-    settings.discovered.insert("opencode".into(), harness);
+    settings.discovered.insert("pi".into(), harness);
     settings.default_harness = Some("codex".into());
     settings.work_routes.insert(
         "implementation".into(),
@@ -68,13 +84,10 @@ fn fixture() -> DlgHarnessSetup {
 fn helper_choice_before_docker_does_not_grant_manager_readiness() {
     let mut dialog = fixture();
     let before = dialog.settings.clone();
-    dialog.select_onboarding_manager("opencode");
-    assert_eq!(dialog.settings.work_routes[MANAGER].harness, "opencode");
-    assert_eq!(
-        dialog.settings.bootstrap_provider.as_deref(),
-        Some("opencode")
-    );
-    assert!(!dialog.onboarding_manager_ready("opencode"));
+    dialog.select_onboarding_manager("pi");
+    assert_eq!(dialog.settings.work_routes[MANAGER].harness, "pi");
+    assert_eq!(dialog.settings.bootstrap_provider.as_deref(), Some("pi"));
+    assert!(!dialog.onboarding_manager_ready("pi"));
     assert_eq!(dialog.settings.discovered, before.discovered);
     assert_eq!(
         dialog.settings.work_routes["implementation"],
@@ -87,25 +100,74 @@ fn stale_or_unauthenticated_provider_cannot_change_routes() {
     dialog
         .settings
         .discovered
-        .get_mut("opencode")
+        .get_mut("pi")
         .unwrap()
         .checked_at_unix_ms = 0;
     let before = dialog.settings.clone();
-    dialog.select_onboarding_manager("opencode");
+    dialog.select_onboarding_manager("pi");
     assert_eq!(dialog.settings, before);
     let mut dialog = fixture();
     dialog
         .settings
         .discovered
-        .get_mut("opencode")
+        .get_mut("pi")
         .unwrap()
         .capability_snapshot
         .as_mut()
         .unwrap()
         .authentication = ReadinessState::Unknown;
     let before = dialog.settings.clone();
-    dialog.select_onboarding_manager("opencode");
+    dialog.select_onboarding_manager("pi");
     assert_eq!(dialog.settings, before);
+}
+
+#[test]
+fn worker_only_provider_cannot_be_selected_for_manager() {
+    let mut dialog = fixture();
+    let mut harness = dialog.settings.discovered.get("pi").unwrap().clone();
+    harness.capability_snapshot.as_mut().unwrap().provider_id = "antigravity".into();
+    harness
+        .capability_snapshot
+        .as_mut()
+        .unwrap()
+        .authentication_mode =
+        crate::execution::contract::current_authentication_mode("antigravity");
+    let snapshot = harness.capability_snapshot.as_mut().unwrap();
+    snapshot.manager_profile_id = crate::execution::contract::profile_evidence_id_for_snapshot(
+        "antigravity",
+        snapshot.cli_version.as_deref(),
+        snapshot.authentication_mode,
+        crate::harness::ExecutionProfile::Manager,
+    );
+    snapshot.worker_profile_id = crate::execution::contract::profile_evidence_id_for_snapshot(
+        "antigravity",
+        snapshot.cli_version.as_deref(),
+        snapshot.authentication_mode,
+        crate::harness::ExecutionProfile::Worker,
+    );
+    dialog.settings.discovered.remove("pi");
+    dialog
+        .settings
+        .discovered
+        .insert("antigravity".into(), harness.clone());
+    let before = dialog.settings.clone();
+
+    assert!(dialog.onboarding_model("antigravity").is_some());
+    assert!(!dialog.onboarding_manager_profile_available("antigravity"));
+    dialog.select_onboarding_manager("antigravity");
+    assert_eq!(dialog.settings.work_routes, before.work_routes);
+    assert_eq!(
+        dialog.settings.bootstrap_provider,
+        before.bootstrap_provider
+    );
+    assert!(
+        dialog
+            .feedback
+            .as_ref()
+            .unwrap()
+            .1
+            .contains("not for Man.ager")
+    );
 }
 
 #[test]
@@ -114,7 +176,7 @@ fn verified_manager_and_tool_free_help_can_coexist_without_changing_other_routes
     let snapshot = dialog
         .settings
         .discovered
-        .get_mut("opencode")
+        .get_mut("pi")
         .unwrap()
         .capability_snapshot
         .as_mut()
@@ -131,12 +193,9 @@ fn verified_manager_and_tool_free_help_can_coexist_without_changing_other_routes
     assert!(snapshot.supports_context_only_help());
     assert!(!snapshot.supports_context_only_planning());
     let before = dialog.settings.clone();
-    dialog.select_onboarding_manager("opencode");
-    assert_eq!(dialog.settings.work_routes[MANAGER].harness, "opencode");
-    assert_eq!(
-        dialog.settings.bootstrap_provider.as_deref(),
-        Some("opencode")
-    );
+    dialog.select_onboarding_manager("pi");
+    assert_eq!(dialog.settings.work_routes[MANAGER].harness, "pi");
+    assert_eq!(dialog.settings.bootstrap_provider.as_deref(), Some("pi"));
     assert_eq!(dialog.settings.default_harness, before.default_harness);
     assert_eq!(
         dialog.settings.work_routes["implementation"],

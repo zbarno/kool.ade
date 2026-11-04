@@ -1,5 +1,5 @@
 use super::super::CliProvider;
-use super::test_boundary;
+use super::test_boundary_for_profile;
 use crate::harness::{ExecutionMode, ToolAccess};
 use std::{fs, time::Duration};
 
@@ -48,7 +48,7 @@ fn fake_provider_invocations_cover_all_modes_and_launch_profiles() {
     for mode in ExecutionMode::ALL {
         let access = mode.tool_access();
         for provider in providers {
-            let boundary = test_boundary(access);
+            let boundary = test_boundary_for_profile(access, mode.profile());
             let mut args = vec![fake_cli.to_string_lossy().into_owned()];
             let capture = root.join(format!("{:?}-{:?}.capture", provider, mode));
             args.push(capture.to_string_lossy().into_owned());

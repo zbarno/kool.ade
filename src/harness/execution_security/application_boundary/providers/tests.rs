@@ -10,11 +10,15 @@ mod provider_mcp_e2e;
 mod role_authority;
 
 use super::super::{ApplicationBoundary, PrivateDirectory};
-use crate::harness::ToolAccess;
+use crate::harness::{ExecutionProfile, ToolAccess};
 use serde_json::Value;
 use std::{fs, path::PathBuf};
 
 fn test_boundary(access: ToolAccess) -> ApplicationBoundary {
+    test_boundary_for_profile(access, ExecutionProfile::Worker)
+}
+
+fn test_boundary_for_profile(access: ToolAccess, profile: ExecutionProfile) -> ApplicationBoundary {
     let scratch = PrivateDirectory::create("koolade-provider-test").unwrap();
     ApplicationBoundary {
         scratch,
@@ -22,6 +26,7 @@ fn test_boundary(access: ToolAccess) -> ApplicationBoundary {
         app_binary: Some(std::env::current_exe().unwrap()),
         server_config: (access != ToolAccess::None).then(|| PathBuf::from("/tmp/server.json")),
         access,
+        profile,
         _session_bridge: None,
         _resource_bridge: None,
         execution_session: None,

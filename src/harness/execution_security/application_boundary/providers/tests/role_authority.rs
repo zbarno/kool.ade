@@ -1,5 +1,4 @@
 use super::super::{CliProvider, configure};
-use super::test_boundary;
 use crate::{
     execution::contract::HarnessRole,
     harness::{ExecutionMode, ToolAccess},
@@ -21,7 +20,7 @@ fn every_mode_has_equal_repository_tool_authority_across_all_providers() {
         let expected_access = mode.tool_access();
         let expected_tools = tool_names(expected_access);
         for provider in PROVIDERS {
-            let boundary = test_boundary(expected_access);
+            let boundary = super::test_boundary_for_profile(expected_access, mode.profile());
             let mut args = Vec::new();
             let mut env = Vec::new();
             configure(&boundary, provider, &mut args, &mut env).unwrap();
@@ -41,7 +40,7 @@ fn every_user_role_keeps_its_intended_mode_and_provider_authority() {
     let expected = [
         (
             HarnessRole::Manager,
-            ExecutionMode::Planning,
+            ExecutionMode::Manager,
             ToolAccess::ReadOnly,
         ),
         (
@@ -114,7 +113,10 @@ fn every_user_role_keeps_its_intended_mode_and_provider_authority() {
         );
         let tools = tool_names(access);
         for provider in PROVIDERS {
-            let boundary = test_boundary(role.harness_mode().tool_access());
+            let boundary = super::test_boundary_for_profile(
+                role.harness_mode().tool_access(),
+                role.harness_mode().profile(),
+            );
             let mut args = Vec::new();
             let mut env = Vec::new();
             configure(&boundary, provider, &mut args, &mut env).unwrap();

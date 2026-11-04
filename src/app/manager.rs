@@ -99,7 +99,7 @@ impl Manager {
         });
         let manager_task_id = uuid::Uuid::new_v4().hyphenated().to_string();
         let request = PlanningRequest {
-            mode: crate::harness::ExecutionMode::Planning,
+            mode: crate::harness::ExecutionMode::Manager,
             task_id: Some(manager_task_id.clone()),
             execution_workspace: manager_execution_workspace(project, &manager_task_id),
             destination_sha: None,

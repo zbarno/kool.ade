@@ -72,7 +72,7 @@ pub(in crate::app::dialogs::harness_setup) fn update_runtime_readiness(
                 && snapshot.authentication == ReadinessState::Ready
                 && snapshot.model_catalog == ReadinessState::Ready
                 && snapshot.scriptable_invocation == ReadinessState::Ready
-                && crate::harness::execution_security::supports_universal_role_contract(id)
+                && crate::harness::execution_security::supports_provider_adapter_contract(id)
             {
                 ReadinessState::Ready
             } else {
@@ -150,7 +150,7 @@ fn snapshot_from_probe(
             _ => (ReadinessState::Unknown, None),
         };
     let adapter_contract =
-        if crate::harness::execution_security::supports_universal_role_contract(&report.id) {
+        if crate::harness::execution_security::supports_provider_adapter_contract(&report.id) {
             ReadinessState::Ready
         } else {
             ReadinessState::Unavailable
@@ -185,10 +185,25 @@ fn snapshot_from_probe(
         ReadinessState::Unavailable
     };
 
+    let authentication_mode = crate::execution::contract::current_authentication_mode(&report.id);
+
     (
         HarnessCapabilitySnapshotV1 {
             schema_version: 1,
             provider_id: report.id.clone(),
+            authentication_mode,
+            manager_profile_id: crate::execution::contract::profile_evidence_id_for_snapshot(
+                &report.id,
+                report.version.as_deref(),
+                authentication_mode,
+                crate::harness::ExecutionProfile::Manager,
+            ),
+            worker_profile_id: crate::execution::contract::profile_evidence_id_for_snapshot(
+                &report.id,
+                report.version.as_deref(),
+                authentication_mode,
+                crate::harness::ExecutionProfile::Worker,
+            ),
             probe_id: uuid::Uuid::new_v4().hyphenated().to_string(),
             probe_cancellation_generation: generation,
             probe_sequence: generation,

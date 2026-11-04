@@ -131,6 +131,7 @@ impl DetectedHarness {
                 && snapshot.validate().is_ok()
                 && snapshot.cli_binary == ReadinessState::Ready
                 && snapshot.authentication == ReadinessState::Ready
+                && snapshot.profile_evidence_is_current()
         })
     }
 

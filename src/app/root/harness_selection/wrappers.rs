@@ -53,6 +53,13 @@ impl AiHarness for RoutedHarness {
         &self,
         request: &PlanningRequest,
     ) -> Result<Option<crate::harness::RetrievalPlan>, crate::error::AppError> {
+        if let Some(reason) = crate::harness::execution_security::profile_block_reason(
+            &self.harness_id,
+            request.mode.profile(),
+        ) {
+            return Err(crate::error::AppError::Other(reason.into()));
+        }
+        self.validate_capability_evidence()?;
         self.inner
             .plan_retrieval(request)
             .map_err(|error| self.normalize_failure(request, error))
@@ -77,7 +84,68 @@ impl RoutedHarness {
         &self,
         request: &PlanningRequest,
     ) -> Result<(), crate::error::AppError> {
-        crate::harness::require_application_implementation_boundary(&self.harness_id, request)
+        crate::harness::require_application_implementation_boundary(&self.harness_id, request)?;
+        self.validate_capability_evidence()
+    }
+
+    fn validate_capability_evidence(&self) -> Result<(), crate::error::AppError> {
+        let expired = self
+            .provenance
+            .capability_expires_at_unix_ms
+            .is_none_or(|expires| {
+                crate::persistence::harness_settings::current_unix_ms() > expires
+            });
+        let expected = self
+            .provenance
+            .cli_version
+            .as_deref()
+            .filter(|version| !version.trim().is_empty());
+        if expired || expected.is_none() {
+            crate::app::dialogs::request_cli_auto_refresh();
+            return Err(crate::error::AppError::Other(format!(
+                "CLI {} version or role-profile evidence expired or changed. Kool.ad/e is refreshing eligibility; retry when verification completes.",
+                self.harness_id
+            )));
+        }
+        let profile = self.provenance.role.harness_mode().profile();
+        let authentication_mode = self.provenance.authentication_mode;
+        let expected_profile = authentication_mode.map(|mode| {
+            crate::execution::contract::profile_evidence_id_for_snapshot(
+                &self.harness_id,
+                expected,
+                mode,
+                profile,
+            )
+        });
+        let profile_is_current = authentication_mode.is_some_and(|mode| {
+            mode != crate::execution::contract::AuthenticationModeV1::Unknown
+                && mode == crate::execution::contract::current_authentication_mode(&self.harness_id)
+                && expected_profile.as_deref().is_some_and(|id| {
+                    !id.is_empty() && self.provenance.profile_evidence_id.as_deref() == Some(id)
+                })
+        });
+        if !profile_is_current {
+            crate::app::dialogs::request_cli_auto_refresh();
+            return Err(crate::error::AppError::Other(format!(
+                "CLI {} authentication or role-profile evidence changed. Kool.ad/e is refreshing eligibility; retry when verification completes.",
+                self.harness_id
+            )));
+        }
+        let actual = match self.inner.check_available() {
+            Ok(version) => version,
+            Err(error) => {
+                crate::app::dialogs::request_cli_auto_refresh();
+                return Err(error);
+            }
+        };
+        if expected != Some(actual.trim()) {
+            crate::app::dialogs::request_cli_auto_refresh();
+            return Err(crate::error::AppError::Other(format!(
+                "CLI {} version or role-profile evidence expired or changed. Kool.ad/e is refreshing eligibility; retry when verification completes.",
+                self.harness_id
+            )));
+        }
+        Ok(())
     }
 }
 
