@@ -283,19 +283,15 @@ tests assert the container's non-root identity, network isolation, resource
 limits, host-secret denial, and task-clone synchronization. The CI gate runs
 these tests against a pinned rootless Docker Engine.
 
-## Saved task workspace compatibility
+## Local execution recovery
 
-Task metadata remains separate from execution records. Legacy linked-worktree
-tasks are migrated through a journaled workspace snapshot that preserves the
-original worktree, branch, base commit, staged and unstaged changes, untracked
-files, and symlinks. Interrupted migrations can resume only after validating
-the saved snapshot and destination; conflicts leave both source and destination
-available for review. An execution process is never resumed from serialized
-command arguments. After a controller restart, unfinished Docker records are
-marked interrupted by the execution recovery path, and a later task resume
-creates a new execution attempt. See `src/core/implementation/execution/task_state/legacy_workspace.rs`,
-`src/core/implementation/tests/task_repositories/legacy_migration.rs`, and
-`src/execution/docker/backend/lifecycle/recovery/interrupt.rs`.
+Kool.ad/e does not import or migrate old task workspaces. Newly created task
+state and isolated clone metadata are stored in the private installation-local
+store. After a controller restart, unfinished Docker executions are marked
+interrupted; an explicit later task resume creates a new execution attempt from
+current local task state. Execution processes are never resumed from serialized
+command arguments. This recovery contract applies to new local state and does
+not preserve or replay legacy linked worktrees.
 
 The operator's existing ignored `koolade/runtime-config.json` project grant
 keeps its validated format. Local Docker execution may mount its approved

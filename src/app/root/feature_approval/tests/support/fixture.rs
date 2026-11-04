@@ -1,4 +1,5 @@
 use super::super::*;
+use crate::domain::OpenItem;
 
 pub(in crate::app::root::feature_approval::tests) fn decomposer_graph(app: &KooladeApp) -> String {
     use crate::harness::prompt_catalog::{TaskDraftV1, TaskGraphV1};
@@ -119,9 +120,56 @@ pub(crate) fn setup() -> (KooladeApp, std::path::PathBuf, serde_json::Value) {
                 .success()
         );
     }
+    crate::core::state::test_support::seed_published_product_document(&root).unwrap();
+    let published_root = root.join("docs/koolade");
+    let product_dir = published_root.join("product");
+    std::fs::create_dir_all(&product_dir).unwrap();
+    std::fs::write(
+        published_root.join("AGENTS.md"),
+        "# Navigation\n\n- [product/](./product/AGENTS.md) - Published product documentation.\n- [features/](./features/AGENTS.md) - Published feature specifications.\n",
+    )
+    .unwrap();
+    std::fs::write(
+        product_dir.join("AGENTS.md"),
+        "# Navigation\n\n- [overview.md](./overview.md) - Synthetic product overview.\n- [current-capabilities.md](./current-capabilities.md) - Synthetic current capabilities.\n",
+    )
+    .unwrap();
+    let capabilities = product_dir.join("current-capabilities.md");
+    std::fs::write(
+        &capabilities,
+        "# Current Capabilities\n\nSynthetic current capability context for approval tests.\n\nSaved searches are not yet available.\n",
+    )
+    .unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args([
+                "add",
+                "docs/koolade/AGENTS.md",
+                "docs/koolade/product/AGENTS.md",
+                "docs/koolade/product/current-capabilities.md"
+            ])
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        std::process::Command::new("git")
+            .args([
+                "commit",
+                "-q",
+                "-m",
+                "Seed published test capability context"
+            ])
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success()
+    );
     let mut state = crate::core::state::PlannerState::load(&root).unwrap();
     state.bootstrap_missing().unwrap();
-    let dir = root.join("planning/changes/CHG-004-saved-searches");
+    let published_feature_index = published_root.join("features/AGENTS.md");
+    let dir = published_root.join("features/CHG-004-saved-searches");
     std::fs::create_dir_all(&dir).unwrap();
     let mut spec = "# CHG-004: Saved searches\n\n**Status:** Ready\n".to_string();
     for heading in [
@@ -156,34 +204,66 @@ pub(crate) fn setup() -> (KooladeApp, std::path::PathBuf, serde_json::Value) {
         crate::domain::ChangeStatus::Ready,
     )
     .unwrap();
-    std::fs::write(spec_path, &spec).unwrap();
+    let identity = crate::domain::ArtifactIdentity::from_markdown(&spec)
+        .unwrap()
+        .unwrap();
+    let published_spec_path = published_root
+        .join("features")
+        .join(format!("{}.md", identity.uid));
+    std::fs::write(&published_spec_path, &spec).unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::write(
+        &published_feature_index,
+        format!(
+            "# Navigation\n\n- [CHG-004: Saved searches](./{}.md) - Synthetic approved feature context.\n",
+            identity.uid
+        ),
+    )
+    .unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["add", "docs/koolade/features"])
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        std::process::Command::new("git")
+            .args(["commit", "-q", "-m", "Seed synthetic published feature"])
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    state = crate::core::state::PlannerState::load(&root).unwrap();
+    let local_store = state.planning_store.clone();
     let mut review: serde_json::Value = serde_json::from_str(include_str!(
         "../../../../../../tests/fixtures/interview-ready.json"
     ))
     .unwrap();
     review["updated_specification"] = serde_json::Value::Null;
     review["document_updates"] = serde_json::Value::Null;
-    review["interview"]["feature_name"] = "Saved searches (CHG-004)".into();
+    review["interview"]["feature_name"] = "CHG-004: Saved searches".into();
     state.workflow.brief = Some(serde_json::from_value(review["interview"].clone()).unwrap());
     state.workflow.reviewed_specification = Some("Previous CHG-003 specification".into());
-    crate::artifacts::task_docs::save_workflow(&root, &state.workflow).unwrap();
+    crate::artifacts::task_docs::save_workflow(&local_store, &state.workflow).unwrap();
     let mut item = OpenItem::new(
         "CLR-026".into(),
         crate::domain::Priority::Normal,
         crate::domain::ItemKind::Question,
         "General".into(),
-        None,
         "Branch retention choice".into(),
         "Settled".into(),
     );
     item.feature_id = Some("CHG-004".into());
     item.status = crate::domain::ItemStatus::Resolved;
-    std::fs::write(
-        root.join("planning/resolved-items.json"),
-        serde_json::to_vec(&vec![item]).unwrap(),
-    )
-    .unwrap();
-    crate::core::gitops::commit(&root, "fixture", &["planning".into(), "config".into()]).unwrap();
+    let (changes, checks) =
+        crate::artifacts::items_io::record_changes(&state.planning_store, &[], &[item]).unwrap();
+    state
+        .planning_store
+        .transaction_with_record_revisions(&changes, &checks)
+        .unwrap();
     let feature_identity = crate::domain::ArtifactIdentity::from_markdown(&spec)
         .unwrap()
         .unwrap();
@@ -195,21 +275,12 @@ pub(crate) fn setup() -> (KooladeApp, std::path::PathBuf, serde_json::Value) {
         author_session_id: "00000000-0000-4000-8000-000000000002".into(),
     };
     crate::core::lifecycle::plan_snapshot::record_author(&state.planning_store, &author).unwrap();
-    crate::core::gitops::commit(
-        &root,
-        "fixture: record authored plan provenance",
-        &[state.planning_store.git_path(&format!(
-            "state/lifecycle_plan_authors/{}.json",
-            author.feature_uid
-        ))],
-    )
-    .unwrap();
     let Screen::Connected(p) = &mut app.screen else {
         panic!()
     };
-    p.state = crate::core::state::PlannerState::load(&root).unwrap();
+    p.state = crate::core::state::PlannerState::load_with_store(&root, &local_store).unwrap();
     readiness::seed_test_readiness(&p.state.planning_store, "CHG-004", &spec);
-    p.state = crate::core::state::PlannerState::load(&root).unwrap();
+    p.state = crate::core::state::PlannerState::load_with_store(&root, &local_store).unwrap();
     p.task_documents.clear();
     p.implementation_states.clear();
     p.chat_slug = root.join("runtime").to_string_lossy().into_owned();
@@ -223,4 +294,11 @@ pub(crate) fn setup() -> (KooladeApp, std::path::PathBuf, serde_json::Value) {
         )],
     );
     (app, root, review)
+}
+
+pub(crate) fn private_store_root(app: &KooladeApp) -> std::path::PathBuf {
+    match &app.screen {
+        Screen::Connected(project) => project.state.planning_store.root.clone(),
+        Screen::Welcome => panic!("fixture remains connected"),
+    }
 }

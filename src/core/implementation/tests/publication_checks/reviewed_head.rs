@@ -21,7 +21,7 @@ fn current_reviewed_base_preserves_head_and_rejects_unverified_clone_edits() {
     let original_head = state.verified_head.clone();
     let original_branch = state.branch.clone();
     let original_clone = state.task_repository.clone();
-    let dir = state_dir(&sandbox.repo, &sandbox.ticket).unwrap();
+    let dir = state_dir(&sandbox.planning_store.root, &sandbox.ticket).unwrap();
     let (progress, _updates) = mpsc::channel();
     let runner = Runner {
         gh: sandbox.gh.to_string_lossy().into_owned(),

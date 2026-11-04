@@ -149,7 +149,7 @@ fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_
     fs::write(sandbox.root.join("timeout-after-create"), "once\n").unwrap();
     let mut interrupted_state = state.clone();
     let error = create_pull_request(
-        &state_dir(&sandbox.repo, &sandbox.ticket).unwrap(),
+        &state_dir(&sandbox.planning_store.root, &sandbox.ticket).unwrap(),
         &mut interrupted_state,
         &runner,
         None,
@@ -159,7 +159,7 @@ fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_
     assert!(
         preserve_done_after_failure(
             &store,
-            &state_dir(&sandbox.repo, &sandbox.ticket).unwrap(),
+            &state_dir(&sandbox.planning_store.root, &sandbox.ticket).unwrap(),
             &mut interrupted_state,
             Some(authorized.publication_lease_epoch()),
             &error,
@@ -227,7 +227,7 @@ fn authorized_lifecycle_publication_recovers_provider_timeout_without_duplicate_
     };
     let mut recovered_state = interrupted_state;
     create_pull_request(
-        &state_dir(&sandbox.repo, &sandbox.ticket).unwrap(),
+        &state_dir(&sandbox.planning_store.root, &sandbox.ticket).unwrap(),
         &mut recovered_state,
         &runner,
         None,

@@ -1,12 +1,11 @@
-//! Document import into `planning/imports/` (SPECIFICATION.md §21).
+//! Document import into the private local application store.
 //!
-//! Imports are copied into the repository so Pi can inspect them as part of
-//! normal project context. Text-oriented sources additionally gain a
-//! Markdown companion file; binary sources are stored raw with a note.
+//! Text-oriented sources gain a Markdown companion file; binary sources are
+//! stored raw with a note. Imported evidence is never copied into source Git.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use crate::artifacts::planning_store::{PlanningRoot, PlanningStore, StoreError};
+use crate::artifacts::planning_store::{PlanningStore, StoreError};
 use crate::artifacts::sanitize_basename;
 
 /// Report of one successful import (surfaced in the UI as a toast/note).
@@ -36,22 +35,13 @@ pub fn is_textual_import_name(name: &str) -> bool {
     extension_is_textual(name)
 }
 
-/// Copy `src` into the planning store's imports directory.
+/// Copy `src` into the private local store's imports directory using an
+/// optimistic revision fence.
 ///
 /// Guarantees:
 /// * destination never collides with an existing file (numeric suffixing)
-/// * `src` must lie outside the planning store
+/// * `src` must lie outside the private local store
 /// * text sources additionally obtain a `<stem>.md` companion (identical bytes)
-pub fn import_into_repo<R: PlanningRoot + ?Sized>(
-    repo_root: &R,
-    src: &Path,
-) -> anyhow::Result<ImportedDoc> {
-    let store = repo_root.planning_store();
-    let expected_revision = store.revision()?;
-    import_into_store(&store, src, &expected_revision).map(|(doc, _)| doc)
-}
-
-/// Import into the given planning store using an optimistic revision fence.
 pub fn import_into_store(
     store: &PlanningStore,
     src: &Path,
@@ -170,10 +160,6 @@ pub struct ImportEntry {
     pub bytes: u64,
 }
 
-pub fn list_imports<R: PlanningRoot + ?Sized>(repo_root: &R) -> Vec<ImportEntry> {
-    list_imports_in_store(&repo_root.planning_store()).unwrap_or_default()
-}
-
 pub fn list_imports_in_store(store: &PlanningStore) -> Result<Vec<ImportEntry>, StoreError> {
     Ok(store
         .list_files(crate::artifacts::planning_store::paths::IMPORTS)?
@@ -183,11 +169,6 @@ pub fn list_imports_in_store(store: &PlanningStore) -> Result<Vec<ImportEntry>, 
             bytes: entry.bytes,
         })
         .collect())
-}
-
-/// Path helper reused elsewhere (e.g. the context builder advertises imports).
-pub fn imports_dir<R: PlanningRoot + ?Sized>(repo_root: &R) -> PathBuf {
-    repo_root.planning_layout().imports_root()
 }
 
 #[cfg(test)]

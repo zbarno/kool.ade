@@ -64,7 +64,7 @@ fn assert_untracked_source_is_rejected(file_name: &str, ignored: bool) {
         );
     }
 
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
+    let dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
     let (progress, _) = mpsc::channel();
     let runner = Runner {
         gh: s.gh.to_string_lossy().into_owned(),

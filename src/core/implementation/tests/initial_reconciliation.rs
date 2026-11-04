@@ -8,8 +8,6 @@ mod cache_reuse;
 mod conflicts;
 #[path = "initial_reconciliation/crash_recovery.rs"]
 mod crash_recovery;
-#[path = "initial_reconciliation/legacy_recovery.rs"]
-mod legacy_recovery;
 #[path = "initial_reconciliation/merge_recovery.rs"]
 mod merge_recovery;
 #[path = "initial_reconciliation/publication_retry.rs"]
@@ -24,7 +22,7 @@ mod runtime_config;
 mod support;
 #[path = "initial_reconciliation/whitespace.rs"]
 mod whitespace;
-pub(super) use support::{complete_report, outcome, save_legacy_reconciliation_state};
+pub(super) use support::{complete_report, outcome, save_clone_reconciliation_state};
 
 struct ReviewerAwareAgent<'a>(&'a dyn AiHarness);
 
@@ -188,9 +186,10 @@ fn run_with_agent_for_ticket(
     user_context: Option<&str>,
     progress: Sender<LiveProgress>,
 ) -> anyhow::Result<Implementation> {
-    super::sandbox::refresh_task_spec(&sandbox.repo, ticket);
-    run_with_project_options(
-        &sandbox.repo,
+    super::sandbox::refresh_task_spec(&sandbox.planning_store, ticket);
+    run_with_planning_store_options(
+        &sandbox.planning_store,
+        &sandbox.planning_store.root,
         &sandbox.repo,
         ticket,
         RunOptions {

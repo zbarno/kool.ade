@@ -82,18 +82,40 @@ pub fn render_prompt(ctx: &TurnContext) -> String {
         section(&mut s, "PRODUCT INDEX (CURRENT AUTHORITY)");
         s.push_str(index);
         s.push_str(&format!(
-            "\nOther product modules are under {}/; relevant documents are supplied in retrieved context when selected.\n",
+            "\nOther published product modules are under {}/; relevant documents are supplied in retrieved context when selected.\n",
             ctx.product_directory
         ));
-        if let Some((id, body)) = &ctx.active_feature {
-            section(&mut s, &format!("ACTIVE FEATURE {id}"));
-            s.push_str(body);
-        }
     } else {
         section(&mut s, "SPECIFICATION (CURRENT)");
         match &ctx.spec_markdown {
             Some(md) => s.push_str(md),
             None => s.push_str("(no specification exists yet — draft the initial one from repository evidence and conversation)\n"),
+        }
+    }
+    if let Some((id, body)) = &ctx.active_feature {
+        section(
+            &mut s,
+            &if ctx.active_feature_is_local_proposal {
+                format!("ACTIVE LOCAL FEATURE PROPOSAL {id} — UNPUBLISHED")
+            } else {
+                format!("ACTIVE PUBLISHED FEATURE {id}")
+            },
+        );
+        s.push_str(body);
+    }
+    if !ctx.local_spec_proposals.is_empty() {
+        section(
+            &mut s,
+            "PRIVATE LOCAL SPECIFICATION PROPOSALS — NOT PUBLISHED",
+        );
+        s.push_str(&format!(
+            "These proposals are private and are not current product truth. Base published revision: {}. Review them as proposals only; they do not authorize publication or implementation.\n",
+            ctx.local_spec_proposal_base.as_deref().unwrap_or("unavailable")
+        ));
+        for (document_id, content) in &ctx.local_spec_proposals {
+            section(&mut s, &format!("LOCAL PROPOSAL {document_id}"));
+            s.push_str(content);
+            s.push('\n');
         }
     }
 
@@ -103,6 +125,15 @@ pub fn render_prompt(ctx: &TurnContext) -> String {
             &format!("RETRIEVED AUTHORITATIVE DOCUMENT {}", document.id),
         );
         s.push_str(&format!("Source: {}\n", document.source_path));
+        if let (Some(repository), Some(revision), Some(document_sha256)) = (
+            &document.source_repository_id,
+            &document.source_revision,
+            &document.content_sha256,
+        ) {
+            s.push_str(&format!(
+                "Published source: repository {repository}, commit {revision}, document SHA-256 {document_sha256}\n"
+            ));
+        }
         s.push_str(&document.content);
         s.push('\n');
     }
@@ -118,7 +149,7 @@ pub fn render_prompt(ctx: &TurnContext) -> String {
 
     section(
         &mut s,
-        &format!("STAKEHOLDERS & OWNERSHIP ({})", ctx.project_config_path),
+        &format!("LOCAL USER IDENTITY ({})", ctx.project_config_path),
     );
     s.push_str(&ctx.config_markdown);
 
@@ -146,20 +177,6 @@ the structured JSON block defined in your instructions.",
 fn describe_user(ctx: &TurnContext) -> String {
     let mut out = String::new();
     out.push_str(&format!("Name: {}\n", ctx.user.name));
-    out.push_str(&format!(
-        "Groups/categories served: {}\n",
-        if ctx.user.groups.is_empty() {
-            "(none besides General)".into()
-        } else {
-            ctx.user.groups.join(", ")
-        }
-    ));
-    // Per-seat lane digest: exactly which lanes THIS seat may serve under the
-    // D-14 law (empty for the guest seat and for an empty config).
-    if !ctx.lane_note.is_empty() {
-        out.push_str(&ctx.lane_note);
-        out.push('\n');
-    }
     out
 }
 

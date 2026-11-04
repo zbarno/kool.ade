@@ -19,7 +19,7 @@ pub(super) fn reclaim(dir: &Path, state: &Implementation, runner: &Runner) -> an
     })?;
     validate_commit(merged)?;
     let remote = cache.refresh_branch(&state.base, runner)?;
-    let task_key = task_repository::allocation_key(state);
+    let task_key = task_repository::allocation_key(state)?;
     let remote_ref = format!("refs/koolade-cleanup-bases/{task_key}");
     runner.git(&cache.path, &["update-ref", &remote_ref, &remote])?;
     runner
@@ -138,7 +138,7 @@ fn remove_clone(
         "Task repository contains changes or untracked files; preserved for review"
     );
     let cache = RepositoryCache::from_saved_state(state, runner)?;
-    cache.pin_evidence(&task_repository::allocation_key(state), head, runner)?;
+    cache.pin_evidence(&task_repository::allocation_key(state)?, head, runner)?;
     fs::remove_dir_all(path)?;
     Ok(())
 }

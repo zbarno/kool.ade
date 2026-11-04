@@ -91,7 +91,7 @@ fn unresolved_manager_repair_hides_and_blocks_task_generation() {
     let (mut app, root, _) = setup();
     record_test_plan_author(&mut app, "CHG-004");
     app.approve_feature_only("CHG-004");
-    record_test_plan_review(
+    record_test_plan_review_and_merge(
         &mut app,
         "CHG-004",
         crate::core::lifecycle::GateDecision::Approved,

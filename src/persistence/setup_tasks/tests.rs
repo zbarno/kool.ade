@@ -4,7 +4,7 @@ mod docker_evidence;
 mod image_receipts;
 mod image_requirements;
 mod linux_rootless;
-mod migration;
 mod reconciliation;
 mod support;
 mod transactions;
+mod unsupported_schema;

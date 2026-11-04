@@ -3,20 +3,15 @@ use super::*;
 impl KooladeApp {
     /// Derived caches read by other layers through `Surface`.
     pub(in crate::app::root) fn refresh_derived(&mut self, project: &Project) {
-        (self.cached_user, self.synth) = Self::derive_caches(project);
+        self.cached_user = Self::derive_caches(project);
     }
 
     /// Pure derivation of the display caches, kept separated from `&mut
     /// self` so `tick` can compute them without double-borrowing.
     ///
-    /// The cached routing identity is THE SEATED OPERATOR (FR-13), so the
-    /// panel highlight, the chat eligibility display, and the turn pipeline
-    /// all judge one and the same identity.
-    pub(in crate::app::root) fn derive_caches(project: &Project) -> (CurrentUser, Vec<OpenItem>) {
-        (
-            project.state.effective_user(),
-            crate::core::ownership::synthesize_for_state(&project.state),
-        )
+    /// Cache the local human identity for UI surfaces.
+    pub(in crate::app::root) fn derive_caches(project: &Project) -> CurrentUser {
+        project.state.effective_user()
     }
 
     pub(super) fn reset_turn_activity(&mut self, project: &mut Project) {

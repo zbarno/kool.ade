@@ -1,98 +1,154 @@
 use super::*;
-use crate::artifacts::planning_store::StoreMode;
-#[path = "managed_store/support.rs"]
-mod support;
-use support::seed_planning_metadata;
-
 #[test]
-fn separate_code_checkouts_load_the_same_injected_planning_root() {
-    let first = git_fixture("store-first", Some("First Checkout"));
-    let second = git_fixture("store-second", Some("Second Checkout"));
-    let planning_root = mkrepo("external-planning");
-    let store = PlanningStore::new(
-        uuid::Uuid::new_v4(),
-        &planning_root,
-        crate::artifacts::planning_store::StoreMode::ManagedLocal,
-    );
-    seed_planning_metadata(&store, "");
-    store
-        .atomic_write(
-            crate::artifacts::planning_store::paths::PRODUCT_INDEX,
-            b"# Shared project plan\n",
-        )
-        .unwrap();
+fn separate_installations_share_published_specs_but_not_board_or_conversations() {
+    let code = git_fixture("installations-code", Some("Koolade Test"));
+    crate::core::state::test_support::seed_published_product_document(&code).unwrap();
+    let local_first = mkrepo_without_git("installation-first-local");
+    let local_second = mkrepo_without_git("installation-second-local");
+    let project_id = test_support::project_id_for_code_root(&code);
+    let first_store = PlanningStore::for_code_repository(project_id, &local_first, &code);
+    let second_store = PlanningStore::for_code_repository(project_id, &local_second, &code);
 
-    let first_state = PlannerState::load_with_store(&first, &store).unwrap();
-    let second_state = PlannerState::load_with_store(&second, &store).unwrap();
-
-    assert_ne!(first_state.repo_root, second_state.repo_root);
+    let first_state = PlannerState::load_with_store(&code, &first_store).unwrap();
+    let second_state = PlannerState::load_with_store(&code, &second_store).unwrap();
     assert_eq!(
+        first_state.published_spec_pin,
+        second_state.published_spec_pin
+    );
+    assert_eq!(first_state.spec_text, second_state.spec_text);
+    assert_ne!(
         first_state.planning_store.root,
         second_state.planning_store.root
     );
+
+    let work = crate::core::planning_work::Work::new(
+        "planning:private-one".into(),
+        "Private board item".into(),
+        "Only installation one owns this work.".into(),
+        "Waiting".into(),
+    );
+    crate::core::planning_work::save(&first_store, std::slice::from_ref(&work)).unwrap();
     assert_eq!(
-        first_state.spec_text.as_deref(),
-        Some("# Shared project plan\n")
-    );
-    assert_eq!(first_state.spec_text, second_state.spec_text);
-    assert_eq!(
-        first_state.baseline_planning_revision,
-        second_state.baseline_planning_revision
-    );
-
-    let _ = std::fs::remove_dir_all(first);
-    let _ = std::fs::remove_dir_all(second);
-    let _ = std::fs::remove_dir_all(planning_root);
-}
-
-#[test]
-fn managed_store_bootstrap_preserves_the_connected_checkout_remote_identity() {
-    let first = git_fixture("manifest-first", Some("First Checkout"));
-    let second = git_fixture("manifest-second", Some("Second Checkout"));
-    let remote = "https://github.com/example/first-project.git";
-    let other_remote = "https://github.com/example/second-project.git";
-    for (root, url) in [(&first, remote), (&second, other_remote)] {
-        assert!(
-            std::process::Command::new("git")
-                .arg("-C")
-                .arg(root)
-                .args(["remote", "add", "origin", url])
-                .status()
-                .unwrap()
-                .success()
-        );
-    }
-    let planning_root = mkrepo("manifest-store");
-    let store = PlanningStore::new(
-        uuid::Uuid::new_v4(),
-        &planning_root,
-        crate::artifacts::planning_store::StoreMode::ManagedLocal,
-    );
-    seed_planning_metadata(&store, remote);
-
-    let mut first_state = PlannerState::load_with_store(&first, &store).unwrap();
-    assert_eq!(first_state.repositories.repositories[0].remote, remote);
-    first_state.bootstrap_missing().unwrap();
-    let persisted = crate::core::project_repos::ProjectManifest::load(&store).unwrap();
-    assert_eq!(persisted.repositories[0].remote, remote);
-    assert!(
-        persisted
-            .target_if_available(store.project_id, &second, "root")
+        crate::core::planning_work::load(&first_store)
             .unwrap()
-            .is_none(),
-        "the saved root identity must reject a different code checkout"
+            .len(),
+        1
+    );
+    assert!(
+        crate::core::planning_work::load(&second_store)
+            .unwrap()
+            .is_empty()
     );
 
-    let second_state = PlannerState::load_with_store(&second, &store).unwrap();
-    assert_eq!(second_state.repositories.repositories[0].remote, remote);
+    let first_home = mkrepo_without_git("installation-first-home");
+    let slug = project_id.hyphenated().to_string();
+    {
+        let _home = crate::test_support::KooladeHomeGuard::set(&first_home);
+        let mut chats = crate::persistence::task_chats::TaskChats::default();
+        chats.ensure_loaded(&slug);
+        chats
+            .append(
+                &slug,
+                "task-one",
+                vec![crate::domain::ChatMessage::new(
+                    crate::domain::ChatRole::User,
+                    "Private conversation one.",
+                    None,
+                )],
+            )
+            .unwrap();
+    }
+    let second_home = mkrepo_without_git("installation-second-home");
+    {
+        let _home = crate::test_support::KooladeHomeGuard::set(&second_home);
+        let mut chats = crate::persistence::task_chats::TaskChats::default();
+        chats.ensure_loaded(&slug);
+        assert!(chats.messages.is_empty());
+    }
+    assert!(!local_first.join(".git").exists());
+    assert!(!local_second.join(".git").exists());
 
-    let _ = std::fs::remove_dir_all(first);
-    let _ = std::fs::remove_dir_all(second);
-    let _ = std::fs::remove_dir_all(planning_root);
+    for path in [code, local_first, local_second, first_home, second_home] {
+        let _ = std::fs::remove_dir_all(path);
+    }
 }
 
 #[test]
-fn managed_store_keeps_create_edit_approval_and_generation_across_code_branch_switch() {
+fn pinned_code_product_documents_remain_at_loaded_revision_across_checkout_updates() {
+    let code = git_fixture("pinned-product-code", Some("Koolade Test"));
+    let overview = code.join("docs/koolade/product/overview.md");
+    std::fs::create_dir_all(overview.parent().unwrap()).unwrap();
+    std::fs::write(
+        &overview,
+        "# Pinned Product — Living Technical Specification\n\n## Overview\n\nPublished revision A.\n",
+    )
+    .unwrap();
+    git(&code, &["add", "docs/koolade/product/overview.md"]);
+    git(&code, &["commit", "-q", "-m", "published product A"]);
+
+    let local = mkrepo_without_git("pinned-product-local");
+    let mut store = PlanningStore::for_code_repository(uuid::Uuid::new_v4(), &local, &code);
+
+    let pinned = crate::core::published_specs::PublishedSpecReader::for_primary_repository(&code)
+        .unwrap()
+        .pin()
+        .unwrap();
+    store.published_spec_pin = Some(pinned.clone());
+    let state_a = PlannerState::load_with_store(&code, &store).unwrap();
+    assert!(
+        state_a
+            .spec_text
+            .as_deref()
+            .unwrap()
+            .contains("Published revision A")
+    );
+    assert!(!local.join("planning/product/overview.md").exists());
+    assert!(
+        crate::artifacts::product_docs::render_product(&store)
+            .unwrap()
+            .unwrap()
+            .contains("Published revision A")
+    );
+
+    std::fs::write(
+        &overview,
+        "# Pinned Product — Living Technical Specification\n\n## Overview\n\nPublished revision B.\n",
+    )
+    .unwrap();
+    git(&code, &["add", "docs/koolade/product/overview.md"]);
+    git(&code, &["commit", "-q", "-m", "published product B"]);
+    let state_still_a = PlannerState::load_with_store(&code, &store).unwrap();
+    assert!(
+        state_still_a
+            .spec_text
+            .as_deref()
+            .unwrap()
+            .contains("Published revision A")
+    );
+    let mut refreshed = store.clone();
+    refreshed.published_spec_pin = None;
+    let state_b = PlannerState::load_with_store(&code, &refreshed).unwrap();
+    assert!(
+        state_b
+            .spec_text
+            .as_deref()
+            .unwrap()
+            .contains("Published revision B")
+    );
+    assert!(
+        !state_b
+            .spec_text
+            .as_deref()
+            .unwrap()
+            .contains("Stale local content")
+    );
+
+    let _ = std::fs::remove_dir_all(code);
+    let _ = std::fs::remove_dir_all(local);
+}
+
+#[test]
+fn private_task_state_and_spec_drafts_survive_code_branch_switch() {
     use crate::core::validation::NormalizedTurn;
     use crate::domain::{ChangeStatus, ItemKind, OpenItem, Priority};
 
@@ -103,38 +159,27 @@ fn managed_store_keeps_create_edit_approval_and_generation_across_code_branch_sw
     std::fs::write(code.join("README.md"), "code checkout\n").unwrap();
     git(&code, &["add", "README.md"]);
     git(&code, &["commit", "-q", "-m", "fixture"]);
+    crate::core::state::test_support::seed_published_product_document(&code).unwrap();
     git(&code, &["checkout", "-q", "-b", "feature/auth"]);
 
-    let planning_root = mkrepo("managed-lifecycle-planning");
-    git(&planning_root, &["config", "user.name", "Koolade Test"]);
-    git(
-        &planning_root,
-        &["config", "user.email", "koolade@example.test"],
-    );
-    let store = crate::artifacts::planning_store::PlanningStore::new(
-        uuid::Uuid::new_v4(),
-        &planning_root,
-        StoreMode::ManagedLocal,
-    );
-    seed_planning_metadata(&store, "");
+    let local_root = mkrepo_without_git("managed-lifecycle-local");
+    let store = PlanningStore::for_code_repository(uuid::Uuid::new_v4(), &local_root, &code);
     let mut state = PlannerState::load_with_store(&code, &store).unwrap();
     state.bootstrap_missing().unwrap();
 
-    let feature = "# F1: Shared import context\n\n## Intent\n\nExpose stored reference content to planning turns.\n\n## Current Behavior\n\nImports are listed by path.\n\n## Desired Behavior\n\nManaged imports are available to the planner.\n\n## Scope\n\nPlanning context only.\n\n## Affected Product Areas\n\n`overview.md`\n\n## Requirements\n\n- FR-1 (MUST). Read managed imports from the selected planning store.\n\n## Decisions and Assumptions\n\n- **D-1:** Imported documents are reference data.\n\n## Acceptance Criteria\n\n1. The planner can use a managed imported document.\n";
+    let feature = "# F1: Shared import context\n\n## Intent\n\nExpose stored reference content to planning turns.\n\n## Current Behavior\n\nImports are listed by path.\n\n## Desired Behavior\n\nManaged imports are available to the planner.\n\n## Scope\n\nPlanning context only.\n\n## Affected Product Areas\n\n`product:overview`\n\n## Requirements\n\n- FR-1 (MUST). Read managed imports from the selected local store.\n\n## Decisions and Assumptions\n\n- **D-1:** Imported documents are reference data.\n\n## Acceptance Criteria\n\n1. The planner can use a managed imported document.\n";
     let mut item = OpenItem::new(
         "CLR-001".into(),
         Priority::Normal,
         ItemKind::Question,
         "Product".into(),
-        None,
         "Should imported text be inlined?".into(),
-        "Workers do not read from the planning repository path.".into(),
+        "Workers do not read private task state from the source repository.".into(),
     );
     item.feature_id = Some("F1".into());
     let turn = NormalizedTurn {
-        assistant_message: "Created the shared import feature.".into(),
-        change_summary: Some("Create shared import context".into()),
-        spec_markdown: None,
+        assistant_message: "Created a private feature proposal.".into(),
+        change_summary: Some("Create private feature proposal".into()),
         document_updates: vec![
             (
                 "product:overview".into(),
@@ -144,7 +189,7 @@ fn managed_store_keeps_create_edit_approval_and_generation_across_code_branch_sw
         ],
         planning_tasks: Vec::new(),
         task_intent_context: None,
-        change_status_updates: [("F1".into(), ChangeStatus::Ready)].into(),
+        change_status_updates: [("F1".into(), ChangeStatus::Draft)].into(),
         additional_planning_artifacts: Vec::new(),
         added: vec![item],
         updates: Vec::new(),
@@ -158,59 +203,19 @@ fn managed_store_keeps_create_edit_approval_and_generation_across_code_branch_sw
         plan_comparison: None,
     };
     let receipt = crate::core::apply::apply(&mut state, &turn).unwrap();
-    assert!(receipt.spec_written && receipt.items_written);
+    assert!(receipt.draft_written && receipt.items_written);
+    let proposal = crate::core::apply::load_current(&store).unwrap().unwrap();
     assert!(
-        store
-            .layout()
-            .change_specification("F1-shared-import-context")
-            .is_some()
+        proposal
+            .changes
+            .iter()
+            .any(|change| change.document_id == "feature:F1")
     );
+    assert!(store.root.join("state/spec_drafts/current.json").is_file());
+    assert!(!local_root.join(".git").exists());
+    assert!(!code.join(".koolade-packet").exists());
+    let before_switch = snapshot(&local_root);
 
-    let feature_path = crate::artifacts::product_docs::document_path(&store, "feature:F1").unwrap();
-    let feature_text = String::from_utf8(store.read_planning_path(&feature_path).unwrap()).unwrap();
-    let contract = crate::core::workflow::feature_contract(&feature_text);
-    crate::core::lifecycle::test_support::approve_and_review_feature(
-        &store,
-        &mut state.workflow,
-        "F1",
-        &feature_text,
-    )
-    .unwrap();
-    assert!(crate::core::workflow::feature_approved(
-        &store,
-        &state.workflow,
-        "F1"
-    ));
-
-    let batch = crate::core::workflow::TaskBatch {
-        brief: crate::core::workflow::InterviewBrief {
-            feature_name: "Shared import context (F1)".into(),
-            goal: "Make imported evidence available to planner turns.".into(),
-            target_users: "Project operators".into(),
-            intended_outcome: "Managed imports inform planning.".into(),
-            success_criteria: vec!["The imported content reaches the prompt.".into()],
-            in_scope: vec!["Load text imports from the store.".into()],
-            ready_for_tasks: true,
-            ..Default::default()
-        },
-        specification: feature_text,
-        feature_id: Some("F1".into()),
-        contract: None,
-        branch_targets: None,
-        task_routing: Default::default(),
-        stories: vec![crate::core::workflow::TaskStory {
-            title: "Load managed imports".into(),
-            purpose: "Give the planner imported reference evidence.".into(),
-            ..Default::default()
-        }],
-    };
-    let generated =
-        crate::artifacts::task_docs::write_batch(&store, &batch, &mut state.workflow).unwrap();
-    assert!(!generated.is_empty());
-    assert!(state.workflow.approved_features.contains_key("F1"));
-    assert_eq!(state.workflow.task_batches.len(), 1);
-
-    let before_switch = snapshot(&planning_root);
     git(&code, &["checkout", "-q", "main"]);
     let reopened = PlannerState::load_with_store(&code, &store).unwrap();
     assert_eq!(reopened.planning_store.root, store.root);
@@ -222,23 +227,12 @@ fn managed_store_keeps_create_edit_approval_and_generation_across_code_branch_sw
             .and_then(|item| item.feature_id.as_deref()),
         Some("F1")
     );
-    assert_eq!(
-        reopened.active_feature.as_ref().map(|(id, _)| id.as_str()),
-        Some("F1")
-    );
-    assert!(reopened.workflow.approved_features.contains_key("F1"));
-    assert_eq!(reopened.workflow.task_batches.len(), 1);
-    assert_eq!(
-        snapshot(&planning_root),
-        before_switch,
-        "switching code branches must leave every shared planning byte unchanged"
-    );
-    assert!(!code.join(".koolade-packet").exists());
+    assert!(reopened.local_spec_draft.is_some());
+    assert_eq!(snapshot(&local_root), before_switch);
     assert!(!code.join("planning").exists());
-    assert!(!contract.is_empty());
 
     let _ = std::fs::remove_dir_all(code);
-    let _ = std::fs::remove_dir_all(planning_root);
+    let _ = std::fs::remove_dir_all(local_root);
 }
 
 fn git(root: &std::path::Path, args: &[&str]) {

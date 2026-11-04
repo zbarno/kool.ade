@@ -1,15 +1,9 @@
-use crate::domain::{Authority, CurrentUser, OpenItem, Stakeholders};
+use crate::domain::{Authority, CurrentUser, OpenItem};
 
-/// Open items that may create a user-facing answer request. Review items stay
-/// visible to the operator, but are routed to an internal reviewer rather than
-/// presented as a decision the user owes.
-pub fn human_actionable_items<'a>(
-    items: &'a [OpenItem],
-    user: &CurrentUser,
-    stakeholders: &Stakeholders,
-) -> Vec<&'a OpenItem> {
-    super::eligible_items(items, user, stakeholders)
+/// Open human items are questions for the local person using this installation.
+pub fn human_actionable_items<'a>(items: &'a [OpenItem], user: &CurrentUser) -> Vec<&'a OpenItem> {
+    super::eligible_items(items, user)
         .into_iter()
-        .filter(|item| item.authority == Authority::Human || item.is_ownership_gap())
+        .filter(|item| item.authority == Authority::Human)
         .collect()
 }

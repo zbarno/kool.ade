@@ -30,18 +30,18 @@ fn question_store_round_trips_and_rejects_stale_record_revision() {
 }
 
 #[test]
-fn legacy_question_records_load_and_migrate_to_item_paths_on_write() {
+fn question_records_in_the_removed_collection_are_not_imported() {
     use crate::artifacts::planning_store::{PlanningStore, StoreMode};
     let root = std::env::temp_dir().join(format!(
-        "planning-question-migration-{}",
+        "planning-question-no-import-{}",
         uuid::Uuid::new_v4()
     ));
     let store = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
-    let mut question = propose_questions(vec![proposal("data owner", "Who owns it?")], &[])
+    let question = propose_questions(vec![proposal("data owner", "Who owns it?")], &[])
         .unwrap()
         .remove(0);
     let created_at = 1_700_000_000_000_u64;
-    let legacy = serde_json::json!({
+    let removed_collection_record = serde_json::json!({
         "schemaVersion": 1,
         "uid": question.uid.clone(),
         "createdAtMs": created_at,
@@ -50,50 +50,20 @@ fn legacy_question_records_load_and_migrate_to_item_paths_on_write() {
         "data": question.clone(),
     });
     let old_path = format!("state/questions/{}.json", question.uid);
-    store.save_record(&old_path, &legacy, 0).unwrap();
-    let old_bytes = store.read(&old_path).unwrap();
-
+    store
+        .save_record(&old_path, &removed_collection_record, 0)
+        .unwrap();
     let api = QuestionStore::new(&store);
-    let (loaded, outer_revision) = api.load(&question.uid).unwrap();
-    assert_eq!(loaded, question);
-    assert_eq!(outer_revision, 1);
-    reconcile_answer(
-        &mut question,
-        0,
-        4,
-        Some("Use the data steward <script>alert(1)</script>"),
-        None,
-        "operator",
-        created_at + 1,
-    )
-    .unwrap();
-    api.save(&question, outer_revision).unwrap();
-
-    let (migrated, revision) = api.load(&question.uid).unwrap();
-    assert_eq!(migrated, question);
-    assert_eq!(
-        revision, 1,
-        "migrated canonical record starts at outer revision one"
+    assert!(api.load(&question.uid).is_err());
+    assert!(api.list().unwrap().is_empty());
+    assert!(
+        store.read(&old_path).is_ok(),
+        "old data is never imported or rewritten"
     );
-    assert_eq!(
-        store.read(&old_path).unwrap(),
-        old_bytes,
-        "legacy record is retained unchanged"
-    );
-    let markdown = String::from_utf8(
+    assert!(
         store
             .read(format!("planning/items/{}.md", question.uid))
-            .unwrap(),
-    )
-    .unwrap();
-    assert!(markdown.contains("## Recorded decision"));
-    assert!(markdown.contains("Use the data steward &lt;script&gt;alert(1)&lt;/script&gt;"));
-    assert!(!markdown.contains("<script>"));
-    assert!(markdown.contains("Answered by: operator"));
-    let (open, resolved, _) = crate::artifacts::items_io::load_store(&store).unwrap();
-    assert!(
-        open.is_empty() && resolved.is_empty(),
-        "typed clarifications are not code-running item cards"
+            .is_err()
     );
     let _ = std::fs::remove_dir_all(root);
 }

@@ -1,48 +1,49 @@
-# Repository artifact layout
+# Application and repository data layout
 
-Kool.ad/e keeps project artifacts in a separate, managed planning Git repository. A code checkout is never used as a planning root. The planning repository working-tree root is the artifact root.
-
-For a GitHub code repository `owner/name`, setup uses the paired remote `owner/name.packet`. It clones both repositories into Kool.ad/e-managed locations. If the planning repository is missing, Kool.ad/e creates and pushes it with the code repository's visibility. Existing repositories with mismatched visibility are rejected; Kool.ad/e does not change visibility.
+This document summarizes the current architecture contract. The detailed
+authority and publication rules live in the [storage boundary](koolade/architecture/storage-boundaries.md).
 
 ```text
-~/kool-ade-workspaces/<code-repository>/
-~/.koolade-packet/projects/<workspace-uuid>/
-├── association.json
-└── planning-repo/
-    ├── manifest.json
-    ├── config/
-    ├── planning/
-    └── state/
+project-code-repo/                         # one ordinary source Git repository
+  src/
+  docs/
+    koolade/
+      product/                             # published product modules
+      features/                            # published feature specifications
+      architecture/                        # durable architecture decisions
+
+$KOOLADE_HOME/                             # private installation-local data root
+  projects/<project-uuid>/
+    operational-state/                    # tasks, drafts, approvals, conversations, evidence
+    clones/                                # isolated task checkouts and execution metadata
 ```
 
-`KOOLADE_HOME` can replace `~/.koolade-packet`. Local workspaces and planning checkouts are named by the workspace UUID, not by the current code branch or an arbitrary folder chosen during setup.
+Published specifications are ordinary Markdown documents in the designated
+primary code repository. The default path for Kool.ad/e documents is
+`docs/koolade/`; existing human documentation can remain elsewhere and be
+referenced. Kool.ad/e must not overwrite existing documents during publication
+preparation; changes are proposed through reviewed code-repository branches.
 
-## Shared planning repository
+TaskIntents, child tasks, conversations, decisions, approvals, worker sessions,
+execution leases, QA evidence, and history stay in local application storage.
+This data is outside code repositories and task clones, is not tracked by Git,
+and is not synchronized between installations. Local persistence uses durable
+transactional writes and concurrency fencing.
 
-| Path | Purpose and ownership |
-| --- | --- |
-| `manifest.json` | Workspace identity and schema. |
-| `config/project.md` | Project description and planning context. |
-| `config/repositories.json` | Stable code repository IDs and remotes; it contains no local checkout paths. |
-| `planning/product/` | Current product specification, module manifest, and index. |
-| `planning/changes/` | Proposed feature specifications and their lifecycle metadata. |
-| `planning/items/` | Human-readable question and decision content. |
-| `planning/decisions/` | Durable architectural decisions approved through planning. |
-| `planning/tasks/` | Approved task stories and frozen feature snapshots. |
-| `planning/imports/` | Reference material explicitly imported by the operator. |
-| `planning/archive/` | Historical planning material retained for reference. |
-| `state/` | Structured feature, task, item, and planning-work records. |
+The primary repository's designated published ref is resolved to an immutable
+commit SHA before specifications are read. Manager and worker context records
+that SHA and the document identity. A human checkout or task clone branch does
+not change the published specification baseline.
 
-Markdown stays human-readable. Structured metadata and state determine workflow behavior; visible status text does not grant approval or select a plan. Shared changes are synchronized through Git. A branch on the code repository does not change planning authority.
+## Explicit boundaries
 
-## Operator-local state
-
-Conversation history, task conversations, resumable generation checkpoints, and other private application state live under `KOOLADE_HOME`. Paths for Kool.ad/e-managed code clones live in the workspace association, not in the shared planning manifest. Setup does not accept user-selected local checkout paths. Credentials and provider configuration are never written to shared planning files.
-
-Implementation reports, verification results, task clones, process locks, and recovery state remain in Kool.ad/e's local application data or the Git common directory. They are not shared project planning artifacts.
-
-## Unsupported embedded layout
-
-An embedded `.koolade-packet/` directory inside a code checkout is not a supported project-artifact layout. Kool.ad/e does not discover, load, migrate, or use it as a fallback. To use a code repository, open it through the managed GitHub clone flow and its paired planning repository. Existing contents are left untouched.
-
-For schema, identity, synchronization, and recovery rules, see [Planning repository v1](planning-repository-v1.md).
+- Kool.ad/e uses the code repository as the sole published-document authority;
+  there is no paired planning repository or derived `<code-repository>.packet` remote.
+- A `.koolade-packet/` directory in a code repository is never read, written,
+  imported, or used as a fallback.
+- Kool.ad/e does not create shared task records, remote task claims, or
+  cross-installation task ownership.
+- Specification drafts remain local until a separately authorized, validated
+  publication prepares an isolated branch and normal pull request.
+- External repositories and their history are outside local cleanup and are
+  never deleted or rewritten by this architecture.

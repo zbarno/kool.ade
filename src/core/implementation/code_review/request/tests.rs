@@ -11,6 +11,7 @@ fn code_reviewer_receives_the_complete_subject_in_read_only_mode() {
         "base": "main",
         "base_commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "task_repository": "/tmp/reviewer-task-clone",
+        "task_repository_kind": "clone",
         "status": "verifying",
         "detail": "",
         "pr_url": null,

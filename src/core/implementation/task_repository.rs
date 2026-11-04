@@ -1,4 +1,4 @@
-use super::{Implementation, Runner, TaskRepositoryKind, key};
+use super::{Implementation, Runner, key};
 use crate::artifacts::planning_store::PlanningStore;
 use crate::core::implementation::repository_cache::RepositoryCache;
 use std::{
@@ -30,11 +30,15 @@ pub(super) fn project_id(planning_root: &Path) -> anyhow::Result<String> {
     ))
 }
 
-pub(super) fn allocation_key(state: &Implementation) -> String {
-    state
-        .task_repository_allocation_key
-        .clone()
-        .unwrap_or_else(|| key(&state.ticket))
+pub(super) fn allocation_key(state: &Implementation) -> anyhow::Result<String> {
+    Ok(require_allocation_key(state.task_repository_allocation_key.as_deref())?.to_owned())
+}
+
+fn require_allocation_key(value: Option<&str>) -> anyhow::Result<&str> {
+    let value = value
+        .ok_or_else(|| anyhow::anyhow!("Saved task repository allocation identity is missing"))?;
+    validate_allocation_key(value)?;
+    Ok(value)
 }
 
 pub(super) fn cache_for_state(
@@ -44,18 +48,13 @@ pub(super) fn cache_for_state(
     runner: &Runner,
 ) -> anyhow::Result<RepositoryCache> {
     validate_clone_path(state)?;
-    anyhow::ensure!(
-        state.task_repository_kind == TaskRepositoryKind::Clone,
-        "Legacy task repository does not use the repository cache"
-    );
     let repository_id = state
         .repository_id
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("Saved task repository identity is missing"))?;
-    let (text, _, metadata) = super::read_ticket_and_identity(planning_store, &state.ticket)?;
-    let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
+    let (_, _, metadata) = super::read_ticket_and_identity(planning_store, &state.ticket)?;
     anyhow::ensure!(
-        super::task_repository_id(&text, metadata.as_ref(), &manifest)? == repository_id,
+        super::task_repository_id(metadata.as_ref())? == repository_id,
         "Task repository mapping changed; review the saved task before resuming"
     );
     let cache_path = state
@@ -96,8 +95,7 @@ pub(super) fn validate_clone_path_at(state: &Implementation, path: &Path) -> any
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("Saved task project identity is missing"))?;
     let root = repository_root(project_id, repository_id)?;
-    let key = allocation_key(state);
-    validate_allocation_key(&key)?;
+    let key = allocation_key(state)?;
     let name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -119,8 +117,7 @@ pub(super) fn branch_for_path(state: &Implementation, path: &Path) -> anyhow::Re
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| anyhow::anyhow!("Saved task repository path is invalid"))?;
-    let key = allocation_key(state);
-    validate_allocation_key(&key)?;
+    let key = allocation_key(state)?;
     if name == key || valid_verification_name(name, &key) {
         Ok(format!("koolade/{key}"))
     } else {
@@ -189,4 +186,17 @@ fn validate_allocation_key(key: &str) -> anyhow::Result<()> {
         "Invalid task repository allocation key"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::require_allocation_key;
+
+    #[test]
+    fn task_repository_allocation_requires_a_current_persisted_identity() {
+        assert!(require_allocation_key(None).is_err());
+        let key = "task-42-0123456789abcdef";
+        assert_eq!(require_allocation_key(Some(key)).unwrap(), key);
+        assert!(require_allocation_key(Some("../outside")).is_err());
+    }
 }

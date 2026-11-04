@@ -25,7 +25,6 @@ pub(super) struct Request<'a> {
     pub(super) repo: &'a Path,
     pub(super) dir: &'a Path,
     pub(super) ticket: &'a str,
-    pub(super) text: &'a str,
     pub(super) metadata: Option<&'a crate::artifacts::task_docs::TaskMetadata>,
     pub(super) publication_mode: PublicationMode,
     pub(super) runner: &'a Runner,
@@ -37,13 +36,12 @@ pub(super) fn resolve(request: Request<'_>) -> anyhow::Result<TaskSource> {
         repo,
         dir,
         ticket,
-        text,
         metadata,
         publication_mode,
         runner,
     } = request;
-    let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
-    let repository_id = task_repository_id(text, metadata, &manifest)?;
+    let _manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
+    let repository_id = task_repository_id(metadata)?;
     let cache = RepositoryCache::open(repo, planning_store, &repository_id, runner)?;
     let explicitly_selected = metadata.and_then(|metadata| metadata.source_branch.as_deref());
     let source_ref = if let Some(source) = explicitly_selected {

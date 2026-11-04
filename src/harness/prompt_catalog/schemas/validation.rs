@@ -14,8 +14,6 @@ mod task_graph;
 #[serde(untagged)]
 pub enum RoleOutputV1 {
     Manager(ManagerOutputV2),
-    ManagerLegacy(ManagerOutputV1),
-    Planner(PlannerOutputV1),
     PlannerV3(PlannerOutputV2),
     Review(ReviewVerdictV1),
     TaskGraph(TaskGraphV1),
@@ -175,18 +173,9 @@ fn decode(
         };
     }
     match role {
-        PromptRole::Manager
-        | PromptRole::ManagerV7
-        | PromptRole::ManagerV6
-        | PromptRole::ManagerV5
-        | PromptRole::ManagerV4
-        | PromptRole::ManagerV3 => {
-            parse!(ManagerOutputV2, Manager)
-        }
-        PromptRole::ManagerV2 => parse!(ManagerOutputV1, ManagerLegacy),
+        PromptRole::Manager => parse!(ManagerOutputV2, Manager),
         PromptRole::Planner => parse!(PlannerOutputV2, PlannerV3),
-        PromptRole::PlannerV2 => parse!(PlannerOutputV1, Planner),
-        PromptRole::PlannerConversation | PromptRole::PlannerConversationV5 => {
+        PromptRole::PlannerConversationV6 => {
             crate::harness::responses::decode_turn(text, turn_purpose)
                 .map(Box::new)
                 .map(RoleOutputV1::PlanningTurn)

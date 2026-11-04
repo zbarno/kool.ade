@@ -117,6 +117,38 @@ impl KooladeApp {
                 }
                 return;
             }
+            let published_feature = project
+                .state
+                .active_features
+                .iter()
+                .find(|(id, _)| id == feature_id)
+                .and_then(|(_, markdown)| {
+                    let identity = crate::domain::ArtifactIdentity::from_markdown(markdown)
+                        .ok()
+                        .flatten()?;
+                    Some(
+                        crate::app::root::feature_approval::publication::pin_is_published(
+                            project,
+                            &identity.uid,
+                            markdown,
+                        ),
+                    )
+                })
+                .unwrap_or(false);
+            if !published_feature {
+                project.planning_work[index].status =
+                    crate::core::planning_work::WorkStatus::NeedsAttention;
+                project.planning_work[index].detail = "Blocked: merge the consented feature documentation PR and refresh the published-spec pin before generating tasks.".into();
+                if let Err(error) = project.save_planning_work() {
+                    self.toasts.danger(format!(
+                        "Published feature documentation is required, but the blocked task status could not be saved: {error}"
+                    ));
+                } else {
+                    self.toasts
+                        .warning(project.planning_work[index].detail.clone());
+                }
+                return;
+            }
             if project.has_selected_code_repository() {
                 let default_branch = if !project.git.default_branch.is_empty() {
                     project.git.default_branch.as_str()
@@ -162,19 +194,18 @@ impl KooladeApp {
                     .feature_branch_targets
                     .insert(feature_id.to_owned(), targets);
                 let planning_store = project.state.planning_store.clone();
-                let (changes, checks, _) =
-                    match crate::artifacts::task_docs::workflow_record_changes(
-                        &planning_store,
-                        &workflow,
-                    ) {
-                        Ok(changes) => changes,
-                        Err(error) => {
-                            self.toasts.danger(format!(
+                let (changes, checks) = match crate::artifacts::task_docs::workflow_record_changes(
+                    &planning_store,
+                    &workflow,
+                ) {
+                    Ok(changes) => changes,
+                    Err(error) => {
+                        self.toasts.danger(format!(
                         "Cannot save the feature branch selection before task generation: {error}"
                     ));
-                            return;
-                        }
-                    };
+                        return;
+                    }
+                };
                 match planning_store.transaction_with_revision_and_record_revisions(
                     &changes,
                     Some(&project.state.baseline_planning_revision),

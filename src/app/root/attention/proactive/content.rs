@@ -31,7 +31,7 @@ pub(super) fn clarification_detail(item: &crate::domain::OpenItem) -> String {
 }
 
 pub(super) fn clarification_brief(item: &crate::domain::OpenItem) -> Option<Brief> {
-    if item.authority != crate::domain::Authority::Human && !item.is_ownership_gap() {
+    if item.authority != crate::domain::Authority::Human {
         return None;
     }
     let decision = item.decision_brief.clone();
@@ -179,7 +179,6 @@ mod tests {
             crate::domain::Priority::Blocking,
             crate::domain::ItemKind::Question,
             "General".into(),
-            None,
             "Inspect the source.".into(),
             "Evidence is missing.".into(),
         );
@@ -200,7 +199,6 @@ mod tests {
             crate::domain::Priority::High,
             crate::domain::ItemKind::Question,
             "General".into(),
-            None,
             "Which branch should receive this task?".into(),
             "The task needs a destination.".into(),
         );

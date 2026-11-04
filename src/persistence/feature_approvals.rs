@@ -1,4 +1,4 @@
-//! Per-operator approvals that are deliberately excluded from shared planning Git.
+//! Per-operator approvals stored only in private local application storage.
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fs, path::PathBuf};
 
@@ -11,8 +11,12 @@ struct ApprovalStore {
 }
 
 fn path(repo: &std::path::Path) -> anyhow::Result<PathBuf> {
-    let project_id = crate::persistence::dependency_authorization::project_id(repo)?;
-    Ok(crate::persistence::project_dir(&project_id).join("feature-approvals.json"))
+    let root = repo.canonicalize()?;
+    anyhow::ensure!(root.is_dir(), "private project store must be a directory");
+    let project_root = root
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("private project store has no parent directory"))?;
+    Ok(project_root.join("feature-approvals.json"))
 }
 
 pub(crate) fn contains(repo: &std::path::Path, feature: &str, contract: &str) -> bool {

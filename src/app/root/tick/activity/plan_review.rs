@@ -1,5 +1,7 @@
 #[path = "plan_review/lifecycle.rs"]
 pub(crate) mod lifecycle;
+#[path = "plan_review/publication.rs"]
+mod publication;
 
 pub(super) fn advance_plan_review(project: &mut crate::app::session::Project) {
     let result = project
@@ -128,14 +130,78 @@ pub(super) fn advance_plan_review(project: &mut crate::app::session::Project) {
                     } else {
                         None
                     };
-                    task_gate = if approved
+                    let publication = if approved
                         && lifecycle_error.is_none()
                         && verification_error.is_none()
                         && arbitration_error.is_none()
                     {
+                        let reviewed = publication::active_reviewed_feature(
+                            project,
+                            &outcome.feature_id,
+                            &outcome.snapshot_uid,
+                            &outcome.snapshot_hash,
+                        );
+                        match reviewed {
+                            Some((feature_uid, markdown))
+                                if crate::app::root::feature_approval::publication::pin_is_published(
+                                    project,
+                                    &feature_uid,
+                                    &markdown,
+                                ) =>
+                            {
+                                Ok(None)
+                            }
+                            Some((feature_uid, markdown)) => {
+                                match crate::app::root::feature_approval::publication::publish(
+                                    project,
+                                    &outcome.feature_id,
+                                    &feature_uid,
+                                    &outcome.snapshot_hash,
+                                    &markdown,
+                                ) {
+                                    Ok(_url)
+                                        if crate::app::root::feature_approval::publication::pin_is_published(
+                                            project,
+                                            &feature_uid,
+                                            &markdown,
+                                        ) =>
+                                    {
+                                        Ok(None)
+                                    }
+                                    Ok(url) => Ok(Some(url)),
+                                    Err(error) => Err(error),
+                                }
+                            }
+                            None => Err(anyhow::anyhow!(
+                                "the reviewed feature snapshot is no longer active"
+                            )),
+                        }
+                    } else {
+                        Ok(None)
+                    };
+                    task_gate = if approved
+                        && lifecycle_error.is_none()
+                        && verification_error.is_none()
+                        && arbitration_error.is_none()
+                        && publication.as_ref().is_ok_and(Option::is_none)
+                    {
                         (
                             crate::core::planning_work::WorkStatus::Todo,
                             "Approved: the independent PlanReviewer approved this exact plan snapshot. Task generation is ready when requested.".into(),
+                        )
+                    } else if approved && let Ok(Some(url)) = &publication {
+                        (
+                            crate::core::planning_work::WorkStatus::NeedsAttention,
+                            format!(
+                                "Blocked: the feature publication is awaiting protected PR review and merge: {url}"
+                            ),
+                        )
+                    } else if approved && let Err(error) = &publication {
+                        (
+                            crate::core::planning_work::WorkStatus::NeedsAttention,
+                            format!(
+                                "Blocked: feature publication could not be prepared ({error}). Retry publication before task generation."
+                            ),
                         )
                     } else if approved && arbitration_error.is_some() {
                         (
@@ -176,10 +242,27 @@ pub(super) fn advance_plan_review(project: &mut crate::app::session::Project) {
                         && lifecycle_error.is_none()
                         && verification_error.is_none()
                         && arbitration_error.is_none()
+                        && publication.as_ref().is_ok_and(Option::is_none)
                     {
                         format!(
                             "Independent PlanReviewer approved the exact plan snapshot for {}.",
                             outcome.feature_id
+                        )
+                    } else if approved && let Ok(Some(url)) = &publication {
+                        project.activity.pending.push(format!(
+                            "PlanReviewer approved {}, and the consented feature document was proposed in {url}. Merge the protected PR, refresh the published-spec pin, then retry task generation.", outcome.feature_id
+                        ));
+                        format!(
+                            "Feature documentation PR is open for {}: {url}. Task generation remains blocked until the change is merged and present in the refreshed published snapshot.",
+                            outcome.feature_id
+                        )
+                    } else if approved && let Err(error) = &publication {
+                        project.activity.pending.push(format!(
+                            "PlanReviewer approved {}, but feature publication failed: {error}.",
+                            outcome.feature_id
+                        ));
+                        format!(
+                            "Feature documentation publication failed: {error}. Task generation remains blocked."
                         )
                     } else if approved && arbitration_error.is_some() {
                         let error = arbitration_error.as_deref().unwrap_or("unknown error");

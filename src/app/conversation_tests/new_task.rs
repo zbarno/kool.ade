@@ -84,7 +84,8 @@ fn feature_bug_and_new_project_tasks_persist_their_kind_and_start_from_the_board
             );
             assert_eq!(created.source_branch.as_deref(), Some("main"));
             assert_eq!(created.destination_branch.as_deref(), Some("main"));
-            let persisted = crate::core::planning_work::load(&root).unwrap();
+            let persisted =
+                crate::core::planning_work::load(&project.state.planning_store).unwrap();
             assert_eq!(persisted.last().unwrap().uid, created.uid);
             assert_eq!(
                 persisted.last().unwrap().task_intent_root_uid(),
@@ -102,8 +103,11 @@ fn feature_bug_and_new_project_tasks_persist_their_kind_and_start_from_the_board
         };
         app.cancel_task_reply(&key);
         complete(&mut app);
+        let Screen::Connected(project) = &app.screen else {
+            panic!()
+        };
         assert!(
-            crate::core::planning_work::load(&root)
+            crate::core::planning_work::load(&project.state.planning_store)
                 .unwrap()
                 .iter()
                 .any(|work| work.uid == uid && work.kind == kind)

@@ -71,67 +71,18 @@ fn product_opportunity_isolated_and_persists_public_evidence_only() {
     git(code, &["init", "-q", "-b", "main"]);
     git(code, &["config", "user.name", "Fixture User"]);
     git(code, &["config", "user.email", "fixture@example.invalid"]);
-    let code_remote = "https://github.com/example/private-project.git";
+    let code_remote = "https://github.com/zbarno/kool.ade";
     git(code, &["remote", "add", "origin", code_remote]);
     std::fs::write(code.join("README.md"), "private project fixture\n").unwrap();
     git(code, &["add", "README.md"]);
     git(code, &["commit", "-qm", "fixture"]);
+    crate::test_support::set_test_origin_default(code);
 
     let operator_home = tempfile::tempdir().expect("temporary Kool.ad/e home");
     let _home = crate::test_support::KooladeHomeGuard::set(operator_home.path());
-    let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
-    let workspace = manager.create("Opportunity fixture").unwrap();
-    manager
-        .register_code_repository(
-            workspace.id,
-            crate::core::managed_workspace::CodeRepositoryRegistration {
-                id: "root".into(),
-                role: "Primary code".into(),
-                remote: Some(code_remote.into()),
-                checkout: code.to_path_buf(),
-            },
-        )
-        .unwrap();
-
-    let product_temp = tempfile::tempdir().expect("temporary product checkout");
-    git(product_temp.path(), &["init", "-q"]);
-    git(
-        product_temp.path(),
-        &["config", "user.name", "Fixture Product"],
-    );
-    git(
-        product_temp.path(),
-        &["config", "user.email", "product@example.invalid"],
-    );
-    std::fs::write(
-        product_temp.path().join("README.md"),
-        "public product fixture\n",
-    )
-    .unwrap();
-    git(product_temp.path(), &["add", "README.md"]);
-    git(product_temp.path(), &["commit", "-qm", "product fixture"]);
-    git(
-        product_temp.path(),
-        &[
-            "remote",
-            "add",
-            "origin",
-            "https://github.com/zbarno/kool.ade",
-        ],
-    );
     let product_remote = "https://github.com/zbarno/kool.ade";
-    manager
-        .register_code_repository(
-            workspace.id,
-            crate::core::managed_workspace::CodeRepositoryRegistration {
-                id: "product".into(),
-                role: "Kool.ad/e product source".into(),
-                remote: Some(product_remote.into()),
-                checkout: product_temp.path().to_path_buf(),
-            },
-        )
-        .unwrap();
     let mut project = crate::app::welcome::attempt_connect(&code.to_string_lossy()).unwrap();
+    project.state.repositories.repositories[0].remote = product_remote.into();
     project.chat.push(crate::domain::chatlog::ChatMessage::new(
         crate::domain::chatlog::ChatRole::User,
         "PRIVATE-SAMPLE-CUSTOMER-DATA: internal account 88421 needs support",
@@ -155,7 +106,7 @@ fn product_opportunity_isolated_and_persists_public_evidence_only() {
             })
             .to_string(),
             user_project_root: project.state.repo_root.clone(),
-            product_checkout: product_temp.path().to_path_buf(),
+            product_checkout: code.to_path_buf(),
         }),
     );
     let deadline = Instant::now() + std::time::Duration::from_secs(10);
@@ -215,7 +166,7 @@ fn product_opportunity_isolated_and_persists_public_evidence_only() {
         )
     );
     let isolated_root = product_prompt.repo_root.as_ref().unwrap();
-    assert_ne!(isolated_root, product_temp.path());
+    assert_ne!(isolated_root, code);
     assert!(std::fs::read_dir(isolated_root).unwrap().next().is_none());
     assert!(
         !product_prompt
@@ -259,7 +210,7 @@ fn product_opportunity_isolated_and_persists_public_evidence_only() {
             })
             .to_string(),
             user_project_root: project.state.repo_root.clone(),
-            product_checkout: product_temp.path().to_path_buf(),
+            product_checkout: code.to_path_buf(),
         }),
     );
     let deadline = Instant::now() + std::time::Duration::from_secs(10);

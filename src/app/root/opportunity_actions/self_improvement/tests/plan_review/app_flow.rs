@@ -34,6 +34,14 @@ fn pursued_self_improvement_uses_current_app_plan_review_before_task_generation(
             .output()
             .unwrap();
         assert!(remote.status.success());
+        let code_root = project.state.repo_root.clone();
+        let store = crate::artifacts::planning_store::PlanningStore::for_code_repository(
+            project.state.planning_store.project_id,
+            project.state.planning_store.root.clone(),
+            &code_root,
+        );
+        project.state = crate::core::state::PlannerState::load_with_store(&code_root, &store)
+            .expect("pin published specifications using the configured repository identity");
         app_product_proposal(project)
     };
     let (planning, opportunity_revision) = match &mut app.screen {
@@ -124,6 +132,35 @@ fn pursued_self_improvement_uses_current_app_plan_review_before_task_generation(
         crate::core::workflow::PlanComparisonStatus::Adopted
     );
     assert_eq!(comparison.selected_plan.as_deref(), Some("B"));
+    let feature = project
+        .state
+        .active_features
+        .iter()
+        .find(|(id, _)| id == &feature_id)
+        .unwrap()
+        .1
+        .as_str();
+    let marker = feature
+        .lines()
+        .find(|line| line.starts_with("<!-- koolade-change:v1 "))
+        .unwrap();
+    let json = marker
+        .strip_prefix("<!-- koolade-change:v1 ")
+        .unwrap()
+        .strip_suffix(" -->")
+        .unwrap();
+    let metadata: serde_json::Value = serde_json::from_str(json).unwrap();
+    for field in [
+        "planComparison",
+        "comparisonHistory",
+        "selectedAlt",
+        "selectedPlan",
+    ] {
+        assert!(
+            metadata.get(field).is_none(),
+            "feature metadata retains {field}"
+        );
+    }
     fixture::prepare_plan_review_snapshot(project, &feature_id);
 
     let action = app

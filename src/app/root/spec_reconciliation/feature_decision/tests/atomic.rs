@@ -58,11 +58,11 @@ fn direct_store_append_rejects_fabricated_operator_adoption() {
 }
 
 #[test]
-// Production boundary: PlanningStore's file transaction commits product prose,
-// current revision and immutable history under one revision fence. Unit tests
-// cannot prove the persisted files roll back together. Uses git-init temp data;
-// no external service is required.
-fn stale_store_fence_rolls_back_product_prose_and_spec_revision_together() {
+// Production boundary: PlanningStore's file transaction commits a private
+// product proposal, current revision and immutable history under one revision
+// fence. Unit tests cannot prove persisted files roll back together. Uses
+// git-init temp data; no external service is required.
+fn stale_store_fence_rolls_back_private_proposal_and_spec_revision_together() {
     let mut app = crate::app::root::board_tests::fixture();
     let proposal = seed_proposal(&mut app);
     let Screen::Connected(project) = &app.screen else {
@@ -84,14 +84,6 @@ fn stale_store_fence_rolls_back_product_prose_and_spec_revision_together() {
         .find(|document| document.content.contains(&proposal.old))
         .unwrap();
     let updated = document.content.replacen(&proposal.old, &proposal.new, 1);
-    let product_path = store
-        .planning_layout()
-        .product_root()
-        .join(&document.module.path)
-        .strip_prefix(store.planning_layout().root())
-        .unwrap()
-        .to_string_lossy()
-        .into_owned();
     let rendered = crate::artifacts::product_docs::render_product_with_updates(
         store,
         &[(format!("product:{}", document.module.id), updated.clone())],
@@ -171,16 +163,27 @@ fn stale_store_fence_rolls_back_product_prose_and_spec_revision_together() {
             draft,
             Some(&stale_store_revision),
             authorization,
-            vec![(product_path, updated.into_bytes())],
+            crate::core::apply::private_document_draft_changes(
+                store,
+                &[(format!("product:{}", document.module.id), updated)],
+            )
+            .unwrap(),
         ),
         Err(crate::artifacts::planning_store::StoreError::StaleRevision { .. })
     ));
 
-    let after = crate::artifacts::product_docs::render_product(store)
-        .unwrap()
-        .unwrap();
+    let after = crate::artifacts::product_docs::current_document(
+        store,
+        &format!("product:{}", document.module.id),
+    )
+    .unwrap()
+    .unwrap();
     assert!(after.contains(&proposal.old));
     assert!(!after.contains(&proposal.new));
+    let published = crate::artifacts::product_docs::render_product(store)
+        .unwrap()
+        .unwrap();
+    assert!(!published.contains(&proposal.new));
     let history = lifecycle
         .spec_revision_history(&proposal.feature_uid)
         .unwrap();

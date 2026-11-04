@@ -34,7 +34,7 @@ pub fn fetch_origin_with_deadline(repository: &Path) -> anyhow::Result<()> {
 
 fn fetch_with_deadline(repository: &Path, args: &[&str]) -> anyhow::Result<()> {
     const FETCH_TIMEOUT: Duration = Duration::from_secs(60);
-    let mut command = crate::core::planning_sync::validated_git_command(repository)?;
+    let mut command = crate::core::git_commands::validated_git_command(repository)?;
     command.args(args);
     let status = run_bounded_process(command, FETCH_TIMEOUT)?;
     anyhow::ensure!(status.success(), "provider Git fetch failed");

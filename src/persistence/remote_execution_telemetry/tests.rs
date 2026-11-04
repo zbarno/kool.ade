@@ -161,12 +161,12 @@ fn latest_task_record_is_available_without_a_controller_execution_record() {
 }
 
 #[test]
-fn legacy_zero_placeholders_are_loaded_as_unrecorded_metrics() {
+fn unsupported_telemetry_schema_is_rejected_without_normalization() {
     let home = tempfile::tempdir().unwrap();
     let id = uuid::Uuid::new_v4().hyphenated().to_string();
     let directory = home.path().join("remote-execution-telemetry");
     std::fs::create_dir_all(&directory).unwrap();
-    let legacy = serde_json::json!({
+    let unsupported = serde_json::json!({
         "schema_version": 3,
         "execution_id": id,
         "task_id": null,
@@ -180,30 +180,21 @@ fn legacy_zero_placeholders_are_loaded_as_unrecorded_metrics() {
         "execution_peak_memory_bytes": 4096,
         "image_digest": null
     });
-    std::fs::write(
-        record_path(home.path(), &id),
-        serde_json::to_vec(&legacy).unwrap(),
-    )
-    .unwrap();
+    let path = record_path(home.path(), &id);
+    let original = serde_json::to_vec(&unsupported).unwrap();
+    std::fs::write(&path, &original).unwrap();
 
-    let record = load_at(home.path(), &id).unwrap().unwrap();
-    assert_eq!(record.workspace_upload_bytes, None);
-    assert_eq!(record.workspace_upload_ms, None);
-    assert_eq!(record.result_download_bytes, None);
-    assert_eq!(record.result_download_ms, None);
-    assert_eq!(record.execution_cpu_millis, Some(37));
-    assert_eq!(record.execution_peak_memory_bytes, Some(4096));
-    assert_eq!(record.worker_start_rpc_ms, None);
-    assert_eq!(record.failure_code, None);
+    assert!(load_at(home.path(), &id).is_err());
+    assert_eq!(std::fs::read(path).unwrap(), original);
 }
 
 #[test]
-fn updating_legacy_record_preserves_its_previous_time_ordering_proxy() {
+fn update_rejects_unsupported_telemetry_schema_without_rewriting() {
     let home = tempfile::tempdir().unwrap();
     let id = uuid::Uuid::new_v4().hyphenated().to_string();
     let directory = home.path().join("remote-execution-telemetry");
     std::fs::create_dir_all(&directory).unwrap();
-    let legacy = serde_json::json!({
+    let unsupported = serde_json::json!({
         "schema_version": 3,
         "execution_id": id,
         "task_id": null,
@@ -218,29 +209,19 @@ fn updating_legacy_record_preserves_its_previous_time_ordering_proxy() {
         "image_digest": null
     });
     let path = record_path(home.path(), &id);
-    std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
-    let previous_modified = std::fs::metadata(&path)
-        .unwrap()
-        .modified()
-        .unwrap()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64;
-
-    update_at(
-        home.path(),
-        &id,
-        &uuid::Uuid::new_v4().hyphenated().to_string(),
-        "worker-1",
-        |_| {},
-    )
-    .unwrap();
-    let record = load_at(home.path(), &id).unwrap().unwrap();
-    assert_eq!(record.started_at_unix_ms, Some(previous_modified));
-    assert_eq!(record.execution_cpu_millis, None);
-    assert_eq!(record.execution_peak_memory_bytes, None);
-    assert_eq!(record.worker_start_rpc_ms, None);
-    assert_eq!(record.failure_code, None);
+    std::fs::write(&path, serde_json::to_vec(&unsupported).unwrap()).unwrap();
+    let original = std::fs::read(&path).unwrap();
+    assert!(
+        update_at(
+            home.path(),
+            &id,
+            &uuid::Uuid::new_v4().hyphenated().to_string(),
+            "worker-1",
+            |_| {},
+        )
+        .is_err()
+    );
+    assert_eq!(std::fs::read(path).unwrap(), original);
 }
 
 #[test]

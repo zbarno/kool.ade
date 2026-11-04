@@ -88,10 +88,8 @@ impl KooladeApp {
                     crate::core::routing::human_actionable_items(
                         &project.state.items,
                         &self.cached_user,
-                        &project.state.config.stakeholders,
                     )
                     .into_iter()
-                    .filter(|item| !item.is_ownership_gap())
                     .map(|item| {
                         let detail = clarification_detail(item);
                         Event {

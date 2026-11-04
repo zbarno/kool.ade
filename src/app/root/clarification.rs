@@ -127,19 +127,33 @@ impl KooladeApp {
                 .warning(format!("Clarification could not be answered: {error}"));
             return;
         }
-        let readiness = match store.save_question_and_reassess(
-            &question,
-            record_revision,
-            &planning_revision,
-        ) {
-            Ok(readiness) => readiness,
-            Err(error) => {
-                self.toasts.warning(format!(
-                    "Clarification changed before the answer was saved: {error}"
-                ));
-                return;
-            }
+        let (readiness, next_planning_revision) = {
+            let _writer = crate::core::writer_gate::acquire();
+            let readiness = match store.save_question_and_reassess(
+                &question,
+                record_revision,
+                &planning_revision,
+            ) {
+                Ok(readiness) => readiness,
+                Err(error) => {
+                    self.toasts.warning(format!(
+                        "Clarification changed before the answer was saved: {error}"
+                    ));
+                    return;
+                }
+            };
+            let revision = match project.state.planning_store.revision() {
+                Ok(revision) => revision,
+                Err(error) => {
+                    self.toasts.warning(format!(
+                        "Clarification was saved, but its project revision could not be refreshed; no follow-up planning turn was started: {error}"
+                    ));
+                    return;
+                }
+            };
+            (readiness, revision)
         };
+        project.state.baseline_planning_revision = next_planning_revision;
         if !declined {
             let next_plan_revision = match plan_revision.checked_add(1) {
                 Some(revision) => revision,

@@ -1,6 +1,5 @@
 mod automation;
 pub(in crate::ui::layout::settings) mod execution_environments;
-mod planning_repository;
 use super::*;
 use crate::app::dialogs::HarnessSettingsSection;
 
@@ -10,25 +9,23 @@ pub(super) enum Page {
     General,
     Appearance,
     ProjectGit,
-    PlanningRepository,
     CodingTools,
     ModelsRouting,
     ExecutionEnvironments,
     Automation,
-    People,
+    LocalUser,
 }
 
 impl Page {
-    const ALL: [(Self, &'static str); 9] = [
+    const ALL: [(Self, &'static str); 8] = [
         (Self::General, "General"),
         (Self::Appearance, "Appearance"),
         (Self::ProjectGit, "Project & Git"),
-        (Self::PlanningRepository, "Planning Repository"),
         (Self::CodingTools, "Coding Tools"),
         (Self::ModelsRouting, "Models & Routing"),
         (Self::ExecutionEnvironments, "Execution Environments"),
         (Self::Automation, "Automation"),
-        (Self::People, "People & Stakeholders"),
+        (Self::LocalUser, "Local identity"),
     ];
 
     pub(super) fn from_key(key: &str) -> Option<Self> {
@@ -41,8 +38,8 @@ impl Page {
 pub(super) fn paint_navigation(ui: &mut egui::Ui, selected: &mut Page) {
     for (group, pages) in [
         ("APPLICATION", &Page::ALL[..2]),
-        ("WORK & TOOLS", &Page::ALL[4..8]),
-        ("PROJECT", &[Page::ALL[2], Page::ALL[3], Page::ALL[8]][..]),
+        ("WORK & TOOLS", &Page::ALL[3..7]),
+        ("PROJECT", &[Page::ALL[2], Page::ALL[7]][..]),
     ] {
         ui.label(theme::metadata_text(group));
         ui.add_space(4.0);
@@ -93,12 +90,11 @@ pub(super) fn paint_page(
         Page::General => paint_general(ui, surface),
         Page::Appearance => paint_appearance(ui),
         Page::ProjectGit => paint_project_git(ui, surface),
-        Page::PlanningRepository => planning_repository::paint(ui, surface),
         Page::CodingTools => paint_harness(ui, HarnessSettingsSection::Tools),
         Page::ModelsRouting => paint_harness(ui, HarnessSettingsSection::Routing),
         Page::ExecutionEnvironments => execution_environments::paint(ui),
         Page::Automation => automation::paint(ui, surface, board),
-        Page::People => paint_people(ui, surface),
+        Page::LocalUser => paint_local_user(ui, surface),
     }
 }
 
@@ -152,21 +148,21 @@ fn paint_project_git(ui: &mut egui::Ui, surface: &mut dyn Surface) -> Option<Str
     None
 }
 
-fn paint_people(ui: &mut egui::Ui, surface: &mut dyn Surface) -> Option<String> {
-    ui.label(theme::page_title("People & Stakeholders"));
-    let id = egui::Id::new("koolade_settings_people_draft");
+fn paint_local_user(ui: &mut egui::Ui, surface: &mut dyn Surface) -> Option<String> {
+    ui.label(theme::page_title("Local identity"));
+    let id = egui::Id::new("koolade_settings_local_user_draft");
     let mut draft = ui
         .ctx()
         .data_mut(|data| data.remove_temp::<crate::app::dialogs::DlgSettings>(id))
-        .or_else(|| surface.people_settings_draft());
+        .or_else(|| surface.local_user_settings_draft());
     let Some(mut draft) = draft.take() else {
-        ui.label("People settings are unavailable.");
+        ui.label("Local identity settings are unavailable.");
         return None;
     };
     let (save, discard) = crate::app::dialogs::paint_settings_card(ui, &mut draft);
     if save {
-        match surface.save_people_settings(&mut draft) {
-            Ok(_) => draft = surface.people_settings_draft().unwrap_or(draft),
+        match surface.save_local_user_settings(&mut draft) {
+            Ok(_) => draft = surface.local_user_settings_draft().unwrap_or(draft),
             Err(error) => draft.feedback = Some((false, error)),
         }
     }

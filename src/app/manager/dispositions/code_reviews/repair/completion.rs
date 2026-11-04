@@ -15,7 +15,7 @@ pub(crate) fn finish_repair(project: &mut Project, ticket: &str) {
         return;
     }
     let review = implementation::manager_findings_for_task(
-        &project.state.repo_root,
+        &project.state.planning_store.root,
         ticket,
         &context.task_uid,
     );

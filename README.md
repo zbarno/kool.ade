@@ -31,11 +31,11 @@ Turn vague ideas into living specifications, actionable tasks, verified code, an
 
 ![Kool.ad/e workspace with its redesigned header and blue task activity graphs](site/assets/board-preview.png)
 
-**Rust · Linux · Git-native · Agent-powered · Zero grams of sugar**
+**Rust · Linux · Git-reviewed · Agent-powered · Zero grams of sugar**
 
 </div>
 
-> **Currently shipping:** an experimental Linux desktop app with separate Git-backed planning repositories, independent task clones, concurrent workers, verification, and six coding CLI adapters. **Being built and queued:** multi-operator sync and coordination, Docker-only execution, dependable CLI discovery and role parity, and secure remote workers. Runtime QA has an integrated candidate, but its browser and Linux desktop profiles remain disabled behind security and release gates; it is not yet available as a supported project capability.
+> **Currently shipping:** an experimental Linux desktop app with private local task state, isolated task clones, concurrent workers, verification, and six coding CLI adapters. The greenfield architecture cutover is in progress. Runtime QA remains subject to its security and release gates.
 
 
 
@@ -59,7 +59,7 @@ Most coding agents are very good at writing code once they understand what they'
 
 Kool.ad/e lives in the gap between those two realities.
 
-It teases out ambiguity, maintains the specification, tracks unanswered questions, decomposes approved work, coordinates coding agents, verifies their output, and keeps you in control of what actually gets built.
+It teases out ambiguity, maintains published specifications in the project's code repository, keeps private tasks and conversations in local application storage, coordinates coding agents, verifies their output, and keeps you in control of what actually gets built.
 
 Basically, project management for people who would rather be writing software than project-managing software.
 
@@ -71,18 +71,18 @@ The main agent you interact with is **Kool.ad/e Man.ager**.
 
 No relation.
 
-Kool.ad/e Man.ager acts as the planning and coordination layer between you, your repository, and the coding agents doing the work.
+Kool.ad/e Man.ager acts as the planning layer between you, your repository, and the coding agents doing the work.
 
 Instead of throwing an entire product conversation into one enormous chat session and hoping everyone remembers what happened 80,000 tokens ago, Man.ager maintains durable project knowledge in your repository.
 
 It can:
 
 - interview you about a feature or project
-- identify questions, ambiguities, assumptions, and ownership gaps
+- identify questions, ambiguities, and assumptions
 - maintain the living product specification
 - recommend implementation approaches
 - generate ordered implementation tasks
-- coordinate implementation workers
+- dispatch implementation workers from private local task state
 - verify completed work
 - surface blockers when human judgment is actually required
 
@@ -134,7 +134,7 @@ Chat history is useful.
 
 Chat history is also a terrible product specification.
 
-Kool.ad/e maintains a **Git-backed living specification** describing the product as it exists now.
+Kool.ad/e maintains published product knowledge as ordinary documents in the project's **code Git repository**. Each read is pinned to the designated published commit; interview drafts and approvals remain private local data until an explicitly authorized, reviewed publication.
 
 Specifications capture things such as:
 
@@ -145,7 +145,7 @@ Specifications capture things such as:
 - important decisions
 - quality and acceptance expectations
 
-Changes are planned separately, reviewed, approved, implemented, and eventually reconciled back into the product specification.
+Changes are proposed separately, reviewed, approved, implemented, and eventually reconciled into published product knowledge.
 
 Git keeps the history.
 
@@ -181,7 +181,7 @@ A revolutionary governance model.
 
 ## From specification to task stories
 
-Once a specification is approved, Kool.ad/e can generate ordered implementation stories.
+Once a plan is approved, Kool.ad/e can generate ordered implementation stories.
 
 Each story contains the context needed to perform that piece of work, including:
 
@@ -194,19 +194,11 @@ Each story contains the context needed to perform that piece of work, including:
 - tests
 - verification commands
 
-Tasks are generated as durable Markdown artifacts in the repository.
+Tasks are stored durably in private local application storage and never added to a code repository or task clone.
 
-For example:
-
-```text
-planning/tasks/saved-searches/
-├── README.md
-├── specification.md
-├── 001-persist-named-search-filters.md
-└── 002-build-the-saved-search-picker.md
-```
-
-Generation is resumable. Completed stories are preserved if generation is interrupted, and user-edited stories are not silently overwritten.
+Generation is resumable in the private local store. Completed task records are
+preserved if generation is interrupted, and user decisions are revision-fenced
+so a stale worker cannot overwrite newer local state.
 
 Because "the AI regenerated my ticket and deleted the part I fixed" is not a feature.
 
@@ -368,21 +360,18 @@ The goal is to manage the development process without requiring you to marry one
 
 ## Current status
 
-Kool.ad/e is **v0.1.0 and under active development**.
-
-More importantly, it is already being used to build itself.
-
-That's either dogfooding or the beginning of an extremely niche science-fiction plot.
+Kool.ad/e is **v0.1.0 and under active development**. The clean-break
+architecture is being implemented before the project enters use.
 
 Current capabilities include:
 
 | Area | Status |
 | --- | --- |
 | Native desktop UI | ✅ |
-| Git-backed living specifications | ✅ |
+| Published specifications in the primary code repository | 🛠️ Greenfield cutover |
 | Kanban planning workflow | ✅ |
 | Per-task conversations | ✅ |
-| Questions / ambiguities / assumptions / ownership | ✅ |
+| Questions / ambiguities / assumptions | ✅ |
 | Architectural decision records | ✅ |
 | Plan comparisons | ✅ |
 | Task-story generation | ✅ |
@@ -402,7 +391,7 @@ Current capabilities include:
 | GitHub Copilot CLI | ✅ |
 | Linux x86_64 | ✅ Current experimental host; locked runtime image preparation requires explicit approval and rootless Docker |
 | Linux arm64 | 🧪 Unsigned native CI package only; not released or supported |
-| External managed planning repository | ✅ One planning repository per workspace; shared Git sync and per-record conflicts |
+| Private local task and QA records; published specs in code Git | 🔄 Issue #484 greenfield cutover and deferred manual validation |
 | Consistent CLI role support + resilient discovery | 🛠️ In progress |
 | Docker-only local execution | 🛠️ In progress |
 | Remote Docker workers | 🛠️ In progress |
@@ -417,7 +406,7 @@ Current capabilities include:
 Right now Kool.ad/e is deliberately opinionated:
 
 - **Linux x86_64 only**; native CI artifacts for other platforms are unsigned build evidence, not supported releases
-- shared planning is coordinated through an explicitly configured Git remote and manual sync; it does not provide live notifications or per-field access control
+- task histories, approvals, and worker state are private to the local installation; collaborators share code and published specifications through ordinary Git review
 - supported agent CLIs use the application-managed Docker MCP session for repository commands
 - Native Linux runtime images come from the bundled digest lock and are pulled only after explicit operator approval; Docker Desktop provisioning remains gated on verified VM transport and capacity evidence
 - repository tool availability requires an approved Docker target; context-only planning remains separate
@@ -432,30 +421,23 @@ If you enjoy software that is already useful while still being actively invented
 
 ---
 
-## Roadmap: from one machine to a whole crew
+## Roadmap
 
-Kool.ad/e began as a Linux desktop app with a planning board and isolated local coding agents. The next version of the idea is a **Git-backed, multi-operator, Docker-executed work manager**, with workers that can eventually run wherever you trust them.
+Kool.ad/e is being reworked around published project knowledge in code Git and private local task state. The architecture keeps isolated workers, user approval, independent QA, and protected Git publication.
 
 **The distinction matters:** checked-in code and completed issues are not the same thing as a fully tested, released feature. The steps below describe the present system, active cutover work, and queued architecture without pretending the whole drink has been mixed.
 
 ```mermaid
 flowchart LR
-    A["01 · TODAY<br/>Linux desktop<br/>Git-backed planning<br/>Separate planning repo + task clones"] --> B["02 · IN FLIGHT<br/>Multi-user sync + task claims<br/>Safe branch/PR coordination"]
-    B --> C["03 · QUEUED<br/>Docker-only tool execution<br/>CLI parity + reliable discovery<br/>Remote SSH workers"]
-    C --> D["04 · GATED CANDIDATE<br/>Browser + Linux desktop QA<br/>Profiles disabled pending release gates<br/>macOS + Windows hosts remain queued"]
+    A["Code Git<br/>Published specifications<br/>Reviewed changes"] --> C["Kool.ad/e installation<br/>Private tasks and conversations<br/>Local execution state"]
+    C --> D["Isolated task clones<br/>Human approval<br/>Independent QA"]
 ```
 
 ### 01. In the glass today
 
 Kanban planning, task-specific conversations, living specifications, six CLI integrations, independent Git clones, concurrent local execution, verification, and human-controlled publication. Docker-backed repository tools are in the integrated candidate; platform and release readiness remain under validation.
 
-### 02. Shared planning across multiple operators
-
-Each workspace has one separate **planning repository** alongside its code repository. Start with a GitHub code repository: Kool.ad/e clones it into its managed checkout folder and pairs it with `<code-repository>.packet` under the same owner. If that planning repository is missing, Kool.ad/e creates it with the code repository's visibility; an existing pair with mismatched visibility is refused. Planning uses normalized per-record files, explicit Git sync, task claims, branch/PR linkage, and conflict recovery. Code checkouts are not searched for planning data, and embedded planning artifacts are not migrated or used as fallback.
-
-Code branches belong to the code repository and do not change planning authority. See [the planning repository contract](docs/planning-repository-v1.md) for storage, sync, recovery, security, and limitations.
-
-### 03. Next major architectural upgrade: Docker everywhere work executes
+### Execution and QA
 
 Route all repository tooling through one Docker execution policy. Give **all six CLIs** the same approved capabilities for every role, make discovery crash-proof, resolve host code-mode blockers, provision dependencies through controlled brokers, and support authenticated **remote Linux Docker workers over SSH**. Workspaces and evidence travel via verified transfers; provider secrets and Git publication authority do not.
 
@@ -463,7 +445,7 @@ The shared request/policy/event contract is documented in [Execution architectur
 
 **Docker is required for repository tools on the current supported Linux path.** Remote worker readiness and cross-platform support remain subject to the release checks in the security matrix.
 
-### 04. Gated Runtime QA candidate and future platform support
+### Future platform support
 
 The integrated Runtime QA candidate can launch a finished app, interact with its UI, and inspect evidence. Its blocking-finding Manager repair proposal and complete repair loop are still in progress; browser and Linux desktop profiles remain disabled until their security and release gates pass. Native platform-specific testing will need additional workers and drivers.
 
@@ -520,34 +502,24 @@ Kool.ad/e is currently developed with Rust toolchain **1.98.1**.
 
 ## Where does everything live?
 
-Kool.ad/e keeps shared project knowledge in a separate Git repository so it can be versioned independently from code.
+Kool.ad/e keeps published project knowledge in the primary code repository. Private operational state is stored under the local application data root and is not synchronized.
 
-### In the managed checkouts
-
-```text
-~/kool-ade-workspaces/<code-repository>/      # cloned code
-~/.koolade-packet/projects/<workspace-id>/
-└── planning-repo/                            # separate <code-repository>.packet clone
-    ├── config/
-    ├── planning/
-    └── state/
-```
-
-`KOOLADE_HOME` can replace `~/.koolade-packet`. Kool.ad/e derives the planning repository from the code repository's GitHub owner and name; it does not ask users to choose local checkouts. Existing planning artifacts embedded in a code checkout are unsupported and are not copied, migrated, or used as fallback.
-
-### Outside the repository
-
-Operator-specific state such as conversation history and resumable local checkpoints lives under:
+### In the source repository and local application storage
 
 ```text
-~/.koolade-packet/projects/<project>/
+project-code-repo/
+└── docs/koolade/                             # published product knowledge
+
+$KOOLADE_HOME/projects/<project-uuid>/
+├── private operational records
+└── isolated task clones and execution state
 ```
 
-or the location configured through `KOOLADE_HOME`.
+`KOOLADE_HOME` selects the installation-local data root. Project directories use stable IDs derived from the code checkout. Kool.ad/e does not create a second Git repository for specifications or tasks.
 
 Implementation evidence is kept separately from the durable specification so your product documentation does not slowly become a landfill of terminal output.
 
-For the full layout, see [`docs/artifact-layout.md`](docs/artifact-layout.md).
+See the [storage boundary](docs/koolade/architecture/storage-boundaries.md) for the source-of-truth contract.
 
 ---
 
@@ -557,12 +529,12 @@ Kool.ad/e is a native Rust application using:
 
 - **Rust 2024**
 - **egui / eframe** for the desktop UI
-- **Git** as the durable history substrate
-- **Markdown** for human-readable planning artifacts
+- **Git** for code and published project documents
+- **Markdown** for human-readable product and architecture documents
 - external coding-agent CLIs through the `AiHarness` boundary
 - **Docker ExecutionSession** for application-managed repository tools
 
-**Execution architecture:** Rust planning and harness layers use Docker-backed local and remote execution sessions, authenticated SSH workers, bounded dependency and evidence flows, and independent shared planning Git repositories. Platform and release support are limited to the states recorded in the Docker security matrix.
+**Execution architecture:** workers use isolated task clones and application-managed execution sessions. Task records, approvals, and evidence remain in private local storage. Published-spec reads use a pinned commit from the primary code repository.
 
 There is no embedded LLM.
 

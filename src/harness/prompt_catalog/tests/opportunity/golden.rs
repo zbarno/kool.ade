@@ -46,7 +46,6 @@ fn versioned_opportunity_golden_outputs_match_policy_contract_and_validate() {
         );
     }
 
-    let manager_system_v7 = include_str!("../../../../../prompts/v7/manager.system.md");
     let manager_system = include_str!("../../../../../prompts/v8/manager.system.md");
     let manager_user = include_str!("../../../../../prompts/v8/manager.user.md");
     assert!(manager_system.contains("Only an explicit user choice may start planning"));
@@ -64,7 +63,6 @@ fn versioned_opportunity_golden_outputs_match_policy_contract_and_validate() {
     assert!(manager_system.contains("do not create a duplicate unsolicited opportunity card"));
     assert!(manager_system.contains("Treat planning work records as internal queue state"));
     assert!(manager_system.contains("never turn an internal retry, source investigation"));
-    assert!(!manager_system_v7.contains("Treat planning work records as internal queue state"));
     assert!(manager_user.contains("if it is absent or invalid, say capability state is unknown"));
     assert!(manager_user.contains("Never claim an unverified capability is missing"));
     assert!(manager_user.contains("do not cite workspace-private user evidence"));

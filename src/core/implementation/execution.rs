@@ -67,7 +67,7 @@ pub(super) fn run_with_planning_store_options(
     let active_progress = progress.clone();
     let migration_gate = crate::artifacts::locks::acquire_project_state_gate(state_root)?;
     anyhow::ensure!(
-        target_repository_with_store(planning_store, state_root, ticket)?.canonicalize()?
+        target_repository_with_store(planning_store, repo, ticket)?.canonicalize()?
             == repo.canonicalize()?,
         "Implementation checkout does not match the task repository manifest"
     );
@@ -147,7 +147,9 @@ pub(super) fn run_with_planning_store_options(
     if state.pr_url.is_none() && state.merged_commit.is_none() {
         state.auto_merge = publication_mode == PublicationMode::AutoPublish;
     }
-    if state.status == ImplementationStatus::Completed {
+    if state.status == ImplementationStatus::Completed
+        && !should_retry_pr_publication(planning_store, &state, publication_mode)?
+    {
         return Ok(state);
     }
     let lifecycle_repository = state
@@ -187,7 +189,7 @@ pub(super) fn run_with_planning_store_options(
         Err(anyhow::Error::new(FailureCause(Failure::new(
             FailureKind::LeaseLost,
             RecoveryDisposition::UserAction,
-            "The remote task claim was lost or could not be verified. Publication stopped and the task repository is preserved. Reacquire the task claim before resuming.",
+            "The local task execution fence was lost or could not be verified. Publication stopped and the task repository is preserved. Reacquire the local task fence before resuming.",
         ))))
     } else {
         result
@@ -198,12 +200,18 @@ pub(super) fn run_with_planning_store_options(
                 FailureKind::LeaseLost,
                 RecoveryDisposition::UserAction,
                 format!(
-                    "The remote task claim was lost or could not be verified. Publication stopped and the task repository is preserved. Reacquire the task claim before resuming. Previous operation: {error:#}"
+                    "The local task execution fence was lost or could not be verified. Publication stopped and the task repository is preserved. Reacquire the local task fence before resuming. Previous operation: {error:#}"
                 ),
             )))
         } else {
             error
         };
+        if lease_lost {
+            // The task record belongs to whichever worker now holds the
+            // fence. Preserve the clone on disk and leave all later writes to
+            // the current claimant.
+            return Err(error);
+        }
         if publication_mode == PublicationMode::CreatePullRequest
             && publication::preserve_done_after_failure(
                 planning_store,
@@ -213,11 +221,9 @@ pub(super) fn run_with_planning_store_options(
                 &error,
             )?
         {
-            return Ok(state);
+            return Err(error);
         }
-        state.status = if lease_lost {
-            ImplementationStatus::Blocked
-        } else if runner.cancel.load(Ordering::SeqCst) {
+        state.status = if runner.cancel.load(Ordering::SeqCst) {
             ImplementationStatus::Interrupted
         } else {
             ImplementationStatus::Blocked
@@ -259,6 +265,36 @@ pub(super) fn run_with_planning_store_options(
     Ok(state)
 }
 
+fn should_retry_pr_publication(
+    store: &crate::artifacts::planning_store::PlanningStore,
+    state: &Implementation,
+    mode: PublicationMode,
+) -> anyhow::Result<bool> {
+    if mode != PublicationMode::CreatePullRequest
+        || state.pr_url.is_some()
+        || state.merged_commit.is_some()
+    {
+        return Ok(false);
+    }
+    let Some(task_uid) = state.task_uid.as_deref() else {
+        return Ok(false);
+    };
+    let lifecycle = crate::core::lifecycle::LifecycleStore::new(store);
+    let Some(task) = lifecycle.task_for_planning_item(task_uid)? else {
+        return Ok(false);
+    };
+    let Some(work_uid) = task.pr_work_item_uid.as_deref() else {
+        return Ok(false);
+    };
+    let work = lifecycle.load_pr_preparation(work_uid)?;
+    Ok(matches!(
+        work.status,
+        crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization
+            | crate::core::lifecycle::PullRequestPreparationStatus::Publishing
+            | crate::core::lifecycle::PullRequestPreparationStatus::NeedsAttention
+    ))
+}
+
 mod code_review;
 pub(crate) use code_review::arbitrate_code_review_finding;
 
@@ -274,7 +310,7 @@ pub(super) fn persist_source_plan_before_task_state(
         planning_root,
         crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
-    let (text, task_uid, metadata) = read_ticket_and_identity(&planning_store, ticket)?;
+    let (_, task_uid, metadata) = read_ticket_and_identity(&planning_store, ticket)?;
     let dir = state_dir_for_task(planning_root, ticket, task_uid.as_deref())?;
     fs::create_dir_all(&dir)?;
     source::resolve(source::Request {
@@ -282,7 +318,6 @@ pub(super) fn persist_source_plan_before_task_state(
         repo,
         dir: &dir,
         ticket,
-        text: &text,
         metadata: metadata.as_ref(),
         publication_mode: PublicationMode::HoldForReview,
         runner,

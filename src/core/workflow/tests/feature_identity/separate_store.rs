@@ -2,110 +2,22 @@ use super::*;
 use crate::artifacts::planning_store::PlanningStore;
 
 #[test]
-fn separate_store_routes_spec_edit_approval_and_task_generation_away_from_code() {
+fn published_specs_stay_in_code_while_proposals_and_task_generation_stay_private() {
     let root = std::env::temp_dir().join(format!(
-        "koolade-workflow-separated-store-{}-{}",
+        "koolade-workflow-local-operations-{}-{}",
         std::process::id(),
         uuid::Uuid::new_v4()
     ));
     let code_root = root.join("code");
-    let planning_root = root.join("planning");
-    for repository in [&code_root, &planning_root] {
-        std::fs::create_dir_all(repository).unwrap();
-        assert!(
-            std::process::Command::new("git")
-                .args(["init", "-q", "-b", "main"])
-                .current_dir(repository)
-                .status()
-                .unwrap()
-                .success()
-        );
-        for (key, value) in [
-            ("user.name", "Koolade Test"),
-            ("user.email", "koolade@example.test"),
-        ] {
-            assert!(
-                std::process::Command::new("git")
-                    .args(["config", key, value])
-                    .current_dir(repository)
-                    .status()
-                    .unwrap()
-                    .success()
-            );
-        }
-        std::fs::write(repository.join("README.md"), "fixture\n").unwrap();
-        assert!(
-            std::process::Command::new("git")
-                .args(["add", "README.md"])
-                .current_dir(repository)
-                .status()
-                .unwrap()
-                .success()
-        );
-        assert!(
-            std::process::Command::new("git")
-                .args(["commit", "-qm", "fixture"])
-                .current_dir(repository)
-                .status()
-                .unwrap()
-                .success()
-        );
-    }
-    let store = PlanningStore::new(
-        uuid::Uuid::new_v4(),
-        &planning_root,
-        crate::artifacts::planning_store::StoreMode::ManagedLocal,
-    );
-    let manifest = crate::core::project_repos::ProjectManifest {
-        repositories: vec![crate::core::project_repos::Repository {
-            id: "root".into(),
-            role: "Code".into(),
-            remote: String::new(),
-            display_name: None,
-        }],
-    };
-    store
-        .atomic_write(
-            crate::artifacts::planning_store::paths::PROJECT_MANIFEST,
-            &serde_json::to_vec_pretty(&manifest).unwrap(),
-        )
-        .unwrap();
-    let mut initial_state = PlannerState::load_with_store(&code_root, &store).unwrap();
-    initial_state.bootstrap_missing().unwrap();
-
-    let spec = "# Overview\n\nUpdated through the injected planning store.\n";
-    let updates = vec![("product:overview".to_owned(), spec.to_owned())];
-    let layout = store.layout();
-    let module_path =
-        crate::artifacts::product_docs::document_path_for_update(&store, &updates[0].0, spec)
-            .unwrap();
-    let manifest = crate::artifacts::product_docs::updated_manifest(&store, &updates).unwrap();
-    let index = crate::artifacts::product_docs::refreshed_index(&store, &updates).unwrap();
-    let module_relative = module_path
-        .strip_prefix(layout.root())
-        .unwrap()
-        .to_string_lossy()
-        .into_owned();
-    let changes = vec![
-        (module_relative, spec.as_bytes().to_vec()),
-        (
-            crate::artifacts::planning_store::paths::PRODUCT_MANIFEST.to_owned(),
-            serde_json::to_vec_pretty(&manifest).unwrap(),
-        ),
-        (
-            crate::artifacts::planning_store::paths::PRODUCT_INDEX.to_owned(),
-            index.into_bytes(),
-        ),
-    ];
-    let revision = store.revision().unwrap();
-    store.transaction(&changes, Some(&revision)).unwrap();
-    assert_eq!(std::fs::read(module_path).unwrap(), spec.as_bytes());
-
-    let feature = feature_document(
-        "store-compatibility",
-        &planning_root,
-        "CHG-097",
-        "Saved searches",
+    let local_root = root.join("application-data");
+    std::fs::create_dir_all(&code_root).unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q", "-b", "main"])
+            .current_dir(&code_root)
+            .status()
+            .unwrap()
+            .success()
     );
     for (key, value) in [
         ("user.name", "Koolade Test"),
@@ -113,14 +25,60 @@ fn separate_store_routes_spec_edit_approval_and_task_generation_away_from_code()
     ] {
         assert!(
             std::process::Command::new("git")
-                .arg("-C")
-                .arg(&code_root)
                 .args(["config", key, value])
+                .current_dir(&code_root)
                 .status()
                 .unwrap()
                 .success()
         );
     }
+    let overview = code_root.join("docs/koolade/product/overview.md");
+    let feature_index = code_root.join("docs/koolade/features/AGENTS.md");
+    std::fs::create_dir_all(overview.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(feature_index.parent().unwrap()).unwrap();
+    std::fs::write(&overview, "# Overview\n\nPublished product truth.\n").unwrap();
+    std::fs::write(&feature_index, "# Navigation\n").unwrap();
+    for path in [
+        "docs/koolade/product/overview.md",
+        "docs/koolade/features/AGENTS.md",
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .args(["add", path])
+                .current_dir(&code_root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    assert!(
+        std::process::Command::new("git")
+            .args(["commit", "-qm", "Publish synthetic product documentation"])
+            .current_dir(&code_root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let published_head = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&code_root)
+        .output()
+        .unwrap();
+    let published_head = String::from_utf8(published_head.stdout).unwrap();
+    let store = PlanningStore::for_code_repository(uuid::Uuid::new_v4(), &local_root, &code_root);
+    let mut initial_state = PlannerState::load_with_store(&code_root, &store).unwrap();
+    initial_state.bootstrap_missing().unwrap();
+    // Use the snapshot's resolved published pin when binding private proposals.
+    let store = initial_state.planning_store.clone();
+
+    let spec = "# Overview\n\nA private product proposal.\n";
+    let updates = vec![("product:overview".to_owned(), spec.to_owned())];
+    let proposal = crate::core::apply::private_document_draft_changes(&store, &updates).unwrap();
+    let revision = store.revision().unwrap();
+    store
+        .transaction_with_revision(&proposal, Some(&revision))
+        .unwrap();
+    let feature = feature_document("local-operations", &store, "CHG-097", "Saved searches");
     let mut workflow = crate::artifacts::task_docs::load_workflow(&store).unwrap();
     workflow.approved_features.insert(
         "CHG-097".into(),
@@ -164,10 +122,22 @@ fn separate_store_routes_spec_edit_approval_and_task_generation_away_from_code()
             .iter()
             .any(|path| path.starts_with("state/workflow/"))
     );
-    assert_eq!(
-        std::fs::read(layout.product_root().join("overview.md")).unwrap(),
-        spec.as_bytes()
+    assert!(
+        crate::artifacts::product_docs::current_document(&store, "product:overview")
+            .unwrap()
+            .unwrap()
+            .contains("A private product proposal")
     );
+    assert!(
+        crate::artifacts::product_docs::render_product(&store)
+            .unwrap()
+            .unwrap()
+            .contains("Published product truth")
+    );
+    assert!(store.root.join("state/spec_drafts/current.json").is_file());
+    assert!(!store.root.join(".git").exists());
+    assert!(!store.layout().product_root().exists());
+    assert!(store.layout().tasks_root().is_dir());
     assert!(!store.layout().workflow_state().exists());
     assert!(
         !store
@@ -194,7 +164,21 @@ fn separate_store_routes_spec_edit_approval_and_task_generation_away_from_code()
             .len(),
         task_documents.len()
     );
-    assert!(!code_root.join("planning").exists());
+    let head_after = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&code_root)
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8(head_after.stdout).unwrap(),
+        published_head
+    );
+    let status = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(&code_root)
+        .output()
+        .unwrap();
+    assert!(status.stdout.is_empty());
 
     let _ = std::fs::remove_dir_all(root);
 }

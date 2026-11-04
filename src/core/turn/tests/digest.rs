@@ -9,7 +9,6 @@ fn task_mode_instructions_generalize_to_the_digest_contract() {
         crate::domain::Priority::Normal,
         crate::domain::ItemKind::Question,
         "Engineering".into(),
-        None,
         "Choose the SSO route.".into(),
         "Blocks the rollout draft.".into(),
     ));

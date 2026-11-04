@@ -1,11 +1,41 @@
 use super::*;
 
+pub(super) fn assert_feature_metadata_has_no_plan_state(markdown: &str) {
+    let marker = markdown
+        .lines()
+        .find(|line| line.starts_with("<!-- koolade-change:v1 "))
+        .expect("feature metadata marker is present");
+    let json = marker
+        .strip_prefix("<!-- koolade-change:v1 ")
+        .unwrap()
+        .strip_suffix(" -->")
+        .unwrap();
+    let metadata: serde_json::Value = serde_json::from_str(json).unwrap();
+    for field in [
+        "planComparison",
+        "comparisonHistory",
+        "selectedAlt",
+        "selectedPlan",
+        "adoption",
+    ] {
+        assert!(
+            metadata.get(field).is_none(),
+            "feature metadata retains workflow plan state field {field}: {metadata}"
+        );
+    }
+}
+
 #[test]
 fn compare_plans_turn_persists_two_options_for_the_ready_feature() {
     let _shield = crate::core::gitops::test_support::shield("feature-plan-comparison-turn");
     let (mut app, root, _) = setup();
-    let path = root.join("planning/changes/CHG-004-saved-searches/specification.md");
-    let body = std::fs::read_to_string(&path).unwrap();
+    let store = match &app.screen {
+        Screen::Connected(project) => project.state.planning_store.clone(),
+        Screen::Welcome => panic!("fixture remains connected"),
+    };
+    let body = crate::artifacts::product_docs::current_document(&store, "feature:CHG-004")
+        .unwrap()
+        .unwrap();
     let marker = body
         .lines()
         .find(|line| line.starts_with("<!-- koolade-change:v1 "))
@@ -17,19 +47,22 @@ fn compare_plans_turn_persists_two_options_for_the_ready_feature() {
         .unwrap();
     let mut metadata: serde_json::Value = serde_json::from_str(json).unwrap();
     metadata["schemaVersion"] = 2.into();
-    std::fs::write(
-        &path,
-        body.replace(
-            marker,
-            &format!(
-                "<!-- koolade-change:v1 {} -->",
-                serde_json::to_string(&metadata).unwrap()
-            ),
+    let body = body.replace(
+        marker,
+        &format!(
+            "<!-- koolade-change:v1 {} -->",
+            serde_json::to_string(&metadata).unwrap()
         ),
+    );
+    let changes = crate::core::apply::private_document_draft_changes(
+        &store,
+        &[("feature:CHG-004".into(), body)],
     )
     .unwrap();
+    store.transaction(&changes, None).unwrap();
     if let Screen::Connected(project) = &mut app.screen {
-        project.state = crate::core::state::PlannerState::load(&root).unwrap();
+        let store = project.state.planning_store.clone();
+        project.state = crate::core::state::PlannerState::load_with_store(&root, &store).unwrap();
         let body = project
             .state
             .active_features
@@ -39,7 +72,8 @@ fn compare_plans_turn_persists_two_options_for_the_ready_feature() {
             .1
             .clone();
         readiness::seed_test_readiness(&project.state.planning_store, "CHG-004", &body);
-        project.state = crate::core::state::PlannerState::load(&root).unwrap();
+        let store = project.state.planning_store.clone();
+        project.state = crate::core::state::PlannerState::load_with_store(&root, &store).unwrap();
     }
     let option = |id: &str, path: &str, phase: &str| {
         serde_json::json!({
@@ -108,9 +142,7 @@ fn compare_plans_turn_persists_two_options_for_the_ready_feature() {
         .find(|(id, _)| id == "CHG-004")
         .unwrap()
         .1;
-    let metadata = crate::domain::ChangeMetadata::require_markdown(feature).unwrap();
-    assert!(metadata.selected_alt.is_none());
-    assert!(metadata.plan_comparison.is_none());
+    assert_feature_metadata_has_no_plan_state(feature);
     if let Screen::Connected(project) = &mut app.screen {
         let body = project
             .state
@@ -125,7 +157,7 @@ fn compare_plans_turn_persists_two_options_for_the_ready_feature() {
     }
     record_test_plan_author(&mut app, "CHG-004");
     app.approve_feature_only("CHG-004");
-    record_test_plan_review(
+    record_test_plan_review_and_merge(
         &mut app,
         "CHG-004",
         crate::core::lifecycle::GateDecision::Approved,
@@ -139,11 +171,16 @@ fn compare_plans_turn_persists_two_options_for_the_ready_feature() {
     std::fs::remove_dir_all(root).unwrap();
 }
 #[test]
-fn discard_recompare_action_keeps_the_previous_plan_transcript() {
+fn discard_keeps_the_comparison_in_private_workflow_state() {
     let _shield = crate::core::gitops::test_support::shield("feature-plan-discard");
     let (mut app, root, _) = setup();
-    let path = root.join("planning/changes/CHG-004-saved-searches/specification.md");
-    let body = std::fs::read_to_string(&path).unwrap();
+    let store = match &app.screen {
+        Screen::Connected(project) => project.state.planning_store.clone(),
+        Screen::Welcome => panic!("fixture remains connected"),
+    };
+    let body = crate::artifacts::product_docs::current_document(&store, "feature:CHG-004")
+        .unwrap()
+        .unwrap();
     let identity = crate::domain::ArtifactIdentity::from_markdown(&body)
         .unwrap()
         .unwrap();
@@ -175,22 +212,40 @@ fn discard_recompare_action_keeps_the_previous_plan_transcript() {
         known_risks: vec![format!("Risk {id}")],
         reversibility: format!("Undo {id}"),
     };
-    let compared = crate::domain::ChangeMetadata::save_plan_comparison(
-        &body,
-        crate::domain::PlanComparison {
-            alternatives: vec![plan("A"), plan("B")],
-            recommendation: crate::domain::PlanRecommendation {
-                plan_id: "A".into(),
-                rationale: "Less risk".into(),
-                evidence: vec!["src/A.rs".into()],
-            },
-            selected_plan: None,
+    let comparison = crate::domain::PlanComparison {
+        alternatives: vec![plan("A"), plan("B")],
+        recommendation: crate::domain::PlanRecommendation {
+            plan_id: "A".into(),
+            rationale: "Less risk".into(),
+            evidence: vec!["src/A.rs".into()],
         },
+        selected_plan: None,
+    };
+    assert_eq!(identity.display_id, "CHG-004");
+    let changes = crate::core::apply::private_document_draft_changes(
+        &store,
+        &[("feature:CHG-004".into(), body)],
     )
     .unwrap();
-    assert_eq!(identity.display_id, "CHG-004");
-    std::fs::write(&path, compared).unwrap();
+    store.transaction(&changes, None).unwrap();
     if let Screen::Connected(project) = &mut app.screen {
+        let mut workflow =
+            crate::artifacts::task_docs::load_workflow(&project.state.planning_store).unwrap();
+        workflow.plan_comparisons.insert(
+            "CHG-004".into(),
+            crate::core::workflow::PlanComparisonRecord {
+                schema_version: 1,
+                feature_id: "CHG-004".into(),
+                alternatives: comparison,
+                history: Vec::new(),
+                transcript: "Two alternatives were compared; plan A was recommended.".into(),
+                status: crate::core::workflow::PlanComparisonStatus::Proposed,
+                selected_plan: None,
+                updated_at_ms: 1,
+            },
+        );
+        crate::artifacts::task_docs::save_workflow(&project.state.planning_store, &workflow)
+            .unwrap();
         project.state = crate::core::state::PlannerState::load(&root).unwrap();
     }
     app.dispatch(crate::ui::ApplicationCommand::DiscardFeaturePlans {
@@ -209,12 +264,27 @@ fn discard_recompare_action_keeps_the_previous_plan_transcript() {
         readiness::seed_test_readiness(&project.state.planning_store, "CHG-004", &body);
         project.state = crate::core::state::PlannerState::load(&root).unwrap();
     }
-    let saved = std::fs::read_to_string(path).unwrap();
-    let metadata = crate::domain::ChangeMetadata::require_markdown(&saved).unwrap();
-    assert!(metadata.plan_comparison.is_none());
-    assert!(metadata.comparison_history.is_empty());
-    assert!(saved.contains("## Plan Comparison History"));
-    let workflow = crate::artifacts::task_docs::load_workflow(&root).unwrap();
+    let store = match &app.screen {
+        Screen::Connected(project) => &project.state.planning_store,
+        Screen::Welcome => panic!("fixture remains connected"),
+    };
+    let saved = crate::artifacts::product_docs::current_document(store, "feature:CHG-004")
+        .unwrap()
+        .unwrap();
+    assert_feature_metadata_has_no_plan_state(&saved);
+    assert!(!saved.contains("## Plan Comparison History"));
+    let workflow = crate::artifacts::task_docs::load_workflow(&private_store_root(&app)).unwrap();
+    assert_eq!(
+        workflow.plan_comparisons["CHG-004"].transcript,
+        "Two alternatives were compared; plan A was recommended."
+    );
+    assert_eq!(
+        workflow.plan_comparisons["CHG-004"]
+            .alternatives
+            .alternatives
+            .len(),
+        2
+    );
     assert_eq!(
         workflow.plan_comparisons["CHG-004"].status,
         crate::core::workflow::PlanComparisonStatus::Discarded

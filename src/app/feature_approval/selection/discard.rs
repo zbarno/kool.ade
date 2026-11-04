@@ -10,239 +10,67 @@ impl KooladeApp {
                 .warning("Wait for the comparison turn to finish before discarding it.");
             return;
         }
-        let Some((_, body)) = project
-            .state
-            .active_features
-            .iter()
-            .find(|(feature_id, _)| feature_id == id)
-        else {
+        let Some(mut record) = project.state.workflow.plan_comparisons.get(id).cloned() else {
             self.toasts
-                .danger(format!("Feature {id} is no longer available."));
+                .warning("This feature has no locally saved plan comparison to discard.");
             return;
         };
-        let body = body.clone();
-        if let Some(mut record) = project.state.workflow.plan_comparisons.get(id).cloned() {
-            let guard = crate::core::writer_gate::acquire();
-            let store = &project.state.planning_store;
-            record.status = crate::core::workflow::PlanComparisonStatus::Discarded;
-            record.selected_plan = None;
-            record.alternatives.selected_plan = None;
-            record.updated_at_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|elapsed| elapsed.as_millis())
-                .unwrap_or(record.updated_at_ms);
-            let mut workflow = project.state.workflow.clone();
-            workflow.plan_comparisons.insert(id.to_owned(), record);
-            let feature_path = match crate::artifacts::product_docs::document_path(
-                store,
-                &format!("feature:{id}"),
-            ) {
-                Ok(path) => path,
-                Err(error) => {
-                    self.toasts
-                        .danger(format!("Cannot locate feature: {error}"));
-                    return;
-                }
-            };
-            let current_feature = match store.read_planning_path(&feature_path).and_then(|bytes| {
-                String::from_utf8(bytes).map_err(|error| {
-                    crate::artifacts::planning_store::StoreError::MalformedState(error.to_string())
-                })
-            }) {
-                Ok(current) if current == body => current,
-                Ok(_) => {
-                    self.toasts
-                        .warning("The feature changed. Reopen it and review the current plans.");
-                    return;
-                }
-                Err(error) => {
-                    self.toasts.danger(format!("Cannot read feature: {error}"));
-                    return;
-                }
-            };
-            let discarded_feature =
-                match crate::domain::ChangeMetadata::discard_plan_comparison(&current_feature) {
-                    Ok(updated) => updated,
-                    Err(error) => {
-                        self.toasts
-                            .danger(format!("Cannot discard comparison details: {error}"));
-                        return;
-                    }
-                };
-            let updated_feature = match crate::domain::ChangeMetadata::clear_legacy_comparison_state(
-                &discarded_feature,
-            ) {
-                Ok(updated) => updated,
-                Err(error) => {
-                    self.toasts
-                        .danger(format!("Cannot migrate comparison metadata: {error}"));
-                    return;
-                }
-            };
-            let feature_relative = feature_path
-                .strip_prefix(store.root.as_path())
-                .unwrap()
-                .to_string_lossy()
-                .replace('\\', "/");
-            let (mut changes, workflow_checks, _) =
-                match crate::artifacts::task_docs::workflow_record_changes(store, &workflow) {
-                    Ok(changes) => changes,
-                    Err(error) => {
-                        self.toasts
-                            .danger(format!("Cannot save comparison: {error}"));
-                        return;
-                    }
-                };
-            changes.push((feature_relative, updated_feature.clone().into_bytes()));
-            let (paths, revision) = match store.transaction_with_revision_and_record_revisions(
-                &changes,
-                Some(&project.state.baseline_planning_revision),
-                &workflow_checks,
-            ) {
-                Ok((paths, revision)) => (
-                    paths
-                        .iter()
-                        .map(|path| store.git_path(path))
-                        .collect::<Vec<_>>(),
-                    revision,
-                ),
-                Err(error) => {
-                    self.toasts
-                        .danger(format!("Discard was rolled back: {error}"));
-                    return;
-                }
-            };
-            project.state.workflow = match crate::artifacts::task_docs::load_workflow(store) {
-                Ok(workflow) => workflow,
-                Err(error) => {
-                    self.toasts.danger(format!(
-                        "Discard was saved but workflow reload failed: {error}"
-                    ));
-                    return;
-                }
-            };
-            project.state.baseline_planning_revision = revision;
-            if let Some((_, feature)) = project
-                .state
-                .active_features
-                .iter_mut()
-                .find(|(feature_id, _)| feature_id == id)
-            {
-                *feature = updated_feature.clone();
-            }
-            if project
-                .state
-                .active_feature
-                .as_ref()
-                .is_some_and(|(feature_id, _)| feature_id == id)
-            {
-                project.state.active_feature = Some((id.to_owned(), updated_feature));
-            }
-            let commit = crate::core::gitops::commit(
-                &store.git_root(),
-                &format!("planner: discard plan comparison for {id}"),
-                &paths,
-            );
-            drop(guard);
-            match commit {
-                Ok(_) => self
-                    .toasts
-                    .success(format!("Comparison discarded for {id}.")),
-                Err(error) => self.toasts.warning(format!(
-                    "Comparison was discarded, but its Git checkpoint failed: {error}"
-                )),
-            }
+        if record.status != crate::core::workflow::PlanComparisonStatus::Proposed {
+            self.toasts
+                .warning("An adopted plan cannot be discarded; start a new feature revision.");
             return;
         }
-        let path = match crate::artifacts::product_docs::document_path(
-            &project.state.planning_store,
-            &format!("feature:{id}"),
-        ) {
-            Ok(path) => path,
-            Err(error) => {
-                self.toasts
-                    .danger(format!("Cannot locate feature: {error}"));
-                return;
-            }
-        };
-        let guard = crate::core::writer_gate::acquire();
+
+        record.status = crate::core::workflow::PlanComparisonStatus::Discarded;
+        record.selected_plan = None;
+        record.alternatives.selected_plan = None;
+        record.updated_at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis())
+            .unwrap_or(record.updated_at_ms);
+        if let Err(error) = record.validate() {
+            self.toasts
+                .danger(format!("Cannot discard comparison: {error}"));
+            return;
+        }
+
+        let _guard = crate::core::writer_gate::acquire();
         let store = &project.state.planning_store;
-        let current = match store.read_planning_path(&path).and_then(|bytes| {
-            String::from_utf8(bytes).map_err(|error| {
-                crate::artifacts::planning_store::StoreError::MalformedState(error.to_string())
-            })
-        }) {
-            Ok(current) if current == *body => current,
-            Ok(_) => {
-                self.toasts
-                    .warning("The feature changed. Reopen it and review the latest comparison.");
-                return;
-            }
-            Err(error) => {
-                self.toasts.danger(format!("Cannot read feature: {error}"));
-                return;
-            }
-        };
-        let updated = match crate::domain::ChangeMetadata::discard_plan_comparison(&current) {
-            Ok(updated) => updated,
-            Err(error) => {
-                self.toasts
-                    .danger(format!("Cannot discard comparison: {error}"));
-                return;
-            }
-        };
-        let relative = path
-            .strip_prefix(store.root.as_path())
-            .unwrap()
-            .to_string_lossy()
-            .replace('\\', "/");
-        let (paths, revision) = match store.transaction_with_revision(
-            &[(relative, updated.clone().into_bytes())],
+        let mut workflow = project.state.workflow.clone();
+        workflow.plan_comparisons.insert(id.to_owned(), record);
+        let (changes, checks) =
+            match crate::artifacts::task_docs::workflow_record_changes(store, &workflow) {
+                Ok(changes) => changes,
+                Err(error) => {
+                    self.toasts
+                        .danger(format!("Cannot save comparison: {error}"));
+                    return;
+                }
+            };
+        let revision = match store.transaction_with_revision_and_record_revisions(
+            &changes,
             Some(&project.state.baseline_planning_revision),
+            &checks,
         ) {
-            Ok((paths, revision)) => (
-                paths
-                    .iter()
-                    .map(|path| store.git_path(path))
-                    .collect::<Vec<_>>(),
-                revision,
-            ),
+            Ok((_, revision)) => revision,
             Err(error) => {
                 self.toasts
                     .danger(format!("Discard was rolled back: {error}"));
                 return;
             }
         };
+        project.state.workflow = match crate::artifacts::task_docs::load_workflow(store) {
+            Ok(workflow) => workflow,
+            Err(error) => {
+                self.toasts.danger(format!(
+                    "Discard was saved but workflow reload failed: {error}"
+                ));
+                return;
+            }
+        };
         project.state.baseline_planning_revision = revision;
-        if let Some((_, feature_body)) = project
-            .state
-            .active_features
-            .iter_mut()
-            .find(|(feature_id, _)| feature_id == id)
-        {
-            *feature_body = updated.clone();
-        }
-        if project
-            .state
-            .active_feature
-            .as_ref()
-            .is_some_and(|(feature_id, _)| feature_id == id)
-        {
-            project.state.active_feature = Some((id.to_owned(), updated));
-        }
-        let commit = crate::core::gitops::commit(
-            &store.git_root(),
-            &format!("planner: discard plan comparison for {id}"),
-            &paths,
-        );
-        drop(guard);
-        match commit {
-            Ok(_) => self.toasts.success(format!(
-                "Comparison discarded for {id}; the prior transcript is retained."
-            )),
-            Err(error) => self.toasts.warning(format!(
-                "Comparison was discarded, but its Git checkpoint failed: {error}"
-            )),
-        }
+        self.toasts.success(format!(
+            "Comparison discarded for {id}; the prior transcript is retained."
+        ));
     }
 }

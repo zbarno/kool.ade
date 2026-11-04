@@ -53,18 +53,16 @@ pub fn presentation(
         return Some((context, greeting.into()));
     }
     use crate::domain::{Authority, ItemStatus};
-    let synthetic = crate::core::ownership::synthesize_for_state(state);
     let item = state
         .items
         .iter()
         .chain(&state.resolved_items)
-        .chain(&synthetic)
         .find(|item| item.conversation_key() == key);
     let user = state.effective_user();
     let eligible = |item: &crate::domain::OpenItem| {
         item.status == ItemStatus::Open
             && item.authority != Authority::Agent
-            && crate::core::routing::evaluate(item, &user, &state.config.stakeholders).is_eligible()
+            && crate::core::routing::evaluate(item, &user).is_eligible()
     };
     if let Some(item) = item {
         let context = format!(
@@ -78,14 +76,7 @@ pub fn presentation(
             item.status
         );
         let ask = if eligible(item) {
-            if item.is_ownership_gap() {
-                format!(
-                    "Who should own {}? You can use this item's Assign ownership control.",
-                    item.category
-                )
-            } else {
-                item.question.clone()
-            }
+            item.question.clone()
         } else {
             "You can ask me about this item.".into()
         };
@@ -153,12 +144,10 @@ pub fn prompt(
         return opportunity::prompt(state, uid, message, history);
     }
     let docs = crate::artifacts::task_docs::load_board(&state.planning_store, &state.workflow);
-    let synthetic = crate::core::ownership::synthesize_for_state(state);
     let mut subject = if let Some(item) = state
         .items
         .iter()
         .chain(&state.resolved_items)
-        .chain(&synthetic)
         .find(|item| item.conversation_key() == key)
     {
         serde_json::to_string_pretty(item).map_err(|e| e.to_string())?
@@ -185,18 +174,18 @@ pub fn prompt(
                 &context,
                 &history,
                 message,
-                &state
-                    .planning_store
-                    .git_path(crate::artifacts::planning_store::paths::PRODUCT),
+                "docs/koolade/product",
             ));
         }
         return Ok(feature_planning::for_work(
             state, &work, &context, &history, message,
         ));
     };
-    if let Some(worker) =
-        crate::core::implementation::load_with_store(&state.planning_store, &state.repo_root, key)
-    {
+    if let Some(worker) = crate::core::implementation::load_with_store(
+        &state.planning_store,
+        &state.planning_store.root,
+        key,
+    ) {
         subject.push_str(&format!(
             "\nCurrent implementation status: {}\n{}\nPull request: {}\nMerged commit: {}",
             worker.status,
@@ -221,18 +210,18 @@ pub fn prompt(
         .into_iter()
         .take(3)
     {
-        if let Ok(path) = crate::artifacts::product_docs::document_path(
+        if let Ok(Some(body)) = crate::artifacts::product_docs::current_document(
             &state.planning_store,
             &format!("feature:{id}"),
-        ) && let Ok(body) = std::fs::read_to_string(path)
-        {
+        ) {
             references.push_str(&format!("\nFeature {id}\n{}", clip(&body, 10000)));
         }
     }
     if let Ok(Some(modules)) = crate::artifacts::product_docs::load_documents(&state.planning_store)
     {
         for document in modules {
-            if subject.contains(&document.module.id) || subject.contains(&document.module.title) {
+            let published_path = format!("docs/koolade/product/{}", document.module.path);
+            if subject.contains(&published_path) {
                 references.push_str(&format!(
                     "\n{} ({})\n{}",
                     document.module.title,
@@ -283,7 +272,7 @@ pub fn prompt(
         .collect::<Vec<_>>()
         .join("\n");
     Ok(format!(
-        "=== TASK CONVERSATION: {key} ===\nYou are continuing this board task, not generic Main Chat. Do not generate task stories or claim implementation work. Answer clarifying questions briefly in everyday language, usually one or two sentences. A question, uncertainty, or request for explanation is not a submitted answer: leave existing decisions unresolved and do not change their selected options. Preserve established decisions instead of asking for confirmation again. Only persist an explicit answer through validated specification and item updates. Resolve only existing CLR-numbered items. Resolve Agent-owned uncertainty from evidence; add all actionable independent Human/Review items together, include their consequences and rationale, and set blocked_by for dependent decisions that must wait. Never ask an actionable question only in prose; summarize progress and point to the board. Ownership assignments are made through the item's Assign ownership control. Do not claim implementation worker status changes through prose.\n\nPROJECT: {}\nCURRENT USER: {:?}\n\nDURABLE TASK CONTEXT\n{}\n\nEXPLICITLY RELATED ITEMS\n{}\n\nREFERENCED SPECIFICATION\n{}\nRead referenced source artifacts if more context is needed; never write files directly.\n\nTHIS TASK'S CONVERSATION ONLY\n{history}\n\nUSER REPLY\n{message}",
+        "=== TASK CONVERSATION: {key} ===\nYou are continuing this board task, not generic Main Chat. Do not generate task stories or claim implementation work. Answer clarifying questions briefly in everyday language, usually one or two sentences. A question, uncertainty, or request for explanation is not a submitted answer: leave existing decisions unresolved and do not change their selected options. Preserve established decisions instead of asking for confirmation again. Only persist an explicit answer through validated specification and item updates. Resolve only existing CLR-numbered items. Resolve Agent-owned uncertainty from evidence; add all actionable independent Human/Review items together, include their consequences and rationale, and set blocked_by for dependent decisions that must wait. Never ask an actionable question only in prose; summarize progress and point to the board. Do not claim implementation worker status changes through prose.\n\nPROJECT: {}\nCURRENT USER: {:?}\n\nDURABLE TASK CONTEXT\n{}\n\nEXPLICITLY RELATED ITEMS\n{}\n\nREFERENCED SPECIFICATION\n{}\nRead referenced source artifacts if more context is needed; never write files directly.\n\nTHIS TASK'S CONVERSATION ONLY\n{history}\n\nUSER REPLY\n{message}",
         state.title,
         state.effective_user(),
         clip(&subject, 16000),

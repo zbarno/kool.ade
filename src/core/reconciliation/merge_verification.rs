@@ -125,7 +125,7 @@ pub fn validate_pr_repository_binding(
         !repository_id.trim().is_empty() && repository_id.len() <= 80,
         "task repository identity is invalid"
     );
-    let registered_identity = crate::core::planning_sync::remote_identity_for(
+    let registered_identity = crate::core::git_commands::remote_identity_for(
         std::path::Path::new("."),
         registered_repository_url,
     );
@@ -133,7 +133,7 @@ pub fn validate_pr_repository_binding(
         registered_identity == format!("git://{expected_repository}"),
         "persisted PR URL does not match the registered task repository"
     );
-    let origin_identity = crate::core::planning_sync::remote_identity_for(
+    let origin_identity = crate::core::git_commands::remote_identity_for(
         std::path::Path::new("."),
         effective_origin_url,
     );
@@ -156,14 +156,14 @@ fn same_patch(
 }
 
 fn patch_id(repository: &Path, base: &str, head: &str) -> anyhow::Result<String> {
-    let diff = crate::core::planning_sync::validated_git_command(repository)?
+    let diff = crate::core::git_commands::validated_git_command(repository)?
         .args(["diff", "--no-ext-diff", "--no-textconv", base, head])
         .output()?;
     anyhow::ensure!(
         diff.status.success(),
         "git could not inspect PR merge changes"
     );
-    let mut command = crate::core::planning_sync::validated_git_command(repository)?;
+    let mut command = crate::core::git_commands::validated_git_command(repository)?;
     command.args(["patch-id", "--verbatim"]);
     use std::io::Write as _;
     let mut child = command
@@ -194,7 +194,7 @@ fn valid_oid(value: &str) -> bool {
 }
 
 fn is_ancestor(repository: &Path, ancestor: &str, descendant: &str) -> anyhow::Result<bool> {
-    let output = crate::core::planning_sync::validated_git_command(repository)?
+    let output = crate::core::git_commands::validated_git_command(repository)?
         .args(["merge-base", "--is-ancestor", ancestor, descendant])
         .output()?;
     if output.status.success() {
@@ -208,7 +208,7 @@ fn is_ancestor(repository: &Path, ancestor: &str, descendant: &str) -> anyhow::R
 }
 
 fn git(repository: &Path, args: &[&str]) -> anyhow::Result<String> {
-    let output = crate::core::planning_sync::validated_git_command(repository)?
+    let output = crate::core::git_commands::validated_git_command(repository)?
         .args(args)
         .output()?;
     anyhow::ensure!(

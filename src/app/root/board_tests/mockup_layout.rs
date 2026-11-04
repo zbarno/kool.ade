@@ -29,7 +29,7 @@ fn board_mockup_hierarchy_and_centered_legend_at_desktop_sizes() {
         assert!(text_position(&output, "+ 2 more in task details").is_none());
         assert!(text_position(&output, "Keep workspaces separate").is_none());
         let first = text_position(&output, "Task").expect("legend starts");
-        let last = text_position(&output, "Ownership").expect("legend ends");
+        let last = text_position(&output, "Assumption").expect("legend ends");
         let board_tab = text_position(&output, "Board  3").unwrap();
         let new_task = text_position(&output, "+ New Task").unwrap();
         assert!(

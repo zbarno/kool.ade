@@ -114,19 +114,11 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(&path).unwrap();
-        assert!(
-            std::process::Command::new("git")
-                .args(["init", "--quiet"])
-                .current_dir(&path)
-                .status()
-                .unwrap()
-                .success()
-        );
         path
     }
 
     #[test]
-    fn project_routes_roundtrip_through_the_shared_planning_store() {
+    fn project_routes_roundtrip_through_the_private_local_store() {
         let root = root();
         let store = PlanningStore::new(
             uuid::Uuid::new_v4(),

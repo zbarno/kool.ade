@@ -27,7 +27,7 @@ fn typed_lifecycle_transitions_round_trip_through_locked_disk_transactions() {
         requested.tasks[TASK_ID].state,
         SetupTaskStateV1::NeedsApproval
     );
-    assert_eq!(transaction::load_from(&path).unwrap().0, requested);
+    assert_eq!(transaction::load_from(&path).unwrap(), requested);
 
     let authorized = transaction::apply_transition_at(
         &path,
@@ -62,5 +62,5 @@ fn typed_lifecycle_transitions_round_trip_through_locked_disk_transactions() {
         awaiting.tasks[TASK_ID].state,
         SetupTaskStateV1::AwaitingVerification
     );
-    assert_eq!(transaction::load_from(&path).unwrap().0, awaiting);
+    assert_eq!(transaction::load_from(&path).unwrap(), awaiting);
 }

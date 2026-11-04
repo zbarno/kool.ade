@@ -27,7 +27,6 @@ pub(super) struct CardProbe {
     pub(super) busy: bool,
     pub(super) sent: u32,
     pub(super) user: CurrentUser,
-    pub(super) stakes: crate::domain::Stakeholders,
     pub(super) toasts: ToastQueue,
 }
 
@@ -41,7 +40,6 @@ impl CardProbe {
                 Priority::High,
                 ItemKind::Question,
                 "General".to_string(),
-                None,
                 question.to_string(),
                 "Vendor selection".to_string(),
             )],
@@ -49,7 +47,7 @@ impl CardProbe {
                 ChatMessage::new(ChatRole::User, "Pick a vendor.", None),
                 ChatMessage::new(ChatRole::Agent, digest, None),
             ],
-            user: CurrentUser::new("Operator", vec![]),
+            user: CurrentUser::new("Operator"),
             draft_present: true,
             ..Self::default()
         }
@@ -132,14 +130,10 @@ impl Surface for CardProbe {
     fn planning_board(&self) -> crate::ui::planning_board::ViewModel {
         crate::ui::planning_board::ViewModel {
             planning_items: self.items.clone(),
-            eligible_item_ids: crate::core::routing::eligible_items(
-                &self.items,
-                &self.user,
-                &self.stakes,
-            )
-            .iter()
-            .map(|item| item.id.clone())
-            .collect(),
+            eligible_item_ids: crate::core::routing::eligible_items(&self.items, &self.user)
+                .iter()
+                .map(|item| item.id.clone())
+                .collect(),
             ..Default::default()
         }
     }

@@ -95,6 +95,7 @@ pub(super) fn save_refresh_state(
             "base": "main",
             "base_commit": base_sha,
             "task_repository": root,
+            "task_repository_kind": "clone",
             "status": "awaiting_review",
             "detail": "Awaiting provider refresh",
             "pr_url": PR_URL,

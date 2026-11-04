@@ -37,8 +37,7 @@ impl TaskChats {
         reply_claim_id: Option<&str>,
     ) -> Result<Option<TaskReplyLock>, String> {
         let lock = Self::lock_store(slug)?;
-        let (mut stored, _) = super::read_stored(slug)?;
-        super::canonicalize(&mut stored);
+        let stored = super::read_stored(slug)?;
         let Some(messages) = stored_history(&stored, key) else {
             return Ok(None);
         };

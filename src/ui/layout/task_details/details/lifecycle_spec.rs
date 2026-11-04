@@ -12,6 +12,7 @@ pub(super) fn paint(
     ui.group(|ui| {
         ui.label(egui::RichText::new("Specification changes need your review").strong());
         ui.label(&review.reason);
+        ui.label("Approving creates a protected documentation PR from an isolated branch. The published specification changes only after that PR is merged.");
         if let Some(proposal) = &review.proposal {
             for delta in &proposal.deltas {
                 ui.collapsing(&delta.requirement_id, |ui| {
@@ -25,7 +26,7 @@ pub(super) fn paint(
                     }
                 });
             }
-            if ui.button("Approve and apply specification changes").clicked() {
+            if ui.button("Approve and open documentation PR").clicked() {
                 surface.dispatch(crate::ui::ApplicationCommand::TaskDetail(
                     task_detail::Command::ApproveSpecReconciliation {
                         ticket: ticket.to_owned(),

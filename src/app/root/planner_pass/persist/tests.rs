@@ -66,7 +66,7 @@ fn planner_output(feature_uid: &str) -> crate::harness::prompt_catalog::PlannerO
 
 fn install_feature(store: &crate::artifacts::planning_store::PlanningStore) -> (String, String) {
     let draft = String::from(
-        "# CHG-997: Clarification readiness\n\n**Status:** Ready\n\n## Intent\n\nTest complete requirement traceability.\n\n## Current Behavior\n\nRetention behavior is unspecified.\n\n## Desired Behavior\n\nRetention is configurable and auditable.\n\n## Scope\n\n- Configure retention.\n\n## Requirements\n\n- REQ-1: Retention must be configurable.\n- REQ-2: Retention changes must be auditable.\n\n## Acceptance Criteria\n\n- AC-001: Retention has an audit trail.\n",
+        "# CHG-997: Clarification readiness\n\n**Status:** Ready\n\n## Intent\n\nTest complete requirement traceability.\n\n## Current Behavior\n\nRetention behavior is unspecified.\n\n## Desired Behavior\n\nRetention is configurable and auditable.\n\n## Scope\n\n- Configure retention.\n\n## Affected Product Areas\n\nproduct:overview\n\n## Requirements\n\n- REQ-1: Retention must be configurable.\n- REQ-2: Retention changes must be auditable.\n\n## Decisions and Assumptions\n\n- Retention choices will be recorded with their rationale.\n\n## Acceptance Criteria\n\n- AC-001: Retention has an audit trail.\n",
     );
     let identified = crate::domain::ArtifactIdentity::preserve_markdown(
         &draft,
@@ -278,10 +278,16 @@ fn planner_records_evidence_resolution_without_claiming_a_user_answer() {
             .iter()
             .any(|item| item == &format!("repository-overview:{feature_uid}"))
     );
-    let (_, updated_feature) = crate::artifacts::product_docs::active_features(&store)
-        .into_iter()
-        .find(|(_, markdown)| markdown.contains(&feature_uid))
-        .expect("feature remains active after technical resolution");
+    let proposal = crate::core::apply::load_current(&store)
+        .unwrap()
+        .expect("technical resolution stages a local feature proposal");
+    let updated_feature = proposal
+        .changes
+        .iter()
+        .find(|change| change.document_id == "feature:CHG-997")
+        .expect("proposal includes the feature resolution")
+        .content
+        .as_str();
     assert!(updated_feature.contains("Keep the existing JSON response envelope"));
     assert!(updated_feature.contains("delimiter remains decision text"));
     assert!(updated_feature.contains("repository-overview:"));

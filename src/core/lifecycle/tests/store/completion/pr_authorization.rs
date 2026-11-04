@@ -13,7 +13,8 @@ pub(super) mod current_support;
 #[test]
 fn task_completion_and_pr_preparation_are_committed_as_one_transition() {
     let fixture = Fixture::new();
-    let (base_commit, pr_head, merge_commit) = current_support::init_merged_repo(&fixture.0);
+    let code_repo = fixture.code_repo();
+    let (base_commit, pr_head, merge_commit) = current_support::init_merged_repo(&code_repo);
     let store = fixture.store();
     let lifecycle = LifecycleStore::new(&store);
     let (feature_uid, task_uid, child_uid, _feature_revision_before_task_creation) =
@@ -184,7 +185,7 @@ fn task_completion_and_pr_preparation_are_committed_as_one_transition() {
         &base_commit,
         &pr_head,
         &merge_commit,
-        &fixture.0,
+        &code_repo,
     );
     current_support::assert_merge_trigger(&lifecycle, &feature_uid, &task_uid, work.revision);
     assert!(

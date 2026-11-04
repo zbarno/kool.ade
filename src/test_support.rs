@@ -1,5 +1,28 @@
 //! Shared synchronization for tests that mutate process-wide environment state.
 
+pub(crate) fn current_change_fixture(
+    markdown: &str,
+    status: crate::domain::ChangeStatus,
+) -> anyhow::Result<String> {
+    let heading = markdown
+        .lines()
+        .find_map(|line| line.strip_prefix("# "))
+        .ok_or_else(|| anyhow::anyhow!("Change fixture has no title heading"))?;
+    let (display_id, title) = heading
+        .split_once(": ")
+        .ok_or_else(|| anyhow::anyhow!("Change fixture title has no display ID"))?;
+    let previous = crate::domain::ArtifactIdentity::from_markdown(markdown)?;
+    let identified = crate::domain::ArtifactIdentity::preserve_markdown(
+        markdown,
+        previous.as_ref().map(|_| markdown),
+        display_id,
+        title,
+    )?;
+    let identity = crate::domain::ArtifactIdentity::from_markdown(&identified)?
+        .ok_or_else(|| anyhow::anyhow!("Change fixture identity was not written"))?;
+    crate::domain::ChangeMetadata::write_markdown(&identified, &identity, status)
+}
+
 use std::{
     cell::RefCell,
     ffi::{OsStr, OsString},
@@ -36,6 +59,83 @@ pub(crate) fn lock_process_environment() -> ProcessEnvironmentLock {
     ProcessEnvironmentLock {
         _not_send: PhantomData,
     }
+}
+
+#[cfg(test)]
+pub(crate) fn set_test_origin_default(repository: &Path) {
+    use std::process::Command;
+
+    fn git(repository: &Path, arguments: &[&str]) -> std::process::Output {
+        Command::new("git")
+            .arg("-C")
+            .arg(repository)
+            .args(arguments)
+            .output()
+            .expect("Git is available for the local test fixture")
+    }
+
+    let remotes = git(repository, &["remote"]);
+    assert!(remotes.status.success());
+    if !String::from_utf8_lossy(&remotes.stdout)
+        .lines()
+        .any(|remote| remote == "origin")
+    {
+        return;
+    }
+    let existing_default = git(
+        repository,
+        &["symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"],
+    );
+    if existing_default.status.success() {
+        let remote_branch = String::from_utf8(existing_default.stdout)
+            .expect("Git ref is UTF-8")
+            .trim()
+            .to_owned();
+        let local_branch = remote_branch.replacen("refs/remotes/origin/", "refs/heads/", 1);
+        if git(
+            repository,
+            &["show-ref", "--verify", "--quiet", &local_branch],
+        )
+        .status
+        .success()
+        {
+            assert!(
+                git(repository, &["update-ref", &remote_branch, &local_branch])
+                    .status
+                    .success()
+            );
+        }
+        return;
+    }
+
+    let main = "refs/heads/main";
+    let branch = if git(repository, &["show-ref", "--verify", "--quiet", main])
+        .status
+        .success()
+    {
+        main.to_owned()
+    } else {
+        let head = git(repository, &["symbolic-ref", "--quiet", "HEAD"]);
+        assert!(head.status.success(), "test fixture HEAD must be symbolic");
+        String::from_utf8(head.stdout)
+            .expect("Git ref is UTF-8")
+            .trim()
+            .to_owned()
+    };
+    let remote_branch = branch.replacen("refs/heads/", "refs/remotes/origin/", 1);
+    assert!(
+        git(repository, &["update-ref", &remote_branch, &branch])
+            .status
+            .success()
+    );
+    assert!(
+        git(
+            repository,
+            &["symbolic-ref", "refs/remotes/origin/HEAD", &remote_branch]
+        )
+        .status
+        .success()
+    );
 }
 
 /// A same-thread reentrant lease on the process environment mutex.

@@ -11,12 +11,13 @@ pub(super) fn apply(
         .as_ref()
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("Plan comparison has no feature target"))?;
-    let path = crate::artifacts::product_docs::document_path(
-        &state.planning_store,
-        &format!("feature:{id}"),
-    )?;
     anyhow::ensure!(
-        String::from_utf8(state.planning_store.read_planning_path(&path)?)? == body,
+        crate::artifacts::product_docs::current_document(
+            &state.planning_store,
+            &format!("feature:{id}"),
+        )?
+        .as_deref()
+            == Some(body.as_str()),
         "Feature changed before the plan comparison was saved"
     );
     let mut workflow = crate::artifacts::task_docs::load_workflow(&state.planning_store)?;
@@ -48,7 +49,7 @@ pub(super) fn apply(
     };
     record.validate()?;
     workflow.plan_comparisons.insert(id.clone(), record);
-    let (changes, checks, _) =
+    let (changes, checks) =
         crate::artifacts::task_docs::workflow_record_changes(&state.planning_store, &workflow)?;
     let (paths, revision) = state
         .planning_store
@@ -59,15 +60,14 @@ pub(super) fn apply(
         )?;
     let relative = paths
         .iter()
-        .map(|path| state.planning_store.git_path(path))
+        .map(|path| state.planning_store.relative_path(path))
         .collect();
     state.workflow = crate::artifacts::task_docs::load_workflow(&state.planning_store)?;
     state.baseline_planning_revision = revision;
     Ok(ApplyReceipt {
-        spec_written: false,
+        draft_written: false,
         items_written: false,
-        commit_message: format!("planner: compare implementation plans for {id}"),
-        repo_relative_paths: relative,
-        synthesized_open_items: Vec::new(),
+        summary: format!("planner: compare implementation plans for {id}"),
+        changed_store_paths: relative,
     })
 }

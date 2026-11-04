@@ -1,20 +1,5 @@
 use super::*;
 
-fn legacy_clarification_prompt_id(item: &crate::domain::OpenItem) -> String {
-    // Prior versions keyed proactive questions by display ID and question
-    // copy. This fixture reproduces that format to cover upgrade behavior.
-    let decision = serde_json::to_string(&item.decision_brief).unwrap_or_default();
-    let detail = format!("{}\n{}\n{decision}", item.question, item.reason);
-    let mut material = detail.into_bytes();
-    material.extend_from_slice(item.conversation_key().as_bytes());
-    material.push(2);
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in &material {
-        hash = (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3);
-    }
-    format!("needs-attention:{hash:016x}-{}", material.len())
-}
-
 #[path = "proactive_attention/recurrence.rs"]
 mod recurrence;
 #[path = "proactive_attention/reply_pending.rs"]
@@ -211,7 +196,6 @@ fn agent_owned_follow_up_does_not_prompt_the_user_or_open_attention() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "General".into(),
-        Some("Zach".into()),
         "Update the existing spec with the previously settled default.".into(),
         "A related clarification was resolved; this is agent-owned follow-up.".into(),
     );
@@ -248,7 +232,6 @@ fn newly_actionable_clarification_focuses_its_persistent_conversation() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "General".into(),
-        None,
         "Should this release include the migration?".into(),
         "The answer changes the release steps.".into(),
     );

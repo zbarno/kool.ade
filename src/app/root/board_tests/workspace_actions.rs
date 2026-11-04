@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::OpenItem;
 
 #[test]
 fn open_workspace_spawns_a_detached_sibling_without_touching_the_session() {
@@ -192,8 +193,8 @@ fn settings_controls_open_in_modal_from_workspace_menu() {
     assert!(text_position(&output, "Publish verified changes automatically").is_some());
     assert!(text_position(&output, "Wait for project checks before publishing").is_some());
     assert!(text_position(&output, "Concurrent tasks").is_some());
-    let policy_repo = match &app.screen {
-        Screen::Connected(project) => project.state.repo_root.clone(),
+    let local_state_root = match &app.screen {
+        Screen::Connected(project) => project.state.planning_store.local_root(),
         Screen::Welcome => unreachable!(),
     };
     if let Screen::Connected(project) = &mut app.screen {
@@ -206,7 +207,7 @@ fn settings_controls_open_in_modal_from_workspace_menu() {
         if !project.queue.auto_plan
             && project.investigation.as_ref().is_some_and(|run| run.cancellation_requested())));
     assert!(
-        !crate::core::implementation_queue::Queue::load(&policy_repo)
+        !crate::core::implementation_queue::Queue::load(&local_state_root)
             .unwrap()
             .auto_plan
     );
@@ -217,7 +218,6 @@ fn settings_controls_open_in_modal_from_workspace_menu() {
             crate::domain::Priority::Normal,
             crate::domain::ItemKind::Question,
             "General".into(),
-            None,
             "Can this be resolved from repository evidence?".into(),
             "Automatic planning should own this item.".into(),
         );
@@ -229,27 +229,27 @@ fn settings_controls_open_in_modal_from_workspace_menu() {
         if !project.queue.auto_plan && project.investigation.is_none()));
     click_text(&mut app, &ctx, "Plan automatically");
     assert!(
-        crate::core::implementation_queue::Queue::load(&policy_repo)
+        crate::core::implementation_queue::Queue::load(&local_state_root)
             .unwrap()
             .auto_plan
     );
     click_text(&mut app, &ctx, "Build approved changes automatically");
     assert!(matches!(&app.screen, Screen::Connected(project)
         if !project.queue.auto_build && !project.queue.auto_publish));
-    let saved = crate::core::implementation_queue::Queue::load(&policy_repo).unwrap();
+    let saved = crate::core::implementation_queue::Queue::load(&local_state_root).unwrap();
     assert!(!saved.auto_build && !saved.auto_publish);
     click_text(&mut app, &ctx, "Publish verified changes automatically");
     assert!(matches!(&app.screen, Screen::Connected(project)
         if !project.queue.auto_build && project.queue.auto_publish
             && project.queue.require_independent_checks));
-    let saved = crate::core::implementation_queue::Queue::load(&policy_repo).unwrap();
+    let saved = crate::core::implementation_queue::Queue::load(&local_state_root).unwrap();
     assert!(!saved.auto_build && saved.auto_publish && saved.require_independent_checks);
     assert!(
-        crate::core::implementation_queue::Queue::load(&policy_repo)
+        crate::core::implementation_queue::Queue::load(&local_state_root)
             .unwrap()
             .require_independent_checks
     );
-    click_text(&mut app, &ctx, "People & Stakeholders");
+    click_text(&mut app, &ctx, "Local identity");
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Who am I?").is_some());
     frame(
@@ -306,19 +306,14 @@ fn narrow_or_short_workspace_settings_selects_a_page_from_compact_navigation() {
 }
 
 #[test]
-fn workspace_repository_menu_uses_the_shared_display_label() {
+fn workspace_menu_excludes_shared_repository_and_stakeholder_pages() {
     let mut app = fixture();
-    if let Screen::Connected(project) = &mut app.screen {
-        project.state.repositories.repositories[0].display_name =
-            Some("Planning repository".into());
-    }
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     frame(&mut app, &ctx, vec![]);
-    click_text(&mut app, &ctx, "Workspace");
-    let output = click_text(&mut app, &ctx, "Registered repositories");
-    assert!(text_contains(
-        &output,
-        "Open Planning repository in a new window"
-    ));
+    let output = click_text(&mut app, &ctx, "Workspace");
+    assert!(!text_contains(&output, "Registered repositories"));
+    assert!(!text_contains(&output, "Planning repository"));
+    assert!(!text_contains(&output, "Stakeholders"));
+    assert!(text_contains(&output, "Settings…"));
 }

@@ -11,22 +11,6 @@ pub const SECTIONS: [&str; 6] = [
     "Quality and Acceptance",
 ];
 
-pub const LEGACY_SECTIONS: [&str; 13] = [
-    "1. Vision",
-    "2. Scope",
-    "3. Actors and Roles",
-    "4. Feature Inventory",
-    "5. Functional Requirements",
-    "6. Non-Functional Requirements",
-    "7. Data Model",
-    "8. Architecture",
-    "9. Environment, Launch, and Preconditions",
-    "10. Decisions Log",
-    "11. Risks and Open Concerns",
-    "12. Acceptance / Definition of Done",
-    "13. Source Map",
-];
-
 pub fn validate_layout(markdown: &str) -> Result<(), String> {
     let mut headings = Vec::new();
     let mut active = None;
@@ -66,9 +50,9 @@ pub fn validate_layout(markdown: &str) -> Result<(), String> {
     let has_core = SECTIONS
         .iter()
         .all(|required| sections.iter().filter(|title| **title == *required).count() == 1);
-    if !has_core && sections.as_slice() != LEGACY_SECTIONS {
+    if !has_core {
         return Err(format!(
-            "updated_specification must include the six core H2 concepts ({}), or retain the recognized legacy layout; optional H2 sections may be added. Return the complete document.",
+            "updated_specification must include the six core H2 concepts ({}); optional H2 sections may be added. Return the complete document.",
             SECTIONS.join("; ")
         ));
     }
@@ -210,15 +194,7 @@ mod tests {
             chrono::Utc::now().timestamp_nanos_opt().unwrap()
         ));
         std::fs::create_dir_all(&repo).unwrap();
-        assert!(
-            std::process::Command::new("git")
-                .args(["init", "-q"])
-                .current_dir(&repo)
-                .status()
-                .unwrap()
-                .success()
-        );
-        crate::artifacts::migration::bootstrap_product(&repo, "Layout Test").unwrap();
+        crate::artifacts::product_bootstrap::bootstrap_product(&repo, "Layout Test").unwrap();
         let modules = crate::artifacts::product_docs::load_modules(&repo)
             .unwrap()
             .expect("bootstrap creates the modular product layout");
@@ -248,6 +224,34 @@ mod tests {
         ] {
             assert!(validate_layout(&invalid).is_err());
         }
+    }
+
+    #[test]
+    fn rejects_the_obsolete_numbered_specification_layout() {
+        let sections = [
+            "1. Vision",
+            "2. Scope",
+            "3. Actors and Roles",
+            "4. Feature Inventory",
+            "5. Functional Requirements",
+            "6. Non-Functional Requirements",
+            "7. Data Model",
+            "8. Architecture",
+            "9. Environment, Launch, and Preconditions",
+            "10. Decisions Log",
+            "11. Risks and Open Concerns",
+            "12. Acceptance / Definition of Done",
+            "13. Source Map",
+        ];
+        let markdown = format!(
+            "# Fixture — Living Technical Specification\n\n{}",
+            sections
+                .iter()
+                .map(|section| format!("## {section}\n\nLegacy content.\n"))
+                .collect::<String>()
+        );
+
+        assert!(validate_layout(&markdown).is_err());
     }
 
     #[test]

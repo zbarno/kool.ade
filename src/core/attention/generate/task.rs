@@ -58,7 +58,7 @@ mod tests {
             "# Stale task worktree story\n\nStale details.\n",
         )
         .unwrap();
-        let store = PlanningStore::new(uuid::Uuid::new_v4(), &store_root, StoreMode::ManagedShared);
+        let store = PlanningStore::new(uuid::Uuid::new_v4(), &store_root, StoreMode::ManagedLocal);
         store
             .atomic_write(
                 ticket,

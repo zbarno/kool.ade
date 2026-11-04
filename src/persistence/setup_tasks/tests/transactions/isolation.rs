@@ -44,7 +44,7 @@ fn two_workspace_scans_share_one_machine_store_without_project_writes() {
             "workspace {index} should use the same machine store"
         );
     }
-    let store = transaction::load_from(&path).unwrap().0;
+    let store = transaction::load_from(&path).unwrap();
     assert_eq!(store.tasks.len(), 1);
     assert_eq!(store.tasks[TASK_ID].id, TASK_ID);
     assert_eq!(store.latest_scan_generation, 2);

@@ -1,5 +1,6 @@
 //! Exercises production task-modal painting; no GPU, provider, or Docker needed.
 use super::*;
+use crate::domain::OpenItem;
 
 #[test]
 fn decision_controls_stay_left_of_questions_and_context_starts_closed() {
@@ -77,7 +78,6 @@ fn clarification_command_keeps_the_planning_decision_open() {
             crate::domain::Priority::High,
             crate::domain::ItemKind::Question,
             "General".into(),
-            None,
             "Who should have access?".into(),
             "Controls project access.".into(),
         ));

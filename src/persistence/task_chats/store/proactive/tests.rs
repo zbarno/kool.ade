@@ -15,13 +15,13 @@ fn a_peer_answer_between_attention_check_and_save_suppresses_the_prompt() {
     let identities = [(key.into(), "clr-038-uid".into())];
     let mut attention_window = TaskChats::default();
     attention_window
-        .bind_conversation_identities(&identities, &[])
+        .bind_conversation_identities(&identities)
         .unwrap();
     attention_window.ensure_loaded(slug);
 
     let mut peer_window = TaskChats::default();
     peer_window
-        .bind_conversation_identities(&identities, &[])
+        .bind_conversation_identities(&identities)
         .unwrap();
     peer_window.ensure_loaded(slug);
     peer_window
@@ -54,9 +54,7 @@ fn a_peer_answer_between_attention_check_and_save_suppresses_the_prompt() {
     );
 
     let mut reopened = TaskChats::default();
-    reopened
-        .bind_conversation_identities(&identities, &[])
-        .unwrap();
+    reopened.bind_conversation_identities(&identities).unwrap();
     reopened.ensure_loaded(slug);
     assert!(
         reopened.messages[key]

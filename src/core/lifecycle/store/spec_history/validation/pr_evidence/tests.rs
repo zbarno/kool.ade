@@ -1,9 +1,6 @@
 use super::*;
 use crate::{
-    artifacts::{
-        migration,
-        planning_store::{PlanningStore, StoreMode},
-    },
+    artifacts::planning_store::PlanningStore,
     core::lifecycle::{
         GateActor, GateDecision, GateReceipt, LifecycleStore, PullRequestPreparation,
         PullRequestPreparationStatus,
@@ -31,17 +28,19 @@ fn persisted_pr_reference_is_admitted_and_forged_linkage_is_rejected() {
         "koolade-pr-evidence-{}",
         uuid::Uuid::new_v4().hyphenated()
     ));
-    std::fs::create_dir_all(&root).unwrap();
+    let code = root.join("code");
+    std::fs::create_dir_all(&code).unwrap();
     assert!(
         std::process::Command::new("git")
             .args(["init", "-q"])
-            .current_dir(&root)
+            .current_dir(&code)
             .status()
             .unwrap()
             .success()
     );
-    migration::bootstrap_product(&root, "PR evidence fixture").unwrap();
-    let store = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
+    crate::core::state::test_support::seed_published_product_document(&code).unwrap();
+    let store =
+        PlanningStore::for_code_repository(uuid::Uuid::new_v4(), root.join("private-state"), &code);
     let feature_uid = uuid::Uuid::new_v4().hyphenated().to_string();
     let task_uid = uuid::Uuid::new_v4().hyphenated().to_string();
     let work_uid = uuid::Uuid::new_v4().hyphenated().to_string();

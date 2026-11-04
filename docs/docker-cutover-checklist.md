@@ -2,9 +2,10 @@
 
 **Tracker reconciliation (2026-10-23):** #143 is closed for legacy sandbox
 runtime removal and Docker-only source/documentation cutover, **not** for a final
-migration/release certification. Preserve the unchecked legacy history,
-dirty-clone, authorization and interrupted-run migration requirement here
-under #144 until real samples pass. #146 has been reopened for real
+release certification. Preserve the unchecked runtime history,
+dirty-clone, authorization and interrupted-run recovery requirement here
+under #144 until real samples pass. This checklist does not authorize importing
+or migrating old planning repositories or task records. #146 has been reopened for real
 provider role/host-code-mode acceptance, while #156 owns clean startup.
 PR #311 is merged. PR #317's queue-fixture and telemetry changes are merged at
 `ae4db8e`; exact-main [quality run #40010752974](https://github.com/zbarno/kool.ade/actions/runs/40010752974)
@@ -25,7 +26,7 @@ the current digests and retained SBOM evidence are linked below. These results
 do not complete the release matrix or implicitly pass its remaining checkboxes.
 
 
-This checklist is the final Docker migration gate. A checked box needs a
+This checklist is the final Docker runtime cutover gate. A checked box needs a
 current test result, workflow run, or manual sign-off recorded beside it.
 Keep unmet items unchecked; a mock or skipped integration test is not a
 runtime sign-off.
@@ -104,7 +105,7 @@ the release gates below.
 - [ ] A protected or scheduled real two-Linux-host run verifies remote
   rootless Docker, concurrent execution, and disconnection recovery.
 
-## User experience, migration, and support claims
+## User experience, recovery, and support claims
 
 - [ ] Settings identify local Docker readiness, daemon/image details,
   resource capacity, safe setup steps, and a cleanup-scoped smoke test.
@@ -114,9 +115,9 @@ the release gates below.
   failures, and evidence without exposing private SSH configuration.
 - [ ] Private files are never forwarded by default; any supported exception
   has exact worker/task/file scope, expiry, revoke, encryption, and cleanup.
-- [ ] Existing task clones, dirty changes, branches, approvals, evidence,
-  history, and authorization survive migration. Old runtime attempts become
-  interrupted and resume only as a new Docker execution.
+- [ ] Newly created task clones, dirty changes, branches, approvals, evidence,
+  history, and authorization survive restart. Interrupted work resumes only as
+  a new Docker execution. Old planning-repository records are not imported.
 - [ ] Linux, macOS Docker Desktop, and Windows Docker Desktop claims match
   platform tests. Unsupported platforms are labeled experimental/unsupported.
 - [ ] Threat model explains that Docker is not a perfect hostile-code boundary
@@ -133,7 +134,7 @@ the release gates below.
 - [ ] Rootless Docker integration workflow and required quality aggregation
   passed on the exact reviewed commit.
 - [ ] Independent security and code review completed; blocking findings fixed.
-- [ ] Public release notes include verified platform support, migration
+- [ ] Public release notes include verified platform support, recovery
   behavior, and known limits.
 
 ## Previous CI evidence (2026-10-22)
@@ -203,7 +204,7 @@ The immutable image digests are unchanged from the previous attested run, and
 both runtime profiles remain disabled.
 
 These results do not complete the real two-Linux-host run, real-provider
-clean-launch and role-parity checks, migration/resume matrix, cross-platform
+clean-launch and role-parity checks, restart/recovery matrix, cross-platform
 sign-off, or independent final release review. Keep the applicable release
 boxes unchecked and the release decision blocked.
 

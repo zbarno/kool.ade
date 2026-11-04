@@ -37,7 +37,6 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
             implementation_branch: None,
             publication_status: crate::artifacts::task_docs::ExecutionPublicationStatus::Planned,
             pull_requests: Vec::new(),
-            legacy_linkage: true,
             revision: 4,
         });
         project.implementation_states.insert(
@@ -65,8 +64,7 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
                 base: "main".into(),
                 base_commit: "fixture-base".into(),
                 task_repository: std::path::PathBuf::from("/tmp/koolade-fixture"),
-                task_repository_kind:
-                    crate::core::implementation::TaskRepositoryKind::LegacyWorktree,
+                task_repository_kind: crate::core::implementation::TaskRepositoryKind::Clone,
                 task_repository_ready: false,
                 task_repositories: vec![std::path::PathBuf::from("/tmp/koolade-fixture")],
                 task_repository_commits: std::collections::BTreeMap::new(),
@@ -264,7 +262,18 @@ fn generated_attention_brief_explains_an_unseen_blocker_and_sends_its_choice() {
                 .iter()
                 .any(|m| m.role == ChatRole::User && m.text.contains("option (b)"))
         );
+        let task_uid = p
+            .task_documents
+            .iter()
+            .find(|document| document.path == key)
+            .and_then(|document| document.identity.as_ref())
+            .expect("fixture task has a stable identity")
+            .uid
+            .clone();
         let mut saved = crate::persistence::task_chats::TaskChats::default();
+        saved
+            .bind_conversation_identities(&[(key.into(), task_uid)])
+            .unwrap();
         saved.ensure_loaded(&p.chat_slug);
         assert!(
             saved.messages[key]

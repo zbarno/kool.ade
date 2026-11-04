@@ -18,7 +18,7 @@ impl LifecycleStore<'_> {
             StoreError::MalformedState("feature event history has no creation event".into())
         })?;
         if created.next().is_some()
-            || creation.schema_version < 2
+            || creation.schema_version != 3
             || creation.expected_revision != 0
             || creation.feature_revision_after != Some(1)
             || creation.actor != super::LifecycleActor::Manager
@@ -49,6 +49,12 @@ impl LifecycleStore<'_> {
         let mut replayed_task_parents = HashMap::new();
 
         for event in &events {
+            if event.schema_version != 3 {
+                return Err(StoreError::MalformedState(format!(
+                    "lifecycle event {} has unsupported schema {}",
+                    event.uid, event.schema_version
+                )));
+            }
             if matches!(
                 event.event,
                 LifecycleEventKind::FeatureCreated

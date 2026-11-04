@@ -129,9 +129,11 @@ pub(crate) fn finish_after_qa(
             .is_some_and(|context| resolved.contains(&context.work_id) && context.is_runtime_qa())
     {
         state.manager_repair_context = None;
-        if let Ok(path) =
-            implementation::state_dir_for_task(&project.state.repo_root, &ticket, Some(task_uid))
-            && implementation::save(&path, &state).is_ok()
+        if let Ok(path) = implementation::state_dir_for_task(
+            &project.state.planning_store.root,
+            &ticket,
+            Some(task_uid),
+        ) && implementation::save(&path, &state).is_ok()
         {
             project.implementation_states.insert(ticket, state);
         }

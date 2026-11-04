@@ -7,16 +7,17 @@ use super::*;
 // completion. Dependencies: in-process app fixture and temporary local Git /
 // planning stores; no external service. Setup cost: moderate (Planner plus task
 // generation worker turns).
-fn automatic_planner_completion_resumes_approved_task_generation() {
+fn automatic_planner_completion_keeps_changed_specs_behind_publication_gate() {
     use crate::core::planning::{MATERIAL_AXES, QuestionStore};
 
     let _shield = crate::core::gitops::test_support::shield("planner-generation-continuation");
     let (mut app, root, _) = setup();
+    ensure_test_plan_adopted(&mut app, "CHG-004");
     let context = egui::Context::default();
     frame(&mut app, &context, vec![]);
     click_text(&mut app, &context, "Review specification");
     click_text(&mut app, &context, "Confirm this plan");
-    record_test_plan_review(
+    record_test_plan_review_and_merge(
         &mut app,
         "CHG-004",
         crate::core::lifecycle::GateDecision::Approved,
@@ -38,7 +39,7 @@ fn automatic_planner_completion_resumes_approved_task_generation() {
             destination: "main".into(),
         },
     );
-    let (changes, checks, _) = crate::artifacts::task_docs::workflow_record_changes(
+    let (changes, checks) = crate::artifacts::task_docs::workflow_record_changes(
         &project.state.planning_store,
         &workflow,
     )
@@ -140,7 +141,7 @@ fn automatic_planner_completion_resumes_approved_task_generation() {
         }
         assert!(
             Instant::now() < deadline,
-            "Planner completion did not resume approved task generation"
+            "Planner completion did not reach the publication gate"
         );
         std::thread::sleep(Duration::from_millis(5));
     }
@@ -162,17 +163,21 @@ fn automatic_planner_completion_resumes_approved_task_generation() {
         Screen::Welcome => "welcome screen".into(),
     };
     assert!(
-        matches!(&app.screen, Screen::Connected(project) if project.active_turn.is_some()),
-        "Planner result did not resume task generation ({continuation_state}): {:?}",
+        matches!(&app.screen, Screen::Connected(project) if project.active_turn.is_none()),
+        "a changed private specification must wait for publication ({continuation_state}): {:?}",
         app.chat_messages()
     );
     assert!(app.pending_feature_generation.is_none());
-    assert!(finish(&mut app), "{:?}", app.chat_messages());
-    assert_eq!(generated.lock().unwrap().len(), 1);
     let Screen::Connected(project) = &app.screen else {
         panic!("project remains connected")
     };
-    assert!(has_current_task_batch(project));
+    assert!(app.chat_messages().iter().any(|message| {
+        message
+            .text
+            .contains("Merge the consented feature documentation PR")
+    }));
+    assert!(generated.lock().unwrap().is_empty());
+    assert!(!has_current_task_batch(project));
     drop(app);
     std::fs::remove_dir_all(root).unwrap();
 }

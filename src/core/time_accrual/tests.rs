@@ -398,6 +398,17 @@ fn write_repository_manifest(root: &Path, repositories: &[(&str, &str)]) {
     std::fs::write(path, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
 }
 
+fn task_metadata(repository_id: &str, uid: &str) -> crate::artifacts::task_docs::TaskMetadata {
+    serde_json::from_value(serde_json::json!({
+        "schemaVersion": 7,
+        "uid": uid,
+        "batchUid": "0a1b2c3d-1111-4222-8333-444455556666",
+        "repositoryId": repository_id,
+        "dependencyUids": []
+    }))
+    .unwrap()
+}
+
 #[test]
 fn span_resolution_prefers_stable_identifiers_over_paths() {
     let root = scratch("attr");
@@ -406,7 +417,10 @@ fn span_resolution_prefers_stable_identifiers_over_paths() {
     let sp = span_for_ticket(
         &root,
         "# Ticket\n\nRepository: root\n",
-        None,
+        Some(&task_metadata(
+            "root",
+            "0a1b2c3d-1111-4222-8333-444455556666",
+        )),
         Some("0a1b2c3d-1111-4222-8333-444455556666"),
     )
     .expect("the planning manifest resolves the declared repository");
@@ -423,13 +437,29 @@ fn identifier_hygiene_falls_back_instead_of_poisoning_rows() {
     std::fs::create_dir_all(&root).unwrap();
     write_repository_manifest(&root, &[("root", ""), ("sidecar", "")]);
     let text = "# T\n\nRepository: sidecar\n";
-    let sp = span_for_ticket(&root, text, None, Some("bad:id,name"))
-        .expect("the planning manifest resolves the named repository");
+    let sp = span_for_ticket(
+        &root,
+        text,
+        Some(&task_metadata(
+            "sidecar",
+            "0a1b2c3d-1111-4222-8333-444455556667",
+        )),
+        Some("bad:id,name"),
+    )
+    .expect("the planning manifest resolves the named repository");
     assert_eq!(sp.workspace_id, "sidecar");
     assert_eq!(sp.item_uid, "task", "colon/comma item uid falls back");
     write_repository_manifest(&root, &[("root", "")]);
-    let stemmed =
-        span_for_ticket(&root, "/x/projects/F7-TASK-clean-stem.md", None, None).expect("resolves");
+    let stemmed = span_for_ticket(
+        &root,
+        "/x/projects/F7-TASK-clean-stem.md",
+        Some(&task_metadata(
+            "root",
+            "0a1b2c3d-1111-4222-8333-444455556668",
+        )),
+        None,
+    )
+    .expect("resolves");
     assert_eq!(
         stemmed.item_uid, "F7-TASK-clean-stem",
         "missing uid derives from the ticket stem"

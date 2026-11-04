@@ -15,14 +15,6 @@ pub(super) fn validate_output_refs(
                 opportunity::validate(proposal, context, role)?;
             }
         }
-        RoleOutputV1::ManagerLegacy(value) => {
-            for action in &value.proposed_actions {
-                super::validate_refs(&action.evidence, &context.evidence_ids)?;
-            }
-        }
-        RoleOutputV1::Planner(value) => {
-            super::validate_refs(&value.readiness.evidence, &context.evidence_ids)?
-        }
         RoleOutputV1::PlannerV3(value) => {
             super::validate_refs(&value.readiness.evidence, &context.evidence_ids)?;
             for question in &value.proposed_questions {

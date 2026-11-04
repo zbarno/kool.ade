@@ -28,7 +28,7 @@ pub fn linked_executable_task_changes(
         root.task_intent_history.push(TaskIntentEventV1 {
             event_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
             kind: TaskIntentEventKindV1::ExecutableTaskLinked,
-            recorded_at_ms: super::legacy::now_ms().max(previous_time.saturating_add(1)),
+            recorded_at_ms: super::now_ms().max(previous_time.saturating_add(1)),
             summary: "Executable task linked to this TaskIntent".into(),
             cycle_uid: root.task_intent_cycle_uid.clone(),
             related_uid: Some(task_uid.clone()),

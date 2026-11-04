@@ -24,7 +24,6 @@ fn concurrent_task_answers_apply_to_their_own_streams() {
                 crate::domain::Priority::High,
                 crate::domain::ItemKind::Question,
                 "Export".into(),
-                None,
                 "Which worker model should export use?".into(),
                 "Export responsiveness depends on this choice.".into(),
             ),
@@ -33,12 +32,11 @@ fn concurrent_task_answers_apply_to_their_own_streams() {
                 crate::domain::Priority::High,
                 crate::domain::ItemKind::Question,
                 "Login".into(),
-                None,
                 "Which session policy should login use?".into(),
                 "Login security depends on this choice.".into(),
             ),
         ];
-        let (changes, checks, _) =
+        let (changes, checks) =
             crate::artifacts::items_io::record_changes(&state.planning_store, &items, &[]).unwrap();
         let (_, revision) = state
             .planning_store

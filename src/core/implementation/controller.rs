@@ -58,33 +58,6 @@ impl Controller {
     pub(crate) fn cancellation_requested(&self) -> bool {
         self.cancel.load(Ordering::SeqCst)
     }
-    #[cfg(test)]
-    pub(crate) fn start_project_with_policy_and_claim_request(
-        planning_root: PathBuf,
-        target_repo: PathBuf,
-        ticket: String,
-        policy: super::StartPolicy,
-        user_context: Option<String>,
-        harness: Box<dyn AiHarness>,
-        claim_request: crate::core::task_claim::ClaimRequest,
-    ) -> Self {
-        let planning_store = PlanningStore::new(
-            uuid::Uuid::nil(),
-            &planning_root,
-            crate::artifacts::planning_store::StoreMode::ManagedLocal,
-        );
-        Self::start_project_with_store_and_policy_and_claim_request(ProjectStartRequest {
-            planning_store,
-            state_root: planning_root,
-            target_repo,
-            ticket,
-            policy,
-            user_context,
-            harness,
-            claim_request,
-        })
-    }
-
     pub(crate) fn start_project_with_store_and_policy_and_claim_request(
         request: ProjectStartRequest,
     ) -> Self {
@@ -115,35 +88,12 @@ impl Controller {
                 let _ = tx.send(Event::Done(Box::new(Err(Failure::new(
                     FailureKind::Other,
                     RecoveryDisposition::ExplicitResume,
-                    "Implementation was canceled before remote task coordination began.",
+                    "Implementation was canceled before its local task fence was acquired.",
                 )))));
                 return;
             }
             let claim_lease = match claim_request.acquire() {
-                Ok(attempt) => {
-                    if let Some(warning) = attempt.warning {
-                        let _ = tx.send(Event::ClaimWarning(warning));
-                    }
-                    match attempt.mode {
-                        crate::core::task_claim::ClaimAttemptMode::Shared => match attempt.lease {
-                            Some(lease) => {
-                                Some(crate::core::task_claim::ClaimLeaseHandle::new(lease))
-                            }
-                            None => {
-                                let _ = tx.send(Event::ClaimBlocked(Box::new(
-                                    crate::core::task_claim::ClaimError::CoordinationRejected(
-                                        "Shared claim acquisition returned no lease".into(),
-                                    ),
-                                )));
-                                return;
-                            }
-                        },
-                        crate::core::task_claim::ClaimAttemptMode::LocalOnly => None,
-                        crate::core::task_claim::ClaimAttemptMode::UnsafeOffline => {
-                            Some(crate::core::task_claim::ClaimLeaseHandle::block_publication())
-                        }
-                    }
-                }
+                Ok(lease) => Some(crate::core::task_claim::ClaimLeaseHandle::new(lease)),
                 Err(error) => {
                     let _ = tx.send(Event::ClaimBlocked(Box::new(error)));
                     return;
@@ -154,31 +104,10 @@ impl Controller {
                 let _ = tx.send(Event::Done(Box::new(Err(Failure::new(
                     FailureKind::Other,
                     RecoveryDisposition::ExplicitResume,
-                    "Implementation was canceled while acquiring its remote task claim.",
+                    "Implementation was canceled while acquiring its local task fence.",
                 )))));
                 return;
             }
-            let heartbeat = claim_lease
-                .as_ref()
-                .filter(|claim| claim.has_lease())
-                .cloned()
-                .map(|claim| {
-                    let heartbeat_cancel = worker_cancel.clone();
-                    let (stop, stopped) = mpsc::channel();
-                    let thread = std::thread::spawn(move || {
-                        while let Err(mpsc::RecvTimeoutError::Timeout) =
-                            stopped.recv_timeout(std::time::Duration::from_secs(
-                                crate::core::task_claim::HEARTBEAT_INTERVAL_SECONDS,
-                            ))
-                        {
-                            if claim.refresh().is_err() {
-                                heartbeat_cancel.store(true, Ordering::SeqCst);
-                                break;
-                            }
-                        }
-                    });
-                    (stop, thread)
-                });
             let (progress, updates) = mpsc::channel::<LiveProgress>();
             let fwd = tx.clone();
             let forward = std::thread::spawn(move || {
@@ -208,10 +137,6 @@ impl Controller {
                     claim_lease,
                 },
             );
-            if let Some((stop, thread)) = heartbeat {
-                let _ = stop.send(());
-                let _ = thread.join();
-            }
             let _ = forward.join();
             let _ = tx.send(Event::Done(Box::new(
                 result.map_err(|error| Failure::from_error(&error)),

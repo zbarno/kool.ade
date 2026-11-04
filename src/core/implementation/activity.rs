@@ -298,7 +298,7 @@ mod tests {
             base: "main".into(),
             base_commit: "base".into(),
             task_repository: repo.join("worktree"),
-            task_repository_kind: TaskRepositoryKind::LegacyWorktree,
+            task_repository_kind: TaskRepositoryKind::Clone,
             task_repository_ready: false,
             task_repositories: vec![repo.join("worktree")],
             task_repository_commits: std::collections::BTreeMap::new(),
@@ -316,7 +316,11 @@ mod tests {
             independent_check: None,
             cleanup: Default::default(),
         };
-        fs::write(dir.join("state.json"), serde_json::to_vec(&state).unwrap()).unwrap();
+        fs::write(
+            dir.join("state.json"),
+            crate::core::implementation::serialize_state(&state).unwrap(),
+        )
+        .unwrap();
         let lock = fs::OpenOptions::new()
             .read(true)
             .write(true)

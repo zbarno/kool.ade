@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::OpenItem;
 
 #[test]
 fn planning_items_use_board_and_modal_even_before_tasks_exist() {
@@ -8,7 +9,6 @@ fn planning_items_use_board_and_modal_even_before_tasks_exist() {
         crate::domain::item::Priority::High,
         crate::domain::item::ItemKind::Question,
         "General".into(),
-        Some("All".into()),
         "Which users need access?".into(),
         "Determines the access model".into(),
     );
@@ -63,7 +63,6 @@ fn human_decision_brief_shows_issue_specific_buttons_and_advisory_details() {
         crate::domain::Priority::High,
         crate::domain::ItemKind::Question,
         "Security".into(),
-        Some("Security Owner".into()),
         "How long should people stay signed in before signing in again?".into(),
         "Shorter sign-ins help protect an account if a phone is lost, but may interrupt longer work.".into(),
     );
@@ -119,7 +118,7 @@ fn human_decision_brief_shows_issue_specific_buttons_and_advisory_details() {
         project.task_documents.clear();
         project.state.items = vec![item.clone()];
     }
-    app.cached_user = crate::domain::CurrentUser::new("Security Owner", Vec::new());
+    app.cached_user = crate::domain::CurrentUser::new("Security Owner");
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);

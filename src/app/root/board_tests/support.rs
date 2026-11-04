@@ -205,7 +205,7 @@ pub(in crate::app::root) fn park_fixture_with_unapproved_feature(lapsed: bool) -
     if let Screen::Connected(p) = &mut app.screen {
         p.queue.running = true;
         if lapsed {
-            let draft = "# CHG-999: Fixture feature\n\n**Status:** Ready\n\n## Intent\n\nKeep the fixture behavior.\n\n## Desired Behavior\n\nKeep the fixture behavior approved.\n";
+            let draft = "# CHG-999: Fixture feature\n\n**Status:** Ready\n\n## Intent\n\nKeep the fixture behavior.\n\n## Current Behavior\n\nThe fixture behavior is available.\n\n## Desired Behavior\n\nKeep the fixture behavior approved.\n\n## Scope\n\n- Preserve the fixture behavior.\n\n## Affected Product Areas\n\n`product:overview`\n\n## Requirements\n\n- FIXTURE-R1 (MUST). Preserve the fixture behavior.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** Synthetic recovery state.\n\n## Acceptance Criteria\n\n1. The fixture behavior remains available.\n";
             let identified = crate::domain::ArtifactIdentity::preserve_markdown(
                 draft,
                 None,
@@ -222,20 +222,16 @@ pub(in crate::app::root) fn park_fixture_with_unapproved_feature(lapsed: bool) -
                 crate::domain::ChangeStatus::Ready,
             )
             .unwrap();
-            std::fs::create_dir_all(
-                p.state
-                    .planning_store
-                    .root
-                    .join("planning/changes/CHG-999-fixture"),
+            let store = &p.state.planning_store;
+            let changes = crate::core::apply::private_document_draft_changes(
+                store,
+                &[("feature:CHG-999".to_owned(), specification)],
             )
             .unwrap();
-            let feature_path = crate::artifacts::product_docs::document_path(
-                &p.state.planning_store,
-                "feature:CHG-999",
-            )
-            .unwrap();
-            std::fs::create_dir_all(feature_path.parent().unwrap()).unwrap();
-            std::fs::write(feature_path, specification).unwrap();
+            let revision = store.revision().unwrap();
+            store
+                .transaction_with_revision(&changes, Some(&revision))
+                .unwrap();
             p.state
                 .workflow
                 .approved_features

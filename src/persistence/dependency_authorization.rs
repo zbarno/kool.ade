@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-mod identity;
+pub(crate) mod identity;
 pub(crate) use identity::project_id;
 
 const MAX_GRANTS: usize = 512;
@@ -19,14 +19,6 @@ const SCHEMA_VERSION: u8 = 2;
 struct Store {
     schema_version: u8,
     project_id: String,
-    grants: Vec<Grant>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct LegacyStoreV1 {
-    schema_version: u8,
-    project_root: PathBuf,
     grants: Vec<Grant>,
 }
 
@@ -193,29 +185,12 @@ fn load(project_id: &str, path: &Path) -> anyhow::Result<Store> {
                 "Dependency authorization store is too large"
             );
             check_private_file(path)?;
-            let value: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
-            match value
-                .get("schemaVersion")
-                .and_then(serde_json::Value::as_u64)
-            {
-                Some(1) => {
-                    let legacy: LegacyStoreV1 = serde_json::from_value(value)?;
-                    anyhow::ensure!(
-                        legacy.schema_version == 1
-                            && crate::persistence::project_slug(&legacy.project_root) == project_id,
-                        "Legacy dependency authorization store does not match this project"
-                    );
-                    Store {
-                        schema_version: SCHEMA_VERSION,
-                        project_id: project_id.to_owned(),
-                        grants: legacy.grants,
-                    }
-                }
-                Some(version) if version == u64::from(SCHEMA_VERSION) => {
-                    serde_json::from_value(value)?
-                }
-                _ => anyhow::bail!("Unsupported dependency authorization store version"),
-            }
+            let store: Store = serde_json::from_slice(&fs::read(path)?)?;
+            anyhow::ensure!(
+                store.schema_version == SCHEMA_VERSION,
+                "Unsupported dependency authorization store version"
+            );
+            store
         }
     };
     anyhow::ensure!(

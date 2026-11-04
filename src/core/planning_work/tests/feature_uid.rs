@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn feature_uid_overrides_a_reused_display_id() {
+fn feature_association_requires_the_immutable_uid() {
     let mut work = Work::new(
         "task:old-feature".into(),
         "Plan the original feature".into(),
@@ -24,5 +24,5 @@ fn feature_uid_overrides_a_reused_display_id() {
 
     work.feature_uid = None;
     assert!(!belongs_to_feature(&work, "F1", Some("new-current-uid")));
-    assert!(belongs_to_feature(&work, "F1", None));
+    assert!(!belongs_to_feature(&work, "F1", None));
 }

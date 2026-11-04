@@ -11,13 +11,12 @@ windows use a page selector above the content, and each page has one scrollbar.
 | Work & Tools | Coding Tools | Available tools, default tool, executable paths, setup guidance and rediscovery |
 | Work & Tools | Models & Routing | Tool and model by Implementation, Manager, QA / Verification and Documentation |
 | Work & Tools | Automation | Worker capacity, automatic planning/building/publication, checks and queue recovery |
-| Project | Project & Git | Shared repository display names |
-| Project | People & Stakeholders | Seated identity, teams, categories and owners |
+| Project | Project & Git | Primary code repository, published-spec ref, local workspace identity |
 
 The Workspace menu groups workspace switching and refresh separately from
-project resources (reference imports and MCP servers). Disconnect is at the
-bottom. Configuration stays in Settings, rather than duplicate menu toggles.
+project resources. Disconnect is at the bottom. Configuration stays in
+Settings, rather than duplicate menu toggles.
 
 Task-specific routing overrides remain under Advanced routing in New Task.
-Existing settings storage and save behavior are preserved. Closing an embedded
-Project or People page closes Settings and discards its unsaved draft.
+The local user, Git authentication, consent, approval, and QA gates remain.
+Closing an embedded Project page closes Settings and discards its unsaved draft.

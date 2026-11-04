@@ -8,8 +8,7 @@ use std::{
 pub(super) fn exercise(prepared: Prepared) -> PathBuf {
     let Prepared {
         root,
-        repo,
-        planning_repo,
+        local_state_root,
         remote,
         docs,
         mut app,
@@ -190,7 +189,8 @@ pub(super) fn exercise(prepared: Prepared) -> PathBuf {
             .any(|m| m.text == "Planning fixture: I can discuss this while the worker runs.")
     );
     for doc in &docs[..2] {
-        let progress = crate::core::implementation::load_activity(&repo, &doc.path).unwrap();
+        let progress =
+            crate::core::implementation::load_activity(&local_state_root, &doc.path).unwrap();
         assert!(
             progress.activity.is_some()
                 || !progress.posts.is_empty()
@@ -203,14 +203,14 @@ pub(super) fn exercise(prepared: Prepared) -> PathBuf {
     assert_eq!(setup::git(&remote, &["rev-list", "--count", "main"]), "1");
     assert!(!published_files.contains("planning/local-approval.md"));
     assert_eq!(
-        std::fs::read_to_string(planning_repo.join("planning/local-approval.md")).unwrap(),
+        std::fs::read_to_string(local_state_root.join("planning/local-approval.md")).unwrap(),
         "approved locally\n"
     );
     assert!(!published_files.contains("001-task.txt"));
     assert!(!published_files.contains("002-task.txt"));
     assert!(!published_files.contains("003-task.txt"));
     assert!(
-        !crate::core::implementation_queue::Queue::load(&repo)
+        !crate::core::implementation_queue::Queue::load(&local_state_root)
             .unwrap()
             .running
     );

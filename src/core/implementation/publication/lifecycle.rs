@@ -18,7 +18,6 @@ pub(in crate::core::implementation) struct LifecyclePublication {
 }
 
 pub(in crate::core::implementation) enum LifecyclePublicationGate {
-    Legacy,
     Blocked(String),
     Authorized(LifecyclePublication),
 }
@@ -42,11 +41,11 @@ pub(in crate::core::implementation) fn prepare_lifecycle_publication(
     implementation: &Implementation,
 ) -> anyhow::Result<LifecyclePublicationGate> {
     let Some(planning_item_uid) = implementation.task_uid.as_deref() else {
-        return Ok(LifecyclePublicationGate::Legacy);
+        anyhow::bail!("task has no current lifecycle identity; PR publication is blocked");
     };
     let lifecycle = LifecycleStore::new(store);
     let Some(task) = lifecycle.task_for_planning_item(planning_item_uid)? else {
-        return Ok(LifecyclePublicationGate::Legacy);
+        anyhow::bail!("task has no current lifecycle record; PR publication is blocked");
     };
     if task.phase != crate::core::lifecycle::TaskPhase::Done {
         return Ok(LifecyclePublicationGate::Blocked(format!(

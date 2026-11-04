@@ -65,29 +65,6 @@ impl ImplementationStatus {
         })
     }
 
-    /// One-time v0-state migration. New persistence uses `wire_name`.
-    pub fn parse_legacy_label(value: &str) -> Option<Self> {
-        Self::parse_wire(value).or_else(|| {
-            Some(match value {
-                "Preparing" => Self::Preparing,
-                "Implementing" => Self::Implementing,
-                "Verifying" => Self::Verifying,
-                "Ready for PR" => Self::ReadyToPublish,
-                "Approval required" => Self::AwaitingApproval,
-                "Changes requested" => Self::ChangesRequested,
-                "Publishing" => Self::Publishing,
-                "Waiting for independent checks" => Self::WaitingForIndependentChecks,
-                "PR created" => Self::AwaitingReview,
-                "Waiting to merge" => Self::WaitingToMerge,
-                "Needs attention" => Self::Blocked,
-                "Done" => Self::Completed,
-                "PR closed" => Self::PullRequestClosed,
-                "Interrupted" => Self::Interrupted,
-                _ => return None,
-            })
-        })
-    }
-
     pub fn label(self) -> &'static str {
         match self {
             Self::Preparing => "Preparing",
@@ -219,15 +196,6 @@ impl PullRequestState {
             "closed" => Self::Closed,
             "merged" => Self::Merged,
             _ => return None,
-        })
-    }
-
-    pub fn parse_legacy(value: &str) -> Option<Self> {
-        Self::parse_wire(value).or(match value {
-            "OPEN" => Some(Self::Open),
-            "CLOSED" => Some(Self::Closed),
-            "MERGED" => Some(Self::Merged),
-            _ => None,
         })
     }
 

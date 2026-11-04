@@ -12,11 +12,11 @@ pub fn record_plan_review_if_current<R: crate::artifacts::planning_store::Planni
 ) -> anyhow::Result<String> {
     let _guard = crate::core::writer_gate::acquire();
     let store = repo.planning_store();
-    let path = crate::artifacts::product_docs::document_path(repo, &format!("feature:{id}"))?;
-    let text = String::from_utf8(repo.read_planning_path(&path)?)?;
+    let text = crate::artifacts::product_docs::current_document(repo, &format!("feature:{id}"))?
+        .ok_or_else(|| anyhow::anyhow!("Feature {id} is not published or proposed"))?;
     let contract = feature_contract(&text);
     anyhow::ensure!(
-        crate::persistence::feature_approvals::contains(&store.git_root(), id, &contract),
+        crate::persistence::feature_approvals::contains(&store.local_root(), id, &contract),
         "plan review requires current user confirmation"
     );
     let identity = crate::domain::ArtifactIdentity::from_markdown(&text)?
@@ -40,20 +40,11 @@ pub fn record_plan_review_if_current<R: crate::artifacts::planning_store::Planni
     else {
         return Ok(store.revision()?);
     };
-    let (paths, revision) = store.transaction_with_revision_and_record_revisions(
+    let (_, revision) = store.transaction_with_revision_and_record_revisions(
         &[(record_path, bytes)],
         Some(expected_revision),
         &[check],
     )?;
-    let result = crate::core::gitops::commit(
-        &store.git_root(),
-        &format!("planner: record independent plan review {id}"),
-        &paths
-            .iter()
-            .map(|path| store.git_path(path))
-            .collect::<Vec<_>>(),
-    );
-    result.map_err(|error| anyhow::anyhow!("review saved but checkpoint failed: {error}"))?;
     Ok(revision)
 }
 
@@ -93,11 +84,11 @@ pub fn record_plan_arbitration_if_current<
             .any(|reference| reference == evidence_id),
         "arbitration receipt must cite the exact evidence used for its decision"
     );
-    let path = crate::artifacts::product_docs::document_path(repo, &format!("feature:{id}"))?;
-    let text = String::from_utf8(repo.read_planning_path(&path)?)?;
+    let text = crate::artifacts::product_docs::current_document(repo, &format!("feature:{id}"))?
+        .ok_or_else(|| anyhow::anyhow!("Feature {id} is not published or proposed"))?;
     let contract = feature_contract(&text);
     anyhow::ensure!(
-        crate::persistence::feature_approvals::contains(&store.git_root(), id, &contract),
+        crate::persistence::feature_approvals::contains(&store.local_root(), id, &contract),
         "arbitration requires current user confirmation"
     );
     let identity = crate::domain::ArtifactIdentity::from_markdown(&text)?
@@ -125,20 +116,10 @@ pub fn record_plan_arbitration_if_current<
     else {
         return Ok(store.revision()?);
     };
-    let (paths, revision) = store.transaction_with_revision_and_record_revisions(
+    let (_, revision) = store.transaction_with_revision_and_record_revisions(
         &[(record_path, bytes)],
         Some(expected_revision),
         &[check],
     )?;
-    let committed = crate::core::gitops::commit(
-        &store.git_root(),
-        &format!("planner: record plan arbitration {id}"),
-        &paths
-            .iter()
-            .map(|path| store.git_path(path))
-            .collect::<Vec<_>>(),
-    );
-    committed
-        .map_err(|error| anyhow::anyhow!("arbitration saved but checkpoint failed: {error}"))?;
     Ok(revision)
 }

@@ -171,7 +171,7 @@ impl LifecycleStore<'_> {
             .checked_add(1)
             .ok_or_else(|| StoreError::MalformedState("spec revision is exhausted".into()))?;
         let now = now_unix_ms();
-        let origin_dispositions = Some(super::origins::for_draft(&draft)?);
+        let origin_dispositions = super::origins::for_draft(&draft)?;
         let entry = SpecRevisionV1 {
             schema_version: 1,
             uid: feature_uid.to_owned(),

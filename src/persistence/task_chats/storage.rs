@@ -5,15 +5,11 @@ use std::collections::BTreeMap;
 pub(super) type Histories = BTreeMap<String, Vec<ChatMessage>>;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct StoredHistories {
-    #[serde(default = "current_version")]
     pub(super) schema_version: u32,
-    #[serde(default)]
     pub(super) task_identities: BTreeMap<String, String>,
-    #[serde(default)]
     pub(super) task_histories: BTreeMap<String, Vec<ChatMessage>>,
-    #[serde(default)]
     pub(super) other_histories: Histories,
 }
 
@@ -32,45 +28,34 @@ fn current_version() -> u32 {
     2
 }
 
-pub(super) fn read_stored(slug: &str) -> Result<(StoredHistories, bool), String> {
+pub(super) fn read_stored(slug: &str) -> Result<StoredHistories, String> {
     let path = crate::persistence::project_dir(slug).join("task-conversations.json");
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok((StoredHistories::default(), false));
+            return Ok(StoredHistories::default());
         }
         Err(error) => return Err(error.to_string()),
     };
-    let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-    if value.get("schemaVersion").is_some() {
-        let stored: StoredHistories = serde_json::from_value(value).map_err(|e| e.to_string())?;
-        if stored.schema_version > current_version() {
-            return Err(format!(
-                "Task conversation store version {} is newer than supported version {}",
-                stored.schema_version,
-                current_version()
-            ));
-        }
-        return Ok((stored.clone(), stored.schema_version < current_version()));
+    let stored: StoredHistories = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    if stored.schema_version != current_version() {
+        return Err(format!(
+            "Unsupported task conversation store version {}",
+            stored.schema_version
+        ));
     }
-    let histories: Histories = serde_json::from_value(value).map_err(|e| e.to_string())?;
-    Ok((
-        StoredHistories {
-            other_histories: histories,
-            ..Default::default()
-        },
-        true,
-    ))
+    Ok(stored)
 }
 
 #[cfg(test)]
 pub(super) fn read(slug: &str) -> Result<Histories, String> {
-    let (stored, _) = read_stored(slug)?;
-    let mut histories = stored.other_histories;
-    for (uid, messages) in stored.task_histories {
-        histories.insert(format!("@unlinked:{uid}"), messages);
-    }
-    Ok(histories)
+    read_stored(slug).map(|stored| {
+        display_histories(
+            &stored,
+            &BTreeMap::new(),
+            &std::collections::BTreeSet::new(),
+        )
+    })
 }
 
 pub(super) fn merge(histories: &mut Histories, key: &str, messages: &[ChatMessage]) {
@@ -86,65 +71,35 @@ pub(super) fn merge(histories: &mut Histories, key: &str, messages: &[ChatMessag
     history.sort_by(|a, b| a.ts.cmp(&b.ts).then_with(|| a.id.cmp(&b.id)));
 }
 
-pub(super) fn detach_other_history(stored: &mut StoredHistories, key: &str, label: &str) {
-    if let Some(history) = stored.other_histories.remove(key) {
-        merge(
-            &mut stored.other_histories,
-            &format!("@{label}:{key}"),
-            &history,
-        );
+pub(super) fn merge_identity(stored: &mut StoredHistories, path: &str, uid: &str) {
+    if stored
+        .task_identities
+        .get(path)
+        .is_none_or(|previous| previous != uid)
+    {
+        // The old UID stream remains unlinked; do not bind it to a reused
+        // display path.
+        stored.task_identities.insert(path.into(), uid.into());
     }
-}
-
-pub(super) fn merge_identity(
-    stored: &mut StoredHistories,
-    path: &str,
-    uid: &str,
-    migrate_legacy: bool,
-) -> Result<bool, String> {
-    if let Some(previous) = stored.task_identities.get(path) {
-        if previous != uid {
-            // A current immutable identity supersedes the old path alias.
-            // The previous UID history remains unlinked; never migrate it to
-            // the replacement artifact just because it reused the display key.
-            detach_other_history(stored, path, "legacy");
-            stored.task_identities.insert(path.into(), uid.into());
-            return Ok(true);
-        }
-        return Ok(false);
-    }
-    if !migrate_legacy {
-        // Display IDs such as feature:F1 and CLR-001 may be reused. A legacy
-        // chat keyed only by that ID has no proof of which artifact owned it.
-        // Preserve it detached from live board history rather than binding it
-        // to whichever artifact happens to reuse the key now.
-        detach_other_history(stored, path, "legacy");
-    }
-    stored.task_identities.insert(path.into(), uid.into());
-    Ok(true)
-}
-
-pub(super) fn canonicalize(stored: &mut StoredHistories) {
-    let aliases = stored.task_identities.clone();
-    for (path, uid) in aliases {
-        if let Some(history) = stored.other_histories.remove(&path) {
-            let target = stored.task_histories.entry(uid).or_default();
-            for message in history {
-                if !target.iter().any(|old| old.id == message.id) {
-                    target.push(message);
-                }
-            }
-            target.sort_by(|a, b| a.ts.cmp(&b.ts).then_with(|| a.id.cmp(&b.id)));
-        }
-    }
-    stored.schema_version = current_version();
 }
 
 pub(super) fn display_histories(
     stored: &StoredHistories,
     current_paths: &BTreeMap<String, String>,
+    excluded_paths: &std::collections::BTreeSet<String>,
 ) -> Histories {
-    let mut histories = stored.other_histories.clone();
+    let hidden = stored
+        .task_identities
+        .keys()
+        .chain(excluded_paths.iter())
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut histories = stored
+        .other_histories
+        .iter()
+        .filter(|(key, _)| !hidden.contains(*key))
+        .map(|(key, messages)| (key.clone(), messages.clone()))
+        .collect::<Histories>();
     for (uid, messages) in &stored.task_histories {
         let key = current_paths
             .get(uid)

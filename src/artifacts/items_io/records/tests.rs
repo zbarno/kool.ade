@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     artifacts::planning_store::{PlanningStore, StoreError, StoreMode, paths},
-    domain::{Authority, ItemKind, ItemStatus, OpenItem, Priority},
+    domain::{ItemKind, OpenItem, Priority},
 };
 
 fn root() -> (std::path::PathBuf, PlanningStore) {
@@ -17,79 +17,16 @@ fn item(id: &str, question: &str) -> OpenItem {
         Priority::High,
         ItemKind::Question,
         "Product".into(),
-        Some("Product team".into()),
         question.into(),
         "Captured during planning".into(),
     )
 }
 
 fn save(store: &PlanningStore, open: &[OpenItem], resolved: &[OpenItem]) -> Result<(), StoreError> {
-    let (changes, checks, migrating) = record_changes(store, open, resolved).unwrap();
-    if migrating {
-        let expected = store.revision().unwrap();
-        store
-            .transaction_with_revision_and_record_revisions(&changes, Some(&expected), &checks)
-            .map(|_| ())
-    } else {
-        store
-            .transaction_with_record_revisions(&changes, &checks)
-            .map(|_| ())
-    }
-}
-
-#[test]
-fn legacy_open_and_resolved_items_migrate_to_content_and_state_records() {
-    let (root, store) = root();
-    let mut open = item("CLR-101", "Which regions are in scope?");
-    open.uid = None;
-    open.feature_id = Some("F-101".into());
-    let mut resolved = item("CLR-102", "Should old data be retained?");
-    resolved.status = ItemStatus::Resolved;
-    resolved.authority = Authority::Review;
-    let open_path = store.layout().open_items();
-    let resolved_path = store.layout().resolved_items();
-    std::fs::create_dir_all(open_path.parent().unwrap()).unwrap();
-    std::fs::write(
-        &open_path,
-        crate::artifacts::items_io::serialize(&[open.clone()]),
-    )
-    .unwrap();
-    std::fs::write(
-        &resolved_path,
-        serde_json::to_vec(&[resolved.clone()]).unwrap(),
-    )
-    .unwrap();
-    let original_open = std::fs::read(&open_path).unwrap();
-    let original_resolved = std::fs::read(&resolved_path).unwrap();
-
-    let (loaded_open, loaded_resolved, needs_migration) = load_store(&store).unwrap();
-    assert!(needs_migration);
-    assert_eq!(loaded_open, vec![open.clone()]);
-    assert_eq!(loaded_resolved, vec![resolved.clone()]);
-    save(&store, &loaded_open, &loaded_resolved).unwrap();
-
-    assert_eq!(std::fs::read(open_path).unwrap(), original_open);
-    assert_eq!(std::fs::read(resolved_path).unwrap(), original_resolved);
-    let (loaded_open, loaded_resolved, needs_migration) = load_store(&store).unwrap();
-    assert!(!needs_migration);
-    assert_eq!(loaded_open[0].id, "CLR-101");
-    assert_eq!(loaded_open[0].feature_id.as_deref(), Some("F-101"));
-    assert!(loaded_open[0].uid.is_some());
-    assert_eq!(loaded_resolved[0], resolved);
-
-    let uid = loaded_open[0].uid.as_ref().unwrap();
-    let state_path = store.layout().item_state(uid).unwrap();
-    let content_path = store.layout().item_content(uid).unwrap();
-    let state: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(state_path).unwrap()).unwrap();
-    let content = std::fs::read_to_string(content_path).unwrap();
-    assert_eq!(state["schemaVersion"], 2);
-    assert_eq!(state["uid"].as_str(), Some(uid.as_str()));
-    assert_eq!(state["revision"], 1);
-    assert!(state["createdAtMs"].is_u64());
-    assert!(content.contains("Which regions are in scope?"));
-    assert!(!content.contains("**Priority:**"));
-    std::fs::remove_dir_all(root).unwrap();
+    let (changes, checks) = record_changes(store, open, resolved).unwrap();
+    store
+        .transaction_with_record_revisions(&changes, &checks)
+        .map(|_| ())
 }
 
 #[test]
@@ -149,7 +86,7 @@ fn unrelated_item_records_update_independently_and_stale_same_item_is_rejected()
         .find(|item| item.id == stale_update.id)
         .unwrap()
         .question = stale_update.question;
-    let (changes, checks, _) = record_changes(&store, &stale_snapshot, &[]).unwrap();
+    let (changes, checks) = record_changes(&store, &stale_snapshot, &[]).unwrap();
     assert!(matches!(
         store.transaction_with_record_revisions(&changes, &checks),
         Err(StoreError::StaleRecordRevision { .. })
@@ -240,7 +177,7 @@ fn persisted_task_intent_item_link_rejects_a_missing_root() {
 }
 
 #[test]
-fn task_intent_item_link_rejects_ambiguous_roots() {
+fn duplicate_task_intent_root_identity_is_rejected_before_persistence() {
     let (root_dir, store) = root();
     let mut root = crate::core::planning_work::Work::new(
         "task:intent-root".into(),
@@ -249,21 +186,12 @@ fn task_intent_item_link_rejects_ambiguous_roots() {
         "Planning".into(),
     );
     root.task_intent_uid = Some(root.uid.clone());
-    store
-        .atomic_write(
-            paths::WORK,
-            &serde_json::to_vec(&serde_json::json!({
-                "schemaVersion": 4,
-                "items": [&root, &root],
-            }))
-            .unwrap(),
-        )
-        .unwrap();
-    let mut scoped_item = item("CLR-403", "Which duplicate root owns this decision?");
-    scoped_item.task_intent_uid = Some(root.uid);
-    let error = record_changes(&store, &[scoped_item], &[])
+    let (changes, checks) =
+        crate::core::planning_work::record_changes(&store, &[root.clone(), root]).unwrap();
+    let error = store
+        .transaction_with_record_revisions(&changes, &checks)
         .unwrap_err()
         .to_string();
-    assert!(error.contains("exactly one valid root"), "{error}");
+    assert!(error.contains("duplicate"), "{error}");
     std::fs::remove_dir_all(root_dir).unwrap();
 }

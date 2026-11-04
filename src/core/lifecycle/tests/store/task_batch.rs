@@ -88,7 +88,8 @@ fn task_batch_retries_resume_partial_writes_and_reject_changed_bindings() {
         lifecycle.load_feature(&feature_uid).unwrap().revision,
         feature_revision_before
     );
-    crate::artifacts::migration::bootstrap_product(&fixture.0, "Lifecycle Task Batch").unwrap();
+    crate::artifacts::product_bootstrap::bootstrap_product(&fixture.0, "Lifecycle Task Batch")
+        .unwrap();
     let missing_baseline = lifecycle
         .reconcile_task_batch(&feature_uid, &plan_sha, std::slice::from_ref(&first))
         .unwrap_err();
@@ -120,6 +121,7 @@ fn task_batch_retries_resume_partial_writes_and_reject_changed_bindings() {
         .unwrap();
 
     let feature = reopened.load_feature(&feature_uid).unwrap();
+    let first_task_uid = first.task_uid.clone();
     assert_eq!(feature.phase, FeaturePhase::Executing);
     assert_eq!(feature.task_uids.len(), 3);
     assert_eq!(reopened.replay_feature(&feature_uid).unwrap(), feature);
@@ -150,15 +152,33 @@ fn task_batch_retries_resume_partial_writes_and_reject_changed_bindings() {
         [second.task_uid.clone()]
     );
 
-    legacy::verify_fixture(&fixture, &reopened_store, &first.task_uid);
+    let events = reopened.events_for_feature(&feature_uid).unwrap();
+    let task_creation = events
+        .iter()
+        .find(|event| {
+            event.task_uid.as_deref() == Some(first.task_uid.as_str())
+                && matches!(
+                    &event.event,
+                    crate::core::lifecycle::LifecycleEventKind::TaskCreated
+                )
+        })
+        .unwrap();
+    let task_creation_path = fixture
+        .0
+        .join(format!("state/lifecycle_events/{}.json", task_creation.uid));
+    let mut event: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&task_creation_path).unwrap()).unwrap();
+    let current_task_creation = std::fs::read(&task_creation_path).unwrap();
+    event["schemaVersion"] = 2.into();
+    std::fs::write(&task_creation_path, serde_json::to_vec(&event).unwrap()).unwrap();
+    assert!(reopened.replay_feature(&feature_uid).is_err());
+    std::fs::write(&task_creation_path, current_task_creation).unwrap();
 
-    let subtask_event = reopened
-        .events_for_feature(&feature_uid)
-        .unwrap()
-        .into_iter()
+    let subtask_event = events
+        .iter()
         .find(|event| {
             matches!(
-                event.event,
+                &event.event,
                 crate::core::lifecycle::LifecycleEventKind::SubtaskCreated { .. }
             )
         })
@@ -166,13 +186,14 @@ fn task_batch_retries_resume_partial_writes_and_reject_changed_bindings() {
     let event_path = fixture
         .0
         .join(format!("state/lifecycle_events/{}.json", subtask_event.uid));
-    let mut event: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&event_path).unwrap()).unwrap();
+    let current_subtask_event = std::fs::read(&event_path).unwrap();
+    let mut event: serde_json::Value = serde_json::from_slice(&current_subtask_event).unwrap();
     let fake_parent = uuid::Uuid::new_v4().hyphenated().to_string();
     event["event"]["parent_task_uid"] = fake_parent.clone().into();
     event["initialTask"]["parentTaskUid"] = fake_parent.into();
     std::fs::write(&event_path, serde_json::to_vec(&event).unwrap()).unwrap();
     assert!(reopened.replay_feature(&feature_uid).is_err());
+    std::fs::write(&event_path, current_subtask_event).unwrap();
 
     let mut changed = first;
     changed.task_spec_sha256 = Some("e".repeat(64));
@@ -181,6 +202,8 @@ fn task_batch_retries_resume_partial_writes_and_reject_changed_bindings() {
             .reconcile_task_batch(&feature_uid, &plan_sha, &[changed, second, third])
             .is_err()
     );
+
+    legacy::verify_fixture(&fixture, &reopened_store, &first_task_uid);
 }
 
 /// Production boundary: task generation through the file-backed lifecycle
@@ -193,7 +216,7 @@ fn task_generation_rejects_spec_drift_before_persisting_tasks() {
     let store = fixture.store();
     let lifecycle = LifecycleStore::new(&store);
     let (feature_uid, plan_sha) = approved_feature(&lifecycle);
-    crate::artifacts::migration::bootstrap_product(&fixture.0, "Spec Baseline A").unwrap();
+    crate::artifacts::product_bootstrap::bootstrap_product(&fixture.0, "Spec Baseline A").unwrap();
     record_approved_spec_baseline(&lifecycle, &feature_uid);
     let generated = task(
         &feature_uid,

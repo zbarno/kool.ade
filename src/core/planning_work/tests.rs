@@ -1,8 +1,6 @@
 use super::*;
 use crate::artifacts::planning_store::PlanningRoot;
 
-#[path = "tests/branch_independence.rs"]
-mod branch_independence;
 #[path = "tests/code_review_disposition.rs"]
 mod code_review_disposition;
 #[path = "tests/feature_uid.rs"]
@@ -19,21 +17,13 @@ fn root() -> std::path::PathBuf {
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&path).unwrap();
-    assert!(
-        std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(&path)
-            .status()
-            .unwrap()
-            .success()
-    );
     path
 }
 
 #[test]
-fn legacy_work_reads_are_pure_and_upgrade_with_revision_fencing() {
+fn legacy_work_aggregate_is_rejected_and_preserved() {
     let root = root();
-    let path = root.join(FILE);
+    let path = root.join(crate::artifacts::layout::store::WORK);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(
         &path,
@@ -44,38 +34,26 @@ fn legacy_work_reads_are_pure_and_upgrade_with_revision_fencing() {
     let store = root.planning_store();
     let original = std::fs::read(&path).unwrap();
     let expected_revision = store.revision().unwrap();
-    let work = load(&root).unwrap();
-    assert_eq!(work.len(), 1);
-    assert_eq!(work[0].status, WorkStatus::NeedsAttention);
-    assert_eq!(work[0].kind, WorkKind::Feature);
-    assert_eq!(work[0].feature_id.as_deref(), Some("CHG-001"));
-    assert!(uuid::Uuid::parse_str(&work[0].uid).is_ok());
-    assert_eq!(load(&root).unwrap()[0].uid, work[0].uid);
+    assert!(
+        load(&root)
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported legacy")
+    );
+    assert!(
+        load_expected(&root, &expected_revision)
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported legacy")
+    );
+    assert!(
+        record_changes(&store, &[])
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported legacy")
+    );
     assert_eq!(std::fs::read(&path).unwrap(), original);
     assert_eq!(store.revision().unwrap(), expected_revision);
-
-    let (migrated_work, migration_revision) = load_expected(&root, &expected_revision).unwrap();
-    assert_eq!(migrated_work, work);
-    assert_eq!(std::fs::read(&path).unwrap(), original);
-    let record_path = store.layout().work_record(&work[0].uid).unwrap();
-    let migrated: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(record_path).unwrap()).unwrap();
-    assert_eq!(migrated["schemaVersion"], 3);
-    assert_eq!(migrated["uid"], work[0].uid);
-    assert_eq!(migrated["revision"], 1);
-    assert_eq!(migrated["data"]["status"], "needs_attention");
-    assert!(migrated["data"].get("column").is_none());
-    assert_eq!(migration_revision, store.revision().unwrap());
-
-    let current_bytes = std::fs::read(root.join(FILE)).unwrap();
-    let (loaded_from_independent_records, unchanged_revision) =
-        load_expected(&root, &expected_revision).unwrap();
-    assert_eq!(loaded_from_independent_records, work);
-    assert_eq!(unchanged_revision, migration_revision);
-    assert_eq!(std::fs::read(root.join(FILE)).unwrap(), current_bytes);
-    let (loaded_again, unchanged_revision) = load_expected(&root, &migration_revision).unwrap();
-    assert_eq!(loaded_again, work);
-    assert_eq!(unchanged_revision, migration_revision);
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -100,29 +78,6 @@ fn typed_work_roundtrips_kind_parent_and_feature_uid() {
     let loaded = load(&root).unwrap();
     assert_eq!(loaded, vec![item]);
     std::fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
-fn snake_case_branch_fields_survive_work_record_migration() {
-    let mut work = Work::new(
-        "feature:branch".into(),
-        "Branch feature".into(),
-        "Honor branch intent".into(),
-        String::new(),
-    );
-    work.source_branch = Some("release/1.2".into());
-    work.destination_branch = Some("develop".into());
-    let mut value = serde_json::to_value(work).unwrap();
-    let object = value.as_object_mut().unwrap();
-    let source = object.remove("sourceBranch").unwrap();
-    let destination = object.remove("destinationBranch").unwrap();
-    object.insert("source_branch".into(), source);
-    object.insert("destination_branch".into(), destination);
-
-    let migrated: Work = serde_json::from_value(value).unwrap();
-
-    assert_eq!(migrated.source_branch.as_deref(), Some("release/1.2"));
-    assert_eq!(migrated.destination_branch.as_deref(), Some("develop"));
 }
 
 #[test]
@@ -217,7 +172,7 @@ fn discovered_refresh_tasks_keep_questions_in_attention_and_findings_in_todo() {
     ];
     let work = append_discovered(&drafts, None).unwrap();
     let store = root.planning_store();
-    let (changes, checks, _) = record_changes(&store, &work).unwrap();
+    let (changes, checks) = record_changes(&store, &work).unwrap();
     store
         .transaction_with_record_revisions(&changes, &checks)
         .unwrap();
@@ -257,15 +212,15 @@ fn discovered_refresh_tasks_inherit_the_authenticated_root_context() {
     };
     let child = append_discovered(&drafts, Some(&context)).unwrap();
     let store = root.planning_store();
-    let (changes, checks, _) = record_changes(&store, &child).unwrap();
+    let (changes, checks) = record_changes(&store, &child).unwrap();
     store
         .transaction_with_record_revisions(&changes, &checks)
         .unwrap();
-    let persisted = find(
-        &crate::core::state::PlannerState::load(&root).unwrap(),
-        &child[0].key,
-    )
-    .unwrap();
+    let persisted = load(&store)
+        .unwrap()
+        .into_iter()
+        .find(|work| work.key == child[0].key)
+        .unwrap();
     assert_eq!(persisted.parent_uid.as_deref(), Some(intent_uid.as_str()));
     assert_eq!(
         persisted.task_intent_uid.as_deref(),

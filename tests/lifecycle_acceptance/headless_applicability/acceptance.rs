@@ -7,9 +7,13 @@ use proposal::applicability_proposal;
 #[test]
 fn headless_visual_qa_decision_is_manager_signed_and_durable() {
     let temp = tempfile::tempdir().unwrap();
-    let store = PlanningStore::new(uuid::Uuid::new_v4(), temp.path(), StoreMode::ManagedLocal);
+    let mut store = PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        temp.path().join("application-data"),
+        StoreMode::ManagedLocal,
+    );
+    bootstrap_product(&mut store);
     let lifecycle = LifecycleStore::new(&store);
-    bootstrap_product(&store);
     let feature_uid = id();
     lifecycle
         .create_feature(&new_feature(feature_uid.clone()), &id())
@@ -267,7 +271,7 @@ fn headless_visual_qa_decision_is_manager_signed_and_durable() {
         QaExecutionStatusV1::NotApplicable
     );
 
-    let reopened_store = PlanningStore::new(store.project_id, store.root.clone(), store.mode);
+    let reopened_store = reopen_store(&store);
     let reopened = LifecycleStore::new(&reopened_store);
     let persisted = reopened.load_task(&task_uid).unwrap();
     assert_eq!(

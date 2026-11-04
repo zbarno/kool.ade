@@ -37,13 +37,12 @@ fn stale_or_same_context_review_cannot_advance_task_to_done() {
         spec_reconciliation_proposal_json: None,
         pr_work_item_uid: None,
     };
-    let mut legacy = serde_json::to_value(&task).unwrap();
-    legacy
+    let mut missing_requirements = serde_json::to_value(&task).unwrap();
+    missing_requirements
         .as_object_mut()
         .unwrap()
         .remove("approved_requirement_ids");
-    let legacy: TaskRecord = serde_json::from_value(legacy).unwrap();
-    assert!(legacy.approved_requirement_ids.is_empty());
+    assert!(serde_json::from_value::<TaskRecord>(missing_requirements).is_err());
 
     task.apply(0, TaskEvent::Start).unwrap();
     task.apply(

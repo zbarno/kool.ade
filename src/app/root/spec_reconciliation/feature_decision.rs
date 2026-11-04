@@ -1,6 +1,6 @@
 use crate::{
     app::session::Project,
-    artifacts::{planning_store::PlanningRoot, product_docs},
+    artifacts::product_docs,
     core::lifecycle::{
         FeatureDeltaAuthorizationV1, LifecycleStore, SpecDeltaOperatorChoiceV1,
         SpecDeltaOperatorDecisionV1, SpecReconciliationStatusV1, SpecRevisionDraftV1,
@@ -86,22 +86,30 @@ pub(crate) fn decide_feature_delta(
             let next = document.content.replacen(old, new, 1);
             if next != document.content {
                 product_docs::validate_module(&next).map_err(|error| error.to_string())?;
-                let relative = store
-                    .planning_layout()
-                    .product_root()
-                    .join(&document.module.path)
-                    .strip_prefix(store.planning_layout().root())
-                    .map_err(|error| error.to_string())?
-                    .to_string_lossy()
-                    .into_owned();
-                related_changes.push((relative, next.as_bytes().to_vec()));
                 updates.push((format!("product:{}", document.module.id), next));
             }
         }
         if updates.len() != 1 {
             return Err("The approved target must update exactly one product document.".into());
         }
-        let updated = product_docs::render_product_with_updates(store, &updates)
+        related_changes = crate::core::apply::private_document_draft_changes(store, &updates)
+            .map_err(|error| error.to_string())?;
+        let mut effective_updates = crate::core::apply::load_current(store)
+            .map_err(|error| error.to_string())?
+            .map(|draft| {
+                draft
+                    .changes
+                    .into_iter()
+                    .filter(|change| change.document_id.starts_with("product:"))
+                    .map(|change| (change.document_id, change.content))
+                    .collect::<std::collections::BTreeMap<_, _>>()
+            })
+            .unwrap_or_default();
+        for (id, content) in &updates {
+            effective_updates.insert(id.clone(), content.clone());
+        }
+        let effective_updates = effective_updates.into_iter().collect::<Vec<_>>();
+        let updated = product_docs::render_product_with_updates(store, &effective_updates)
             .map_err(|error| error.to_string())?
             .ok_or("The updated product specification could not be rendered")?;
         delta.needs_user_reapproval = false;
@@ -125,6 +133,8 @@ pub(crate) fn decide_feature_delta(
         recorded_at_ms,
         resulting_spec_sha256: resulting_hash.clone(),
     });
+    // The product hash includes the private proposal overlay. It stays bound
+    // to the same published-spec pin until the proposal is reviewed and merged.
     let content_hash = resulting_hash
         .clone()
         .unwrap_or_else(|| current_hash.clone());
@@ -148,7 +158,7 @@ pub(crate) fn decide_feature_delta(
             .proposed_target
             .as_deref()
             .map(|text| format!("{:x}", sha2::Sha256::digest(text.as_bytes()))),
-        resulting_product_sha256: adopt.then(|| content_hash.clone()),
+        resulting_product_sha256: resulting_hash.clone(),
         decision,
         actor: crate::core::lifecycle::GateActor::User,
         recorded_at_ms,
@@ -186,9 +196,9 @@ pub(crate) fn decide_feature_delta(
             related_changes,
         )
         .map_err(|error| error.to_string())?;
-    if let Some(updated) = updated_spec {
-        project.state.spec_text = Some(updated);
-        project.state.baseline_spec = project.state.spec_text.clone();
+    if updated_spec.is_some() {
+        project.state.local_spec_draft =
+            crate::core::apply::load_current(store).map_err(|error| error.to_string())?;
     }
     Ok(())
 }

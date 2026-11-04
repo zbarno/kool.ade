@@ -42,7 +42,7 @@ fn failed_required_baseline_check_prevents_reconciliation_commit_and_task_agent(
         s.git(&s.root.join("remote.git"), &["rev-parse", "main"]),
         remote_tip
     );
-    let state = load(&s.repo, &s.ticket).unwrap();
+    let state = load(&s.planning_store.root, &s.ticket).unwrap();
     assert_eq!(state.status, ImplementationStatus::Blocked);
     assert!(!state.task_repository.join("implemented.txt").exists());
     assert!(!state.task_repository.join("AGENTS.md").exists());
@@ -59,20 +59,20 @@ fn failed_required_baseline_check_prevents_reconciliation_commit_and_task_agent(
         )
         .is_empty()
     );
-    let evidence =
-        fs::read_dir(super::super::super::state_paths::state_dir(&s.repo, &s.ticket).unwrap())
-            .unwrap()
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .find(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| {
-                        name.starts_with("base-reconciliation-")
-                            && name.ends_with("-verification.json")
-                    })
+    let evidence = fs::read_dir(
+        super::super::super::state_paths::state_dir(&s.planning_store.root, &s.ticket).unwrap(),
+    )
+    .unwrap()
+    .filter_map(Result::ok)
+    .map(|entry| entry.path())
+    .find(|path| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| {
+                name.starts_with("base-reconciliation-") && name.ends_with("-verification.json")
             })
-            .unwrap();
+    })
+    .unwrap();
     let evidence: serde_json::Value = serde_json::from_slice(&fs::read(evidence).unwrap()).unwrap();
     assert_eq!(evidence[0]["command"], "test -f required-baseline-marker");
     assert!(evidence[0]["error"].as_str().is_some());
@@ -96,17 +96,26 @@ fn legacy_nested_project_check_is_rescoped_when_reconciliation_resumes() {
     s.git(&s.repo, &["commit", "-qm", "add nested project checks"]);
     let local = s.git(&s.repo, &["rev-parse", "HEAD"]);
     let common = s.git(&s.repo, &["merge-base", &local, &remote]);
-    let dir = super::super::super::state_paths::state_dir(&s.repo, &s.ticket).unwrap();
-    fs::create_dir_all(&dir).unwrap();
-    super::super::super::initial_reconciliation::save_plan(
-        &dir,
-        "main",
-        &local,
-        &remote,
-        &common,
-        &["test -f marker".into()],
-    )
-    .unwrap();
+    let worktree = super::merge_recovery::task_worktree(&s);
+    fs::create_dir_all(worktree.parent().unwrap()).unwrap();
+    let branch = format!(
+        "koolade/{}",
+        crate::core::implementation::key_for_ticket(&s.ticket)
+    );
+    s.git(
+        &s.repo,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            &branch,
+            worktree.to_str().unwrap(),
+            &remote,
+        ],
+    );
+    let dir = super::save_clone_reconciliation_state(
+        &s, &s.ticket, &worktree, "main", &local, &remote, &common,
+    );
     let agent = ReconcilingAgent {
         calls: Arc::new(AtomicUsize::new(0)),
         conflict: false,
@@ -139,17 +148,32 @@ fn missing_task_state_resumes_the_saved_commit_snapshots() {
     s.git(&s.repo, &["commit", "-qm", "local change"]);
     let original_local = s.git(&s.repo, &["rev-parse", "HEAD"]);
     let common = s.git(&s.repo, &["merge-base", &original_local, &original_remote]);
-    let dir = super::super::super::state_paths::state_dir(&s.repo, &s.ticket).unwrap();
-    fs::create_dir_all(&dir).unwrap();
-    super::super::super::initial_reconciliation::save_plan(
-        &dir,
+    let worktree = super::merge_recovery::task_worktree(&s);
+    fs::create_dir_all(worktree.parent().unwrap()).unwrap();
+    let branch = format!(
+        "koolade/{}",
+        crate::core::implementation::key_for_ticket(&s.ticket)
+    );
+    s.git(
+        &s.repo,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            &branch,
+            worktree.to_str().unwrap(),
+            &original_remote,
+        ],
+    );
+    let _dir = super::save_clone_reconciliation_state(
+        &s,
+        &s.ticket,
+        &worktree,
         "main",
         &original_local,
         &original_remote,
         &common,
-        &[],
-    )
-    .unwrap();
+    );
 
     let peer = s.root.join("peer-later");
     s.git(

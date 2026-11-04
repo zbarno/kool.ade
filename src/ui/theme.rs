@@ -101,9 +101,6 @@ pub const PURPLE: Color32 = Color32::from_rgb(182, 108, 255);
 /// Assumption card hue (CHG-002 recorded default, overridable by a fresh
 /// word); DANGER red stays deliberately unclaimed as a card hue (stip. ii).
 pub const ASSUMPTION_LAVENDER: Color32 = Color32::from_rgb(34, 184, 255);
-/// Ownership card hue (CHG-002 recorded default, overridable by a fresh
-/// word); DANGER red stays deliberately unclaimed as a card hue (stip. ii).
-pub const OWNERSHIP_PINK: Color32 = Color32::from_rgb(240, 106, 157);
 
 /// Centralised class-to-card-hue mapping (CHG-002 recorded defaults):
 /// Task-story (`None`) -> neutral, with approved colors for each planning type.
@@ -114,7 +111,6 @@ pub fn board_hue(kind: Option<crate::domain::ItemKind>) -> Color32 {
         Some(Question) => PURPLE,
         Some(Ambiguity) => WARNING,
         Some(Assumption) => ASSUMPTION_LAVENDER,
-        Some(Ownership) => OWNERSHIP_PINK,
     }
 }
 
@@ -246,7 +242,6 @@ impl crate::domain::ItemKind {
             crate::domain::ItemKind::Assumption => {
                 (Color32::from_rgb(9, 48, 67), ASSUMPTION_LAVENDER)
             }
-            crate::domain::ItemKind::Ownership => (Color32::from_rgb(74, 28, 47), OWNERSHIP_PINK),
         }
     }
 }

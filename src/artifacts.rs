@@ -15,8 +15,8 @@ pub mod items_io;
 pub mod layout;
 pub mod locks;
 pub mod mcp_io;
-pub mod migration;
 pub mod planning_store;
+pub mod product_bootstrap;
 pub mod spec_doc;
 pub mod time_ledger;
 
@@ -27,7 +27,7 @@ pub(crate) use atomic::sync_parent_directory;
 pub use atomic::{atomic_copy_new, atomic_create_bytes, atomic_write, atomic_write_bytes};
 pub use shared::{
     CONFIG_DIR, CONFIG_FILE, IMPORTS_DIR, MCP_CONFIG_FILE, OPEN_ITEMS_FILE, PLANNING_DIR,
-    SPEC_FILE, read_utf8_lossy, repo_artifact, sanitize_basename,
+    read_utf8_lossy, repo_artifact, sanitize_basename,
 };
 pub use time_ledger::{
     EndStatus, HEADER_LINE, IntervalRow, append_row, ledger_path, load, serialize_line,

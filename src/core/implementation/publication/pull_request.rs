@@ -131,14 +131,8 @@ pub(in crate::core::implementation) fn create_pull_request(
         .verified_head
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("Verified task commit is missing; refusing to publish"))?;
-    if let Some(claim_lease) = claim_lease {
-        fenced_push(
-            claim_lease,
-            &state.task_repository,
-            commit,
-            &format!("refs/heads/{}", state.branch),
-        )?;
-    } else if let Some(cache) = repository_cache.as_ref() {
+    verify_claim(claim_lease)?;
+    if let Some(cache) = repository_cache.as_ref() {
         cache.push_commit(
             &state.task_repository,
             commit,
@@ -148,12 +142,13 @@ pub(in crate::core::implementation) fn create_pull_request(
     } else {
         runner.git(
             &state.task_repository,
-            &["push", "--set-upstream", "origin", &state.branch],
+            &[
+                "push",
+                "origin",
+                &format!("{commit}:refs/heads/{}", state.branch),
+            ],
         )?;
     }
-    // The planning and code remotes cannot commit atomically. Recheck the
-    // planning lease after the code ref push and before asking GitHub to create
-    // a PR; the remote API request itself cannot be transactionally fenced.
     verify_claim(claim_lease)?;
     let url;
     let inspection;
@@ -214,7 +209,7 @@ pub(in crate::core::implementation) fn create_pull_request(
     Ok(())
 }
 
-fn verify_claim(
+pub(in crate::core::implementation) fn verify_claim(
     claim_lease: Option<&crate::core::task_claim::ClaimLeaseHandle>,
 ) -> anyhow::Result<()> {
     if let Some(claim_lease) = claim_lease {
@@ -223,23 +218,12 @@ fn verify_claim(
     Ok(())
 }
 
-pub(in crate::core::implementation) fn fenced_push(
-    claim_lease: &crate::core::task_claim::ClaimLeaseHandle,
-    source: &Path,
-    commit: &str,
-    destination_ref: &str,
-) -> anyhow::Result<()> {
-    claim_lease
-        .fenced_push(source, commit, destination_ref)
-        .map_err(lease_lost_error)
-}
-
 fn lease_lost_error(error: crate::core::task_claim::ClaimError) -> anyhow::Error {
     anyhow::Error::new(super::status::FailureCause(super::Failure::new(
         super::FailureKind::LeaseLost,
         super::RecoveryDisposition::UserAction,
         format!(
-            "The planning task claim was lost or could not be verified. No pull request was created; a code branch may already have been pushed before the lease loss was detected. Recover the current task claim before retrying. {error}"
+            "The private local task fence was lost or could not be verified. No further publication will proceed. {error}"
         ),
     )))
 }

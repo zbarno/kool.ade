@@ -57,12 +57,10 @@ fn state(tag: &str) -> PlannerState {
 }
 
 fn install_approved_feature(state: &mut PlannerState) {
-    let root = state.repo_root.clone();
+    let root = state.planning_store.root.clone();
     let id = "CHG-004";
-    let dir = root.join("planning/changes/CHG-004-saved-searches");
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("specification.md");
-    let markdown = "# CHG-004: Saved searches\n\n**Status:** Ready\n\n## Intent\n\nLet analysts resume a useful query.\n\n## Current Behavior\n\nAnalysts reconstruct query configuration each morning.\n\n## Desired Behavior\n\nAnalysts can restore a saved query.\n\n## Scope\n\nPersist and restore named search filters.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\n- SEARCH-R1 (MUST). Restore a named query after restart.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** Saved searches remain local.\n\n## Acceptance Criteria\n\n1. A named query restores after restart.\n";
+    let path = root.join("fixture-feature-CHG-004.md");
+    let markdown = "# CHG-004: Saved searches\n\n**Status:** Ready\n\n## Intent\n\nLet analysts resume a useful query.\n\n## Current Behavior\n\nAnalysts reconstruct query configuration each morning.\n\n## Desired Behavior\n\nAnalysts can restore a saved query.\n\n## Scope\n\nPersist and restore named search filters.\n\n## Affected Product Areas\n\n`product:overview`\n\n## Requirements\n\n- SEARCH-R1 (MUST). Restore a named query after restart.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** Saved searches remain local.\n\n## Acceptance Criteria\n\n1. A named query restores after restart.\n";
     let markdown =
         crate::artifacts::product_docs::identity::preserve_feature_identity(&path, id, markdown)
             .unwrap();
@@ -75,36 +73,31 @@ fn install_approved_feature(state: &mut PlannerState) {
         crate::domain::ChangeStatus::Ready,
     )
     .unwrap();
-    let relative = path
-        .strip_prefix(state.planning_store.root.as_path())
-        .unwrap()
-        .to_string_lossy()
-        .into_owned();
-    state
-        .planning_store
-        .transaction(
-            &[(relative, markdown.as_bytes().to_vec())],
-            Some(&state.baseline_planning_revision),
-        )
-        .unwrap();
-    state.workflow.brief = Some(brief());
-    crate::artifacts::task_docs::save_workflow(&root, &state.workflow).unwrap();
-    state.baseline_planning_revision = state.planning_store.revision().unwrap();
-    crate::core::gitops::commit(
-        &root,
-        "fixture: create approved saved-search feature",
-        &["planning".into()],
+    let draft = crate::core::apply::private_document_draft_changes(
+        &state.planning_store,
+        &[(format!("feature:{id}"), markdown.clone())],
     )
     .unwrap();
+    state
+        .planning_store
+        .transaction_with_revision(&draft, Some(&state.baseline_planning_revision))
+        .unwrap();
+    state.workflow.brief = Some(brief());
+    crate::artifacts::task_docs::save_workflow(&state.planning_store, &state.workflow).unwrap();
+    state.workflow = crate::artifacts::task_docs::load_workflow(&state.planning_store).unwrap();
+    state.baseline_planning_revision = state.planning_store.revision().unwrap();
     state.active_feature = Some((id.into(), markdown.clone()));
     state.active_features = vec![(id.into(), markdown.clone())];
-    crate::core::lifecycle::test_support::approve_and_review_feature(
+    let markdown = crate::core::lifecycle::test_support::approve_and_review_feature(
         &state.planning_store,
         &mut state.workflow,
         id,
         &markdown,
     )
     .unwrap();
+    state.active_feature = Some((id.into(), markdown.clone()));
+    state.active_features = vec![(id.into(), markdown)];
+    state.workflow = crate::artifacts::task_docs::load_workflow(&state.planning_store).unwrap();
     state.baseline_planning_revision = state.planning_store.revision().unwrap();
 }
 fn envelope() -> TurnEnvelope {
@@ -119,6 +112,7 @@ fn mark_ready(state: &mut PlannerState) {
             .contains("Generate task stories action")
     );
     apply::apply(state, &nt).unwrap();
+    state.workflow = crate::artifacts::task_docs::load_workflow(&state.planning_store).unwrap();
 }
 fn generation(
     state: &PlannerState,
@@ -139,10 +133,10 @@ fn readiness_persists_and_approved_stories_are_detailed_and_numbered() {
     let mut s = state("complete");
     install_approved_feature(&mut s);
     mark_ready(&mut s);
-    s = PlannerState::load(&s.repo_root).unwrap();
+    s = PlannerState::load_with_store(&s.repo_root, &s.planning_store).unwrap();
     assert!(s.workflow.ready(s.planning_contract()));
     assert!(
-        !s.repo_root.join("planning/tasks").exists(),
+        !s.planning_store.root.join("planning/tasks").exists(),
         "readiness must not generate files"
     );
     let mut second = story();
@@ -151,11 +145,11 @@ fn readiness_persists_and_approved_stories_are_detailed_and_numbered() {
     let nt = generation(&s, vec![story(), second]).unwrap();
     let receipt = apply::apply(&mut s, &nt).unwrap();
     let task_path = receipt
-        .repo_relative_paths
+        .changed_store_paths
         .iter()
         .find(|path| path.ends_with("TASK-persist-named-search-filters.md"))
         .expect("generated task path is recorded");
-    let task = std::fs::read_to_string(s.repo_root.join(task_path)).unwrap();
+    let task = std::fs::read_to_string(s.planning_store.root.join(task_path)).unwrap();
     assert!(task.contains(&story().intent));
     assert!(task.contains(&story().goal));
     assert!(!task.contains("## Product goal and intent"));
@@ -174,34 +168,36 @@ fn readiness_persists_and_approved_stories_are_detailed_and_numbered() {
         assert!(task.contains(section));
     }
     let second_task_path = receipt
-        .repo_relative_paths
+        .changed_store_paths
         .iter()
         .find(|path| path.ends_with("TASK-connect-the-saved-search-picker.md"))
         .expect("generated dependent task path is recorded");
-    let second = std::fs::read_to_string(s.repo_root.join(second_task_path)).unwrap();
+    let second = std::fs::read_to_string(s.planning_store.root.join(second_task_path)).unwrap();
     assert!(second.contains("TASK-persist-named-search-filters.md"));
     let specification_path = receipt
-        .repo_relative_paths
+        .changed_store_paths
         .iter()
         .find(|path| path.ends_with("/specification.md"))
         .expect("generated batch specification path is recorded");
-    let approved_feature_path =
-        crate::artifacts::product_docs::document_path(&s.planning_store, "feature:CHG-004")
+    let approved_feature =
+        crate::artifacts::product_docs::current_document(&s.planning_store, "feature:CHG-004")
+            .unwrap()
             .unwrap();
     assert_eq!(
-        std::fs::read_to_string(s.repo_root.join(specification_path)).unwrap(),
-        std::fs::read_to_string(approved_feature_path).unwrap()
+        std::fs::read_to_string(s.planning_store.root.join(specification_path)).unwrap(),
+        approved_feature
     );
     assert!(
         receipt
-            .repo_relative_paths
+            .changed_store_paths
             .iter()
             .any(|path| path.starts_with("state/workflow/"))
     );
-    let restored = PlannerState::load(&s.repo_root).unwrap();
+    let restored = PlannerState::load_with_store(&s.repo_root, &s.planning_store).unwrap();
     assert!(!restored.workflow.ready(restored.planning_contract()));
     assert_eq!(
-        crate::artifacts::task_docs::load_latest(&restored.repo_root, &restored.workflow).len(),
+        crate::artifacts::task_docs::load_latest(&restored.planning_store, &restored.workflow)
+            .len(),
         2
     );
     assert!(
@@ -223,7 +219,7 @@ fn no_approval_or_incomplete_intent_cannot_generate_tasks() {
     env = envelope();
     env.task_stories = Some(vec![story()]);
     assert!(validation::validate(&env, &s, &s.effective_user()).is_err());
-    assert!(!s.repo_root.join("planning/tasks").exists());
+    assert!(!s.planning_store.root.join("planning/tasks").exists());
     let nt = validation::validate(&envelope(), &s, &s.effective_user()).unwrap();
     apply::apply(&mut s, &nt).unwrap();
     assert!(

@@ -26,7 +26,7 @@ fn successful_empty_result_requires_explicit_bounded_rationale_before_any_write(
 }
 
 #[test]
-fn v2_requires_complete_outcomes_while_legacy_history_remains_uninvented() {
+fn only_current_history_with_complete_outcomes_is_accepted() {
     let fixture = Fixture::new();
     let store = fixture.store();
     let (uid, event) = Fixture::feature(&store);
@@ -39,50 +39,46 @@ fn v2_requires_complete_outcomes_while_legacy_history_remains_uninvented() {
     for variant in 0..4 {
         let mut invalid = history.clone();
         match variant {
-            0 => invalid.origin_dispositions = None,
-            1 => invalid.origin_dispositions = Some(Vec::new()),
+            0 => invalid.origin_dispositions.clear(),
+            1 => invalid.schema_version = 1,
             2 => {
-                let duplicate = invalid.origin_dispositions.as_ref().unwrap()[0].clone();
-                invalid
-                    .origin_dispositions
-                    .as_mut()
-                    .unwrap()
-                    .push(duplicate);
+                let duplicate = invalid.origin_dispositions[0].clone();
+                invalid.origin_dispositions.push(duplicate);
             }
-            _ => {
-                invalid.origin_dispositions.as_mut().unwrap()[0].origin_event_uid =
-                    uuid::Uuid::new_v4().to_string()
-            }
+            _ => invalid.origin_dispositions[0].origin_event_uid = uuid::Uuid::new_v4().to_string(),
         }
         assert!(validation::validate_history(&invalid, 1).is_err());
     }
-    let mut legacy = history;
-    legacy.schema_version = 1;
-    legacy.origin_dispositions = None;
-    let legacy_bytes = serde_json::to_vec_pretty(&legacy).unwrap();
+
+    let mut old_schema = history.clone();
+    old_schema.schema_version = 1;
+    let old_schema_bytes = serde_json::to_vec_pretty(&old_schema).unwrap();
     store
-        .transaction(&[(path.clone(), legacy_bytes.clone())], None)
+        .transaction(&[(path.clone(), old_schema_bytes)], None)
         .unwrap();
-    assert_eq!(
-        lifecycle
-            .specification_origin_dispositions(&uid, 1)
-            .unwrap(),
-        None
-    );
-    assert_eq!(lifecycle.spec_revision_history(&uid).unwrap().len(), 1);
-    let refresh = lifecycle
-        .enqueue_manual_spec_refresh(&uid, "after-legacy")
-        .unwrap();
-    lifecycle
-        .append_spec_revision(&uid, 1, Fixture::draft(&store, 1, refresh.uid))
-        .unwrap();
+    assert!(lifecycle.spec_revision_history(&uid).is_err());
     assert!(
         lifecycle
-            .specification_origin_dispositions(&uid, 2)
-            .unwrap()
-            .is_some()
+            .specification_origin_dispositions(&uid, 1)
+            .is_err()
     );
-    assert_eq!(store.read(&path).unwrap(), legacy_bytes);
+
+    let mut missing_outcomes = serde_json::to_value(history).unwrap();
+    missing_outcomes
+        .as_object_mut()
+        .unwrap()
+        .remove("originDispositions");
+    let missing_bytes = serde_json::to_vec(&missing_outcomes).unwrap();
+    store
+        .transaction(&[(path.clone(), missing_bytes.clone())], None)
+        .unwrap();
+    assert!(lifecycle.spec_revision_history(&uid).is_err());
+    assert!(
+        lifecycle
+            .specification_origin_dispositions(&uid, 1)
+            .is_err()
+    );
+    assert_eq!(store.read(&path).unwrap(), missing_bytes);
 }
 
 #[test]

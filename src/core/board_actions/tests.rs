@@ -26,24 +26,50 @@ fn board_approval_records_feature_decision_and_resolves_item_atomically() {
     git(&repo, &["init", "-q"]);
     git(&repo, &["config", "user.name", "Fixture"]);
     git(&repo, &["config", "user.email", "fixture@example.test"]);
-    let legacy = crate::artifacts::spec_doc::bootstrap_template("Demo");
-    std::fs::create_dir_all(repo.join("planning")).unwrap();
-    std::fs::write(repo.join("planning/specification.md"), &legacy).unwrap();
-    crate::artifacts::product_docs::migrate(&repo, &legacy).unwrap();
-    std::fs::create_dir_all(repo.join("planning")).unwrap();
-    let feature = "# CHG-001: Saved searches\n\n**Status:** Draft\n\n## Intent\n\nSave searches.\n\n## Current Behavior\n\nNo saved searches.\n\n## Desired Behavior\n\nSearches can be saved.\n\n## Scope\n\nSearch UI.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\nSave search.\n\n## Decisions and Assumptions\n\nAwaiting review.\n\n## Acceptance Criteria\n\nSaved search reopens.\n";
-    let feature_path = repo.join("planning/changes/CHG-001-saved-searches/specification.md");
+    std::fs::write(repo.join("README.md"), "Synthetic source snapshot\n").unwrap();
+    git(&repo, &["add", "README.md"]);
+    git(&repo, &["commit", "-qm", "Synthetic source baseline"]);
+    crate::core::state::test_support::seed_published_product_document(&repo).unwrap();
+    let project_id = crate::core::state::test_support::project_id_for_code_root(&repo);
+    let local_root = repo.with_file_name(format!(
+        "{}-local",
+        repo.file_name().unwrap().to_string_lossy()
+    ));
+    let store = crate::artifacts::planning_store::PlanningStore::for_code_repository(
+        project_id,
+        &local_root,
+        &repo,
+    );
+    let feature = crate::test_support::current_change_fixture(
+        "# CHG-001: Saved searches\n\n**Status:** Draft\n\n## Intent\n\nSave searches.\n\n## Current Behavior\n\nNo saved searches.\n\n## Desired Behavior\n\nSearches can be saved.\n\n## Scope\n\nSearch UI.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\nSave search.\n\n## Decisions and Assumptions\n\nAwaiting review.\n\n## Acceptance Criteria\n\nSaved search reopens.\n",
+        crate::domain::ChangeStatus::Draft,
+    )
+    .unwrap();
+    let identity = crate::domain::ArtifactIdentity::from_markdown(&feature)
+        .unwrap()
+        .unwrap();
+    let feature_path = repo
+        .join("docs/koolade/features")
+        .join(format!("{}.md", identity.uid));
     std::fs::create_dir_all(feature_path.parent().unwrap()).unwrap();
-    std::fs::write(&feature_path, feature).unwrap();
+    std::fs::write(&feature_path, &feature).unwrap();
+    std::fs::write(
+        feature_path.parent().unwrap().join("AGENTS.md"),
+        format!(
+            "# Navigation\n\n- [CHG-001: Saved searches](./{}.md) - Synthetic published feature.\n",
+            identity.uid
+        ),
+    )
+    .unwrap();
     let mut item = OpenItem::new(
         "CLR-001".into(),
         Priority::Normal,
         ItemKind::Assumption,
         "Product".into(),
-        Some("Fixture".into()),
         "Which retention period?".into(),
         "Needs a provisional product decision.".into(),
     );
+    item.uid = Some(uuid::Uuid::new_v4().hyphenated().to_string());
     item.authority = Authority::Review;
     item.feature_id = Some("CHG-001".into());
     item.decision_brief = Some(crate::domain::DecisionBrief {
@@ -97,19 +123,21 @@ fn board_approval_records_feature_decision_and_resolves_item_atomically() {
         }),
     });
     let decision_uid = item.uid.clone();
-    std::fs::write(
-        repo.join("planning/open-items.md"),
-        crate::artifacts::items_io::serialize(&[item]),
-    )
-    .unwrap();
-    git(&repo, &["add", "-A"]);
-    git(&repo, &["commit", "-qm", "seed"]);
-    let before = std::fs::read(repo.join("planning/product/current-capabilities.md")).unwrap();
-    let mut state = PlannerState::load(&repo).unwrap();
-    let commit = approve_review(&mut state, "CLR-001").unwrap();
-    assert!(!commit.is_empty());
+    let item_state = PlannerState::load_with_store(&repo, &store).unwrap();
+    let (changes, checks) =
+        crate::artifacts::items_io::record_changes(&item_state.planning_store, &[item], &[])
+            .unwrap();
+    item_state
+        .planning_store
+        .transaction_with_record_revisions(&changes, &checks)
+        .unwrap();
+    git(&repo, &["add", "docs/koolade/features"]);
+    git(&repo, &["commit", "-qm", "Seed published feature"]);
+    let head_before = git(&repo, &["rev-parse", "HEAD"]);
+    let mut state = PlannerState::load_with_store(&repo, &store).unwrap();
+    let _revision = approve_review(&mut state, "CLR-001").unwrap();
     assert!(state.items.is_empty());
-    let reopened = PlannerState::load(&repo).unwrap();
+    let reopened = PlannerState::load_with_store(&repo, &store).unwrap();
     assert_eq!(reopened.resolved_items[0].conversation_key(), "CLR-001");
     assert!(
         reopened.resolved_items[0]
@@ -117,14 +145,18 @@ fn board_approval_records_feature_decision_and_resolves_item_atomically() {
             .contains("Approved provisional decision CLR-001")
     );
     assert!(
-        std::fs::read_to_string(&feature_path)
+        crate::artifacts::product_docs::current_document(&state.planning_store, "feature:CHG-001")
+            .unwrap()
             .unwrap()
             .contains("### CLR-001 — Approved provisional decision")
     );
-    let approved_feature = std::fs::read_to_string(&feature_path).unwrap();
+    let approved_feature =
+        crate::artifacts::product_docs::current_document(&state.planning_store, "feature:CHG-001")
+            .unwrap()
+            .unwrap();
     assert!(approved_feature.contains("Keep the last ten searches"));
     assert!(approved_feature.contains("src/search.rs currently stores only the active query."));
-    let decision_dir = repo.join("planning/decisions");
+    let decision_dir = local_root.join("planning/decisions");
     let decisions = std::fs::read_dir(&decision_dir)
         .unwrap()
         .map(Result::unwrap)
@@ -142,22 +174,33 @@ fn board_approval_records_feature_decision_and_resolves_item_atomically() {
         .unwrap()
         .unwrap();
     assert_eq!(adr_identity.parent_uid, decision_uid);
-    assert!(
-        git(&repo, &["show", "--pretty=format:", "--name-only", "HEAD"])
-            .contains("planning/decisions/ADR-001-bound-saved-search-history.md")
-    );
-    assert_eq!(
-        std::fs::read(repo.join("planning/product/current-capabilities.md"),).unwrap(),
-        before
-    );
-    let store = crate::artifacts::planning_store::PlanningStore::new(
-        uuid::Uuid::nil(),
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), head_before);
+    assert!(git(&repo, &["status", "--porcelain"]).is_empty());
+    let draft = crate::core::apply::load_current(&state.planning_store)
+        .unwrap()
+        .expect("board approval writes a private specification proposal");
+    assert!(draft.changes.iter().any(|change| {
+        change.document_id == "feature:CHG-001"
+            && change
+                .content
+                .contains("### CLR-001 — Approved provisional decision")
+    }));
+    let published = state.planning_store.published_spec_pin.as_ref().unwrap();
+    let published_feature = crate::core::published_specs::PublishedSpecReader::new(
         &repo,
-        crate::artifacts::planning_store::StoreMode::ManagedLocal,
-    );
+        published.repository_id.clone(),
+        published.reference.clone(),
+    )
+    .unwrap()
+    .read(
+        published,
+        &format!("docs/koolade/features/{}.md", identity.uid),
+    )
+    .unwrap();
+    assert_eq!(published_feature.content, feature);
     let (open_items, resolved_items, _) = crate::artifacts::items_io::load_store(&store).unwrap();
     assert!(open_items.is_empty());
     assert_eq!(resolved_items[0].id, "CLR-001");
-    assert_eq!(git(&repo, &["rev-list", "--count", "HEAD"]), "2");
     let _ = std::fs::remove_dir_all(repo);
+    let _ = std::fs::remove_dir_all(local_root);
 }

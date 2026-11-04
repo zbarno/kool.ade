@@ -25,7 +25,7 @@ fn cancelled_task_clone_resumes_through_docker_verification_and_pr_preparation()
     let user_status = s.git(&s.repo, &["status", "--porcelain"]);
     assert!(s.run("cancel", calls.clone()).is_err());
 
-    let interrupted = load(&s.repo, &s.ticket).expect("cancelled state is durable");
+    let interrupted = load(&s.planning_store.root, &s.ticket).expect("cancelled state is durable");
     assert_eq!(interrupted.status, ImplementationStatus::Interrupted);
     assert_eq!(interrupted.task_repository_kind, TaskRepositoryKind::Clone);
     assert_eq!(

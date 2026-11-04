@@ -3,7 +3,8 @@ use crate::artifacts::planning_store::StoreMode;
 
 fn fixture() -> (tempfile::TempDir, PlanningStore, PlanSnapshotV1) {
     let root = tempfile::tempdir().unwrap();
-    crate::artifacts::migration::bootstrap_product(root.path(), "Confirmation fixture").unwrap();
+    crate::artifacts::product_bootstrap::bootstrap_product(root.path(), "Confirmation fixture")
+        .unwrap();
     let store = PlanningStore::new(uuid::Uuid::new_v4(), root.path(), StoreMode::ManagedLocal);
     let markdown = crate::domain::ArtifactIdentity::preserve_markdown(
         "# CHG-981: Confirm\n\n## Intent\nConfirm current content.\n\n## Current Behavior\nHistorical confirmation.\n\n## Desired Behavior\nConfirm current product context.\n\n## Scope\nConfirmation.\n\n## Requirements\n- REQ-981: Preserve the approved target.\n\n## Acceptance Criteria\n- Approval remains auditable.\n",
@@ -53,13 +54,13 @@ fn save(store: &PlanningStore, snapshot: &PlanSnapshotV1, receipt: &GateReceipt)
 }
 
 #[test]
-// Production boundary: immutable confirmation files survive upgrade and explicit
-// reconfirmation. A receipt validator cannot prove both records remain intact.
+// Production boundary: obsolete plan-only consent must not satisfy confirmation
+// after the current receipt contract requires both plan and product evidence.
 // Local temporary PlanningStore only; low setup cost, no services.
-fn legacy_confirmation_is_preserved_when_current_product_is_explicitly_confirmed() {
+fn obsolete_plan_only_confirmation_is_rejected() {
     let (_root, store, snapshot) = fixture();
-    let mut legacy = receipt(&store, &snapshot);
-    legacy.evidence_refs.truncate(1);
+    let mut obsolete = receipt(&store, &snapshot);
+    obsolete.evidence_refs.truncate(1);
     let path = confirmation_path(&snapshot.uid);
     let bytes = serde_json::to_vec(&ConfirmationRecord {
         schema_version: 1,
@@ -67,7 +68,7 @@ fn legacy_confirmation_is_preserved_when_current_product_is_explicitly_confirmed
         created_at_ms: 1,
         updated_at_ms: 1,
         revision: 1,
-        receipt: legacy.clone(),
+        receipt: obsolete,
     })
     .unwrap();
     store
@@ -77,22 +78,9 @@ fn legacy_confirmation_is_preserved_when_current_product_is_explicitly_confirmed
             0,
         )
         .unwrap();
-    let before = store.read(&path).unwrap();
-    assert_eq!(load_receipt(&store, &snapshot).unwrap(), Some(legacy));
-    assert!(is_confirmed(&store, &snapshot).unwrap());
-    assert!(!is_current(&store, &snapshot).unwrap());
-    let current = receipt(&store, &snapshot);
-    save(&store, &snapshot, &current);
-    assert_eq!(load_receipt(&store, &snapshot).unwrap(), Some(current));
-    assert!(is_current(&store, &snapshot).unwrap());
-    assert_eq!(store.read(&path).unwrap(), before);
-    assert_eq!(
-        store
-            .list_record_paths("state/lifecycle_plan_confirmations")
-            .unwrap()
-            .len(),
-        2
-    );
+    assert!(load_receipt(&store, &snapshot).is_err());
+    assert!(is_confirmed(&store, &snapshot).is_err());
+    assert!(is_current(&store, &snapshot).is_err());
 }
 
 #[test]

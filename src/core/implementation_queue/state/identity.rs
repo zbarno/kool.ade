@@ -53,17 +53,16 @@ impl Queue {
             }
             self.task_uids.remove(&path);
             self.task_uids.insert(orphan, old_uid.clone());
-            if let Some(state) = self.stable_tasks.get_mut(&old_uid)
-                && state.path_hint == path
-            {
-                state.path_hint = format!("@unlinked:{old_uid}");
-            }
             self.last_error = format!(
                 "Saved queue state for an older task at {path} remains under its previous identity and was not attached to the new task."
             );
             changed = true;
         }
         for (uid, path) in &current_paths {
+            let restored = self.stable_tasks.remove(uid);
+            if let Some(state) = &restored {
+                self.put_runtime_state(path, state);
+            }
             let mut sources = self
                 .task_uids
                 .iter()
@@ -77,7 +76,7 @@ impl Queue {
                     || self.recovery_attempts.contains_key(source)
                     || self.waiting_since_unix_ms.contains_key(source)
             });
-            if has_state && !self.stable_tasks.contains_key(uid) {
+            if has_state && restored.is_none() {
                 changed = true;
             }
             if self
@@ -124,13 +123,6 @@ impl Queue {
                 changed |= sources.iter().any(|source| source != path);
             }
             self.task_uids.insert(path.clone(), uid.clone());
-            if self
-                .stable_tasks
-                .get(uid)
-                .is_some_and(|state| state.path_hint != *path)
-            {
-                changed = true;
-            }
         }
         self.current_paths = current_paths;
         self.identity_dirty |= changed;

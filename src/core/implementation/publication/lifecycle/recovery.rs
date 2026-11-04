@@ -28,6 +28,19 @@ pub(in crate::core::implementation) fn preserve_done_after_failure(
         .ok_or_else(|| anyhow::anyhow!("Done implementation has no PR work item"))?;
     let work = lifecycle.load_pr_preparation(work_uid)?;
     let reason = crate::error::redact_secrets(&format!("{error:#}"));
+    // A Publishing record is owned by the epoch that claimed it. An outer
+    // execution error may not carry that epoch, so preserve the completed
+    // implementation without rewriting another attempt's publication record.
+    if work.status == PullRequestPreparationStatus::Publishing && expected_lease_epoch.is_none() {
+        implementation.status = ImplementationStatus::AwaitingReview;
+        implementation.detail = format!(
+            "Implementation is Done. PR publication remains in progress under its local fence: {}. Reconcile provider state before retrying.",
+            crate::core::context_build::clip(&reason, 4000),
+        );
+        implementation.auto_merge = false;
+        save(dir, implementation)?;
+        return Ok(true);
+    }
     if matches!(
         work.status,
         PullRequestPreparationStatus::AwaitingAuthorization

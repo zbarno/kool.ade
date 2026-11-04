@@ -3,10 +3,6 @@ use crate::core::implementation::repository_cache::RepositoryCache;
 
 #[path = "task_repositories/concurrent.rs"]
 mod concurrent;
-#[path = "task_repositories/identity.rs"]
-mod identity;
-#[path = "task_repositories/legacy_migration.rs"]
-mod legacy_migration;
 #[path = "task_repositories/push_safety.rs"]
 mod push_safety;
 #[path = "task_repositories/source_start.rs"]
@@ -14,8 +10,9 @@ mod source_start;
 
 fn run_on_worker(sandbox: &Sandbox, ticket: &str) -> anyhow::Result<Implementation> {
     let (progress, _updates) = mpsc::channel();
-    run_with_project_options(
-        &sandbox.repo,
+    run_with_planning_store_options(
+        &sandbox.planning_store,
+        &sandbox.planning_store.root,
         &sandbox.repo,
         ticket,
         RunOptions {
@@ -169,15 +166,21 @@ fn clone_reconciliation_plan_resumes_before_task_state_was_saved() {
         authorization_verifier: None,
     };
     execution::persist_source_plan_before_task_state(
-        &sandbox.repo,
+        &sandbox.planning_store.root,
         &sandbox.repo,
         &sandbox.ticket,
         &runner,
     )
     .unwrap();
 
-    let (_, task_uid, _) = read_ticket_and_identity(&sandbox.repo, &sandbox.ticket).unwrap();
-    let dir = state_dir_for_task(&sandbox.repo, &sandbox.ticket, task_uid.as_deref()).unwrap();
+    let (_, task_uid, _) =
+        read_ticket_and_identity(&sandbox.planning_store, &sandbox.ticket).unwrap();
+    let dir = state_dir_for_task(
+        &sandbox.planning_store.root,
+        &sandbox.ticket,
+        task_uid.as_deref(),
+    )
+    .unwrap();
     assert!(!dir.join("state.json").exists());
     let plan = crate::core::implementation::initial_reconciliation::load_plan(&dir)
         .unwrap()
@@ -238,12 +241,11 @@ fn repository_caches_are_isolated_by_the_effective_push_endpoint() {
         "Distinct push endpoint",
     )
     .unwrap();
-    fs::write(sandbox.repo.join(second_ticket), second_ticket_document).unwrap();
-    sandbox.git(&sandbox.repo, &["add", second_ticket]);
-    sandbox.git(
-        &sandbox.repo,
-        &["commit", "-qm", "add endpoint isolation task"],
-    );
+    sandbox
+        .planning_store
+        .atomic_write(second_ticket, second_ticket_document.as_bytes())
+        .unwrap();
+    super::sandbox::seed_lifecycle_task(&sandbox.planning_store, second_ticket, second_ticket_text);
     let second = run_on_worker(&sandbox, second_ticket).unwrap();
 
     let runner = cleanup_runner();

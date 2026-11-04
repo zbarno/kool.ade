@@ -151,15 +151,15 @@ fn verification_context(report: &Report) -> String {
 
 pub(super) fn context(
     planning_store: &PlanningStore,
-    repo: &Path,
+    _repo: &Path,
     ticket: &str,
     report: &Report,
 ) -> (std::path::PathBuf, String, String) {
     let task_repository =
-        crate::core::implementation::load_with_store(planning_store, repo, ticket)
+        crate::core::implementation::load_with_store(planning_store, &planning_store.root, ticket)
             .map(|state| state.task_repository)
             .filter(|path| path.is_dir())
-            .unwrap_or_else(|| repo.to_owned());
+            .unwrap_or_else(|| planning_store.root.clone());
     let task = task::content(planning_store, ticket);
     let documents = referenced_documents(&task_repository, report);
     (task_repository, task, documents)

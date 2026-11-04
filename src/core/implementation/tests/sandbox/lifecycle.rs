@@ -1,15 +1,39 @@
-use std::path::Path;
-
 use crate::core::lifecycle::{TaskPhase, TaskRecord};
 use sha2::Digest;
 
-pub(super) fn seed_task(repo: &Path, ticket: &str, ticket_text: &str) {
-    let task_uid = crate::domain::ArtifactIdentity::from_markdown(
-        &std::fs::read_to_string(repo.join(ticket)).unwrap(),
+pub(super) fn seed_task(
+    store: &crate::artifacts::planning_store::PlanningStore,
+    ticket: &str,
+    ticket_text: &str,
+) {
+    let original = String::from_utf8(store.read(ticket).unwrap()).unwrap();
+    let mut identity = crate::domain::ArtifactIdentity::from_markdown(&original)
+        .unwrap()
+        .expect("fixture task identity");
+    let batch_uid = identity.parent_uid.clone().unwrap_or_else(|| {
+        uuid::Uuid::new_v5(
+            &uuid::Uuid::NAMESPACE_URL,
+            format!("fixture-task-batch:{ticket}").as_bytes(),
+        )
+        .hyphenated()
+        .to_string()
+    });
+    identity.parent_uid = Some(batch_uid);
+    let markdown = crate::domain::ArtifactIdentity::preserve_markdown_with_parent(
+        ticket_text,
+        Some(&original),
+        &identity.display_id,
+        &identity.title,
+        identity.parent_uid.as_deref(),
     )
-    .unwrap()
-    .unwrap()
-    .uid;
+    .unwrap();
+    let metadata = crate::artifacts::task_docs::TaskMetadata::new(&identity, "root", Vec::new())
+        .unwrap()
+        .with_task_intent_uid(Some(&identity.uid))
+        .unwrap();
+    let markdown = crate::artifacts::task_docs::embed(&markdown, &metadata).unwrap();
+    store.atomic_write(ticket, markdown.as_bytes()).unwrap();
+    let task_uid = identity.uid;
     let approved_plan_sha256 = format!("{:x}", sha2::Sha256::digest(b"approved fixture plan"));
     let task_spec_sha256 = format!(
         "{:x}",
@@ -53,11 +77,6 @@ pub(super) fn seed_task(repo: &Path, ticket: &str, ticket_text: &str) {
         "revision": 0,
         "record": record
     });
-    let store = crate::artifacts::planning_store::PlanningStore::new(
-        uuid::Uuid::nil(),
-        repo,
-        crate::artifacts::planning_store::StoreMode::ManagedLocal,
-    );
     store
         .transaction(
             &[(
@@ -69,21 +88,16 @@ pub(super) fn seed_task(repo: &Path, ticket: &str, ticket_text: &str) {
         .unwrap();
 }
 
-pub(super) fn refresh_unstarted_task_spec(repo: &Path, ticket: &str) {
-    let ticket_text = crate::artifacts::task_docs::visible_content(
-        &std::fs::read_to_string(repo.join(ticket)).unwrap(),
-    );
-    let Ok(Some(identity)) = crate::domain::ArtifactIdentity::from_markdown(
-        &std::fs::read_to_string(repo.join(ticket)).unwrap(),
-    ) else {
+pub(super) fn refresh_unstarted_task_spec(
+    store: &crate::artifacts::planning_store::PlanningStore,
+    ticket: &str,
+) {
+    let raw = String::from_utf8(store.read(ticket).unwrap()).unwrap();
+    let ticket_text = crate::artifacts::task_docs::visible_content(&raw);
+    let Ok(Some(identity)) = crate::domain::ArtifactIdentity::from_markdown(&raw) else {
         return;
     };
     let path = format!("state/lifecycle_tasks/{}.json", identity.uid);
-    let store = crate::artifacts::planning_store::PlanningStore::new(
-        uuid::Uuid::nil(),
-        repo,
-        crate::artifacts::planning_store::StoreMode::ManagedLocal,
-    );
     let Ok(bytes) = store.read(&path) else {
         return;
     };
@@ -92,7 +106,7 @@ pub(super) fn refresh_unstarted_task_spec(repo: &Path, ticket: &str) {
     if record["phase"] != "ready" || record["revision"] != 0 {
         return;
     }
-    let Some(plan_hash) = record["approvedPlanSha256"].as_str() else {
+    let Some(plan_hash) = record["approved_plan_sha256"].as_str() else {
         return;
     };
     let task_spec_sha256 = format!(
@@ -101,7 +115,7 @@ pub(super) fn refresh_unstarted_task_spec(repo: &Path, ticket: &str) {
             serde_json::to_vec(&(1_u16, plan_hash, ticket_text.as_str())).unwrap()
         )
     );
-    record["taskSpecSha256"] = serde_json::Value::String(task_spec_sha256);
+    record["task_spec_sha256"] = serde_json::Value::String(task_spec_sha256);
     store
         .transaction(&[(path, serde_json::to_vec(&wrapper).unwrap())], None)
         .unwrap();

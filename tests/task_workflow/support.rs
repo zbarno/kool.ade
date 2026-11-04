@@ -37,7 +37,10 @@ impl AiHarness for FixtureHarness {
                 req.prompt_body
                     .contains("Task generation is NOT authorized")
             );
-            include_str!("../fixtures/interview-ready.json")
+            let mut interview: serde_json::Value =
+                serde_json::from_str(include_str!("../fixtures/interview-ready.json")).unwrap();
+            interview["document_updates"] = serde_json::json!([]);
+            interview.to_string()
         } else {
             assert!(req.prompt_body.contains("The user explicitly approved"));
             if req.prompt_body.contains("ONLY detailed story 2 of 2") {
@@ -58,10 +61,10 @@ impl AiHarness for FixtureHarness {
                         .unwrap()
                         .contains("In progress — 1 of 2")
                 );
-                let store = koolade::artifacts::planning_store::PlanningStore::new(
+                let store = koolade::artifacts::planning_store::PlanningStore::for_code_repository(
                     uuid::Uuid::nil(),
                     &self.planning_root,
-                    koolade::artifacts::planning_store::StoreMode::ManagedLocal,
+                    &req.repo_root,
                 );
                 let state = PlannerState::load_with_store(&req.repo_root, &store).unwrap();
                 let docs = { koolade::artifacts::task_docs::load_latest(&store, &state.workflow) };
@@ -107,6 +110,7 @@ impl AiHarness for FixtureHarness {
                 }
                 _ => panic!("unexpected model call"),
             }
+            .to_owned()
         };
         let mut text = text.to_owned();
         if self.generation

@@ -69,7 +69,6 @@ fn linked_task_attention_requires_an_open_actionable_item_for_same_feature() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "Product".into(),
-        None,
         "Choose the release behavior".into(),
         "The implementation needs this decision".into(),
     );
@@ -95,7 +94,6 @@ fn linked_task_attention_does_not_cross_feature_boundaries() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "Product".into(),
-        None,
         "Choose a behavior".into(),
         "Context".into(),
     );
@@ -160,7 +158,7 @@ fn implementation(
         base: String::new(),
         base_commit: String::new(),
         task_repository: std::path::PathBuf::new(),
-        task_repository_kind: crate::core::implementation::TaskRepositoryKind::LegacyWorktree,
+        task_repository_kind: crate::core::implementation::TaskRepositoryKind::Clone,
         task_repository_ready: false,
         task_repositories: Vec::new(),
         task_repository_commits: std::collections::BTreeMap::new(),

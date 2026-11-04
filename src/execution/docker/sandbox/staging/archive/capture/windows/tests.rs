@@ -11,7 +11,7 @@ fn init_git(root: &Path) {
 }
 
 fn git(root: &Path, args: &[&str]) -> std::process::Output {
-    let output = crate::core::planning_sync::validated_git_command(root)
+    let output = crate::core::git_commands::validated_git_command(root)
         .unwrap()
         .args(args)
         .output()

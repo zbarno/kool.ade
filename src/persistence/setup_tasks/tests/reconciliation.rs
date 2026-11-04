@@ -11,8 +11,6 @@ mod git;
 mod image_superseding;
 #[path = "reconciliation/images.rs"]
 mod images;
-#[path = "reconciliation/legacy.rs"]
-mod legacy;
 
 #[test]
 fn multiple_findings_have_stable_ids_and_bounded_transition_history() {

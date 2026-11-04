@@ -32,7 +32,7 @@ pub(super) fn make_divergent(s: &Sandbox) -> (String, String, String) {
 }
 
 pub(super) fn recovery_snapshot(s: &Sandbox) -> (std::path::PathBuf, serde_json::Value) {
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
+    let dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
     let path = dir.join("base-reconciliation-recovery.json");
     let snapshot = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     (path, snapshot)
@@ -50,9 +50,11 @@ pub(super) fn task_worktree(s: &Sandbox) -> std::path::PathBuf {
         .join(key)
 }
 
-pub(super) fn migrated_task_repository(s: &Sandbox) -> std::path::PathBuf {
+pub(super) fn current_task_repository(s: &Sandbox) -> std::path::PathBuf {
     crate::core::implementation::read_state_file(
-        &state_dir(&s.repo, &s.ticket).unwrap().join("state.json"),
+        &state_dir(&s.planning_store.root, &s.ticket)
+            .unwrap()
+            .join("state.json"),
     )
     .unwrap()
     .task_repository
@@ -60,7 +62,9 @@ pub(super) fn migrated_task_repository(s: &Sandbox) -> std::path::PathBuf {
 
 pub(super) fn repository_cache(s: &Sandbox) -> std::path::PathBuf {
     crate::core::implementation::read_state_file(
-        &state_dir(&s.repo, &s.ticket).unwrap().join("state.json"),
+        &state_dir(&s.planning_store.root, &s.ticket)
+            .unwrap()
+            .join("state.json"),
     )
     .unwrap()
     .repository_cache

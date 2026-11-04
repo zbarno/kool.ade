@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    QuestionStore, RecordChanges, RecordChangesWithChecks, legacy_question_state_path,
-    question_state_path, read_question_record,
+    QuestionStore, RecordChanges, RecordChangesWithChecks, question_state_path,
+    read_question_record,
 };
 use crate::artifacts::planning_store::{PlanningStore, RecordRevisionCheck, StoreError};
 
@@ -19,16 +19,12 @@ struct QuestionCatalogRevisionV1 {
 impl QuestionStore<'_> {
     pub(crate) fn revision_check(&self, uid: &str) -> Result<RecordRevisionCheck, StoreError> {
         let uid = canonical_uuid(uid)?;
-        for path in [
-            question_state_path(&uid)?,
-            legacy_question_state_path(&uid)?,
-        ] {
-            if let Some(record) = read_question_record(self.store, &path)? {
-                return Ok(RecordRevisionCheck {
-                    path,
-                    expected_revision: record.revision,
-                });
-            }
+        let path = question_state_path(&uid)?;
+        if let Some(record) = read_question_record(self.store, &path)? {
+            return Ok(RecordRevisionCheck {
+                path,
+                expected_revision: record.revision,
+            });
         }
         Err(StoreError::MalformedState(format!(
             "question {uid} does not exist"

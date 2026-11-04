@@ -58,7 +58,6 @@ fn task_map_planning_items_follow_blocker_ids_and_current_authority() {
         Priority::Blocking,
         ItemKind::Question,
         "Product".into(),
-        None,
         "Choose a policy".into(),
         "The implementation depends on it".into(),
     );
@@ -69,7 +68,6 @@ fn task_map_planning_items_follow_blocker_ids_and_current_authority() {
         Priority::High,
         ItemKind::Ambiguity,
         "Product".into(),
-        None,
         "Confirm the fallback".into(),
         "The chosen policy defines fallback behavior".into(),
     );
@@ -80,7 +78,6 @@ fn task_map_planning_items_follow_blocker_ids_and_current_authority() {
         Priority::Normal,
         ItemKind::Question,
         "General".into(),
-        None,
         "Unrelated question".into(),
         "No relation to this feature".into(),
     );
@@ -129,7 +126,6 @@ fn legacy_feature_id_links_are_visible_and_feature_uid_conflicts_are_flagged() {
         Priority::Normal,
         ItemKind::Question,
         "Product".into(),
-        None,
         "Legacy linked question".into(),
         "Old artifact has no feature UID".into(),
     );
@@ -139,7 +135,6 @@ fn legacy_feature_id_links_are_visible_and_feature_uid_conflicts_are_flagged() {
         Priority::Normal,
         ItemKind::Question,
         "Product".into(),
-        None,
         "Conflicting feature reference".into(),
         "Its UID and feature ID disagree".into(),
     );
@@ -170,7 +165,6 @@ fn ambiguous_planning_item_ids_are_not_navigable() {
         crate::domain::Priority::Normal,
         crate::domain::ItemKind::Question,
         "General".into(),
-        None,
         "One question".into(),
         "Context".into(),
     );

@@ -8,7 +8,8 @@ use crate::harness::prompt_catalog::{
 
 fn setup_review() -> (tempfile::TempDir, PlanningStore, PlanSnapshotV1) {
     let root = tempfile::tempdir().unwrap();
-    crate::artifacts::migration::bootstrap_product(root.path(), "Review Evidence Fixture").unwrap();
+    crate::artifacts::product_bootstrap::bootstrap_product(root.path(), "Review Evidence Fixture")
+        .unwrap();
     let store = PlanningStore::new(uuid::Uuid::new_v4(), root.path(), StoreMode::ManagedLocal);
     let (identity, markdown) = identified(&spec());
     let contract = crate::core::workflow::feature_contract(&markdown);

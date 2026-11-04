@@ -1,8 +1,9 @@
-//! Runtime persistence OUTSIDE the git repository.
+//! Private application persistence OUTSIDE source repositories and task clones.
 //!
-//! Per product decision: chat history persists per-operator under
-//! `~/.koolade-packet/` (overridable with `$KOOLADE_HOME`), keyed by repository
-//! slug. Git remains the sole store for *shared* planning artifacts.
+//! TaskIntents, tasks, conversations, approvals, runtime evidence, and other
+//! operational state live under `~/.koolade-packet/` (overridable with
+//! `$KOOLADE_HOME`), keyed by stable workspace identity. The primary code
+//! repository is authoritative only for published specifications and source.
 //!
 //! * `home.rs` — `~/.koolade` location math and project slugs
 //! * `chat_store.rs` — JSONL chat history per project
@@ -40,4 +41,5 @@ pub mod telemetry;
 
 mod home;
 
+pub(crate) use home::is_inside_git_worktree;
 pub use home::{fnv1a64, known_projects_path, project_dir, project_slug, state_root};

@@ -46,8 +46,6 @@ pub(crate) use execution::mark_resume_started_for_action;
 pub(crate) use execution::record_failed_attempt;
 pub use execution::run;
 use execution::run_with_planning_store_options;
-#[cfg(test)]
-use execution::run_with_project_options;
 pub use pr_refresh::PrRefresh;
 #[cfg(test)]
 use pr_refresh::refresh_pr;
@@ -127,12 +125,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskRepositoryKind {
-    Clone,
     #[default]
-    LegacyWorktree,
+    Clone,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -181,9 +178,8 @@ pub struct Implementation {
     pub task_repository_allocation_key: Option<String>,
     pub base: String,
     pub base_commit: String,
-    #[serde(rename = "task_repository", alias = "worktree")]
+    #[serde(rename = "task_repository")]
     pub task_repository: PathBuf,
-    #[serde(default)]
     pub task_repository_kind: TaskRepositoryKind,
     #[serde(default)]
     pub task_repository_ready: bool,

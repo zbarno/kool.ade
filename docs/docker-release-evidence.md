@@ -37,8 +37,11 @@ the same source tree, but it does not prove that the newly built candidates
 equal the locked images.
 
 The release gate remains blocked on independent two-host acceptance in #141,
-real provider role and launch behavior in #146 and #156, legacy migration and
-resume evidence, accurate platform support, and independent release sign-off.
+real provider role and launch behavior in #146 and #156, accurate platform
+support, and independent release sign-off. Legacy task/workspace migration is
+not a release criterion under the greenfield architecture in #484. Recovery of
+new private local state remains a separate requirement; do not infer it from
+legacy migration evidence.
 Both QA runtime profiles remain disabled.
 
 ## Previous main snapshot (2026-10-24; `7b9e518`)
@@ -67,8 +70,9 @@ so exact candidate-to-lock equality was deferred. PRs #330 and #331 are also
 merged. The release gate remains blocked on
 separate-host acceptance in #141, real provider role parity in #146, real
 provider behavior in #156 (mock-only checks are currently authorized), legacy
-migration and resume evidence, accurate platform support, and independent
-security sign-off.
+task/workspace migration is not applicable under issue #484; new private local
+execution recovery remains a separate requirement. Accurate platform support
+and independent security sign-off remain open.
 
 PR #318's isolated registry HOME fix is merged at `1b3edc5d`. PR #317's
 telemetry assertions and deterministic queue fixture are merged at
@@ -146,9 +150,10 @@ Status meanings:
 
 ## Earlier issue status reconciliation (2026-10-24)
 
-#143 remains closed for the implemented legacy sandbox removal/source cutover,
-but the original legacy history/dirty-clone/interrupted-attempt migration
-**release verification** stays in #144 and the cutover checklist. #146 has
+#143 remains closed for the implemented legacy sandbox removal/source cutover.
+Issue #484 supersedes old planning/task migration expectations: there is no
+legacy history or dirty-clone import requirement. Recovery checks apply only to
+new private local state. #146 has
 been **reopened** because the real six-provider Docker MCP/host-code-mode
 acceptance was not evidenced by the synthetic tests. #156 is separately open
 for clean provider startup. Remote queue fairness and wait telemetry merged in
@@ -189,7 +194,7 @@ release acceptance items remain open.
 | Filesystem and staging traversal negatives | Partial | The repository has focused rejection tests for symlinked `.git`, escaping source links, and unsafe returned archive entries, for example [`staging tests`](../src/execution/docker/sandbox/staging/tests.rs) and [`remote workspace scan tests`](../src/execution/remote/workspace/scan/tests.rs). | Map each required attack from #144 to an actual Docker-backed denial test and cite its passing hosted result. |
 | Docker image build, candidate digest, and attestation | Partial | Current-main `b1bd69b` [trusted-image run #40153402207](https://github.com/zbarno/kool.ade/actions/runs/40153402207) passed candidate builds and app-owned smoke; the push event skipped the PR-only verifier and published-image smokes, while publication and attestations were skipped because neither lock changed. The #364 PR head has the exact same Git tree as `b1bd69b`; its [trusted-image run #40147642533](https://github.com/zbarno/kool.ade/actions/runs/40147642533) validated candidate evidence and passed both published-image smoke jobs against immutable images from the default-branch lock. Exact candidate-to-lock equality was deferred because neither lock changed. | Retain the exact-tree PR evidence and run publication/attestation on a post-merge release candidate when image locks change. Keep both QA runtimes disabled until the wider release gate passes. |
 | macOS and Windows Docker Desktop support | Not verified | [`docker-security-matrix.md`](docker-security-matrix.md) labels both platforms not production-verified. | Keep them marked experimental or unsupported until their native app, path/staging, SSH, and isolation smoke steps have sign-off. |
-| Legacy state migration and resume preservation | Not verified | The cutover items remain unchecked in [`docker-cutover-checklist.md`](docker-cutover-checklist.md). | Run migration and recovery against representative legacy histories, dirty clones, interrupted executions, and retained snapshots. |
+| Legacy task/workspace import | Not applicable | The greenfield contract in #484 excludes old workspace and task-data import. | Do not add a migration gate. Preserve restart recovery for newly created private local execution state. |
 | Independent security and release review | Not verified | No release sign-off is recorded. | Complete independent review and resolve blocking findings against the exact candidate. |
 
 ## Release decision
@@ -198,7 +203,8 @@ The release gate remains **blocked**. Issues #141, #144, #146, and #156 are open
 #171 remains the separate runtime QA release gate. The current CI and fake
 provider results are useful evidence, but they do not establish multi-host
 remote behavior, full adversarial Docker coverage, live provider semantics,
-cross-platform support, or migration acceptance.
+cross-platform support. Legacy task/workspace migration is not an acceptance
+gate under the greenfield contract.
 
 Keep the relevant checklist items unchecked until each has a passing link or a
 dated manual sign-off for the exact candidate. Do not convert a `Partial`,

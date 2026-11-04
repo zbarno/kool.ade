@@ -131,7 +131,8 @@ mod tests {
             "detail": "",
             "pr_url": null,
             "verified_head": null,
-            "repository_id": "root"
+            "repository_id": "root",
+            "task_repository_kind": "clone"
         }))
         .unwrap()
     }
@@ -150,7 +151,6 @@ mod tests {
             implementation_branch: None,
             publication_status: crate::artifacts::task_docs::ExecutionPublicationStatus::Planned,
             pull_requests: Vec::new(),
-            legacy_linkage: false,
             revision: 4,
         };
 
@@ -175,7 +175,6 @@ mod tests {
             implementation_branch: None,
             publication_status: crate::artifacts::task_docs::ExecutionPublicationStatus::Planned,
             pull_requests: Vec::new(),
-            legacy_linkage: false,
             revision: 1,
         };
 
@@ -200,7 +199,6 @@ mod tests {
             implementation_branch: None,
             publication_status: crate::artifacts::task_docs::ExecutionPublicationStatus::Planned,
             pull_requests: Vec::new(),
-            legacy_linkage: false,
             revision: 3,
         };
 

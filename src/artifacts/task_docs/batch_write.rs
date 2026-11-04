@@ -105,7 +105,7 @@ pub(crate) fn write_batch_expected_with_revision_and_checks<R: PlanningRoot + ?S
             .ok_or_else(|| anyhow::anyhow!("Task directory is outside the planning root"))?
             .join(".koolade-progress.json");
         let progress_relative = progress_path.strip_prefix(layout.root())?;
-        let (mut changes, workflow_checks, _) = super::record_files::changes(repo, &next)?;
+        let (mut changes, workflow_checks) = super::record_files::changes(repo, &next)?;
         let index_relative = index_path.strip_prefix(layout.root())?;
         changes.push((
             index_relative.to_string_lossy().replace('\\', "/"),
@@ -140,7 +140,7 @@ pub(crate) fn write_batch_expected_with_revision_and_checks<R: PlanningRoot + ?S
                         })
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
-            let (history_changes, history_checks, _) =
+            let (history_changes, history_checks) =
                 crate::core::planning_work::linked_executable_task_changes(
                     &store, &root_uid, &task_uids,
                 )?;
@@ -157,14 +157,14 @@ pub(crate) fn write_batch_expected_with_revision_and_checks<R: PlanningRoot + ?S
         let directory_relative = store_relative_directory(&directory);
         let mut paths = committed
             .iter()
-            .map(|path| store.git_path(path))
+            .map(|path| store.relative_path(path))
             .collect::<std::collections::BTreeSet<_>>();
         for path in std::iter::once("README.md".to_owned())
             .chain(std::iter::once("specification.md".to_owned()))
             .chain(task_paths)
             .chain(batch.contract.as_ref().map(|_| "contract.json".to_owned()))
         {
-            paths.insert(store.git_path(&format!("{directory_relative}/{path}")));
+            paths.insert(store.relative_path(&format!("{directory_relative}/{path}")));
         }
         return Ok((paths.into_iter().collect(), revision));
     }

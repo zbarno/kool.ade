@@ -11,7 +11,6 @@ pub mod markdown;
 pub mod message_text;
 pub mod overlays;
 pub mod planning_board;
-pub mod planning_repository;
 pub mod reply_tail;
 pub(crate) mod saved_reply;
 pub mod spec_viewer;
@@ -27,11 +26,8 @@ pub mod toast;
 
 pub use chat_pane::Intent;
 pub use layout::HeaderAction;
-pub use planning_repository::{
-    PlanningCodeRepositoryView, PlanningRepositoryCommand, PlanningRepositoryViewModel,
-};
 pub use specification_status::FeatureSpecificationStatus;
-pub use surface_trait::{RepositoryChoice, Surface};
+pub use surface_trait::Surface;
 pub use toast::ToastQueue;
 
 /// Typed actions emitted by views and handled by the application state
@@ -43,6 +39,7 @@ pub enum ApplicationCommand {
         reference: String,
     },
     CloseSpecificationTrace,
+    PublishInitialProductSpecification,
     GenerateRuntimeQaScenarios {
         ticket: String,
     },
@@ -95,7 +92,6 @@ pub enum ApplicationCommand {
     ApproveSetupTaskFix {
         task_id: String,
     },
-    PlanningRepository(PlanningRepositoryCommand),
     CreatePlanningTask {
         kind: crate::core::planning_work::WorkKind,
         description: String,
@@ -128,9 +124,6 @@ pub enum ApplicationCommand {
     },
     SetRequireIndependentChecks {
         enabled: bool,
-    },
-    TakeOverStaleTaskClaim {
-        ticket: String,
     },
     ArchiveTask {
         ticket: String,

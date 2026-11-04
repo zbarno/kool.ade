@@ -27,7 +27,6 @@ fn machine_setup_task(
             scan_generation: 1,
             state,
         }],
-        legacy_source_id: None,
         superseded_by: Vec::new(),
     }
 }
@@ -98,7 +97,6 @@ fn kanban_setup_card_opens_guided_details_in_the_shared_task_shell() {
             scan_generation: 1,
             state,
         }],
-        legacy_source_id: None,
         superseded_by: Vec::new(),
     });
     let ctx = super::mockup_layout::styled_context();

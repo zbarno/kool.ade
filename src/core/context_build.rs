@@ -34,9 +34,6 @@ pub struct ImportRow {
 #[derive(Debug, Clone)]
 pub struct TurnContext {
     pub user: CurrentUser,
-    /// Per-seat lane digest under the D-14 law (may be empty: guest seat
-    /// or empty config inherit nothing). Rendered inside CURRENT USER.
-    pub lane_note: String,
     pub repo_title: String,
     pub repository_map: String,
     pub next_feature_id: String,
@@ -50,6 +47,9 @@ pub struct TurnContext {
     pub spec_markdown: Option<String>,
     pub product_index: Option<String>,
     pub active_feature: Option<(String, String)>,
+    pub active_feature_is_local_proposal: bool,
+    pub local_spec_proposals: Vec<(String, String)>,
+    pub local_spec_proposal_base: Option<String>,
     pub selected_documents: Vec<RetrievedDocument>,
     pub selected_areas: Vec<RetrievedArea>,
     pub open_items_markdown: String,
@@ -85,17 +85,57 @@ impl TurnContext {
         }
         let overview = scan_for_store(&state.repo_root, &state.planning_store);
         let imports = derive_import_rows(state);
-        let mcp_summary = mcp::summary(state.mcp_config_dir().as_deref());
+        let mcp_config_dir = state.mcp_config_dir();
+        let mcp_summary = mcp::summary(Some(&mcp_config_dir));
         let product_index = state
-            .planning_store
-            .read(crate::artifacts::planning_store::paths::PRODUCT_INDEX)
-            .ok()
-            .and_then(|bytes| String::from_utf8(bytes).ok())
-            .map(|text| clip(&text, 5000));
-        let active_feature = product_index
+            .published_spec_pin
             .as_ref()
-            .and(state.active_feature.as_ref())
+            .and_then(|pin| {
+                let reader =
+                    crate::core::published_specs::PublishedSpecReader::for_primary_repository(
+                        &state.repo_root,
+                    )
+                    .ok()?;
+                reader
+                    .read_optional(pin, "docs/koolade/product/index.md")
+                    .ok()?
+            })
+            .map(|document| clip(&document.content, 5000));
+        let active_feature = state
+            .active_feature
+            .as_ref()
             .map(|(id, body)| (id.clone(), clip(body, 12000)));
+        let active_feature_is_local_proposal = active_feature.as_ref().is_some_and(|(id, _)| {
+            state.local_spec_draft.as_ref().is_some_and(|draft| {
+                draft.base_published_spec_pin == state.published_spec_pin
+                    && draft
+                        .changes
+                        .iter()
+                        .any(|change| change.document_id == format!("feature:{id}"))
+            })
+        });
+        let local_spec_proposal_base = state
+            .local_spec_draft
+            .as_ref()
+            .filter(|draft| draft.base_published_spec_pin == state.published_spec_pin)
+            .and_then(|draft| {
+                draft
+                    .base_published_spec_pin
+                    .as_ref()
+                    .map(|pin| format!("{}@{}", pin.reference, pin.commit_sha))
+            });
+        let local_spec_proposals = state
+            .local_spec_draft
+            .as_ref()
+            .filter(|draft| draft.base_published_spec_pin == state.published_spec_pin)
+            .map(|draft| {
+                draft
+                    .changes
+                    .iter()
+                    .map(|change| (change.document_id.clone(), clip(&change.content, 12000)))
+                    .collect()
+            })
+            .unwrap_or_default();
         let selected_documents = selection
             .map(|selection| selection.documents.clone())
             .unwrap_or_default();
@@ -109,21 +149,12 @@ impl TurnContext {
         let open_items = clip(&items_io::serialize(chosen_items), 12000);
         TurnContext {
             user: state.effective_user(),
-            lane_note: clip(
-                &crate::core::routing::describe_lanes(
-                    &state.effective_user(),
-                    &state.config.stakeholders,
-                ),
-                4000,
-            ),
             repo_title: state.title.clone(),
-            next_feature_id: crate::artifacts::product_docs::next_feature_id(&state.planning_store),
-            product_directory: state
-                .planning_store
-                .git_path(crate::artifacts::planning_store::paths::PRODUCT),
+            next_feature_id: next_feature_id(&state.active_features),
+            product_directory: "docs/koolade/product".into(),
             project_config_path: state
                 .planning_store
-                .git_path(crate::artifacts::planning_store::paths::PROJECT_CONFIG),
+                .relative_path(crate::artifacts::planning_store::paths::PROJECT_CONFIG),
             repository_map: clip(
                 &state
                     .repositories
@@ -144,6 +175,9 @@ impl TurnContext {
                 .flatten(),
             product_index,
             active_feature,
+            active_feature_is_local_proposal,
+            local_spec_proposals,
+            local_spec_proposal_base,
             selected_documents,
             selected_areas,
             open_items_markdown: resolved_history::with_summary(open_items, &state.resolved_items),
@@ -152,6 +186,20 @@ impl TurnContext {
             mcp_summary,
         }
     }
+}
+
+fn next_feature_id(features: &[(String, String)]) -> String {
+    let maximum = features
+        .iter()
+        .filter_map(|(id, _)| {
+            id.strip_prefix('F')
+                .or_else(|| id.strip_prefix("CHG-"))?
+                .parse::<u32>()
+                .ok()
+        })
+        .max()
+        .unwrap_or_default();
+    format!("F{}", maximum.saturating_add(1))
 }
 
 /// Clip free text to a character cap with a marker.
@@ -230,7 +278,7 @@ fn derive_import_rows(state: &PlannerState) -> Vec<ImportRow> {
                     "{}/{}",
                     state
                         .planning_store
-                        .git_path(crate::artifacts::planning_store::paths::IMPORTS),
+                        .relative_path(crate::artifacts::planning_store::paths::IMPORTS),
                     entry.name
                 ),
                 bytes: Some(entry.bytes as usize),

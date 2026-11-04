@@ -27,9 +27,7 @@ pub(in crate::core::lifecycle::store) fn validate_history(
         .map_err(StoreError::MalformedState)?;
     let expected_uid = revision_uid(&history.feature_uid, history.sequence)?;
     let mut requirements = HashSet::new();
-    if !matches!(history.schema_version, 1 | 2)
-        || (history.schema_version == 2 && history.origin_dispositions.is_none())
-        || (history.schema_version == 1 && history.origin_dispositions.is_some())
+    if history.schema_version != 2
         || history.uid != expected_uid
         || record_revision != 1
         || history.revision != record_revision

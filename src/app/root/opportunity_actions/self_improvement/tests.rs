@@ -1,7 +1,6 @@
 use super::*;
 use crate::{
     app::root::board_tests::click_text,
-    artifacts::planning_store::StoreMode,
     core::opportunity::{
         EvidenceConfidentialityV1, OpportunityDecisionKindV1, OpportunityEvidenceRefV1,
         OpportunityKindV1, OpportunityOriginV1, OpportunitySaveResult, OpportunityScopeV1,

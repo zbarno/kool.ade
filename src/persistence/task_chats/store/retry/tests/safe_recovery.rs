@@ -106,42 +106,31 @@ fn repeated_recoverable_failures_stop_without_replaying_the_answer() {
 }
 
 #[test]
-fn legacy_format_failures_are_recoverable_but_unknown_provider_and_authorization_failures_are_not()
-{
-    for (text, safe) in [
-        (
-            "⚠ Turn rejected — nothing was written.\nStructured JSON block is malformed (invalid JSON); NO changes were saved.",
-            true,
-        ),
-        (
-            "⚠ Turn rejected — nothing was written.\n“CLR-001”: cannot update and resolve the same item in one turn",
-            true,
-        ),
-        ("Planning stopped: ProviderRejectedRequest", false),
-        ("cancelled", false),
-        (
-            "⚠ Turn rejected — nothing was written.\nStructured JSON block is malformed\nHuman item requires an explicit answer",
-            false,
-        ),
-    ] {
-        let mut message = ChatMessage::new(ChatRole::System, text, None);
-        TaskChats::mark_task_reply_outcome(&mut message);
-        assert_eq!(
-            super::super::safe_recovery::is_recoverable(&message),
-            safe,
-            "{text}"
-        );
-        assert_eq!(has_task_reply_outcome(&[message]), !safe, "{text}");
-    }
+fn only_current_recovery_records_are_automatically_recoverable() {
+    let mut current = ChatMessage::new(
+        ChatRole::System,
+        "Structured JSON block is malformed (invalid JSON)",
+        None,
+    );
+    TaskChats::mark_recoverable_task_reply(&mut current);
+    assert!(super::super::safe_recovery::is_recoverable(&current));
+
+    let mut old_format = ChatMessage::new(
+        ChatRole::System,
+        "⚠ Turn rejected — nothing was written.\nStructured JSON block is malformed (invalid JSON); NO changes were saved.",
+        None,
+    );
+    TaskChats::mark_task_reply_outcome(&mut old_format);
+    assert!(!super::super::safe_recovery::is_recoverable(&old_format));
+    assert!(has_task_reply_outcome(&[old_format]));
 }
 
-/// Same durable admission boundary; legacy histories had no initial claim.
-/// An expired recovery must not gain another attempt after process restart.
+/// An expired current recovery must not gain another attempt after process restart.
 #[test]
-fn legacy_failure_without_initial_claim_cannot_restart_an_expired_recovery() {
+fn expired_recovery_cannot_restart_after_process_restart() {
     let dir = tempfile::tempdir().unwrap();
     let slug = dir.path().to_str().unwrap();
-    let key = "task:legacy";
+    let key = "task:recovery";
     let user = ChatMessage::new(ChatRole::User, "Keep the saved choice", None);
     let user_id = user.id.clone();
     let mut failure = ChatMessage::new(
@@ -149,7 +138,7 @@ fn legacy_failure_without_initial_claim_cannot_restart_an_expired_recovery() {
         "⚠ Turn rejected — nothing was written.\nStructured JSON block is malformed (invalid JSON); NO changes were saved.",
         None,
     );
-    TaskChats::mark_task_reply_outcome(&mut failure);
+    TaskChats::mark_recoverable_task_reply(&mut failure);
     let mut chats = TaskChats::default();
     chats.ensure_loaded(slug);
     chats.append(slug, key, vec![user, failure]).unwrap();
@@ -157,7 +146,7 @@ fn legacy_failure_without_initial_claim_cannot_restart_an_expired_recovery() {
         .claim_pending_task_reply(slug, key, &user_id)
         .unwrap()
         .unwrap();
-    let (mut stored, _) = super::super::super::read_stored(slug).unwrap();
+    let mut stored = super::super::super::read_stored(slug).unwrap();
     let claim = stored
         .other_histories
         .get_mut(key)

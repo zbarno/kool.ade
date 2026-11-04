@@ -42,26 +42,6 @@ impl Default for KooladeApp {
                     crate::persistence::state_root().join("onboarding.json")
                 }
             }),
-            onboarding_launcher: Default::default(),
-            onboarding_open: None,
-            onboarding_recovery: Default::default(),
-            launch_history_jobs: {
-                #[cfg(not(test))]
-                {
-                    let manager =
-                        crate::core::managed_workspace::WorkspaceManager::from_state_root();
-                    vec![std::thread::spawn(move || {
-                        manager
-                            .flush_pending_opens()
-                            .map_err(|error| error.to_string())
-                    })]
-                }
-                #[cfg(test)]
-                {
-                    Vec::new()
-                }
-            },
-            onboarding_creation: None,
             task_harness: None,
             pending_feature_generation: None,
             screen: Screen::Welcome,
@@ -73,12 +53,10 @@ impl Default for KooladeApp {
             last_git_refresh: Instant::now(),
             display_refresh: None,
             clone_job: None,
-            planning_sync_job: None,
-            conn_workspace_id: None,
             welcome_draft: String::new(),
             wiz: None,
             clone_computation_override: None,
-            cached_user: CurrentUser::new("", Vec::new()),
+            cached_user: CurrentUser::new(""),
             attention: Default::default(),
             setup_attention: Vec::new(),
             machine_setup_tasks: Vec::new(),
@@ -98,7 +76,6 @@ impl Default for KooladeApp {
             attention_fixture: Default::default(),
             #[cfg(test)]
             _test_temp_roots: vec![TestTempRoot(setup_state_root)],
-            synth: Vec::new(),
         }
     }
 }

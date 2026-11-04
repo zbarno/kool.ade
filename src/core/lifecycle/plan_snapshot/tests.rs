@@ -13,8 +13,6 @@ mod review_gate;
 mod review_retry;
 #[path = "tests/snapshot_content.rs"]
 mod snapshot_content;
-#[path = "tests/snapshot_legacy_compatibility.rs"]
-mod snapshot_legacy_compatibility;
 
 fn spec() -> String {
     "# CHG-021: Report exports\n\n## Intent\n\nHelp operators export reports.\n\n## Current Behavior\n\nReports cannot be exported.\n\n## Desired Behavior\n\nOperators can download reports.\n\n## Scope\n\n- CSV export\n- Out of scope: scheduled delivery\n\n## Affected Product Areas\n\nReporting and downloads.\n\n## Requirements\n\n- REQ-001: Exports include selected rows.\n- Keep the current filename behavior.\n\n## Decisions and Assumptions\n\n- CSV is sufficient for this release.\n\n## Acceptance Criteria\n\n1. Selected rows are exported.\n2. Empty results produce a valid file.\n".into()
@@ -72,7 +70,7 @@ fn capability_id_is_validated_and_bound_to_the_confirmed_snapshot_hash() {
 }
 
 #[test]
-fn capability_without_original_goal_uses_the_legacy_compatible_schema() {
+fn capability_without_a_workflow_goal_uses_the_current_schema() {
     let markdown = format!(
         "{}\n## Capability ID\n\nself-improvement-lifecycle\n",
         spec()
@@ -82,7 +80,7 @@ fn capability_without_original_goal_uses_the_legacy_compatible_schema() {
     let snapshot =
         PlanSnapshotV1::from_feature("CHG-021", &identity, &markdown, &contract).unwrap();
 
-    assert_eq!(snapshot.schema_version, 2);
+    assert_eq!(snapshot.schema_version, 3);
     assert!(snapshot.original_goal.is_empty());
     assert_eq!(
         snapshot.capability_id.as_deref(),
@@ -91,46 +89,38 @@ fn capability_without_original_goal_uses_the_legacy_compatible_schema() {
     snapshot.validate().unwrap();
 }
 
-fn legacy_snapshot() -> PlanSnapshotV1 {
+#[test]
+fn persisted_schema_one_and_two_snapshots_are_rejected() {
+    use crate::artifacts::planning_store::{PlanningStore, StoreMode};
     let (identity, markdown) = identified(&spec());
     let contract = crate::core::workflow::feature_contract(&markdown);
-    let mut snapshot =
+    let snapshot =
         PlanSnapshotV1::from_feature("CHG-021", &identity, &markdown, &contract).unwrap();
-    snapshot.schema_version = 1;
-    snapshot.original_goal.clear();
-    snapshot.content_hash = hash::content_hash(&snapshot).unwrap();
-    snapshot.uid = snapshot_uid(&snapshot.feature_uid, &snapshot.content_hash).unwrap();
-    snapshot
-}
+    assert_eq!(snapshot.schema_version, 3);
 
-#[test]
-fn legacy_snapshot_without_original_goal_remains_valid() {
-    legacy_snapshot().validate().unwrap();
-}
+    for old_schema_version in [1, 2] {
+        let root = tempfile::tempdir().unwrap();
+        let store = PlanningStore::new(uuid::Uuid::new_v4(), root.path(), StoreMode::ManagedLocal);
+        let path = format!("state/lifecycle_plans/{}.json", snapshot.uid);
+        let mut old_snapshot = serde_json::to_value(&snapshot).unwrap();
+        old_snapshot["schemaVersion"] = serde_json::json!(old_schema_version);
+        let record = serde_json::json!({
+            "schemaVersion": 1,
+            "uid": snapshot.uid,
+            "createdAtMs": 1,
+            "updatedAtMs": 1,
+            "revision": 1,
+            "data": old_snapshot,
+        });
+        store
+            .transaction(&[(path, serde_json::to_vec(&record).unwrap())], None)
+            .unwrap();
 
-#[test]
-fn persisted_legacy_snapshot_loads_with_original_hash_and_uid() {
-    use crate::artifacts::planning_store::{PlanningStore, StoreMode};
-    let root = std::env::temp_dir().join(format!("legacy-plan-snapshot-{}", uuid::Uuid::new_v4()));
-    let store = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
-    let snapshot = legacy_snapshot();
-    let path = format!("state/lifecycle_plans/{}.json", snapshot.uid);
-    let record = serde_json::json!({
-        "schemaVersion": 1,
-        "uid": snapshot.uid,
-        "createdAtMs": 1,
-        "updatedAtMs": 1,
-        "revision": 1,
-        "data": snapshot.clone(),
-    });
-    store
-        .transaction(&[(path, serde_json::to_vec(&record).unwrap())], None)
-        .unwrap();
-    let loaded = crate::core::lifecycle::plan_snapshot::load_persisted(&store, &snapshot.uid)
-        .unwrap()
-        .unwrap();
-    assert_eq!(loaded, snapshot);
-    let _ = std::fs::remove_dir_all(root);
+        assert!(
+            crate::core::lifecycle::plan_snapshot::load_persisted(&store, &snapshot.uid).is_err(),
+            "schema {old_schema_version} snapshots must not be imported into current state"
+        );
+    }
 }
 
 fn plan_receipt(
@@ -281,7 +271,8 @@ fn user_confirmation_is_persisted_once_and_bound_to_the_exact_snapshot() {
     use crate::artifacts::planning_store::{PlanningStore, StoreMode};
     use crate::core::lifecycle::{GateActor, GateDecision, GateReceipt};
     let root = std::env::temp_dir().join(format!("plan-confirmation-{}", uuid::Uuid::new_v4()));
-    crate::artifacts::migration::bootstrap_product(&root, "Plan Confirmation Fixture").unwrap();
+    crate::artifacts::product_bootstrap::bootstrap_product(&root, "Plan Confirmation Fixture")
+        .unwrap();
     let store = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
     let (identity, markdown) = identified(&spec());
     let contract = crate::core::workflow::feature_contract(&markdown);

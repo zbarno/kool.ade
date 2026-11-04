@@ -37,7 +37,7 @@ fn repo() -> std::path::PathBuf {
 fn completed(path: &str) -> Implementation {
     serde_json::from_value(serde_json::json!({
         "ticket":path,"ticket_text":"","branch":"task","base":"main",
-        "base_commit":"base","worktree":"fixture","status":"completed",
+        "base_commit":"base","task_repository":"fixture","task_repository_kind":"clone","status":"completed",
         "detail":"","pr_url":null,"verified_head":"head"
     }))
     .unwrap()
@@ -160,8 +160,8 @@ fn reused_filename_orphans_old_state_instead_of_aliasing_it() {
     )
     .unwrap();
     assert_eq!(
-        value["tasks"][&old_identity.uid]["path_hint"],
-        format!("@unlinked:{}", old_identity.uid)
+        value["tasks"][&old_identity.uid]["blocked"]["message"],
+        "Old task failure"
     );
     assert!(value["tasks"].get(&new_identity.uid).is_none());
     fs::remove_dir_all(root).unwrap();

@@ -1,15 +1,14 @@
 use crate::app::session::Project;
 use crate::core::state::PlannerState;
 pub(super) fn project_from(root: &std::path::Path) -> Project {
-    let state = PlannerState::load(root).unwrap();
+    crate::core::state::test_support::seed_published_product_document(root).unwrap();
+    let store = crate::app::session::test_support::planning_store_for(root);
+    let state = PlannerState::load_with_store(root, &store).unwrap();
     Project {
         specification_trace_navigation: None,
         task_chats: Default::default(),
         activity: Default::default(),
         state,
-        managed_workspace: None,
-        planning_sync: crate::core::planning_sync::PlanningSyncStatus::local(),
-        planning_remote_url: None,
         chat_slug: "test-slug".into(),
         chat: Vec::new(),
         draft: String::new(),
@@ -37,6 +36,27 @@ pub(super) fn project_from(root: &std::path::Path) -> Project {
         archived_tasks: Default::default(),
         cancelled_work: Default::default(),
     }
+}
+
+pub(super) fn planning_store_for(
+    root: &std::path::Path,
+) -> crate::artifacts::planning_store::PlanningStore {
+    crate::app::session::test_support::planning_store_for(root)
+}
+
+pub(super) fn remove_fixture(root: &std::path::Path) {
+    crate::app::session::test_support::remove_planning_store_for(root);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+pub(super) fn isolate_global_git_config(
+    root: &std::path::Path,
+) -> crate::test_support::ProcessEnvironmentGuard {
+    let config = root.join("empty-global-gitconfig");
+    std::fs::write(&config, "").unwrap();
+    let mut guard = crate::test_support::ProcessEnvironmentGuard::new();
+    guard.set("GIT_CONFIG_GLOBAL", config);
+    guard
 }
 
 pub(super) fn tempdir(tag: &str) -> std::path::PathBuf {

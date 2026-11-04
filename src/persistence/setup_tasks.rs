@@ -4,7 +4,6 @@
 //! host mutation or provide executable input to an assistant.
 
 mod graph;
-mod migration;
 mod model;
 mod storage;
 mod transaction;
@@ -77,9 +76,7 @@ pub(crate) fn begin_scan_at_for_test(path: &std::path::Path) -> anyhow::Result<u
 }
 
 #[cfg(test)]
-pub(crate) fn load_from_for_test(
-    path: &std::path::Path,
-) -> anyhow::Result<(SetupTaskStoreV1, bool)> {
+pub(crate) fn load_from_for_test(path: &std::path::Path) -> anyhow::Result<SetupTaskStoreV1> {
     transaction::load_from(path)
 }
 

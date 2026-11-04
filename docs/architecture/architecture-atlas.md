@@ -1,6 +1,6 @@
-# Kool.ad/e architecture atlas
+# Historical architecture atlas (pre-#484)
 
-> **18 views · 36 Mermaid diagrams**. Current means present in the October 13, 2026 codebase at the architecture level; Future means target design from the linked GitHub issues. Diagrams deliberately simplify detailed failure and security cases. The source issues and code remain authoritative.
+> **Historical reference only.** These diagrams describe the separate planning-repository and shared task-coordination architecture retired by issue #484. They are not current product guidance. The current architecture is documented under `docs/koolade/architecture/`.
 
 [Explore the interactive gallery](https://kool.ad/diagrams) · [Marketing architecture tour](https://kool.ad/architecture)
 

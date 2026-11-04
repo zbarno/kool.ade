@@ -55,15 +55,10 @@ mod tests {
             chrono::Utc::now().timestamp_nanos_opt().unwrap()
         ));
         std::fs::create_dir_all(root.join("config")).unwrap();
-        std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(&root)
-            .status()
-            .unwrap();
         let manifest = ProjectManifest {
             repositories: vec![crate::core::project_repos::Repository {
                 id: "root".into(),
-                role: "Planning root".into(),
+                role: "Primary code".into(),
                 remote: String::new(),
                 display_name: None,
             }],
@@ -88,7 +83,7 @@ mod tests {
             Some("Product")
         );
         assert_eq!(saved.repositories[0].id, "root");
-        assert_eq!(saved.repositories[0].role, "Planning root");
+        assert_eq!(saved.repositories[0].role, "Primary code");
         assert!(
             std::fs::read_to_string(
                 crate::artifacts::layout::ArtifactLayout::new(&root).project_manifest()

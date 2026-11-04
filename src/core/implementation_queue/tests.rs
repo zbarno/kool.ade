@@ -5,14 +5,37 @@ use std::{collections::BTreeMap, fs};
 use super::*;
 
 fn doc(n: usize, dependencies: &str) -> TaskDocument {
+    let mut identity =
+        crate::domain::ArtifactIdentity::new(&format!("TASK-{n:03}"), &format!("Task {n}"));
+    identity.uid = uuid::Uuid::from_u128(n as u128).to_string();
+    identity.parent_uid = Some(uuid::Uuid::from_u128(10_000).to_string());
+    let dependency_uids = dependencies
+        .split("](")
+        .skip(1)
+        .filter_map(|link| link.split(')').next())
+        .filter_map(|target| {
+            let target = target.rsplit('/').next()?;
+            Some(
+                target
+                    .split('-')
+                    .next()?
+                    .parse::<u128>()
+                    .ok()
+                    .unwrap_or(99_999),
+            )
+        })
+        .map(|n| uuid::Uuid::from_u128(n).to_string())
+        .collect();
+    let metadata =
+        crate::artifacts::task_docs::TaskMetadata::new(&identity, "root", dependency_uids).unwrap();
     TaskDocument {
         path: format!("planning/tasks/fixture/{n:03}-task.md"),
         title: format!("Task {n}"),
         text: format!(
             "# Task {n}\n\n## Dependencies\n{dependencies}\n\n## Acceptance criteria\n- Done."
         ),
-        identity: None,
-        metadata: None,
+        identity: Some(identity),
+        metadata: Some(metadata),
         task_state: None,
 
         metadata_error: None,
@@ -20,7 +43,17 @@ fn doc(n: usize, dependencies: &str) -> TaskDocument {
 }
 
 fn done(ticket: &str) -> Implementation {
-    serde_json::from_value(serde_json::json!({"ticket":ticket,"ticket_text":"","branch":"task","base":"main","base_commit":"base","worktree":"fixture","status":"completed","detail":"","pr_url":null,"verified_head":"head"})).unwrap()
+    serde_json::from_value(serde_json::json!({"ticket":ticket,"ticket_text":"","branch":"task","base":"main","base_commit":"base","task_repository":"fixture","task_repository_kind":"clone","status":"completed","detail":"","pr_url":null,"verified_head":"head"})).unwrap()
+}
+
+#[test]
+fn unannotated_dependency_markdown_is_not_used_by_the_scheduler() {
+    let mut task = doc(1, "- [Task 002](002-task.md)");
+    task.metadata = None;
+
+    let error = super::task_dependencies(&task, &[]).unwrap_err();
+
+    assert!(error.contains("lacks current Kool.ad/e task metadata"));
 }
 
 fn task_doc(
@@ -119,106 +152,35 @@ fn known_orchestration_failures_recover_once_but_external_blockers_do_not() {
     assert_eq!(tickets, vec![docs[0].path.clone()]);
     queue.schedule_recovery(&tickets);
     assert!(queue.running);
-    let restored: Queue = serde_json::from_str(&serde_json::to_string(&queue).unwrap()).unwrap();
+    queue.bind_task_documents(&docs).unwrap();
+    let mut restored: Queue =
+        serde_json::from_str(&serde_json::to_string(&queue).unwrap()).unwrap();
+    restored.bind_task_documents(&docs).unwrap();
     assert!(restored.recoverable_tickets(&docs).is_empty());
     assert!(restored.blocked.contains_key(&docs[1].path));
 }
 
 #[test]
-fn legacy_queue_errors_are_typed_once_and_future_versions_reject_prose_values() {
-    let old = serde_json::json!({"blocked":{"ticket":"Local branch diverged before publication"}});
-    let (queue, migrated) = Queue::decode_persisted(&serde_json::to_vec(&old).unwrap()).unwrap();
-    assert!(migrated);
-    assert_eq!(queue.blocked["ticket"].kind, FailureKind::RemoteDiverged);
-    assert_eq!(
-        queue.blocked["ticket"].recovery,
-        RecoveryDisposition::AutomaticRetry
-    );
-
-    let current = serde_json::json!({"schemaVersion":1,"blocked":{"ticket":"untyped error"}});
-    assert!(Queue::decode_persisted(&serde_json::to_vec(&current).unwrap()).is_err());
-}
-
-#[test]
-fn version_two_auto_mode_migrates_to_separate_policy_without_granting_auto_publish() {
-    let old = serde_json::json!({
-        "schemaVersion": 2,
-        "auto_mode": true,
-        "running": true,
-        "max_parallel": 4,
-        "tasks": {
-            "task-uid": {
-                "path_hint": "tasks/001-task.md",
-                "current": true,
-                "in_flight": true,
-                "blocked": null,
-                "recovery_attempts": 0
-            }
-        },
-        "legacy_tasks": {},
-        "task_identity_aliases": {"tasks/001-task.md": "task-uid"}
-    });
-    let (queue, migrated) = Queue::decode_persisted(&serde_json::to_vec(&old).unwrap()).unwrap();
-    assert!(migrated);
-    assert!(queue.auto_plan && queue.auto_build);
-    assert!(!queue.auto_publish);
-    assert!(queue.running && queue.in_flight.contains("tasks/001-task.md"));
-
-    let saved = serde_json::to_value(&queue).unwrap();
-    assert_eq!(saved["schemaVersion"], 5);
-    assert_eq!(saved["tasks"]["task-uid"]["in_flight"], true);
-    assert_eq!(
-        saved["task_identity_aliases"]["tasks/001-task.md"],
-        "task-uid"
-    );
-    assert_eq!(saved["auto_publish"], false);
-    assert_eq!(saved["require_independent_checks"], false);
-}
-
-#[test]
-fn version_three_auto_publish_migration_requires_independent_checks() {
-    let old = serde_json::json!({
-        "schemaVersion": 3,
-        "auto_plan": true,
-        "auto_build": false,
-        "auto_publish": true,
-        "running": true,
-        "max_parallel": 2,
-        "tasks": {},
-        "legacy_tasks": {},
-        "task_identity_aliases": {}
-    });
-    let (queue, migrated) = Queue::decode_persisted(&serde_json::to_vec(&old).unwrap()).unwrap();
-    assert!(migrated);
-    assert!(queue.auto_publish);
-    assert!(!queue.auto_build);
-    assert!(queue.require_independent_checks);
-}
-
-#[test]
-fn current_auto_publish_without_independent_checks_is_repaired_and_saved() {
+fn current_auto_publish_without_independent_checks_is_rejected() {
     let current = serde_json::json!({
         "schemaVersion": 5,
         "auto_plan": true,
         "auto_build": false,
         "auto_publish": true,
         "require_independent_checks": false,
-        "tasks": {},
-        "legacy_tasks": {},
-        "task_identity_aliases": {}
+        "running": false,
+        "max_parallel": 3,
+        "last_error": "",
+        "recovery_paused": false,
+        "tasks": {}
     });
-    let (queue, migrated) =
-        Queue::decode_persisted(&serde_json::to_vec(&current).unwrap()).unwrap();
-    assert!(migrated);
-    assert!(queue.auto_publish && queue.require_independent_checks);
-    let saved = serde_json::to_value(queue).unwrap();
-    assert_eq!(saved["require_independent_checks"], true);
+    assert!(Queue::decode_persisted(&serde_json::to_vec(&current).unwrap()).is_err());
 }
 
 #[test]
-fn loading_legacy_queue_rewrites_typed_failure_state_atomically() {
+fn loading_unsupported_queue_preserves_the_original_bytes() {
     let root = std::env::temp_dir().join(format!(
-        "koolade-legacy-queue-{}",
+        "koolade-unsupported-queue-{}",
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
     fs::create_dir_all(&root).unwrap();
@@ -231,26 +193,11 @@ fn loading_legacy_queue_rewrites_typed_failure_state_atomically() {
             .success()
     );
     let path = directory(&root).unwrap().join("koolade-queue.json");
-    fs::write(
-        &path,
-        serde_json::to_vec(&serde_json::json!({
-            "blocked":{"task":"Local and origin diverged before publication"}
-        }))
-        .unwrap(),
-    )
-    .unwrap();
+    let original = br#"{"blocked":{"task":"Local and origin diverged before publication"}}"#;
+    fs::write(&path, original).unwrap();
 
-    let loaded = Queue::load(&root).unwrap();
-    assert_eq!(
-        loaded.blocked["task"].recovery,
-        RecoveryDisposition::AutomaticRetry
-    );
-    let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(saved["schemaVersion"], 5);
-    assert_eq!(
-        saved["legacy_tasks"]["task"]["blocked"]["kind"],
-        "remote_diverged"
-    );
+    assert!(Queue::load(&root).is_err());
+    assert_eq!(fs::read(&path).unwrap(), original);
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -342,7 +289,7 @@ fn cycles_and_invalid_dependencies_do_not_starve_independent_work() {
     );
     let waiting = next_ticket(&docs[..3], &BTreeMap::new()).unwrap_err();
     assert!(
-        waiting.contains("waiting") && waiting.contains("unsupported"),
+        waiting.contains("waiting") && waiting.contains("identity"),
         "unexpected dependency explanation: {waiting}"
     );
 }
@@ -369,14 +316,19 @@ fn preferences_and_inflight_ticket_survive_restart_and_lock_excludes_another_win
     assert!(!queue.running);
     let lock = Queue::acquire(&root).unwrap();
     assert!(Queue::acquire(&root).is_err());
+    let docs = vec![doc(1, "None."), doc(2, "None.")];
+    queue.bind_task_documents(&docs).unwrap();
     queue.running = true;
-    queue.current_ticket = Some("planning/tasks/fixture/001-task.md".into());
-    queue.in_flight.extend(["one".into(), "two".into()]);
+    queue.current_ticket = Some(docs[0].path.clone());
+    queue
+        .in_flight
+        .extend(docs.iter().map(|doc| doc.path.clone()));
     queue.max_parallel = 4;
     queue.save(&root).unwrap();
     drop(lock);
     let _new_lock = Queue::acquire(&root).unwrap();
-    let loaded = Queue::load(&root).unwrap();
+    let mut loaded = Queue::load(&root).unwrap();
+    loaded.bind_task_documents(&docs).unwrap();
     assert!(loaded.running && loaded.auto_build);
     assert!(loaded.auto_plan && !loaded.auto_publish);
     assert_eq!(loaded.current_ticket, queue.current_ticket);
@@ -402,11 +354,14 @@ fn loading_after_a_controller_restart_clears_saved_wall_clock_queue_age() {
             .success()
     );
     let mut queue = Queue::load(&root).unwrap();
-    assert!(queue.update_ready_waits(&["task-a".into()], 100, true));
+    let docs = vec![doc(1, "None.")];
+    queue.bind_task_documents(&docs).unwrap();
+    assert!(queue.update_ready_waits(&[docs[0].path.clone()], 100, true));
     queue.save(&root).unwrap();
 
     let mut restored = Queue::load(&root).unwrap();
-    assert_eq!(restored.take_queue_wait_ms("task-a", 10_000), None);
+    restored.bind_task_documents(&docs).unwrap();
+    assert_eq!(restored.take_queue_wait_ms(&docs[0].path, 10_000), None);
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -426,7 +381,9 @@ fn queue_load_does_not_rewrite_age_while_another_controller_holds_the_lock() {
             .success()
     );
     let mut queue = Queue::load(&root).unwrap();
-    assert!(queue.update_ready_waits(&["task-a".into()], 100, true));
+    let docs = vec![doc(1, "None.")];
+    queue.bind_task_documents(&docs).unwrap();
+    assert!(queue.update_ready_waits(&[docs[0].path.clone()], 100, true));
     queue.save(&root).unwrap();
 
     let active_lock = Queue::acquire(&root).unwrap();
@@ -434,12 +391,10 @@ fn queue_load_does_not_rewrite_age_while_another_controller_holds_the_lock() {
     let queue_path = directory(&root).unwrap().join("koolade-queue.json");
     let stored: serde_json::Value =
         serde_json::from_slice(&fs::read(&queue_path).unwrap()).unwrap();
-    assert_eq!(
-        stored["legacy_tasks"]["task-a"]["waiting_since_unix_ms"],
-        100
-    );
+    let task_uid = docs[0].identity.as_ref().unwrap().uid.as_str();
+    assert_eq!(stored["tasks"][task_uid]["waiting_since_unix_ms"], 100);
     drop(active_lock);
-    assert_eq!(restored.take_queue_wait_ms("task-a", 10_000), None);
+    assert_eq!(restored.take_queue_wait_ms(&docs[0].path, 10_000), None);
     fs::remove_dir_all(root).unwrap();
 }
 

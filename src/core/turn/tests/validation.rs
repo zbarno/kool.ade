@@ -3,8 +3,6 @@ use super::*;
 #[test]
 fn malformed_specification_rejects_otherwise_valid_turn_without_mutation() {
     let (inputs, dir) = inputs_for("spec_layout", "rewrite the specification");
-    git_stdout(&dir, &["add", "."]);
-    git_stdout(&dir, &["commit", "-m", "Seed planning artifacts"]);
     let before = law_evidence(&dir);
     let raw = serde_json::json!({
         "schema_version": 1,
@@ -12,7 +10,7 @@ fn malformed_specification_rejects_otherwise_valid_turn_without_mutation() {
         "change_summary": "Revise specification",
         "updated_specification": "# Fixture\n\n## Audit notes\nIncomplete replacement.",
         "open_items_added": [{"kind":"Question", "priority":"Normal",
-            "category":"General", "assigned_to":"All", "question":"Which platform?",
+            "category":"General",  "question":"Which platform?",
             "reason":"Defines launch scope"}]
     })
     .to_string();
@@ -53,7 +51,7 @@ fn missing_block_rejects_without_side_effects() {
         }
         other => panic!("expected Rejected, got: {other:?}"),
     }
-    let st = PlannerState::load(&dir).unwrap();
+    let st = load_test_state(&dir);
     assert!(st.items.is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -95,7 +93,7 @@ fn bad_envelope_types_reject_cleanly() {
         }
         other => panic!("expected Rejected, got: {other:?}"),
     }
-    let st = PlannerState::load(&dir).unwrap();
+    let st = load_test_state(&dir);
     assert!(st.items.is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -151,7 +149,7 @@ fn live_previews_precede_completion_and_never_write_unvalidated_content() {
             }
         }
         assert_eq!(previews, ["# Draft", "# Draft\n\nLive content"]);
-        assert_eq!(PlannerState::load(&dir).unwrap().spec_text, before);
+        assert_eq!(load_test_state(&dir).spec_text, before);
         if mode == "cancel" {
             c.request_cancel();
         }
@@ -163,7 +161,7 @@ fn live_previews_precede_completion_and_never_write_unvalidated_content() {
             _ => assert!(matches!(outcome, TurnOutcome::HarnessFailed { .. })),
         }
         if mode != "success" {
-            assert_eq!(PlannerState::load(&dir).unwrap().spec_text, before);
+            assert_eq!(load_test_state(&dir).spec_text, before);
         }
         assert!(
             c.poll(Duration::ZERO).is_none(),

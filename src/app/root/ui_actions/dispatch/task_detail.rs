@@ -63,7 +63,7 @@ pub(super) fn dispatch(app: &mut KooladeApp, command: TaskDetailCommand) {
                     &base_spec_sha256,
                 ) {
                     Ok(()) => app.toasts.success(
-                        "Applied the approved specification changes; reconciliation will verify the updated specification.",
+                        "Approved documentation PR opened. The documents become published only after the protected PR is merged.",
                     ),
                     Err(error) => app.toasts.warning(error),
                 }
@@ -72,9 +72,6 @@ pub(super) fn dispatch(app: &mut KooladeApp, command: TaskDetailCommand) {
                 .toasts
                 .warning("Connect a project before approving specification changes."),
         },
-        TaskDetailCommand::RunWithoutSharedCoordination { ticket } => {
-            app.start_without_shared_coordination(ticket)
-        }
         TaskDetailCommand::AuthorizeDependency {
             ticket,
             request_id,

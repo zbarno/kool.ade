@@ -1,0 +1,43 @@
+# Navigation
+
+- [agent-prompts.md](./agent-prompts.md) - Read for Agent prompt catalog.
+- [artifact-layout.md](./artifact-layout.md) - Read for Application and repository data layout.
+- [bootstrap-release-validation-2026-10-27.md](./bootstrap-release-validation-2026-10-27.md) - Read for Bootstrap release validation record — 2026-10-27.
+- [chg-001-acceptance-evidence.md](./chg-001-acceptance-evidence.md) - Read for CHG-001 acceptance evidence.
+- [coding-tools.md](./coding-tools.md) - Read for Coding tool discovery.
+- [docker-cutover-checklist.md](./docker-cutover-checklist.md) - Read for Docker cutover and release checklist.
+- [docker-engine-prerequisites.md](./docker-engine-prerequisites.md) - Read for Docker Engine prerequisites.
+- [docker-release-evidence.md](./docker-release-evidence.md) - Read for Docker release evidence.
+- [docker-security-matrix.md](./docker-security-matrix.md) - Read for Docker execution security matrix.
+- [execution-architecture-v1.md](./execution-architecture-v1.md) - Read for Execution architecture v1.
+- [executor-image-promotion.md](./executor-image-promotion.md) - Read for Executor image digest promotion.
+- [harness-clean-launch-matrix.md](./harness-clean-launch-matrix.md) - Read for Clean CLI launch profiles.
+- [harness-role-matrix.md](./harness-role-matrix.md) - Read for Harness role matrix.
+- [kool-ad-e-redesign.md](./kool-ad-e-redesign.md) - Read for Kool.ad/e redesign and rebrand.
+- [living-specification-policy.md](./living-specification-policy.md) - Read for Published specification policy.
+- [machine-bootstrap.md](./machine-bootstrap.md) - Read for Machine bootstrap readiness and setup guidance.
+- [manager-lifecycle.md](./manager-lifecycle.md) - Read for Man.ager lifecycle contract.
+- [native-desktop-distribution.md](./native-desktop-distribution.md) - Read for Native desktop packaging status.
+- [opportunity-discovery.md](./opportunity-discovery.md) - Read for Opportunity discovery and user authority.
+- [parallel-implementation.md](./parallel-implementation.md) - Read for Parallel implementation and integration.
+- [planner-policy.md](./planner-policy.md) - Read for Planner policy.
+- [project-runtime-contract.md](./project-runtime-contract.md) - Read for Project runtime capability contract.
+- [remote-private-file-grant-protocol-v1.md](./remote-private-file-grant-protocol-v1.md) - Read for Remote private-file grant protocol v1.
+- [runtime-configuration.md](./runtime-configuration.md) - Read for Local configuration for verification.
+- [runtime-qa-contract.md](./runtime-qa-contract.md) - Read for Runtime QA records and gate.
+- [runtime-qa-operations.md](./runtime-qa-operations.md) - Read for Runtime QA operator guide.
+- [runtime-qa-release-evidence.md](./runtime-qa-release-evidence.md) - Read for Runtime QA release evidence.
+- [sandbox-filesystem.md](./sandbox-filesystem.md) - Read for Docker execution filesystem boundary.
+- [self-improvement-lifecycle.md](./self-improvement-lifecycle.md) - Read for Self-improvement lifecycle and trust boundaries.
+- [settings-information-architecture.md](./settings-information-architecture.md) - Read for Settings information architecture.
+- [spec-reconciliation.md](./spec-reconciliation.md) - Read for Specification reconciliation records.
+- [task-conversations-progress.md](./task-conversations-progress.md) - Read for Task conversation acceptance audit.
+- [task-failure-diagnosis.md](./task-failure-diagnosis.md) - Read for Diagnosing interrupted task implementation.
+- [ui-polish-review.md](./ui-polish-review.md) - Read for Workspace UI review.
+- [welcome-onboarding-acceptance.md](./welcome-onboarding-acceptance.md) - Read for Welcome workspace setup acceptance.
+- [welcome-onboarding-usability.md](./welcome-onboarding-usability.md) - Read for Welcome and connect manual validation.
+- [architecture/](./architecture/AGENTS.md) - Index for architecture documentation.
+- [images/](./images/AGENTS.md) - Index for images documentation.
+- [koolade/](./koolade/AGENTS.md) - Index for koolade documentation.
+- [ui-review/](./ui-review/AGENTS.md) - Index for ui review documentation.
+- [validation/](./validation/AGENTS.md) - Index for validation documentation.

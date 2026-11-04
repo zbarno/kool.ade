@@ -2,7 +2,7 @@ use crate::{
     artifacts::task_docs::TaskDocument,
     core::implementation::{Implementation, ImplementationStatus, PullRequestState},
 };
-use std::{collections::BTreeMap, path::Path};
+use std::collections::BTreeMap;
 
 pub fn next_ticket(
     docs: &[TaskDocument],
@@ -213,7 +213,10 @@ fn dependency_waiting_reason(
     Ok(())
 }
 
-fn task_dependencies(doc: &TaskDocument, docs: &[&TaskDocument]) -> Result<Vec<String>, String> {
+pub(crate) fn task_dependencies(
+    doc: &TaskDocument,
+    docs: &[&TaskDocument],
+) -> Result<Vec<String>, String> {
     if let Some(error) = &doc.metadata_error {
         return Err(error.clone());
     }
@@ -232,20 +235,5 @@ fn task_dependencies(doc: &TaskDocument, docs: &[&TaskDocument]) -> Result<Vec<S
             })
             .collect();
     }
-    let filenames = crate::artifacts::task_docs::legacy_dependencies(&doc.text)
-        .map_err(|error| error.to_string())?;
-    let parent = Path::new(&doc.path)
-        .parent()
-        .ok_or_else(|| "task path has no batch directory".to_string())?;
-    filenames
-        .into_iter()
-        .map(|filename| {
-            let target = parent.join(filename);
-            let path = target.to_string_lossy().into_owned();
-            docs.iter()
-                .any(|candidate| candidate.path == path)
-                .then_some(path)
-                .ok_or_else(|| format!("legacy dependency {target:?} is not on the task board"))
-        })
-        .collect()
+    Err("task document lacks current Kool.ad/e task metadata".into())
 }

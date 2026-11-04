@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::OpenItem;
 
 #[test]
 fn opening_a_task_shows_its_greeting_in_details_without_starting_a_model_turn() {
@@ -47,7 +48,6 @@ fn question_opening_uses_current_context_and_resolved_items_offer_help() {
         crate::domain::Priority::High,
         crate::domain::ItemKind::Question,
         "General".into(),
-        None,
         "Which authentication provider?".into(),
         "Controls employee access".into(),
     );
@@ -99,18 +99,21 @@ fn task_details_load_persisted_histories_and_switch_without_loading_main_chat() 
     let ctx = egui::Context::default();
     let first = "planning/tasks/fixture/001-task.md";
     let second = "planning/tasks/fixture/002-task.md";
-    let dir = std::env::temp_dir().join(format!("koolade_tab_isolation_{}", std::process::id()));
-    let slug = dir.to_str().unwrap();
+    let slug = match &app.screen {
+        Screen::Connected(project) => project.chat_slug.clone(),
+        Screen::Welcome => panic!("fixture remains connected"),
+    };
     if let Screen::Connected(p) = &mut app.screen {
+        p.bind_task_conversation_identities();
+        p.task_chats.ensure_loaded(&slug);
         p.chat = vec![ChatMessage::new(
             ChatRole::Agent,
             "MAIN HISTORY MARKER",
             None,
         )];
-        let mut saved = crate::persistence::task_chats::TaskChats::default();
-        saved
+        p.task_chats
             .append(
-                slug,
+                &slug,
                 first,
                 vec![ChatMessage::new(
                     ChatRole::Agent,
@@ -119,9 +122,9 @@ fn task_details_load_persisted_histories_and_switch_without_loading_main_chat() 
                 )],
             )
             .unwrap();
-        saved
+        p.task_chats
             .append(
-                slug,
+                &slug,
                 second,
                 vec![ChatMessage::new(
                     ChatRole::Agent,
@@ -130,9 +133,6 @@ fn task_details_load_persisted_histories_and_switch_without_loading_main_chat() 
                 )],
             )
             .unwrap();
-        p.task_chats = Default::default();
-        p.bind_task_conversation_identities();
-        p.task_chats.ensure_loaded(slug);
     }
     frame(&mut app, &ctx, vec![]);
     let assert_history = |output: &egui::FullOutput, expected_key: &str| {
@@ -173,5 +173,5 @@ fn task_details_load_persisted_histories_and_switch_without_loading_main_chat() 
     assert_history(&output, second);
     assert!(text_position(&output, "FIRST TASK HISTORY").is_none());
     assert!(text_position(&output, "SECOND TASK HISTORY").is_some());
-    std::fs::remove_dir_all(dir).unwrap();
+    std::fs::remove_dir_all(slug).unwrap();
 }

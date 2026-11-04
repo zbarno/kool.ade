@@ -32,9 +32,7 @@ struct SpecRevisionHistory {
     sequence: u64,
     entry: SpecRevisionV1,
     deltas: Vec<SpecDeltaRecordV1>,
-    /// Absent on legacy history; never invent outcomes while loading it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    origin_dispositions: Option<Vec<crate::core::lifecycle::SpecOriginDispositionV1>>,
+    origin_dispositions: Vec<crate::core::lifecycle::SpecOriginDispositionV1>,
 }
 
 impl<'a> LifecycleStore<'a> {

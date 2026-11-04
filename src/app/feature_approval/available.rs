@@ -47,8 +47,7 @@ impl KooladeApp {
                     .filter(|record| {
                         record.status != crate::core::workflow::PlanComparisonStatus::Discarded
                     })
-                    .map(|record| record.alternatives.clone())
-                    .or_else(|| metadata.plan_comparison.clone());
+                    .map(|record| record.alternatives.clone());
                 let compare_plans = metadata.status == crate::domain::ChangeStatus::Ready
                     && metadata.schema_version == 2
                     && comparison.is_none();
@@ -78,6 +77,12 @@ impl KooladeApp {
                 let ready = plan_snapshot.as_ref().is_some_and(|snapshot| {
                     super::readiness::current(&project.state.planning_store, snapshot).is_ok()
                 });
+                let publication_ready = crate::domain::ArtifactIdentity::from_markdown(body)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|identity| {
+                        super::publication::pin_is_published(project, &identity.uid, body)
+                    });
                 let prepare_tasks = project
                     .state
                     .active_feature
@@ -87,6 +92,7 @@ impl KooladeApp {
                     && ready
                     && !crate::app::manager::has_pending_plan_repair(project, id)
                     && !crate::app::manager::has_pending_plan_contest(project, id)
+                    && publication_ready
                     && !super::super::has_current_task_batch(project);
                 let retry_review = user_confirmed
                     && ready

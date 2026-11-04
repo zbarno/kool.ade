@@ -9,10 +9,6 @@ pub(in crate::core::implementation) fn adopt(
     cached: &VerifiedBase,
     runner: &Runner,
 ) -> anyhow::Result<bool> {
-    anyhow::ensure!(
-        state.task_repository_kind == TaskRepositoryKind::Clone,
-        "Legacy task repositories must migrate before reconciliation"
-    );
     let branch_ref = format!("refs/heads/{}", state.branch);
     if !state.task_repository.exists() {
         let current = match runner.git(repo, &["rev-parse", "--verify", &branch_ref]) {
@@ -48,7 +44,7 @@ pub(in crate::core::implementation) fn adopt(
         let cache_path = repo
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("Non-UTF8 repository cache path"))?;
-        let task_key = task_repository::allocation_key(state);
+        let task_key = task_repository::allocation_key(state)?;
         let destination = format!("refs/koolade-reconciliation-inputs/{task_key}/verified");
         let refspec = format!("+{}:{destination}", cache_ref(&cache_key(plan)));
         runner.git(

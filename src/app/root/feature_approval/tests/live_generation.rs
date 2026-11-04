@@ -52,13 +52,7 @@ fn temporary_live_fixture_prepare_and_generate() {
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
             let state = crate::core::state::PlannerState::load(&root).unwrap();
-            comparison_saved = state
-                .active_features
-                .iter()
-                .find(|(feature_id, _)| feature_id == &id)
-                .and_then(|(_, body)| crate::domain::ChangeMetadata::require_markdown(body).ok())
-                .and_then(|metadata| metadata.plan_comparison)
-                .is_some();
+            comparison_saved = state.workflow.plan_comparisons.contains_key(&id);
             if comparison_saved {
                 break;
             }
@@ -110,9 +104,34 @@ fn temporary_live_fixture_prepare_and_generate() {
             .iter()
             .find(|(feature_id, _)| feature_id == &id)
             .unwrap();
-        let metadata = crate::domain::ChangeMetadata::require_markdown(body).unwrap();
-        assert_eq!(metadata.schema_version, 2);
-        assert_eq!(metadata.plan_comparison.unwrap().alternatives.len(), 2);
+        let comparison = state
+            .workflow
+            .plan_comparisons
+            .get(&id)
+            .expect("comparison is persisted in private workflow state");
+        comparison.validate().unwrap();
+        assert_eq!(comparison.alternatives.alternatives.len(), 2);
+        let marker = body
+            .lines()
+            .find(|line| line.starts_with("<!-- koolade-change:v1 "))
+            .unwrap();
+        let json = marker
+            .strip_prefix("<!-- koolade-change:v1 ")
+            .unwrap()
+            .strip_suffix(" -->")
+            .unwrap();
+        let metadata: serde_json::Value = serde_json::from_str(json).unwrap();
+        for field in [
+            "planComparison",
+            "comparisonHistory",
+            "selectedAlt",
+            "selectedPlan",
+        ] {
+            assert!(
+                metadata.get(field).is_none(),
+                "feature metadata retains {field}"
+            );
+        }
     } else {
         assert!(crate::core::workflow::feature_approved(
             &root,

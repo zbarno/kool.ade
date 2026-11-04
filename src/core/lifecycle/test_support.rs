@@ -9,11 +9,12 @@ pub(crate) fn approve_and_review_feature(
     workflow_record: &mut Workflow,
     feature_id: &str,
     markdown: &str,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<String> {
     use crate::harness::prompt_catalog::{PromptRole, RoleInputV1, RolePayloadV1, render};
-    let identity = crate::domain::ArtifactIdentity::from_markdown(markdown)?
+    let markdown = adopt_fixture_plan_if_needed(store, workflow_record, feature_id, markdown)?;
+    let identity = crate::domain::ArtifactIdentity::from_markdown(&markdown)?
         .ok_or_else(|| anyhow::anyhow!("test feature has no identity"))?;
-    let contract = workflow::feature_contract(markdown);
+    let contract = workflow::feature_contract(&markdown);
     crate::core::lifecycle::plan_snapshot::record_author(
         store,
         &crate::core::lifecycle::plan_snapshot::PlanAuthorProvenanceV1 {
@@ -24,7 +25,7 @@ pub(crate) fn approve_and_review_feature(
         },
     )?;
     let snapshot = crate::core::lifecycle::plan_snapshot::from_feature_with_author(
-        store, feature_id, &identity, markdown, &contract,
+        store, feature_id, &identity, &markdown, &contract,
     )
     .map_err(anyhow::Error::msg)?;
     seed_readiness(store, &snapshot)?;
@@ -37,7 +38,7 @@ pub(crate) fn approve_and_review_feature(
         Some(&snapshot.content_hash),
         &current_revision,
     )?;
-    receipt.commit_result.map_err(anyhow::Error::msg)?;
+    receipt.save_result.map_err(anyhow::Error::msg)?;
 
     let reviewer_run_id = "00000000-0000-4000-8000-000000000003".to_owned();
     let reviewer_session_id = "00000000-0000-4000-8000-000000000004".to_owned();
@@ -119,8 +120,119 @@ pub(crate) fn approve_and_review_feature(
     workflow::record_plan_review_if_current(store, feature_id, &review, &verdict, &revision)?;
     *workflow_record = crate::artifacts::task_docs::load_workflow(store)?;
 
-    snapshot_for_lifecycle(store, feature_id, markdown)?;
-    Ok(())
+    snapshot_for_lifecycle(store, feature_id, &markdown)?;
+    Ok(markdown)
+}
+
+/// Test-only user consent uses the same plan-choice ADR, typed adoption
+/// metadata, and revision-fenced transaction as the application action.
+/// Tests may start from a feature in a later lifecycle state; model the
+/// explicit adoption while Ready, then restore that state before approval.
+fn adopt_fixture_plan_if_needed(
+    store: &PlanningStore,
+    workflow_record: &mut Workflow,
+    feature_id: &str,
+    markdown: &str,
+) -> anyhow::Result<String> {
+    if workflow_record
+        .plan_comparisons
+        .get(feature_id)
+        .is_some_and(|record| {
+            record.status == workflow::PlanComparisonStatus::Adopted
+                && record.selected_plan.is_some()
+        })
+    {
+        return Ok(markdown.to_owned());
+    }
+
+    let identity = crate::domain::ArtifactIdentity::from_markdown(markdown)?
+        .ok_or_else(|| anyhow::anyhow!("test feature has no identity"))?;
+    let original = crate::domain::ChangeMetadata::require_markdown(markdown)?;
+    let ready = crate::domain::ChangeMetadata::write_markdown(
+        markdown,
+        &identity,
+        crate::domain::ChangeStatus::Ready,
+    )?;
+    let alternative = |plan_id: &str| crate::domain::PlanAlternative {
+        id: plan_id.into(),
+        objective: format!("Test plan {plan_id} for the approved feature."),
+        phases: vec![
+            crate::domain::PlanPhase {
+                name: "Prepare".into(),
+                subtasks: vec!["Prepare the selected implementation path.".into()],
+            },
+            crate::domain::PlanPhase {
+                name: "Implement".into(),
+                subtasks: vec!["Implement the approved feature requirements.".into()],
+            },
+            crate::domain::PlanPhase {
+                name: "Verify".into(),
+                subtasks: vec!["Verify the approved acceptance criteria.".into()],
+            },
+        ],
+        files_touched: vec![format!("src/plan_{plan_id}.rs")],
+        state_changes: vec![format!("Persist plan {plan_id} implementation state.")],
+        failure_modes: vec![format!("Plan {plan_id} may fail verification.")],
+        effort_band: "Small — one module".into(),
+        known_risks: vec![format!("Plan {plan_id} may need follow-up.")],
+        reversibility: format!("Revert plan {plan_id} changes."),
+    };
+    let comparison = workflow_record
+        .plan_comparisons
+        .get(feature_id)
+        .map(|record| record.alternatives.clone())
+        .unwrap_or_else(|| crate::domain::PlanComparison {
+            alternatives: vec![alternative("A"), alternative("B")],
+            recommendation: crate::domain::PlanRecommendation {
+                plan_id: "A".into(),
+                rationale: "Use the focused fixture plan.".into(),
+                evidence: vec![format!("feature:{}", identity.uid)],
+            },
+            selected_plan: None,
+        });
+    let adr = crate::artifacts::koolade::prepare_plan_choice_record(
+        store,
+        feature_id,
+        &identity.uid,
+        &comparison,
+        "A",
+    )?;
+    let mut adopted =
+        crate::domain::ChangeMetadata::adopt_typed_plan(&ready, &comparison, "A", Some(&adr.0))?;
+    if original.status != crate::domain::ChangeStatus::Ready {
+        adopted =
+            crate::domain::ChangeMetadata::write_markdown(&adopted, &identity, original.status)?;
+    }
+
+    let record = workflow_record
+        .plan_comparisons
+        .entry(feature_id.to_owned())
+        .or_insert_with(|| workflow::PlanComparisonRecord {
+            schema_version: 1,
+            feature_id: feature_id.to_owned(),
+            alternatives: comparison.clone(),
+            history: Vec::new(),
+            transcript: "Fixture plan presented for explicit user selection.".into(),
+            status: workflow::PlanComparisonStatus::Proposed,
+            selected_plan: None,
+            updated_at_ms: 1,
+        });
+    record.alternatives.selected_plan = Some("A".into());
+    record.selected_plan = Some("A".into());
+    record.status = workflow::PlanComparisonStatus::Adopted;
+    record.validate()?;
+
+    let (mut changes, checks) =
+        crate::artifacts::task_docs::workflow_record_changes(store, workflow_record)?;
+    changes.extend(crate::core::apply::private_document_draft_changes(
+        store,
+        &[(format!("feature:{feature_id}"), adopted.clone())],
+    )?);
+    changes.push((adr.0, adr.1.into_bytes()));
+    let expected = store.revision()?;
+    store.transaction_with_revision_and_record_revisions(&changes, Some(&expected), &checks)?;
+    *workflow_record = crate::artifacts::task_docs::load_workflow(store)?;
+    Ok(adopted)
 }
 
 fn snapshot_for_lifecycle(

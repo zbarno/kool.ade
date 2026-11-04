@@ -1,55 +1,36 @@
 use super::*;
 
 #[test]
-fn preexisting_dirty_work_is_preserved_and_never_auto_stashed() {
+fn preexisting_dirty_work_is_snapshotted_before_the_pinned_merge_retry() {
     let s = Sandbox::new();
     let (remote, local, common) = make_divergent(&s);
-    let worktree = task_worktree(&s);
-    fs::create_dir_all(worktree.parent().unwrap()).unwrap();
-    let key = crate::core::implementation::key_for_ticket(&s.ticket);
-    let branch = format!("koolade/{key}");
-    s.git(
-        &s.repo,
-        &[
-            "worktree",
-            "add",
-            "-b",
-            &branch,
-            worktree.to_str().unwrap(),
-            &remote,
-        ],
+    super::super::save_clone_reconciliation_state(
+        &s, &s.ticket, &s.repo, "main", &local, &remote, &common,
     );
+    let worktree = super::current_task_repository(&s);
     fs::write(worktree.join("operator-note.txt"), "keep this draft\n").unwrap();
-    super::super::save_legacy_reconciliation_state(
-        &s, &s.ticket, &worktree, "main", &local, &remote, &common,
-    );
     let (calls, agent) = agent();
 
-    let error = run_with_agent(&s, &agent, None).unwrap_err().to_string();
+    let result = run_with_agent(&s, &agent, None).unwrap();
 
+    assert_eq!(result.status, ImplementationStatus::AwaitingApproval);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let (_, snapshot) = recovery_snapshot(&s);
+    assert_eq!(snapshot["phase"], "recovered_once");
     assert!(
-        error.contains("outside the two pinned histories"),
-        "{error}"
+        snapshot["untracked_paths"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|path| path == "operator-note.txt")
     );
-    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let stash = snapshot["stash_commit"].as_str().unwrap();
     assert_eq!(
-        fs::read_to_string(worktree.join("operator-note.txt")).unwrap(),
-        "keep this draft\n"
-    );
-    assert!(
-        !state_dir(&s.repo, &s.ticket)
-            .unwrap()
-            .join("base-reconciliation-recovery.json")
-            .exists()
-    );
-    assert!(
-        !std::process::Command::new("git")
-            .args(["rev-parse", "--verify", "MERGE_HEAD"])
-            .current_dir(&worktree)
-            .output()
-            .unwrap()
-            .status
-            .success()
+        s.git(
+            &worktree,
+            &["show", &format!("{stash}^3:operator-note.txt")]
+        ),
+        "keep this draft"
     );
 }
 
@@ -64,17 +45,10 @@ fn histories_already_in_task_base_skip_duplicate_reconciliation() {
     let remote = s.advance_remote();
     s.git(&s.repo, &["fetch", "-q", "origin", "main"]);
     let common = s.git(&s.repo, &["merge-base", &local, &remote]);
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
-    fs::create_dir_all(&dir).unwrap();
-    crate::core::implementation::initial_reconciliation::save_plan(
-        &dir,
-        "main",
-        &local,
-        &remote,
-        &common,
-        &[],
-    )
-    .unwrap();
+    super::super::save_clone_reconciliation_state(
+        &s, &s.ticket, &s.repo, "main", &local, &remote, &common,
+    );
+    let dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
     let (calls, agent) = agent();
 
     let result = run_with_agent(&s, &agent, None).unwrap();

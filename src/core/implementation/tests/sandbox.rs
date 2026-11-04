@@ -6,15 +6,24 @@ mod cleanup;
 mod create;
 #[path = "sandbox/lifecycle.rs"]
 mod lifecycle;
+#[path = "sandbox/published_specs.rs"]
+mod published_specs;
 #[path = "sandbox/verification.rs"]
 mod verification;
 pub(super) use cleanup::completed_cleanup_fixture;
 pub(super) use verification::install_verification_executor;
-pub(super) fn seed_lifecycle_task(repo: &Path, ticket: &str, ticket_text: &str) {
-    lifecycle::seed_task(repo, ticket, ticket_text);
+pub(super) fn seed_lifecycle_task(
+    planning_store: &crate::artifacts::planning_store::PlanningStore,
+    ticket: &str,
+    ticket_text: &str,
+) {
+    lifecycle::seed_task(planning_store, ticket, ticket_text);
 }
-pub(super) fn refresh_task_spec(repo: &Path, ticket: &str) {
-    lifecycle::refresh_unstarted_task_spec(repo, ticket);
+pub(super) fn refresh_task_spec(
+    planning_store: &crate::artifacts::planning_store::PlanningStore,
+    ticket: &str,
+) {
+    lifecycle::refresh_unstarted_task_spec(planning_store, ticket);
 }
 struct RestoreSshCommand(Option<std::ffi::OsString>);
 
@@ -61,6 +70,7 @@ impl Drop for RestoreSshCommand {
 pub(super) struct Sandbox {
     pub(super) root: PathBuf,
     pub(super) repo: PathBuf,
+    pub(super) planning_store: crate::artifacts::planning_store::PlanningStore,
     pub(super) gh: PathBuf,
     pub(super) ticket: String,
     latest_peer: std::sync::Mutex<Option<PathBuf>>,
@@ -140,20 +150,63 @@ impl Sandbox {
     pub(super) fn new_with_initial_files(initial_files: &[(&str, &str)]) -> Self {
         create::create(initial_files)
     }
+    pub(super) fn ticket_path(&self) -> PathBuf {
+        self.planning_store.root.join(&self.ticket)
+    }
     pub(super) fn run(
         &self,
         mode: &'static str,
         calls: Arc<AtomicUsize>,
     ) -> anyhow::Result<Implementation> {
-        refresh_task_spec(&self.repo, &self.ticket);
+        refresh_task_spec(&self.planning_store, &self.ticket);
         let (tx, _rx) = mpsc::channel();
-        run_with_gh(
+        super::run_with_planning_store_options(
+            &self.planning_store,
+            &self.planning_store.root,
             &self.repo,
             &self.ticket,
-            &Fixture { mode, calls },
-            Arc::new(AtomicBool::new(false)),
-            tx,
-            self.gh.to_str().unwrap(),
+            RunOptions {
+                harness: &Fixture { mode, calls },
+                cancel: Arc::new(AtomicBool::new(false)),
+                progress: tx,
+                gh: self.gh.to_str().unwrap(),
+                publication_mode: PublicationMode::CreatePullRequest,
+                require_independent_checks: false,
+                user_context: None,
+                auto_publish_gate: None,
+                claim_lease: None,
+            },
+        )
+    }
+    pub(super) fn run_options(
+        &self,
+        harness: &dyn crate::harness::AiHarness,
+        cancel: Arc<AtomicBool>,
+        progress: Sender<LiveProgress>,
+        auto_publish: bool,
+        require_independent_checks: bool,
+    ) -> anyhow::Result<Implementation> {
+        refresh_task_spec(&self.planning_store, &self.ticket);
+        super::run_with_planning_store_options(
+            &self.planning_store,
+            &self.planning_store.root,
+            &self.repo,
+            &self.ticket,
+            RunOptions {
+                harness,
+                cancel,
+                progress,
+                gh: self.gh.to_str().unwrap(),
+                publication_mode: if auto_publish {
+                    PublicationMode::AutoPublish
+                } else {
+                    PublicationMode::CreatePullRequest
+                },
+                require_independent_checks,
+                user_context: None,
+                auto_publish_gate: None,
+                claim_lease: None,
+            },
         )
     }
     pub(super) fn run_with_publication_policy(
@@ -164,10 +217,11 @@ impl Sandbox {
         auto_publish_gate: Option<Arc<AtomicBool>>,
         require_independent_checks: bool,
     ) -> anyhow::Result<Implementation> {
-        refresh_task_spec(&self.repo, &self.ticket);
+        refresh_task_spec(&self.planning_store, &self.ticket);
         let (tx, _rx) = mpsc::channel();
-        run_with_project_options(
-            &self.repo,
+        super::run_with_planning_store_options(
+            &self.planning_store,
+            &self.planning_store.root,
             &self.repo,
             &self.ticket,
             RunOptions {
@@ -187,7 +241,7 @@ impl Sandbox {
         )
     }
     pub(super) fn make_evidence_only(&self) {
-        let path = self.repo.join(&self.ticket);
+        let path = self.ticket_path();
         let previous = fs::read_to_string(&path).unwrap();
         let ticket_text = "# Conduct audit\n\nFeature: F1\n\nThis ticket lands zero planner code.\n\nAll source files are explicitly unchanged.\n\nNo product-repo file may be created or modified by this ticket.\n\n## Acceptance criteria\n\n- Repository remains unchanged.\n";
         let updated = crate::domain::ArtifactIdentity::preserve_markdown(
@@ -197,9 +251,17 @@ impl Sandbox {
             "Conduct audit",
         )
         .unwrap();
-        fs::write(path, &updated).unwrap();
-        self.git(&self.repo, &["add", &self.ticket]);
-        self.git(&self.repo, &["commit", "-qm", "define evidence-only audit"]);
-        self.git(&self.repo, &["push", "-q", "origin", "main"]);
+        let identity = crate::domain::ArtifactIdentity::from_markdown(&updated)
+            .unwrap()
+            .expect("evidence-only task identity");
+        let metadata = crate::artifacts::task_docs::parse_metadata(&previous)
+            .unwrap()
+            .expect("seeded task metadata");
+        metadata.validate(Some(&identity)).unwrap();
+        let updated = crate::artifacts::task_docs::embed(&updated, &metadata).unwrap();
+        self.planning_store
+            .atomic_write(&self.ticket, updated.as_bytes())
+            .unwrap();
+        refresh_task_spec(&self.planning_store, &self.ticket);
     }
 }

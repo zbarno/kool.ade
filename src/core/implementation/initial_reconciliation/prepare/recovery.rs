@@ -96,7 +96,7 @@ pub(super) fn recover_unexpected_merge(
     let nonce = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default();
     let marker = format!(
         "koolade-reconciliation:{}:{nonce}",
-        task_repository::allocation_key(state)
+        task_repository::allocation_key(state)?
     );
     let mut stash_args = vec![
         "stash".to_owned(),
@@ -154,7 +154,7 @@ pub(super) fn recover_unexpected_merge(
     };
     let private_ref = format!(
         "refs/koolade/reconciliation-recovery/{}/{nonce}",
-        task_repository::allocation_key(state)
+        task_repository::allocation_key(state)?
     );
     runner.git(
         &state.task_repository,

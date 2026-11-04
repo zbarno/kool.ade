@@ -1,19 +1,19 @@
 use super::*;
 
 #[test]
-fn detached_histories_are_not_projected_into_manager_context() {
+fn unlinked_and_ambiguous_histories_are_not_projected_into_manager_context() {
     let mut chats = TaskChats::default();
-    chats.messages.insert(
-        "@legacy:feature:F1".into(),
-        vec![ChatMessage::new(
-            ChatRole::User,
-            "Prior feature answer",
-            None,
-        )],
-    );
     chats.messages.insert(
         "@unlinked:prior-task-uid".into(),
         vec![ChatMessage::new(ChatRole::User, "Prior task answer", None)],
+    );
+    chats.messages.insert(
+        "@ambiguous:CLR-001".into(),
+        vec![ChatMessage::new(
+            ChatRole::User,
+            "Ambiguous task answer",
+            None,
+        )],
     );
 
     assert!(chats.project_context("", 24000).is_empty());

@@ -81,35 +81,11 @@ pub fn target_repository_with_store(
 }
 
 pub(crate) fn task_repository_id(
-    text: &str,
     metadata: Option<&crate::artifacts::task_docs::TaskMetadata>,
-    manifest: &crate::core::project_repos::ProjectManifest,
 ) -> anyhow::Result<String> {
-    match metadata {
-        Some(metadata) => Ok(metadata.repository_id.clone()),
-        None => legacy_repository_target(text, manifest),
-    }
-}
-
-fn legacy_repository_target(
-    text: &str,
-    manifest: &crate::core::project_repos::ProjectManifest,
-) -> anyhow::Result<String> {
-    let mut target = None;
-    for line in text.lines().take(40) {
-        if let Some(value) = line.strip_prefix("Repository: ") {
-            anyhow::ensure!(
-                target.is_none(),
-                "Legacy task has more than one repository target"
-            );
-            target = Some(value.trim().to_owned());
-        }
-    }
-    anyhow::ensure!(
-        target.is_some() || manifest.repositories.len() == 1,
-        "Multi-repository legacy task lacks a repository target"
-    );
-    Ok(target.unwrap_or_else(|| "root".into()))
+    metadata
+        .map(|metadata| metadata.repository_id.clone())
+        .ok_or_else(|| anyhow::anyhow!("Task story has no current repository metadata"))
 }
 
 #[cfg(test)]
@@ -210,18 +186,7 @@ pub fn completed_dependency_context_with_store(
             })
             .collect::<anyhow::Result<Vec<_>>>()?
     } else {
-        crate::artifacts::task_docs::legacy_dependencies(ticket_text)?
-            .into_iter()
-            .map(|filename| {
-                let path = Path::new(ticket)
-                    .parent()
-                    .ok_or_else(|| anyhow::anyhow!("Task path has no batch directory"))?
-                    .join(filename)
-                    .to_string_lossy()
-                    .into_owned();
-                Ok((path, None))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?
+        anyhow::bail!("Task {ticket} lacks current Kool.ad/e task metadata")
     };
     let mut context = String::new();
     for (relative, expected_uid) in dependencies {

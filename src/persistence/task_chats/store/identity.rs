@@ -1,4 +1,4 @@
-use super::{TaskChats, canonicalize, display_histories, merge_identity};
+use super::{TaskChats, display_histories, merge_identity};
 use crate::artifacts::task_docs::TaskDocument;
 use std::collections::BTreeMap;
 
@@ -14,11 +14,7 @@ impl TaskChats {
                     .map(|identity| (doc.path.clone(), identity.uid.clone()))
             })
             .collect::<Vec<_>>();
-        let legacy_migration_keys = aliases
-            .iter()
-            .map(|(path, _)| path.clone())
-            .collect::<Vec<_>>();
-        self.bind_conversation_identities(&aliases, &legacy_migration_keys)
+        self.bind_conversation_identities(&aliases)
     }
 
     /// Bind durable board conversations to immutable artifact identities.
@@ -27,7 +23,6 @@ impl TaskChats {
     pub fn bind_conversation_identities(
         &mut self,
         aliases: &[(String, String)],
-        legacy_migration_keys: &[String],
     ) -> Result<(), String> {
         let mut identities: BTreeMap<String, String> = BTreeMap::new();
         let mut paths: BTreeMap<String, String> = BTreeMap::new();
@@ -86,29 +81,18 @@ impl TaskChats {
         self.identities = identities;
         self.paths = paths;
         self.ambiguous_paths = ambiguous_paths;
-        self.legacy_migration_keys = legacy_migration_keys.iter().cloned().collect();
         if self.loaded {
-            for path in &self.ambiguous_paths {
-                super::detach_other_history(&mut self.stored, path, "legacy");
-            }
-            self.add_current_aliases()?;
-            canonicalize(&mut self.stored);
-            self.messages = display_histories(&self.stored, &self.paths);
+            self.add_current_aliases();
+            self.messages =
+                display_histories(&self.stored, &self.paths, &self.excluded_history_paths());
         }
         conflict.map_or(Ok(()), Err)
     }
 
-    pub(super) fn add_current_aliases(&mut self) -> Result<bool, String> {
-        let mut changed = false;
+    pub(super) fn add_current_aliases(&mut self) {
         for (path, uid) in &self.identities {
-            changed |= merge_identity(
-                &mut self.stored,
-                path,
-                uid,
-                self.legacy_migration_keys.contains(path),
-            )?;
+            merge_identity(&mut self.stored, path, uid);
         }
-        Ok(changed)
     }
 
     pub fn has_pending_user_reply(&self, key: &str) -> bool {

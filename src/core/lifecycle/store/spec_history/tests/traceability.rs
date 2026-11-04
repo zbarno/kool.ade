@@ -10,11 +10,14 @@ use support::{answered_decision, reviewed_feature};
 #[test]
 fn persisted_requirement_test_trace_supports_forward_and_reverse_queries() {
     let fixture = Fixture::new();
-    let store = fixture.store();
-    let (feature_uid, _) = reviewed_feature(&fixture, &store, "CHG-101", "CHG-101-trace");
+    let mut store = fixture.store();
+    let (feature_uid, _) = reviewed_feature(&fixture, &mut store, "CHG-101", "CHG-101-trace");
+    let aggregate_before = {
+        let lifecycle = LifecycleStore::new(&store);
+        lifecycle.product_specification_aggregate().unwrap()
+    };
+    let (other_feature_uid, _) = reviewed_feature(&fixture, &mut store, "CHG-102", "CHG-102-trace");
     let lifecycle = LifecycleStore::new(&store);
-    let aggregate_before = lifecycle.product_specification_aggregate().unwrap();
-    let (other_feature_uid, _) = reviewed_feature(&fixture, &store, "CHG-102", "CHG-102-trace");
     let aggregate_after = lifecycle.product_specification_aggregate().unwrap();
     assert_ne!(aggregate_before, aggregate_after);
     assert_eq!(

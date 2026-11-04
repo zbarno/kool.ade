@@ -89,7 +89,6 @@ fn saved_sentinel_rides_both_conversation_modes_from_the_next_turn_on() {
             crate::domain::Priority::Normal,
             crate::domain::ItemKind::Question,
             "Engineering".into(),
-            None,
             "Pick the SSO route.".into(),
             "Rollout blocks on it.".into(),
         ));

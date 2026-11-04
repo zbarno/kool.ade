@@ -1,29 +1,39 @@
-//! Mutation phase (SPECIFICATION.md §16–§17): apply a validated turn to the
-//! in-memory state, synthesize ownership items, atomically write changed
-//! artifacts, and produce the checkpoint commit message. Git staging/commit
-//! is sequenced by `core::turn` right after these writes succeed.
-mod commit_message;
+//! Mutation phase: validate a turn and atomically write private operational
+//! records. Published-document changes remain private drafts for review.
 mod comparison;
 mod identities;
 mod lifecycle_bridge;
 mod product_documents;
 mod store_transaction;
+mod summary;
 
-use crate::artifacts::{SPEC_FILE, items_io, spec_doc};
-use crate::core::ownership;
+pub(crate) use product_documents::load_current;
+pub use product_documents::{LocalSpecDraftChange, LocalSpecDraftV1};
+
+use crate::artifacts::{items_io, spec_doc};
 use crate::core::state::PlannerState;
 use crate::core::validation::NormalizedTurn;
 
+pub(crate) fn private_document_draft_changes(
+    store: &crate::artifacts::planning_store::PlanningStore,
+    updates: &[(String, String)],
+) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
+    product_documents::changes(store, updates).map(|changes| {
+        changes
+            .into_iter()
+            .map(|(path, content)| (path, content.into_bytes()))
+            .collect()
+    })
+}
+
 #[derive(Debug, Clone)]
 pub struct ApplyReceipt {
-    pub spec_written: bool,
+    pub draft_written: bool,
     pub items_written: bool,
-    /// Semantic checkpoint subject, planner-authored (§20).
-    pub commit_message: String,
-    /// Repo-relative paths to stage/commit (empty ⇒ no commit made).
-    pub repo_relative_paths: Vec<String>,
-    /// Newly synthesized ownership item ids (shown as a toast note).
-    pub synthesized_open_items: Vec<String>,
+    /// Human-readable summary of the local save.
+    pub summary: String,
+    /// Store-relative paths changed by this save.
+    pub changed_store_paths: Vec<String>,
 }
 
 pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<ApplyReceipt> {
@@ -69,19 +79,16 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
         state.baseline_planning_revision = revision;
         lifecycle_bridge::record_task_batch(state, batch)?;
         return Ok(ApplyReceipt {
-            spec_written: false,
+            draft_written: false,
             items_written: false,
-            commit_message: format!(
+            summary: format!(
                 "planner: generate task stories for {}",
                 batch.brief.feature_name
             ),
-            repo_relative_paths: paths,
-            synthesized_open_items: Vec::new(),
+            changed_store_paths: paths,
         });
     }
-    let spec_pre_existed = state.baseline_spec.is_some();
-
-    // 1) Resolutions remove items from the queue; the history stays in git.
+    // 1) Resolutions remove items from the active queue; private history remains in local application storage.
     if !nt.resolved.is_empty() {
         for item in state
             .items
@@ -114,9 +121,6 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
             }
             if let Some(c) = &patch.category {
                 it.category = c.clone();
-            }
-            if let Some(a) = &patch.assigned_to {
-                it.assigned_to = Some(a.clone());
             }
             if let Some(q) = &patch.question {
                 it.question = q.clone();
@@ -158,23 +162,6 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
     }
     state.items.extend(added);
 
-    // 4) Ownership-gap synthesis (always after agent mutations, §8).
-    let mut synthetic = ownership::synthesize_for_state(state);
-    let synthetic_ids: Vec<String> = if synthetic.is_empty() {
-        Vec::new()
-    } else {
-        let taken: Vec<String> = state
-            .items
-            .iter()
-            .chain(&state.resolved_items)
-            .map(|i| i.id.clone())
-            .collect();
-        ownership::assign_ids(&mut synthetic, taken);
-        let ids = synthetic.iter().map(|i| i.id.clone()).collect::<Vec<_>>();
-        state.items.extend(synthetic);
-        ids
-    };
-
     let mut document_updates = nt.document_updates.clone();
     let feature_uids = identities::preserve_feature_updates(
         &state.planning_store,
@@ -190,14 +177,11 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
     // restores the old complete set on an interrupted or failed apply.
     let mut changes = Vec::new();
     let mut record_checks = Vec::new();
-    if let Some(spec) = &nt.spec_markdown {
-        changes.push((SPEC_FILE.to_string(), spec.clone()));
-    }
     changes.extend(product_documents::changes(
         &state.planning_store,
         &document_updates,
     )?);
-    let (item_changes, item_checks, _) =
+    let (item_changes, item_checks) =
         items_io::record_changes(&state.planning_store, &state.items, &state.resolved_items)?;
     changes.extend(item_changes.into_iter().map(|(path, bytes)| {
         (
@@ -207,7 +191,7 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
     }));
     record_checks.extend(item_checks);
     if let Some(workflow) = &nt.workflow {
-        let (workflow_changes, workflow_checks, _) =
+        let (workflow_changes, workflow_checks) =
             crate::artifacts::task_docs::workflow_record_changes(&state.planning_store, workflow)?;
         changes.extend(workflow_changes.into_iter().map(|(path, bytes)| {
             (
@@ -223,7 +207,7 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
         nt.task_intent_context.as_ref(),
     )?;
     if !discovered.is_empty() {
-        let (work_changes, checks, _) =
+        let (work_changes, checks) =
             crate::core::planning_work::record_changes(&state.planning_store, &discovered)?;
         changes.extend(work_changes.into_iter().map(|(path, bytes)| {
             (
@@ -233,41 +217,31 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
         }));
         record_checks.extend(checks);
     }
-    let (repo_relative_paths, revision) = store_transaction::apply(
+    let (changed_store_paths, revision) = store_transaction::apply(
         &state.planning_store,
         &changes,
         &state.baseline_planning_revision,
         &record_checks,
     )?;
-    let spec_path = state
-        .planning_store
-        .git_path(crate::artifacts::planning_store::paths::PRODUCT_INDEX);
-    let spec_written = repo_relative_paths.iter().any(|p| p == &spec_path)
-        || repo_relative_paths.iter().any(|p| {
-            p.starts_with(&format!(
-                "{}/",
-                state
-                    .planning_store
-                    .git_path(crate::artifacts::planning_store::paths::PRODUCT)
-            )) || p.starts_with(&format!(
-                "{}/",
-                state
-                    .planning_store
-                    .git_path(crate::artifacts::planning_store::paths::CHANGES)
-            ))
-        });
+    let draft_written = changed_store_paths
+        .iter()
+        .any(|path| path.starts_with("state/spec_drafts/"));
     let items_root = state
         .planning_store
-        .git_path(crate::artifacts::planning_store::paths::ITEM_CONTENTS);
+        .relative_path(crate::artifacts::planning_store::paths::ITEM_CONTENTS);
     let item_state_root = state
         .planning_store
-        .git_path(crate::artifacts::planning_store::paths::ITEM_STATES);
-    let items_written = repo_relative_paths.iter().any(|path| {
+        .relative_path(crate::artifacts::planning_store::paths::ITEM_STATES);
+    let items_written = changed_store_paths.iter().any(|path| {
         path.starts_with(&format!("{items_root}/"))
             || path.starts_with(&format!("{item_state_root}/"))
     });
     state.spec_text = spec_doc::load(&state.planning_store)?;
-    state.active_features = crate::artifacts::product_docs::active_features(&state.planning_store);
+    let refreshed_state = PlannerState::load_with_store(&state.repo_root, &state.planning_store)?;
+    state.published_spec_pin = refreshed_state.published_spec_pin;
+    state.local_spec_draft = refreshed_state.local_spec_draft;
+    state.active_features = refreshed_state.active_features;
+    state.active_feature = refreshed_state.active_feature;
     state.baseline_spec = state.spec_text.clone();
     let (persisted_items, persisted_resolved_items, _) =
         items_io::load_store(&state.planning_store)?;
@@ -279,24 +253,18 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
         state.workflow = crate::artifacts::task_docs::load_workflow(&state.planning_store)?;
         debug_assert_eq!(&state.workflow, workflow);
     }
-    state.active_feature = crate::artifacts::product_docs::active_feature_for_workflow(
-        &state.planning_store,
-        &state.workflow,
-    );
-    let commit_message = commit_message::compose(
+    let summary = summary::compose(
         nt,
-        spec_pre_existed,
-        spec_written,
+        draft_written,
         nt.resolved.len(),
         nt.added.len(),
         nt.updates.len(),
     );
     Ok(ApplyReceipt {
-        spec_written,
+        draft_written,
         items_written,
-        commit_message,
-        repo_relative_paths,
-        synthesized_open_items: synthetic_ids,
+        summary,
+        changed_store_paths,
     })
 }
 

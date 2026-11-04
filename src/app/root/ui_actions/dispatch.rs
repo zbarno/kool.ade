@@ -6,6 +6,15 @@ mod task_detail;
 impl KooladeApp {
     pub(in crate::app::root) fn dispatch_ui_command(&mut self, command: ApplicationCommand) {
         match command {
+            ApplicationCommand::PublishInitialProductSpecification => match &mut self.screen {
+                Screen::Connected(project) => {
+                    match crate::app::root::spec_reconciliation::publish_initial_product_specification(project) {
+                        Ok(url) => self.toasts.success(format!("Initial specification PR opened: {url}")),
+                        Err(error) => self.toasts.warning(error),
+                    }
+                }
+                Screen::Welcome => self.toasts.warning("Connect a code repository before publishing its initial specification."),
+            },
             ApplicationCommand::OpenSpecificationTrace {
                 feature_uid,
                 kind,
@@ -67,7 +76,7 @@ impl KooladeApp {
                         adopt,
                     ) {
                         Ok(()) => self.toasts.success(if adopt {
-                            "Feature target adopted and product specification updated."
+                            "Feature target adopted into a private proposal; source documentation is unchanged until its reviewed PR is merged."
                         } else {
                             "Feature proposal declined."
                         }),
@@ -102,9 +111,6 @@ impl KooladeApp {
             ApplicationCommand::ApproveSetupTaskFix { task_id } => {
                 self.approve_setup_task_fix(&task_id)
             }
-            ApplicationCommand::PlanningRepository(command) => {
-                self.handle_planning_repository_command(command)
-            }
             ApplicationCommand::CreatePlanningTask {
                 kind,
                 description,
@@ -136,9 +142,6 @@ impl KooladeApp {
             ApplicationCommand::SetAutoPublish { enabled } => self.set_auto_publish(enabled),
             ApplicationCommand::SetRequireIndependentChecks { enabled } => {
                 self.set_require_independent_checks(enabled)
-            }
-            ApplicationCommand::TakeOverStaleTaskClaim { ticket } => {
-                self.take_over_stale_task_claim(ticket)
             }
             ApplicationCommand::ArchiveTask { ticket } => self.archive_task(&ticket),
             ApplicationCommand::CancelWork { key } => self.cancel_board_work(&key),

@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    artifacts::{migration, planning_store::PlanningStore},
+    artifacts::planning_store::PlanningStore,
     core::lifecycle::{
         FeatureGoal, FeaturePhase, SpecReconciliationStatusV1, SpecSyncQueueStatusV1,
     },
@@ -37,16 +37,21 @@ impl Fixture {
                 .unwrap()
                 .success()
         );
-        migration::bootstrap_product(&root, "Spec History Fixture").unwrap();
+        crate::core::state::test_support::seed_published_product_document(&root).unwrap();
         Self(root)
     }
 
     fn store(&self) -> PlanningStore {
-        PlanningStore::new(
-            uuid::Uuid::new_v4(),
+        let mut store = PlanningStore::for_code_repository(
+            crate::core::state::test_support::project_id_for_code_root(&self.0),
+            self.0.with_extension("private-state"),
             &self.0,
-            crate::artifacts::planning_store::StoreMode::ManagedLocal,
-        )
+        );
+        let reader =
+            crate::core::published_specs::PublishedSpecReader::for_primary_repository(&self.0)
+                .unwrap();
+        store.published_spec_pin = Some(reader.pin().unwrap());
+        store
     }
 
     fn feature(store: &PlanningStore) -> (String, String) {
@@ -79,7 +84,18 @@ impl Fixture {
     }
 
     fn draft(store: &PlanningStore, feature_revision: u64, origin: String) -> SpecRevisionDraftV1 {
-        let spec = crate::artifacts::product_docs::render_product(store)
+        let code_root = store
+            .published_repository_root
+            .as_deref()
+            .expect("fixture has a primary code repository");
+        let reader =
+            crate::core::published_specs::PublishedSpecReader::for_primary_repository(code_root)
+                .unwrap();
+        let pin = store
+            .published_spec_pin
+            .clone()
+            .unwrap_or_else(|| reader.pin().unwrap());
+        let spec = crate::artifacts::product_docs::render_published_product(&reader, &pin)
             .unwrap()
             .unwrap();
         let content_hash = format!(
@@ -108,6 +124,7 @@ impl Fixture {
 impl Drop for Fixture {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
+        let _ = std::fs::remove_dir_all(self.0.with_extension("private-state"));
     }
 }
 

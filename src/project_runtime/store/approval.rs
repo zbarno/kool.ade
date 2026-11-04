@@ -63,7 +63,7 @@ impl ProjectRuntimeStore<'_> {
             return false;
         };
         crate::persistence::feature_approvals::contains_scoped(
-            &self.store.git_root(),
+            &self.store.local_root(),
             &scope,
             &digest,
         )

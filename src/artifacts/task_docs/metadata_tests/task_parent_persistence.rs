@@ -1,5 +1,3 @@
-use super::*;
-
 #[test]
 fn explicit_task_parent_survives_story_save_and_board_reload() {
     let root = std::env::temp_dir().join(format!(
@@ -8,7 +6,6 @@ fn explicit_task_parent_survives_story_save_and_board_reload() {
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&root).unwrap();
-    init_git(&root);
 
     let batch = crate::core::workflow::TaskBatch {
         brief: crate::core::workflow::InterviewBrief {

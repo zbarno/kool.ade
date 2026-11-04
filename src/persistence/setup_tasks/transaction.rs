@@ -8,7 +8,7 @@ use std::{
 
 use fs2::FileExt;
 
-use super::{MAX_STATE_BYTES, SetupTaskStoreV1, migration};
+use super::{MAX_STATE_BYTES, SetupTaskStoreV1};
 
 mod owner;
 #[cfg(test)]
@@ -153,10 +153,10 @@ pub(super) fn update_at<T>(
     lock_exclusive(&lock)?;
 
     let result = (|| {
-        let (mut store, migrated) = load_from(path)?;
+        let mut store = load_from(path)?;
         let (value, changed) = update(&mut store)?;
         store.validate()?;
-        if changed || migrated {
+        if changed {
             save_to(path, &store)?;
         }
         Ok(value)
@@ -219,11 +219,11 @@ fn signal_lock_attempt() -> std::io::Result<()> {
     Ok(())
 }
 
-pub(super) fn load_from(path: &Path) -> anyhow::Result<(SetupTaskStoreV1, bool)> {
+pub(super) fn load_from(path: &Path) -> anyhow::Result<SetupTaskStoreV1> {
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok((SetupTaskStoreV1::default(), false));
+            return Ok(SetupTaskStoreV1::default());
         }
         Err(error) => return Err(error.into()),
     };
@@ -235,7 +235,9 @@ pub(super) fn load_from(path: &Path) -> anyhow::Result<(SetupTaskStoreV1, bool)>
         metadata.len() <= MAX_STATE_BYTES,
         "setup task state is oversized"
     );
-    migration::decode(&fs::read(path)?)
+    let store: SetupTaskStoreV1 = serde_json::from_slice(&fs::read(path)?)?;
+    store.validate()?;
+    Ok(store)
 }
 
 pub(super) fn save_to(path: &Path, store: &SetupTaskStoreV1) -> anyhow::Result<()> {

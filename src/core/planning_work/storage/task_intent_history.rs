@@ -188,7 +188,7 @@ fn push_event(
     root.task_intent_history.push(TaskIntentEventV1 {
         event_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
         kind,
-        recorded_at_ms: super::legacy::now_ms().max(previous.saturating_add(1)),
+        recorded_at_ms: super::now_ms().max(previous.saturating_add(1)),
         summary: clip_event_summary(summary).to_owned(),
         cycle_uid: root.task_intent_cycle_uid.clone(),
         related_uid,

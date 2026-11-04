@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::OpenItem;
 
 pub(super) fn settings(ctx: &egui::Context) {
     use crate::{app::dialogs::*, persistence::harness_settings::*};
@@ -39,18 +40,7 @@ pub(super) fn settings(ctx: &egui::Context) {
     );
     let people = DlgSettings {
         user_name: "Example developer".into(),
-        user_groups: "Platform, QA".into(),
         identity_note: "Seated as Example developer — project configuration".into(),
-        rows: vec![
-            Row {
-                category: "Product".into(),
-                members: "Product team".into(),
-            },
-            Row {
-                category: "Security".into(),
-                members: "Platform team".into(),
-            },
-        ],
         feedback: None,
     };
     ctx.data_mut(|data| {
@@ -71,7 +61,6 @@ pub(super) fn planning(app: &mut KooladeApp) {
         crate::domain::Priority::High,
         crate::domain::ItemKind::Question,
         "Product".into(),
-        Some("Product team".into()),
         "Which users need access?".into(),
         "Determines the access model.".into(),
     );

@@ -7,12 +7,7 @@ pub(in crate::core::implementation) fn prepare_task_workspace(
     state: &mut Implementation,
     runner: &Runner,
 ) -> anyhow::Result<(bool, String)> {
-    match state.task_repository_kind {
-        TaskRepositoryKind::LegacyWorktree => anyhow::bail!(
-            "This saved task must migrate from its legacy linked worktree before execution. Its original workspace is preserved."
-        ),
-        TaskRepositoryKind::Clone => prepare_workspace(repository_cache, dir, state, runner),
-    }
+    prepare_workspace(repository_cache, dir, state, runner)
 }
 
 pub(super) fn prepare_workspace(
@@ -21,10 +16,6 @@ pub(super) fn prepare_workspace(
     state: &mut Implementation,
     runner: &Runner,
 ) -> anyhow::Result<(bool, String)> {
-    anyhow::ensure!(
-        state.task_repository_kind == TaskRepositoryKind::Clone,
-        "Legacy task repositories must migrate before verification"
-    );
     prepare_clone(repository_cache, dir, state, runner)
 }
 

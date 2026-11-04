@@ -165,8 +165,8 @@ impl Action {
         }
         match (self.approved, self.prepare_tasks) {
             (true, _) => format!("Prepare tasks for {}", self.id),
-            (false, true) => format!("Confirm {} and prepare tasks", self.id),
-            (false, false) => format!("Confirm plan for {}", self.id),
+            (false, true) => format!("Confirm {} and allow publication", self.id),
+            (false, false) => format!("Confirm plan and allow publication for {}", self.id),
         }
     }
 }

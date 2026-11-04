@@ -97,8 +97,11 @@ pub(in crate::core::lifecycle::tests::store::completion) fn finish_task_through_
             .is_some_and(|queued_request| queued_request.qa_run_id == request.qa_run_id)
     }));
     task = record_completed_qa(lifecycle, &task, &request);
-    crate::artifacts::migration::bootstrap_product(&fixture.0, "Lifecycle Completion Fixture")
-        .unwrap();
+    crate::artifacts::product_bootstrap::bootstrap_product(
+        &fixture.0,
+        "Lifecycle Completion Fixture",
+    )
+    .unwrap();
     let origin_events = lifecycle
         .list_spec_sync_queue(&task.feature_uid, false)
         .unwrap()

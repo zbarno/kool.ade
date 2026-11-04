@@ -201,7 +201,6 @@ pub(crate) fn expected_evidence_domain(id: &str) -> Option<String> {
         return Some(domain.to_owned());
     }
     match id.split(':').collect::<Vec<_>>().as_slice() {
-        ["setup", "legacy", "docker"] => Some("docker".to_owned()),
         ["setup", "cli", "install"] => Some("cli:install".to_owned()),
         ["setup", "cli", "scan"] => Some("cli:scan".to_owned()),
         ["setup", "cli", "select"] => Some("cli:select".to_owned()),

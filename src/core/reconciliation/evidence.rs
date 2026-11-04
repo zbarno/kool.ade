@@ -1,7 +1,7 @@
 use super::*;
 
 fn git(repo: &Path, args: &[&str]) -> anyhow::Result<String> {
-    let output = crate::core::planning_sync::validated_git_command(repo)?
+    let output = crate::core::git_commands::validated_git_command(repo)?
         .args(args)
         .output()?;
     anyhow::ensure!(

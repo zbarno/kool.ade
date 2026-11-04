@@ -3,13 +3,12 @@
 
 use std::time::{Duration, Instant};
 
-use crate::app::dialogs::{self as app_dialogs, DlgImport, DlgMcp, DlgSettings};
+use crate::app::dialogs::{self as app_dialogs, DlgImport, DlgMcp};
 use crate::app::session::{self, Project};
 use crate::app::welcome;
 use crate::core::implementation::{ImplementationStatus, PullRequestState};
 use crate::core::turn::{TurnController, TurnEvt, TurnOutcome};
 use crate::domain::chatlog::{ChatMessage, ChatRole};
-use crate::domain::item::OpenItem;
 use crate::domain::user::CurrentUser;
 use crate::ui::{Surface, ToastQueue};
 
@@ -44,10 +43,7 @@ pub(crate) mod spec_reconciliation;
 pub(crate) use spec_reconciliation::SpecReconciliation;
 mod initialization;
 pub(crate) mod planner_pass;
-mod planning_repository;
-mod planning_repository_surface;
 mod planning_work;
-mod repository_switcher;
 mod requested_action;
 pub(in crate::app::root) mod runtime_dependencies;
 pub(crate) mod runtime_qa_applicability;
@@ -66,7 +62,7 @@ pub(crate) mod test_runtime_qa;
 mod tick;
 mod ui_actions;
 mod welcome_wizard;
-use welcome_wizard::{WelcomeEntry, WelcomeWizard, WizField};
+use welcome_wizard::{WelcomeEntry, WelcomeWizard};
 mod workspace;
 use task_batch::has_current_task_batch;
 
@@ -83,11 +79,6 @@ pub struct KooladeApp {
     dialog: Option<Dialog>,
     toasts: ToastQueue,
     onboarding: welcome::onboarding::Onboarding,
-    onboarding_launcher: onboarding::Launcher,
-    onboarding_open: Option<onboarding::OpenJob>,
-    onboarding_recovery: onboarding::Recovery,
-    launch_history_jobs: Vec<std::thread::JoinHandle<Result<(), String>>>,
-    onboarding_creation: Option<std::thread::JoinHandle<Result<uuid::Uuid, String>>>,
     conn_error: Option<String>,
     /// Per-process metering identity stamped on time-ledger intervals so a
     /// crashed-but-unflushed span is identifiable on inspection (AD-4).
@@ -97,13 +88,6 @@ pub struct KooladeApp {
     /// In-flight GitHub clone worker (spawned by [`Self::begin_clone`],
     /// drained at the top of [`Self::tick`]). `None` when idle.
     clone_job: Option<CloneJob>,
-    planning_sync_job: Option<
-        std::thread::JoinHandle<(
-            uuid::Uuid,
-            Result<crate::core::planning_sync::PlanningSyncStatus, String>,
-        )>,
-    >,
-    conn_workspace_id: Option<uuid::Uuid>,
     welcome_draft: String,
     /// Active welcome wizard (per-launch state; a closed draft is gone).
     /// Side effects occur only when the CONFIRM step commits.
@@ -137,8 +121,6 @@ pub struct KooladeApp {
     attention_fixture: std::collections::BTreeMap<String, crate::core::attention::Brief>,
     #[cfg(test)]
     _test_temp_roots: Vec<TestTempRoot>,
-    /// Synthesized ownership-gap items for the side pane.
-    synth: Vec<OpenItem>,
 }
 
 #[cfg(test)]
@@ -201,7 +183,7 @@ enum Screen {
 fn persist_automation_settings(project: &mut Project) -> Result<(), String> {
     let temporary_lock = if project.queue_lock.is_none() {
         Some(
-            crate::core::implementation_queue::Queue::acquire(&project.state.repo_root)
+            crate::core::implementation_queue::Queue::acquire(&project.state.planning_store.root)
                 .map_err(|error| error.to_string())?,
         )
     } else {
@@ -210,7 +192,7 @@ fn persist_automation_settings(project: &mut Project) -> Result<(), String> {
     project.queue.last_error.clear();
     let result = project
         .queue
-        .save(&project.state.repo_root)
+        .save(&project.state.planning_store.root)
         .map_err(|error| error.to_string());
     drop(temporary_lock);
     if !project.queue.running && project.active_implementations.is_empty() {
@@ -250,7 +232,6 @@ type CloneWorkerCalc = std::sync::Arc<
 
 enum Dialog {
     Import(DlgImport),
-    Settings(DlgSettings),
     ProjectSettings(app_dialogs::DlgProjectSettings),
     HarnessSetup(app_dialogs::DlgHarnessSetup),
     Mcp(DlgMcp),

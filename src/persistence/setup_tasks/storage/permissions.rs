@@ -63,32 +63,6 @@ pub(in crate::persistence::setup_tasks) fn ensure_private_directory(
     Ok(())
 }
 
-pub(super) fn secure_private_file(path: &Path) -> anyhow::Result<()> {
-    let metadata = std::fs::symlink_metadata(path)?;
-    anyhow::ensure!(
-        metadata.is_file() && !is_link_or_reparse(&metadata),
-        "machine setup state entry is not a regular file"
-    );
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        anyhow::ensure!(
-            metadata.uid() == unsafe { libc::geteuid() },
-            "machine setup state file is not owned by the current user"
-        );
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-        let secured = std::fs::symlink_metadata(path)?;
-        anyhow::ensure!(
-            secured.uid() == unsafe { libc::geteuid() }
-                && secured.permissions().mode() & 0o077 == 0,
-            "machine setup state file permissions are not private"
-        );
-    }
-    #[cfg(windows)]
-    windows_acl::verify_private_acl(path)?;
-    Ok(())
-}
-
 pub(super) fn is_link_or_reparse(metadata: &std::fs::Metadata) -> bool {
     if metadata.file_type().is_symlink() {
         return true;

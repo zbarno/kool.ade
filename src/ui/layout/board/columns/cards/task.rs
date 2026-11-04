@@ -229,18 +229,7 @@ fn dependency_blocker(
             })
             .collect::<Vec<_>>()
     } else {
-        let filenames = crate::artifacts::task_docs::legacy_dependencies(&doc.text).ok()?;
-        let parent = std::path::Path::new(&doc.path).parent()?.to_string_lossy();
-        filenames
-            .iter()
-            .map(|filename| {
-                let path = format!("{parent}/{filename}");
-                board
-                    .task_documents
-                    .iter()
-                    .find(|candidate| candidate.path == path)
-            })
-            .collect::<Vec<_>>()
+        return Some("current task metadata is missing".into());
     };
     for dependency in dependencies {
         let Some(dependency) = dependency else {

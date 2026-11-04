@@ -25,7 +25,6 @@ fn task(id: &str, title: &str, state: State) -> SetupTaskV1 {
             scan_generation: 3,
             state,
         }],
-        legacy_source_id: None,
         superseded_by: Vec::new(),
     }
 }

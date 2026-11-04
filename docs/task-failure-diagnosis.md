@@ -1,5 +1,9 @@
 # Diagnosing interrupted task implementation
 
+> Historical operational guidance. Current task records are private local
+> application data; former planning-repository paths in investigation notes are
+> not supported data sources.
+
 Task cards show the failure cause and offer expandable, copyable failure details. A task that has a saved running status but no current worker is labeled interrupted. Resolve the reported cause and use Resume implementation; the existing task clone is reused.
 
 An explicit Resume starts a fresh attempt budget and resets that task's queue
@@ -14,30 +18,20 @@ Before implementation and verification, Kool.ad/e checks for at least 1 GiB of a
 
 If a worker exits without returning a result, Kool.ad/e reports a failure and releases its queue slot. If saving error evidence or task state also fails, the in-memory failure includes both the original cause and the persistence failure. Copy that failure before closing Kool.ad/e when storage is unavailable.
 
-## Feature-named task resume
+## Task resume
 
-Task loading and implementation use the same filename rules for numbered
-stories, `F<number>-TASK-*.md`, and `CHG-nnn-TASK-*.md` in the standalone
-planning repository's `planning/tasks/` directory.
-Previously, Resume rejected feature-named stories from the standalone planning
-repository's `planning/tasks/` directory with “Select a numbered task story”,
-before starting a worker. Target-validation errors now also appear as a
-notification and on the affected card, rather than only in the queue status.
+Task identity and resume state are recorded in the private local TaskIntent
+store. Target-validation errors should appear as a notification and on the
+affected card, rather than only in the queue status.
 
 Resuming preserves the existing task clone, partial implementation, and acceptance
 criteria. It does not resolve a previously reported human decision or external
 verification requirement. The workspace-verification task's saved gate mismatch
 and pending operator-run demonstration remain separate from the filename defect.
 
-Partially migrated repositories can have a current ticket path inside `state.json`
-while the containing implementation directory still uses the old path's hash.
-Resume and dependency loading recognize either recorded path in that original
-directory, provided the old ticket file is absent and the frozen ticket text
-matches exactly. This preserves the existing worktree instead of attempting a new
-implementation and incorrectly reporting that merged dependencies have no record.
-The `task_status` audit now checks per-ticket Resume lookup against board lookup
-and checks merged dependency records for unfinished work; listing board state
-alone is insufficient to establish that a task can resume.
+Lifecycle tests check per-task resume lookup against board lookup and validate
+dependency records for unfinished work; listing board state alone is
+insufficient to establish that a task can resume.
 
 ## September 22 investigation
 

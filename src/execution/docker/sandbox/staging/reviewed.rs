@@ -47,7 +47,7 @@ pub(crate) fn verify_snapshot_matches_git_tree(
     expected_sha: &str,
     allowed_source_inputs: &[String],
 ) -> Result<(), ExecutionError> {
-    let mut command = crate::core::planning_sync::validated_git_command(root)
+    let mut command = crate::core::git_commands::validated_git_command(root)
         .map_err(|_| failure("Reviewed task source Git configuration is unsafe"))?;
     let output = command
         .args(["ls-tree", "-r", "-z", "--full-tree", expected_sha])
@@ -113,7 +113,7 @@ pub(crate) fn verify_snapshot_matches_git_tree(
     }
     if !tracked_files.is_empty() {
         use std::io::Write;
-        let mut command = crate::core::planning_sync::validated_git_command(root)
+        let mut command = crate::core::git_commands::validated_git_command(root)
             .map_err(|_| failure("Reviewed task source Git configuration is unsafe"))?;
         let mut child = command
             .args(["cat-file", "--batch"])

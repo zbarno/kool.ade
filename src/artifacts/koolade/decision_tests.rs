@@ -7,7 +7,6 @@ fn decision(create_adr: bool) -> OpenItem {
         Priority::High,
         ItemKind::Assumption,
         "Architecture".into(),
-        Some("Reviewer".into()),
         "Which session retention policy should we adopt?".into(),
         "The choice determines how long user credentials remain useful.".into(),
     );
@@ -78,14 +77,6 @@ fn repository(tag: &str) -> PathBuf {
         std::env::temp_dir().join(format!("koolade_decision_{}_{}", tag, std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
-    assert!(
-        std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(&root)
-            .status()
-            .unwrap()
-            .success()
-    );
     root
 }
 

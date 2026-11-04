@@ -40,7 +40,9 @@ fn batch_no_change_dispositions_survive_restart_retry_and_stale_writers() {
             .unwrap()
             .is_empty()
     );
-    let reopened = PlanningStore::new(store.project_id, store.root.clone(), store.mode);
+    let mut reopened =
+        PlanningStore::for_code_repository(store.project_id, store.root.clone(), &fixture.0);
+    reopened.published_spec_pin = store.published_spec_pin.clone();
     let lifecycle = LifecycleStore::new(&reopened);
     assert_eq!(
         lifecycle

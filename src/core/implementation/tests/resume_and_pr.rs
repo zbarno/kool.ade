@@ -14,21 +14,22 @@ fn accepting_resume_moves_blocked_state_to_preparing_and_keeps_failure_history()
     let s = Sandbox::new();
     let calls = Arc::new(AtomicUsize::new(0));
     assert!(s.run("cancel", calls).is_err());
-    let mut blocked = load(&s.repo, &s.ticket).unwrap();
+    let mut blocked = load(&s.planning_store.root, &s.ticket).unwrap();
     blocked.status = ImplementationStatus::Blocked;
     blocked.detail = "NuGet audit feed was unreachable".into();
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
+    let dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
     save(&dir, &blocked).unwrap();
 
-    let resumed = crate::core::implementation::mark_resume_started(&s.repo, &s.ticket)
-        .unwrap()
-        .unwrap();
+    let resumed =
+        crate::core::implementation::mark_resume_started(&s.planning_store.root, &s.ticket)
+            .unwrap()
+            .unwrap();
 
     assert_eq!(resumed.status, ImplementationStatus::Preparing);
     assert!(resumed.detail.contains("Resume accepted"));
     assert!(resumed.detail.contains("NuGet audit feed was unreachable"));
     assert_eq!(
-        load(&s.repo, &s.ticket).unwrap().status,
+        load(&s.planning_store.root, &s.ticket).unwrap().status,
         ImplementationStatus::Preparing
     );
     let history = fs::read_dir(dir)
@@ -48,7 +49,7 @@ fn accepting_resume_moves_blocked_state_to_preparing_and_keeps_failure_history()
     );
 
     let failed = crate::core::implementation::record_failed_attempt(
-        &s.repo,
+        &s.planning_store.root,
         &s.ticket,
         "Retry failed before implementation began: task lock is busy.",
     )
@@ -60,7 +61,7 @@ fn accepting_resume_moves_blocked_state_to_preparing_and_keeps_failure_history()
         "Retry failed before implementation began: task lock is busy."
     );
     assert_eq!(
-        load(&s.repo, &s.ticket).unwrap().status,
+        load(&s.planning_store.root, &s.ticket).unwrap().status,
         ImplementationStatus::Blocked
     );
 }
@@ -79,23 +80,23 @@ fn active_resume_overrides_a_persisted_blocked_board_status() {
 fn feature_named_workspace_ticket_resumes_preserved_work() {
     let mut s = Sandbox::new();
     let ticket = "planning/tasks/feature/CHG-003-TASK-verify-workspace.md";
-    fs::create_dir_all(s.repo.join(ticket).parent().unwrap()).unwrap();
-    fs::rename(s.repo.join(&s.ticket), s.repo.join(ticket)).unwrap();
+    let renamed_ticket = s.planning_store.read(&s.ticket).unwrap();
+    s.planning_store
+        .atomic_write(ticket, &renamed_ticket)
+        .unwrap();
+    s.planning_store.remove(&s.ticket).unwrap();
     s.ticket = ticket.into();
-    s.git(&s.repo, &["add", "."]);
-    s.git(&s.repo, &["commit", "-qm", "feature-named ticket"]);
-    s.git(&s.repo, &["push", "-q", "origin", "main"]);
     let calls = Arc::new(AtomicUsize::new(0));
     assert!(s.run("cancel", calls.clone()).is_err());
-    let mut state = load(&s.repo, ticket).unwrap();
+    let mut state = load(&s.planning_store.root, ticket).unwrap();
     state.status = ImplementationStatus::Blocked;
-    save(&state_dir(&s.repo, ticket).unwrap(), &state).unwrap();
+    save(&state_dir(&s.planning_store.root, ticket).unwrap(), &state).unwrap();
     let resumed = s.run("resume", calls.clone()).unwrap();
     assert_ne!(resumed.task_repository, state.task_repository);
     assert!(resumed.task_repositories.contains(&state.task_repository));
     assert!(resumed.branch.starts_with("koolade/integration/"));
     assert_eq!(resumed.base_commit, state.base_commit);
-    assert_eq!(resumed.status, ImplementationStatus::AwaitingReview);
+    assert_eq!(resumed.status, ImplementationStatus::AwaitingApproval);
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 
@@ -103,7 +104,6 @@ fn feature_named_workspace_ticket_resumes_preserved_work() {
 fn implementation_reads_only_canonical_board_task_paths() {
     let s = Sandbox::new();
     let root = "planning/tasks";
-    fs::create_dir_all(s.repo.join(root).join("validation")).unwrap();
     for name in [
         "001-task.md",
         "CHG-003-TASK-verify.md",
@@ -114,18 +114,24 @@ fn implementation_reads_only_canonical_board_task_paths() {
         "invalid-TASK-verify.md",
     ] {
         let path = format!("{root}/validation/{name}");
-        fs::write(s.repo.join(&path), "# Fixture task").unwrap();
+        s.planning_store
+            .atomic_write(&path, b"# Fixture task")
+            .unwrap();
         assert_eq!(
-            read_ticket(&s.repo, &path).is_ok(),
+            read_ticket(&s.planning_store.root, &path).is_ok(),
             crate::artifacts::task_docs::is_task_story_filename(name),
             "{path}"
         );
     }
     assert_eq!(
-        read_ticket(&s.repo, "planning/tasks/validation/001-task.md").unwrap(),
+        read_ticket(
+            &s.planning_store.root,
+            "planning/tasks/validation/001-task.md"
+        )
+        .unwrap(),
         "# Fixture task"
     );
-    assert!(read_ticket(&s.repo, "planning/tasks/../001-task.md").is_err());
+    assert!(read_ticket(&s.planning_store.root, "planning/tasks/../001-task.md").is_err());
 }
 
 #[test]
@@ -157,7 +163,7 @@ fn fetch_failure_stops_before_agent_runs() {
     );
     let planning = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::nil(),
-        &s.repo,
+        &s.planning_store.root,
         crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let mut manifest = crate::core::project_repos::ProjectManifest::load(&planning).unwrap();
@@ -174,7 +180,7 @@ fn fetch_failure_stops_before_agent_runs() {
     assert!(error.contains("failed"));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
     assert_eq!(s.git(&s.repo, &["rev-parse", "HEAD"]), original);
-    assert!(load(&s.repo, &s.ticket).is_none());
+    assert!(load(&s.planning_store.root, &s.ticket).is_none());
 }
 
 #[test]
@@ -205,7 +211,7 @@ fn blocked_or_failed_verification_never_creates_pr() {
             outcome.ok()
         );
         assert!(!s.root.join("pr-created").exists());
-        let Some(state) = load(&s.repo, &s.ticket) else {
+        let Some(state) = load(&s.planning_store.root, &s.ticket) else {
             panic!(
                 "mode {mode}: run failed ({outcome:?}) before persisting workflow state; \n\
                  a git/io-level infrastructure fault is suspected rather than the \n\
@@ -222,7 +228,7 @@ fn external_decision_stops_after_one_report_and_preserves_work() {
     let result = s.run("external_blocked", calls.clone());
     assert!(result.is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    let state = load(&s.repo, &s.ticket).unwrap();
+    let state = load(&s.planning_store.root, &s.ticket).unwrap();
     assert_eq!(state.status, ImplementationStatus::Blocked);
     assert!(
         state

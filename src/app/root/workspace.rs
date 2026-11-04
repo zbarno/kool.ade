@@ -203,7 +203,6 @@ impl KooladeApp {
             }
         }
         self.dialog = None;
-        self.synth.clear();
         self.screen = Screen::Welcome;
     }
 

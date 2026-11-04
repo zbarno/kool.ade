@@ -49,7 +49,7 @@ pub(super) fn render(state: &PlannerState) -> String {
         ));
     }
     let states = crate::core::implementation::load_board_states_with_store(
-        &state.repo_root,
+        &state.planning_store.root,
         &state.planning_store,
     );
     let tasks = crate::artifacts::task_docs::load_board(&state.planning_store, &state.workflow)

@@ -37,14 +37,14 @@ fn an_interrupted_pinned_merge_is_snapshotted_and_retried() {
         "ignored extra\n",
     )
     .unwrap();
-    super::super::save_legacy_reconciliation_state(
+    super::super::save_clone_reconciliation_state(
         &s, &s.ticket, &worktree, "main", &local, &remote, &common,
     );
     let (calls, agent) = agent();
 
     let result = run_with_agent(&s, &agent, None).unwrap();
 
-    assert_eq!(result.status, ImplementationStatus::AwaitingReview);
+    assert_eq!(result.status, ImplementationStatus::AwaitingApproval);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let (snapshot_path, snapshot) = recovery_snapshot(&s);
     assert_eq!(snapshot["phase"], "recovered_once");

@@ -62,7 +62,6 @@ pub(crate) fn paint_with_board(
         let resolved = item
             .as_ref()
             .is_some_and(|i| i.status == ItemStatus::Resolved);
-        let ownership = !resolved && item.as_ref().is_some_and(|i| i.is_ownership_gap());
         let review = !resolved
             && eligible
             && item.as_ref().is_some_and(|i| {
@@ -79,7 +78,6 @@ pub(crate) fn paint_with_board(
         let needs_answer = !active
             && !retry
             && !resolved
-            && !ownership
             && !review
             && !(story && (implementing || implementation_column >= 2))
             && eligible
@@ -94,7 +92,6 @@ pub(crate) fn paint_with_board(
             expanded,
             retry,
             resolved,
-            ownership,
             review,
             blocked,
             blocked_by: &blocked_by,
@@ -118,7 +115,7 @@ pub(crate) fn paint_with_board(
             ui.label(crate::core::context_build::clip(&previous.text, 240));
         }
         egui::Frame::NONE
-            .fill(if needs_answer || ownership || review || retry {
+            .fill(if needs_answer || review || retry {
                 theme::ACCENT_SOFT
             } else if !expanded {
                 egui::Color32::TRANSPARENT
@@ -126,13 +123,11 @@ pub(crate) fn paint_with_board(
                 theme::BG
             })
             .corner_radius(6)
-            .inner_margin(
-                if expanded || needs_answer || ownership || review || retry {
-                    8
-                } else {
-                    0
-                },
-            )
+            .inner_margin(if expanded || needs_answer || review || retry {
+                8
+            } else {
+                0
+            })
             .show(ui, |ui| {
                 ui.label(
                     RichText::new(heading)
@@ -189,11 +184,6 @@ pub(crate) fn paint_with_board(
                 {
                     ui.label(RichText::new("Your answer").small().weak());
                     ui.label(crate::core::context_build::clip(&previous.text, 400));
-                }
-                if ownership && ui.button("Assign ownership").clicked() {
-                    s.dispatch(ApplicationCommand::HeaderAction(
-                        crate::ui::HeaderAction::Stakeholders,
-                    ));
                 }
                 if review {
                     if expanded {

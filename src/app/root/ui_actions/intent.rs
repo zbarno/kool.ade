@@ -73,13 +73,6 @@ impl KooladeApp {
             HeaderAction::Import => {
                 self.dialog = Some(Dialog::Import(super::super::DlgImport::new()))
             }
-            HeaderAction::Stakeholders => {
-                if let Screen::Connected(project) = &self.screen {
-                    self.dialog = Some(Dialog::Settings(super::super::DlgSettings::from_project(
-                        project,
-                    )));
-                }
-            }
             HeaderAction::McpServers => {
                 if let Screen::Connected(project) = &self.screen {
                     self.dialog = Some(Dialog::Mcp(super::super::DlgMcp::from_project(project)));
@@ -87,7 +80,6 @@ impl KooladeApp {
             }
             HeaderAction::CopySpec => self.copy_spec_to_clipboard(),
             HeaderAction::OpenWorkspace => self.open_workspace(),
-            HeaderAction::OpenRegisteredRepository { id } => self.open_registered_repository(&id),
             HeaderAction::Disconnect => self.disconnect(),
         }
     }

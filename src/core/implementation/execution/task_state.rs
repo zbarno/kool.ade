@@ -2,8 +2,6 @@ use super::super::*;
 use super::source;
 use crate::artifacts::planning_store::PlanningStore;
 use std::path::Path;
-mod legacy_plan;
-mod legacy_workspace;
 
 pub(super) struct Request<'a> {
     pub(super) planning_store: &'a PlanningStore,
@@ -31,7 +29,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
         dir,
         runner,
     } = request;
-    let mut state = if dir.join("state.json").exists() {
+    let state = if dir.join("state.json").exists() {
         let mut state = read_state_file(&dir.join("state.json"))?;
         let ticket_path_matches = state.ticket == ticket
             || task_uid.is_some_and(|uid| state.task_uid.as_deref() == Some(uid));
@@ -42,56 +40,26 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             "Ticket changed since implementation started (path match: {ticket_path_matches}, text match: {}, identity match: {ticket_identity_matches}). Review the existing task repository before starting a revised ticket.",
             state.ticket_text == text
         );
-        if state.task_repository_kind == TaskRepositoryKind::LegacyWorktree
-            && state.status != ImplementationStatus::Completed
-        {
-            state = legacy_workspace::migrate(
-                legacy_workspace::MigrationRequest {
-                    planning_store,
-                    state_root,
-                    repo,
-                    text,
-                    metadata: metadata.as_ref(),
-                    dir,
-                    runner,
-                },
-                state,
-            )?;
-        }
-
-        if state.task_repository_kind == TaskRepositoryKind::Clone {
-            task_repository::validate_task_path(state_root, &state)?;
-            if state.task_repository_allocation_key.is_none() {
-                state.task_repository_allocation_key =
-                    Some(task_repository::allocation_key(&state));
-            }
-        }
-        if state.approved_specification.is_none() {
-            state.approved_specification = read_approved_specification(planning_store, ticket);
-        }
-        if state.approved_product_context.is_none() {
-            state.approved_product_context =
-                scoped_product_context_with_store(planning_store, ticket)?;
-        }
+        task_repository::validate_task_path(state_root, &state)?;
+        anyhow::ensure!(
+            state.task_repository_allocation_key.is_some(),
+            "Saved task repository allocation identity is missing"
+        );
         state.ticket = ticket.to_owned();
-        if state.task_repository_kind == TaskRepositoryKind::Clone {
-            let cache = task_repository::cache_for_state(repo, planning_store, &state, runner)?;
-            anyhow::ensure!(
-                state.source_ref.is_some() && state.source_commit.is_some(),
-                "Saved task source commit is missing; the task repository is preserved"
+        let cache = task_repository::cache_for_state(repo, planning_store, &state, runner)?;
+        anyhow::ensure!(
+            state.source_ref.is_some() && state.source_commit.is_some(),
+            "Saved task source commit is missing; the task repository is preserved"
+        );
+        if state.status != ImplementationStatus::Completed
+            && let Some(detail) = source::missing_saved_ref(repo, &state, &cache, runner)?
+        {
+            state.status = ImplementationStatus::Blocked;
+            state.detail = detail.clone();
+            save(dir, &state)?;
+            return Err(
+                crate::core::implementation::initial_reconciliation::support::user_action(detail),
             );
-            if state.status != ImplementationStatus::Completed
-                && let Some(detail) = source::missing_saved_ref(repo, &state, &cache, runner)?
-            {
-                state.status = ImplementationStatus::Blocked;
-                state.detail = detail.clone();
-                save(dir, &state)?;
-                return Err(
-                    crate::core::implementation::initial_reconciliation::support::user_action(
-                        detail,
-                    ),
-                );
-            }
         }
         if let Some(metadata) = metadata {
             anyhow::ensure!(
@@ -101,28 +69,10 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
                 "Task branch intent changed after implementation started. Review the existing task repository before resuming."
             );
         }
-        if task_uid.is_some() {
-            state.task_uid = task_uid.map(str::to_owned);
-        }
         save(dir, &state)?;
         state
     } else {
-        let mut saved_plan = initial_reconciliation::load_plan(dir)?;
-        if let Some(plan) = saved_plan.as_ref()
-            && plan.clone_repository.is_none()
-        {
-            legacy_plan::attach_clone_identity(
-                planning_store,
-                repo,
-                &key(ticket),
-                text,
-                metadata.as_ref(),
-                dir,
-                plan,
-                runner,
-            )?;
-            saved_plan = initial_reconciliation::load_plan(dir)?;
-        }
+        let saved_plan = initial_reconciliation::load_plan(dir)?;
         let source = match saved_plan.as_ref() {
             Some(plan) => source::resume_from_plan(
                 planning_store,
@@ -137,7 +87,6 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
                 repo,
                 dir,
                 ticket,
-                text,
                 metadata: metadata.as_ref(),
                 publication_mode,
                 runner,
@@ -164,7 +113,10 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             ticket: ticket.into(),
             task_uid: task_uid.map(str::to_owned),
             ticket_text: text.to_owned(),
-            approved_specification: read_approved_specification(planning_store, ticket),
+            // The task's reviewed TaskIntent is private local state and is the
+            // operative scope snapshot for implementation. Published feature
+            // documents are context, never a mutable sibling file in storage.
+            approved_specification: Some(text.to_owned()),
             approved_product_context: scoped_product_context_with_store(planning_store, ticket)?,
             completed_dependency_context: dependency_context,
             manager_repair_context: None,
@@ -241,45 +193,28 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
     if state.task_repository_kind == TaskRepositoryKind::Clone {
         crate::core::implementation::repository_cache::load_task_git_identity(dir, repo, runner)?;
     }
-    let mut identity_updated = false;
     let workspace_uid = planning_store.project_id.hyphenated().to_string();
-    if state
-        .workspace_uid
-        .as_deref()
-        .and_then(|value| uuid::Uuid::parse_str(value).ok())
-        != Some(planning_store.project_id)
-    {
-        state.workspace_uid = Some(workspace_uid.clone());
-        identity_updated = true;
+    anyhow::ensure!(
+        state.task_repository_allocation_key.is_some(),
+        "Saved task repository allocation identity is missing"
+    );
+    anyhow::ensure!(
+        state
+            .task_uid
+            .as_deref()
+            .is_some_and(|value| crate::execution::contract::validate_identifier(value).is_ok()),
+        "Saved TaskIntent task identity is missing or invalid"
+    );
+    if let Some(expected_uid) = task_uid {
+        anyhow::ensure!(
+            state.task_uid.as_deref() == Some(expected_uid),
+            "Saved task state belongs to a different task identity"
+        );
     }
-    if state
-        .task_uid
-        .as_deref()
-        .is_none_or(|value| crate::execution::contract::validate_identifier(value).is_err())
-    {
-        let allocation = state
-            .task_repository_allocation_key
-            .clone()
-            .unwrap_or_else(|| key(ticket));
-        state.task_uid = Some(stable_identity_uuid(planning_store.project_id, &allocation));
-        identity_updated = true;
-    }
-    if identity_updated {
-        save(dir, &state)?;
-    }
+    anyhow::ensure!(
+        state.workspace_uid.as_deref() == Some(workspace_uid.as_str()),
+        "Saved task state belongs to a different local project store"
+    );
 
     Ok(state)
-}
-
-fn stable_identity_uuid(namespace: uuid::Uuid, allocation: &str) -> String {
-    uuid::Uuid::new_v5(&namespace, allocation.as_bytes())
-        .hyphenated()
-        .to_string()
-}
-
-fn read_approved_specification(store: &PlanningStore, ticket: &str) -> Option<String> {
-    let parent = Path::new(ticket).parent()?;
-    let relative = parent.join("specification.md");
-    let path = store.layout().canonical_path(&relative.to_string_lossy())?;
-    String::from_utf8(store.read_planning_path(&path).ok()?).ok()
 }

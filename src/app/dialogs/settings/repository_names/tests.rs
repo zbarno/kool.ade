@@ -32,7 +32,7 @@ fn editor_frame(
 }
 
 #[test]
-fn repository_name_editor_renders_its_shared_storage_and_duplicate_guidance() {
+fn repository_name_editor_renders_local_storage_and_duplicate_guidance() {
     let _shield = crate::core::gitops::test_support::shield("repository-name-editor-ui");
     let root = fixture();
     let project = test_support::project_from(&root);
@@ -83,7 +83,7 @@ fn repository_name_editor_renders_its_shared_storage_and_duplicate_guidance() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(rendered.contains("Registered repository names"));
-    assert!(rendered.contains("Optional shared names; blank uses the stable ID"));
+    assert!(rendered.contains("Optional local names; blank uses the stable ID"));
     let mut people = crate::app::dialogs::DlgSettings::from_project(&project);
     let mut people_output = ctx.run_ui(
         egui::RawInput {
@@ -104,6 +104,7 @@ fn repository_name_editor_renders_its_shared_storage_and_duplicate_guidance() {
         &shape.shape,
         egui::Shape::Text(text) if text.galley.text().contains("Registered repository names")
     )));
+    test_support::remove_planning_store_for(&root);
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -113,7 +114,7 @@ fn fixture() -> PathBuf {
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
-    std::fs::create_dir_all(root.join("config")).unwrap();
+    std::fs::create_dir_all(&root).unwrap();
     let git = |args: &[&str]| {
         std::process::Command::new("git")
             .args(args)
@@ -124,63 +125,74 @@ fn fixture() -> PathBuf {
     assert!(git(&["init", "-q", "-b", "main"]).success());
     assert!(git(&["config", "user.name", "Settings Test"]).success());
     assert!(git(&["config", "user.email", "settings@example.test"]).success());
-    std::fs::write(
-        root.join("config/project.md"),
-        "# Planner Configuration\n\n## Current User\nName: Settings Test\nGroups:\n\n## Stakeholders\n",
-    )
-    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/lib.rs"), "// Settings fixture source.\n").unwrap();
+    assert!(git(&["add", "src/lib.rs"]).success());
+    assert!(git(&["commit", "-q", "-m", "source baseline"]).success());
+    let store = test_support::planning_store_for(&root);
     let manifest = ProjectManifest {
         repositories: vec![crate::core::project_repos::Repository {
             id: "root".into(),
-            role: "Planning root".into(),
+            role: "Primary code".into(),
             remote: String::new(),
             display_name: None,
         }],
     };
-    std::fs::write(
-        root.join(crate::core::project_repos::PROJECT_FILE),
-        serde_json::to_vec_pretty(&manifest).unwrap(),
-    )
-    .unwrap();
+    store
+        .atomic_write(
+            crate::core::project_repos::PROJECT_FILE,
+            &serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
     root
 }
 
+fn git_head(root: &std::path::Path) -> String {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
 #[test]
-fn settings_save_commits_trimmed_repository_name_and_reload_restores_it() {
+fn settings_save_persists_trimmed_repository_name_locally_without_git_commit() {
     let _shield = crate::core::gitops::test_support::shield("repository-name-save");
     let root = fixture();
     let mut project = test_support::project_from(&root);
+    let initial_head = git_head(&root);
     let mut dialog = DlgProjectSettings::from_project(&project);
     assert_eq!(dialog.repositories[0].name, "");
     dialog.repositories[0].name = "  Product API  ".into();
-    let commit = dialog.apply(&mut project).unwrap().unwrap();
-    assert_eq!(commit.len(), 7);
+    assert!(dialog.apply(&mut project).unwrap().is_some());
     assert_eq!(
         project.state.repositories.repositories[0]
             .display_name
             .as_deref(),
         Some("Product API")
     );
-    let manifest = ProjectManifest::load(&root).unwrap();
+    let manifest = ProjectManifest::load(&project.state.planning_store).unwrap();
     assert_eq!(
         manifest.repositories[0].display_name.as_deref(),
         Some("Product API")
     );
-    let paths = std::process::Command::new("git")
-        .args(["show", "--format=", "--name-only", "HEAD"])
-        .current_dir(&root)
-        .output()
-        .unwrap();
-    let changed = String::from_utf8(paths.stdout).unwrap();
-    assert!(changed.contains(crate::core::project_repos::PROJECT_FILE));
+    assert_eq!(
+        git_head(&root),
+        initial_head,
+        "private settings must not create Git history"
+    );
+    test_support::remove_planning_store_for(&root);
     let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
-fn project_harness_route_is_committed_and_restored_with_project_state() {
+fn project_harness_route_is_saved_locally_and_restored_without_git_commit() {
     let _shield = crate::core::gitops::test_support::shield("project-harness-route-save");
     let root = fixture();
     let mut project = test_support::project_from(&root);
+    let initial_head = git_head(&root);
     let mut dialog = DlgProjectSettings::from_project(&project);
     dialog.harness_routes.insert(
         crate::persistence::harness_settings::MANAGER.into(),
@@ -197,16 +209,12 @@ fn project_harness_route_is_committed_and_restored_with_project_state() {
     );
     let reloaded = test_support::project_from(&root);
     assert_eq!(reloaded.state.harness_routes, project.state.harness_routes);
-    let paths = std::process::Command::new("git")
-        .args(["show", "--format=", "--name-only", "HEAD"])
-        .current_dir(&root)
-        .output()
-        .unwrap();
-    assert!(
-        String::from_utf8(paths.stdout)
-            .unwrap()
-            .contains("config/harness-routes.json")
+    assert_eq!(
+        git_head(&root),
+        initial_head,
+        "private settings must not create Git history"
     );
+    test_support::remove_planning_store_for(&root);
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -225,10 +233,11 @@ fn clearing_a_saved_repository_name_persists_none_and_preserves_identity() {
     dialog.repositories[0].name.clear();
     dialog.apply(&mut project).unwrap();
 
-    let manifest = ProjectManifest::load(&root).unwrap();
+    let manifest = ProjectManifest::load(&project.state.planning_store).unwrap();
     assert_eq!(manifest.repositories[0].display_name, None);
     assert_eq!(manifest.repositories[0].id, "root");
-    assert_eq!(manifest.repositories[0].role, "Planning root");
+    assert_eq!(manifest.repositories[0].role, "Primary code");
+    test_support::remove_planning_store_for(&root);
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -240,7 +249,8 @@ fn invalid_edit_is_discarded_without_changing_the_manifest_or_identity() {
     let mut dialog = DlgProjectSettings::from_project(&project);
     dialog.repositories[0].name = "Valid name".into();
     dialog.apply(&mut project).unwrap();
-    let before = std::fs::read(root.join(crate::core::project_repos::PROJECT_FILE)).unwrap();
+    let manifest_path = project.state.planning_store.layout().project_manifest();
+    let before = std::fs::read(&manifest_path).unwrap();
 
     let mut project = test_support::project_from(&root);
     let mut dialog = DlgProjectSettings::from_project(&project);
@@ -248,9 +258,7 @@ fn invalid_edit_is_discarded_without_changing_the_manifest_or_identity() {
     let error = dialog.apply(&mut project).unwrap_err();
     assert!(error.detail().contains("40 characters"));
     assert_eq!(dialog.repositories[0].name, "Valid name");
-    assert_eq!(
-        std::fs::read(root.join(crate::core::project_repos::PROJECT_FILE)).unwrap(),
-        before
-    );
+    assert_eq!(std::fs::read(&manifest_path).unwrap(), before);
+    test_support::remove_planning_store_for(&root);
     let _ = std::fs::remove_dir_all(root);
 }

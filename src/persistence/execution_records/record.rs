@@ -1,6 +1,6 @@
 //! Durable, operator-local lifecycle records for container executions.
 //!
-//! Records live outside project clones and shared planning repositories so a
+//! Records live in private local application storage, outside project clones, so a
 //! restart can reconcile an execution without publishing runtime metadata.
 
 use serde::{Deserialize, Serialize};

@@ -1,30 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct PlannerOutputV1 {
-    pub proposed_questions: Vec<PlannerQuestionV1>,
-    pub draft_changes: Vec<String>,
-    pub readiness: ReadinessV1,
-}
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct PlannerQuestionV1 {
-    pub question: String,
-    pub why_it_matters: String,
-    pub options: Vec<String>,
-    pub recommendation: String,
-    pub impact_of_no_answer: String,
-}
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ReadinessV1 {
-    pub ready: bool,
-    pub blockers: Vec<String>,
-    pub evidence: Vec<String>,
-}
-
 /// Planner v4 proposal shape. Feature identity and plan revision are supplied
 /// by the application when it creates persisted clarification cards.
 #[derive(Debug, Clone, Deserialize, Serialize)]

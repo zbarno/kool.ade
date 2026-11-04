@@ -93,7 +93,7 @@ fn ambiguous_conflicts_remain_blocked_without_touching_either_branch() {
     assert!(error.contains("choose how shared.txt should behave"));
     assert_eq!(agent.calls.load(Ordering::SeqCst), 1);
     assert_eq!(s.git(&s.repo, &["rev-parse", "HEAD"]), local);
-    let state = load(&s.repo, &s.ticket).unwrap();
+    let state = load(&s.planning_store.root, &s.ticket).unwrap();
     assert_eq!(state.status, ImplementationStatus::Blocked);
     assert!(state.detail.contains("Keep local behavior"));
     assert!(!state.task_repository.join("implemented.txt").exists());

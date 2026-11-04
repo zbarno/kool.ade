@@ -7,7 +7,7 @@ pub(super) fn clear_ready_wait_ages(project: &mut Project) {
     }
     let acquired = project.queue_lock.is_none();
     if acquired {
-        match Queue::acquire(&project.state.repo_root) {
+        match Queue::acquire(&project.state.planning_store.root) {
             Ok(lock) => project.queue_lock = Some(lock),
             Err(error) => {
                 project.queue = previous;
@@ -16,7 +16,7 @@ pub(super) fn clear_ready_wait_ages(project: &mut Project) {
             }
         }
     }
-    if let Err(error) = project.queue.save(&project.state.repo_root) {
+    if let Err(error) = project.queue.save(&project.state.planning_store.root) {
         project.queue = previous;
         project.queue.last_error = format!("Cannot reset stale task queue age: {error}");
         if acquired {

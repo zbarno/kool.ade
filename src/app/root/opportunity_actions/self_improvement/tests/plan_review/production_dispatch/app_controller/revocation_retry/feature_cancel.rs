@@ -16,6 +16,7 @@ fn set_implementation_state(
         "base": "main",
         "base_commit": "fixture",
         "task_repository": "/tmp/koolade-evolve-fixture",
+        "task_repository_kind": "clone",
         "status": status,
         "detail": "",
         "pr_url": null,

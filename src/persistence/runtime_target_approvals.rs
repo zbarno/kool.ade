@@ -1,7 +1,7 @@
 //! Per-operator approval evidence for custom runtime targets.
 //!
-//! Shared planning metadata is descriptive and can be edited by collaborators;
-//! this local record proves that this operator approved the exact proposal.
+//! Published repository metadata is descriptive; this private local record
+//! proves that this operator approved the exact proposal.
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -52,10 +52,6 @@ pub(crate) fn save(binding: &Binding) -> anyhow::Result<()> {
         bytes.len() as u64 <= MAX_BYTES,
         "runtime target approval is too large"
     );
-    let legacy_path = legacy_record_path(&root, binding)?;
-    if save_if_empty_or_matching(&legacy_path, binding, &bytes)? {
-        return Ok(());
-    }
     let binding_path = binding_record_path(&root, binding)?;
     anyhow::ensure!(
         save_if_empty_or_matching(&binding_path, binding, &bytes)?,
@@ -67,9 +63,6 @@ pub(crate) fn save(binding: &Binding) -> anyhow::Result<()> {
 pub(crate) fn contains(binding: &Binding) -> anyhow::Result<bool> {
     validate(binding)?;
     let root = operator_approval_root()?;
-    if read_binding(&legacy_record_path(&root, binding)?)?.as_ref() == Some(binding) {
-        return Ok(true);
-    }
     Ok(read_binding(&binding_record_path(&root, binding)?)?.as_ref() == Some(binding))
 }
 
@@ -117,7 +110,6 @@ impl Drop for WorkspaceCleanup {
 pub(crate) fn revoke(binding: &Binding) -> anyhow::Result<()> {
     validate(binding)?;
     let root = operator_approval_root()?;
-    remove_matching_binding(&legacy_record_path(&root, binding)?, binding)?;
     remove_matching_binding(&binding_record_path(&root, binding)?, binding)
 }
 
@@ -176,7 +168,7 @@ fn has_git_ancestor(path: &Path) -> bool {
         .any(|ancestor| fs::symlink_metadata(ancestor.join(".git")).is_ok())
 }
 
-fn legacy_record_path(root: &Path, binding: &Binding) -> anyhow::Result<PathBuf> {
+fn binding_record_path(root: &Path, binding: &Binding) -> anyhow::Result<PathBuf> {
     let workspace = uuid::Uuid::parse_str(&binding.workspace_id)?;
     let receipt = uuid::Uuid::parse_str(&binding.receipt_id)?;
     fs::create_dir_all(root)?;
@@ -191,17 +183,10 @@ fn legacy_record_path(root: &Path, binding: &Binding) -> anyhow::Result<PathBuf>
         approvals.canonicalize()?.starts_with(&root),
         "runtime target approval path escapes user state"
     );
-    Ok(approvals.join(format!("{}.json", receipt.hyphenated())))
-}
-
-fn binding_record_path(root: &Path, binding: &Binding) -> anyhow::Result<PathBuf> {
     use sha2::Digest as _;
-
-    let legacy_path = legacy_record_path(root, binding)?;
     let bytes = serde_json::to_vec(binding)?;
     let digest = sha2::Sha256::digest(bytes);
-    let receipt = uuid::Uuid::parse_str(&binding.receipt_id)?;
-    Ok(legacy_path.with_file_name(format!("{}-{:x}.json", receipt.hyphenated(), digest)))
+    Ok(approvals.join(format!("{}-{:x}.json", receipt.hyphenated(), digest)))
 }
 
 fn save_if_empty_or_matching(path: &Path, binding: &Binding, bytes: &[u8]) -> anyhow::Result<bool> {

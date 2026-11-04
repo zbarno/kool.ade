@@ -85,32 +85,6 @@ fn paint_queue(
         ui.label(theme::section_heading("Queue status"));
         ui.label(surface.queue_status());
     }
-    if let Some((ticket, claim)) = surface.stale_task_claim() {
-        let operator = if claim.operator_id.is_empty() {
-            "unknown"
-        } else {
-            &claim.operator_id
-        };
-        ui.separator();
-        ui.label(theme::section_heading("Stale task claim"));
-        ui.label(format!(
-            "{} is held by {} (operator {}, session {}) until {} on base {}.",
-            ticket,
-            claim.owner,
-            operator,
-            claim.session_id,
-            chrono::DateTime::from_timestamp(claim.expires_at(), 0)
-                .map(|time| time.to_rfc3339())
-                .unwrap_or_else(|| claim.expires_at().to_string()),
-            claim.base_commit
-        ));
-        if ui
-            .button("I confirmed the old worker stopped — take over stale claim")
-            .clicked()
-        {
-            surface.dispatch(ApplicationCommand::TakeOverStaleTaskClaim { ticket });
-        }
-    }
     for doc in board
         .task_documents
         .iter()

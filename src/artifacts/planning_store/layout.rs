@@ -2,7 +2,7 @@ use std::path::{Component, Path, PathBuf};
 
 use super::PlanningStore;
 
-/// Resolved paths inside a standalone planning repository.
+/// Resolved paths inside one installation-local operational store.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlanningLayout {
     root: PathBuf,
@@ -17,6 +17,7 @@ pub mod paths {
     pub const PLANNING: &str = "planning";
     pub const PRODUCT: &str = "planning/product";
     pub const PRODUCT_INDEX: &str = "planning/product/index.md";
+    #[cfg(test)]
     pub const PRODUCT_MANIFEST: &str = "planning/product/manifest.json";
     pub const CHANGES: &str = "planning/changes";
     pub const DECISIONS: &str = "planning/decisions";
@@ -39,7 +40,6 @@ pub mod paths {
     pub const STATE: &str = "state";
     pub const IMPLEMENTATION: &str = "implementation";
     pub const ARCHIVE: &str = "planning/archive";
-    pub const LEGACY_SPEC_ARCHIVE: &str = "planning/archive/specification-pre-modules.md";
 }
 
 impl PlanningLayout {
@@ -53,7 +53,7 @@ impl PlanningLayout {
         &self.root
     }
 
-    /// Resolve a root-relative path beneath this planning repository.
+    /// Resolve a root-relative path beneath this operational store.
     pub fn canonical_path(&self, relative: &str) -> Option<PathBuf> {
         safe_path(&self.root, relative)
     }
@@ -79,6 +79,7 @@ impl PlanningLayout {
     pub fn product_index(&self) -> PathBuf {
         self.at(paths::PRODUCT_INDEX)
     }
+    #[cfg(test)]
     pub fn product_manifest(&self) -> PathBuf {
         self.at(paths::PRODUCT_MANIFEST)
     }
@@ -162,94 +163,6 @@ impl PlanningLayout {
     }
     pub fn implementation_root(&self) -> PathBuf {
         self.at(paths::IMPLEMENTATION)
-    }
-
-    pub fn legacy_specification(&self) -> PathBuf {
-        self.legacy("planning/specification.md")
-    }
-    pub fn legacy_planning_root(&self) -> PathBuf {
-        self.legacy("planning")
-    }
-    pub fn legacy_product_root(&self) -> PathBuf {
-        self.legacy("planning/product")
-    }
-    pub fn legacy_product_index(&self) -> PathBuf {
-        self.legacy("planning/product/index.md")
-    }
-    pub fn legacy_features_root(&self) -> PathBuf {
-        self.legacy("planning/features")
-    }
-    pub fn legacy_feature_directory(&self, name: &str) -> Option<PathBuf> {
-        safe_component(name).then(|| self.legacy_features_root().join(name))
-    }
-    pub fn legacy_feature_specification(&self, name: &str) -> Option<PathBuf> {
-        self.legacy_feature_directory(name)
-            .map(|directory| directory.join("specification.md"))
-    }
-    pub fn legacy_feature_link(&self, name: &str) -> Option<String> {
-        let path = self.legacy_feature_specification(name)?;
-        let relative = path.strip_prefix(self.legacy_planning_root()).ok()?;
-        Some(format!("../{}", relative.display()))
-    }
-    pub fn legacy_product_module(&self, name: &str) -> Option<PathBuf> {
-        safe_component(name).then(|| self.legacy_product_root().join(name))
-    }
-    pub fn legacy_open_items(&self) -> PathBuf {
-        self.legacy("planning/open-items.md")
-    }
-    pub fn legacy_resolved_items(&self) -> PathBuf {
-        self.legacy("planning/resolved-items.json")
-    }
-    pub fn legacy_imports_root(&self) -> PathBuf {
-        self.legacy("planning/imports")
-    }
-    pub fn legacy_import_path(&self, name: &str) -> Option<PathBuf> {
-        safe_component(name).then(|| self.legacy_imports_root().join(name))
-    }
-    pub fn legacy_import_relative(&self, name: &str) -> Option<String> {
-        self.legacy_import_path(name)?
-            .strip_prefix(&self.root)
-            .ok()
-            .map(|path| path.to_string_lossy().into_owned())
-    }
-    pub fn legacy_tasks_root(&self) -> PathBuf {
-        self.legacy("planning/tasks")
-    }
-    pub fn legacy_config_root(&self) -> PathBuf {
-        self.legacy(".planner")
-    }
-    pub fn legacy_archive_root(&self) -> PathBuf {
-        self.legacy("planning/archive")
-    }
-    pub fn legacy_spec_archive(&self) -> PathBuf {
-        self.legacy("planning/archive/specification-pre-modules.md")
-    }
-    pub fn legacy_project_config(&self) -> PathBuf {
-        self.legacy(".planner/config.md")
-    }
-    pub fn legacy_mcp_config(&self) -> PathBuf {
-        self.legacy(".planner/mcp.json")
-    }
-    pub fn legacy_project_manifest(&self) -> PathBuf {
-        self.legacy(".planner/project.json")
-    }
-    pub fn legacy_workflow(&self) -> PathBuf {
-        self.legacy(".planner/workflow.json")
-    }
-    pub fn legacy_workflow_temporary(&self, run: &str) -> PathBuf {
-        self.legacy_config_root()
-            .join(format!(".workflow-{run}.tmp"))
-    }
-    pub fn legacy_adr_root(&self) -> PathBuf {
-        self.legacy("adr")
-    }
-
-    pub fn legacy_path(&self, relative: &str) -> Option<PathBuf> {
-        safe_path(&self.root, relative)
-    }
-
-    fn legacy(&self, relative: &str) -> PathBuf {
-        self.root.join(relative)
     }
 
     fn at(&self, relative: &str) -> PathBuf {

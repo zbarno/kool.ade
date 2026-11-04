@@ -87,17 +87,9 @@ impl Context {
             Step::Readiness => {
                 "Open the checks to see what is ready and what needs attention. Each Fix action opens its own approval. You can continue to projects while a coding prerequisite is unavailable; continuing does not grant execution access."
             }
-            Step::Projects => {
-                "Open a managed workspace, clone code from GitHub with its matching planning repository, or start a blank local project."
-            }
-            Step::NewProject => {
-                "Give your project a name and describe what you want to make. Choose a parent folder you can write to. Review shows the exact code and planning locations before anything is created."
-            }
-            Step::ReviewProject => {
-                "Check both locations and your idea. Approve creates separate code and planning repositories and opens the planning interview. Existing files are never replaced. After an interruption, review this same request to resume."
-            }
+            Step::Projects => "Clone a code repository from GitHub or open a local code checkout.",
             Step::Advanced => {
-                "Advanced options show managed workspaces and computer setup tools. Clone a code repository to add a project."
+                "Advanced options provide computer setup tools. Clone a code repository or open a local checkout to begin."
             }
         }
     }

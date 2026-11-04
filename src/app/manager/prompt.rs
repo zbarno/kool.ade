@@ -13,11 +13,7 @@ pub(super) fn build(project: &Project, events: &[String]) -> String {
         })
         .map(|item| format!("{} waits for {}", item.id, item.blocked_by.join(", ")))
         .collect::<Vec<_>>();
-    let eligible = crate::core::routing::human_actionable_items(
-        &project.state.items,
-        &user,
-        &project.state.config.stakeholders,
-    );
+    let eligible = crate::core::routing::human_actionable_items(&project.state.items, &user);
     let mut waiting_on_user = Vec::new();
     let mut saved_replies_pending = Vec::new();
     let mut internal_recovery = Vec::new();

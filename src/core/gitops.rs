@@ -1,23 +1,15 @@
-//! Minimal git behavior (SPECIFICATION.md §20): read status, stage exactly
-//! the planning paths we touched, and commit planner checkpoints.
+//! Read-only code repository status and narrowly scoped repository operations.
 //!
 //! We shell out to the system `git` rather than embedding libgit2: the CLI
 //! is the canonical collaborator's surface, and the dependency footprint
 //! stays tiny. All arguments pass through `Command` arrays (no shell
 //! interpolation), paths always after `--`.
 
-use std::io::Write;
 use std::path::Path;
-use std::process::Stdio;
 
 use crate::error::AppError;
 
-mod commit;
 mod snapshot;
-#[cfg(test)]
-pub(crate) use commit::commit_planning_changes_at;
-pub(crate) use commit::lock_repository;
-pub use commit::{commit, commit_cancellable, commit_planning_changes};
 pub use snapshot::snapshot;
 
 pub const AUTHOR_NAME: &str = "Kool.ad/e Planner";
@@ -42,7 +34,7 @@ fn run(cwd: &Path, args: &[&str]) -> Result<(i32, String, String), AppError> {
     if guarded_args.first() == Some(&"diff") {
         guarded_args.splice(1..1, ["--no-ext-diff", "--no-textconv"]);
     }
-    let out = crate::core::planning_sync::validated_git_command(cwd)
+    let out = crate::core::git_commands::validated_git_command(cwd)
         .map_err(|error| AppError::Git {
             cmd: crate::error::redact_secrets(&format!("git {}", guarded_args.join(" "))),
             detail: crate::error::redact_secrets(&error.to_string()),
@@ -53,47 +45,6 @@ fn run(cwd: &Path, args: &[&str]) -> Result<(i32, String, String), AppError> {
             cmd: crate::error::redact_secrets(&format!("git {}", guarded_args.join(" "))),
             detail: format!("git binary could not be launched: {e}"),
         })?;
-    Ok((
-        out.status.code().unwrap_or(-1),
-        String::from_utf8_lossy(&out.stdout).to_string(),
-        String::from_utf8_lossy(&out.stderr).to_string(),
-    ))
-}
-
-pub(super) fn run_with_input(
-    cwd: &Path,
-    args: &[&str],
-    input: &[u8],
-) -> Result<(i32, String, String), AppError> {
-    let mut child = crate::core::planning_sync::validated_git_command(cwd)
-        .map_err(|error| AppError::Git {
-            cmd: crate::error::redact_secrets(&format!("git {}", args.join(" "))),
-            detail: crate::error::redact_secrets(&error.to_string()),
-        })?
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| AppError::Git {
-            cmd: crate::error::redact_secrets(&format!("git {}", args.join(" "))),
-            detail: format!("git binary could not be launched: {e}"),
-        })?;
-    let write_result = child
-        .stdin
-        .take()
-        .expect("piped git stdin")
-        .write_all(input);
-    let out = child.wait_with_output().map_err(|e| AppError::Git {
-        cmd: crate::error::redact_secrets(&format!("git {}", args.join(" "))),
-        detail: format!("git process failed while collecting output: {e}"),
-    })?;
-    if let Err(error) = write_result {
-        return Err(AppError::Git {
-            cmd: crate::error::redact_secrets(&format!("git {}", args.join(" "))),
-            detail: format!("could not send index data to git: {error}"),
-        });
-    }
     Ok((
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).to_string(),
@@ -130,6 +81,15 @@ pub fn is_work_tree(cwd: &Path) -> bool {
         return false;
     };
     code == 0
+}
+
+/// Resolve the repository root for a selected directory inside a checkout.
+pub fn worktree_root(path: &Path) -> Option<std::path::PathBuf> {
+    let (code, stdout, _) = run(path, &["rev-parse", "--show-toplevel"]).ok()?;
+    if code != 0 {
+        return None;
+    }
+    std::fs::canonicalize(stdout.trim()).ok()
 }
 
 /// Return the configured `origin` URL when the repository has one. Callers

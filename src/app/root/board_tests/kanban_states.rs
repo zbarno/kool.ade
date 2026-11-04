@@ -1,33 +1,19 @@
 use super::*;
+use crate::domain::OpenItem;
 
 #[test]
-fn migrated_open_item_remains_clickable_on_kanban() {
-    let root = std::env::temp_dir().join(format!(
-        "koolade_migrated_board_{}-{}",
-        std::process::id(),
-        chrono::Utc::now().timestamp_nanos_opt().unwrap()
-    ));
-    std::fs::create_dir_all(root.join("planning")).unwrap();
-    let legacy = crate::artifacts::spec_doc::bootstrap_template("Migrated product");
-    std::fs::write(root.join("planning/specification.md"), &legacy).unwrap();
+fn current_open_item_remains_clickable_on_kanban() {
     let item = OpenItem::new(
         "CLR-041".into(),
         crate::domain::Priority::High,
         crate::domain::ItemKind::Question,
         "General".into(),
-        Some("All".into()),
         "Who reviews saved searches?".into(),
-        "Review ownership remains open.".into(),
+        "The review needs a product decision.".into(),
     );
-    std::fs::write(
-        root.join("planning/open-items.md"),
-        crate::artifacts::items_io::serialize(std::slice::from_ref(&item)),
-    )
-    .unwrap();
-    crate::artifacts::product_docs::migrate(&root, &legacy).unwrap();
     let mut app = fixture();
     if let Screen::Connected(project) = &mut app.screen {
-        project.state = crate::core::state::PlannerState::load(&root).unwrap();
+        project.state.items = vec![item.clone()];
         project.task_documents.clear();
     }
     let ctx = egui::Context::default();
@@ -36,7 +22,6 @@ fn migrated_open_item_remains_clickable_on_kanban() {
     assert!(text_position(&output, &item.question).is_some());
     let details = click_text(&mut app, &ctx, &item.question);
     assert!(text_position(&details, &item.reason).is_some());
-    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -48,7 +33,6 @@ fn kanban_distinguishes_authority_blockers_tasks_and_completed_work() {
             priority,
             crate::domain::ItemKind::Question,
             "General".into(),
-            Some("All".into()),
             question.into(),
             "Evidence".into(),
         );
@@ -133,7 +117,6 @@ fn agent_item_shows_live_investigation_on_board_and_in_detail() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Ambiguity,
         "General".into(),
-        Some("All".into()),
         "Does the repository already persist queries?".into(),
         "Investigate the source.".into(),
     );

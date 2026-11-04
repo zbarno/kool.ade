@@ -1,4 +1,4 @@
-//! Portable repository identity stored in the managed planning repository.
+//! Primary code-repository identity and optional local display settings.
 use crate::artifacts::planning_store::PlanningRoot;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -41,6 +41,17 @@ pub struct ProjectManifest {
     pub repositories: Vec<Repository>,
 }
 impl ProjectManifest {
+    fn primary_code_repository() -> Self {
+        Self {
+            repositories: vec![Repository {
+                id: "root".into(),
+                role: "Primary code".into(),
+                remote: String::new(),
+                display_name: None,
+            }],
+        }
+    }
+
     pub fn load<R: PlanningRoot + ?Sized>(planning_root: &R) -> anyhow::Result<Self> {
         let path = planning_root.planning_layout().project_manifest();
         let contents = match planning_root.read_planning_path(&path) {
@@ -50,6 +61,11 @@ impl ProjectManifest {
                     "project repository manifest exceeds the 1 MiB size limit"
                 );
                 String::from_utf8(bytes)?
+            }
+            Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
+                if source.kind() == std::io::ErrorKind::NotFound =>
+            {
+                return Ok(Self::primary_code_repository());
             }
             Err(error) => {
                 // Keep the offending path and OS cause visible: this used to
@@ -111,27 +127,19 @@ impl ProjectManifest {
 
     pub fn target_if_available(
         &self,
-        workspace_id: uuid::Uuid,
-        _code_root: &Path,
+        _workspace_id: uuid::Uuid,
+        code_root: &Path,
         id: &str,
     ) -> anyhow::Result<Option<PathBuf>> {
         anyhow::ensure!(valid_id(id), "Invalid repository ID");
-        let expected = self
-            .repositories
-            .iter()
-            .find(|r| r.id == id)
-            .ok_or_else(|| anyhow::anyhow!("Unknown repository ID {id}"))?;
-        let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
-        let checkout = manager.checkout_path(workspace_id, id, &expected.remote)?;
-        if checkout.is_some() {
-            return Ok(checkout);
-        }
-        #[cfg(test)]
-        if id == "root"
-            && let Ok(root) = _code_root.canonicalize()
-            && test_root_matches(&root, &expected.remote)
-        {
-            return Ok(Some(root.to_path_buf()));
+        anyhow::ensure!(
+            self.repositories
+                .iter()
+                .any(|repository| repository.id == id),
+            "Unknown repository ID {id}"
+        );
+        if id == "root" {
+            return Ok(Some(code_root.to_path_buf()));
         }
         Ok(None)
     }
@@ -166,20 +174,6 @@ pub(crate) fn portable_remote(remote: &str) -> bool {
         (host, path)
     };
     !host.is_empty() && !host.contains('/') && !host.starts_with('.') && !path.is_empty()
-}
-
-#[cfg(test)]
-fn test_root_matches(root: &Path, expected_remote: &str) -> bool {
-    if expected_remote.is_empty() {
-        return true;
-    }
-    let output = std::process::Command::new("git")
-        .args(["config", "--get", "remote.origin.url"])
-        .current_dir(root)
-        .output();
-    output.is_ok_and(|output| {
-        output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == expected_remote
-    })
 }
 
 fn is_remote_helper(remote: &str) -> bool {

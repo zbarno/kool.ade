@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn newest_saved_report_controls_interrupted_blocker_recovery() {
     let s = Sandbox::new();
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
+    let dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
     fs::create_dir_all(&dir).unwrap();
     let blocked = serde_json::json!({
         "status":"blocked", "summary":"The history needs a decision.",
@@ -13,7 +13,7 @@ fn newest_saved_report_controls_interrupted_blocker_recovery() {
     });
     fs::write(dir.join("001-report.json"), blocked.to_string()).unwrap();
     assert!(
-        latest_external_blocker(&s.repo, &s.ticket)
+        latest_external_blocker(&s.planning_store.root, &s.ticket)
             .unwrap()
             .contains("approve the realized footprint")
     );
@@ -22,7 +22,7 @@ fn newest_saved_report_controls_interrupted_blocker_recovery() {
         "verification":[], "remaining":[]
     });
     fs::write(dir.join("002-report.json"), complete.to_string()).unwrap();
-    assert!(latest_external_blocker(&s.repo, &s.ticket).is_none());
+    assert!(latest_external_blocker(&s.planning_store.root, &s.ticket).is_none());
 }
 #[test]
 fn markdown_correction_preserves_work_and_publishes_after_verification() {
@@ -52,10 +52,13 @@ fn blocked_correction_preserves_work_and_publishes_after_verification() {
 fn assert_automatic_correction(mode: &'static str) {
     let s = Sandbox::new();
     let calls = Arc::new(AtomicUsize::new(0));
+    let held = s.run(mode, calls.clone()).unwrap();
+    assert_eq!(held.status, ImplementationStatus::AwaitingApproval);
+    super::publication_checks::authorize_fixture_publication(&s, &held);
     let result = s.run(mode, calls.clone()).unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 2, "{mode}");
     assert_eq!(result.status, ImplementationStatus::AwaitingReview);
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
+    let dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
     let files = fs::read_dir(&dir)
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
@@ -124,7 +127,7 @@ fn assert_correction_does_not_publish(mode: &'static str, expected_calls: usize,
     assert!(error.contains(error_text), "{error}");
     assert_eq!(calls.load(Ordering::SeqCst), expected_calls);
     assert!(!s.root.join("pr-created").exists());
-    let state = load(&s.repo, &s.ticket).unwrap();
+    let state = load(&s.planning_store.root, &s.ticket).unwrap();
     assert!(state.task_repository.join("implemented.txt").exists());
     assert!(state.detail.contains(error_text));
 }
@@ -134,7 +137,7 @@ fn resume_after_exhaustion_gets_full_budget_without_nested_history() {
     let s = Sandbox::new();
     let calls = Arc::new(AtomicUsize::new(0));
     let first = s.run("fail", calls.clone()).unwrap_err().to_string();
-    let original = load(&s.repo, &s.ticket).unwrap();
+    let original = load(&s.planning_store.root, &s.ticket).unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 6);
     let second = s.run("fail", calls.clone()).unwrap_err().to_string();
     assert_eq!(
@@ -146,7 +149,7 @@ fn resume_after_exhaustion_gets_full_budget_without_nested_history() {
     assert!(!second.contains("Correction history:"));
     assert!(second.contains("Latest failure:"));
     assert!(!s.root.join("pr-created").exists());
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
+    let dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
     assert!(fs::read_dir(&dir).unwrap().flatten().any(|entry| {
         entry
             .file_name()
@@ -154,7 +157,7 @@ fn resume_after_exhaustion_gets_full_budget_without_nested_history() {
             .ends_with("-resume-context.txt")
             && fs::read_to_string(entry.path()).unwrap() == first
     }));
-    let resumed = s
+    let mut resumed = s
         .run("fresh_budget", Arc::new(AtomicUsize::new(0)))
         .unwrap();
     assert_ne!(resumed.task_repository, original.task_repository);
@@ -165,6 +168,11 @@ fn resume_after_exhaustion_gets_full_budget_without_nested_history() {
     );
     assert!(resumed.branch.starts_with("koolade/integration/"));
     assert_eq!(resumed.base_commit, original.base_commit);
+    assert_eq!(resumed.status, ImplementationStatus::AwaitingApproval);
+    super::publication_checks::authorize_fixture_publication(&s, &resumed);
+    resumed = s
+        .run("fresh_budget", Arc::new(AtomicUsize::new(0)))
+        .unwrap();
     assert_eq!(resumed.status, ImplementationStatus::AwaitingReview);
 }
 
@@ -183,12 +191,44 @@ fn legacy_nested_exhaustion_keeps_only_latest_actionable_context() {
 fn publication_failure_retries_without_reimplementing() {
     let s = Sandbox::new();
     let calls = Arc::new(AtomicUsize::new(0));
+    let held = s.run("complete", calls.clone()).unwrap();
+    super::publication_checks::authorize_fixture_publication(&s, &held);
     fs::write(s.root.join("offline"), "").unwrap();
-    assert!(s.run("complete", calls.clone()).is_err());
-    assert!(load(&s.repo, &s.ticket).unwrap().verified_head.is_some());
+    let interrupted_publication = s
+        .run_with_publication_policy(
+            "complete",
+            calls.clone(),
+            PublicationMode::CreatePullRequest,
+            None,
+            false,
+        )
+        .unwrap();
+    assert_eq!(
+        interrupted_publication.status,
+        ImplementationStatus::Completed
+    );
+    assert!(
+        interrupted_publication
+            .detail
+            .contains("GitHub unavailable")
+    );
+    assert!(
+        load(&s.planning_store.root, &s.ticket)
+            .unwrap()
+            .verified_head
+            .is_some()
+    );
     fs::remove_file(s.root.join("offline")).unwrap();
     assert_eq!(
-        s.run("complete", calls.clone()).unwrap().status,
+        s.run_with_publication_policy(
+            "complete",
+            calls.clone(),
+            PublicationMode::CreatePullRequest,
+            None,
+            false,
+        )
+        .unwrap()
+        .status,
         ImplementationStatus::AwaitingReview
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -198,13 +238,33 @@ fn changed_ticket_and_concurrent_run_are_rejected() {
     let s = Sandbox::new();
     let calls = Arc::new(AtomicUsize::new(0));
     assert!(s.run("cancel", calls.clone()).is_err());
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
+    let dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
     let lock = fs::OpenOptions::new()
         .read(true)
         .write(true)
         .open(dir.join("run.lock"))
         .unwrap();
     lock.lock().unwrap();
+    let changed_ticket = crate::domain::ArtifactIdentity::preserve_markdown(
+        "# Different scope\n",
+        Some(&fs::read_to_string(s.ticket_path()).unwrap()),
+        "TASK-001",
+        "Implement ticket behavior",
+    )
+    .unwrap();
+    let identity = crate::domain::ArtifactIdentity::from_markdown(&changed_ticket)
+        .unwrap()
+        .unwrap();
+    let metadata =
+        crate::artifacts::task_docs::parse_metadata(&fs::read_to_string(s.ticket_path()).unwrap())
+            .unwrap()
+            .unwrap();
+    metadata.validate(Some(&identity)).unwrap();
+    fs::write(
+        s.ticket_path(),
+        crate::artifacts::task_docs::embed(&changed_ticket, &metadata).unwrap(),
+    )
+    .unwrap();
     assert!(
         s.run("complete", calls.clone())
             .unwrap_err()
@@ -212,12 +272,17 @@ fn changed_ticket_and_concurrent_run_are_rejected() {
             .contains("already being implemented")
     );
     drop(lock);
-    fs::write(s.repo.join(&s.ticket), "# Different scope").unwrap();
+    fs::write(
+        s.ticket_path(),
+        crate::artifacts::task_docs::embed(&changed_ticket, &metadata).unwrap(),
+    )
+    .unwrap();
+    let changed_error = s.run("complete", calls.clone()).unwrap_err();
     assert!(
-        s.run("complete", calls.clone())
-            .unwrap_err()
-            .to_string()
-            .contains("Ticket changed")
+        format!("{changed_error:#}")
+            .to_ascii_lowercase()
+            .contains("changed"),
+        "changed task content was not rejected: {changed_error:#}"
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
@@ -226,9 +291,13 @@ fn mismatched_saved_task_repository_is_not_modified() {
     let s = Sandbox::new();
     let calls = Arc::new(AtomicUsize::new(0));
     assert!(s.run("cancel", calls.clone()).is_err());
-    let mut state = load(&s.repo, &s.ticket).unwrap();
+    let mut state = load(&s.planning_store.root, &s.ticket).unwrap();
     state.task_repository = s.repo.clone();
-    save(&state_dir(&s.repo, &s.ticket).unwrap(), &state).unwrap();
+    save(
+        &state_dir(&s.planning_store.root, &s.ticket).unwrap(),
+        &state,
+    )
+    .unwrap();
     assert!(
         s.run("complete", calls.clone())
             .unwrap_err()

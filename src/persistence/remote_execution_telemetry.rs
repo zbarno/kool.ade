@@ -4,14 +4,12 @@ use std::{fs, path::Path};
 
 mod attribution;
 mod execution;
-mod legacy;
 mod phases;
 mod query;
 mod queue_wait;
 mod validation;
 pub use attribution::record_attribution;
 pub use execution::{record_execution_result, record_execution_started};
-use legacy::{normalize_legacy_metrics, now_unix_ms};
 pub use phases::record_execution_phase_timings;
 pub use query::latest_for_task;
 pub use queue_wait::{clear_task_queue_wait, set_task_queue_wait_ms};
@@ -29,38 +27,22 @@ const MAX_MS: u64 = 7 * 24 * 60 * 60 * 1000;
 pub struct RemoteExecutionTelemetryV1 {
     pub schema_version: u8,
     pub execution_id: String,
-    #[serde(default)]
     pub started_at_unix_ms: Option<u64>,
-    #[serde(default)]
     pub task_id: Option<String>,
     pub worker_id: String,
-    #[serde(default)]
     pub queue_wait_ms: Option<u64>,
-    #[serde(default)]
     pub harness: Option<String>,
-    #[serde(default)]
     pub requested_model: Option<String>,
-    #[serde(default)]
     pub workspace_upload_bytes: Option<u64>,
-    #[serde(default)]
     pub workspace_upload_ms: Option<u64>,
-    #[serde(default)]
     pub result_download_bytes: Option<u64>,
-    #[serde(default)]
     pub result_download_ms: Option<u64>,
-    #[serde(default)]
     pub worker_start_rpc_ms: Option<u64>,
-    #[serde(default)]
     pub execution_wall_ms: Option<u64>,
-    #[serde(default)]
     pub execution_cpu_millis: Option<u64>,
-    #[serde(default)]
     pub execution_peak_memory_bytes: Option<u64>,
-    #[serde(default)]
     pub execution_phase_timings: Option<crate::execution::contract::ExecutionPhaseTimingsV1>,
-    #[serde(default)]
     pub image_digest: Option<String>,
-    #[serde(default)]
     pub failure_code: Option<crate::execution::errors::ExecutionErrorKind>,
 }
 
@@ -102,8 +84,7 @@ fn load_at(root: &Path, execution_id: &str) -> anyhow::Result<Option<RemoteExecu
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     }
-    let mut record: RemoteExecutionTelemetryV1 = serde_json::from_slice(&read_private(&path)?)?;
-    normalize_legacy_metrics(&mut record);
+    let record: RemoteExecutionTelemetryV1 = serde_json::from_slice(&read_private(&path)?)?;
     validate(&record)?;
     anyhow::ensure!(
         record.execution_id == execution_id,
@@ -144,16 +125,7 @@ fn update_at(
     fs2::FileExt::lock_exclusive(&lock)?;
     let path = record_path(root, execution_id);
     let mut record = if path.exists() {
-        let previous_modified_ms = fs::metadata(&path)
-            .ok()
-            .and_then(|metadata| metadata.modified().ok())
-            .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|duration| duration.as_millis().min(u64::MAX as u128) as u64);
-        let mut record: RemoteExecutionTelemetryV1 = serde_json::from_slice(&read_private(&path)?)?;
-        normalize_legacy_metrics(&mut record);
-        if record.started_at_unix_ms.is_none() {
-            record.started_at_unix_ms = previous_modified_ms;
-        }
+        let record: RemoteExecutionTelemetryV1 = serde_json::from_slice(&read_private(&path)?)?;
         validate(&record)?;
         anyhow::ensure!(
             record.worker_id == worker_id,
@@ -207,6 +179,14 @@ fn update_at(
     options.open(&temp)?.write_all(&bytes)?;
     fs::rename(temp, path)?;
     Ok(())
+}
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(u64::MAX as u128) as u64
 }
 
 fn telemetry_lock(directory: &Path) -> anyhow::Result<fs::File> {

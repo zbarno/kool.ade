@@ -128,6 +128,12 @@ pub(super) fn validate(work: &[Work]) -> anyhow::Result<()> {
         }
     }
     for item in work {
+        if item.parent_uid.is_none() && item.kind.starts_task_intent() {
+            anyhow::ensure!(
+                item.task_intent_uid.as_deref() == Some(item.uid.as_str()),
+                "TaskIntent root must store its current immutable UID"
+            );
+        }
         let Some(intent_uid) = item.task_intent_uid.as_deref() else {
             continue;
         };
@@ -220,18 +226,16 @@ pub fn save_expected<R: PlanningRoot + ?Sized>(
     work: &[Work],
     expected_revision: &str,
 ) -> anyhow::Result<String> {
-    validate(work)?;
     let store = repo.planning_store();
-    let (changes, checks, legacy_migration) = record_changes(&store, work)?;
-    let (_, revision) = if legacy_migration {
-        store.transaction_with_revision_and_record_revisions(
-            &changes,
-            Some(expected_revision),
-            &checks,
-        )?
-    } else {
-        store.transaction_with_record_revisions(&changes, &checks)?
-    };
+    let mut desired = work.to_vec();
+    super::normalize_task_intents(&mut desired);
+    validate(&desired)?;
+    let (changes, checks) = record_changes(&store, &desired)?;
+    let (_, revision) = store.transaction_with_revision_and_record_revisions(
+        &changes,
+        Some(expected_revision),
+        &checks,
+    )?;
     Ok(revision)
 }
 

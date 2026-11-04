@@ -1,5 +1,4 @@
-//! Filesystem layout for planning artifacts in the standalone planning
-//! repository (SPECIFICATION.md §4, §21) plus small shared IO helpers.
+//! Filesystem helpers for private application artifacts.
 //!
 //! Named-file module convention: this file declares submodules; each artifact
 //! file has its own small neighbor.
@@ -12,7 +11,6 @@ pub const MCP_CONFIG_FILE: &str = super::layout::store::MCP_CONFIG;
 pub const OPEN_ITEMS_FILE: &str = super::layout::store::OPEN_ITEMS;
 pub const PLANNING_DIR: &str = super::layout::store::PLANNING;
 pub const CONFIG_FILE: &str = super::layout::store::PROJECT_CONFIG;
-pub const SPEC_FILE: &str = super::layout::store::PRODUCT_INDEX;
 
 /// Absolute path for a repository-relative artifact.
 pub fn repo_artifact<R: super::planning_store::PlanningRoot + ?Sized>(
@@ -66,8 +64,8 @@ mod tests {
 
     #[test]
     fn artifact_paths_join_relatively() {
-        let p = repo_artifact(Path::new("/repo"), SPEC_FILE);
-        assert_eq!(p, PathBuf::from("/repo/planning/product/index.md"));
+        let p = repo_artifact(Path::new("/repo"), PLANNING_DIR);
+        assert_eq!(p, PathBuf::from("/repo/planning"));
     }
 
     #[test]

@@ -24,8 +24,7 @@ use std::{
 
 use crate::{
     core::{
-        apply, gitops, implementation::ImplementationStatus, state::PlannerState, validation,
-        workflow,
+        apply, implementation::ImplementationStatus, state::PlannerState, validation, workflow,
     },
     domain::Authority,
     harness::{AiHarness, ExecutionMode, LiveProgress, PlanningRequest, TurnEnvelope},

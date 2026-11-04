@@ -22,7 +22,6 @@ pub(super) fn verify_clone_dispatch(
     for mismatch in [
         CloneMismatch::Task,
         CloneMismatch::Repository,
-        CloneMismatch::Kind,
         CloneMismatch::NotReady,
         CloneMismatch::PathNotRegistered,
         CloneMismatch::SourceSha,
@@ -95,7 +94,6 @@ fn save_manifest(
 enum CloneMismatch {
     Task,
     Repository,
-    Kind,
     NotReady,
     PathNotRegistered,
     SourceSha,
@@ -106,12 +104,9 @@ enum CloneMismatch {
 
 impl CloneMismatch {
     fn apply(self, target: &mut crate::core::implementation::Implementation) {
-        use crate::core::implementation::TaskRepositoryKind;
-
         match self {
             Self::Task => target.task_uid = Some(uuid::Uuid::new_v4().to_string()),
             Self::Repository => target.repository_id = Some("wrong-repository".into()),
-            Self::Kind => target.task_repository_kind = TaskRepositoryKind::LegacyWorktree,
             Self::NotReady => target.task_repository_ready = false,
             Self::PathNotRegistered => target.task_repositories.clear(),
             Self::SourceSha => target.source_commit = Some("wrong-source-sha".into()),

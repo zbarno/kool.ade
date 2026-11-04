@@ -25,6 +25,12 @@ impl Fixture {
             crate::artifacts::planning_store::StoreMode::ManagedLocal,
         )
     }
+
+    fn code_repo(&self) -> std::path::PathBuf {
+        let root = self.0.join("code-repository");
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
 }
 
 impl Drop for Fixture {

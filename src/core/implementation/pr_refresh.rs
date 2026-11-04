@@ -14,12 +14,13 @@ impl PrRefresh {
             &repo,
             crate::artifacts::planning_store::StoreMode::ManagedLocal,
         );
-        Self::start_with_store(store, repo, tickets)
+        Self::start_with_store(store, repo.clone(), repo, tickets)
     }
 
     pub fn start_with_store(
         planning_store: PlanningStore,
         state_root: PathBuf,
+        code_root: PathBuf,
         tickets: Vec<String>,
     ) -> Self {
         let (tx, rx) = mpsc::channel();
@@ -41,9 +42,13 @@ impl PrRefresh {
                 if runner.remaining().is_err() {
                     break;
                 }
-                if let Err(error) =
-                    refresh_pr_with_store(&planning_store, &state_root, &ticket, &runner)
-                {
+                if let Err(error) = refresh_pr_with_store(
+                    &planning_store,
+                    &state_root,
+                    &code_root,
+                    &ticket,
+                    &runner,
+                ) {
                     errors.push((ticket, format!("{error:#}")));
                 }
             }
@@ -75,13 +80,14 @@ pub(super) fn refresh_pr(repo: &Path, ticket: &str, runner: &Runner) -> anyhow::
         repo,
         crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
-    refresh_pr_with_store(&store, repo, ticket, runner)
+    refresh_pr_with_store(&store, repo, repo, ticket, runner)
 }
 
 #[cfg(test)]
 pub(crate) fn refresh_pr_with_store_for_test(
     planning_store: &PlanningStore,
     state_root: &Path,
+    code_root: &Path,
     ticket: &str,
     gh: &str,
 ) -> anyhow::Result<()> {
@@ -94,12 +100,13 @@ pub(crate) fn refresh_pr_with_store_for_test(
         progress,
         authorization_verifier: None,
     };
-    refresh_pr_with_store(planning_store, state_root, ticket, &runner)
+    refresh_pr_with_store(planning_store, state_root, code_root, ticket, &runner)
 }
 
 fn refresh_pr_with_store(
     planning_store: &PlanningStore,
     state_root: &Path,
+    code_root: &Path,
     ticket: &str,
     runner: &Runner,
 ) -> anyhow::Result<()> {
@@ -130,7 +137,7 @@ fn refresh_pr_with_store(
     }
     drop(migration_gate);
     let mut state = read_state_file(&dir.join("state.json"))?;
-    let target_repo = target_repository_with_store(planning_store, state_root, ticket)?;
+    let target_repo = target_repository_with_store(planning_store, code_root, ticket)?;
     if state.status == ImplementationStatus::Completed
         && (state.merged_commit.is_some() || state.pr_url.is_none())
     {
@@ -140,7 +147,7 @@ fn refresh_pr_with_store(
         cleanup::run(&target_repo, &dir, &mut state, runner);
         save(&dir, &state)?;
         publication::reconcile_lifecycle_pr_state(planning_store, &state, &target_repo)?;
-        deployment_refresh::refresh(planning_store, state_root, ticket, runner)?;
+        deployment_refresh::refresh(planning_store, state_root, code_root, ticket, runner)?;
         return Ok(());
     }
     let Some(url) = state.pr_url.clone() else {
@@ -220,7 +227,7 @@ fn refresh_pr_with_store(
     cleanup::run(&target_repo, &dir, &mut state, runner);
     save(&dir, &state)?;
     publication::reconcile_lifecycle_pr_state(planning_store, &state, &target_repo)?;
-    deployment_refresh::refresh(planning_store, state_root, ticket, runner)
+    deployment_refresh::refresh(planning_store, state_root, code_root, ticket, runner)
 }
 
 fn valid_sha(sha: &str) -> bool {

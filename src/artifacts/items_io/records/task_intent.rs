@@ -1,5 +1,5 @@
 use crate::{
-    artifacts::planning_store::{PlanningStore, StoreError, paths},
+    artifacts::planning_store::{PlanningStore, paths},
     core::planning_work::Work,
     domain::OpenItem,
 };
@@ -79,7 +79,7 @@ fn read_work_records(store: &PlanningStore) -> anyhow::Result<Vec<Work>> {
                     .and_then(serde_json::Value::as_u64)
                     .ok_or_else(|| anyhow::anyhow!("Work record has no schema version"))?;
                 anyhow::ensure!(
-                    (1..=3).contains(&schema_version),
+                    schema_version == 3,
                     "Unsupported work record schema version {schema_version}"
                 );
                 let record_uid = value
@@ -93,15 +93,15 @@ fn read_work_records(store: &PlanningStore) -> anyhow::Result<Vec<Work>> {
                 let revision = value
                     .get("revision")
                     .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0);
+                    .ok_or_else(|| anyhow::anyhow!("Work record has no revision"))?;
                 let created = value
                     .get("createdAtMs")
                     .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(u64::MAX);
+                    .ok_or_else(|| anyhow::anyhow!("Work record has no creation timestamp"))?;
                 let updated = value
                     .get("updatedAtMs")
                     .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0);
+                    .ok_or_else(|| anyhow::anyhow!("Work record has no update timestamp"))?;
                 anyhow::ensure!(
                     revision > 0 && created <= updated,
                     "Work record revision or timestamps are invalid"
@@ -121,16 +121,5 @@ fn read_work_records(store: &PlanningStore) -> anyhow::Result<Vec<Work>> {
             .collect();
     }
 
-    let bytes = match store.read(paths::WORK) {
-        Ok(bytes) => bytes,
-        Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
-            anyhow::bail!("Planning item TaskIntent root does not exist")
-        }
-        Err(error) => return Err(error.into()),
-    };
-    let value: serde_json::Value = serde_json::from_slice(&bytes)?;
-    let items = value.get("items").ok_or_else(|| {
-        anyhow::anyhow!("Legacy planning work cannot own TaskIntent-linked items")
-    })?;
-    Ok(serde_json::from_value(items.clone())?)
+    anyhow::bail!("Planning item TaskIntent root does not exist")
 }

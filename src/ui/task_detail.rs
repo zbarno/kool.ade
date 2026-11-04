@@ -92,9 +92,6 @@ pub enum Command {
         proposal_sha256: String,
         base_spec_sha256: String,
     },
-    RunWithoutSharedCoordination {
-        ticket: String,
-    },
     AuthorizeDependency {
         ticket: String,
         request_id: String,

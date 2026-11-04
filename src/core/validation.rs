@@ -14,14 +14,12 @@ mod dependency_graph;
 mod plan_remediation;
 
 /// Field-wise patch for an existing item: `Some` = set, `None` = untouched.
-/// Clearing an assignment is intentionally unsupported in the MVP.
 #[derive(Debug, Clone, Default)]
 pub struct UpdatePatch {
     pub priority: Option<Priority>,
     pub authority: Option<Authority>,
     pub kind: Option<ItemKind>,
     pub category: Option<String>,
-    pub assigned_to: Option<String>,
     pub question: Option<String>,
     pub reason: Option<String>,
     pub feature_id: Option<String>,
@@ -47,7 +45,6 @@ pub struct NormalizedTurn {
     pub assistant_message: String,
     pub change_summary: Option<String>,
     /// Complete replacement specification (verified non-blank).
-    pub spec_markdown: Option<String>,
     pub document_updates: Vec<(String, String)>,
     /// Newly discovered follow-up tasks emitted only by Documentation Refresh.
     pub planning_tasks: Vec<crate::harness::PlanningTaskDraft>,
@@ -267,55 +264,13 @@ pub fn validate_for_turn_with_user_message(
         None
     };
 
-    // ---- specification -----------------------------------------------------
-    let spec_markdown = match envelope.updated_spec() {
-        None => None,
-        Some(raw) if raw.trim().is_empty() => {
-            fatals.push("updated_specification is blank — send the FULL document or null".into());
-            None
-        }
-        Some(raw) => {
-            if state
-                .spec_text
-                .as_deref()
-                .is_some_and(|cur| cur.trim_end() == raw.trim_end())
-            {
-                None // cosmetic no-change
-            } else {
-                if let Err(problem) = crate::core::specification::validate_layout(raw) {
-                    fatals.push(problem);
-                }
-                Some(raw.to_string())
-            }
-        }
-    };
-
-    let modular = crate::artifacts::product_docs::load_modules(&state.planning_store)
-        .map(|parts| parts.is_some())
-        .unwrap_or_else(|error| {
-            fatals.push(format!("product modules unreadable: {error}"));
-            false
-        });
-    if modular && spec_markdown.is_some() {
+    // Single-file specifications are not a supported authority. Product and
+    // feature changes must use validated logical-document proposals.
+    if envelope.updated_spec().is_some() {
         fatals.push(
-            "updated_specification is retired for modular products; use document_updates".into(),
+            "updated_specification is unsupported; use document_updates with a logical document ID"
+                .into(),
         );
-    }
-    if !modular
-        && envelope
-            .document_updates
-            .as_ref()
-            .is_some_and(|updates| !updates.is_empty())
-    {
-        fatals.push("document_updates require product-module migration".into());
-    }
-    if spec_markdown.is_some()
-        && envelope
-            .document_updates
-            .as_ref()
-            .is_some_and(|updates| !updates.is_empty())
-    {
-        fatals.push("updated_specification and document_updates cannot be combined".into());
     }
     let mut document_updates = Vec::new();
     let mut change_status_updates = BTreeMap::new();
@@ -330,12 +285,11 @@ pub fn validate_for_turn_with_user_message(
         } else {
             update.content.clone()
         };
-        let path = match crate::artifacts::product_docs::document_path_for_update(
+        let previous = match crate::artifacts::product_docs::current_document(
             &state.planning_store,
             &update.document_id,
-            &content,
         ) {
-            Ok(path) => path,
+            Ok(previous) => previous,
             Err(error) => {
                 fatals.push(error.to_string());
                 continue;
@@ -355,33 +309,37 @@ pub fn validate_for_turn_with_user_message(
             if let Err(error) = crate::artifacts::product_docs::validate_module(&content) {
                 fatals.push(format!("{}: {error}", update.document_id));
             }
-            if let Ok(bytes) = state.planning_store.read_planning_path(&path)
-                && let Ok(old) = String::from_utf8(bytes)
-                && let Err(error) = crate::artifacts::product_docs::preserved_ids(&old, &content)
+            if let Some(old) = previous.as_deref()
+                && let Err(error) = crate::artifacts::product_docs::preserved_ids(old, &content)
             {
                 fatals.push(format!("{}: {error}", update.document_id));
             }
         }
         if let Some(id) = update.document_id.strip_prefix("feature:") {
+            if previous.is_none() {
+                match crate::artifacts::product_docs::next_feature_id_for_update(
+                    &state.planning_store,
+                ) {
+                    Ok(expected) if expected == id => {}
+                    Ok(expected) => fatals.push(format!(
+                        "{}: new feature ID must be the application-assigned next ID ({expected})",
+                        update.document_id
+                    )),
+                    Err(error) => fatals.push(error.to_string()),
+                }
+            }
             if let Err(error) = crate::core::specification::validate_feature(id, &content) {
                 fatals.push(format!("{}: {error}", update.document_id));
             }
-            let existing_status = match std::fs::read_to_string(&path) {
-                Ok(previous) => match crate::domain::ChangeMetadata::require_markdown(&previous) {
+            let existing_status = match previous.as_deref() {
+                Some(previous) => match crate::domain::ChangeMetadata::require_markdown(previous) {
                     Ok(metadata) => Some(metadata.status),
                     Err(error) => {
                         fatals.push(format!("{}: {error}", update.document_id));
                         None
                     }
                 },
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-                Err(error) => {
-                    fatals.push(format!(
-                        "{}: cannot read existing change: {error}",
-                        update.document_id
-                    ));
-                    None
-                }
+                None => None,
             };
             match (existing_status, update.status) {
                 (Some(current), Some(next)) if !current.can_transition_to(next) => {
@@ -408,17 +366,6 @@ pub fn validate_for_turn_with_user_message(
                     update.document_id
                 )),
             }
-        }
-        match std::fs::symlink_metadata(&path) {
-            Ok(meta) if meta.is_file() && !meta.file_type().is_symlink() => {}
-            Err(error)
-                if error.kind() == std::io::ErrorKind::NotFound
-                    && (update.document_id.starts_with("feature:")
-                        || update.document_id.starts_with("product:")) => {}
-            _ => fatals.push(format!(
-                "{}: target must be an approved regular document",
-                update.document_id
-            )),
         }
         document_updates.push((update.document_id.clone(), content));
     }
@@ -499,9 +446,6 @@ pub fn validate_for_turn_with_user_message(
             }
             Some(raw) => patch.category = Some(raw.trim().to_string()),
         }
-        if let Some(raw) = u.assigned_to.as_deref().filter(|s| !s.trim().is_empty()) {
-            patch.assigned_to = Some(raw.trim().to_string());
-        }
         if let Some(raw) = u.question.as_deref().filter(|s| !s.trim().is_empty()) {
             if raw.trim().chars().count() > QUESTION_CHAR_CAP {
                 fatals.push(format!(
@@ -581,18 +525,13 @@ pub fn validate_for_turn_with_user_message(
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty());
-        let assigned = a
-            .assigned_to
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
         let question = a
             .question
             .as_deref()
             .map(str::trim)
             .filter(|s| !s.is_empty());
-        match (category, assigned, question) {
-            (Some(cat), Some(to), Some(question)) => {
+        match (category, question) {
+            (Some(cat), Some(question)) => {
                 let id = match a.id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
                     None => {
                         let id = ids::next_free(burned.iter().cloned());
@@ -626,7 +565,6 @@ pub fn validate_for_turn_with_user_message(
                     priority,
                     kind,
                     cat.to_string(),
-                    Some(to.to_string()),
                     question.to_string(),
                     a.reason
                         .as_deref()
@@ -671,8 +609,8 @@ pub fn validate_for_turn_with_user_message(
                 added.push(item);
             }
             _ => fatals.push(format!(
-                "new item {tag}: category, assigned_to and question are all required (got category={:?}, assigned_to={:?}, question={:?})",
-                a.category, a.assigned_to, a.question
+                "new item {tag}: category and question are required (got category={:?}, question={:?})",
+                a.category, a.question
             )),
         }
     }
@@ -709,10 +647,8 @@ pub fn validate_for_turn_with_user_message(
         state, &added, &updates, &resolved,
     ));
 
-    // ---- next question: the D-14 routing law is decided HERE, not by the
-    //         agent (§8, §18). A misrouted id is a FATAL problem — the whole
-    //         turn is rejected with zero mutation. Unknown/resolved/ownership
-    //         ids are noise, not law violations: they cost a warning only.
+    // ---- Human questions route to the local user; prerequisite and authority
+    //      checks are application-owned, not chosen by the agent.
     let mut next_question_id = None;
     if let Some(nqid) = envelope.next_question_id.as_deref() {
         match state.items.iter().find(|i| i.id == nqid) {
@@ -720,10 +656,6 @@ pub fn validate_for_turn_with_user_message(
             Some(item) if resolved.iter().any(|r| r == &item.id) => {
                 warnings.push(format!("next question “{}” dropped: it is being resolved this turn", item.id));
             }
-            Some(item) if item.kind == ItemKind::Ownership => warnings.push(format!(
-                "next question “{}” dropped: ownership gaps are handled in the Settings panel, not asked in chat",
-                item.id
-            )),
             Some(item) if item.blocked_by.iter().any(|dependency| {
                 state.items.iter().any(|candidate| candidate.id == *dependency)
                     && !resolved.iter().any(|resolved_id| resolved_id == dependency)
@@ -731,13 +663,10 @@ pub fn validate_for_turn_with_user_message(
                 "next question {} dropped: a prerequisite board item is still open",
                 item.id
             )),
-            Some(item) => match routing::evaluate(item, user, &state.config.stakeholders) {
+            Some(item) => match routing::evaluate(item, user) {
                 Eligibility::NotEligible => fatals.push(format!(
-                    "next question “{}” (category “{}”, assignee “{}”) is not poseable to the seated user “{}” — it violates the routing law, so the ENTIRE turn is rejected and nothing is saved",
-                    item.id,
-                    item.category,
-                    item.assigned_to.as_deref().unwrap_or("unassigned"),
-                    user.name
+                    "next question “{}” is not a Human question for the local user; the turn is rejected",
+                    item.id
                 )),
                 _ if item.authority == Authority::Human && item.priority == Priority::Blocking => next_question_id = Some(item.id.clone()),
                 _ => warnings.push(format!("next question {} dropped: only Human/Blocking items may interrupt chat", item.id)),
@@ -758,7 +687,6 @@ pub fn validate_for_turn_with_user_message(
     let mut normalized = NormalizedTurn {
         assistant_message: envelope.assistant().trim().to_string(),
         change_summary,
-        spec_markdown,
         document_updates,
         planning_tasks,
         task_intent_context: None,
@@ -784,8 +712,11 @@ fn valid_feature_reference(state: &PlannerState, envelope: &TurnEnvelope, id: &s
     if !crate::artifacts::product_docs::valid_feature_id(id) {
         return false;
     }
-    crate::artifacts::product_docs::document_path(&state.planning_store, &format!("feature:{id}"))
-        .is_ok()
+    crate::artifacts::product_docs::current_document(
+        &state.planning_store,
+        &format!("feature:{id}"),
+    )
+    .is_ok_and(|document| document.is_some())
         || envelope
             .document_updates
             .as_deref()
@@ -812,13 +743,12 @@ mod tests {
         st
     }
 
-    fn item(id: &str, kind: ItemKind, cat: &str, to: &str) -> OpenItem {
+    fn item(id: &str, kind: ItemKind, cat: &str, _to: &str) -> OpenItem {
         OpenItem::new(
             id.into(),
             Priority::Normal,
             kind,
             cat.into(),
-            Some(to.into()),
             "question text".into(),
             "it matters".into(),
         )
@@ -827,9 +757,7 @@ mod tests {
     /// Stand-in for a genuinely unassigned item: an address no user can
     /// match, so the lane's own claim decides eligibility.
     fn unassigned(id: &str, kind: ItemKind, cat: &str) -> OpenItem {
-        let mut o = item(id, kind, cat, "Unassigned");
-        o.assigned_to = None;
-        o
+        item(id, kind, cat, "")
     }
 
     fn env(next: Option<&str>) -> TurnEnvelope {
@@ -858,7 +786,7 @@ mod tests {
     #[test]
     fn follow_up_feature_offer_is_limited_to_question_turns_and_requires_concise_content() {
         let state = base_state(Vec::new());
-        let user = CurrentUser::new("Riley", vec![]);
+        let user = CurrentUser::new("Riley");
         let mut envelope = env(None);
         envelope.follow_up_task = Some(crate::harness::PlanningTaskOffer {
             title: "Add hosted provider support".into(),
@@ -912,7 +840,6 @@ mod tests {
                 id: None,
                 kind: Some("Question".into()),
                 category: Some("QA".into()),
-                assigned_to: Some("QA Guild".into()),
                 priority: Some("High".into()),
                 question: Some("first unnumbered?".into()),
                 reason: None,
@@ -928,7 +855,6 @@ mod tests {
                 id: None,
                 kind: Some("Question".into()),
                 category: Some("QA".into()),
-                assigned_to: Some("QA Guild".into()),
                 priority: Some("High".into()),
                 question: Some("second unnumbered?".into()),
                 reason: None,
@@ -940,12 +866,7 @@ mod tests {
                 blocked_by: Vec::new(),
             },
         ]);
-        let v = validate(
-            &env,
-            &st,
-            &CurrentUser::new("Zach", vec!["QA Guild".into()]),
-        )
-        .unwrap();
+        let v = validate(&env, &st, &CurrentUser::new("Zach")).unwrap();
         let ids: Vec<&str> = v.added.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(
             ids,
@@ -954,125 +875,29 @@ mod tests {
         );
     }
 
-    /// The next-question arm of the D-14 law: deny-by-veto is FATAL (the
-    /// whole turn rolls back); grant-by-group, grant-by-unowned-seat and
-    /// General-always preserve the id; unknown/resolved/ownership ids
-    /// degrade to warnings exactly as pinned before.
+    /// Next-question selection is local-user scoped and excludes Agent-owned items.
     #[test]
-    fn next_question_enforces_the_routing_law() {
-        use crate::domain::{CategoryOwners, Stakeholders};
-        let zach = CurrentUser::new("Zach", vec!["QA Guild".into()]);
-        let mut st = base_state(vec![
-            item("CLR-001", ItemKind::Question, "Security", "Security Team"),
-            item("CLR-002", ItemKind::Question, "QA", "QA Guild"),
-            unassigned("CLR-003", ItemKind::Question, "InfoSec"),
-            item("CLR-004", ItemKind::Question, "General", "Everyone"),
-        ]);
-        for item in &mut st.items {
-            item.priority = Priority::Blocking;
-        }
-        // Security is sole-owned by Priya (veto vs Zach); QA is shared
-        // through QA Guild (Zach's); InfoSec has an entry with NO members
-        // (unowned → seat-inherited by Zach, the non-guest seat).
-        st.config.stakeholders = Stakeholders::new(vec![
-            CategoryOwners::new("Security", vec!["Priya".into()]),
-            CategoryOwners::new("QA", vec!["QA Guild".into()]),
-            CategoryOwners::new("InfoSec", Vec::new()),
-        ]);
+    fn next_question_routes_human_items_and_rejects_agent_items() {
+        let user = CurrentUser::new("Zach");
+        let mut human = item("CLR-001", ItemKind::Question, "Security", "");
+        human.priority = Priority::Blocking;
+        let mut agent = item("CLR-002", ItemKind::Question, "QA", "");
+        agent.authority = Authority::Agent;
+        let st = base_state(vec![human, agent]);
 
-        // Deny-by-veto: even an unambiguous Security question is a FATAL
-        // routing-law problem that rejects the whole turn.
-        let vetoed = validate(&env(Some("CLR-001")), &st, &zach).unwrap_err();
+        let selected = validate(&env(Some("CLR-001")), &st, &user).unwrap();
+        assert_eq!(selected.next_question_id.as_deref(), Some("CLR-001"));
+        let rejected = validate(&env(Some("CLR-002")), &st, &user).unwrap_err();
         assert!(
-            vetoed
+            rejected
                 .iter()
-                .any(|f| f.contains("CLR-001") && f.contains("violates the routing law")),
-            "expected the veto fatal, got: {vetoed:?}"
+                .any(|error| error.contains("not a Human question"))
         );
-        assert!(
-            vetoed
-                .iter()
-                .any(|f| f.contains('“') && f.contains("Zach") && f.contains('”')),
-            "the fatal must name the seated user in the message shape: {vetoed:?}"
-        );
-
-        // Grant-by-group: a QA question addressed to Zach's group is obeyed.
-        let grouped = validate(&env(Some("CLR-002")), &st, &zach).unwrap();
-        assert_eq!(grouped.next_question_id.as_deref(), Some("CLR-002"));
-
-        // Grant-by-unowned-seat: the ownerless InfoSec lane seat-inherits.
-        let inherited = validate(&env(Some("CLR-003")), &st, &zach).unwrap();
-        assert_eq!(inherited.next_question_id.as_deref(), Some("CLR-003"));
-
-        // General is always poseable.
-        let general_route = validate(&env(Some("CLR-004")), &st, &zach).unwrap();
-        assert_eq!(general_route.next_question_id.as_deref(), Some("CLR-004"));
-
-        // Warnings-only arms are unchanged: unknown id …
-        let unknown = validate(&env(Some("CLR-999")), &st, &zach).unwrap();
-        assert_eq!(unknown.next_question_id, None);
-        assert!(
-            unknown
-                .warnings
-                .iter()
-                .any(|w| w.contains("CLR-999") && w.contains("dropped"))
-        );
-        // … an id being resolved this turn …
-        let mut er = env(Some("CLR-004"));
-        er.open_items_resolved = Some(vec!["CLR-004".into()]);
-        let mid_resolve = validate_for_turn_with_resolutions(
-            &er,
-            &st,
-            &zach,
-            crate::core::workflow::TurnPurpose::Interview,
-            &["CLR-004".into()],
-        )
-        .unwrap();
-        assert_eq!(mid_resolve.next_question_id, None);
-        assert!(
-            mid_resolve
-                .warnings
-                .iter()
-                .any(|w| w.contains("being resolved"))
-        );
-        // … and ownership-kind ids (handled in the settings panel).
-        let mut st2 = st.clone();
-        let own = crate::domain::OpenItem::new(
-            "CLR-005".into(),
-            Priority::Normal,
-            ItemKind::Ownership,
-            "InfoSec".into(),
-            None,
-            "nominate an owner".into(),
-            "formal nomination".into(),
-        );
-        st2.items.push(own);
-        let ownership_drop = validate(&env(Some("CLR-005")), &st2, &zach).unwrap();
-        assert_eq!(ownership_drop.next_question_id, None);
-        assert!(
-            ownership_drop
-                .warnings
-                .iter()
-                .any(|w| w.contains("Settings panel"))
-        );
-    }
-
-    #[test]
-    fn ownership_items_are_never_chat_questions() {
-        let ops = CurrentUser::new("Rita", vec!["Operations".into()]);
-        let st = base_state(vec![item(
-            "CLR-001",
-            ItemKind::Ownership,
-            "Operations",
-            "Operations Team",
-        )]);
-        let v = validate(&env(Some("CLR-001")), &st, &ops).unwrap();
-        assert_eq!(v.next_question_id, None);
     }
 
     #[test]
     fn unknown_resolve_is_fatal_and_blocks_everything() {
-        let u = CurrentUser::new("Zach", vec![]);
+        let u = CurrentUser::new("Zach");
         let st = base_state(vec![item("CLR-001", ItemKind::Question, "General", "All")]);
         let mut e = env(None);
         e.open_items_resolved = Some(vec!["CLR-999".into()]);
@@ -1083,7 +908,7 @@ mod tests {
 
     #[test]
     fn fresh_items_get_numbers_after_max_keeps_history_stable() {
-        let u = CurrentUser::new("Zach", vec![]);
+        let u = CurrentUser::new("Zach");
         let st = base_state(vec![
             item("CLR-001", ItemKind::Question, "General", "All"),
             item("CLR-003", ItemKind::Question, "General", "All"),
@@ -1095,7 +920,6 @@ mod tests {
                 id: None,
                 kind: Some("Question".into()),
                 category: Some("Product".into()),
-                assigned_to: Some("Product Owner".into()),
                 priority: Some("High".into()),
                 question: Some("Which auth flow?".into()),
                 resolution_note: None,
@@ -1111,7 +935,6 @@ mod tests {
                 id: Some("CLR-002".into()),
                 kind: Some("Assumption".into()),
                 category: Some("Architecture".into()),
-                assigned_to: Some("Alice".into()),
                 priority: Some("Normal".into()),
                 question: Some("Is SQLite acceptable for parity?".into()),
                 resolution_note: None,
@@ -1131,7 +954,7 @@ mod tests {
 
     #[test]
     fn duplicate_request_collide_rejects_second() {
-        let u = CurrentUser::new("Zach", vec![]);
+        let u = CurrentUser::new("Zach");
         let st = base_state(vec![item("CLR-001", ItemKind::Question, "General", "All")]);
         let mut e = env(None);
         let mk = || TurnItem {
@@ -1139,7 +962,6 @@ mod tests {
             id: Some("CLR-005".into()),
             kind: Some("Question".into()),
             category: Some("General".into()),
-            assigned_to: Some("All".into()),
             priority: Some("Normal".into()),
             question: Some("?".into()),
             resolution_note: None,
@@ -1157,7 +979,7 @@ mod tests {
 
     #[test]
     fn blank_spec_fails_the_whole_turn() {
-        let u = CurrentUser::new("Zach", vec![]);
+        let u = CurrentUser::new("Zach");
         let st = base_state(vec![]);
         let mut e = env(None);
         e.updated_specification = Some("   \n".into());
@@ -1167,7 +989,7 @@ mod tests {
 
     #[test]
     fn update_can_change_priority_kind_category_fields() {
-        let u = CurrentUser::new("Zach", vec![]);
+        let u = CurrentUser::new("Zach");
         let st = base_state(vec![item(
             "CLR-001",
             ItemKind::Assumption,
@@ -1181,7 +1003,6 @@ mod tests {
             priority: Some("Blocking".into()),
             kind: Some("Question".into()),
             category: Some("QA".into()),
-            assigned_to: None,
             question: None,
             reason: Some("regression risk surfaced".into()),
             feature_id: None,
@@ -1196,7 +1017,6 @@ mod tests {
         assert_eq!(patch.priority, Some(Priority::Blocking));
         assert_eq!(patch.kind, Some(ItemKind::Question));
         assert_eq!(patch.category.as_deref(), Some("QA"));
-        assert!(patch.assigned_to.is_none());
     }
 
     // ── Option-1 boundary battery (ticket 004): fatal-class repeatability ──
@@ -1215,11 +1035,9 @@ mod tests {
     #[test]
     fn fatal_classes_fire_twice_with_pinned_fragments_and_stable_vectors() {
         use crate::core::workflow::TurnPurpose;
-        use crate::domain::{CategoryOwners, Stakeholders};
 
-        // Seated identity: a NON-MEMBER human seat, matching the routing
-        // veto case; the other cases are seat-insensitive.
-        let seated = CurrentUser::new("Kool.ad/e Test", Vec::new());
+        // Local identity is carried through validation without category routing.
+        let seated = CurrentUser::new("Kool.ad/e Test");
 
         /// Validates (envelope, state) twice and asserts: (1) the pinned
         /// fragment fired, (2) repetition is byte-stable (deterministic),
@@ -1244,19 +1062,6 @@ mod tests {
             );
         }
 
-        // 1. Routing veto: the seated non-member is aimed at a question in
-        //    a lane sole-owned by someone else.
-        pin(&seated, "routing-veto", "violates the routing law", || {
-            let mut hi = item("CLR-001", ItemKind::Question, "Security", "Priya");
-            hi.priority = Priority::Blocking;
-            let mut st = base_state(vec![hi]);
-            st.config.stakeholders = Stakeholders::new(vec![
-                CategoryOwners::new("Security", vec!["Priya".into()]),
-                CategoryOwners::new("InfoSec", Vec::new()),
-            ]);
-            (st, env(Some("CLR-001")))
-        });
-
         // 2. Human-authority demotion attempt: Agent cannot lower a Human item.
         pin(
             &seated,
@@ -1271,7 +1076,6 @@ mod tests {
                     priority: None,
                     kind: None,
                     category: None,
-                    assigned_to: None,
                     question: None,
                     reason: None,
                     feature_id: None,
@@ -1336,12 +1140,18 @@ mod tests {
             },
         );
 
-        // 5. Blank updated_specification.
-        pin(&seated, "blank-updated-specification", "is blank", || {
-            let mut e = env(None);
-            e.updated_specification = Some("   \n  ".into());
-            (base_state(Vec::new()), e)
-        });
+        // 5. The retired whole-specification field is rejected; logical
+        // document updates are the only supported proposal interface.
+        pin(
+            &seated,
+            "unsupported-updated-specification",
+            "updated_specification is unsupported",
+            || {
+                let mut e = env(None);
+                e.updated_specification = Some("   \n  ".into());
+                (base_state(Vec::new()), e)
+            },
+        );
 
         // 6. Unsupported normalized schema_version (wire versions are handled by the decoder).
         pin(
@@ -1367,7 +1177,6 @@ mod tests {
                     id: Some("CLR-007".into()),
                     kind: Some("Question".into()),
                     category: Some("Security".into()),
-                    assigned_to: Some("Priya".into()),
                     priority: Some("Normal".into()),
                     question: Some("recommend the cipher suite".into()),
                     reason: Some("crypto selection".into()),

@@ -29,7 +29,6 @@ fn related_cards_follow_parent_feature_dependency_and_batch_links() {
         crate::domain::Priority::Normal,
         crate::domain::ItemKind::Question,
         "Product".into(),
-        None,
         "Choose a behavior".into(),
         "The implementation needs this decision".into(),
     );
@@ -38,7 +37,6 @@ fn related_cards_follow_parent_feature_dependency_and_batch_links() {
         crate::domain::Priority::Normal,
         crate::domain::ItemKind::Question,
         "Product".into(),
-        None,
         "Resolve a follow-up".into(),
         "This follows the earlier decision".into(),
     );
@@ -95,7 +93,6 @@ fn task_cards_link_to_chg_feature_decisions() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "Product".into(),
-        None,
         "Choose a release behavior".into(),
         "This decision gates implementation".into(),
     );

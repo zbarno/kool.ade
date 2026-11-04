@@ -140,6 +140,18 @@ fn paint_approval(
                     }
                     None => {}
                 }
+            } else if action.compare_plans {
+                if ui
+                    .add_enabled(
+                        !surface.conversation_busy(),
+                        egui::Button::new("Compare plans").fill(crate::ui::theme::ACTION),
+                    )
+                    .clicked()
+                {
+                    surface.dispatch(crate::ui::ApplicationCommand::ApproveFeatureForBoard {
+                        id: feature_id.to_owned(),
+                    });
+                }
             } else {
                 ui.horizontal_wrapped(|ui| {
                     if !action.user_confirmed

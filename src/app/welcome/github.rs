@@ -1,17 +1,7 @@
 use std::path::{Path, PathBuf};
 
 mod clone;
-mod pending_clone;
-mod setup_lock;
-pub(super) use clone::perform_clone_at_with_pre_publish;
-pub(super) use clone::reject_occupied_destination;
 pub use clone::{perform_clone, perform_clone_at};
-pub(crate) use pending_clone::{
-    clear_pending_clone_receipt, pending_clone_workspace_id, perform_clone_for_workspace,
-};
-#[cfg(test)]
-pub(crate) use pending_clone::{pending_clone_workspace_id_at, perform_clone_at_for_workspace};
-pub(crate) use setup_lock::SetupLock;
 /// A parsed GitHub clone target.
 ///
 /// `url` is the canonical rebuilt form, never the raw pasted string, so

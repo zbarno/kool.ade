@@ -278,7 +278,7 @@ fn relative_path(
     path: &Path,
 ) -> anyhow::Result<String> {
     let relative = path.strip_prefix(&store.root)?.to_string_lossy();
-    Ok(store.git_path(&relative))
+    Ok(store.relative_path(&relative))
 }
 
 #[cfg(test)]

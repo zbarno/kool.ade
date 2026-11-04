@@ -2,10 +2,6 @@
 //! produced a feature specification.
 use serde::{Deserialize, Serialize};
 
-pub const FILE: &str = crate::artifacts::layout::store::WORK;
-pub const STORE_FILE: &str = crate::artifacts::planning_store::paths::WORK;
-const SCHEMA_VERSION: u32 = 5;
-
 mod code_review_disposition;
 mod cycles;
 mod history;
@@ -153,17 +149,6 @@ impl WorkStatus {
             Self::Done => 4,
         }
     }
-
-    fn from_legacy_column(column: usize) -> anyhow::Result<Self> {
-        match column {
-            0 => Ok(Self::Todo),
-            1 => Ok(Self::InProgress),
-            2 => Ok(Self::InReview),
-            3 => Ok(Self::NeedsAttention),
-            4 => Ok(Self::Done),
-            _ => anyhow::bail!("Unsupported legacy planning work column {column}"),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -201,17 +186,9 @@ pub struct Work {
     /// Shared archive marker; history remains on the root Work record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_intent_archived_at_ms: Option<u64>,
-    #[serde(
-        default,
-        alias = "source_branch",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_branch: Option<String>,
-    #[serde(
-        default,
-        alias = "destination_branch",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub destination_branch: Option<String>,
     /// Explicit task-owned routes; missing categories remain application defaults.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
@@ -243,22 +220,13 @@ pub struct FollowUpTaskOffer {
     pub description: String,
 }
 
-/// Match a planning record to the feature it owns. A durable UID is
-/// authoritative; the display ID is only a migration fallback for legacy
-/// records that predate feature UIDs.
-pub(crate) fn belongs_to_feature(work: &Work, feature_id: &str, feature_uid: Option<&str>) -> bool {
-    match (work.feature_uid.as_deref(), feature_uid) {
-        (Some(work_uid), Some(feature_uid)) => work_uid == feature_uid,
-        (Some(_), None) | (None, Some(_)) => false,
-        (None, None) => work.feature_id.as_deref() == Some(feature_id),
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct WorkFile {
-    schema_version: u32,
-    items: Vec<Work>,
+/// Match a planning record to a feature by its immutable identity.
+pub(crate) fn belongs_to_feature(
+    work: &Work,
+    _feature_id: &str,
+    feature_uid: Option<&str>,
+) -> bool {
+    feature_uid.is_some_and(|uid| work.feature_uid.as_deref() == Some(uid))
 }
 
 #[derive(Serialize, Deserialize)]

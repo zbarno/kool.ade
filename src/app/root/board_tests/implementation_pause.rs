@@ -57,11 +57,9 @@ fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
     git(&["config", "user.email", "koolade@example.test"]);
     let ticket = "planning/tasks/fixture/001-task.md";
     let ticket_text = "# First task\n\nUnique story detail 0\n";
-    let ticket_path = root.join(ticket);
-    std::fs::create_dir_all(ticket_path.parent().unwrap()).unwrap();
-    std::fs::write(&ticket_path, ticket_text).unwrap();
-    git(&["add", "."]);
-    git(&["commit", "-q", "-m", "fixture task"]);
+    std::fs::write(root.join("README.md"), "code checkout fixture\n").unwrap();
+    git(&["add", "README.md"]);
+    git(&["commit", "-q", "-m", "code baseline"]);
     let base_commit = std::process::Command::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(&root)
@@ -96,6 +94,38 @@ fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
     if let Screen::Connected(project) = &mut app.screen {
         project.state = crate::core::state::PlannerState::load(&root).unwrap();
         project.state.bootstrap_missing().unwrap();
+        let local_state_root = project.state.planning_store.local_root();
+        let task_document = project
+            .task_documents
+            .iter()
+            .find(|document| document.path == ticket)
+            .expect("fixture contains the selected task");
+        let task_path = local_state_root.join(ticket);
+        std::fs::create_dir_all(task_path.parent().unwrap()).unwrap();
+        let stored = crate::artifacts::task_docs::embed(
+            &task_document.text,
+            task_document
+                .metadata
+                .as_ref()
+                .expect("task metadata is seeded"),
+        )
+        .unwrap();
+        let identity = serde_json::to_string(
+            task_document
+                .identity
+                .as_ref()
+                .expect("task identity is seeded"),
+        )
+        .unwrap();
+        std::fs::write(
+            task_path,
+            format!("{stored}\n<!-- koolade-artifact-id:v1 {identity} -->\n"),
+        )
+        .unwrap();
+        project
+            .queue
+            .bind_task_documents(&project.task_documents)
+            .unwrap();
         let mut record = project
             .implementation_states
             .values()
@@ -113,7 +143,7 @@ fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
         record.status = ImplementationStatus::Blocked;
         record.pr_url = None;
         record.detail = "preserved failure before pause".into();
-        let state_dir = crate::core::implementation::state_dir(&root, ticket).unwrap();
+        let state_dir = crate::core::implementation::state_dir(&local_state_root, ticket).unwrap();
         crate::core::implementation::save(&state_dir, &record).unwrap();
         project.implementation_states.insert(ticket.into(), record);
         project.queue.running = true;
@@ -139,7 +169,12 @@ fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
         assert!(!project.active_implementations.contains_key(ticket));
         assert!(project.queue.task_paused(ticket));
         assert!(!project.queue.recovery_attempts.contains_key(ticket));
-        let persisted = crate::core::implementation_queue::Queue::load(&root).unwrap();
+        let mut persisted =
+            crate::core::implementation_queue::Queue::load(&project.state.planning_store.root)
+                .unwrap();
+        persisted
+            .bind_task_documents(&project.task_documents)
+            .unwrap();
         assert!(persisted.task_paused(ticket));
         assert!(
             persisted

@@ -3,7 +3,7 @@ use crate::artifacts::planning_store::{PlanningStore, StoreError};
 
 /// Run a collection read while holding the same per-store lock as writers.
 /// This prevents loaders from observing a prefix of a journaled multi-file
-/// transaction, including normalized-record migrations.
+/// transaction, including normalized-record writes.
 pub(crate) fn with_consistent_read<T, E>(
     store: &PlanningStore,
     read: impl FnOnce() -> Result<T, E>,

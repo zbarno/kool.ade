@@ -54,7 +54,7 @@ fn render_workspace_review_gallery() {
             "Models & Routing",
             "Automation",
             "Project & Git",
-            "People & Stakeholders",
+            "Local identity",
         ] {
             gallery.ctx.data_mut(|data| {
                 data.insert_temp(

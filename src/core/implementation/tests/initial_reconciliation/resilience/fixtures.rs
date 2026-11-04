@@ -24,7 +24,7 @@ fn interrupted_with_configuration_and_build_ignore(granted: bool, build_ignore: 
     // These files define the fixture's starting state; avoid a throwaway commit and remote push.
     let s = Sandbox::new_with_initial_files(&initial_files);
     let (remote, local, common) = super::super::merge_recovery::make_divergent(&s);
-    let dir = super::state_dir(&s.repo, &s.ticket).unwrap();
+    let dir = super::state_dir(&s.planning_store.root, &s.ticket).unwrap();
     let worktree = super::super::merge_recovery::task_worktree(&s);
     fs::create_dir_all(worktree.parent().unwrap()).unwrap();
     let branch = format!(
@@ -66,7 +66,7 @@ fn interrupted_with_configuration_and_build_ignore(granted: bool, build_ignore: 
         .unwrap();
         super::super::runtime_config::approve_path(&s, ".cache/.env");
     }
-    super::super::save_legacy_reconciliation_state(
+    super::super::save_clone_reconciliation_state(
         &s, &s.ticket, &worktree, "main", &local, &remote, &common,
     );
     let error = super::run_with_agent(&s, &StopAfterVerification, None)

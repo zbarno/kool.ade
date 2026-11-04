@@ -131,7 +131,7 @@ pub(super) fn write_new_batch<R: PlanningRoot + ?Sized>(
             created_at_ms: super::super::record_files::next_batch_timestamp(&next),
         });
         let directory_relative = store_relative_directory(&directory);
-        let (mut changes, workflow_checks, _) = super::super::record_files::changes(repo, &next)?;
+        let (mut changes, workflow_checks) = super::super::record_files::changes(repo, &next)?;
         let mut record_checks = workflow_checks;
         record_checks.extend(additional_checks.iter().cloned());
         let mut staged_task_state = Vec::new();
@@ -155,7 +155,7 @@ pub(super) fn write_new_batch<R: PlanningRoot + ?Sized>(
         );
         changes.extend(staged_task_state);
         if let Some(root_uid) = task_intent_uid.as_deref() {
-            let (history_changes, history_checks, _) =
+            let (history_changes, history_checks) =
                 crate::core::planning_work::linked_executable_task_changes(
                     &store, root_uid, &task_uids,
                 )?;
@@ -172,7 +172,10 @@ pub(super) fn write_new_batch<R: PlanningRoot + ?Sized>(
         }
         *workflow = super::super::record_files::load(repo)?;
         Ok((
-            committed.iter().map(|path| store.git_path(path)).collect(),
+            committed
+                .iter()
+                .map(|path| store.relative_path(path))
+                .collect(),
             revision,
         ))
     })();

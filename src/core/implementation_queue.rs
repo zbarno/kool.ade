@@ -4,6 +4,8 @@ mod selection;
 mod state;
 
 pub use scope_conflicts::active_scope_conflict;
+#[cfg(test)]
+pub(super) use selection::task_dependencies;
 pub use selection::{
     next_ready_ticket, next_ready_ticket_with_lifecycle_subtasks,
     next_ready_ticket_with_running_scopes, next_ticket, ready_tickets_with_lifecycle_subtasks,

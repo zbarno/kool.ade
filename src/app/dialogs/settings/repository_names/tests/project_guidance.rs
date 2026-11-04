@@ -1,12 +1,13 @@
 use super::*;
 
 #[test]
-fn failed_shared_settings_validation_does_not_persist_guidance() {
+fn failed_private_settings_validation_does_not_persist_guidance() {
     let _shield =
         crate::core::gitops::test_support::shield("guidance-save-after-shared-validation");
     let root = fixture();
+    let state_root = tempfile::tempdir().unwrap();
     let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
-    environment.set("KOOLADE_HOME", root.join("operator-state"));
+    environment.set("KOOLADE_HOME", state_root.path());
     let mut project = test_support::project_from(&root);
     let mut dialog = DlgProjectSettings::from_project(&project);
     dialog.agent_guidance = "Approved project convention.".into();
@@ -24,22 +25,23 @@ fn failed_shared_settings_validation_does_not_persist_guidance() {
         crate::persistence::project_guidance::load_for_root(&root).unwrap(),
         None
     );
+    test_support::remove_planning_store_for(&root);
     let _ = std::fs::remove_dir_all(root);
 }
 
-// Production boundary: verifies a later private-state write failure reports
-// that shared settings were already committed and leaves guidance unavailable.
-// This guards the unavoidable boundary between the planning Git transaction
-// and per-operator state. It uses a synthetic local Git repo only, no Docker,
-// provider, network, or credentials; setup is low.
+// Production boundary: verifies that if approved guidance cannot be saved,
+// the already-saved private project route state is reported with its local
+// revision and guidance remains unavailable. Synthetic local state only; no
+// Docker, provider, network, or credentials; setup is low.
 #[test]
-fn guidance_write_failure_reports_prior_shared_checkpoint() {
+fn guidance_write_failure_reports_prior_local_state_revision() {
     let _shield = crate::core::gitops::test_support::shield("guidance-save-failure");
     let root = fixture();
     let state_root = tempfile::tempdir().unwrap();
     let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
     environment.set("KOOLADE_HOME", state_root.path());
     let mut project = test_support::project_from(&root);
+    let initial_head = super::git_head(&root);
     let mut dialog = DlgProjectSettings::from_project(&project);
     dialog.agent_guidance = "Approved project convention.".into();
     dialog.approve_agent_guidance = true;
@@ -68,7 +70,7 @@ fn guidance_write_failure_reports_prior_shared_checkpoint() {
 
     let error = dialog.apply(&mut project).unwrap_err().detail();
     assert!(
-        error.contains("Shared project settings were saved at checkpoint"),
+        error.contains("Private project settings were saved at local state revision"),
         "unexpected settings save error: {error}"
     );
     assert!(
@@ -80,13 +82,17 @@ fn guidance_write_failure_reports_prior_shared_checkpoint() {
             && (error.contains("Not a directory") || error.contains("File exists")),
         "unexpected guidance persistence failure: {error}"
     );
-    let reported_checkpoint = error
-        .split("checkpoint ")
+    let reported_revision = error
+        .split("local state revision ")
         .nth(1)
-        .and_then(|suffix| suffix.split_once(',').map(|(checkpoint, _)| checkpoint))
-        .expect("partial-save message includes the committed checkpoint");
-    assert_eq!(reported_checkpoint, project.git.head_short);
-    assert_eq!(reported_checkpoint.len(), 7);
+        .and_then(|suffix| suffix.split_once(',').map(|(revision, _)| revision))
+        .expect("partial-save message includes the private local revision");
+    assert_eq!(reported_revision.len(), 7);
+    assert_eq!(
+        super::git_head(&root),
+        initial_head,
+        "private project state must not create Git history"
+    );
     assert_eq!(
         project.state.harness_routes.routes[crate::persistence::harness_settings::MANAGER].harness,
         selected_manager
@@ -95,5 +101,6 @@ fn guidance_write_failure_reports_prior_shared_checkpoint() {
         std::fs::read_to_string(blocked_state_root).unwrap(),
         "not a directory"
     );
+    test_support::remove_planning_store_for(&root);
     let _ = std::fs::remove_dir_all(root);
 }

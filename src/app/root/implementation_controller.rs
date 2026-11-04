@@ -100,7 +100,7 @@ impl KooladeApp {
             project.activity.pending.push(format!(
                 "{ticket} needs attention: verified work is ready for review before it can be shared."
             ));
-            if let Err(error) = project.queue.save(&project.state.repo_root) {
+            if let Err(error) = project.queue.save(&project.state.planning_store.root) {
                 project.queue.last_error =
                     format!("Cannot save the publication review item for {ticket}: {error}");
                 return;

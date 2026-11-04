@@ -54,24 +54,6 @@ pub(in crate::core::implementation) fn save_clone_plan(
     )
 }
 
-pub(in crate::core::implementation) fn attach_clone_repository(
-    dir: &Path,
-    clone_repository: CloneRepositoryPlan,
-) -> anyhow::Result<()> {
-    let path = dir.join(PLAN_FILE);
-    let mut plan = read_plan(&path)?;
-    if let Some(existing) = &plan.clone_repository {
-        anyhow::ensure!(
-            existing == &clone_repository,
-            "Saved reconciliation clone identity changed; the snapshot is preserved"
-        );
-        return Ok(());
-    }
-    plan.schema_version = 3;
-    plan.clone_repository = Some(clone_repository);
-    write_plan(&path, &plan)
-}
-
 fn save_plan_with_repository(
     dir: &Path,
     base: &str,

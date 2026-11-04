@@ -38,17 +38,6 @@ pub(crate) fn validate_payload(payload: &RolePayloadV1) -> Result<(), String> {
 
     let valid = match payload {
         RolePayloadV1::Manager { .. } => unreachable!("Manager payloads return above"),
-        RolePayloadV1::Planner {
-            open_questions,
-            previous_answers,
-            research_evidence,
-            requested_scope,
-        } => {
-            list(open_questions, 256, 4096)
-                && list(previous_answers, 256, 4096)
-                && list(research_evidence, 256, 1024)
-                && text(requested_scope, 16 * 1024)
-        }
         RolePayloadV1::PlannerOpportunity {
             open_questions,
             previous_answers,

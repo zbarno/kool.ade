@@ -2,25 +2,18 @@ use super::*;
 use crate::domain::ItemKind::*;
 use egui::Color32;
 
-/// All five board discriminants return the CHG-002 recorded defaults
+/// All four board discriminants return the current recorded defaults
 /// byte-for-byte (literal pins on purpose, so a future rebasing of the
 /// ACCENT/PURPLE/etc palette constants fails loudly), and each item-kind
 /// badge shares its foreground with the board hue of the same class.
 #[test]
 fn board_class_hues_match_recorded_defaults() {
-    let kinds = [
-        None,
-        Some(Question),
-        Some(Ambiguity),
-        Some(Assumption),
-        Some(Ownership),
-    ];
+    let kinds = [None, Some(Question), Some(Ambiguity), Some(Assumption)];
     let recorded_defaults = [
         Color32::from_rgb(201, 209, 217),
         Color32::from_rgb(182, 108, 255),
         Color32::from_rgb(255, 194, 71),
         Color32::from_rgb(34, 184, 255),
-        Color32::from_rgb(240, 106, 157),
     ];
     assert_eq!(kinds.len(), recorded_defaults.len());
     for (kind, expected) in kinds.into_iter().zip(recorded_defaults) {
@@ -29,24 +22,17 @@ fn board_class_hues_match_recorded_defaults() {
     assert_eq!(Question.badge_colors().1, board_hue(Some(Question)));
     assert_eq!(Ambiguity.badge_colors().1, board_hue(Some(Ambiguity)));
     assert_eq!(Assumption.badge_colors().1, board_hue(Some(Assumption)));
-    assert_eq!(Ownership.badge_colors().1, board_hue(Some(Ownership)));
 }
 
 /// Stipulation ii, machine-guarded: DANGER red is not a card hue. The
 /// sentinel is pinned first so the guard cannot pass vacuously, and all
-/// five current discriminants - the four ItemKind arms plus the Task
+/// four current discriminants - the three ItemKind arms plus the Task
 /// `None` arm - reject red; add any new ItemKind variant to this list
 /// (whatever arm it reaches) to keep the guard exhaustive.
 #[test]
 fn no_card_hues_claim_danger() {
     assert_eq!(DANGER, Color32::from_rgb(255, 83, 100));
-    for kind in [
-        None,
-        Some(Question),
-        Some(Ambiguity),
-        Some(Assumption),
-        Some(Ownership),
-    ] {
+    for kind in [None, Some(Question), Some(Ambiguity), Some(Assumption)] {
         assert_ne!(
             board_hue(kind),
             DANGER,
@@ -62,13 +48,7 @@ fn no_card_hues_claim_danger() {
 /// individually reasonable.
 #[test]
 fn board_hues_remain_pairwise_distinct() {
-    let kinds = [
-        None,
-        Some(Question),
-        Some(Ambiguity),
-        Some(Assumption),
-        Some(Ownership),
-    ];
+    let kinds = [None, Some(Question), Some(Ambiguity), Some(Assumption)];
     let hues = kinds.map(board_hue);
     for (index, kind) in kinds.into_iter().enumerate() {
         assert!(
@@ -84,13 +64,7 @@ fn board_hues_remain_pairwise_distinct() {
 /// twin in fill and stroke while card type remains a badge-level distinction.
 #[test]
 fn board_frames_separate_active_from_idle_per_class() {
-    let kinds = [
-        None,
-        Some(Question),
-        Some(Ambiguity),
-        Some(Assumption),
-        Some(Ownership),
-    ];
+    let kinds = [None, Some(Question), Some(Ambiguity), Some(Assumption)];
     for kind in kinds {
         let idle = board_frame(kind, false);
         let running = board_frame(kind, true);
@@ -107,12 +81,7 @@ fn board_frames_separate_active_from_idle_per_class() {
     assert_eq!(idle_task.stroke.width, 1.0);
     assert_eq!(running_task.stroke.color, BLUE_BRIGHT);
     assert_eq!(idle_task.stroke.color, BORDER_STRONG);
-    for kind in [
-        Some(Question),
-        Some(Ambiguity),
-        Some(Assumption),
-        Some(Ownership),
-    ] {
+    for kind in [Some(Question), Some(Ambiguity), Some(Assumption)] {
         let idle = board_frame(kind, false);
         let running = board_frame(kind, true);
         assert_eq!(running.stroke.color, BLUE_BRIGHT);

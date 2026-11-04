@@ -7,10 +7,6 @@ pub(super) fn ensure_integration_repository(
     commit_identity: &crate::core::implementation::repository_cache::GitCommitIdentity,
     runner: &Runner,
 ) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        state.task_repository_kind == TaskRepositoryKind::Clone,
-        "Legacy integration repositories must migrate before use"
-    );
     task_repository::validate_clone_path_at(state, &state.task_repository)?;
     let cache = RepositoryCache::from_saved_state(state, runner)?;
     if state.task_repository.exists() {

@@ -101,18 +101,12 @@ pub(super) fn run_with_settle_window(
                             anyhow::bail!("{DEFER_PREFIX}");
                         }
                         let mut next = state.clone();
-                        let receipt = apply::apply(&mut next, &normalized)?;
-                        let commit = gitops::commit(
-                            &next.planning_store.git_root(),
-                            &receipt.commit_message,
-                            &receipt.repo_relative_paths,
-                        )
-                        .map_err(|error| {
-                            anyhow::anyhow!(
-                                "Reconciliation was saved but checkpoint failed: {error}"
-                            )
-                        })?;
-                        Ok((next, format!("{} ({})", envelope.assistant(), commit)))
+                        let _receipt = apply::apply(&mut next, &normalized)?;
+                        let revision = next.planning_store.revision()?;
+                        Ok((
+                            next,
+                            format!("{} (saved locally {})", envelope.assistant(), revision),
+                        ))
                     })();
                     drop(guard);
                     match attempt {

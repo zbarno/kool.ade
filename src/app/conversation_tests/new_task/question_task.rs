@@ -120,7 +120,7 @@ fn question_task_persists_starts_async_answers_and_finishes_without_a_spec() {
         );
         assert_eq!(item.kind, crate::core::planning_work::WorkKind::Question);
         assert_eq!(item.request, "Why does the application use SQLite?");
-        let saved = crate::core::planning_work::load(&root).unwrap();
+        let saved = crate::core::planning_work::load(&project.state.planning_store).unwrap();
         assert_eq!(saved.last().unwrap().uid, item.uid);
         assert_eq!(saved.last().unwrap().kind, item.kind);
         item.key.clone()
@@ -139,7 +139,7 @@ fn question_task_persists_starts_async_answers_and_finishes_without_a_spec() {
     assert!(item.feature_id.is_none());
     assert!(item.detail.contains("SQLite is used"));
     assert!(project.state.active_features.is_empty());
-    let restarted = crate::core::planning_work::load(&root).unwrap();
+    let restarted = crate::core::planning_work::load(&project.state.planning_store).unwrap();
     let restored = restarted
         .iter()
         .find(|restored| restored.key == key)

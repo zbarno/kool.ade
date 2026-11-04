@@ -21,7 +21,7 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
     ));
     std::fs::create_dir_all(&test_root).unwrap();
     let code_root = test_root.join("workspace");
-    let planning_root = test_root.join("planning-repository");
+    let local_state_root = test_root.join("private-state");
     let git = |root: &std::path::Path, args: &[&str]| {
         let output = std::process::Command::new("git")
             .args(args)
@@ -35,42 +35,47 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
             String::from_utf8_lossy(&output.stderr)
         );
     };
-    for root in [&code_root, &planning_root] {
-        std::fs::create_dir_all(root).unwrap();
-        git(root, &["init", "-q", "-b", "main"]);
-        git(root, &["config", "user.name", "Koolade Test"]);
-        git(root, &["config", "user.email", "koolade@example.test"]);
-    }
+    std::fs::create_dir_all(&code_root).unwrap();
+    git(&code_root, &["init", "-q", "-b", "main"]);
+    git(&code_root, &["config", "user.name", "Koolade Test"]);
+    git(
+        &code_root,
+        &["config", "user.email", "koolade@example.test"],
+    );
     std::fs::write(code_root.join("README.md"), "isolated UI fixture\n").unwrap();
     git(&code_root, &["add", "README.md"]);
     git(&code_root, &["commit", "-q", "-m", "UI fixture code"]);
+    crate::core::state::test_support::seed_published_product_document(&code_root).unwrap();
 
+    let batch_uid = uuid::Uuid::new_v4().hyphenated().to_string();
     let docs = ["First task", "Review task", "Merged task"]
         .iter()
         .enumerate()
-        .map(|(i, title)| crate::artifacts::task_docs::TaskDocument {
-            path: format!("planning/tasks/fixture/{:03}-task.md", i + 1),
-            title: title.to_string(),
-            text: format!("# {title}\n\nUnique story detail {i}"),
-            identity: None,
-            metadata: None,
-            task_state: None,
-            metadata_error: None,
+        .map(|(i, title)| {
+            let mut identity =
+                crate::domain::ArtifactIdentity::new(&format!("TASK-{:03}", i + 1), title);
+            identity.parent_uid = Some(batch_uid.clone());
+            let metadata =
+                crate::artifacts::task_docs::TaskMetadata::new(&identity, "root", vec![]).unwrap();
+            let text = format!("# {title}\n\nUnique story detail {i}");
+            let path = format!("planning/tasks/fixture/{:03}-task.md", i + 1);
+            let encoded = crate::artifacts::task_docs::embed(&text, &metadata).unwrap();
+            let file = local_state_root.join(&path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, encoded).unwrap();
+            crate::artifacts::task_docs::TaskDocument {
+                path,
+                title: title.to_string(),
+                text,
+                identity: Some(identity),
+                metadata: Some(metadata),
+                task_state: None,
+                metadata_error: None,
+            }
         })
         .collect::<Vec<_>>();
-    for doc in &docs {
-        let path = planning_root.join(&doc.path);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, &doc.text).unwrap();
-    }
 
     let workspace_id = uuid::Uuid::new_v4();
-    let workspace_manifest = crate::core::managed_workspace::WorkspaceManifest::new(workspace_id);
-    std::fs::write(
-        planning_root.join("manifest.json"),
-        serde_json::to_vec_pretty(&workspace_manifest).unwrap(),
-    )
-    .unwrap();
     let repositories = crate::core::project_repos::ProjectManifest {
         repositories: vec![crate::core::project_repos::Repository {
             id: "root".into(),
@@ -80,22 +85,17 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
         }],
     };
     let project_manifest_path =
-        planning_root.join(crate::artifacts::planning_store::paths::PROJECT_MANIFEST);
+        local_state_root.join(crate::artifacts::planning_store::paths::PROJECT_MANIFEST);
     std::fs::create_dir_all(project_manifest_path.parent().unwrap()).unwrap();
     std::fs::write(
         project_manifest_path,
         serde_json::to_vec_pretty(&repositories).unwrap(),
     )
     .unwrap();
-    git(&planning_root, &["add", "."]);
-    git(
-        &planning_root,
-        &["commit", "-q", "-m", "UI fixture planning"],
-    );
-    let planning_store = crate::artifacts::planning_store::PlanningStore::new(
+    let planning_store = crate::artifacts::planning_store::PlanningStore::for_code_repository(
         workspace_id,
-        &planning_root,
-        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+        &local_state_root,
+        &code_root,
     );
 
     let mut states = std::collections::BTreeMap::new();
@@ -123,7 +123,7 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
             base: "main".into(),
             base_commit: "fixture".into(),
             task_repository: code_root.join("worktree"),
-            task_repository_kind: crate::core::implementation::TaskRepositoryKind::LegacyWorktree,
+            task_repository_kind: crate::core::implementation::TaskRepositoryKind::Clone,
             task_repository_ready: false,
             task_repositories: vec![code_root.join("worktree")],
             task_repository_commits: std::collections::BTreeMap::new(),
@@ -137,7 +137,7 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
             verified_head: Some("fixture".into()),
             auto_merge: false,
             merged_commit: None,
-            pr_state: PullRequestState::parse_legacy(pr_state),
+            pr_state: PullRequestState::parse_wire(pr_state),
             pr_details: None,
             pr_checked_at: None,
             pr_check_attempted_at: None,
@@ -160,9 +160,6 @@ pub(in crate::app::root) fn fixture() -> KooladeApp {
             activity: Default::default(),
             state: crate::core::state::PlannerState::load_with_store(&code_root, &planning_store)
                 .unwrap(),
-            managed_workspace: None,
-            planning_sync: crate::core::planning_sync::PlanningSyncStatus::local(),
-            planning_remote_url: None,
             chat_slug,
             chat: Vec::new(),
             draft: String::new(),

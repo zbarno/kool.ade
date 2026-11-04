@@ -17,7 +17,7 @@ red brand accent. Shared text, spacing, colors and scrollbars are applied throug
 - Desktop details place conversation beside state and actions. Narrow details
   use one continuous scrollable document. Plan alternatives stack when narrow.
 - Settings use grouped navigation and a bounded reading width. Tool selection,
-  stakeholder forms and branch selectors adapt to narrow windows.
+  local user settings and repository selectors adapt to narrow windows.
 - The compact specification view starts with the document; the conversation
   can be expanded explicitly.
 

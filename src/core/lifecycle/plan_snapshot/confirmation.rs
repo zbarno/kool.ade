@@ -145,8 +145,7 @@ fn validate_record(
         || receipt.decision != GateDecision::Approved
         || receipt.subject_uid != snapshot.uid
         || receipt.subject_sha256 != snapshot.content_hash
-        || !(valid_evidence_refs(receipt, snapshot)
-            || receipt.evidence_refs == [format!("plan:{}", snapshot.uid)])
+        || !valid_evidence_refs(receipt, snapshot)
     {
         return Err(StoreError::MalformedState(
             "plan confirmation record is malformed or stale".into(),

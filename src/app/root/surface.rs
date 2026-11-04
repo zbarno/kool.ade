@@ -115,15 +115,7 @@ impl Surface for KooladeApp {
         self.bootstrap_conversation.draft_mut(task_id)
     }
 
-    fn planning_repository(&self) -> Option<crate::ui::PlanningRepositoryViewModel> {
-        self.planning_repository_view()
-    }
-
-    fn save_planning_remote(&mut self, remote: &str) -> Result<(), String> {
-        self.update_planning_remote(remote)
-    }
-
-    fn people_settings_draft(&self) -> Option<crate::app::dialogs::DlgSettings> {
+    fn local_user_settings_draft(&self) -> Option<crate::app::dialogs::DlgSettings> {
         match &self.screen {
             Screen::Connected(project) => {
                 Some(crate::app::dialogs::DlgSettings::from_project(project))
@@ -132,15 +124,15 @@ impl Surface for KooladeApp {
         }
     }
 
-    fn save_people_settings(
+    fn save_local_user_settings(
         &mut self,
         draft: &mut crate::app::dialogs::DlgSettings,
     ) -> Result<String, String> {
         let Screen::Connected(project) = &mut self.screen else {
-            return Err("Connect a workspace before editing its people settings.".into());
+            return Err("Connect a workspace before editing local identity settings.".into());
         };
         let sha = draft.apply(project).map_err(|error| error.detail())?;
-        (self.cached_user, self.synth) = Self::derive_caches(project);
+        self.cached_user = Self::derive_caches(project);
         self.toasts.success(format!("Saved · checkpoint {sha}"));
         Ok(sha)
     }
@@ -182,10 +174,6 @@ impl Surface for KooladeApp {
 
     fn is_git_repo(&self) -> bool {
         matches!(&self.screen, Screen::Connected(project) if project.has_selected_code_repository())
-    }
-
-    fn registered_repositories(&self) -> Vec<crate::ui::RepositoryChoice> {
-        repository_switcher::choices(&self.screen)
     }
 
     fn git_branch(&self) -> &str {
@@ -476,12 +464,6 @@ impl Surface for KooladeApp {
             _ => "",
         }
     }
-    fn stale_task_claim(&self) -> Option<(String, crate::core::task_claim::ClaimRecord)> {
-        match &self.screen {
-            Screen::Connected(project) => project.queue.stale_claim.clone(),
-            Screen::Welcome => None,
-        }
-    }
     fn planning_board(&self) -> crate::ui::planning_board::ViewModel {
         self.planning_board_for_surface()
     }
@@ -501,6 +483,24 @@ impl Surface for KooladeApp {
                 .or(p.state.spec_text.as_deref())
                 .unwrap_or(NO_SPEC_PLACEHOLDER),
             Screen::Welcome => "",
+        }
+    }
+
+    fn has_published_product_spec(&self) -> bool {
+        matches!(&self.screen, Screen::Connected(project) if project.state.spec_text.is_some())
+    }
+
+    fn published_spec_pin(&self) -> Option<&crate::core::published_specs::PublishedSpecPin> {
+        match &self.screen {
+            Screen::Connected(project) => project.state.published_spec_pin.as_ref(),
+            Screen::Welcome => None,
+        }
+    }
+
+    fn local_spec_draft(&self) -> Option<&crate::core::apply::LocalSpecDraftV1> {
+        match &self.screen {
+            Screen::Connected(project) => project.state.local_spec_draft.as_ref(),
+            Screen::Welcome => None,
         }
     }
 

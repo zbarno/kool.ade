@@ -78,7 +78,7 @@ pub fn candidate(state: &PlannerState) -> anyhow::Result<Option<Candidate>> {
         let relative = format!("{}/{filename}", batch.directory);
         let Some(record) = crate::core::implementation::load_with_store(
             &state.planning_store,
-            &state.repo_root,
+            &state.planning_store.root,
             &relative,
         ) else {
             return Ok(None);
@@ -122,6 +122,7 @@ mod tests {
             "base": "main",
             "base_commit": "0000000000000000000000000000000000000000",
             "task_repository": "/tmp/koolade-task",
+            "task_repository_kind": "clone",
             "status": status,
             "detail": "",
             "pr_url": null,

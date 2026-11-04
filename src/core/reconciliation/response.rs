@@ -5,22 +5,24 @@ pub(super) fn prompt(
     candidate: &Candidate,
     evidence: &str,
 ) -> anyhow::Result<String> {
-    let feature_path = crate::artifacts::product_docs::document_path(
+    let current_feature = crate::artifacts::product_docs::current_document(
         &state.planning_store,
         &format!("feature:{}", candidate.feature_id),
-    )?;
-    let current_feature =
-        String::from_utf8(state.planning_store.read_planning_path(&feature_path)?)?;
+    )?
+    .ok_or_else(|| {
+        anyhow::anyhow!(
+            "Feature {} is not published or proposed",
+            candidate.feature_id
+        )
+    })?;
     let mut modules = String::new();
     for id in candidate.contract.product_modules.keys() {
-        let path = crate::artifacts::product_docs::document_path(
+        let content = crate::artifacts::product_docs::current_document(
             &state.planning_store,
             &format!("product:{id}"),
-        )?;
-        modules.push_str(&format!(
-            "\n=== product:{id} ===\n{}\n",
-            String::from_utf8(state.planning_store.read_planning_path(&path)?)?
-        ));
+        )?
+        .ok_or_else(|| anyhow::anyhow!("Product document {id} is not published or proposed"))?;
+        modules.push_str(&format!("\n=== product:{id} ===\n{}\n", content));
     }
     Ok(format!(
         "Reconcile the approved feature with ACTUAL MERGED implementation. Inspect the merged commits in their target repositories using read-only git show/diff; the current checkout may not contain those commits. The product specification must describe only resulting current truth. If implementation matches the approved feature, return full replacements for affected product modules and the feature specification, set that document update's typed status to `implemented`, and include the merged commit references. Preserve the approved feature's normative sections verbatim. If there is a material disagreement, do NOT change product modules: set the feature update's typed status to `reconciliation` and create one Review or Human open item with feature_id, recommendation, evidence, and a question describing the discrepancy. The `status` field is machine-authoritative; the visible Status line is rendered from it. Do not silently rewrite intent. Return schema_version 2 JSON with assistant_message, document_updates, open_items_added, open_items_updated=[], open_items_resolved=[], next_question_id=null, updated_specification=null. Only product IDs in the affected modules and feature:{} are writable. All changes are validated as one transaction.\n\n=== APPROVED FEATURE ===\n{}\n\n=== CURRENT FEATURE ===\n{}\n\n=== AFFECTED PRODUCT MODULES ===\n{}\n\n=== MERGED IMPLEMENTATION EVIDENCE ===\n{}\n",

@@ -35,7 +35,7 @@ pub enum TurnPurpose {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InterviewBrief {
     #[serde(alias = "feature_name")]
     pub feature_name: String,
@@ -57,7 +57,7 @@ pub struct InterviewBrief {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Workflow {
     pub brief: Option<InterviewBrief>,
     /// The exact specification the readiness assessment covers.
@@ -70,10 +70,6 @@ pub struct Workflow {
     pub plan_comparisons: std::collections::BTreeMap<String, PlanComparisonRecord>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub feature_branch_targets: std::collections::BTreeMap<String, BranchTargets>,
-    /// Unvalidated pre-contract comparison snapshots kept as history only.
-    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub legacy_plan_comparison_evidence:
-        std::collections::BTreeMap<String, Vec<crate::domain::PlanComparison>>,
     /// Per-record concurrency metadata loaded from normalized workflow files.
     /// These fields are intentionally absent from serialized workflow data.
     #[serde(skip)]
@@ -95,7 +91,6 @@ impl PartialEq for Workflow {
             && self.approved_features == other.approved_features
             && self.plan_comparisons == other.plan_comparisons
             && self.feature_branch_targets == other.feature_branch_targets
-            && self.legacy_plan_comparison_evidence == other.legacy_plan_comparison_evidence
     }
 }
 

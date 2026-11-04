@@ -28,18 +28,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generation_preserves_branch_intent_when_new_feature_uid_is_not_linked_yet() {
+    fn generation_does_not_inherit_branch_intent_without_feature_uid() {
         let mut work = crate::core::planning_work::Work::new(
-            "feature:export".into(),
+            "feature:F38".into(),
             "Export feature".into(),
             "Export project data".into(),
             String::new(),
         );
-        work.feature_id = Some("F-38".into());
+        work.feature_id = Some("F38".into());
         work.source_branch = Some("release/2.1".into());
         work.destination_branch = Some("integration".into());
-        let targets = feature_branch_targets(&[work], "F-38", None, "main");
-        assert_eq!(targets.source, "release/2.1");
-        assert_eq!(targets.destination, "integration");
+        let targets = feature_branch_targets(&[work], "F38", None, "main");
+        assert_eq!(targets.source, "main");
+        assert_eq!(targets.destination, "main");
     }
 }

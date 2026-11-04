@@ -88,7 +88,6 @@ fn dependent_human_item_shows_its_prerequisite_without_an_answer_control() {
         Priority::High,
         ItemKind::Question,
         "General".into(),
-        None,
         "Choose an account model".into(),
         String::new(),
     );
@@ -97,7 +96,6 @@ fn dependent_human_item_shows_its_prerequisite_without_an_answer_control() {
         Priority::High,
         ItemKind::Question,
         "General".into(),
-        None,
         "Choose recovery behavior".into(),
         String::new(),
     );

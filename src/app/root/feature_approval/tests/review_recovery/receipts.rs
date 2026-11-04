@@ -7,6 +7,15 @@ fn confirmed_plan_can_resume_review_without_replacing_user_receipt() {
     // External dependencies: none. Setup cost: one temporary Git repository and PlanningStore fixture.
     let _shield = crate::core::gitops::test_support::shield("plan-review-restart-recovery");
     let (mut app, root, _) = setup();
+    ensure_test_plan_adopted(&mut app, "CHG-004");
+    record_test_plan_author(&mut app, "CHG-004");
+    let (project_id, private_root) = match &app.screen {
+        Screen::Connected(project) => (
+            project.state.planning_store.project_id,
+            project.state.planning_store.root.clone(),
+        ),
+        Screen::Welcome => panic!("fixture remains connected"),
+    };
     app.approve_feature_from_board("CHG-004");
     let (snapshot, confirmation_before) = match &app.screen {
         Screen::Connected(project) => {
@@ -38,9 +47,14 @@ fn confirmed_plan_can_resume_review_without_replacing_user_receipt() {
         }
         Screen::Welcome => panic!("project remains connected"),
     };
-    app.screen = Screen::Connected(Box::new(crate::app::session::test_support::project_from(
+    let mut restarted = crate::app::session::test_support::project_from(&root);
+    let store = crate::artifacts::planning_store::PlanningStore::for_code_repository(
+        project_id,
+        private_root,
         &root,
-    )));
+    );
+    restarted.state = crate::core::state::PlannerState::load_with_store(&root, &store).unwrap();
+    app.screen = Screen::Connected(Box::new(restarted));
     assert_eq!(
         app.feature_actions(None)[0].label(),
         "Start or retry independent plan review for CHG-004"
@@ -82,6 +96,8 @@ fn confirmed_plan_can_resume_review_without_replacing_user_receipt() {
 fn changing_the_persisted_original_goal_invalidates_confirmation() {
     let _shield = crate::core::gitops::test_support::shield("plan-review-goal-binding");
     let (mut app, root, _) = setup();
+    ensure_test_plan_adopted(&mut app, "CHG-004");
+    record_test_plan_author(&mut app, "CHG-004");
     app.approve_feature_from_board("CHG-004");
     let before = match &app.screen {
         Screen::Connected(project) => {
@@ -110,8 +126,14 @@ fn changing_the_persisted_original_goal_invalidates_confirmation() {
     };
     project.state.workflow.brief.as_mut().unwrap().goal =
         "A materially different user goal must not reuse the old approval.".into();
-    crate::artifacts::task_docs::save_workflow(&root, &project.state.workflow).unwrap();
-    project.state = crate::core::state::PlannerState::load(&root).unwrap();
+    crate::artifacts::task_docs::save_workflow(
+        &project.state.planning_store,
+        &project.state.workflow,
+    )
+    .unwrap();
+    let planning_store = project.state.planning_store.clone();
+    project.state =
+        crate::core::state::PlannerState::load_with_store(&root, &planning_store).unwrap();
     let (_, markdown) = project
         .state
         .active_features
@@ -140,7 +162,9 @@ fn changing_the_persisted_original_goal_invalidates_confirmation() {
     );
     let markdown = markdown.clone();
     readiness::seed_test_readiness(&project.state.planning_store, "CHG-004", &markdown);
-    project.state = crate::core::state::PlannerState::load(&root).unwrap();
+    let planning_store = project.state.planning_store.clone();
+    project.state =
+        crate::core::state::PlannerState::load_with_store(&root, &planning_store).unwrap();
     let candidate_keys = app.feature_actions(None);
     assert_eq!(candidate_keys.len(), 1);
     assert_eq!(

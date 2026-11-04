@@ -188,27 +188,6 @@ fn live_dogfood_scenario_from_environment() {
     if let Screen::Connected(project) = &mut app.screen {
         project.state = crate::core::state::PlannerState::load(&root).unwrap();
         project.state.bootstrap_missing().unwrap();
-        let operator = project.state.effective_user().name;
-        for category in crate::domain::DEFAULT_CATEGORIES {
-            project
-                .state
-                .config
-                .stakeholders
-                .upsert(crate::domain::CategoryOwners::new(
-                    *category,
-                    vec![operator.clone()],
-                ));
-        }
-        for category in ["Engineering", "Architecture"] {
-            project
-                .state
-                .config
-                .stakeholders
-                .upsert(crate::domain::CategoryOwners::new(
-                    category,
-                    vec![operator.clone()],
-                ));
-        }
         let config_path = crate::artifacts::repo_artifact(&root, crate::artifacts::CONFIG_FILE);
         crate::artifacts::atomic_write(
             &config_path,

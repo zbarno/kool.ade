@@ -30,30 +30,89 @@ pub(super) fn new_feature(feature_uid: String) -> FeatureGoal {
     }
 }
 
-pub(super) fn bootstrap_product(store: &koolade::artifacts::planning_store::PlanningStore) {
-    use koolade::artifacts::product_docs::ProductManifest;
-    let manifest = ProductManifest::core();
-    let mut changes = vec![
+pub(super) fn bootstrap_product(store: &mut koolade::artifacts::planning_store::PlanningStore) {
+    const MODULES: [(&str, &str); 6] = [
+        ("overview", "Overview"),
+        ("users-and-outcomes", "Users and Outcomes"),
+        ("current-capabilities", "Current Capabilities"),
         (
-            "planning/product/manifest.json".to_owned(),
-            serde_json::to_vec_pretty(&manifest).unwrap(),
+            "architecture-and-constraints",
+            "Architecture and Constraints",
         ),
-        (
-            "planning/product/index.md".to_owned(),
-            b"# Product Specification\n\nSynthetic acceptance fixture.\n".to_vec(),
-        ),
+        ("decisions", "Decisions"),
+        ("quality-and-acceptance", "Quality and Acceptance"),
     ];
-    for module in manifest.modules {
-        let content = format!(
-            "# {}\n\n## Summary\n\nSynthetic acceptance fixture product context.\n\n## Requirements\n\nThe fixture exercises approved lifecycle reconciliation.\n",
-            module.title
-        );
-        changes.push((
-            format!("planning/product/{}", module.path),
-            content.into_bytes(),
-        ));
+    let code = store
+        .root
+        .parent()
+        .expect("fixture local store has a temporary root")
+        .join("primary-code");
+    let product = code.join("docs/koolade/product");
+    std::fs::create_dir_all(&product).unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q", "-b", "main"])
+            .current_dir(&code)
+            .status()
+            .unwrap()
+            .success()
+    );
+    std::fs::write(
+        product.join("index.md"),
+        "# Product Specification\n\nSynthetic published acceptance fixture.\n",
+    )
+    .unwrap();
+    for (id, title) in MODULES {
+        std::fs::write(
+            product.join(format!("{id}.md")),
+            format!(
+                "# {title}\n\n## Summary\n\nSynthetic acceptance fixture product context.\n\n## Requirements\n\nThe fixture exercises approved lifecycle reconciliation.\n"
+            ),
+        )
+        .unwrap();
     }
-    store.transaction(&changes, None).unwrap();
+    for args in [
+        vec!["add", "docs/koolade/product"],
+        vec![
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-q",
+            "-m",
+            "Publish test product",
+        ],
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .args(&args)
+                .current_dir(&code)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    store.published_repository_root = Some(code.clone());
+    store.published_spec_pin = Some(
+        koolade::core::published_specs::PublishedSpecReader::for_primary_repository(&code)
+            .unwrap()
+            .pin()
+            .unwrap(),
+    );
+}
+
+pub(super) fn reopen_store(
+    store: &koolade::artifacts::planning_store::PlanningStore,
+) -> koolade::artifacts::planning_store::PlanningStore {
+    let mut reopened = koolade::artifacts::planning_store::PlanningStore::new(
+        store.project_id,
+        store.root.clone(),
+        store.mode,
+    );
+    reopened.published_repository_root = store.published_repository_root.clone();
+    reopened.published_spec_pin = store.published_spec_pin.clone();
+    reopened
 }
 
 pub(super) fn product_hash(store: &koolade::artifacts::planning_store::PlanningStore) -> String {

@@ -1,15 +1,9 @@
 use crate::domain::chatlog::ChatMessage;
 
 use super::{
-    ApplicationCommand, FeatureSpecificationStatus, PlanningRepositoryViewModel, ToastQueue,
-    feature_approval, planning_board, task_detail,
+    ApplicationCommand, FeatureSpecificationStatus, ToastQueue, feature_approval, planning_board,
+    task_detail,
 };
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RepositoryChoice {
-    pub id: String,
-    pub label: String,
-}
 
 /// Everything the chrome/panes need: read-mostly accessors plus two command
 /// sinks (composer intents, header actions).
@@ -17,9 +11,6 @@ pub trait Surface {
     // ------- header -------
     fn session_title(&self) -> &str;
     fn is_git_repo(&self) -> bool;
-    fn registered_repositories(&self) -> Vec<RepositoryChoice> {
-        Vec::new()
-    }
     fn git_branch(&self) -> &str;
     fn repository_branches(&self) -> Vec<String> {
         Vec::new()
@@ -33,23 +24,17 @@ pub trait Surface {
     fn harness_settings(&self) -> crate::persistence::harness_settings::HarnessSettings {
         crate::persistence::harness_settings::load().0
     }
-    fn people_settings_draft(&self) -> Option<crate::app::dialogs::DlgSettings> {
+    fn local_user_settings_draft(&self) -> Option<crate::app::dialogs::DlgSettings> {
         None
     }
-    fn save_people_settings(
+    fn save_local_user_settings(
         &mut self,
         _draft: &mut crate::app::dialogs::DlgSettings,
     ) -> Result<String, String> {
-        Err("People settings are unavailable in this workspace.".into())
+        Err("Local identity settings are unavailable in this workspace.".into())
     }
     fn project_settings_draft(&self) -> Option<crate::app::dialogs::DlgProjectSettings> {
         None
-    }
-    fn planning_repository(&self) -> Option<PlanningRepositoryViewModel> {
-        None
-    }
-    fn save_planning_remote(&mut self, _remote: &str) -> Result<(), String> {
-        Err("Planning repository settings are unavailable in this workspace.".into())
     }
     fn save_project_settings(
         &mut self,
@@ -168,9 +153,6 @@ pub trait Surface {
     fn auto_publish(&self) -> bool;
     fn require_independent_checks(&self) -> bool;
     fn queue_status(&self) -> &str;
-    fn stale_task_claim(&self) -> Option<(String, crate::core::task_claim::ClaimRecord)> {
-        None
-    }
     fn live_progress(&self) -> Option<&crate::harness::LiveProgress>;
     fn active_planning_work(&self) -> Option<&str> {
         None
@@ -179,6 +161,15 @@ pub trait Surface {
     fn next_question_id(&self) -> Option<&str>;
     // ------- spec pane -------
     fn spec_text(&self) -> &str;
+    fn has_published_product_spec(&self) -> bool {
+        false
+    }
+    fn published_spec_pin(&self) -> Option<&crate::core::published_specs::PublishedSpecPin> {
+        None
+    }
+    fn local_spec_draft(&self) -> Option<&crate::core::apply::LocalSpecDraftV1> {
+        None
+    }
     fn active_features(&self) -> Vec<(&str, &str)> {
         Vec::new()
     }

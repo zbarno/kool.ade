@@ -39,7 +39,7 @@ impl AiHarness for ScriptedHarness {
                 req.prompt_manifest
                     .as_ref()
                     .map(|manifest| manifest.role_version.as_str()),
-                Some("planner_conversation/v5")
+                Some("planner_conversation/v6")
             );
         }
         let text = match (&self.raw, &self.canned) {
@@ -103,7 +103,7 @@ impl AiHarness for RetrievalPipelineHarness {
                 .prompt_manifest
                 .as_ref()
                 .map(|manifest| manifest.role_version.as_str()),
-            Some("planner_conversation/v5")
+            Some("planner_conversation/v6")
         );
         assert!(
             request

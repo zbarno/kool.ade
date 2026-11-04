@@ -31,7 +31,7 @@ pub(super) fn validate_parent_subtasks(
         ));
     }
     for event in events.iter().filter(|event| {
-        event.schema_version >= 3
+        event.schema_version == 3
             && event.parent_task_after.is_none()
             && matches!(
                 &event.event,
@@ -69,7 +69,7 @@ pub(super) fn replay_parent_subtask_creation(
     let parent_after = record.parent_task_after.as_ref().ok_or_else(|| {
         StoreError::MalformedState("subtask event has no parent projection".into())
     })?;
-    if record.schema_version < 3
+    if record.schema_version != 3
         || record.actor != LifecycleActor::ApplicationPolicy
         || record.feature_uid != feature_uid
         || record.task_uid.as_deref() != Some(child.task_uid.as_str())

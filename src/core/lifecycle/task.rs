@@ -34,8 +34,6 @@ pub struct TaskRecord {
     #[serde(default)]
     pub dependency_task_uids: Vec<String>,
     /// Stable requirements assigned by the approved task decomposition.
-    /// Legacy task records load with no inferred requirement links.
-    #[serde(default)]
     pub approved_requirement_ids: Vec<String>,
     pub phase: TaskPhase,
     pub revision: u64,

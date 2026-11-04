@@ -28,8 +28,10 @@ pub(super) fn state_matches_revision(
         Some(base) => PlannerState::drift_report(base, current).is_empty(),
         None => true,
     };
+    let expected_revision = generated_revision
+        .or_else(|| base_snapshot.map(|base| base.baseline_planning_revision.as_str()));
     stable_snapshot
-        && generated_revision.is_none_or(|revision| current.baseline_planning_revision == revision)
+        && expected_revision.is_none_or(|revision| current.baseline_planning_revision == revision)
 }
 
 pub(super) fn adopt_revision(state: &mut PlannerState, generated_revision: Option<String>) {

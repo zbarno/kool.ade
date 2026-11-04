@@ -86,7 +86,7 @@ fn failed_project_planning_preserves_setup_cause_and_retry_on_its_board_card() {
     );
     assert!(work.detail.contains("provider unavailable"));
     assert!(work.detail.contains("Next action:"));
-    let persisted = crate::core::planning_work::load(&root).unwrap();
+    let persisted = crate::core::planning_work::load(&project.state.planning_store).unwrap();
     assert_eq!(persisted.last().unwrap().detail, work.detail);
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
@@ -168,7 +168,7 @@ fn project_open_failure_computes_the_local_setup_attention_state() {
     let setup_store = SetupTaskStoreFixture::attach(&mut app);
     app.finish_connect(Err(crate::error::AppError::InvalidRepo {
         path: "/synthetic/unpaired-code-repository".into(),
-        detail: "no managed planning repository is associated with this code checkout".into(),
+        detail: "the local application store is unavailable for this code checkout".into(),
     }));
     assert!(
         app.setup_probe.is_some(),

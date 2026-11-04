@@ -3,7 +3,6 @@ use super::*;
 pub(super) fn paint(ui: &mut egui::Ui, s: &mut dyn Surface, settings_open: &mut bool) {
     ui.set_min_width(230.0);
     ui.label(theme::metadata_text("WORKSPACE"));
-    workspace_repositories::paint_menu(ui, s);
     action(ui, s, "Open workspace…", HeaderAction::OpenWorkspace);
     action(ui, s, "Refresh repository", HeaderAction::Refresh);
     ui.separator();

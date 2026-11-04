@@ -27,22 +27,10 @@ pub(super) fn seed(app: &mut crate::app::root::KooladeApp) -> TraceTargets {
         panic!("fixture is connected")
     };
     let store = &project.state.planning_store;
-    crate::artifacts::migration::bootstrap_product_with_store(
-        &project.state.repo_root,
-        store,
-        "Trace Navigation Fixture",
-    )
-    .unwrap();
     let feature_id = "CHG-901";
     let raw = format!(
         "# {feature_id}: Trace navigation fixture\n\n**Status:** Ready\n\n## Intent\n\nProve persisted reference navigation.\n\n## Current Behavior\n\nTrace references are visible.\n\n## Desired Behavior\n\nTrace references open persisted records.\n\n## Scope\n\nOne synthetic task.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\n- TRACE-R1 (MUST). Open linked task records.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** Synthetic local identity.\n\n## Acceptance Criteria\n\n1. A task reference selects its persisted record.\n"
     );
-    let path = store
-        .layout()
-        .change_directory(&format!("{feature_id}-trace-navigation-fixture"))
-        .unwrap()
-        .join("specification.md");
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     let markdown = crate::domain::ArtifactIdentity::preserve_markdown(
         &raw,
         None,
@@ -59,7 +47,15 @@ pub(super) fn seed(app: &mut crate::app::root::KooladeApp) -> TraceTargets {
         crate::domain::ChangeStatus::Ready,
     )
     .unwrap();
-    std::fs::write(path, &markdown).unwrap();
+    let changes = crate::core::apply::private_document_draft_changes(
+        store,
+        &[(format!("feature:{feature_id}"), markdown.clone())],
+    )
+    .unwrap();
+    let revision = store.revision().unwrap();
+    store
+        .transaction_with_revision(&changes, Some(&revision))
+        .unwrap();
     crate::core::lifecycle::test_support::approve_and_review_feature(
         store,
         &mut project.state.workflow,

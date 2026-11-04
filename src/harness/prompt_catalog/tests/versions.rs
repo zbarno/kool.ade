@@ -1,162 +1,31 @@
 use super::*;
 
 #[test]
-fn prior_manager_and_planner_versions_remain_valid_for_persisted_runs() {
-    let manager = base(
-        PromptRole::ManagerV2,
-        RolePayloadV1::Manager {
-            board_event_cursor: "cursor-1".into(),
-            work_graph: vec![],
-            unresolved_findings: vec![],
-            latest_review_receipts: vec![],
-        },
-    );
-    let manager_manifest = render(&manager).unwrap().manifest;
-    assert_eq!(manager_manifest.role_version, "manager/v2");
-    assert_eq!(manager_manifest.output_schema_version, "ManagerOutputV1");
-    assert_eq!(
-        manager_manifest.system_template_sha256,
-        "bbbfb130bf3759aa8715d7f2f0bb6fc6598019b59f11da790d9a36dd5affee76"
-    );
-    assert_eq!(
-        manager_manifest.user_template_sha256,
-        "0a46e44ec7ee0b47405b363573048f4603a10f5dec24a7e91d09411866828bea"
-    );
-    assert_eq!(
-        validate_prompt_manifest(&manager_manifest).unwrap(),
-        PromptRole::ManagerV2
-    );
-
-    let planner = base(
-        PromptRole::PlannerV2,
-        RolePayloadV1::Planner {
-            open_questions: vec![],
-            previous_answers: vec![],
-            research_evidence: vec![],
-            requested_scope: "review current scope".into(),
-        },
-    );
-    let planner_manifest = render(&planner).unwrap().manifest;
-    assert_eq!(planner_manifest.role_version, "planner/v2");
-    assert_eq!(
-        planner_manifest.system_template_sha256,
-        "68a8a468d96bfb12c657d191786f7777f523422d83821368479186567e1e79d8"
-    );
-    assert_eq!(
-        planner_manifest.user_template_sha256,
-        "efbb57e4fcece988252bc6f0c6369fa86da9fa51d9765b45df4667a087564ce8"
-    );
-    assert_eq!(
-        validate_prompt_manifest(&planner_manifest).unwrap(),
-        PromptRole::PlannerV2
-    );
-}
-
-#[test]
-fn manager_v3_persisted_prompt_manifest_remains_readable() {
-    let prompt = base(
-        PromptRole::ManagerV3,
-        RolePayloadV1::Manager {
-            board_event_cursor: "cursor-legacy".into(),
-            work_graph: vec![],
-            unresolved_findings: vec![],
-            latest_review_receipts: vec![],
-        },
-    );
-    let manifest = render(&prompt).unwrap().manifest;
-    assert_eq!(manifest.role_version, "manager/v3");
-    assert_eq!(manifest.output_schema_version, "ManagerOutputV2");
-    assert_eq!(
-        validate_prompt_manifest(&manifest).unwrap(),
-        PromptRole::ManagerV3
-    );
-}
-
-#[test]
-fn prior_manager_prompt_manifests_remain_readable_through_current_v8() {
-    let prompt = base(
-        PromptRole::ManagerV4,
-        RolePayloadV1::Manager {
-            board_event_cursor: "cursor-v4".into(),
-            work_graph: vec![],
-            unresolved_findings: vec![],
-            latest_review_receipts: vec![],
-        },
-    );
-    let manifest = render(&prompt).unwrap().manifest;
-    assert_eq!(manifest.role_version, "manager/v4");
-    assert_eq!(
-        validate_prompt_manifest(&manifest).unwrap(),
-        PromptRole::ManagerV4
-    );
-
-    let prior = render(&base(
-        PromptRole::ManagerV5,
-        RolePayloadV1::Manager {
-            board_event_cursor: "cursor-v5".into(),
-            work_graph: vec![],
-            unresolved_findings: vec![],
-            latest_review_receipts: vec![],
-        },
-    ))
-    .unwrap()
-    .manifest;
-    assert_eq!(prior.role_version, "manager/v5");
-    assert_eq!(
-        validate_prompt_manifest(&prior).unwrap(),
-        PromptRole::ManagerV5
-    );
-
-    let prior = render(&base(
-        PromptRole::ManagerV6,
-        RolePayloadV1::Manager {
-            board_event_cursor: "cursor-v6".into(),
-            work_graph: vec![],
-            unresolved_findings: vec![],
-            latest_review_receipts: vec![],
-        },
-    ))
-    .unwrap()
-    .manifest;
-    assert_eq!(prior.role_version, "manager/v6");
-    assert_eq!(
-        validate_prompt_manifest(&prior).unwrap(),
-        PromptRole::ManagerV6
-    );
-
-    let prior = render(&base(
-        PromptRole::ManagerV7,
-        RolePayloadV1::Manager {
-            board_event_cursor: "cursor-v7".into(),
-            work_graph: vec![],
-            unresolved_findings: vec![],
-            latest_review_receipts: vec![],
-        },
-    ))
-    .unwrap()
-    .manifest;
-    assert_eq!(prior.role_version, "manager/v7");
-    assert_eq!(
-        validate_prompt_manifest(&prior).unwrap(),
-        PromptRole::ManagerV7
-    );
-
-    let current = render(&base(
-        PromptRole::Manager,
-        RolePayloadV1::Manager {
-            board_event_cursor: "cursor-v8".into(),
-            work_graph: vec![],
-            unresolved_findings: vec![],
-            latest_review_receipts: vec![],
-        },
-    ))
-    .unwrap()
-    .manifest;
-    assert_eq!(current.role_version, "manager/v8");
-    assert_eq!(
-        validate_prompt_manifest(&current).unwrap(),
-        PromptRole::Manager
-    );
+fn removed_manager_and_planner_manifests_are_unknown() {
+    for role_version in [
+        "manager/v2",
+        "manager/v3",
+        "manager/v4",
+        "manager/v5",
+        "manager/v6",
+        "manager/v7",
+        "planner/v2",
+    ] {
+        let manifest = PromptManifest {
+            role_version: role_version.into(),
+            system_template_sha256: "0".repeat(64),
+            policy_template_sha256: "0".repeat(64),
+            user_template_sha256: "0".repeat(64),
+            output_schema_version: "obsolete".into(),
+            privilege_profile: "obsolete".into(),
+        };
+        assert!(
+            validate_prompt_manifest(&manifest)
+                .unwrap_err()
+                .contains("unknown prompt version"),
+            "removed role {role_version} must not remain runtime-addressable"
+        );
+    }
 }
 
 #[test]

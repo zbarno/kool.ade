@@ -28,9 +28,6 @@ pub(crate) fn restart_fixture(mut app: KooladeApp) -> KooladeApp {
             activity: Default::default(),
             state: crate::core::state::PlannerState::load_with_store(&repo_root, &planning_store)
                 .unwrap(),
-            managed_workspace: None,
-            planning_sync: crate::core::planning_sync::PlanningSyncStatus::local(),
-            planning_remote_url: None,
             chat_slug,
             chat: Vec::new(),
             draft: String::new(),

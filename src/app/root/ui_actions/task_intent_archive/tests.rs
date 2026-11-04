@@ -155,7 +155,7 @@ fn cancelled_root_cannot_archive_while_owned_child_waits_in_the_queue() {
 }
 
 #[test]
-fn failed_shared_restore_saving_restores_the_legacy_archive_marker() {
+fn failed_restore_keeps_task_intent_archived_after_a_stale_write() {
     let mut app = crate::app::root::board_tests::trace_navigation_test_app();
     let Screen::Connected(project) = &mut app.screen else {
         panic!("fixture must be connected");
@@ -172,11 +172,8 @@ fn failed_shared_restore_saving_restores_the_legacy_archive_marker() {
     root.task_intent_uid = Some(root.uid.clone());
     root.task_intent_archived_at_ms = Some(1_800_000_000_000);
     let root_uid = root.uid.clone();
-    let key = root.key.clone();
     project.planning_work.push(root);
     project.save_planning_work().unwrap();
-    project.archived_tasks.insert(key.clone());
-    crate::persistence::archived_tasks::save(&project.chat_slug, &project.archived_tasks).unwrap();
     let store = project.state.planning_store.clone();
     let revision = project.state.baseline_planning_revision.clone();
     let mut rival_work = project.planning_work.clone();
@@ -192,8 +189,6 @@ fn failed_shared_restore_saving_restores_the_legacy_archive_marker() {
     let Screen::Connected(project) = &app.screen else {
         panic!("fixture must remain connected");
     };
-    assert!(project.archived_tasks.contains(&key));
-    assert!(crate::persistence::archived_tasks::load(&project.chat_slug).contains(&key));
     assert_eq!(
         project
             .planning_work

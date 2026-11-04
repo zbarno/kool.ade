@@ -5,41 +5,101 @@ pub fn active_feature<R: PlanningRoot + ?Sized>(repo: &R) -> Option<(String, Str
     active_features(repo).into_iter().next()
 }
 
-/// Select the current planning focus by the durable brief title, falling back
-/// to the first active feature for legacy projects without a matching brief.
+/// Select the current planning focus by the durable brief title.
 pub fn active_feature_for_workflow<R: PlanningRoot + ?Sized>(
     repo: &R,
     workflow: &crate::core::workflow::Workflow,
 ) -> Option<(String, String)> {
-    select_active_feature(&active_features(repo), workflow)
+    active_feature_for_workflow_in(&active_features(repo), workflow)
+}
+
+/// Read live feature documents from the primary code repository at its
+/// immutable published-spec pin. Local task state is never their authority.
+pub fn published_features(
+    reader: &crate::core::published_specs::PublishedSpecReader,
+    pin: &crate::core::published_specs::PublishedSpecPin,
+) -> anyhow::Result<Vec<(String, String)>> {
+    let mut features = std::collections::BTreeMap::new();
+    for document in reader
+        .read_documentation(pin)?
+        .into_iter()
+        .filter(|document| {
+            document.path.starts_with("docs/koolade/features/")
+                && document.path.ends_with(".md")
+                && !document.path.ends_with("/AGENTS.md")
+        })
+    {
+        let Some(identity) = crate::domain::ArtifactIdentity::from_markdown(&document.content)?
+        else {
+            // Documentation directories may contain ordinary project docs
+            // alongside managed feature records. Only stable-ID records are
+            // feature specifications.
+            continue;
+        };
+        let filename = std::path::Path::new(&document.path)
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| anyhow::anyhow!("published feature path is invalid"))?;
+        anyhow::ensure!(
+            filename == identity.uid,
+            "published feature path does not match its immutable identity"
+        );
+        crate::core::specification::validate_feature(&identity.display_id, &document.content)?;
+        let metadata = crate::domain::ChangeMetadata::require_markdown(&document.content)?;
+        anyhow::ensure!(
+            metadata.uid == identity.uid && metadata.display_id == identity.display_id,
+            "published feature metadata does not match its identity"
+        );
+        if !metadata.status.is_terminal() {
+            let body =
+                crate::domain::ChangeMetadata::render_status(&document.content, metadata.status)?;
+            anyhow::ensure!(
+                features.insert(identity.display_id.clone(), body).is_none(),
+                "published feature display ID is duplicated"
+            );
+        }
+    }
+    Ok(features.into_iter().collect())
+}
+
+pub fn active_feature_for_workflow_in(
+    features: &[(String, String)],
+    workflow: &crate::core::workflow::Workflow,
+) -> Option<(String, String)> {
+    select_active_feature(features, workflow)
 }
 
 fn select_active_feature(
     features: &[(String, String)],
     workflow: &crate::core::workflow::Workflow,
 ) -> Option<(String, String)> {
-    let matches = workflow.brief.as_ref().map(|brief| {
-        let wanted = normalize_title(&brief.feature_name);
-        features
-            .iter()
-            .filter(|(id, body)| {
-                body.lines()
-                    .find_map(|line| line.strip_prefix("# "))
-                    .and_then(|heading| heading.split_once(": ").map(|(_, title)| title))
-                    .is_some_and(|title| {
-                        let title = normalize_title(title);
-                        title == wanted
-                            || wanted
-                                .strip_suffix(&normalize_title(id))
-                                .is_some_and(|without_id| without_id == title)
-                    })
-            })
-            .collect::<Vec<_>>()
-    });
-    matches
-        .filter(|matches| matches.len() == 1)
-        .and_then(|matches| matches.first().map(|(id, body)| (id.clone(), body.clone())))
-        .or_else(|| features.first().cloned())
+    let Some(brief) = workflow.brief.as_ref() else {
+        return features.first().cloned();
+    };
+    let wanted = normalize_title(&brief.feature_name);
+    let matches = features
+        .iter()
+        .filter(|(id, body)| {
+            body.lines()
+                .find_map(|line| line.strip_prefix("# "))
+                .and_then(|heading| heading.split_once(": ").map(|(_, title)| title))
+                .is_some_and(|title| {
+                    let title = normalize_title(title);
+                    let feature_id = normalize_title(id);
+                    title == wanted
+                        || wanted
+                            .strip_prefix(&feature_id)
+                            .is_some_and(|without_id| without_id == title)
+                        || wanted
+                            .strip_suffix(&feature_id)
+                            .is_some_and(|without_id| without_id == title)
+                })
+        })
+        .collect::<Vec<_>>();
+    (matches.len() == 1).then(|| {
+        let (id, body) = matches[0];
+        (id.clone(), body.clone())
+    })
 }
 
 fn normalize_title(title: &str) -> String {
@@ -53,6 +113,27 @@ fn normalize_title(title: &str) -> String {
 /// Every feature that is still active. Feature status is independent, so
 /// several deltas may be planned or implemented at the same time.
 pub fn active_features<R: PlanningRoot + ?Sized>(repo: &R) -> Vec<(String, String)> {
+    let store = repo.planning_store();
+    if let Some(code_root) = store.published_repository_root.as_deref() {
+        let loaded = (|| -> anyhow::Result<_> {
+            let reader = crate::core::published_specs::PublishedSpecReader::for_primary_repository(
+                code_root,
+            )?;
+            let pin = match &store.published_spec_pin {
+                Some(pin) => pin.clone(),
+                None => reader.pin()?,
+            };
+            let mut features = published_features(&reader, &pin)?;
+            let draft = crate::core::apply::load_current(&store)?;
+            crate::core::state::proposals::apply_local_feature_proposals(
+                &mut features,
+                draft.as_ref(),
+                Some(&pin),
+            )?;
+            Ok(features)
+        })();
+        return loaded.unwrap_or_default();
+    }
     let layout = repo.planning_layout();
     active_feature_directories(repo)
         .into_iter()
@@ -107,43 +188,6 @@ pub fn validate_change_metadata<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::R
             "Change status identity does not match {}",
             path.display()
         );
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-pub(crate) fn migrate_legacy_change_fixtures<R: PlanningRoot + ?Sized>(
-    repo: &R,
-) -> anyhow::Result<()> {
-    for name in active_feature_directories_all(repo)? {
-        let layout = repo.planning_layout();
-        let Some(path) = layout.change_specification(&name) else {
-            continue;
-        };
-        let markdown = String::from_utf8(repo.read_planning_path(&path)?)?;
-        if crate::domain::ChangeMetadata::from_markdown(&markdown)?.is_some() {
-            continue;
-        }
-        let heading = markdown
-            .lines()
-            .find_map(|line| line.strip_prefix("# "))
-            .ok_or_else(|| anyhow::anyhow!("Fixture change {} has no heading", path.display()))?;
-        let (display_id, title) = heading.split_once(": ").ok_or_else(|| {
-            anyhow::anyhow!("Fixture change {} has no display ID", path.display())
-        })?;
-        let previous = crate::domain::ArtifactIdentity::from_markdown(&markdown)?;
-        let identified = crate::domain::ArtifactIdentity::preserve_markdown(
-            &markdown,
-            previous.as_ref().map(|_| markdown.as_str()),
-            display_id,
-            title,
-        )?;
-        let identity = crate::domain::ArtifactIdentity::from_markdown(&identified)?
-            .ok_or_else(|| anyhow::anyhow!("Fixture identity was not written"))?;
-        let status = crate::domain::ChangeMetadata::parse_legacy_markdown(&identified)?;
-        let migrated =
-            crate::domain::ChangeMetadata::write_markdown(&identified, &identity, status)?;
-        repo.write_planning_path(&path, migrated.as_bytes())?;
     }
     Ok(())
 }
@@ -213,7 +257,23 @@ mod tests {
     }
 
     #[test]
-    fn unmatched_or_ambiguous_brief_keeps_the_legacy_fallback() {
+    fn workflow_brief_with_prefixed_feature_id_selects_its_feature() {
+        let features = vec![
+            ("CHG-003".into(), "# CHG-003: Readable Replies\n".into()),
+            ("F7".into(), "# F7: Comparative Plan Approval\n".into()),
+        ];
+        let workflow = crate::core::workflow::Workflow {
+            brief: Some(crate::core::workflow::InterviewBrief {
+                feature_name: "F7: Comparative Plan Approval".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(select_active_feature(&features, &workflow).unwrap().0, "F7");
+    }
+
+    #[test]
+    fn unmatched_or_ambiguous_brief_does_not_select_an_unrelated_feature() {
         let features = vec![
             ("CHG-003".into(), "# CHG-003: Duplicate\n".into()),
             ("F7".into(), "# F7: Duplicate\n".into()),
@@ -225,9 +285,6 @@ mod tests {
             }),
             ..Default::default()
         };
-        assert_eq!(
-            select_active_feature(&features, &workflow).unwrap().0,
-            "CHG-003"
-        );
+        assert_eq!(select_active_feature(&features, &workflow), None);
     }
 }

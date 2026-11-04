@@ -3,9 +3,9 @@ use super::*;
 #[test]
 fn joint_batch_origins_reference_the_exact_persisted_delta() {
     let fixture = Fixture::new();
-    let store = fixture.store();
+    let mut store = fixture.store();
     let (uid, _) =
-        traceability::support::reviewed_feature(&fixture, &store, "CHG-101", "CHG-101-origins");
+        traceability::support::reviewed_feature(&fixture, &mut store, "CHG-101", "CHG-101-origins");
     let lifecycle = LifecycleStore::new(&store);
     let feature = lifecycle.load_feature(&uid).unwrap();
     let current = lifecycle.load_spec_revision(&uid).unwrap().unwrap();
@@ -67,7 +67,7 @@ fn joint_batch_origins_reference_the_exact_persisted_delta() {
     let (mut history, _) = store
         .read_record::<SpecRevisionHistory>(&history_path(&uid, written.seq))
         .unwrap();
-    let reference = match &mut history.origin_dispositions.as_mut().unwrap()[0].outcome {
+    let reference = match &mut history.origin_dispositions[0].outcome {
         SpecOriginOutcomeV1::DeltaReferences { deltas } => &mut deltas[0],
         _ => unreachable!(),
     };

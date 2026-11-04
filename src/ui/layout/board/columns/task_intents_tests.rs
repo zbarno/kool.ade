@@ -106,7 +106,6 @@ fn scoped_decision_items_join_the_root_group() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "Product".into(),
-        None,
         "Should the migration remain reversible?".into(),
         "The approved plan leaves this decision open.".into(),
     );
@@ -148,7 +147,6 @@ fn prior_cycle_decisions_do_not_block_the_current_intent_lifecycle() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "Product".into(),
-        None,
         "Old cycle decision remains open".into(),
         "Prior work context".into(),
     );
@@ -186,7 +184,6 @@ fn archive_is_disabled_until_owned_work_reaches_a_terminal_outcome() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "Product".into(),
-        None,
         "A decision remains open".into(),
         "It blocks the request.".into(),
     );

@@ -19,7 +19,7 @@ pub(super) fn apply(
         )
         .map(|(paths, revision)| {
             (
-                paths.iter().map(|path| store.git_path(path)).collect(),
+                paths.iter().map(|path| store.relative_path(path)).collect(),
                 revision,
             )
         })

@@ -28,11 +28,7 @@ fn build_scope(
 ) -> String {
     let mut streams = histories
         .iter()
-        .filter(|(key, _)| {
-            !key.starts_with("@legacy:")
-                && !key.starts_with("@unlinked:")
-                && !key.starts_with("@ambiguous:")
-        })
+        .filter(|(key, _)| !key.starts_with("@unlinked:") && !key.starts_with("@ambiguous:"))
         .filter(|(_, messages)| !messages.is_empty())
         .collect::<Vec<_>>();
     let mentioned = |key: &str| {

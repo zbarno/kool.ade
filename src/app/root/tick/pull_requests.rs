@@ -72,6 +72,7 @@ impl KooladeApp {
                     project.pr_refresh =
                         Some(crate::core::implementation::PrRefresh::start_with_store(
                             project.state.planning_store.clone(),
+                            project.state.planning_store.root.clone(),
                             project.state.repo_root.clone(),
                             tickets,
                         ));

@@ -213,7 +213,23 @@ fn user_confirmation_runs_independent_plan_reviewer_and_persists_its_exact_verdi
         observation.subject_hash.as_deref(),
         Some(snapshot.content_hash.as_str())
     );
+    let (task_key, status, blocked_detail) = project
+        .planning_work
+        .iter()
+        .find(|work| work.kind == crate::core::planning_work::WorkKind::TaskGeneration)
+        .map(|work| (work.key.clone(), work.status, work.detail.clone()))
+        .expect("approved feature retains a task-generation card");
+    assert_eq!(status, crate::core::planning_work::WorkStatus::Todo);
+    assert_eq!(
+        blocked_detail,
+        "Approved: the independent PlanReviewer approved this exact plan snapshot. Task generation is ready when requested."
+    );
     drop(observation);
+    assert!(matches!(
+        &app.screen,
+        Screen::Connected(project) if project.active_turn.is_none()
+    ));
+    assert!(!task_key.is_empty());
     drop(app);
     let reloaded = crate::core::state::PlannerState::load(&root).unwrap();
     lifecycle::assert_review_reconciled(&reloaded.planning_store, &reloaded.workflow, &snapshot);
@@ -221,8 +237,23 @@ fn user_confirmation_runs_independent_plan_reviewer_and_persists_its_exact_verdi
 }
 
 fn prepare_reviewable_plan(app: &mut KooladeApp, root: &std::path::Path) {
-    let spec_path = root.join("planning/changes/CHG-004-saved-searches/specification.md");
-    let spec = std::fs::read_to_string(&spec_path).unwrap();
+    let published_path = {
+        let Screen::Connected(project) = &app.screen else {
+            panic!("approval fixture remains connected")
+        };
+        let (_, markdown) = project
+            .state
+            .active_features
+            .iter()
+            .find(|(id, _)| id == "CHG-004")
+            .unwrap();
+        let identity = crate::domain::ArtifactIdentity::from_markdown(markdown)
+            .unwrap()
+            .unwrap();
+        root.join("docs/koolade/features")
+            .join(format!("{}.md", identity.uid))
+    };
+    let spec = std::fs::read_to_string(&published_path).unwrap();
     let spec = spec
         .replace(
             "## Requirements\n\nPersist saved searches and restore them after restarting.",
@@ -232,35 +263,60 @@ fn prepare_reviewable_plan(app: &mut KooladeApp, root: &std::path::Path) {
             "## Acceptance Criteria\n\nPersist saved searches and restore them after restarting.",
             "## Acceptance Criteria\n\n- AC-001: A saved search is present after restarting the app.",
         );
-    std::fs::write(&spec_path, &spec).unwrap();
+    std::fs::write(&published_path, &spec).unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["add", "docs/koolade/features"])
+            .current_dir(root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        std::process::Command::new("git")
+            .args([
+                "commit",
+                "-q",
+                "-m",
+                "Publish structured approval test feature"
+            ])
+            .current_dir(root)
+            .status()
+            .unwrap()
+            .success()
+    );
 
+    if let Screen::Connected(project) = &mut app.screen {
+        project.state = crate::core::state::PlannerState::load(root).unwrap();
+    } else {
+        panic!("approval fixture remains connected")
+    }
+    ensure_test_plan_adopted(app, "CHG-004");
+    record_test_plan_author(app, "CHG-004");
     let Screen::Connected(project) = &mut app.screen else {
         panic!("approval fixture remains connected")
     };
-    project.state = crate::core::state::PlannerState::load(root).unwrap();
-    let identity = crate::domain::ArtifactIdentity::from_markdown(&spec)
+    let (_, adopted_markdown) = project
+        .state
+        .active_features
+        .iter()
+        .find(|(id, _)| id == "CHG-004")
+        .unwrap();
+    let identity = crate::domain::ArtifactIdentity::from_markdown(adopted_markdown)
         .unwrap()
         .unwrap();
-    let contract = crate::core::workflow::feature_contract(&spec);
-    crate::core::lifecycle::plan_snapshot::record_author(
-        &project.state.planning_store,
-        &crate::core::lifecycle::plan_snapshot::PlanAuthorProvenanceV1 {
-            feature_uid: identity.uid.clone(),
-            approval_contract_sha256: format!("{:x}", sha2::Sha256::digest(contract.as_bytes())),
-            author_run_id: uuid::Uuid::new_v4().hyphenated().to_string(),
-            author_session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
-        },
-    )
-    .unwrap();
-    readiness::seed_test_readiness(&project.state.planning_store, "CHG-004", &spec);
     let mut work = crate::core::planning_work::Work::new(
         "feature-work:CHG-004".into(),
         "Plan saved searches".into(),
         "Keep saved searches available after restart.".into(),
         "Approved feature planning work.".into(),
     );
+    work.kind = crate::core::planning_work::WorkKind::TaskGeneration;
+    work.status = crate::core::planning_work::WorkStatus::Todo;
+    work.key = format!("task-generation:{}", work.uid);
     work.feature_id = Some("CHG-004".into());
     work.feature_uid = Some(identity.uid);
     project.planning_work.push(work);
+    project.state.baseline_planning_revision = project.state.planning_store.revision().unwrap();
     project.save_planning_work().unwrap();
 }

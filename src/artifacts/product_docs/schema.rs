@@ -1,5 +1,6 @@
 use crate::artifacts::planning_store::PlanningRoot;
 use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd};
+use std::path::Path;
 
 use super::{CoreConcept, ProductModule};
 
@@ -107,57 +108,44 @@ pub fn split_sections(text: &str) -> anyhow::Result<Vec<(String, String)>> {
         .collect())
 }
 
-/// Compatibility parser for the old thirteen-section monolithic document.
-pub fn split_legacy(text: &str) -> anyhow::Result<[String; 13]> {
-    let sections = split_sections(text)?;
-    anyhow::ensure!(
-        sections.len() == super::LEGACY_MODULES.len(),
-        "Legacy specification must have exactly thirteen top-level sections"
-    );
-    for (index, (title, _)) in sections.iter().enumerate() {
-        anyhow::ensure!(
-            title.starts_with(&format!("{}. ", index + 1)),
-            "Legacy section {} is missing or out of order",
-            index + 1
-        );
-    }
-    Ok(sections
-        .into_iter()
-        .map(|(_, content)| content)
-        .collect::<Vec<_>>()
-        .try_into()
-        .expect("thirteen legacy sections"))
-}
-
 pub fn load_documents<R: PlanningRoot + ?Sized>(
     repo: &R,
 ) -> anyhow::Result<Option<Vec<ProductDocument>>> {
-    let layout = repo.planning_layout();
-    let root = layout.product_root();
-    if !super::feature_index::real_dir(&root)? {
-        return Ok(None);
+    let store = repo.planning_store();
+    if store.published_repository_root.is_some() {
+        return load_published_documents(repo);
     }
-    anyhow::ensure!(
-        super::feature_index::regular(&layout.product_index())?,
-        "Product index is missing"
-    );
-    let Some(manifest) = super::load_manifest(repo)? else {
-        return Ok(None);
-    };
-    manifest.validate(&root, true)?;
-    let mut documents = Vec::with_capacity(manifest.modules.len());
-    for module in manifest.modules {
-        let path = super::safe_module_path(&root, &module.path).unwrap();
-        let content = String::from_utf8(repo.read_planning_path(&path)?)?;
-        validate_module(&content)?;
+    #[cfg(not(test))]
+    return Ok(None);
+    #[cfg(test)]
+    {
+        let layout = repo.planning_layout();
+        let root = layout.product_root();
+        if !super::feature_index::real_dir(&root)? {
+            return Ok(None);
+        }
         anyhow::ensure!(
-            module_title(&content).is_some_and(|title| title == module.title),
-            "Product module {} title differs from its manifest",
-            module.id
+            super::feature_index::regular(&layout.product_index())?,
+            "Product index is missing"
         );
-        documents.push(ProductDocument { module, content });
+        let Some(manifest) = super::load_manifest(repo)? else {
+            return Ok(None);
+        };
+        manifest.validate(&root, true)?;
+        let mut documents = Vec::with_capacity(manifest.modules.len());
+        for module in manifest.modules {
+            let path = super::safe_module_path(&root, &module.path).unwrap();
+            let content = String::from_utf8(repo.read_planning_path(&path)?)?;
+            validate_module(&content)?;
+            anyhow::ensure!(
+                module_title(&content).is_some_and(|title| title == module.title),
+                "Product module {} title differs from its manifest",
+                module.id
+            );
+            documents.push(ProductDocument { module, content });
+        }
+        Ok(Some(documents))
     }
-    Ok(Some(documents))
 }
 
 pub fn load_modules<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<Option<Vec<String>>> {
@@ -173,8 +161,50 @@ pub fn render_product<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<Opti
     let Some(documents) = load_documents(repo)? else {
         return Ok(None);
     };
-    let index =
-        String::from_utf8(repo.read_planning_path(&repo.planning_layout().product_index())?)?;
+    let index = read_product_index(repo)?;
+    Ok(Some(render_documents(&index, &documents)))
+}
+
+/// Render only documents read from the supplied immutable code-repository
+/// revision. Private drafts and indexes never participate in this result.
+pub fn render_published_product(
+    reader: &crate::core::published_specs::PublishedSpecReader,
+    pin: &crate::core::published_specs::PublishedSpecPin,
+) -> anyhow::Result<Option<String>> {
+    let (index, documents) = load_published_product(reader, pin)?;
+    Ok((!documents.is_empty()).then(|| render_documents(&index, &documents)))
+}
+
+pub fn render_published_product_with_updates(
+    reader: &crate::core::published_specs::PublishedSpecReader,
+    pin: &crate::core::published_specs::PublishedSpecPin,
+    updates: &[(String, String)],
+) -> anyhow::Result<Option<String>> {
+    let (index, mut documents) = load_published_product(reader, pin)?;
+    if documents.is_empty() {
+        return Ok(None);
+    }
+    for (id, content) in updates {
+        let Some(module_id) = id.strip_prefix("product:") else {
+            continue;
+        };
+        if module_id == "index" {
+            continue;
+        }
+        validate_module(content)?;
+        if let Some(document) = documents
+            .iter_mut()
+            .find(|document| document.module.id == module_id)
+        {
+            document.module.title = module_title(content).unwrap().to_owned();
+            document.content = content.clone();
+        } else if super::valid_id(module_id) {
+            documents.push(ProductDocument {
+                module: ProductModule::new(module_id, module_title(content).unwrap(), None),
+                content: content.clone(),
+            });
+        }
+    }
     Ok(Some(render_documents(&index, &documents)))
 }
 
@@ -206,8 +236,7 @@ pub fn render_product_with_updates<R: PlanningRoot + ?Sized>(
             });
         }
     }
-    let index =
-        String::from_utf8(repo.read_planning_path(&repo.planning_layout().product_index())?)?;
+    let index = read_product_index(repo)?;
     Ok(Some(render_documents(&index, &documents)))
 }
 
@@ -240,5 +269,106 @@ fn without_title(markdown: &str) -> &str {
         rest.trim_start()
     } else {
         markdown
+    }
+}
+
+fn load_published_documents<R: PlanningRoot + ?Sized>(
+    repo: &R,
+) -> anyhow::Result<Option<Vec<ProductDocument>>> {
+    let store = repo.planning_store();
+    let Some(code_root) = store.published_repository_root.as_deref() else {
+        return Ok(None);
+    };
+    let reader =
+        crate::core::published_specs::PublishedSpecReader::for_primary_repository(code_root)?;
+    let pin = match &store.published_spec_pin {
+        Some(pin) => pin.clone(),
+        None => reader.pin()?,
+    };
+    let (_, documents) = load_published_product(&reader, &pin)?;
+    Ok((!documents.is_empty()).then_some(documents))
+}
+
+pub(crate) fn load_published_product(
+    reader: &crate::core::published_specs::PublishedSpecReader,
+    pin: &crate::core::published_specs::PublishedSpecPin,
+) -> anyhow::Result<(String, Vec<ProductDocument>)> {
+    let published = reader.read_documentation(pin)?;
+    let index = published
+        .iter()
+        .find(|document| document.path == "docs/koolade/product/index.md")
+        .map(|document| document.content.clone())
+        .unwrap_or_else(|| "# Product\n".into());
+    Ok((index, published_product_documents(published)?))
+}
+
+pub(crate) fn published_product_documents(
+    published: Vec<crate::core::published_specs::PublishedDocument>,
+) -> anyhow::Result<Vec<ProductDocument>> {
+    let mut documents = Vec::new();
+    for document in published.into_iter().filter(|document| {
+        document.path.starts_with("docs/koolade/product/")
+            && document.path != "docs/koolade/product/index.md"
+    }) {
+        let relative = document
+            .path
+            .strip_prefix("docs/koolade/product/")
+            .expect("selected product document");
+        let path = Path::new(relative);
+        let Some(id) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            anyhow::bail!("published product document has an invalid file name");
+        };
+        anyhow::ensure!(
+            super::valid_id(id),
+            "published product document ID is invalid"
+        );
+        validate_module(&document.content)?;
+        let title = module_title(&document.content)
+            .map(str::to_owned)
+            .unwrap_or_else(|| id.replace('-', " "));
+        let core_concept = CoreConcept::all()
+            .into_iter()
+            .find(|concept| concept.id() == id);
+        let mut module = ProductModule::new(id, &title, core_concept);
+        module.uid = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, document.path.as_bytes())
+            .hyphenated()
+            .to_string();
+        module.path = relative.to_owned();
+        documents.push(ProductDocument {
+            module,
+            content: document.content,
+        });
+    }
+    documents.sort_by(|left, right| left.module.path.cmp(&right.module.path));
+    Ok(documents)
+}
+
+fn read_product_index<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<String> {
+    let store = repo.planning_store();
+    if let Some(code_root) = store.published_repository_root.as_deref() {
+        let reader =
+            crate::core::published_specs::PublishedSpecReader::for_primary_repository(code_root)?;
+        let pin = match &store.published_spec_pin {
+            Some(pin) => pin.clone(),
+            None => reader.pin()?,
+        };
+        return Ok(reader
+            .read_optional(&pin, "docs/koolade/product/index.md")?
+            .map(|document| document.content)
+            .unwrap_or_else(|| "# Product\n".into()));
+    }
+    #[cfg(not(test))]
+    anyhow::bail!("published product index requires the primary code repository");
+    #[cfg(test)]
+    {
+        match repo.read_planning_path(&repo.planning_layout().product_index()) {
+            Ok(bytes) => Ok(String::from_utf8(bytes)?),
+            Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
+                if source.kind() == std::io::ErrorKind::NotFound =>
+            {
+                Ok("# Product\n".into())
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 }

@@ -6,7 +6,6 @@ fn human_and_review_items_are_projected_into_needs_attention() {
         crate::domain::Priority::High,
         crate::domain::ItemKind::Question,
         "General".into(),
-        None,
         "Choose a retention period".into(),
         String::new(),
     );
@@ -26,7 +25,6 @@ fn dependent_decision_waits_until_its_prerequisite_is_resolved() {
         crate::domain::Priority::High,
         crate::domain::ItemKind::Question,
         "General".into(),
-        None,
         "Choose the account model".into(),
         String::new(),
     );
@@ -35,7 +33,6 @@ fn dependent_decision_waits_until_its_prerequisite_is_resolved() {
         crate::domain::Priority::High,
         crate::domain::ItemKind::Question,
         "General".into(),
-        None,
         "Choose the recovery flow".into(),
         String::new(),
     );
@@ -43,26 +40,18 @@ fn dependent_decision_waits_until_its_prerequisite_is_resolved() {
     let mut items = vec![parent, child];
     assert_eq!(planning_column(&items[1], &items), 0);
     assert_eq!(
-        crate::core::routing::eligible_items(
-            &items,
-            &crate::domain::CurrentUser::new("Operator", vec![]),
-            &crate::domain::Stakeholders::default(),
-        )
-        .iter()
-        .map(|item| item.id.as_str())
-        .collect::<Vec<_>>(),
+        crate::core::routing::eligible_items(&items, &crate::domain::CurrentUser::new("Operator"),)
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect::<Vec<_>>(),
         vec!["CLR-010"]
     );
     items[0].status = crate::domain::ItemStatus::Resolved;
     assert_eq!(planning_column(&items[1], &items), 3);
     assert!(
-        crate::core::routing::eligible_items(
-            &items,
-            &crate::domain::CurrentUser::new("Operator", vec![]),
-            &crate::domain::Stakeholders::default(),
-        )
-        .iter()
-        .any(|item| item.id == "CLR-011")
+        crate::core::routing::eligible_items(&items, &crate::domain::CurrentUser::new("Operator"),)
+            .iter()
+            .any(|item| item.id == "CLR-011")
     );
 }
 

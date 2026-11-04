@@ -21,6 +21,12 @@ pub(super) fn transaction_root(_store: &PlanningStore) -> Result<PathBuf, StoreE
     // records. Keep their location stable whether the store is in a Git repo
     // or a plain directory so restarts never depend on Git availability.
     let root = crate::persistence::state_root().join("planning-transactions");
+    if crate::persistence::is_inside_git_worktree(&root) {
+        return Err(StoreError::InvalidPath(format!(
+            "private transaction state must be outside Git worktrees: {}",
+            root.display()
+        )));
+    }
     std::fs::create_dir_all(&root).map_err(|source| StoreError::Io {
         path: root.clone(),
         source,

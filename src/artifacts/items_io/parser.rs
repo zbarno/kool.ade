@@ -67,7 +67,6 @@ struct Partial {
     authority: Option<Authority>,
     kind: Option<ItemKind>,
     category: Option<String>,
-    assigned_to: Option<String>,
     _status: Option<ItemStatus>,
     mode: Capture,
     question_buf: String,
@@ -100,7 +99,6 @@ impl Partial {
             authority: None,
             kind: None,
             category: None,
-            assigned_to: None,
             _status: None,
             mode: Capture::Field,
             question_buf: String::new(),
@@ -191,19 +189,18 @@ impl Partial {
                         .map_err(|error| format!("bad 'Decision Brief' value: {error}"))?,
                 );
             }
-            "Assigned To" => {
-                self.assigned_to = (value != "(unassigned)").then(|| value.to_owned());
-            }
             other => return Err(format!("unknown item field '{other}'")),
         }
         Ok(())
     }
 
     fn finish(self, items: &mut Vec<OpenItem>) -> Result<(), String> {
-        if let Some(uid) = &self.uid
-            && items
-                .iter()
-                .any(|existing| existing.uid.as_deref() == Some(uid))
+        let uid = self
+            .uid
+            .ok_or_else(|| format!("{}: missing '**UID:**'", self.id))?;
+        if items
+            .iter()
+            .any(|existing| existing.uid.as_deref() == Some(&uid))
         {
             return Err(format!("duplicate open item UID {uid}"));
         }
@@ -226,14 +223,13 @@ impl Partial {
             priority,
             kind,
             category,
-            self.assigned_to,
             question,
             self.reason_buf.trim().to_owned(),
         );
         if items.iter().any(|existing| existing.id == item.id) {
             return Err(format!("duplicate open item id {}", item.id));
         }
-        item.uid = self.uid;
+        item.uid = Some(uid);
         item.authority = self.authority.unwrap_or(Authority::Human);
         item.conversation_id = self.conversation_id;
         item.feature_id = self.feature_id;

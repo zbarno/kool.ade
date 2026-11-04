@@ -58,7 +58,7 @@ fn reclaim_legacy(
         matches!(merged.len(), 40 | 64) && merged.bytes().all(|b| b.is_ascii_hexdigit()),
         "Invalid completion commit; worktrees preserved"
     );
-    let task_key = task_repository::allocation_key(state);
+    let task_key = task_repository::allocation_key(state)?;
     let remote_ref = format!("refs/koolade-cleanup-bases/{task_key}");
     runner.git(
         repo,
@@ -94,7 +94,7 @@ fn reclaim_legacy(
             "Integration evidence directory is a symlink; preserved"
         );
         let record = super::read_state_file(&entry.path().join("state.json"))?;
-        let record_key = task_repository::allocation_key(&record);
+        let record_key = task_repository::allocation_key(&record)?;
         anyhow::ensure!(
             record_key == task_key
                 && record.base_commit.len() >= 12
@@ -184,7 +184,7 @@ fn remove_worktree(
                 "update-ref",
                 &format!(
                     "refs/koolade-evidence/{}/{head}",
-                    task_repository::allocation_key(record)
+                    task_repository::allocation_key(record)?
                 ),
                 &head,
             ],

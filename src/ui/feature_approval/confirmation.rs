@@ -9,6 +9,9 @@ pub(super) fn paint(ui: &mut egui::Ui, action: &Action, title: &str) {
         return;
     };
     ui.label("Review the exact plan snapshot before confirming it. Task generation waits for an independent review.");
+    if title == "Plan confirmation" {
+        ui.label("Confirming also consents to proposing this exact feature document in the primary code repository through a protected pull request after independent review. Conversations, decisions, approvals, and execution evidence remain private.");
+    }
     field(ui, "Original user goal", &snapshot.original_goal);
     field(ui, "Intent", &snapshot.intent);
     field(ui, "Expected outcome", &snapshot.outcome);

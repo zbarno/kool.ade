@@ -13,7 +13,7 @@ pub(crate) fn bind(
         return None;
     }
     let root = repo_root.canonicalize().ok()?;
-    let mut git = crate::core::planning_sync::validated_git_command(&root).ok()?;
+    let mut git = crate::core::git_commands::validated_git_command(&root).ok()?;
     let output = git.args(["rev-parse", "--verify", "HEAD"]).output().ok()?;
     if !output.status.success() {
         return None;
@@ -40,7 +40,7 @@ pub(crate) fn is_unborn(state: &crate::core::state::PlannerState) -> bool {
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
         return false;
     }
-    let Ok(mut git) = crate::core::planning_sync::validated_git_command(&state.repo_root) else {
+    let Ok(mut git) = crate::core::git_commands::validated_git_command(&state.repo_root) else {
         return false;
     };
     let Ok(output) = git.args(["symbolic-ref", "--quiet", "HEAD"]).output() else {
@@ -56,7 +56,7 @@ pub(crate) fn is_unborn(state: &crate::core::state::PlannerState) -> bool {
     if !reference.starts_with("refs/heads/") {
         return false;
     }
-    let Ok(mut git) = crate::core::planning_sync::validated_git_command(&state.repo_root) else {
+    let Ok(mut git) = crate::core::git_commands::validated_git_command(&state.repo_root) else {
         return false;
     };
     git.args(["show-ref", "--verify", "--quiet", reference])

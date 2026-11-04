@@ -4,7 +4,34 @@ use super::*;
 fn documentation_refresh_cannot_finish_without_document_updates() {
     use crate::core::planning_work::{Work, WorkKind, WorkStatus};
     let temp = tempfile::tempdir().unwrap();
-    let mut project = crate::app::session::test_support::project_from(temp.path());
+    let code_root = temp.path().join("code");
+    std::fs::create_dir_all(&code_root).unwrap();
+    let git = |args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .args(["-C"])
+            .arg(&code_root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    git(&["init", "-q", "-b", "main"]);
+    git(&["config", "user.name", "Fixture User"]);
+    git(&["config", "user.email", "fixture@example.invalid"]);
+    std::fs::write(code_root.join("README.md"), "fixture\n").unwrap();
+    git(&["add", "README.md"]);
+    git(&["commit", "-qm", "fixture code"]);
+    let mut project = crate::app::session::test_support::project_from(&code_root);
+    let store = crate::artifacts::planning_store::PlanningStore::for_code_repository(
+        project.state.planning_store.project_id,
+        temp.path().join("private-state"),
+        &code_root,
+    );
+    project.state = crate::core::state::PlannerState::load_with_store(&code_root, &store).unwrap();
     let mut work = Work::new(
         "task:docs".into(),
         "Refresh docs".into(),
@@ -23,16 +50,14 @@ fn documentation_refresh_cannot_finish_without_document_updates() {
         let outcome = TurnOutcome::Applied {
             state: Box::new(project.state.clone()),
             receipt: crate::core::apply::ApplyReceipt {
-                spec_written: false,
+                draft_written: false,
                 items_written: false,
-                commit_message: "Fixture".into(),
-                repo_relative_paths: vec![],
-                synthesized_open_items: vec![],
+                summary: "Fixture".into(),
+                changed_store_paths: vec![],
             },
             normalized: Box::new(crate::core::validation::NormalizedTurn {
                 assistant_message: "Refresh complete".into(),
                 change_summary: None,
-                spec_markdown: None,
                 document_updates: updates,
                 planning_tasks: vec![],
                 task_intent_context: None,
@@ -49,7 +74,7 @@ fn documentation_refresh_cannot_finish_without_document_updates() {
                 task_batch: None,
                 plan_comparison: None,
             }),
-            commit_result: Ok("fixture".into()),
+            save_result: Ok("fixture".into()),
             elapsed: std::time::Duration::ZERO,
             stderr_tail: String::new(),
         };

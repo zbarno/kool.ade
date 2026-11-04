@@ -1,12 +1,11 @@
 use std::collections::HashSet;
 
 use crate::{
-    artifacts::{planning_store::StoreError, product_docs},
+    artifacts::planning_store::StoreError,
     core::lifecycle::{FeatureEvent, GateDecision, LifecycleEventKind, SpecRevisionDraftV1},
 };
 
 use super::super::LifecycleStore;
-use sha2::Digest as _;
 
 mod helpers;
 mod history;
@@ -109,16 +108,8 @@ pub(super) fn validate_draft(
             "specification deltas require a persisted stable-requirement plan snapshot".into(),
         ));
     }
-    let rendered = product_docs::render_product(lifecycle.store)
-        .map_err(|error| StoreError::MalformedState(error.to_string()))?
-        .ok_or_else(|| StoreError::MalformedState("product specification is unavailable".into()))?;
-    let current_content_hash = format!(
-        "{:x}",
-        sha2::Sha256::digest(
-            serde_json::to_vec(&Some(rendered))
-                .map_err(|error| StoreError::MalformedState(error.to_string()))?
-        )
-    );
+    let current_content_hash =
+        crate::core::lifecycle::product_spec::current_product_hash(lifecycle.store)?;
     let known_event_uids = events
         .iter()
         .map(|event| event.uid.as_str())

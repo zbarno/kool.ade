@@ -91,7 +91,7 @@ fn integrate(
             "Integrating and verifying against destination origin/{}…",
             state.base
         ));
-        let task_key = task_repository::allocation_key(state);
+        let task_key = task_repository::allocation_key(state)?;
         let remote_ref = format!("refs/koolade-auto-bases/{task_key}");
         let refreshed = if let Some(cache) = repository_cache.as_ref() {
             cache
@@ -190,7 +190,7 @@ fn integrate(
                 &state.branch,
                 &state.base_commit,
                 task_head,
-                &task_repository::allocation_key(state),
+                &task_repository::allocation_key(state)?,
                 runner,
             )?;
         }

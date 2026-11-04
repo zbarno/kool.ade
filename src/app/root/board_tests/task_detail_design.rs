@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::OpenItem;
 
 #[test]
 fn task_popup_prioritizes_human_title_and_keeps_live_action_visible() {
@@ -157,7 +158,6 @@ fn task_and_planning_cards_share_modal_header_status_and_close_behavior() {
         crate::domain::item::Priority::High,
         crate::domain::item::ItemKind::Question,
         "General".into(),
-        Some("All".into()),
         "Which users need access?".into(),
         "Determines the access model".into(),
     );

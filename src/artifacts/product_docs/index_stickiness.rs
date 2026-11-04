@@ -1,6 +1,6 @@
 #[test]
 fn refreshed_product_index_preserves_heading_and_intro() {
-    let temp = tempfile::tempdir().expect("temporary planning repository");
+    let temp = tempfile::tempdir().expect("temporary local application store");
     let repository = temp.path();
     let store = crate::artifacts::planning_store::PlanningStore::new(
         uuid::Uuid::new_v4(),

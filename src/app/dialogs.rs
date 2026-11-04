@@ -1,5 +1,4 @@
-//! Secondary dialogs: reference-doc import and stakeholder/identity
-//! settings. Business effects (files, commits) run on SAVE only.
+//! Secondary dialogs: reference import and local identity settings.
 
 use egui::{Layout, RichText, TextEdit};
 
@@ -8,7 +7,6 @@ use crate::app::session::Project;
 use crate::artifacts::CONFIG_FILE;
 use crate::artifacts::{config_io, imports_io};
 use crate::core::gitops;
-use crate::domain::stakeholder::{CategoryOwners, Stakeholders};
 use crate::domain::user::{CurrentUser, IdentitySource};
 use crate::error::AppError;
 use crate::persistence::persona;
@@ -34,11 +32,9 @@ pub use persona_card::{
     DlgPersona, PERSONA_SUBORDINATION_NOTICE, PersonaSaveOutcome, paint_persona_card,
 };
 pub use settings::{
-    DlgProjectSettings, DlgSettings, RepositoryNameRow, Row, paint_import_card,
+    DlgProjectSettings, DlgSettings, RepositoryNameRow, paint_import_card,
     paint_project_settings_card, paint_settings_card,
 };
-#[cfg(test)]
-use settings::{owner_choices, set_owner_selected};
 
 // ---------------------------------------------------------------------------
 fn footers(ui: &mut egui::Ui, feedback: &Option<(bool, String)>) -> (bool, bool) {
@@ -68,13 +64,6 @@ fn footers(ui: &mut egui::Ui, feedback: &Option<(bool, String)>) -> (bool, bool)
         ui.add_space(4.0);
     });
     (save, close)
-}
-
-fn csv_parts(csv: &str) -> Vec<String> {
-    csv.split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
 }
 
 #[cfg(test)]

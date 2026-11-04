@@ -1,9 +1,10 @@
 # Parallel implementation and integration
 
 The task's declared affected files are a scheduling heuristic. They help avoid
-starting obviously overlapping tasks at the same time, but declarations can be
-incomplete and local in-flight state does not coordinate separate app
-instances.
+starting obviously overlapping local tasks at the same time, but declarations
+can be incomplete. Local execution leases fence competing workers in one
+installation. Separate installations do not share task state or coordinate
+claims; they exchange code only through ordinary Git operations.
 
 Before integration, Kool.ad/e derives each verified task's changed paths from
 NUL-delimited Git name-status records. It compares that set with destination
@@ -14,7 +15,7 @@ integration runs in an isolated clone; unresolved changes preserve both task
 and integration clones and require review. The final push uses non-force and
 lease checks so a destination update after preflight cannot be overwritten.
 
-Cross-instance task claims coordinate the same task UID. They do not serialize
-different task UIDs; Git change-set checks protect integration when those tasks
-touch overlapping paths. Claim takeovers retain the prior owner and session in
-the remote claim record.
+Git change-set checks protect integration when independently performed work
+touches overlapping paths. Integration runs in an isolated clone, preserves
+unresolved conflicts for review, and uses non-force pushes with lease checks so
+a destination update cannot be overwritten.

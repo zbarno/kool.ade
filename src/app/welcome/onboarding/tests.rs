@@ -24,28 +24,19 @@ fn navigation_resumes_and_unknown_session_is_preserved() {
 }
 
 #[test]
-fn restart_preserves_navigation_and_handoff_references_without_authority() {
-    // Real private session serialization across restart; temporary files only.
-    // An in-memory enum assertion cannot prove durable recovery references.
+fn restart_preserves_setup_navigation_without_project_workspace_references() {
+    // Real private setup-navigation serialization across restart; temporary
+    // files only. This proves the durable setup gate without persisting a
+    // planning-workspace selection or creation request.
     let root = std::env::temp_dir().join(format!("koolade-session-{}", uuid::Uuid::new_v4()));
     let path = root.join("onboarding.json");
     let mut session = Onboarding::load(path.clone());
-    let id = uuid::Uuid::new_v4();
-    session.opening_workspace_id = Some(id);
-    session.pending_interview = Some(InterviewRef {
-        workspace_id: id,
-        work_key: "saved-idea".into(),
-    });
     session.active_setup_task_id = Some("setup:docker:rootless".into());
     session.pending_operation_task_id = session.active_setup_task_id.clone();
-    session.go(Step::NewProject);
+    session.go(Step::Projects);
     let restored = Onboarding::load(path.clone());
-    assert_eq!(restored.mode, Mode::Resume);
-    assert_eq!(restored.selected_entry_path, Some(EntryPath::NewProject));
-    assert_eq!(restored.opening_workspace_id, Some(id));
-    let interview = restored.pending_interview.unwrap();
-    assert_eq!(interview.workspace_id, id);
-    assert_eq!(interview.work_key, "saved-idea");
+    assert_eq!(restored.mode, Mode::Returning);
+    assert_eq!(restored.step, Step::Projects);
     assert_eq!(
         restored.pending_operation_task_id,
         restored.active_setup_task_id

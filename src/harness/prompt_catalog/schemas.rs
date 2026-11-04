@@ -7,15 +7,13 @@ mod validation;
 mod work;
 
 pub use opportunity::{
-    ManagerActionKind, ManagerActionV1, ManagerContradictionV1, ManagerOutputV1, ManagerOutputV2,
-    OpportunityChoice, OpportunityConfidence, OpportunityDecisionV1, OpportunityKind,
-    OpportunityOrigin, OpportunityProposalV1, OpportunityProposalV1Legacy, OpportunityScope,
-    OpportunityTarget, validate_user_opportunity_decision,
+    ManagerActionKind, ManagerActionV1, ManagerContradictionV1, ManagerOutputV2, OpportunityChoice,
+    OpportunityConfidence, OpportunityDecisionV1, OpportunityKind, OpportunityOrigin,
+    OpportunityProposalV1, OpportunityScope, OpportunityTarget, validate_user_opportunity_decision,
 };
 pub use planner::{
     AcceptanceTestRefV1, ClarificationCategory, ClarificationOptionV1, ClarificationPriority,
-    ClarificationProposalV1, PlannerOutputV1, PlannerOutputV2, PlannerQuestionV1, ReadinessV1,
-    ReadinessV2, TechnicalResolutionV1,
+    ClarificationProposalV1, PlannerOutputV2, ReadinessV2, TechnicalResolutionV1,
 };
 pub use review::{
     CoverageStatus, CoverageV1, FindingKind, FindingScopeV1, ReviewFindingActionV1,

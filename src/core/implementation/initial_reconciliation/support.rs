@@ -224,10 +224,6 @@ pub(super) fn validate_task_repository(
     state: &Implementation,
     runner: &Runner,
 ) -> anyhow::Result<()> {
-    anyhow::ensure!(
-        state.task_repository_kind == TaskRepositoryKind::Clone,
-        "Legacy reconciliation repositories must migrate before use"
-    );
     crate::core::implementation::task_repository::validate_clone_path(state)?;
     crate::core::implementation::repository_cache::RepositoryCache::verify_task_repository(
         &state.task_repository,

@@ -34,11 +34,15 @@ pub(super) fn generate_and_sync(
         .state
         .resync()
         .expect("reviewed plan and readiness reload from the planning store");
-    assert!(matches!(
-        &app.screen,
-        Screen::Connected(project)
-            if project.state.workflow.ready(project.state.planning_contract())
-    ));
+    let Screen::Connected(project) = &app.screen else {
+        panic!("project remains connected after resync");
+    };
+    assert!(
+        project
+            .state
+            .workflow
+            .ready(project.state.planning_contract())
+    );
     assert!(app.feature_approved(feature_id));
     let graph = graph::decomposer_graph(app);
     app.task_harness = Some(harness::response_harness(graph));
@@ -177,6 +181,10 @@ pub(super) fn generate_and_sync(
         )
         .unwrap();
     set_app_repo_origin(app, "https://github.com/attacker/kool.ade");
+    // Changing origin changes the repository identity used to resolve the
+    // pinned feature document. The persisted approval is therefore no longer
+    // authoritative, so implementation must stop at explicit approval rather
+    // than reaching the deeper self-improvement target check.
     app.start_implementation_with_capabilities(
         owner_task_path,
         true,
@@ -200,7 +208,7 @@ pub(super) fn generate_and_sync(
         project
             .queue
             .last_error
-            .contains("Self-improvement target check blocked implementation"),
+            .contains("F1 needs explicit approval before implementation"),
         "unexpected controller denial: {}",
         project.queue.last_error
     );

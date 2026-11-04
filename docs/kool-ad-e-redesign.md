@@ -1,6 +1,6 @@
 # Kool.ad/e redesign and rebrand
 
-**Status:** Implementation specification
+**Status:** Historical presentation specification
 
 **Scope:** Presentation and user-visible branding of the Kool.ad/e desktop app
 
@@ -47,7 +47,7 @@ The accompanying [CSS token sheet](../assets/brand/tokens.css) is the exact pale
 
 Use deep crimson (`#4A0710`, `#680A15`, `#8E0D1B`, `#B71325`) only as controlled header ambience or small decorative accents. The canvas and cards remain neutral. Red should read as fruit punch or ruby, never magenta. Blue is for primary interaction and visible agent activity. Semantic colors have their own meanings.
 
-Task types: Task `#C9D1D9`, Question `#B66CFF`, Ambiguity `#FFC247`, Assumption `#22B8FF`, Ownership `#F06A9D`. Lane status: To do neutral, In progress blue, In review purple, Needs attention amber, Done green. Keep labels/icons alongside colors.
+Task types: Task `#C9D1D9`, Question `#B66CFF`, Ambiguity `#FFC247`, Assumption `#22B8FF`. Lane status: To do neutral, In progress blue, In review purple, Needs attention amber, Done green. Keep labels/icons alongside colors.
 
 ## Desktop composition
 
@@ -66,7 +66,7 @@ Make the human title the strongest text. Use this order: title, type/state, shor
 Use 8 px corners for cards and lanes, 7 px for buttons/inputs, and pill radii only for small tags. Prefer 1 px borders and surface contrast to shadows. The card base is `#182129` with a `#2D3942` border; hover is `#1D2831` with a stronger edge.
 
 - **Working:** subtle Kool Blue border/glow and a blue version of the card's existing real-time activity graph, where one exists. Preserve the card graph's data and time scale. The card itself does not pulse. Show a clear status such as `Kool.ad/e is working`.
-- **Needs attention:** amber edge and explicit question/action, plus the person or group that must respond when known. An answerable item should show recommended options and always allow free text through its existing interaction. Reserve failure red for an actual error.
+- **Needs attention:** amber edge and explicit question/action for the local operator. An answerable item should show recommended options and always allow free text through its existing interaction. Reserve failure red for an actual error.
 - **Done:** green signal, without filling the whole card green.
 - **Empty lanes:** restrained line art and short useful copy. Avoid decorative clutter.
 
@@ -81,9 +81,9 @@ Keep type badges compact and colored, on neutral card backgrounds. Do not depend
 
 ## Scope and migration
 
-Replace primary user-visible `Kool.ad/e` text, window title, and working status with `Kool.ad/e`. Internal crate names and namespaces should remain stable unless independently required. This historical rebrand document predates the separate planning-repository architecture; see [planning repository v1](planning-repository-v1.md) for current artifact ownership. Do not turn a visual rebrand into a data migration.
+Replace primary user-visible `Kool.ad/e` text, window title, and working status with `Kool.ad/e`. Internal crate names and namespaces should remain stable unless independently required. This historical rebrand document predates the greenfield storage architecture. For current artifact ownership, see the [storage boundary](koolade/architecture/storage-boundaries.md). This presentation note does not define storage behavior.
 
-Preserve task transitions, board filtering, specification behavior, acceptance criteria, ownership, task conversations, agent execution, Git storage, and human gates. Provide focus states and readable contrast. Status, type, errors, and completion must be understandable without color alone.
+Preserve task transitions, board filtering, specification behavior, acceptance criteria, per-installation task conversations, agent execution, code-repository Git behavior, and local human gates. Do not add cross-user task ownership or stakeholder routing. Provide focus states and readable contrast. Status, type, errors, and completion must be understandable without color alone.
 
 ## Implementation order
 
@@ -100,7 +100,7 @@ Preserve task transitions, board filtering, specification behavior, acceptance c
 - The app has neutral near-black surfaces, Punch Red ambient accents rather than pink, Kool Blue primary actions and active work, amber human attention, green Done, and locally scoped failure red.
 - `+ New Task` is right aligned on the Specification/Board row; the task-type legend sits between Board and New Task.
 - Human titles dominate IDs; existing card and global activity graphs use blue and red line styling respectively while preserving their real-time data and behavior.
-- The five lanes, existing work flows, and human gates remain. Shared project artifacts live in the separate managed planning repository; code checkouts are not planning stores.
+- The five lanes, existing work flows, and human gates remain. Published project knowledge lives in the primary code repository; task state remains private local application data.
 - Keyboard focus, status labels, contrast, responsive header behavior, and reduced-motion behavior remain usable.
 - Decorative elements never cover controls, criteria, or task content.
 

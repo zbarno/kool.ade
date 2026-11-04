@@ -12,7 +12,7 @@ pub(super) fn validate_id(id: &str) -> anyhow::Result<()> {
 pub(super) fn validate(record: &RemoteExecutionTelemetryV1) -> anyhow::Result<()> {
     validate_id(&record.execution_id)?;
     anyhow::ensure!(
-        matches!(record.schema_version, 1..=8)
+        record.schema_version == 8
             && [record.workspace_upload_bytes, record.result_download_bytes]
                 .iter()
                 .flatten()

@@ -3,29 +3,13 @@ use super::*;
 const PREFIX: &str = "internal-task-reply-recoverable:";
 
 pub(super) fn is_recoverable(message: &ChatMessage) -> bool {
-    message.role == ChatRole::System
-        && (message.id.starts_with(PREFIX)
-            || (message.id.starts_with(TASK_REPLY_FAILED_PREFIX)
-                && message
-                    .text
-                    .strip_prefix("⚠ Turn rejected — nothing was written.\n")
-                    .is_some_and(|problems| {
-                        !problems.is_empty() && problems.lines().all(format_problem)
-                    })))
+    message.role == ChatRole::System && message.id.starts_with(PREFIX)
 }
 pub(super) fn attempts(messages: &[ChatMessage]) -> usize {
     messages
         .iter()
         .filter(|message| is_recoverable(message))
         .count()
-}
-pub(crate) fn format_problem(problem: &str) -> bool {
-    problem.starts_with("Structured JSON block is malformed")
-        || problem.starts_with(
-            "The planner's final message did not include the required structured JSON block",
-        )
-        || (problem.starts_with('“')
-            && problem.ends_with("cannot update and resolve the same item in one turn"))
 }
 impl TaskChats {
     /// One durable internal retry per submitted answer; subsequent failures stay visible.

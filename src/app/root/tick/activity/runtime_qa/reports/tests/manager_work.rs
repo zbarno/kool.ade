@@ -74,9 +74,11 @@ fn persisted_failed_report_records_lifecycle_and_manager_repair_work() {
     };
 
     let root = tempfile::tempdir().unwrap();
+    let app_home = tempfile::tempdir().unwrap();
+    let user_data = tempfile::tempdir().unwrap();
     let mut _environment = crate::test_support::ProcessEnvironmentGuard::new();
-    _environment.set("KOOLADE_HOME", root.path().join("operator-state"));
-    _environment.set("XDG_DATA_HOME", root.path().join("user-data"));
+    _environment.set("KOOLADE_HOME", app_home.path());
+    _environment.set("XDG_DATA_HOME", user_data.path());
     init_git(root.path());
     let mut project = project_from(root.path());
     let planning = project.state.planning_store.clone();
@@ -90,6 +92,7 @@ fn persisted_failed_report_records_lifecycle_and_manager_repair_work() {
     let qa = RuntimeQaStore::new(qa_root);
     super::receipt_order::save_failed_report_with_finding(&qa, &task_uid, &request, true);
     super::receipt_order::save_valid_gate_receipt(&qa, &request);
+    project.state.baseline_planning_revision = planning.revision().unwrap();
 
     let summary = super::super::record_persisted_report(
         &planning,
@@ -132,6 +135,7 @@ fn persisted_failed_report_records_lifecycle_and_manager_repair_work() {
         )
         .unwrap();
     let state = crate::core::state::PlannerState::load_with_store(root.path(), &planning).unwrap();
+    project.state.baseline_planning_revision = planning.revision().unwrap();
     let (context, greeting) =
         crate::core::task_conversation::presentation(&state, &[], &proposal.key)
             .expect("persisted QA finding opens its Manager conversation");
@@ -190,16 +194,22 @@ fn persisted_failed_report_records_lifecycle_and_manager_repair_work() {
         independent_check: None,
         cleanup: Default::default(),
     };
-    let state_dir =
-        implementation::state_dir_for_task(&project.state.repo_root, &ticket, Some(&task_uid))
-            .unwrap();
+    let state_dir = implementation::state_dir_for_task(
+        &project.state.planning_store.root,
+        &ticket,
+        Some(&task_uid),
+    )
+    .unwrap();
     std::fs::create_dir_all(&state_dir).unwrap();
     implementation::save(&state_dir, &state).unwrap();
     project.implementation_states.insert(ticket.clone(), state);
 
-    let (dispatched_ticket, work_key) =
-        crate::app::manager::next_qa_finding_repair_with_store(&mut project, &qa)
-            .expect("lifecycle task UUID dispatches without a planning-item mapping");
+    let dispatch = crate::app::manager::next_qa_finding_repair_with_store(&mut project, &qa);
+    assert!(
+        dispatch.is_some(),
+        "persisted QA finding should dispatch after refreshing the private-store revision"
+    );
+    let (dispatched_ticket, work_key) = dispatch.unwrap();
     assert_eq!(dispatched_ticket, ticket);
     assert_eq!(work_key, proposal_uid);
     let dispatched = project
@@ -250,6 +260,20 @@ fn persisted_failed_report_records_lifecycle_and_manager_repair_work() {
     let passing_result =
         passing_report::record_fresh_pass(&mut project, &task_uid, &task, &request, &qa);
     assert_eq!(passing_result.outcome, crate::runtime_qa::QaOutcome::Pass);
+    project.state.baseline_planning_revision = planning.revision().unwrap();
+    let passing_task = lifecycle.load_task(&task_uid).unwrap();
+    let passing_request = passing_task
+        .qa_execution
+        .as_ref()
+        .and_then(|execution| execution.request.as_ref())
+        .expect("passing report request persists in lifecycle state")
+        .clone();
+    crate::app::manager::finish_qa_finding_repair(
+        &mut project,
+        &task_uid,
+        &passing_request,
+        &passing_result,
+    );
     let resolved = project
         .planning_work
         .iter()

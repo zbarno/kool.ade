@@ -6,7 +6,6 @@ use super::ChangeStatus;
 const MARKER: &str = "<!-- koolade-change:v1 ";
 const STATUS_PREFIX: &str = "**Status:**";
 
-mod comparison;
 mod rewrite;
 mod typed_adoption;
 
@@ -17,28 +16,15 @@ pub struct ChangeMetadata {
     pub uid: String,
     pub display_id: String,
     pub status: ChangeStatus,
-    /// Legacy migration inputs only; Workflow owns current comparison state.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub plan_comparison: Option<crate::domain::PlanComparison>,
-    /// Legacy comparison history copied into Workflow during artifact migration.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub comparison_history: Vec<crate::domain::PlanComparison>,
-    /// Legacy migration input only; adopted choice is stored in Workflow and
-    /// rendered in the feature's Selected Plan section.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub selected_alt: Option<String>,
 }
 
 impl ChangeMetadata {
     pub fn new(identity: &ArtifactIdentity, status: ChangeStatus) -> Self {
         Self {
-            schema_version: 1,
+            schema_version: if status == ChangeStatus::Draft { 1 } else { 2 },
             uid: identity.uid.clone(),
             display_id: identity.display_id.clone(),
             status,
-            plan_comparison: None,
-            comparison_history: Vec::new(),
-            selected_alt: None,
         }
     }
 
@@ -64,42 +50,9 @@ impl ChangeMetadata {
                 "Malformed Koolade change metadata fields"
             );
             anyhow::ensure!(
-                metadata
-                    .selected_alt
-                    .as_deref()
-                    .is_none_or(|id| ["A", "B"].contains(&id)),
-                "Malformed selected alternative"
+                metadata.schema_version == 2 || metadata.status == ChangeStatus::Draft,
+                "Only Draft change metadata may use schema version 1"
             );
-            anyhow::ensure!(
-                metadata.schema_version == 2
-                    || (metadata.plan_comparison.is_none()
-                        && metadata.comparison_history.is_empty()
-                        && metadata.selected_alt.is_none()),
-                "Compare Plans metadata requires schema version 2"
-            );
-            if let Some(comparison) = &metadata.plan_comparison {
-                anyhow::ensure!(
-                    comparison.alternatives.len() == 2
-                        && comparison.alternatives[0].id == "A"
-                        && comparison.alternatives[1].id == "B"
-                        && ["A", "B"].contains(&comparison.recommendation.plan_id.as_str())
-                        && comparison
-                            .selected_plan
-                            .as_deref()
-                            .is_none_or(|id| ["A", "B"].contains(&id))
-                        && comparison.selected_plan == metadata.selected_alt,
-                    "Malformed plan comparison metadata"
-                );
-            }
-            for comparison in &metadata.comparison_history {
-                anyhow::ensure!(
-                    comparison.alternatives.len() == 2
-                        && comparison.alternatives[0].id == "A"
-                        && comparison.alternatives[1].id == "B"
-                        && ["A", "B"].contains(&comparison.recommendation.plan_id.as_str()),
-                    "Malformed comparison history"
-                );
-            }
             found = Some(metadata);
         }
         Ok(found)
@@ -115,18 +68,6 @@ impl ChangeMetadata {
             "Change status identity does not match the change specification"
         );
         Ok(metadata)
-    }
-
-    pub fn parse_legacy_markdown(markdown: &str) -> anyhow::Result<ChangeStatus> {
-        let lines = markdown
-            .lines()
-            .filter_map(|line| line.strip_prefix(STATUS_PREFIX).map(str::trim))
-            .collect::<Vec<_>>();
-        anyhow::ensure!(
-            lines.len() == 1,
-            "Legacy change requires exactly one visible status line"
-        );
-        ChangeStatus::parse_legacy(lines[0])
     }
 
     pub fn strip_markers(markdown: &str) -> String {
@@ -224,24 +165,6 @@ impl ChangeMetadata {
             rendered.push('\n');
         }
         Ok(rendered)
-    }
-
-    /// Drop legacy comparison copies after their contents have been promoted
-    /// into the workflow record. Human-readable comparison sections remain.
-    pub fn clear_legacy_comparison_state(markdown: &str) -> anyhow::Result<String> {
-        let Some(mut metadata) = Self::from_markdown(markdown)? else {
-            return Ok(markdown.to_owned());
-        };
-        if metadata.plan_comparison.is_none()
-            && metadata.comparison_history.is_empty()
-            && metadata.selected_alt.is_none()
-        {
-            return Ok(markdown.to_owned());
-        }
-        metadata.plan_comparison = None;
-        metadata.comparison_history.clear();
-        metadata.selected_alt = None;
-        replace_metadata(markdown, &metadata)
     }
 }
 

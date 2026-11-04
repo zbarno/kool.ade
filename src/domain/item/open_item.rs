@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenItem {
-    /// Immutable Koolade identity, absent only on artifacts awaiting migration.
+    /// Immutable identity required by the current item record format.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uid: Option<String>,
     /// Stable identifier, e.g. `CLR-012`. Allocated by the app, referenced thereafter.
@@ -18,8 +18,6 @@ pub struct OpenItem {
     pub kind: ItemKind,
     /// Routing category, e.g. `Security`, `Product`, `General`.
     pub category: String,
-    /// Person or group responsible for answering (None → nobody assigned).
-    pub assigned_to: Option<String>,
     /// The actual question/issue, in one or two sentences.
     pub question: String,
     /// Why this matters / how it was discovered (context for the responder).
@@ -45,7 +43,7 @@ pub struct OpenItem {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocked_by: Vec<String>,
     pub status: ItemStatus,
-    /// Revision captured when this item was loaded; omitted from legacy data.
+    /// Revision captured when this item was loaded; zero for a new item.
     #[serde(skip)]
     pub record_revision: u64,
     /// Serialized content captured at load time, used to distinguish this
@@ -64,7 +62,6 @@ impl PartialEq for OpenItem {
             && self.authority == other.authority
             && self.kind == other.kind
             && self.category == other.category
-            && self.assigned_to == other.assigned_to
             && self.question == other.question
             && self.reason == other.reason
             && self.feature_id == other.feature_id
@@ -87,7 +84,6 @@ impl OpenItem {
         priority: Priority,
         kind: ItemKind,
         category: String,
-        assigned_to: Option<String>,
         question: String,
         reason: String,
     ) -> Self {
@@ -99,7 +95,6 @@ impl OpenItem {
             authority: Authority::Human,
             kind,
             category,
-            assigned_to,
             question,
             reason,
             feature_id: None,
@@ -118,10 +113,6 @@ impl OpenItem {
 
     pub fn conversation_key(&self) -> &str {
         self.conversation_id.as_deref().unwrap_or(&self.id)
-    }
-
-    pub const fn is_ownership_gap(&self) -> bool {
-        matches!(self.kind, ItemKind::Ownership)
     }
 
     pub fn summary(&self) -> String {

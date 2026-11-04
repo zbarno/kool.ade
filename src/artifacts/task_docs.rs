@@ -19,9 +19,8 @@ pub use batch_write::{write_batch, write_batch_expected, write_batch_expected_wi
 pub use board::{load_board, load_latest};
 pub use generation::{save_progress, save_progress_expected};
 pub(crate) use identity::visible_content;
-pub use metadata::TaskMetadata;
-pub(crate) use metadata::legacy_dependencies;
 pub(crate) use metadata::parse as parse_metadata;
+pub use metadata::{TaskMetadata, embed};
 pub use naming::{is_task_story_filename, slug};
 pub(crate) use task_intent::cycle_uid_for_batch as task_intent_cycle_uid_for_batch;
 pub use task_intent::cycle_uid_for_document as task_intent_cycle_uid_for_document;
@@ -38,7 +37,7 @@ pub(crate) fn workflow_record_changes<
 >(
     repo: &R,
     workflow: &crate::core::workflow::Workflow,
-) -> anyhow::Result<crate::artifacts::planning_store::RecordChangePlan> {
+) -> anyhow::Result<record_files::WorkflowRecordChangePlan> {
     record_files::changes(repo, workflow)
 }
 
@@ -58,13 +57,6 @@ pub(crate) fn update_task_execution_status(
         execution_status,
         linkage,
     )
-}
-
-pub(crate) fn backfill_missing_task_records(
-    store: &crate::artifacts::planning_store::PlanningStore,
-    workflow: &crate::core::workflow::Workflow,
-) -> anyhow::Result<Vec<String>> {
-    task_state::backfill_missing(store, workflow)
 }
 
 #[derive(Debug, Clone)]

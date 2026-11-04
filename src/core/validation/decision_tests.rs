@@ -71,7 +71,6 @@ fn envelope() -> TurnEnvelope {
             authority: Some("Human".into()),
             kind: Some("Question".into()),
             category: Some("Product".into()),
-            assigned_to: Some("All".into()),
             question: Some("Should sessions expire automatically?".into()),
             reason: Some("The access policy affects security and client behavior.".into()),
             decision_brief: Some(brief()),
@@ -94,7 +93,7 @@ fn envelope() -> TurnEnvelope {
 #[test]
 fn human_decision_brief_binds_to_application_id_and_leaves_item_open() {
     let state = state();
-    let result = validate(&envelope(), &state, &CurrentUser::new("Riley", vec![])).unwrap();
+    let result = validate(&envelope(), &state, &CurrentUser::new("Riley")).unwrap();
     let item = &result.added[0];
     assert_eq!(item.id, "CLR-001");
     assert_eq!(item.status, ItemStatus::Open);
@@ -116,7 +115,7 @@ fn decision_brief_cannot_recommend_an_unlisted_option() {
         .as_mut()
         .unwrap()
         .option_id = "invented".into();
-    let errors = validate(&envelope, &state, &CurrentUser::new("Riley", vec![])).unwrap_err();
+    let errors = validate(&envelope, &state, &CurrentUser::new("Riley")).unwrap_err();
     assert!(errors.iter().any(|error| error.contains("listed option")));
 }
 
@@ -129,7 +128,7 @@ fn new_decision_brief_must_assess_durable_record_need() {
         .as_mut()
         .unwrap()
         .adr_assessment = None;
-    let errors = validate(&envelope, &state, &CurrentUser::new("Riley", vec![])).unwrap_err();
+    let errors = validate(&envelope, &state, &CurrentUser::new("Riley")).unwrap_err();
     assert!(
         errors
             .iter()
@@ -147,7 +146,6 @@ fn dependent_board_items_are_saved_with_valid_prerequisite_links() {
         authority: Some("Human".into()),
         kind: Some("Question".into()),
         category: Some("Product".into()),
-        assigned_to: Some("All".into()),
         question: Some(question.into()),
         reason: Some("This choice affects the release.".into()),
         ..Default::default()
@@ -158,21 +156,13 @@ fn dependent_board_items_are_saved_with_valid_prerequisite_links() {
         make_item("CLR-010", "Choose account identity"),
         dependent,
     ]);
-    let normalized = validate(
-        &envelope,
-        &state,
-        &crate::domain::CurrentUser::new("Riley", vec![]),
-    )
-    .unwrap();
+    let normalized =
+        validate(&envelope, &state, &crate::domain::CurrentUser::new("Riley")).unwrap();
     assert_eq!(normalized.added[1].blocked_by, ["CLR-010"]);
 
     envelope.open_items_added.as_mut().unwrap()[1].blocked_by = vec!["CLR-999".into()];
-    let errors = validate(
-        &envelope,
-        &state,
-        &crate::domain::CurrentUser::new("Riley", vec![]),
-    )
-    .unwrap_err();
+    let errors =
+        validate(&envelope, &state, &crate::domain::CurrentUser::new("Riley")).unwrap_err();
     assert!(
         errors
             .iter()
@@ -181,12 +171,8 @@ fn dependent_board_items_are_saved_with_valid_prerequisite_links() {
 
     envelope.open_items_added.as_mut().unwrap()[0].blocked_by = vec!["CLR-011".into()];
     envelope.open_items_added.as_mut().unwrap()[1].blocked_by = vec!["CLR-010".into()];
-    let errors = validate(
-        &envelope,
-        &state,
-        &crate::domain::CurrentUser::new("Riley", vec![]),
-    )
-    .unwrap_err();
+    let errors =
+        validate(&envelope, &state, &crate::domain::CurrentUser::new("Riley")).unwrap_err();
     assert!(
         errors
             .iter()

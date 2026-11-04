@@ -5,8 +5,25 @@ mod readiness_generation;
 
 struct MutatingHarness {
     response: String,
-    specification_path: std::path::PathBuf,
+    planning_store: crate::artifacts::planning_store::PlanningStore,
     calls: Arc<Mutex<usize>>,
+}
+
+fn mutate_private_specification(
+    store: &crate::artifacts::planning_store::PlanningStore,
+) -> anyhow::Result<()> {
+    let current = crate::artifacts::product_docs::current_document(store, "feature:CHG-004")?
+        .ok_or_else(|| anyhow::anyhow!("fixture feature is missing"))?;
+    let changed = current.replace(
+        "Persist saved searches and restore them after restarting.",
+        "Preserve the search selection after restarting.",
+    );
+    let changes = crate::core::apply::private_document_draft_changes(
+        store,
+        &[("feature:CHG-004".into(), changed)],
+    )?;
+    store.transaction(&changes, None)?;
+    Ok(())
 }
 
 impl crate::harness::AiHarness for MutatingHarness {
@@ -23,13 +40,7 @@ impl crate::harness::AiHarness for MutatingHarness {
         _request: &crate::harness::PlanningRequest,
     ) -> Result<crate::harness::HarnessOutcome, crate::error::AppError> {
         *self.calls.lock().unwrap() += 1;
-        let current = std::fs::read_to_string(&self.specification_path)
-            .map_err(|error| crate::error::AppError::Other(error.to_string()))?;
-        let changed = current.replace(
-            "Persist saved searches and restore them after restarting.",
-            "Preserve the search selection after restarting.",
-        );
-        std::fs::write(&self.specification_path, changed)
+        mutate_private_specification(&self.planning_store)
             .map_err(|error| crate::error::AppError::Other(error.to_string()))?;
         Ok(crate::harness::HarnessOutcome {
             final_text: self.response.clone(),
@@ -40,9 +51,10 @@ impl crate::harness::AiHarness for MutatingHarness {
 }
 
 fn approve(app: &mut KooladeApp) {
+    ensure_test_plan_adopted(app, "CHG-004");
     record_test_plan_author(app, "CHG-004");
     app.approve_feature_only("CHG-004");
-    record_test_plan_review(
+    record_test_plan_review_and_merge(
         app,
         "CHG-004",
         crate::core::lifecycle::GateDecision::Approved,
@@ -51,8 +63,8 @@ fn approve(app: &mut KooladeApp) {
     assert!(app.feature_approved("CHG-004"));
 }
 
-fn task_files(root: &std::path::Path) -> Vec<(String, Vec<u8>)> {
-    let base = root.join("planning/tasks");
+fn task_files(store_root: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    let base = store_root.join("planning/tasks");
     let Ok(batches) = std::fs::read_dir(base) else {
         return Vec::new();
     };
@@ -180,23 +192,18 @@ fn stale_approval_at_generation_start_does_not_write_task_artifacts() {
     let _shield = crate::core::gitops::test_support::shield("stale-task-generation-start");
     let (mut app, root, _) = setup();
     approve(&mut app);
-    let task_baseline = task_files(&root);
-    let specification = root.join("planning/changes/CHG-004-saved-searches/specification.md");
-    let current = std::fs::read_to_string(&specification).unwrap();
-    std::fs::write(
-        &specification,
-        current.replace(
-            "Persist saved searches and restore them after restarting.",
-            "Preserve saved searches across sessions.",
-        ),
-    )
-    .unwrap();
+    let store_root = private_store_root(&app);
+    let task_baseline = task_files(&store_root);
+    let Screen::Connected(project) = &app.screen else {
+        panic!("project stays connected")
+    };
+    mutate_private_specification(&project.state.planning_store).unwrap();
     let (harness, calls) = harness(Vec::new());
     app.task_harness = Some(harness);
     app.start_task_generation(&generation_key(&app), "CHG-004");
     assert!(calls.lock().unwrap().is_empty());
-    assert!(task_files(&root).is_empty());
-    assert_eq!(task_files(&root), task_baseline);
+    assert!(task_files(&store_root).is_empty());
+    assert_eq!(task_files(&store_root), task_baseline);
     drop(app);
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -206,20 +213,24 @@ fn approval_change_during_decomposition_does_not_publish_task_artifacts() {
     let _shield = crate::core::gitops::test_support::shield("stale-task-generation-publish");
     let (mut app, root, _) = setup();
     approve(&mut app);
+    let store_root = private_store_root(&app);
     let response = graph_response(&app);
-    let specification_path = root.join("planning/changes/CHG-004-saved-searches/specification.md");
+    let Screen::Connected(project) = &app.screen else {
+        panic!("project stays connected")
+    };
+    let planning_store = project.state.planning_store.clone();
     let calls = Arc::new(Mutex::new(0));
     let harness: Box<dyn crate::harness::AiHarness> = Box::new(MutatingHarness {
         response,
-        specification_path,
+        planning_store,
         calls: calls.clone(),
     });
     app.task_harness = Some(harness);
-    let task_baseline = task_files(&root);
+    let task_baseline = task_files(&store_root);
     app.start_task_generation(&generation_key(&app), "CHG-004");
     assert!(!finish(&mut app));
     assert_eq!(*calls.lock().unwrap(), 1);
-    assert_eq!(task_files(&root), task_baseline);
+    assert_eq!(task_files(&store_root), task_baseline);
     drop(app);
     std::fs::remove_dir_all(root).unwrap();
 }

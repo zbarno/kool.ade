@@ -35,12 +35,11 @@ pub(super) fn link_batch_to_feature<R: PlanningRoot + ?Sized>(
     let Some(feature_id) = feature_id else {
         return Ok(());
     };
-    let Ok(path) =
-        crate::artifacts::product_docs::document_path(repo, &format!("feature:{feature_id}"))
+    let Ok(Some(text)) =
+        crate::artifacts::product_docs::current_document(repo, &format!("feature:{feature_id}"))
     else {
         return Ok(());
     };
-    let text = String::from_utf8(repo.read_planning_path(&path)?)?;
     let Some(feature_identity) = ArtifactIdentity::from_markdown(&text)? else {
         return Ok(());
     };

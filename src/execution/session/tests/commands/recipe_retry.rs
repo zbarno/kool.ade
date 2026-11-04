@@ -14,6 +14,7 @@ fn approved_recipe_retry_preserves_the_approval_and_artifact_request() {
     };
 
     let root = tempfile::tempdir().unwrap();
+    let private_state = tempfile::tempdir().unwrap();
     assert!(
         std::process::Command::new("git")
             .args(["init", "--quiet"])
@@ -29,7 +30,7 @@ fn approved_recipe_retry_preserves_the_approval_and_artifact_request() {
     };
     let planning = PlanningStore::new(
         uuid::Uuid::parse_str(&workspace.project_id).unwrap(),
-        root.path(),
+        private_state.path(),
         crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let runtime = ProjectRuntimeStore::new(&planning);

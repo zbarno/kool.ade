@@ -28,21 +28,18 @@ fn stale_plan_choice_invalidates_a_feature_batch_contract() {
     assert!(!super::batch_contract_matches_feature(
         &root, &directory, "F7", plan_b
     ));
-    let root_relative_directory = format!(
-        "{}/F7-plan-a",
-        crate::artifacts::planning_store::paths::TASKS
-    );
-    assert!(super::batch_contract_matches_feature(
+    let legacy_directory = format!(".koolade-packet/{directory}");
+    assert!(!super::batch_contract_matches_feature(
         &root,
-        &root_relative_directory,
+        &legacy_directory,
         "F7",
         plan_a
     ));
     assert!(!super::batch_contract_matches_feature(
         &root,
-        &root_relative_directory,
+        &format!("{directory}/"),
         "F7",
-        plan_b
+        plan_a
     ));
     assert!(!super::batch_contract_matches_feature(
         &root,
@@ -86,18 +83,38 @@ fn numeric_module_references_keep_boundaries_and_stable_ids() {
 }
 
 #[test]
-fn legacy_batch_without_snapshot_remains_current_for_compatibility() {
-    let root = std::env::temp_dir().join(format!("koolade-legacy-batch-{}", std::process::id()));
+fn missing_batch_directory_or_contract_does_not_match() {
+    let root = std::env::temp_dir().join(format!("koolade-missing-batch-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
-    let batch = crate::artifacts::layout::ArtifactLayout::new(&root)
-        .task_batch("legacy")
-        .unwrap();
-    std::fs::create_dir_all(&batch).unwrap();
-    let directory = format!("{}/legacy", crate::artifacts::layout::store::TASKS);
-    assert!(super::batch_contract_matches_feature(
+    let missing_directory = format!(
+        "{}/missing-directory",
+        crate::artifacts::planning_store::paths::TASKS
+    );
+    assert!(!super::batch_contract_matches_feature(
         &root,
-        &directory,
-        "CHG-001",
+        &missing_directory,
+        "F7",
+        "Current feature specification",
+    ));
+
+    let layout = crate::artifacts::layout::ArtifactLayout::new(&root);
+    let batch = layout.task_batch("missing-contract").unwrap();
+    std::fs::create_dir_all(&batch).unwrap();
+    let missing_contract = format!(
+        "{}/missing-contract",
+        crate::artifacts::planning_store::paths::TASKS
+    );
+    assert!(!super::batch_contract_matches_feature(
+        &root,
+        &missing_contract,
+        "F7",
+        "Current feature specification",
+    ));
+    std::fs::write(batch.join("contract.json"), b"{}").unwrap();
+    assert!(!super::batch_contract_matches_feature(
+        &root,
+        &missing_contract,
+        "F7",
         "Current feature specification",
     ));
     let _ = std::fs::remove_dir_all(root);

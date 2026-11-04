@@ -26,7 +26,7 @@ pub(super) fn prepare_lifecycle_pr_proposal(
 ) -> anyhow::Result<bool> {
     pr_preparer::prepare_lifecycle_pr_proposal(store, dir, state, harness, runner)
 }
-pub(super) use pull_request::{create_pull_request, fenced_push};
+pub(super) use pull_request::{create_pull_request, verify_claim};
 
 const HOLD_FOR_REVIEW_NOTE: &str =
     "Verified locally. No remote changes were made; share for review when ready.";

@@ -33,34 +33,15 @@ pub(super) fn create(initial_files: &[(&str, &str)]) -> Sandbox {
     git(&["config", "user.name", "Fixture"]);
     git(&["config", "user.email", "fixture@example.test"]);
     let ticket = "planning/tasks/feature/001-implement-ticket-behavior.md".to_owned();
-    fs::create_dir_all(repo.join("planning/tasks/feature")).unwrap();
     let ticket_text = "# Implement ticket behavior\n\nFeature: F1\n\n## Acceptance criteria\n\n- File contains implemented.\n";
-    let identity = crate::domain::ArtifactIdentity::preserve_markdown(
-        ticket_text,
-        None,
-        "TASK-001",
-        "Implement ticket behavior",
-    )
-    .unwrap();
-    fs::write(repo.join(&ticket), &identity).unwrap();
-    fs::write(
-        repo.join("planning/tasks/feature/specification.md"),
-        "# F1: Implement ticket behavior\n\n- File contains implemented.\n",
-    )
-    .unwrap();
+    fs::create_dir_all(repo.join("src")).unwrap();
+    fs::write(repo.join("src/lib.rs"), "// Fixture code repository.\n").unwrap();
     for (relative_path, contents) in initial_files {
         let path = repo.join(relative_path);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, contents).unwrap();
     }
-    let workspace_id = uuid::Uuid::new_v4();
-    let mut workspace = crate::core::managed_workspace::WorkspaceManifest::new(workspace_id);
-    workspace.canonical_ref = "refs/heads/main".into();
-    fs::write(
-        repo.join(crate::artifacts::layout::store::MANIFEST),
-        serde_json::to_vec_pretty(&workspace).unwrap(),
-    )
-    .unwrap();
+    published_specs::seed_if_missing(&repo).unwrap();
     let repositories = crate::core::project_repos::ProjectManifest {
         repositories: vec![crate::core::project_repos::Repository {
             id: "root".into(),
@@ -69,12 +50,6 @@ pub(super) fn create(initial_files: &[(&str, &str)]) -> Sandbox {
             display_name: None,
         }],
     };
-    fs::create_dir_all(repo.join(crate::artifacts::layout::store::CONFIG)).unwrap();
-    fs::write(
-        repo.join(crate::artifacts::layout::store::PROJECT_MANIFEST),
-        serde_json::to_vec_pretty(&repositories).unwrap(),
-    )
-    .unwrap();
     git(&["add", "."]);
     git(&["commit", "-qm", "baseline"]);
     git(&[
@@ -106,6 +81,53 @@ pub(super) fn create(initial_files: &[(&str, &str)]) -> Sandbox {
         "ssh://git@github.com/fixture/repo.git",
     ]);
     git(&["push", "-q", "origin", "main"]);
+    crate::test_support::set_test_origin_default(&repo);
+    let project_id = uuid::Uuid::nil();
+    let local_store_root = root
+        .join("koolade-home/projects")
+        .join(project_id.to_string());
+    let planning_store = crate::artifacts::planning_store::PlanningStore::for_code_repository(
+        project_id,
+        &local_store_root,
+        &repo,
+    );
+    let batch_uid = uuid::Uuid::new_v4().to_string();
+    let ticket_markdown = crate::domain::ArtifactIdentity::preserve_markdown_with_parent(
+        ticket_text,
+        None,
+        "TASK-001",
+        "Implement ticket behavior",
+        Some(&batch_uid),
+    )
+    .unwrap();
+    let task_identity = crate::domain::ArtifactIdentity::from_markdown(&ticket_markdown)
+        .unwrap()
+        .unwrap();
+    let task_metadata =
+        crate::artifacts::task_docs::TaskMetadata::new(&task_identity, "root", Vec::new())
+            .unwrap()
+            .with_task_intent_uid(Some(&task_identity.uid))
+            .unwrap();
+    let ticket_markdown =
+        crate::artifacts::task_docs::embed(&ticket_markdown, &task_metadata).unwrap();
+    planning_store
+        .atomic_write(&ticket, ticket_markdown.as_bytes())
+        .unwrap();
+    super::lifecycle::seed_task(&planning_store, &ticket, ticket_text);
+    let seeded_ticket = String::from_utf8(planning_store.read(&ticket).unwrap()).unwrap();
+    let seeded_identity = crate::domain::ArtifactIdentity::from_markdown(&seeded_ticket)
+        .unwrap()
+        .expect("private task identity");
+    let seeded_metadata = crate::artifacts::task_docs::parse_metadata(&seeded_ticket)
+        .unwrap()
+        .expect("private task metadata");
+    seeded_metadata.validate(Some(&seeded_identity)).unwrap();
+    planning_store
+        .atomic_write(
+            "config/repositories.json",
+            &serde_json::to_vec_pretty(&repositories).unwrap(),
+        )
+        .unwrap();
     let gh = root.join("gh-fixture");
     fs::write(
         &gh,
@@ -147,6 +169,7 @@ fi
     Sandbox {
         root,
         repo,
+        planning_store,
         gh,
         ticket,
         latest_peer: std::sync::Mutex::new(None),

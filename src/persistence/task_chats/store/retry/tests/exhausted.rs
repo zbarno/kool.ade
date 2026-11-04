@@ -114,7 +114,7 @@ fn second_crashed_retry_takeover_becomes_terminal_internal_recovery() {
 }
 
 fn expire_claim(slug: &str, claim_id: &str) {
-    let (mut stored, _) = super::super::super::read_stored(slug).unwrap();
+    let mut stored = super::super::super::read_stored(slug).unwrap();
     let messages = stored
         .other_histories
         .values_mut()

@@ -1,6 +1,6 @@
 use super::*;
 
-/// Production boundary: task-chat persistence and immutable identity rebinding. This proves a reused display key writes only to its new UID stream after reload; an in-memory unit test cannot cover persisted history migration. Uses a temporary local filesystem, no external services, low setup cost.
+/// Production boundary: task-chat persistence and immutable identity rebinding. This proves a reused display key writes only to its new UID stream after reload; an in-memory unit test cannot cover persisted history reload. Uses a temporary local filesystem, no external services, low setup cost.
 #[test]
 fn reused_board_keys_keep_histories_separated_by_immutable_identity() {
     let dir = std::env::temp_dir().join(format!(
@@ -11,7 +11,7 @@ fn reused_board_keys_keep_histories_separated_by_immutable_identity() {
     let slug = dir.to_str().unwrap();
     let mut chats = TaskChats::default();
     chats
-        .bind_conversation_identities(&[("feature:F1".into(), "old-feature-uid".into())], &[])
+        .bind_conversation_identities(&[("feature:F1".into(), "old-feature-uid".into())])
         .unwrap();
     chats.ensure_loaded(slug);
     chats
@@ -27,7 +27,7 @@ fn reused_board_keys_keep_histories_separated_by_immutable_identity() {
         .unwrap();
 
     chats
-        .bind_conversation_identities(&[("feature:F1".into(), "new-feature-uid".into())], &[])
+        .bind_conversation_identities(&[("feature:F1".into(), "new-feature-uid".into())])
         .unwrap();
     assert!(!chats.messages.contains_key("feature:F1"));
     assert!(
@@ -59,7 +59,7 @@ fn reused_board_keys_keep_histories_separated_by_immutable_identity() {
     let latest = ChatMessage::new(ChatRole::User, "Update the current feature", None);
     let latest_id = latest.id.clone();
     chats.append(slug, "feature:F1", vec![latest]).unwrap();
-    let (stored, _) = super::super::storage::read_stored(slug).unwrap();
+    let stored = super::super::storage::read_stored(slug).unwrap();
     assert_eq!(stored.task_identities["feature:F1"], "new-feature-uid");
     assert!(
         TaskChats::lock_latest_user_message(slug, "feature:F1", &latest_id, None)
@@ -69,17 +69,17 @@ fn reused_board_keys_keep_histories_separated_by_immutable_identity() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-/// Production boundary: loading legacy persisted task-chat history against current feature identity. This proves stale history is detached before it can enter the current conversation; an in-memory unit test cannot cover storage reload and migration together. Uses a temporary local filesystem, no external services, low setup cost.
+/// Production boundary: loading current task-chat state against a new feature identity. This proves path-keyed history is not imported into a UID stream; an in-memory unit test cannot cover storage reload. Uses a temporary local filesystem, no external services, low setup cost.
 #[test]
-fn legacy_display_key_history_is_detached_from_a_reused_feature_id() {
+fn display_key_history_is_not_imported_into_a_reused_feature_id() {
     let dir = std::env::temp_dir().join(format!(
-        "koolade_task_legacy_identity_{}-{}",
+        "koolade_task_identity_history_{}-{}",
         std::process::id(),
         uuid::Uuid::new_v4()
     ));
     let slug = dir.to_str().unwrap();
-    let mut legacy = TaskChats::default();
-    legacy
+    let mut prior = TaskChats::default();
+    prior
         .append(
             slug,
             "feature:F1",
@@ -93,15 +93,10 @@ fn legacy_display_key_history_is_detached_from_a_reused_feature_id() {
 
     let mut current = TaskChats::default();
     current
-        .bind_conversation_identities(&[("feature:F1".into(), "current-feature-uid".into())], &[])
+        .bind_conversation_identities(&[("feature:F1".into(), "current-feature-uid".into())])
         .unwrap();
     current.ensure_loaded(slug);
     assert!(!current.messages.contains_key("feature:F1"));
-    assert!(
-        current.messages["@legacy:feature:F1"]
-            .iter()
-            .any(|message| message.text == "History from the prior F1 feature")
-    );
     assert!(
         !current
             .project_context("", 24000)
@@ -143,13 +138,10 @@ fn conflicting_current_aliases_leave_both_conversations_unlinked() {
     let slug = dir.to_str().unwrap();
     let mut original = TaskChats::default();
     original
-        .bind_conversation_identities(
-            &[
-                ("old-open-key".into(), "open-item-uid".into()),
-                ("old-resolved-key".into(), "resolved-item-uid".into()),
-            ],
-            &[],
-        )
+        .bind_conversation_identities(&[
+            ("old-open-key".into(), "open-item-uid".into()),
+            ("old-resolved-key".into(), "resolved-item-uid".into()),
+        ])
         .unwrap();
     original.ensure_loaded(slug);
     original
@@ -173,13 +165,10 @@ fn conflicting_current_aliases_leave_both_conversations_unlinked() {
 
     let mut current = TaskChats::default();
     let error = current
-        .bind_conversation_identities(
-            &[
-                ("CLR-001".into(), "open-item-uid".into()),
-                ("CLR-001".into(), "resolved-item-uid".into()),
-            ],
-            &[],
-        )
+        .bind_conversation_identities(&[
+            ("CLR-001".into(), "open-item-uid".into()),
+            ("CLR-001".into(), "resolved-item-uid".into()),
+        ])
         .unwrap_err();
     assert!(error.contains("refers to multiple immutable identities"));
     current.ensure_loaded(slug);

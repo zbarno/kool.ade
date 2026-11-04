@@ -21,7 +21,7 @@ pub fn brief_target_problem_with_store(
         declared,
         stamped,
         feature_dir_exists,
-        &store.git_path(crate::artifacts::planning_store::paths::CHANGES),
+        &store.relative_path(crate::artifacts::planning_store::paths::CHANGES),
     )
 }
 

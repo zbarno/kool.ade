@@ -38,7 +38,6 @@ mod tests {
             crate::domain::Priority::High,
             crate::domain::ItemKind::Question,
             "General".into(),
-            None,
             "Which store?".into(),
             "Need a decision".into(),
         );

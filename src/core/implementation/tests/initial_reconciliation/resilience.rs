@@ -31,7 +31,7 @@ fn failed_verification_resumes_with_unchanged_generated_files_and_old_snapshot()
     let old = fs::read(&path).unwrap();
     let (calls, agent) = super::merge_recovery::agent();
     let result = run_with_agent(&s, &agent, Some("Resume verification")).unwrap();
-    assert_eq!(result.status, ImplementationStatus::AwaitingReview);
+    assert_eq!(result.status, ImplementationStatus::AwaitingApproval);
     assert_eq!(
         calls.load(Ordering::SeqCst),
         2,
@@ -69,7 +69,7 @@ fn failed_verification_resumes_with_unchanged_generated_files_and_old_snapshot()
 #[test]
 fn modified_output_is_preserved_and_prior_snapshot_is_archived_on_resume() {
     let s = interrupted();
-    let (path, mut snapshot) = super::merge_recovery::recovery_snapshot(&s);
+    let (path, snapshot) = super::merge_recovery::recovery_snapshot(&s);
     let worktree = super::merge_recovery::task_worktree(&s);
     let repository_cache = super::merge_recovery::repository_cache(&s);
     let private_ref = snapshot["private_ref"].as_str().unwrap();
@@ -83,14 +83,11 @@ fn modified_output_is_preserved_and_prior_snapshot_is_archived_on_resume() {
             &refspec,
         ],
     );
-    snapshot["schema_version"] = serde_json::json!(1);
-    snapshot.as_object_mut().unwrap().remove("task_repository");
-    snapshot["worktree"] = serde_json::json!(worktree.to_string_lossy());
     let old = serde_json::to_vec_pretty(&snapshot).unwrap();
     fs::write(&path, &old).unwrap();
-    let worktree = super::merge_recovery::migrated_task_repository(&s);
+    let worktree = super::merge_recovery::current_task_repository(&s);
     fs::write(worktree.join("build/cache.txt"), "operator edit\n").unwrap();
-    crate::core::implementation::mark_resume_started(&s.repo, &s.ticket).unwrap();
+    crate::core::implementation::mark_resume_started(&s.planning_store.root, &s.ticket).unwrap();
     let error = run_with_agent(&s, &StopAfterVerification, Some("Resume verification"))
         .unwrap_err()
         .to_string();
@@ -127,7 +124,7 @@ fn modified_output_is_preserved_and_prior_snapshot_is_archived_on_resume() {
         run_with_agent(&s, &agent, Some("Resume verification"))
             .unwrap()
             .status,
-        ImplementationStatus::AwaitingReview
+        ImplementationStatus::AwaitingApproval
     );
 }
 
@@ -137,10 +134,10 @@ fn incomplete_recovery_phase_cannot_grant_another_attempt() {
     let (path, mut snapshot) = super::merge_recovery::recovery_snapshot(&s);
     snapshot["phase"] = serde_json::json!("snapshot_saved");
     fs::write(&path, serde_json::to_vec(&snapshot).unwrap()).unwrap();
-    let worktree = super::merge_recovery::migrated_task_repository(&s);
+    let worktree = super::merge_recovery::current_task_repository(&s);
     fs::write(worktree.join("build/cache.txt"), "operator edit\n").unwrap();
     let (_, agent) = super::merge_recovery::agent();
-    crate::core::implementation::mark_resume_started(&s.repo, &s.ticket).unwrap();
+    crate::core::implementation::mark_resume_started(&s.planning_store.root, &s.ticket).unwrap();
     assert!(run_with_agent(&s, &agent, Some("Resume")).is_err());
     assert_eq!(
         fs::read_to_string(worktree.join("build/cache.txt")).unwrap(),
@@ -225,7 +222,7 @@ fn ordinary_user_context_does_not_authorize_snapshot_rotation() {
     let s = interrupted();
     let (path, _) = super::merge_recovery::recovery_snapshot(&s);
     let old = fs::read(&path).unwrap();
-    let worktree = super::merge_recovery::migrated_task_repository(&s);
+    let worktree = super::merge_recovery::current_task_repository(&s);
     fs::write(worktree.join("build/cache.txt"), "operator edit\n").unwrap();
     let (_, agent) = super::merge_recovery::agent();
     let error = run_with_agent(&s, &agent, Some("Use the existing API conventions"))

@@ -152,7 +152,7 @@ pub struct SpecSyncQueueEntryV1 {
     #[serde(default)]
     pub source_task_uid: Option<String>,
     /// User-local conversation message for a manual Documentation Refresh.
-    /// The message body stays outside the shared planning repository.
+    /// The message body stays in private local application storage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request_message_id: Option<String>,
     pub source_revision: u64,

@@ -1,6 +1,6 @@
 use crate::{
     app::session::Project,
-    artifacts::{planning_store::PlanningRoot, product_docs},
+    artifacts::product_docs,
     core::lifecycle::{
         GateActor, GateDecision, GateReceipt, LifecycleStore, SpecDeltaApprovalV1, TaskPhase,
     },
@@ -8,6 +8,122 @@ use crate::{
 };
 use sha2::Digest as _;
 use std::collections::BTreeMap;
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublishedDocumentationReceipt {
+    schema_version: u32,
+    pull_request_url: String,
+    branch: String,
+    base_commit: String,
+    head_commit: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PendingDocumentationPublication {
+    schema_version: u32,
+    changes: Vec<crate::core::spec_publication::DocumentationChange>,
+}
+
+fn publication_paths(task_uid: &str, proposal_sha256: &str) -> (String, String) {
+    (
+        format!("state/spec_publications/{task_uid}-{proposal_sha256}.json"),
+        format!("state/spec_publications/pending/{task_uid}-{proposal_sha256}.json"),
+    )
+}
+
+pub(crate) fn publish_approved_documentation(
+    project: &mut Project,
+    task_uid: &str,
+    proposal_sha256: &str,
+) -> Result<String, String> {
+    if uuid::Uuid::parse_str(task_uid).is_err()
+        || proposal_sha256.len() != 64
+        || !proposal_sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("The approved documentation identity is invalid.".into());
+    }
+    let store = &project.state.planning_store;
+    let (receipt_path, pending_path) = publication_paths(task_uid, proposal_sha256);
+    if let Ok(bytes) = store.read(&receipt_path) {
+        let receipt: PublishedDocumentationReceipt = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("Saved publication receipt is invalid: {error}"))?;
+        if receipt.schema_version != 1 {
+            return Err("Saved publication receipt has an unsupported schema.".into());
+        }
+        let _ = store.remove(&pending_path);
+        record_publication_notice(project, &receipt.pull_request_url);
+        return Ok(receipt.pull_request_url);
+    }
+    let pin = project
+        .state
+        .published_spec_pin
+        .as_ref()
+        .ok_or_else(|| "There is no pinned published specification to update.".to_owned())?;
+    let bytes = store
+        .read(&pending_path)
+        .map_err(|error| format!("Approved documentation publication is unavailable: {error}"))?;
+    let pending: PendingDocumentationPublication = serde_json::from_slice(&bytes)
+        .map_err(|error| format!("Approved documentation publication is invalid: {error}"))?;
+    if pending.schema_version != 1 || pending.changes.is_empty() {
+        return Err(
+            "Approved documentation publication has an unsupported schema or no changes.".into(),
+        );
+    }
+    let changes = pending.changes;
+    let consent = crate::core::spec_publication::PublicationConsent::confirmed(&changes)
+        .map_err(|error| error.to_string())?;
+    let pull_request = crate::core::spec_publication::publish_approved(
+        &project.state.repo_root,
+        &pin.repository_id,
+        pin,
+        &changes,
+        &consent,
+    )
+    .map_err(|error| {
+        format!(
+            "The approval remains private, but its documentation PR could not be opened: {error}"
+        )
+    })?;
+    let receipt = PublishedDocumentationReceipt {
+        schema_version: 1,
+        pull_request_url: pull_request.url.clone(),
+        branch: pull_request.branch,
+        base_commit: pull_request.base_commit,
+        head_commit: pull_request.head_commit,
+    };
+    store
+        .atomic_write(
+            &receipt_path,
+            &serde_json::to_vec_pretty(&receipt).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| {
+            format!(
+                "Documentation PR {} was opened, but its private receipt could not be saved: {error}",
+                receipt.pull_request_url
+            )
+        })?;
+    store
+        .remove(&pending_path)
+        .map_err(|error| format!("Documentation PR opened, but its private pending publication could not be removed: {error}"))?;
+    record_publication_notice(project, &receipt.pull_request_url);
+    Ok(receipt.pull_request_url)
+}
+
+fn record_publication_notice(project: &mut Project, url: &str) {
+    let notice = format!(
+        "Approved documentation is proposed in {url}; merge the protected PR before treating it as published."
+    );
+    if !project
+        .activity
+        .pending
+        .iter()
+        .any(|event| event == &notice)
+    {
+        project.activity.pending.push(notice);
+    }
+}
 
 pub(crate) fn apply_approved_delta(
     project: &mut Project,
@@ -62,19 +178,35 @@ pub(crate) fn apply_approved_delta(
 
     let store = &project.state.planning_store;
     let store_revision = store.revision().map_err(|error| error.to_string())?;
-    let persisted_spec = product_docs::render_product(store)
+    let pin = project
+        .state
+        .published_spec_pin
+        .as_ref()
+        .ok_or_else(|| "There is no pinned published specification to update.".to_owned())?;
+    let reader = crate::core::published_specs::PublishedSpecReader::new(
+        project.state.repo_root.clone(),
+        pin.repository_id.clone(),
+        pin.reference.clone(),
+    )
+    .map_err(|error| error.to_string())?;
+    reader
+        .ensure_local_ref_unchanged(pin)
+        .map_err(|error| error.to_string())?;
+    let persisted_spec = product_docs::render_published_product(&reader, pin)
         .map_err(|error| error.to_string())?
         .ok_or_else(|| {
-            "The modular product specification is unavailable for a safe update.".to_owned()
+            "The pinned code repository has no published product documents to update.".to_owned()
         })?;
     if super::spec_binding_hash(Some(&persisted_spec))? != base_spec_sha256 {
         return Err("The persisted product specification changed since this proposal; reload and rerun reconciliation.".into());
     }
-    let documents = product_docs::load_documents(store)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| {
-            "The modular product specification is unavailable for a safe update.".to_owned()
-        })?;
+    let (_, documents) =
+        product_docs::load_published_product(&reader, pin).map_err(|error| error.to_string())?;
+    if documents.is_empty() {
+        return Err(
+            "The pinned code repository has no published product documents to update.".into(),
+        );
+    }
     let original = documents
         .iter()
         .map(|document| (document.module.id.clone(), document.content.clone()))
@@ -112,32 +244,42 @@ pub(crate) fn apply_approved_delta(
         product_docs::validate_module(&document.content).map_err(|error| error.to_string())?;
     }
 
-    let layout = store.planning_layout();
-    let mut changes = Vec::with_capacity(updated.len() + 1);
+    let mut changes = Vec::with_capacity(2);
     let mut render_updates = Vec::with_capacity(updated.len());
+    let mut published_changes = Vec::with_capacity(updated.len());
     for document in updated.values() {
         if original.get(&document.module.id) == Some(&document.content) {
             continue;
         }
-        let relative = layout
-            .product_root()
-            .join(&document.module.path)
-            .strip_prefix(layout.root())
-            .map_err(|error| error.to_string())?
-            .to_string_lossy()
-            .into_owned();
-        changes.push((relative, document.content.as_bytes().to_vec()));
+        published_changes.push(crate::core::spec_publication::DocumentationChange {
+            path: format!("docs/koolade/product/{}", document.module.path),
+            content: document.content.clone(),
+        });
         render_updates.push((
             format!("product:{}", document.module.id),
             document.content.clone(),
         ));
     }
-    if changes.is_empty() {
+    published_changes.push(crate::core::spec_publication::DocumentationChange {
+        path: "docs/koolade/product/index.md".into(),
+        content: format!(
+            "# Product\n\n{}\n",
+            updated
+                .values()
+                .map(|document| {
+                    format!("- [{}](./{})", document.module.title, document.module.path)
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
+    });
+    if render_updates.is_empty() {
         return Err("The approved proposal produced no specification changes.".into());
     }
-    let updated_spec = product_docs::render_product_with_updates(store, &render_updates)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "The updated product specification could not be rendered.".to_owned())?;
+    let updated_spec =
+        product_docs::render_published_product_with_updates(&reader, pin, &render_updates)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "The updated product specification could not be rendered.".to_owned())?;
     let next_hash = super::spec_binding_hash(Some(&updated_spec))?;
     let receipt_uid = uuid::Uuid::new_v5(
         &uuid::Uuid::parse_str(task_uid).map_err(|error| error.to_string())?,
@@ -175,12 +317,22 @@ pub(crate) fn apply_approved_delta(
         format!("state/lifecycle_spec_approvals/{task_uid}-{proposal_sha256}.json"),
         serde_json::to_vec_pretty(&approval).map_err(|error| error.to_string())?,
     ));
+    let (_, pending_path) = publication_paths(task_uid, proposal_sha256);
+    changes.push((
+        pending_path,
+        serde_json::to_vec_pretty(&PendingDocumentationPublication {
+            schema_version: 1,
+            changes: published_changes,
+        })
+        .map_err(|error| error.to_string())?,
+    ));
     store
         .transaction(&changes, Some(&store_revision))
         .map_err(|error| format!("Specification approval could not be committed: {error}"))?;
 
     project.state.spec_text = Some(updated_spec);
     project.state.baseline_spec = project.state.spec_text.clone();
+    publish_approved_documentation(project, task_uid, proposal_sha256)?;
     if let Err(error) =
         crate::app::root::tick::activity::spec_reconciliation::finish::record_user_approved_delta(
             project, task_uid, &proposal, &approval,
@@ -250,6 +402,7 @@ fn recover_saved_approval(
     }
     project.state.spec_text = Some(persisted_spec);
     project.state.baseline_spec = project.state.spec_text.clone();
+    publish_approved_documentation(project, task_uid, proposal_sha256)?;
     crate::app::root::tick::activity::spec_reconciliation::finish::record_user_approved_delta(
         project, task_uid, &proposal, &approval,
     )

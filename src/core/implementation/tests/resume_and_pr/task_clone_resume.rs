@@ -5,7 +5,7 @@ fn cancelled_task_clone_is_reviewed_and_resumed() {
     let s = Sandbox::new();
     let calls = Arc::new(AtomicUsize::new(0));
     assert!(s.run("cancel", calls.clone()).is_err());
-    let state = load(&s.repo, &s.ticket).unwrap();
+    let state = load(&s.planning_store.root, &s.ticket).unwrap();
     assert_eq!(state.task_repository_kind, TaskRepositoryKind::Clone);
     assert!(state.task_repository.join(".git").is_dir());
     assert_eq!(
@@ -35,11 +35,11 @@ fn active_task_clone_resumes_after_ticket_rename() {
     let mut s = Sandbox::new();
     let calls = Arc::new(AtomicUsize::new(0));
     assert!(s.run("cancel", calls.clone()).is_err());
-    let state = load(&s.repo, &s.ticket).unwrap();
+    let state = load(&s.planning_store.root, &s.ticket).unwrap();
     let allocation_key = state.task_repository_allocation_key.clone().unwrap();
     let original_repository = state.task_repository.clone();
     let original_branch = state.branch.clone();
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
+    let dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
     crate::core::implementation::initial_reconciliation::save_plan(
         &dir,
         &state.base,
@@ -69,11 +69,11 @@ fn active_task_clone_resumes_after_ticket_rename() {
     .unwrap();
 
     let renamed = "planning/tasks/implementation/002-implement-ticket-behavior.md";
-    fs::create_dir_all(s.repo.join(renamed).parent().unwrap()).unwrap();
-    fs::rename(s.repo.join(&s.ticket), s.repo.join(renamed)).unwrap();
-    s.git(&s.repo, &["add", "-A"]);
-    s.git(&s.repo, &["commit", "-qm", "rename task ticket"]);
-    s.git(&s.repo, &["push", "-q", "origin", "main"]);
+    let renamed_ticket = s.planning_store.read(&s.ticket).unwrap();
+    s.planning_store
+        .atomic_write(renamed, &renamed_ticket)
+        .unwrap();
+    s.planning_store.remove(&s.ticket).unwrap();
     s.ticket = renamed.into();
 
     let mut renamed_state = state.clone();

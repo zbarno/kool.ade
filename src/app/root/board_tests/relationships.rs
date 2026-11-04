@@ -14,7 +14,7 @@ fn task_card_without_lifecycle_record_does_not_claim_completion() {
     let output = frame(&mut app, &ctx, vec![]);
     let rendered = canvas_text(&output);
 
-    assert!(rendered.contains("Lifecycle status not recorded"));
+    assert!(rendered.contains("Lifecycle not recorded"));
     assert!(rendered.contains("Implementation complete · lifecycle status not recorded"));
 }
 
@@ -122,7 +122,6 @@ fn actionable_feature_decision_is_shown_on_the_paused_task_and_clears_when_resol
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "General".into(),
-        Some("All".into()),
         "Choose how long the session should remain active.".into(),
         "This decision gates the feature implementation.".into(),
     );
@@ -140,7 +139,8 @@ fn actionable_feature_decision_is_shown_on_the_paused_task_and_clears_when_resol
         &ctx,
         "Choose how long the session should remain active.",
     );
-    assert!(text_position(&output, "Waiting for your decision").is_some());
+    assert!(text_position(&output, "Waiting on user").is_some());
+    assert!(text_position(&output, "This decision gates the feature implementation.").is_some());
     assert!(text_position(&output, "Implementation failed").is_none());
 
     if let Screen::Connected(project) = &mut app.screen {
@@ -148,7 +148,7 @@ fn actionable_feature_decision_is_shown_on_the_paused_task_and_clears_when_resol
     }
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "Answer CLR-912").is_none());
-    assert!(text_position(&output, "This feature is waiting on your decision.").is_none());
+    assert!(text_position(&output, "This decision gates the feature implementation.").is_none());
 }
 
 #[test]
@@ -164,6 +164,12 @@ fn todo_task_names_the_prerequisite_that_keeps_it_blocked() {
     dependent.parent_uid = Some(batch_uid.clone());
     let prerequisite_metadata =
         crate::artifacts::task_docs::TaskMetadata::new(&prerequisite, "root", vec![]).unwrap();
+    let dependent_metadata = crate::artifacts::task_docs::TaskMetadata::new(
+        &dependent,
+        "root",
+        vec![prerequisite.uid.clone()],
+    )
+    .unwrap();
     project.task_documents[0].identity = Some(prerequisite);
     project.task_documents[0].metadata = Some(prerequisite_metadata);
     project
@@ -173,7 +179,7 @@ fn todo_task_names_the_prerequisite_that_keeps_it_blocked() {
         .implementation_states
         .remove(&project.task_documents[0].path);
     project.task_documents[1].identity = Some(dependent);
-    project.task_documents[1].metadata = None;
+    project.task_documents[1].metadata = Some(dependent_metadata);
     project.task_documents[1].text =
         "# Review task\n\n## Dependencies\n\n- [First task](001-task.md)\n".into();
 
@@ -303,7 +309,6 @@ fn machine_setup_task(id: &str, title: &str) -> crate::persistence::setup_tasks:
             scan_generation: 1,
             state: SetupTaskStateV1::ReadyToFix,
         }],
-        legacy_source_id: None,
         superseded_by: Vec::new(),
     }
 }

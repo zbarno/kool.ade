@@ -12,7 +12,6 @@ mod parser;
 mod records;
 pub use parser::parse;
 pub(crate) use records::load_store_unlocked;
-pub(crate) use records::validate_content_uid;
 pub use records::{load_store, record_changes};
 
 const HEADER: &str =
@@ -59,11 +58,6 @@ fn render_one(i: &OpenItem) -> String {
         let encoded = serde_json::to_string(brief).expect("decision brief JSON serialization");
         let _ = writeln!(s, "**Decision Brief:** {encoded}");
     }
-    let _ = writeln!(
-        s,
-        "**Assigned To:** {}",
-        i.assigned_to.as_deref().unwrap_or("(unassigned)")
-    );
     let _ = writeln!(s, "**Status:** {:#?}", i.status);
     let _ = writeln!(s, "\n### Question\n{}\n", i.question.trim());
     let _ = writeln!(s, "\n### Reason\n{}\n", i.reason.trim());

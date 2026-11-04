@@ -13,16 +13,7 @@ pub(super) fn preserve_feature_updates<R: PlanningRoot + ?Sized>(
         let Some(feature_id) = id.strip_prefix("feature:") else {
             continue;
         };
-        let path = crate::artifacts::product_docs::document_path_for_update(repo, id, content)?;
-        let previous = match repo.read_planning_path(&path) {
-            Ok(bytes) => Some(String::from_utf8(bytes)?),
-            Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
-                if source.kind() == std::io::ErrorKind::NotFound =>
-            {
-                None
-            }
-            Err(error) => return Err(error.into()),
-        };
+        let previous = crate::artifacts::product_docs::current_document(repo, id)?;
         let previous_status = previous
             .as_deref()
             .map(crate::domain::ChangeMetadata::require_markdown)
@@ -73,9 +64,15 @@ pub(super) fn stabilize_open_item_identities(
     {
         let uid = item
             .uid
-            .get_or_insert_with(|| uuid::Uuid::new_v4().hyphenated().to_string());
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Open item {} has no immutable identity", item.id))?;
+        let canonical = uuid::Uuid::parse_str(uid)?.hyphenated().to_string();
         anyhow::ensure!(
-            seen.insert(uid.clone()),
+            canonical == uid,
+            "Open item identity is not canonical: {uid}"
+        );
+        anyhow::ensure!(
+            seen.insert(uid.to_owned()),
             "Duplicate open item identity {uid}"
         );
         let Some(feature_id) = &item.feature_id else {
@@ -84,14 +81,14 @@ pub(super) fn stabilize_open_item_identities(
         let feature_uid = if let Some(uid) = feature_uids.get(feature_id) {
             Some(uid.clone())
         } else {
-            let Ok(path) = crate::artifacts::product_docs::document_path(
-                &state.planning_store,
-                &format!("feature:{feature_id}"),
-            ) else {
+            let Some((_, text)) = state
+                .active_features
+                .iter()
+                .find(|(id, _)| id == feature_id)
+            else {
                 continue;
             };
-            let text = String::from_utf8(state.planning_store.read_planning_path(&path)?)?;
-            crate::domain::ArtifactIdentity::from_markdown(&text)?.map(|identity| identity.uid)
+            crate::domain::ArtifactIdentity::from_markdown(text)?.map(|identity| identity.uid)
         };
         let Some(feature_uid) = feature_uid else {
             continue;
@@ -114,22 +111,65 @@ mod tests {
     use crate::domain::{ArtifactIdentity, ItemKind, OpenItem, Priority};
 
     #[test]
-    fn legacy_open_item_gets_one_uid_and_links_to_feature_uid() {
+    fn new_open_item_gets_one_uid_and_links_to_feature_uid() {
         let root = std::env::temp_dir().join(format!(
             "koolade_open_item_uid_{}-{}",
             std::process::id(),
             chrono::Utc::now().timestamp_nanos_opt().unwrap()
         ));
-        let dir = root.join("planning/changes/F1-feature");
+        let dir = root.join("docs/koolade/features");
         std::fs::create_dir_all(&dir).unwrap();
         let feature_text = ArtifactIdentity::preserve_markdown(
-            "# F1: Feature\n\n**Status:** Draft\n\n## Intent\n\nKeep a stable feature identity.\n",
+            "# F1: Feature\n\n**Status:** Draft\n\n## Intent\n\nKeep a stable feature identity.\n\n## Current Behavior\n\nLinks do not yet carry stable IDs.\n\n## Desired Behavior\n\nLinks carry immutable IDs.\n\n## Scope\n\nOne feature link.\n\n## Affected Product Areas\n\n`product:overview`\n\n## Requirements\n\n- Item-to-feature links are stable.\n\n## Decisions and Assumptions\n\nNo external identity source is required.\n\n## Acceptance Criteria\n\n- Repeated stabilization preserves each UID.\n",
             None,
             "F1",
             "Feature",
         )
         .unwrap();
-        std::fs::write(dir.join("specification.md"), feature_text.clone()).unwrap();
+        let identity = ArtifactIdentity::from_markdown(&feature_text)
+            .unwrap()
+            .unwrap();
+        let feature_text = crate::domain::ChangeMetadata::write_markdown(
+            &feature_text,
+            &identity,
+            crate::domain::ChangeStatus::Draft,
+        )
+        .unwrap();
+        let feature_path = dir.join(format!("{}.md", identity.uid));
+        std::fs::write(&feature_path, feature_text.clone()).unwrap();
+        crate::core::state::test_support::seed_published_product_document(&root).unwrap();
+        std::fs::write(
+            dir.join("AGENTS.md"),
+            format!(
+                "# Navigation\n\n- [F1: Feature](./{}.md) - Synthetic published feature.\n",
+                identity.uid
+            ),
+        )
+        .unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["-C", root.to_str().unwrap(), "add", "docs/koolade/features"])
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            std::process::Command::new("git")
+                .args([
+                    "-C",
+                    root.to_str().unwrap(),
+                    "-c",
+                    "user.name=Kool.ad/e Test",
+                    "-c",
+                    "user.email=koolade@test.local",
+                    "commit",
+                    "-m",
+                    "Seed published feature fixture"
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
         let feature_uid = ArtifactIdentity::from_markdown(&feature_text)
             .unwrap()
             .unwrap()
@@ -140,11 +180,9 @@ mod tests {
             Priority::High,
             ItemKind::Question,
             "Product".into(),
-            None,
             "Which behavior is expected?".into(),
             "The feature leaves this open.".into(),
         );
-        item.uid = None;
         item.feature_id = Some("F1".into());
         state.items.push(item);
 
@@ -156,6 +194,31 @@ mod tests {
         );
         stabilize_open_item_identities(&mut state, &BTreeMap::new()).unwrap();
         assert_eq!(state.items[0].uid.as_deref(), Some(saved_uid.as_str()));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_open_item_identity_is_rejected_without_backfill() {
+        let root = std::env::temp_dir().join(format!(
+            "koolade_open_item_missing_uid_{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut state = PlannerState::load(&root).unwrap();
+        let mut item = OpenItem::new(
+            "CLR-001".into(),
+            Priority::High,
+            ItemKind::Question,
+            "Product".into(),
+            "Which behavior is expected?".into(),
+            "The answer is missing.".into(),
+        );
+        item.uid = None;
+        state.items.push(item);
+
+        assert!(stabilize_open_item_identities(&mut state, &BTreeMap::new()).is_err());
+        assert!(state.items[0].uid.is_none());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

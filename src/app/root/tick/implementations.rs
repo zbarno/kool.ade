@@ -195,14 +195,6 @@ impl KooladeApp {
                                 &ticket,
                                 &claim_error.to_string(),
                             );
-                            if let crate::core::task_claim::ClaimError::AlreadyClaimed {
-                                record,
-                                stale: true,
-                            } = claim_error.as_ref()
-                            {
-                                project.queue.stale_claim =
-                                    Some((ticket.clone(), record.as_ref().clone()));
-                            }
                             project.queue.blocked.insert(ticket.clone(), error.clone());
                             project.queue.last_error = claim_error.to_string();
                             format!("Implementation did not start: {}", claim_error)
@@ -221,7 +213,7 @@ impl KooladeApp {
                             project.queue.blocked.insert(ticket.clone(), error.clone());
                             project.queue.last_error =
                                 match crate::core::implementation::record_failed_attempt(
-                                    &project.state.repo_root,
+                                    &project.state.planning_store.root,
                                     &ticket,
                                     &error.message,
                                 ) {
@@ -261,7 +253,7 @@ impl KooladeApp {
                     text.push_str(&format!("\nTask completed, but task repository cleanup needs attention: {error}. Cleanup will retry automatically."));
                 }
                 if project.queue_lock.is_some()
-                    && let Err(error) = project.queue.save(&project.state.repo_root)
+                    && let Err(error) = project.queue.save(&project.state.planning_store.root)
                 {
                     project.queue.running = false;
                     project.queue.last_error.push_str(&format!("\nCannot save queue: {error}. Check disk space and permissions; this failure may not survive a restart."));
