@@ -43,3 +43,6 @@ mod stranded_reply;
 
 #[path = "conversation_tests/saved_answers.rs"]
 mod saved_answers;
+
+#[path = "conversation_tests/specification_chat.rs"]
+mod specification_chat;

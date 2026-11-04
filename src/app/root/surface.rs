@@ -515,6 +515,17 @@ impl Surface for KooladeApp {
             Screen::Welcome => Vec::new(),
         }
     }
+
+    fn specification_chat_target(
+        &self,
+        scope: crate::core::specification_chat::Scope,
+    ) -> Result<crate::core::specification_chat::Target, String> {
+        let Screen::Connected(project) = &self.screen else {
+            return Err("Connect a project before starting a Specification conversation.".into());
+        };
+        crate::core::specification_chat::capture_target(&project.state, scope)
+            .map_err(|error| error.to_string())
+    }
     fn feature_approved(&self, id: &str) -> bool {
         match &self.screen {
             Screen::Connected(p) => crate::core::workflow::feature_approved(

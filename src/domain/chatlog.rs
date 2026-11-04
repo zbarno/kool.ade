@@ -37,10 +37,31 @@ pub struct ChatMessage {
     /// Marks a clarification-only exchange, which cannot serve as a submitted decision.
     #[serde(default)]
     pub clarification: bool,
+    /// Target and published source revision for Specification chat turns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub specification_context: Option<SpecificationChatContext>,
     /// Durable lease heartbeat; the visible event timestamp remains unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lease_renewed_at: Option<DateTime<Utc>>,
     pub ts: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecificationChatContext {
+    pub scope_key: String,
+    pub intent: String,
+    pub published_reference: String,
+    pub published_commit_sha: String,
+    pub source_documents: Vec<SpecificationSourceDocument>,
+    pub effective_document_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpecificationSourceDocument {
+    pub path: String,
+    pub sha256: String,
 }
 
 impl ChatMessage {
@@ -55,6 +76,7 @@ impl ChatMessage {
             ref_item,
             answer_context: None,
             clarification: false,
+            specification_context: None,
             lease_renewed_at: None,
             ts: Utc::now(),
         }

@@ -133,6 +133,7 @@ impl KooladeApp {
             recent_chat,
             purpose,
             comparison_feature: None,
+            specification_chat: None,
         };
         project.task_chats.drafts.remove(key);
         let route_label = harness.label();

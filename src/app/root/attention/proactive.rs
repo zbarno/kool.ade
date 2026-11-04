@@ -162,6 +162,7 @@ impl KooladeApp {
                 lease_renewed_at: None,
                 answer_context: None,
                 clarification: false,
+                specification_context: None,
                 ts: chrono::Utc::now(),
             };
             let saved = match &mut self.screen {

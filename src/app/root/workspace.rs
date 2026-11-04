@@ -162,6 +162,7 @@ impl KooladeApp {
             recent_chat: recent,
             purpose,
             comparison_feature: comparison_feature.map(str::to_owned),
+            specification_chat: None,
         };
         let work_type = work.as_ref().map(|work| work.kind.harness_route_category());
         let task_routes = work

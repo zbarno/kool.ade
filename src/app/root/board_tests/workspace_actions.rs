@@ -36,6 +36,7 @@ fn open_workspace_spawns_a_detached_sibling_without_touching_the_session() {
                 recent_chat: Vec::new(),
                 purpose: crate::core::workflow::TurnPurpose::Interview,
                 comparison_feature: None,
+                specification_chat: None,
             },
             Box::new(HangingTurnHarness),
         ))

@@ -173,6 +173,13 @@ pub trait Surface {
     fn active_features(&self) -> Vec<(&str, &str)> {
         Vec::new()
     }
+    fn specification_chat_target(
+        &self,
+        scope: crate::core::specification_chat::Scope,
+    ) -> Result<crate::core::specification_chat::Target, String> {
+        let _ = scope;
+        Err("Specification conversation context is unavailable.".into())
+    }
     fn feature_approved(&self, _id: &str) -> bool {
         false
     }

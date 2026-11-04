@@ -117,6 +117,7 @@ impl StoredMessageV1 {
             lease_renewed_at: None,
             answer_context: None,
             clarification: false,
+            specification_context: None,
             ts: self.ts,
         }
     }

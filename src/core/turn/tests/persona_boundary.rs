@@ -810,6 +810,7 @@ fn card_attempt(
             recent_chat: Vec::new(),
             purpose: crate::core::workflow::TurnPurpose::Interview,
             comparison_feature: None,
+            specification_chat: None,
         };
         let c = TurnController::start_scoped(
             inputs2,

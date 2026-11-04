@@ -3,6 +3,7 @@ mod feature_target;
 mod generation;
 mod request;
 mod revision_guard;
+mod specification_chat;
 mod task_reply_guard;
 #[cfg(test)]
 pub(super) use decode::decode_envelope;
@@ -101,6 +102,13 @@ fn run_turn_mode(
         read_only,
     } = options;
     let started = Instant::now();
+    if !specification_chat::mode_matches(inputs, read_only) {
+        return specification_chat::rejected(
+            "Specification conversation mode did not match its captured user choice.".into(),
+            String::new(),
+            started.elapsed(),
+        );
+    }
     let expected_feature_uid = task_reply_guard.and_then(|guard| guard.expected_feature_uid);
     if let Err(problem) =
         feature_target::validate_task_link(&inputs.state, task, expected_feature_uid)
@@ -145,8 +153,15 @@ fn run_turn_mode(
         };
     }
     if read_only {
+        if let Some(problem) = specification_chat::stale_target_problem(inputs) {
+            return specification_chat::rejected(problem, outcome.final_text, started.elapsed());
+        }
         return TurnOutcome::Discussion {
-            final_text: outcome.final_text,
+            final_text: specification_chat::discussion_text(
+                inputs,
+                outcome.final_text,
+                request.prompt_manifest.as_ref(),
+            ),
             clarification: read_only,
             elapsed: started.elapsed(),
         };
@@ -246,6 +261,15 @@ fn run_turn_mode(
                     elapsed: started.elapsed(),
                 },
                 Ok(mut normalized) => {
+                    if let Err(problem) =
+                        specification_chat::validate_proposal(inputs, &mut normalized)
+                    {
+                        return specification_chat::rejected(
+                            problem,
+                            outcome.final_text,
+                            started.elapsed(),
+                        );
+                    }
                     normalized.task_intent_context = task
                         .and_then(|key| crate::core::planning_work::find(&inputs.state, key))
                         .and_then(|work| {
@@ -290,6 +314,13 @@ fn run_turn_mode(
                     // investigation, or board action). A stale apply would
                     // clobber the rival's newer commit; resending is cheaper.
                     let guard = crate::core::writer_gate::acquire();
+                    if let Some(problem) = specification_chat::stale_target_problem(inputs) {
+                        return specification_chat::rejected(
+                            problem,
+                            outcome.final_text,
+                            started.elapsed(),
+                        );
+                    }
                     if !revision_guard::unchanged(
                         &inputs.state,
                         base_snapshot.as_ref(),

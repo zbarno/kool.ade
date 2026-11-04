@@ -39,7 +39,14 @@ pub(super) fn paint(
                             ui.ctx().data_mut(|data| data.insert_temp(collapsed_id, true));
                         }
                     });
-                    ui.label("Describe a change below. Kool.ad/e updates the specification through conversation.");
+                    ui.label("Ask about the published specification or choose Propose to create a local draft.");
+                    let mode_id = egui::Id::new("koolade_spec_chat_intent");
+                    let mut mode = ui.ctx().data_mut(|data| data.get_temp::<u8>(mode_id).unwrap_or(0));
+                    ui.horizontal(|ui| {
+                        if ui.selectable_label(mode == 0, "Ask").clicked() { mode = 0; }
+                        if ui.selectable_label(mode == 1, "Propose change").clicked() { mode = 1; }
+                    });
+                    ui.ctx().data_mut(|data| data.insert_temp(mode_id, mode));
                     let messages = s.chat_messages().to_vec();
                     let busy = s.conversation_busy();
                     let progress = s.live_progress().cloned();
@@ -55,9 +62,36 @@ pub(super) fn paint(
                                 })
                                 .flatten()
                         });
-                        let target = feature.map(|id| format!("feature {id}")).unwrap_or_else(|| "product".into());
-                        let draft = s.chat_draft();
-                        *draft = format!("Revise the {target} specification: {}", draft.trim());
+                        let scope = match feature {
+                            Some(display_id) => s.active_features().into_iter()
+                                .find(|(id, _)| *id == display_id.as_str())
+                                .and_then(|(_, markdown)| crate::domain::ArtifactIdentity::from_markdown(markdown).ok().flatten())
+                                .map(|identity| crate::core::specification_chat::Scope::Feature { display_id, uid: identity.uid }),
+                            None => Some(crate::core::specification_chat::Scope::Product),
+                        };
+                        let Some(scope) = scope else {
+                            s.toasts().warning("The selected feature identity is unavailable. Refresh the specification before sending.");
+                            return;
+                        };
+                        match s.specification_chat_target(scope) {
+                            Ok(target) => {
+                                let text = s.chat_draft().clone();
+                                s.dispatch(ApplicationCommand::SpecificationChat(
+                                    crate::core::specification_chat::Request {
+                                        text,
+                                        intent: if mode == 1 {
+                                            crate::core::specification_chat::Intent::Propose
+                                        } else {
+                                            crate::core::specification_chat::Intent::Ask
+                                        },
+                                        target,
+                                        omitted_history_messages: 0,
+                                    },
+                                ));
+                            }
+                            Err(error) => s.toasts().warning(error),
+                        }
+                        return;
                     }
                     s.dispatch(ApplicationCommand::UserIntent(std::mem::take(&mut intent)));
                 }

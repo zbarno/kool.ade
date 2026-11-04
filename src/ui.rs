@@ -204,6 +204,7 @@ pub enum ApplicationCommand {
     DiscardFeaturePlans {
         id: String,
     },
+    SpecificationChat(crate::core::specification_chat::Request),
     UserIntent(Intent),
     HeaderAction(HeaderAction),
     TaskDetail(task_detail::Command),
