@@ -127,6 +127,9 @@ pub(super) fn verify_reviewer_and_qa_projection(
 
     let request = crate::runtime_qa::QaRunRequestV1 {
         schema_version: 1,
+        mode: Default::default(),
+        runtime_image_digest: Some(format!("sha256:{}", "a".repeat(64))),
+        runtime_image_profile: None,
         qa_run_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         parent_task_uid: task.task_uid.clone(),
         target_id: Some("fixture-target".into()),

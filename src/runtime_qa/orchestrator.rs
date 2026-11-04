@@ -254,8 +254,9 @@ impl<'a> RuntimeQaOrchestrator<'a> {
         super::validate_current_report(request, scenarios, &evidence, &result)?;
         // Constructing the gate here verifies that the exact independent role
         // and exact report produce a lifecycle-compatible receipt.
-        let receipt = match result.outcome {
-            QaOutcome::Pass | QaOutcome::Fail => Some(approved_gate_receipt(
+        let receipt = match (request.mode, result.outcome) {
+            (super::QaRunMode::Experimental, _) => None,
+            (_, QaOutcome::Pass | QaOutcome::Fail) => Some(approved_gate_receipt(
                 request,
                 scenarios,
                 &evidence,
@@ -263,7 +264,7 @@ impl<'a> RuntimeQaOrchestrator<'a> {
                 prompt,
                 completed_at_unix_ms,
             )?),
-            QaOutcome::Incomplete | QaOutcome::InfrastructureBlocked => None,
+            (_, QaOutcome::Incomplete | QaOutcome::InfrastructureBlocked) => None,
         };
         self.store.save_run_with_screenshots(
             request,

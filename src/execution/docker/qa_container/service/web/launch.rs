@@ -52,9 +52,16 @@ async fn start_web_preview_for_lock(
         .filter(|tool| crate::project_runtime::is_logical_tool_id(tool))
         .map(str::to_owned)
         .collect::<Vec<_>>();
-    if lock
-        .select(RuntimeProfile::BrowserQa, architecture)
-        .map_err(|_| denied("Browser QA image is unavailable"))?
+    let selected_browser = if spec.request.mode == crate::runtime_qa::QaRunMode::Experimental {
+        lock.select_experimental_qa(
+            RuntimeProfile::BrowserQa,
+            architecture,
+            &crate::persistence::experimental_features::load().0,
+        )
+    } else {
+        lock.select(RuntimeProfile::BrowserQa, architecture)
+    };
+    if selected_browser.map_err(|_| denied("Browser QA image is unavailable"))?
         != *spec.browser_image
         || lock
             .select_with_tools(

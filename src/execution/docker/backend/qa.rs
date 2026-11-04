@@ -9,6 +9,32 @@ pub(super) async fn start(
     spec: QaWebPreviewSpec<'_>,
     cancel: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<QaWebPreview, ExecutionError> {
+    let image = backend
+        .docker
+        .inspect_image(&spec.browser_image.reference)
+        .await
+        .map_err(|_| internal_error_with_context("inspecting the locked browser QA image"))?;
+    let observation = crate::execution::docker::images::ImageObservation {
+        image_id: image.id.unwrap_or_default(),
+        repo_digests: image.repo_digests.unwrap_or_default(),
+        os: image.os.unwrap_or_default(),
+        architecture: image.architecture.unwrap_or_default(),
+        configured_user: image
+            .config
+            .as_ref()
+            .and_then(|config| config.user.clone())
+            .unwrap_or_default(),
+        labels: image
+            .config
+            .and_then(|config| config.labels)
+            .unwrap_or_default()
+            .into_iter()
+            .collect(),
+    };
+    crate::execution::docker::images::verify_qa_image_observation(spec.browser_image, &observation)
+        .map_err(|_| {
+            internal_error_with_context("verifying the locked browser QA digest and user")
+        })?;
     qa_container::start_web_preview(&backend.docker, spec, cancel).await
 }
 

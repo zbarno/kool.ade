@@ -152,6 +152,12 @@ pub fn for_ticket(
                 .as_ref()
                 .filter(|execution| {
                     execution.status == crate::core::lifecycle::QaExecutionStatusV1::Completed
+                        || (execution.status
+                            == crate::core::lifecycle::QaExecutionStatusV1::Blocked
+                            && execution.request.as_ref().is_some_and(|request| {
+                                request.mode == crate::runtime_qa::QaRunMode::Experimental
+                                    && execution.result_sha256.is_some()
+                            }))
                 })
                 .and_then(|execution| execution.request.as_ref())
                 .map(|request| request.qa_run_id.clone()),

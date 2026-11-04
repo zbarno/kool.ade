@@ -10,6 +10,12 @@ use crate::{
 
 static IMAGE_LOCK: std::sync::OnceLock<Option<ImageLock>> = std::sync::OnceLock::new();
 
+pub(super) fn image_lock() -> Option<&'static ImageLock> {
+    IMAGE_LOCK
+        .get_or_init(|| ImageLock::bundled().ok())
+        .as_ref()
+}
+
 pub(super) fn paint(ui: &mut egui::Ui, docker: &DockerEnvironmentStatus) {
     ui.label(theme::section_heading("Runtime QA"));
     ui.colored_label(theme::WARNING, "Unavailable — release gates pending (#171)");
@@ -17,9 +23,7 @@ pub(super) fn paint(ui: &mut egui::Ui, docker: &DockerEnvironmentStatus) {
         "Docker readiness does not mean browser or desktop QA is ready. QA execution stays disabled until the pinned images, isolated lifecycle, and release security checks are approved.",
     ));
 
-    let lock = IMAGE_LOCK
-        .get_or_init(|| ImageLock::bundled().ok())
-        .as_ref();
+    let lock = image_lock();
     ui.label(format!(
         "Browser QA image: {}",
         profile_status(lock, "browser_qa", docker)

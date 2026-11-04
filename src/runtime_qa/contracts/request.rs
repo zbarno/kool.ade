@@ -14,6 +14,14 @@ pub enum QaPlatform {
     Web,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QaRunMode {
+    #[default]
+    Production,
+    Experimental,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct QaBoundedLimitsV1 {
@@ -51,6 +59,15 @@ impl QaBoundedLimitsV1 {
 #[serde(deny_unknown_fields)]
 pub struct QaRunRequestV1 {
     pub schema_version: u16,
+    /// Experimental runs are retained for local dogfooding but cannot authorize lifecycle gates.
+    #[serde(default, skip_serializing_if = "is_production_mode")]
+    pub mode: QaRunMode,
+    /// Immutable QA runtime image selected for this run; absent only in historical records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_image_digest: Option<String>,
+    /// Exact locked QA driver profile used by this run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_image_profile: Option<crate::execution::docker::images::RuntimeProfile>,
     pub qa_run_id: String,
     pub parent_task_uid: String,
     /// The exact operator-approved runtime target selected for this run.
@@ -82,9 +99,34 @@ pub struct QaRunRequestV1 {
     pub author_session_id: String,
 }
 
+fn is_production_mode(mode: &QaRunMode) -> bool {
+    *mode == QaRunMode::Production
+}
+
+fn is_image_digest(value: &str) -> bool {
+    value.strip_prefix("sha256:").is_some_and(is_sha256)
+}
+
 impl QaRunRequestV1 {
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema_version != 1
+        let profile_matches_platform = matches!(
+            (
+                self.runtime_image_profile,
+                self.relevant_platforms.as_slice(),
+            ),
+            (
+                Some(crate::execution::docker::images::RuntimeProfile::BrowserQa),
+                [QaPlatform::Web | QaPlatform::HeadlessService],
+            ) | (
+                Some(crate::execution::docker::images::RuntimeProfile::DesktopQa),
+                [QaPlatform::LinuxDesktop],
+            ) | (None, _)
+        );
+        if !matches!(self.schema_version, 1 | 2)
+            || (self.schema_version == 2
+                && (self.runtime_image_digest.is_none() || self.runtime_image_profile.is_none()))
+            || (self.mode == QaRunMode::Experimental && self.schema_version != 2)
+            || !profile_matches_platform
             || !is_uuid(&self.qa_run_id)
             || !is_uuid(&self.parent_task_uid)
             || self
@@ -113,6 +155,10 @@ impl QaRunRequestV1 {
             || !is_sha256(&self.startup_recipe_sha256)
             || !is_uuid(&self.execution_session_id)
             || !valid_text(&self.driver_profile_version, 128)
+            || self
+                .runtime_image_digest
+                .as_deref()
+                .is_some_and(|digest| !is_image_digest(digest))
             || self
                 .test_data_fixture_ref
                 .as_ref()

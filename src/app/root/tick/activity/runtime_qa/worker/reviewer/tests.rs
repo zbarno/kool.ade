@@ -3,6 +3,9 @@ use super::*;
 fn qa_request() -> QaRunRequestV1 {
     QaRunRequestV1 {
         schema_version: 1,
+        mode: Default::default(),
+        runtime_image_digest: Some(format!("sha256:{}", "a".repeat(64))),
+        runtime_image_profile: None,
         qa_run_id: "00000000-0000-4000-8000-000000000001".into(),
         parent_task_uid: "00000000-0000-4000-8000-000000000002".into(),
         target_id: Some("fixture-target".into()),

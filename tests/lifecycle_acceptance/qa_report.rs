@@ -1,6 +1,7 @@
 use super::super::support::id;
 use koolade::{
     core::lifecycle::{GateReceipt, LifecycleStore, TaskEvent, TaskRecord},
+    execution::docker::images::RuntimeProfile,
     harness::prompt_catalog::{
         CoverageStatus, CoverageV1, PromptManifest, PromptRole, ReviewVerdictV1, RoleInputV1,
         RolePayloadV1, render,
@@ -8,7 +9,7 @@ use koolade::{
     runtime_qa::{
         QaAssertionStatus, QaAssertionV1, QaBoundedLimitsV1, QaDisplayV1, QaDriverActionV1,
         QaDriverOutputV1, QaDriverScreenshotV1, QaEvidenceManifestV1, QaOutcome, QaPlatform,
-        QaResultV1, QaRunRequestV1, QaScenarioDriver, QaScenarioStepV1, QaScenarioV1,
+        QaResultV1, QaRunMode, QaRunRequestV1, QaScenarioDriver, QaScenarioStepV1, QaScenarioV1,
         QaTargetAuthorization, QaTaskServiceLeaseV1, RuntimeQaOrchestrator, RuntimeQaStore,
     },
 };
@@ -27,7 +28,10 @@ pub(super) fn execute_reviewed_run(
 ) -> (QaRunRequestV1, QaOutcome, Option<GateReceipt>) {
     let code_review = task.code_review.as_ref().expect("approved code review");
     let request = QaRunRequestV1 {
-        schema_version: 1,
+        schema_version: 2,
+        mode: QaRunMode::Production,
+        runtime_image_digest: Some(format!("sha256:{}", "a".repeat(64))),
+        runtime_image_profile: Some(RuntimeProfile::BrowserQa),
         qa_run_id: id(),
         parent_task_uid: task.task_uid.clone(),
         target_id: Some("fixture-target".into()),

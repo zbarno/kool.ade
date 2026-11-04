@@ -15,8 +15,11 @@ pub(super) fn for_task(
     else {
         return (None, None);
     };
+    let experimental = request.mode == crate::runtime_qa::QaRunMode::Experimental;
     if task.qa_execution.as_ref().is_none_or(|execution| {
         execution.status != crate::core::lifecycle::QaExecutionStatusV1::Completed
+            && !(experimental
+                && execution.status == crate::core::lifecycle::QaExecutionStatusV1::Blocked)
     }) {
         return (None, None);
     }
@@ -89,6 +92,7 @@ pub(super) fn for_task(
     (
         Some(crate::ui::task_detail::RuntimeQaEvidenceView {
             run_id: request.qa_run_id.clone(),
+            experimental,
             outcome: result.outcome,
             target_id: evidence.target_id.clone(),
             code_sha: evidence.code_sha.clone(),

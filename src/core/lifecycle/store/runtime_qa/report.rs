@@ -9,6 +9,52 @@ use crate::{
 use super::LifecycleStore;
 
 impl LifecycleStore<'_> {
+    /// Retain a validated local experimental run while keeping the production lifecycle blocked.
+    #[allow(clippy::too_many_arguments)] // Each argument is a separately validated lifecycle event field.
+    pub fn record_experimental_runtime_qa(
+        &self,
+        task_uid: &str,
+        expected_revision: u64,
+        event_uid: &str,
+        request: &crate::runtime_qa::QaRunRequestV1,
+        result_sha256: String,
+        evidence_manifest_sha256: String,
+        reason: String,
+    ) -> Result<TaskRecord, StoreError> {
+        if request.mode != crate::runtime_qa::QaRunMode::Experimental
+            || result_sha256.len() != 64
+            || evidence_manifest_sha256.len() != 64
+        {
+            return Err(StoreError::MalformedState(
+                "experimental Runtime QA evidence identity is invalid".into(),
+            ));
+        }
+        let task = self.load_task(task_uid)?;
+        if task.revision != expected_revision
+            || task.phase != TaskPhase::AwaitingRuntimeQa
+            || task
+                .qa_execution
+                .as_ref()
+                .and_then(|qa| qa.request.as_ref())
+                != Some(request)
+        {
+            return Err(StoreError::MalformedState(
+                "experimental Runtime QA report targets a stale or ineligible task".into(),
+            ));
+        }
+        self.apply_task_event(
+            task_uid,
+            expected_revision,
+            event_uid,
+            TaskEvent::RuntimeQaBlocked {
+                request_id: request.qa_run_id.clone(),
+                reason,
+                result_sha256: Some(result_sha256),
+                evidence_manifest_sha256: Some(evidence_manifest_sha256),
+            },
+        )
+    }
+
     /// Record only a report already persisted and fully revalidated by RuntimeQaStore.
     /// Infrastructure failures remain blocked and cannot advance to spec reconciliation.
     pub fn record_runtime_qa_report(
@@ -35,6 +81,11 @@ impl LifecycleStore<'_> {
         if &persisted_request != request {
             return Err(StoreError::MalformedState(
                 "runtime QA report does not match the queued request".into(),
+            ));
+        }
+        if request.mode == crate::runtime_qa::QaRunMode::Experimental {
+            return Err(StoreError::MalformedState(
+                "experimental Runtime QA cannot advance the production task lifecycle".into(),
             ));
         }
         validate_current_report(&persisted_request, &scenarios, &evidence, &result)

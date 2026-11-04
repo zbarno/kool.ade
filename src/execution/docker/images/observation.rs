@@ -86,6 +86,33 @@ pub fn verify_image_observation(
     Ok(())
 }
 
+/// Verify the exact locked digest and configured runtime identity before a QA
+/// driver is created. The registry digest binds the image config and layers;
+/// inspection also confirms the expected Linux platform and non-root user.
+pub fn verify_qa_image_observation(
+    selected: &SelectedImage,
+    observation: &super::ImageObservation,
+) -> Result<(), PrerequisiteFailure> {
+    verify_image_observation(
+        selected,
+        &observation.repo_digests,
+        &observation.os,
+        &observation.architecture,
+    )?;
+    if !matches!(
+        selected.profile,
+        super::RuntimeProfile::BrowserQa | super::RuntimeProfile::DesktopQa
+    ) || observation.configured_user != selected.runtime_user
+    {
+        return Err(failure(
+            PrerequisiteCode::ImageUnavailable,
+            "The local QA image does not use the locked profile's non-root runtime identity",
+            false,
+        ));
+    }
+    Ok(())
+}
+
 fn matches_docker_reference(expected: &str, observed: &str) -> bool {
     let Some((expected_repository, expected_digest)) = expected.rsplit_once('@') else {
         return false;

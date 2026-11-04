@@ -2,7 +2,7 @@
 
 ## Availability
 
-As of 2026-10-20, Runtime QA is **Unavailable**. Settings > Execution
+Production Runtime QA remains **Unavailable**. Settings > Execution
 Environments > Runtime QA reports image policy, local image presence, reviewer
 route, preview relay, and evidence storage readiness. A ready Docker engine or
 locally present candidate image does not enable QA. The `browser_qa` and
@@ -18,6 +18,61 @@ For QA profiles, verify the workflow's rootless setup and image-lock
 verification jobs passed; a local rootful Docker run is not equivalent
 evidence. Candidate builds exercise synthetic applications and do not run an
 arbitrary project Dockerfile.
+
+## Local experimental dogfooding
+
+Settings > Execution Environments > Experimental Features exposes implemented
+Browser QA and Linux desktop QA independently from production image policy.
+The machine-wide switch defaults off and requires a local confirmation. Its
+settings live in the user's application-data directory, outside code and
+planning repositories, with user-only file permissions. The registry continues
+to show blocked and not-implemented capabilities when the switch is off;
+Computer Use remains unimplemented (#375, #389).
+
+On Linux amd64, the app selects only the exact immutable QA digest and recipe
+recorded in `containers/images.lock.json`, and only while that digest is
+already present on a ready rootless Engine. To stage the currently pinned
+images, an operator can explicitly pull the exact references currently listed
+in `containers/images.lock.json`:
+
+```sh
+docker pull --platform linux/amd64 ghcr.io/zbarno/koolade-runtime-qa-browser@sha256:a247709202b9af7244392e0fa24268bfb9279afed820d69a18a7261a0ea8c46e
+docker pull --platform linux/amd64 ghcr.io/zbarno/koolade-runtime-qa-desktop@sha256:541efb7b83f0c55f81533058fe02a7b68e1136eeb2324d21e968e9e93eb30fb6
+```
+
+Dispatch never downloads an image. The local
+`scripts/build-qa-image-candidate.sh` workflow builds and smoke-tests candidates
+from a digest-pinned base with isolated BuildKit and fixed synthetic inputs; its
+mutable candidate tag is not selectable unless it matches a locked digest.
+Mutable tags, arbitrary local image names, and rootful or host-execution
+fallbacks are not accepted. The lock's `runtime_enabled: false` values remain
+unchanged.
+
+Enable the machine-wide option, then enable only the QA features to exercise.
+“Enable all testable experimental features” sets those opt-ins but does not
+change platform, Engine, image, reviewer, recipe, build, readiness, scenario,
+or screenshot checks. Follow each displayed blocker. After independent code
+review and a successful build, open the task's Runtime QA scenarios, inspect
+the exact synthesized cases and redaction, then choose **Approve scenarios and
+run experimental QA**. The existing dispatcher rechecks the request and runs
+the existing isolated QA worker.
+
+Every experimental attempt stores its mode and exact image digest with its
+task-bound evidence. A passing experimental result remains visible in Task
+Details as local experimental evidence; it records the attempt as blocked for
+the production lifecycle and cannot create a production gate receipt, satisfy
+release certification, or authorize publication. Turning the mode off blocks
+new experimental dispatch. It does not forcibly stop an already owned worker;
+that isolated run continues under its captured request until it finishes or the
+app/runtime lifecycle interrupts it. Its evidence and cleanup ownership remain
+unchanged. Re-enabling requires fresh task/request checks.
+
+This local workflow is not the deferred whole-system acceptance below. Browser
+and desktop interaction, pixel review, persisted pass/failure behavior, and
+live-container denial of HOME/SSH, Docker socket, host display, ambient network,
+and arbitrary commands still require the pinned rootless fixtures to run on
+the exact integrated candidate. Record those scenarios only after they have
+actually run; retain #171's production release gate in the meantime.
 
 ## Readiness checks
 

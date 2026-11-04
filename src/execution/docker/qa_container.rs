@@ -111,9 +111,16 @@ impl QaDriverContainerSpec<'_> {
             .platform
             .strip_prefix("linux/")
             .unwrap_or_default();
-        let approved = lock
-            .select(self.image.profile, architecture)
-            .map_err(|_| denied("QA driver image is not enabled by the reviewed image lock"))?;
+        let approved = if self.request.mode == crate::runtime_qa::QaRunMode::Experimental {
+            lock.select_experimental_qa(
+                self.image.profile,
+                architecture,
+                &crate::persistence::experimental_features::load().0,
+            )
+        } else {
+            lock.select(self.image.profile, architecture)
+        }
+        .map_err(|_| denied("QA driver image is not enabled by the reviewed image lock"))?;
         if approved != *self.image
             || !matches!(
                 self.image.profile,

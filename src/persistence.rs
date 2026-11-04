@@ -18,6 +18,7 @@ pub mod dependency_authorization;
 pub mod discovery_log;
 pub mod execution_environment_settings;
 pub mod execution_records;
+pub mod experimental_features;
 pub(crate) mod feature_approvals;
 pub mod harness_settings;
 // These schemas are used by Linux rootless Docker paths and remain declared

@@ -11,7 +11,13 @@ impl EngineDiscovery {
     ) -> Result<(), PrerequisiteFailure> {
         let lock = ImageLock::bundled()?;
         let architecture = image.platform.strip_prefix("linux/").unwrap_or_default();
-        let expected = lock.select(image.profile, architecture)?;
+        let expected = lock.select(image.profile, architecture).or_else(|_| {
+            lock.select_experimental_qa(
+                image.profile,
+                architecture,
+                &crate::persistence::experimental_features::load().0,
+            )
+        })?;
         if expected != *image {
             return Err(failure(
                 PrerequisiteCode::ImageDigestMismatch,

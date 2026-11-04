@@ -44,6 +44,9 @@ fn fixture() -> (
     let recipe_sha = format!("{:x}", sha2::Sha256::digest(recipe_bytes));
     let request = QaRunRequestV1 {
         schema_version: 1,
+        mode: Default::default(),
+        runtime_image_digest: Some(format!("sha256:{}", "a".repeat(64))),
+        runtime_image_profile: None,
         qa_run_id: uid(),
         parent_task_uid: uid(),
         target_id: Some("fixture-target".into()),

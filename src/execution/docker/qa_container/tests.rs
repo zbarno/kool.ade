@@ -16,6 +16,9 @@ fn request() -> crate::runtime_qa::QaRunRequestV1 {
     let uid = || uuid::Uuid::new_v4().hyphenated().to_string();
     crate::runtime_qa::QaRunRequestV1 {
         schema_version: 1,
+        mode: Default::default(),
+        runtime_image_digest: Some(format!("sha256:{}", "a".repeat(64))),
+        runtime_image_profile: None,
         qa_run_id: uid(),
         parent_task_uid: uid(),
         target_id: Some("fixture-target".into()),

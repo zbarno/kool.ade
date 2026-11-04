@@ -45,6 +45,7 @@ fn task_details_display_requirement_coverage_and_run_outcome() {
         merged_commit_sha: None,
         runtime_qa_evidence: Some(RuntimeQaEvidenceView {
             run_id: "run-id".into(),
+            experimental: false,
             outcome: QaOutcome::Pass,
             target_id: Some("web-preview".into()),
             code_sha: "a".repeat(40),

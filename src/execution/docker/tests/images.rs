@@ -1,3 +1,5 @@
+mod qa;
+
 use super::super::{
     discovery::PrerequisiteCode,
     images::{

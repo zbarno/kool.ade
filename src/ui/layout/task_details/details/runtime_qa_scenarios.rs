@@ -11,6 +11,9 @@ pub(super) fn paint(
     };
     ui.group(|ui| {
         ui.label(crate::ui::theme::section_heading("Runtime QA scenarios"));
+        if proposal.experimental {
+            ui.colored_label(crate::ui::theme::WARNING, "Experimental QA: any result is local dogfood evidence and cannot satisfy production lifecycle or release gates.");
+        }
         if proposal.scenarios.is_empty() {
             ui.label("Scenarios are synthesized from the approved criteria and finished build evidence. Review and approve before any QA run.");
             ui.label("Generating sends up to 256 KiB of receipt-verified target artifact text to the selected QA model. Check the build outputs for secrets or personal data first.");
@@ -41,8 +44,8 @@ pub(super) fn paint(
             });
         }
         if proposal.approved {
-            ui.label("Approved exact proposal. Runtime QA may start after the dispatcher revalidates it.");
-        } else if ui.button("Approve these exact scenarios").clicked() {
+            ui.label(if proposal.experimental { "Approved exact experimental proposal. The existing isolated QA dispatcher will revalidate prerequisites before launch." } else { "Approved exact proposal. Runtime QA may start after the dispatcher revalidates it." });
+        } else if ui.button(if proposal.experimental { "Approve scenarios and run experimental QA" } else { "Approve these exact scenarios" }).clicked() {
             let Some(proposal_sha256) = proposal.proposal_sha256.clone() else { return; };
             surface.dispatch(crate::ui::ApplicationCommand::ApproveRuntimeQaScenarios {
                 ticket: ticket.to_owned(),

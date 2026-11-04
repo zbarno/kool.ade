@@ -124,7 +124,8 @@ pub(super) fn acquire_lock_and_claim(
     });
     match super::reports::persisted_report_state(&store, request, running_restart) {
         super::reports::PersistedReportState::Missing => {}
-        super::reports::PersistedReportState::Recordable => {
+        super::reports::PersistedReportState::Recordable
+        | super::reports::PersistedReportState::Experimental => {
             return Err(StartError::ReportPresent);
         }
         super::reports::PersistedReportState::Invalid => {

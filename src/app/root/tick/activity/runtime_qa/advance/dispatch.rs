@@ -74,9 +74,11 @@ fn start_worker_or_block(
                             "queued request changed before dispatch failure was recorded".into(),
                         );
                     }
-                    if super::super::reports::persisted_report_state(qa_store, request, true)
-                        == super::super::reports::PersistedReportState::Recordable
-                    {
+                    if matches!(
+                        super::super::reports::persisted_report_state(qa_store, request, true),
+                        super::super::reports::PersistedReportState::Recordable
+                            | super::super::reports::PersistedReportState::Experimental
+                    ) {
                         return Ok(DispatchFailureRecovery::ReportPresent);
                     }
                     let namespace = uuid::Uuid::parse_str(task_uid)
