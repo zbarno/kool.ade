@@ -42,6 +42,36 @@ fn capture_excludes_case_variant_git_metadata() {
 
 #[cfg(unix)]
 #[test]
+fn workspace_snapshots_exclude_only_the_root_target_directory() {
+    let fixture = Fixture::new();
+    fs::create_dir_all(fixture.0.join("target/debug")).unwrap();
+    fs::write(fixture.0.join("target/debug/generated"), b"build output").unwrap();
+    fs::create_dir_all(fixture.0.join("src/target")).unwrap();
+    fs::write(fixture.0.join("src/target/module.rs"), b"source module").unwrap();
+    let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();
+
+    let snapshots = [
+        capture(&workspace, 1024 * 1024, true).unwrap(),
+        capture_remote(&workspace, 1024 * 1024, true, &[]).unwrap(),
+        capture_scoped(&workspace, ".", 1024 * 1024).unwrap(),
+    ];
+    for snapshot in snapshots {
+        assert!(
+            !snapshot
+                .manifest
+                .keys()
+                .any(|path| path.starts_with("target"))
+        );
+        assert!(
+            snapshot
+                .manifest
+                .contains_key(Path::new("src/target/module.rs"))
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn capture_rejects_a_replaced_workspace_root_identity() {
     let fixture = Fixture::new();
     let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();

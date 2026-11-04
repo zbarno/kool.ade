@@ -1,4 +1,4 @@
-use super::{capture, capture_reviewed, capture_scoped, synchronize};
+use super::{capture, capture_remote, capture_reviewed, capture_scoped, synchronize};
 pub(super) use crate::execution::docker::sandbox::ValidatedWorkspace;
 pub(super) use std::{fs, io::Cursor, path::Path};
 pub(super) use tar::{Builder, Header};

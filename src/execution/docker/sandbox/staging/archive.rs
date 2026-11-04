@@ -8,7 +8,9 @@ use sha2::{Digest, Sha256};
 use tar::Archive;
 
 mod capture;
-pub(crate) use capture::{capture, capture_excluding};
+#[cfg(test)]
+pub(crate) use capture::capture;
+pub(crate) use capture::capture_excluding;
 #[cfg(any(test, windows, target_os = "macos"))]
 mod windows_paths;
 

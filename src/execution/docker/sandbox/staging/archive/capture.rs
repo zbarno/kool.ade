@@ -14,6 +14,7 @@ use super::super::archive::validate_relative;
 #[cfg(windows)]
 mod windows;
 
+#[cfg(test)]
 pub(crate) fn capture(
     root: &Path,
     expected_root_identity: &super::super::super::workspace_identity::WorkspaceObjectId,

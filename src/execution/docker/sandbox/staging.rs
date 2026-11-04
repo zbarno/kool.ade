@@ -129,13 +129,15 @@ pub(crate) fn capture(
 ) -> Result<WorkspaceSnapshot, ExecutionError> {
     workspace.revalidate()?;
     let limit = budget.min(MAX_STAGED_BYTES);
-    archive::capture(
+    let excluded_paths = ["target".to_owned()];
+    archive::capture_excluding(
         workspace.root(),
         workspace.root_identity(),
         None,
         limit,
         read_only,
         MAX_ENTRIES,
+        &excluded_paths,
     )
     .map(|mut snapshot| {
         snapshot.scope_root = None;
@@ -155,6 +157,10 @@ pub(crate) fn capture_remote(
 ) -> Result<WorkspaceSnapshot, ExecutionError> {
     workspace.revalidate()?;
     let limit = budget.min(MAX_STAGED_BYTES);
+    let mut excluded_paths = excluded_paths.to_vec();
+    if !excluded_paths.iter().any(|path| path == "target") {
+        excluded_paths.push("target".to_owned());
+    }
     archive::capture_excluding(
         workspace.root(),
         workspace.root_identity(),
@@ -162,7 +168,7 @@ pub(crate) fn capture_remote(
         limit,
         read_only,
         MAX_ENTRIES,
-        excluded_paths,
+        &excluded_paths,
     )
     .map(|mut snapshot| {
         snapshot.scope_root = None;
@@ -178,25 +184,32 @@ pub(crate) fn capture_scoped(
 ) -> Result<WorkspaceSnapshot, ExecutionError> {
     workspace.revalidate()?;
     let limit = budget.min(MAX_STAGED_BYTES);
+    let excluded_paths = if root_relative == "." {
+        vec!["target".to_owned()]
+    } else {
+        Vec::new()
+    };
     #[cfg(windows)]
-    let captured = archive::capture(
+    let captured = archive::capture_excluding(
         workspace.root(),
         workspace.root_identity(),
         Some(std::path::Path::new(root_relative)),
         limit,
         false,
         MAX_ENTRIES,
+        &excluded_paths,
     );
     #[cfg(not(windows))]
     let captured = {
         checked_scope(workspace.root(), root_relative)?;
-        archive::capture(
+        archive::capture_excluding(
             workspace.root(),
             workspace.root_identity(),
             Some(std::path::Path::new(root_relative)),
             limit,
             false,
             MAX_ENTRIES,
+            &excluded_paths,
         )
     };
     let mut snapshot = captured.map_err(|error| {
