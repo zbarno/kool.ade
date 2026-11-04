@@ -18,19 +18,19 @@ fn authenticated_capability_snapshot() -> crate::execution::contract::HarnessCap
         authentication_mode: crate::execution::contract::current_authentication_mode("pi"),
         manager_profile_id: crate::execution::contract::profile_evidence_id_for_current_snapshot(
             "pi",
-            Some("1.0"),
+            Some("1.0.0"),
             crate::harness::ExecutionProfile::Manager,
         ),
         worker_profile_id: crate::execution::contract::profile_evidence_id_for_current_snapshot(
             "pi",
-            Some("1.0"),
+            Some("1.0.0"),
             crate::harness::ExecutionProfile::Worker,
         ),
         probe_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         probe_cancellation_generation: 1,
         probe_sequence: 1,
         cli_binary: ReadinessState::Ready,
-        cli_version: Some("1.0".into()),
+        cli_version: Some("1.0.0".into()),
         authentication: ReadinessState::Ready,
         model_catalog: ReadinessState::Ready,
         scriptable_invocation: ReadinessState::Ready,
@@ -113,7 +113,7 @@ pub(super) fn configure_harness_settings(root: &Path) -> HarnessEnvironment {
                 "pi".into(),
                 crate::persistence::harness_settings::DetectedHarness {
                     status: "pi fixture 1.0".into(),
-                    version: Some("1.0".into()),
+                    version: Some("1.0.0".into()),
                     executable: Some(
                         root.join("pi-package/dist/bundle/pi-fixture")
                             .to_string_lossy()
