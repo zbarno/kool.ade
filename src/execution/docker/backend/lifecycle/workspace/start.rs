@@ -106,6 +106,11 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
             &scope.root_relative,
             request.resource_budget.temporary_disk_bytes,
         )?
+    } else if request.mode == crate::execution::contract::ExecutionModeV1::PlanningReadOnly {
+        staging::capture_planning_read_only(
+            &workspace,
+            request.resource_budget.temporary_disk_bytes,
+        )?
     } else {
         staging::capture(
             &workspace,

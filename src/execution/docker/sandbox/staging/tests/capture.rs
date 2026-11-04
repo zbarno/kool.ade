@@ -42,7 +42,7 @@ fn capture_excludes_case_variant_git_metadata() {
 
 #[cfg(unix)]
 #[test]
-fn workspace_snapshots_exclude_only_the_root_target_directory() {
+fn only_read_only_planning_snapshots_exclude_the_root_target_directory() {
     let fixture = Fixture::new();
     fs::create_dir_all(fixture.0.join("target/debug")).unwrap();
     fs::write(fixture.0.join("target/debug/generated"), b"build output").unwrap();
@@ -50,17 +50,31 @@ fn workspace_snapshots_exclude_only_the_root_target_directory() {
     fs::write(fixture.0.join("src/target/module.rs"), b"source module").unwrap();
     let workspace = ValidatedWorkspace::inspect(&fixture.0).unwrap();
 
-    let snapshots = [
+    let planning_snapshot =
+        super::super::capture_planning_read_only(&workspace, 1024 * 1024).unwrap();
+    assert!(
+        !planning_snapshot
+            .manifest
+            .keys()
+            .any(|path| path.starts_with("target"))
+    );
+    assert!(
+        planning_snapshot
+            .manifest
+            .contains_key(Path::new("src/target/module.rs"))
+    );
+
+    let runtime_snapshots = [
         capture(&workspace, 1024 * 1024, true).unwrap(),
         capture_remote(&workspace, 1024 * 1024, true, &[]).unwrap(),
         capture_scoped(&workspace, ".", 1024 * 1024).unwrap(),
     ];
-    for snapshot in snapshots {
+    for snapshot in runtime_snapshots {
+        assert!(snapshot.manifest.contains_key(Path::new("target")));
         assert!(
-            !snapshot
+            snapshot
                 .manifest
-                .keys()
-                .any(|path| path.starts_with("target"))
+                .contains_key(Path::new("target/debug/generated"))
         );
         assert!(
             snapshot
