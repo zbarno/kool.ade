@@ -70,8 +70,11 @@ fn round_trip_each_variant_keeps_fields_and_canonical_bytes() {
         let line = serialize_line(&row);
         assert!(line.ends_with('\n'));
         let decoded = decode_line(line.trim_end_matches('\n')).unwrap();
-        assert_eq!(decoded, row, "round trip drifted for {line:?}");
-        assert_eq!(serialize_line(&decoded), line, "bytes not canonical");
+        assert!(decoded == row, "round trip changed a ledger record");
+        assert!(
+            serialize_line(&decoded) == line,
+            "ledger serialization is not canonical"
+        );
     }
 }
 

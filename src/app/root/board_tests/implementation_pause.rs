@@ -72,34 +72,44 @@ fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
         .to_owned();
     let allocation = crate::core::implementation::key_for_ticket(ticket);
     let branch = format!("koolade/{allocation}");
-    let worktree = root
-        .parent()
-        .unwrap()
-        .join(".koolade-worktrees")
-        .join(crate::persistence::project_slug(
-            &root.canonicalize().unwrap(),
-        ))
-        .join(&allocation);
-    std::fs::create_dir_all(worktree.parent().unwrap()).unwrap();
-    git(&[
-        "worktree",
-        "add",
-        "-b",
-        &branch,
-        worktree.to_str().unwrap(),
-        "HEAD",
-    ]);
-
     let mut app = fixture();
     if let Screen::Connected(project) = &mut app.screen {
         project.state = crate::core::state::PlannerState::load(&root).unwrap();
         project.state.bootstrap_missing().unwrap();
         let local_state_root = project.state.planning_store.local_root();
+        let project_slug =
+            crate::persistence::project_slug(&local_state_root.canonicalize().unwrap());
+        let worktree = crate::persistence::project_dir(&project_slug)
+            .join("task-repositories/root")
+            .join(&allocation);
+        std::fs::create_dir_all(worktree.parent().unwrap()).unwrap();
+        git(&[
+            "clone",
+            "--quiet",
+            "--no-hardlinks",
+            root.to_str().unwrap(),
+            worktree.to_str().unwrap(),
+        ]);
+        git(&[
+            "-C",
+            worktree.to_str().unwrap(),
+            "checkout",
+            "--quiet",
+            "-b",
+            &branch,
+        ]);
         let task_document = project
             .task_documents
             .iter()
             .find(|document| document.path == ticket)
             .expect("fixture contains the selected task");
+        let (repository_cache, repository_identity, push_repository) =
+            crate::core::implementation::prepare_repository_cache_for_test(
+                &project.state.planning_store,
+                &root,
+                "root",
+            )
+            .unwrap();
         let task_path = local_state_root.join(ticket);
         std::fs::create_dir_all(task_path.parent().unwrap()).unwrap();
         let stored = crate::artifacts::task_docs::embed(
@@ -133,10 +143,32 @@ fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
             .unwrap()
             .clone();
         record.ticket = ticket.into();
+        record.task_uid = task_document
+            .identity
+            .as_ref()
+            .map(|identity| identity.uid.clone());
+        record.project_id = Some(crate::persistence::project_slug(
+            &local_state_root.canonicalize().unwrap(),
+        ));
+        record.workspace_uid = Some(
+            project
+                .state
+                .planning_store
+                .project_id
+                .hyphenated()
+                .to_string(),
+        );
+        record.repository_id = Some("root".into());
+        record.repository_cache = Some(repository_cache);
+        record.repository_identity = Some(repository_identity);
+        record.push_repository = push_repository;
         record.ticket_text = ticket_text.into();
+        record.source_ref = Some("main".into());
+        record.source_commit = Some(base_commit.clone());
         record.branch = branch;
         record.task_repository_allocation_key = Some(allocation);
         record.task_repository = worktree.clone();
+        record.task_repository_ready = true;
         record.task_repositories = vec![worktree];
         record.base_commit = base_commit;
         record.verified_head = None;
@@ -208,9 +240,27 @@ fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
     assert!(!project.queue.task_paused(ticket));
     assert!(!project.queue.blocked.contains_key(ticket));
     assert!(project.queue.in_flight.contains(ticket));
-    resume_rx
-        .recv_timeout(Duration::from_secs(30))
-        .expect("resumed controller reaches the configured harness");
+    match resume_rx.recv_timeout(Duration::from_secs(30)) {
+        Ok(()) => {}
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            crate::app::root::tick::poll_implementations_for_test(&mut app);
+            let failure_class = match &app.screen {
+                Screen::Connected(project) => project
+                    .queue
+                    .blocked
+                    .get(ticket)
+                    .map(|failure| format!("{:?}/{:?}", failure.kind, failure.recovery))
+                    .unwrap_or_else(|| "no typed failure recorded".into()),
+                Screen::Welcome => "project disconnected".into(),
+            };
+            panic!(
+                "resumed controller stopped before reaching the configured harness; failure_class={failure_class}"
+            );
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            panic!("resumed controller did not reach the configured harness before timeout")
+        }
+    }
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         crate::app::root::tick::poll_implementations_for_test(&mut app);

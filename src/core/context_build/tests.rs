@@ -36,6 +36,19 @@ fn write_published_feature(
 }
 
 fn commit_published_features(code: &std::path::Path) {
+    for (key, value) in [
+        ("user.name", "Kool.ad/e Test"),
+        ("user.email", "koolade-test@users.noreply.github.com"),
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .args(["config", key, value])
+                .current_dir(code)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
     for args in [
         ["add", "docs/koolade/features"].as_slice(),
         ["commit", "-qm", "Seed synthetic published features"].as_slice(),

@@ -35,6 +35,7 @@ fn pursued_self_improvement_uses_current_app_plan_review_before_task_generation(
             .unwrap();
         assert!(remote.status.success());
         let code_root = project.state.repo_root.clone();
+        crate::test_support::set_test_origin_default(&code_root);
         let store = crate::artifacts::planning_store::PlanningStore::for_code_repository(
             project.state.planning_store.project_id,
             project.state.planning_store.root.clone(),

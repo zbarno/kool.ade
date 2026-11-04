@@ -197,20 +197,9 @@ fn same_file(left: &File, right: &File) -> std::io::Result<bool> {
 
 #[cfg(windows)]
 fn same_file(left: &File, right: &File) -> std::io::Result<bool> {
-    use std::os::windows::fs::MetadataExt;
-    let left = left.metadata()?;
-    let right = right.metadata()?;
-    match (
-        left.volume_serial_number(),
-        left.file_index(),
-        right.volume_serial_number(),
-        right.file_index(),
-    ) {
-        (Some(left_volume), Some(left_index), Some(right_volume), Some(right_index)) => {
-            Ok(left_volume == right_volume && left_index == right_index)
-        }
-        _ => Ok(false),
-    }
+    let left = same_file::Handle::from_file(left.try_clone()?)?;
+    let right = same_file::Handle::from_file(right.try_clone()?)?;
+    Ok(left == right)
 }
 
 #[cfg(not(any(unix, windows)))]

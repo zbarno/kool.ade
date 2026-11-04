@@ -1,3 +1,6 @@
+#[path = "app_controller/fake_gh.rs"]
+mod fake_gh;
+use fake_gh::fake_gh;
 #[path = "app_controller/claim_remote.rs"]
 mod claim_remote;
 #[path = "app_controller/harness.rs"]
@@ -13,7 +16,6 @@ use crate::{
 use claim_remote::configure_local_claim_remote;
 use harness::{CommandFailure, ControllerDockerHarness};
 use std::{
-    path::{Path, PathBuf},
     sync::{Mutex, mpsc},
     time::{Duration, Instant},
 };
@@ -100,6 +102,17 @@ fn app_controller_dispatches_approved_task_to_isolated_docker_and_revokes_it_on_
     )
     .unwrap();
     environment.set("GIT_CONFIG_GLOBAL", &git_config);
+    let Screen::Connected(project) = &ready._app.screen else {
+        panic!("the project remains connected after configuring the fixture transport")
+    };
+    assert!(
+        crate::core::workflow::feature_approved(
+            &project.state.planning_store,
+            &project.state.workflow,
+            "F1"
+        ),
+        "pinned approval remains valid after configuring local Git transport"
+    );
 
     let (initial_tx, initial_rx) = mpsc::channel();
     let (revoked_tx, revoked_rx) = mpsc::channel();
@@ -266,16 +279,4 @@ fn app_controller_dispatches_approved_task_to_isolated_docker_and_revokes_it_on_
         );
         std::thread::sleep(Duration::from_millis(5));
     }
-}
-
-fn fake_gh(root: &Path) -> PathBuf {
-    let gh = root.join("gh");
-    std::fs::write(
-        &gh,
-        "#!/bin/sh\n[ \"$1\" = api ] && [ \"$2\" = user ] || exit 2\nprintf '987654321\\n'\n",
-    )
-    .unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o700)).unwrap();
-    gh
 }

@@ -7,6 +7,7 @@ use std::{
 
 pub(super) struct Prepared {
     pub(super) root: PathBuf,
+    pub(super) repo_root: PathBuf,
     pub(super) local_state_root: PathBuf,
     pub(super) remote: PathBuf,
     pub(super) docs: Vec<crate::artifacts::task_docs::TaskDocument>,
@@ -110,14 +111,33 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
         )
         .unwrap();
     }
-    let feature = "# CHG-001: Fixture\n\n**Status:** Ready\n\n## Intent\nFixture.\n\n## Current Behavior\nFixture.\n\n## Desired Behavior\nFixture.\n\n## Scope\nFixture.\n\n## Affected Product Areas\nFixture.\n\n## Requirements\nFixture.\n\n## Decisions and Assumptions\nFixture.\n\n## Acceptance Criteria\nFixture.\n";
-    let feature_path = repo.join("docs/koolade/features/CHG-001-fixture/specification.md");
+    let feature_heading = "# CHG-001: Fixture\n\n**Status:** Ready\n\n## Intent\nFixture.\n\n## Current Behavior\nFixture.\n\n## Desired Behavior\nFixture.\n\n## Scope\nFixture.\n\n## Affected Product Areas\nFixture.\n\n## Requirements\nFixture.\n\n## Decisions and Assumptions\nFixture.\n\n## Acceptance Criteria\nFixture.\n";
+    let identified = crate::domain::ArtifactIdentity::preserve_markdown(
+        feature_heading,
+        None,
+        "CHG-001",
+        "Fixture",
+    )
+    .unwrap();
+    let feature_identity = crate::domain::ArtifactIdentity::from_markdown(&identified)
+        .unwrap()
+        .unwrap();
+    let feature = crate::domain::ChangeMetadata::write_markdown(
+        &identified,
+        &feature_identity,
+        crate::domain::ChangeStatus::Ready,
+    )
+    .unwrap();
+    let feature_path = repo.join(format!("docs/koolade/features/{}.md", feature_identity.uid));
     std::fs::create_dir_all(feature_path.parent().unwrap()).unwrap();
-    std::fs::write(&feature_path, feature).unwrap();
+    std::fs::write(&feature_path, &feature).unwrap();
     std::fs::create_dir_all(repo.join("docs/koolade/features")).unwrap();
     std::fs::write(
         repo.join("docs/koolade/features/AGENTS.md"),
-        "# Navigation\n\n- [Fixture feature](CHG-001-fixture/specification.md)\n",
+        format!(
+            "# Navigation\n\n- [Fixture feature]({}.md)\n",
+            feature_identity.uid
+        ),
     )
     .unwrap();
     std::fs::create_dir_all(repo.join("docs/koolade/product")).unwrap();
@@ -132,7 +152,6 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
         &repo,
         &["commit", "-qm", "code and published specification baseline"],
     );
-    std::fs::write(local_state_root.join("state/workflow.json"), serde_json::json!({"brief":null,"reviewedSpecification":null,"taskBatches":[{"feature":"fixture","directory":"planning/tasks/fixture","count":4}]}).to_string()).unwrap();
     git(&root, &["init", "--bare", "-q", remote.to_str().unwrap()]);
     git(&remote, &["config", "uploadpack.allowFilter", "true"]);
     let ssh = root.join("ssh-fixture");
@@ -157,6 +176,22 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
         &local_state_root,
         &repo,
     );
+    let workflow = crate::core::workflow::Workflow {
+        task_batches: vec![crate::core::workflow::TaskBatchRef {
+            identity: Some(crate::domain::ArtifactIdentity {
+                uid: batch_uid,
+                display_id: "BATCH-001".into(),
+                title: "Fixture tasks".into(),
+                parent_uid: None,
+            }),
+            feature: "fixture".into(),
+            directory: "planning/tasks/fixture".into(),
+            count: docs.len(),
+            created_at_ms: 1,
+        }],
+        ..Default::default()
+    };
+    crate::artifacts::task_docs::save_workflow(&planning_store, &workflow).unwrap();
     let fake_bin = root.join("fake-bin");
     std::fs::create_dir_all(&fake_bin).unwrap();
     let fake_gh = fake_bin.join("gh");
@@ -186,6 +221,7 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
         project.task_documents = docs[..3].to_vec();
         project.queue.max_parallel = 2;
         project.queue.auto_publish = true;
+        project.queue.require_independent_checks = true;
         project.queue.blocked.insert(
                 docs[1].path.clone(),
                 crate::core::implementation::Failure::new(
@@ -200,7 +236,7 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
     // Exercise the board task action, including worker dispatch,
     // concurrent execution and integration into the remote.
     if let Screen::Connected(project) = &mut app.screen {
-        project.state.active_feature = Some(("CHG-001".into(), feature.into()));
+        project.state.active_feature = Some(("CHG-001".into(), feature));
         assert!(!crate::core::workflow::feature_approved(
             &planning_store,
             &project.state.workflow,
@@ -241,6 +277,7 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
     }
     Prepared {
         root,
+        repo_root: repo,
         local_state_root,
         remote,
         docs,

@@ -78,6 +78,52 @@ fn configured_remote_symbolic_default_precedes_the_human_checkout() {
     assert_eq!(reader.pin().unwrap().commit_sha, default_sha);
 }
 
+#[test]
+fn ambient_git_url_rewrite_does_not_change_pinned_repository_identity() {
+    let (temporary, _) = repository();
+    let root = temporary.path();
+    let commit = commit_spec(root, "# Published\n\nPinned under the canonical remote.\n");
+    git(
+        root,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://example.invalid/koolade.git",
+        ],
+    );
+    git(root, &["update-ref", "refs/remotes/origin/main", &commit]);
+    git(
+        root,
+        &[
+            "symbolic-ref",
+            "refs/remotes/origin/HEAD",
+            "refs/remotes/origin/main",
+        ],
+    );
+    let before = PublishedSpecReader::for_primary_repository(root).unwrap();
+    let pin = before.pin().unwrap();
+
+    let global = temporary.path().join("gitconfig");
+    fs::write(
+        &global,
+        format!(
+            "[url \"file://{}\"]\n\tinsteadOf = https://example.invalid/koolade.git\n",
+            root.display()
+        ),
+    )
+    .unwrap();
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    environment.set("GIT_CONFIG_GLOBAL", global);
+
+    let after = PublishedSpecReader::for_primary_repository(root).unwrap();
+    assert_eq!(after.pin().unwrap(), pin);
+    assert_eq!(
+        after.read(&pin, SPEC_PATH).unwrap().content,
+        "# Published\n\nPinned under the canonical remote.\n"
+    );
+}
+
 fn git(root: &Path, arguments: &[&str]) -> String {
     let output = Command::new("git")
         .arg("-C")

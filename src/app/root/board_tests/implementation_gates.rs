@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "implementation_gates/resume_dispatch.rs"]
+mod resume_dispatch;
+
 #[test]
 fn unsupported_platform_rejects_implementation_before_dispatch() {
     let mut app = fixture();
@@ -49,103 +52,6 @@ fn auto_queue_cannot_start_task_from_unapproved_feature() {
         "CHG-001"
     ));
     assert!(!project.queue.last_error.is_empty());
-}
-
-#[test]
-fn resume_dispatch_accepts_feature_named_workspace_story() {
-    if !std::env::var("KOOLADE_DOCKER_BACKEND_INTEGRATION").is_ok_and(|value| value == "1") {
-        eprintln!(
-            "Skipping Docker-backed implementation dispatch; set KOOLADE_DOCKER_BACKEND_INTEGRATION=1 to run it"
-        );
-        return;
-    }
-    let _shield = crate::core::gitops::test_support::shield("resume-feature-ticket");
-    let root = std::env::temp_dir().join(format!(
-        "koolade-resume-dispatch-{}-{}",
-        std::process::id(),
-        chrono::Utc::now().timestamp_nanos_opt().unwrap()
-    ));
-    let ticket = "planning/tasks/demo/CHG-003-TASK-verify.md";
-    std::fs::create_dir_all(root.join(ticket).parent().unwrap()).unwrap();
-    std::fs::write(root.join(ticket), "# Verify workspace\n").unwrap();
-    assert!(
-        std::process::Command::new("git")
-            .args(["init", "-q", "-b", "main"])
-            .current_dir(&root)
-            .status()
-            .unwrap()
-            .success()
-    );
-    let mut app = fixture();
-    if let Screen::Connected(p) = &mut app.screen {
-        let mut record = p.implementation_states.values().next().unwrap().clone();
-        record.ticket = ticket.into();
-        record.ticket_text = "# Verify workspace\n".into();
-        record.status = ImplementationStatus::Blocked;
-        record.pr_url = None;
-        p.state = crate::core::state::PlannerState::load(&root).unwrap();
-        p.task_documents = vec![crate::artifacts::task_docs::TaskDocument {
-            path: ticket.into(),
-            title: "Verify workspace".into(),
-            text: record.ticket_text.clone(),
-            identity: None,
-            metadata: None,
-            task_state: None,
-
-            metadata_error: None,
-        }];
-        p.implementation_states = [(ticket.into(), record)].into();
-        p.queue.blocked.insert(
-            ticket.into(),
-            crate::core::implementation::Failure::other("Previous failure"),
-        );
-        p.queue.recovery_attempts.insert(ticket.into(), 1);
-    }
-    let integration_enabled =
-        std::env::var("KOOLADE_DOCKER_BACKEND_INTEGRATION").is_ok_and(|value| value == "1");
-    let capabilities = crate::harness::runtime_capabilities::RuntimeCapabilities {
-        planning_access: crate::harness::runtime_capabilities::PlanningAccess::SuppliedContextOnly,
-        implementation: false,
-    };
-    if integration_enabled {
-        app.implement_task(ticket.into());
-    } else {
-        // Keep the ordinary unit path independent of whether this developer
-        // machine happens to have a usable Docker Engine.
-        app.start_implementation_with_capabilities(ticket.into(), true, capabilities);
-    }
-    let Screen::Connected(p) = &mut app.screen else {
-        panic!("disconnected")
-    };
-    if !integration_enabled {
-        assert!(p.active_implementations.is_empty());
-        assert!(p.queue.last_error.contains("Docker"));
-        assert!(p.queue.blocked.contains_key(ticket));
-        std::fs::remove_dir_all(root).unwrap();
-        return;
-    }
-    assert!(
-        p.active_implementations.contains_key(ticket),
-        "{}",
-        p.queue.last_error
-    );
-    assert!(!p.queue.blocked.contains_key(ticket));
-    assert!(!p.queue.recovery_attempts.contains_key(ticket));
-    let controller = p.active_implementations.remove(ticket).unwrap();
-    controller.request_cancel();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if matches!(
-            controller.poll(),
-            Some(crate::core::implementation::Event::Done(_))
-        ) {
-            break;
-        }
-        assert!(Instant::now() < deadline, "fixture worker failed to stop");
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    // No remote is configured: this dispatch test cannot launch Pi or publish.
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

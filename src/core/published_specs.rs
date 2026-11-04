@@ -65,8 +65,14 @@ impl PublishedSpecReader {
     pub fn for_primary_repository(repository_root: impl Into<PathBuf>) -> anyhow::Result<Self> {
         let repository_root = repository_root.into();
         let reference = reference::designated_ref(&repository_root)?;
-        let identity = git(&repository_root, &["remote", "get-url", "origin"])
-            .unwrap_or_else(|_| repository_root.to_string_lossy().into_owned());
+        // `remote get-url` applies ambient `url.*.insteadOf` rewrites. Those
+        // rewrites select transport for this process and must not change the
+        // stable identity bound into the private published-spec pin.
+        let identity = git(
+            &repository_root,
+            &["config", "--local", "--get", "remote.origin.url"],
+        )
+        .unwrap_or_else(|_| repository_root.to_string_lossy().into_owned());
         let repository_id = format!(
             "primary-code:{:x}",
             Sha256::digest(identity.trim().as_bytes())

@@ -75,7 +75,7 @@ impl KooladeApp {
             }
             let target_repo = match crate::core::implementation::target_repository_with_store(
                 &p.state.planning_store,
-                &p.state.planning_store.root,
+                &p.state.repo_root,
                 &ticket,
             ) {
                 Ok(target) => target,

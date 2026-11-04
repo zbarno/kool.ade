@@ -391,7 +391,7 @@ Current capabilities include:
 | GitHub Copilot CLI | ✅ |
 | Linux x86_64 | ✅ Current experimental host; locked runtime image preparation requires explicit approval and rootless Docker |
 | Linux arm64 | 🧪 Unsigned native CI package only; not released or supported |
-| Private local task and QA records; published specs in code Git | 🔄 Issue #484 greenfield cutover and deferred manual validation |
+| Private local task and QA records; published specs in code Git | ✅ Issue #484 implementation in PR #490; manual validation remains deferred |
 | Consistent CLI role support + resilient discovery | 🛠️ In progress |
 | Docker-only local execution | 🛠️ In progress |
 | Remote Docker workers | 🛠️ In progress |

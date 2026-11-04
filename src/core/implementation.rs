@@ -93,6 +93,25 @@ pub(crate) fn validate_app_owned_task_clone(state: &Implementation) -> anyhow::R
 }
 
 #[cfg(test)]
+pub(crate) fn prepare_repository_cache_for_test(
+    store: &crate::artifacts::planning_store::PlanningStore,
+    repository: &Path,
+    repository_id: &str,
+) -> anyhow::Result<(PathBuf, String, Option<String>)> {
+    let (progress, _updates) = mpsc::channel();
+    let runner = Runner {
+        gh: "gh".into(),
+        runtime_config_source: None,
+        deadline: Instant::now() + Duration::from_secs(60),
+        cancel: Arc::new(AtomicBool::new(false)),
+        progress,
+        authorization_verifier: None,
+    };
+    let cache = repository_cache::RepositoryCache::open(repository, store, repository_id, &runner)?;
+    Ok((cache.path, cache.identity, cache.push_identity_url))
+}
+
+#[cfg(test)]
 pub(crate) fn authorize_resolved_task_source_for_test(
     planning: &crate::artifacts::planning_store::PlanningStore,
     state_root: &Path,

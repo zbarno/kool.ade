@@ -79,6 +79,9 @@ pub(super) fn worker_state_command(
 
 pub(in crate::harness::resource_bridge::tests::end_to_end::remote) fn find_sshd() -> Option<PathBuf>
 {
+    if let Some(path) = std::env::var_os("KOOLADE_TEST_SSHD_BINARY").map(PathBuf::from) {
+        return path.is_file().then_some(path);
+    }
     ["sshd", "/usr/sbin/sshd", "/usr/local/sbin/sshd"]
         .into_iter()
         .find_map(|candidate| {

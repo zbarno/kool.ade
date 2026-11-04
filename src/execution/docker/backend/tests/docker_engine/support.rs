@@ -128,6 +128,10 @@ impl Fixture {
     pub(super) fn projects_root(&self) -> PathBuf {
         self.home_root.join("projects")
     }
+
+    pub(super) fn operational_state_root(&self) -> PathBuf {
+        self.home_root.join("projects").join("integration-state")
+    }
 }
 
 impl Drop for Fixture {
