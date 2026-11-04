@@ -77,7 +77,7 @@ pub fn target_repository_with_store(
 ) -> anyhow::Result<PathBuf> {
     let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
     let id = task_repository_id_with_store(planning_store, ticket)?;
-    manifest.target(planning_store.project_id, code_root, &id)
+    manifest.target(planning_store, code_root, &id)
 }
 
 pub(crate) fn task_repository_id(

@@ -51,8 +51,15 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             state.source_ref.is_some() && state.source_commit.is_some(),
             "Saved task source commit is missing; the task repository is preserved"
         );
+        let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
+        let mapped_checkout = manifest.target(
+            planning_store,
+            repo,
+            state.repository_id.as_deref().unwrap_or("root"),
+        )?;
         if state.status != ImplementationStatus::Completed
-            && let Some(detail) = source::missing_saved_ref(repo, &state, &cache, runner)?
+            && let Some(detail) =
+                source::missing_saved_ref(&mapped_checkout, &state, &cache, runner)?
         {
             state.status = ImplementationStatus::Blocked;
             state.detail = detail.clone();

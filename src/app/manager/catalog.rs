@@ -241,7 +241,7 @@ fn active_repository_ref(project: &super::super::session::Project) -> Option<Str
                 .state
                 .repositories
                 .target_if_available(
-                    project.state.planning_store.project_id,
+                    &project.state.planning_store,
                     &project.state.repo_root,
                     &repository.id,
                 )

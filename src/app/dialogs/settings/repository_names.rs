@@ -6,10 +6,13 @@ pub struct RepositoryNameRow {
     pub role: String,
     pub name: String,
     pub original_name: String,
+    pub checkout: Option<std::path::PathBuf>,
+    pub original_checkout: Option<std::path::PathBuf>,
 }
 
 pub(super) fn rows(
     manifest: &crate::core::project_repos::ProjectManifest,
+    checkouts: &crate::core::project_repos::RepositoryCheckoutMapV1,
 ) -> Vec<RepositoryNameRow> {
     manifest
         .repositories
@@ -19,6 +22,8 @@ pub(super) fn rows(
             role: repository.role.clone(),
             name: repository.display_name.clone().unwrap_or_default(),
             original_name: repository.display_name.clone().unwrap_or_default(),
+            checkout: checkouts.checkouts.get(&repository.id).cloned(),
+            original_checkout: checkouts.checkouts.get(&repository.id).cloned(),
         })
         .collect()
 }
@@ -52,20 +57,43 @@ pub(super) fn persist(
         repository.display_name = normalized;
     }
     updated.validate().map_err(crate::AppError::from)?;
-    if &updated == current {
+    let names_changed = &updated != current;
+    if names_changed {
+        let revision = crate::core::project_repos::save_display_names_expected(
+            &project.state.planning_store,
+            updated.clone(),
+            &project.state.baseline_planning_revision,
+        )
+        .map_err(crate::AppError::from)?;
+        project.state.repositories = updated.clone();
+        project.state.baseline_planning_revision = revision;
+    }
+    let mut changed = names_changed;
+    for row in rows.iter_mut().filter(|row| row.id != "root") {
+        if row.checkout != row.original_checkout
+            && let Some(path) = row.checkout.as_deref()
+        {
+            let revision = crate::core::project_repos::connect_checkout(
+                &project.state.planning_store,
+                &updated,
+                &project.state.repo_root,
+                &row.id,
+                path,
+                &project.state.baseline_planning_revision,
+            )
+            .map_err(crate::AppError::from)?;
+            project.state.baseline_planning_revision = revision;
+            row.original_checkout = row.checkout.clone();
+            changed = true;
+        }
+    }
+    if !changed {
         for row in rows {
             row.original_name.clone_from(&row.name);
         }
         return Ok(false);
     }
-    let revision = crate::core::project_repos::save_display_names_expected(
-        &project.state.planning_store,
-        updated.clone(),
-        &project.state.baseline_planning_revision,
-    )
-    .map_err(crate::AppError::from)?;
     project.state.repositories = updated;
-    project.state.baseline_planning_revision = revision;
     for row in rows {
         row.name = row.name.trim().to_owned();
         row.original_name.clone_from(&row.name);
@@ -83,6 +111,18 @@ pub(super) fn paint(ui: &mut egui::Ui, rows: &mut [RepositoryNameRow]) {
         for row in rows {
             ui.vertical(|ui| {
                 ui.label(format!("{} · {}", row.id, row.role));
+                if row.id != "root" {
+                    if let Some(path) = &row.checkout {
+                        ui.label(path.display().to_string());
+                    } else {
+                        ui.label("No local checkout connected");
+                    }
+                    if ui.button(format!("Choose checkout for {}…", row.id)).clicked()
+                        && let Some(path) = rfd::FileDialog::new().pick_folder()
+                    {
+                        row.checkout = Some(path);
+                    }
+                }
                 ui.add_sized(
                     [ui.available_width(), 26.0],
                     egui::TextEdit::singleline(&mut row.name)

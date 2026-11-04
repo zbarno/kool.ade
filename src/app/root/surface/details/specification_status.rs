@@ -178,7 +178,7 @@ pub(in crate::app::root::surface) fn for_markdown(
             crate::core::project_repos::ProjectManifest::load(&project.state.planning_store)
                 .and_then(|manifest| {
                     manifest.target_if_available(
-                        project.state.planning_store.project_id,
+                        &project.state.planning_store,
                         project.state.planning_store.planning_layout().root(),
                         &current.repository_id,
                     )

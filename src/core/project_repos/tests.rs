@@ -16,6 +16,12 @@ fn manifest_rejects_ambiguous_or_machine_specific_entries() {
     let bad = ProjectManifest {
         repositories: vec![
             Repository {
+                id: "root".into(),
+                role: "Primary code".into(),
+                remote: String::new(),
+                display_name: None,
+            },
+            Repository {
                 id: "api".into(),
                 role: "Backend".into(),
                 remote: "git@example.test:team/api.git".into(),
@@ -40,6 +46,25 @@ fn manifest_rejects_ambiguous_or_machine_specific_entries() {
 }
 
 #[test]
+fn manifest_requires_one_stable_primary_repository() {
+    let manifest = ProjectManifest {
+        repositories: vec![Repository {
+            id: "api".into(),
+            role: "Backend API".into(),
+            remote: "https://example.test/team/api.git".into(),
+            display_name: None,
+        }],
+    };
+    assert!(
+        manifest
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("stable primary")
+    );
+}
+
+#[test]
 fn manifest_rejects_git_remote_helpers_and_option_injection() {
     for remote in [
         "ext::echo injected",
@@ -49,17 +74,34 @@ fn manifest_rejects_git_remote_helpers_and_option_injection() {
         " --upload-pack=echo injected",
         " /tmp/outside.git",
         "https://example.test/repo.git ",
+        "https://token@example.test/team/repo.git",
+        "https://user:secret@example.test/team/repo.git",
+        "https://user@example.test/team/repo.git",
+        "ssh://user:secret@example.test/team/repo.git",
+        "ssh://token@example.test/team/repo.git",
+        "ssh://git@user:secret@example.test/team/repo.git",
+        "git@user:secret@example.test:team/repo.git",
+        "user:secret@example.test:team/repo.git",
+        "https://example.test/team/repo.git?token=synthetic-secret",
         "../outside.git",
         "repo.git",
         "owner/repo.git",
     ] {
         let manifest = ProjectManifest {
-            repositories: vec![Repository {
-                id: "api".into(),
-                role: "Backend".into(),
-                remote: remote.into(),
-                display_name: None,
-            }],
+            repositories: vec![
+                Repository {
+                    id: "root".into(),
+                    role: "Primary code".into(),
+                    remote: String::new(),
+                    display_name: None,
+                },
+                Repository {
+                    id: "api".into(),
+                    role: "Backend".into(),
+                    remote: remote.into(),
+                    display_name: None,
+                },
+            ],
         };
         assert!(manifest.validate().is_err(), "accepted {remote:?}");
     }
@@ -87,12 +129,20 @@ fn unmanaged_planning_roots_do_not_resolve_arbitrary_local_checkouts() {
             .success()
     );
     let manifest = ProjectManifest {
-        repositories: vec![Repository {
-            id: "api".into(),
-            role: "Backend API".into(),
-            remote: "git@example.test:team/api.git".into(),
-            display_name: None,
-        }],
+        repositories: vec![
+            Repository {
+                id: "root".into(),
+                role: "Primary code".into(),
+                remote: String::new(),
+                display_name: None,
+            },
+            Repository {
+                id: "api".into(),
+                role: "Backend API".into(),
+                remote: "git@example.test:team/api.git".into(),
+                display_name: None,
+            },
+        ],
     };
     std::fs::create_dir_all(planning.join("config")).unwrap();
     std::fs::write(
@@ -104,7 +154,15 @@ fn unmanaged_planning_roots_do_not_resolve_arbitrary_local_checkouts() {
     let loaded = ProjectManifest::load(&planning).unwrap();
     assert_eq!(
         loaded
-            .target_if_available(uuid::Uuid::new_v4(), &planning, "api")
+            .target_if_available(
+                &crate::artifacts::planning_store::PlanningStore::new(
+                    uuid::Uuid::new_v4(),
+                    &planning,
+                    crate::artifacts::planning_store::StoreMode::ManagedLocal,
+                ),
+                &code,
+                "api",
+            )
             .unwrap(),
         None
     );
@@ -133,6 +191,12 @@ fn display_names_trim_and_duplicate_names_are_allowed() {
     let mut manifest = ProjectManifest {
         repositories: vec![
             Repository {
+                id: "root".into(),
+                role: "Primary code".into(),
+                remote: String::new(),
+                display_name: None,
+            },
+            Repository {
                 id: "api".into(),
                 role: "Backend".into(),
                 remote: "git@example.test:team/api.git".into(),
@@ -149,7 +213,13 @@ fn display_names_trim_and_duplicate_names_are_allowed() {
     manifest.normalize_display_names().unwrap();
     manifest.validate().unwrap();
     assert_eq!(
-        manifest.repositories[0].display_name.as_deref(),
+        manifest
+            .repositories
+            .iter()
+            .find(|repository| repository.id == "api")
+            .unwrap()
+            .display_name
+            .as_deref(),
         Some("Shared label")
     );
     let encoded = serde_json::to_string(&manifest).unwrap();

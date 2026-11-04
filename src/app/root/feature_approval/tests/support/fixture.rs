@@ -36,11 +36,7 @@ pub(in crate::app::root::feature_approval::tests) fn decomposer_graph(app: &Kool
         .unwrap();
     let checkout = state
         .repositories
-        .target(
-            state.planning_store.project_id,
-            &state.repo_root,
-            &repository.id,
-        )
+        .target(&state.planning_store, &state.repo_root, &repository.id)
         .unwrap();
     let sha = std::process::Command::new("git")
         .args([
