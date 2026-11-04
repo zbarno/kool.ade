@@ -98,7 +98,12 @@ impl QaDriverContainerSpec<'_> {
         &self,
         lock: &ImageLock,
     ) -> Result<ContainerCreateBody, ExecutionError> {
-        self.create_body_for_lock(lock)
+        let settings = if self.request.mode == crate::runtime_qa::QaRunMode::Experimental {
+            experimental_qa_test_settings(self.image.profile)
+        } else {
+            crate::persistence::experimental_features::load().0
+        };
+        self.create_body_for_lock_with_settings(lock, &settings)
     }
 
     fn create_body_for_lock(
@@ -254,6 +259,27 @@ impl QaDriverContainerSpec<'_> {
 
     fn validate(&self) -> Result<(), ExecutionError> {
         driver_spec::validate(self)
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn experimental_qa_test_settings(
+    profile: RuntimeProfile,
+) -> crate::persistence::experimental_features::ExperimentalFeatureSettingsV1 {
+    use crate::persistence::experimental_features::{
+        ExperimentalFeature, ExperimentalFeatureSettingsV1,
+    };
+
+    let feature = match profile {
+        RuntimeProfile::BrowserQa => ExperimentalFeature::BrowserQa,
+        RuntimeProfile::DesktopQa => ExperimentalFeature::LinuxDesktopQa,
+        _ => return ExperimentalFeatureSettingsV1::default(),
+    };
+    ExperimentalFeatureSettingsV1 {
+        schema_version: 1,
+        enabled: true,
+        confirmed_at_unix_ms: Some(1),
+        enabled_features: [feature].into_iter().collect(),
     }
 }
 

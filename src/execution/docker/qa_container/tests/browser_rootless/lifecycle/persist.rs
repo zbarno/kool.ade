@@ -141,10 +141,6 @@ pub(crate) fn review_expected_outcome_and_persist(
         result.outcome, expected_outcome,
         "reviewed rootless QA result had unexpected case statuses: {case_statuses:?}; reviewer detail: {review_failure}"
     );
-    assert!(
-        receipt.is_some(),
-        "reviewed terminal QA outcome must produce a gate receipt"
-    );
     assert_eq!(persisted.request, *request);
     assert_eq!(persisted.scenarios, vec![scenario]);
     assert_eq!(persisted.result, result);
@@ -154,6 +150,21 @@ pub(crate) fn review_expected_outcome_and_persist(
         QaPlatform::HeadlessService => assert!(persisted.screenshots.is_empty()),
         _ => unreachable!("platform was validated above"),
     }
+    if request.mode == crate::runtime_qa::QaRunMode::Experimental {
+        assert!(
+            receipt.is_none(),
+            "experimental rootless QA must not produce a production gate receipt"
+        );
+        assert!(
+            store.load_gate_receipt(&request.qa_run_id).is_err(),
+            "experimental evidence must not persist a production gate receipt"
+        );
+        return;
+    }
+    assert!(
+        receipt.is_some(),
+        "reviewed production QA outcome must produce a gate receipt"
+    );
     let receipt = receipt.expect("reviewed terminal QA result produced a gate receipt");
     assert_eq!(
         receipt.decision,

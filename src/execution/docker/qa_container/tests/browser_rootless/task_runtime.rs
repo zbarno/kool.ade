@@ -12,10 +12,12 @@ mod setup;
 /// Boundary: an approved Python task target builds and tests through the
 /// app-owned rootless ExecutionSession, records source-bound receipts, and
 /// supplies only receipt-verified build files to the isolated browser preview.
-/// Unit tests cannot prove the task container, preview relay, browser interaction,
-/// and cleanup work together. Dependencies: rootless Docker and the pinned
-/// Python/browser QA images. Setup: three short runtime recipes, one build
-/// snapshot, and one bounded browser scenario.
+/// Since the locked QA profile is not release-enabled, the request exercises
+/// experimental mode and must persist its result without a production gate
+/// receipt. Unit tests cannot prove the task container, preview relay, browser
+/// interaction, and cleanup work together. Dependencies: rootless Docker and
+/// the pinned Python/browser QA images. Setup: three short runtime recipes, one
+/// build snapshot, and one bounded browser scenario.
 #[test]
 #[ignore = "requires rootless Docker and the loaded Python/browser QA images"]
 fn rootless_approved_task_build_test_start_receipts_feed_browser_qa_artifact() {
