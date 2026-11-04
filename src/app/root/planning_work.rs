@@ -3,6 +3,8 @@ use crate::core::planning_work::{Work, WorkKind};
 
 mod cycles;
 mod generation;
+mod git_intent;
+mod task_git_intent;
 
 pub(super) fn provider_support_follow_up(
     work: &Work,
@@ -25,13 +27,35 @@ pub(super) fn provider_support_follow_up(
 }
 
 impl KooladeApp {
+    pub(super) fn approve_task_git_intent(
+        &mut self,
+        ticket: &str,
+        repository_id: &str,
+        selection: crate::core::git_intent::GitIntentSelectionV1,
+    ) {
+        let result = match &mut self.screen {
+            Screen::Connected(project) => {
+                task_git_intent::approve(project, ticket, repository_id, selection)
+            }
+            Screen::Welcome => Err("Connect a project before approving task Git intent.".into()),
+        };
+        match result {
+            Ok(()) => self
+                .toasts
+                .success("Task Git intent approved and saved locally."),
+            Err(error) => self.toasts.warning(error),
+        }
+    }
+
     pub(super) fn create_planning_task(
         &mut self,
         kind: WorkKind,
         description: &str,
         parent_uid: Option<String>,
-        source_branch: Option<String>,
-        destination_branch: Option<String>,
+        git_intents: std::collections::BTreeMap<
+            String,
+            crate::core::git_intent::GitIntentSelectionV1,
+        >,
         routing_overrides: std::collections::BTreeMap<
             String,
             crate::persistence::harness_settings::WorkRoute,
@@ -51,9 +75,7 @@ impl KooladeApp {
                 inherited.map(|work| (work.feature_id.clone(), work.feature_uid.clone()));
             let inherited_task_intent_uid =
                 inherited.and_then(|work| work.task_intent_root_uid().map(str::to_owned));
-            let inherited_source_branch = inherited.and_then(|work| work.source_branch.clone());
-            let inherited_destination_branch =
-                inherited.and_then(|work| work.destination_branch.clone());
+            let inherited_git_intents = inherited.map(|work| work.git_intents.clone());
             let routes = inherited_routes.unwrap_or(routing_overrides);
             let referenced_feature = (parent_uid.is_none())
                 .then(|| {
@@ -80,47 +102,65 @@ impl KooladeApp {
                 }
             }
             let selected_code_repository = project.has_selected_code_repository();
-            let default_branch = if !selected_code_repository {
-                None
-            } else if project.git.default_branch.is_empty() {
-                Some(if project.git.branch.is_empty() {
-                    "main"
-                } else {
-                    project.git.branch.as_str()
-                })
-            } else {
-                Some(project.git.default_branch.as_str())
-            };
-            let source_branch = inherited_source_branch
-                .or(source_branch)
-                .or_else(|| default_branch.map(str::to_owned));
-            let destination_branch = inherited_destination_branch
-                .or(destination_branch)
-                .or_else(|| default_branch.map(str::to_owned));
-            let destinations = if !project.git.has_origin {
-                &project.git.branches
-            } else {
-                &project.git.remote_branches
-            };
-            if selected_code_repository {
-                for (label, branch, candidates) in [
-                    ("source", &source_branch, &project.git.branches),
-                    ("destination", &destination_branch, destinations),
-                ] {
-                    if let Some(branch) = branch {
-                        let default_is_valid = !project.git.has_origin
-                            && candidates.is_empty()
-                            && (project.git.branch == *branch
-                                || default_branch == Some(branch.as_str()));
-                        if !candidates.contains(branch) && !default_is_valid {
+            let git_intents =
+                git_intent::inherit_selections(inherited_git_intents.as_ref(), git_intents);
+            let requires_git_intent = matches!(
+                kind,
+                WorkKind::Feature
+                    | WorkKind::Bug
+                    | WorkKind::NewProject
+                    | WorkKind::DocumentationRefresh
+            );
+            if selected_code_repository && requires_git_intent && git_intents.is_empty() {
+                failure = Some(
+                    "Choose at least one code repository and approve its source, destination, and publication mode before creating this task.".into(),
+                );
+            }
+            let mut approved_git_intents = std::collections::BTreeMap::new();
+            if requires_git_intent && selected_code_repository {
+                for (repository_id, selection) in &git_intents {
+                    if let Err(error) = git_intent::validate_selection(
+                        project,
+                        repository_id,
+                        &selection.source_ref,
+                        &selection.destination_ref,
+                    ) {
+                        failure = Some(format!(
+                            "Cannot approve Git intent for {repository_id}: {error}"
+                        ));
+                        break;
+                    }
+                    let inherited = inherited_git_intents
+                        .as_ref()
+                        .and_then(|intents| intents.get(repository_id));
+                    match git_intent::approve_for_work(
+                        project,
+                        repository_id,
+                        &selection.source_ref,
+                        &selection.destination_ref,
+                        selection.publication_mode,
+                        inherited,
+                        parent_uid.clone(),
+                    ) {
+                        Ok(intent) => {
+                            approved_git_intents.insert(repository_id.clone(), intent);
+                        }
+                        Err(error) => {
                             failure = Some(format!(
-                                "The selected {label} branch '{branch}' is not present in this repository. Refresh the repository and select an existing branch."
+                                "Cannot approve Git intent for {repository_id}: {error}"
                             ));
                             break;
                         }
                     }
                 }
             }
+            let source_branch = approved_git_intents
+                .get("root")
+                .map(|intent| intent.source_ref.clone());
+            let destination_branch = approved_git_intents
+                .get("root")
+                .map(|intent| intent.destination_ref.clone());
+            let approved_git_intent = approved_git_intents.get("root").cloned();
             if failure.is_some() {
                 None
             } else {
@@ -169,6 +209,8 @@ impl KooladeApp {
                         .cloned();
                     work.source_branch = source_branch;
                     work.destination_branch = destination_branch;
+                    work.git_intent = approved_git_intent;
+                    work.git_intents = approved_git_intents;
                     work.key = format!("task:{}", work.uid);
                     let key = work.key.clone();
                     project.planning_work.push(work);

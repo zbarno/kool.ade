@@ -177,6 +177,7 @@ fn newer_blocking_clarification_during_decomposition_prevents_publication() {
     }));
     let baseline = task_files(&root);
 
+    approve_test_git_intent(&mut app, &key, "CHG-004");
     app.start_task_generation(&key, "CHG-004");
     assert!(!finish(&mut app));
     assert_eq!(*calls.lock().unwrap(), 1);

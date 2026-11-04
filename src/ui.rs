@@ -27,7 +27,7 @@ pub mod toast;
 pub use chat_pane::Intent;
 pub use layout::HeaderAction;
 pub use specification_status::FeatureSpecificationStatus;
-pub use surface_trait::Surface;
+pub use surface_trait::{RepositoryGitOptions, Surface};
 pub use toast::ToastQueue;
 
 /// Typed actions emitted by views and handled by the application state
@@ -96,10 +96,21 @@ pub enum ApplicationCommand {
         kind: crate::core::planning_work::WorkKind,
         description: String,
         parent_uid: Option<String>,
-        source_branch: Option<String>,
-        destination_branch: Option<String>,
+        git_intents:
+            std::collections::BTreeMap<String, crate::core::git_intent::GitIntentSelectionV1>,
         routing_overrides:
             std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
+    },
+    ApproveTaskGitIntent {
+        ticket: String,
+        repository_id: String,
+        selection: crate::core::git_intent::GitIntentSelectionV1,
+    },
+    ApproveFeatureGitIntents {
+        work_key: String,
+        feature_id: String,
+        selections:
+            std::collections::BTreeMap<String, crate::core::git_intent::GitIntentSelectionV1>,
     },
     StartTaskIntentFollowUp {
         root_uid: String,

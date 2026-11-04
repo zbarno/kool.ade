@@ -27,10 +27,11 @@ pub(in crate::app::root::feature_approval::tests) fn decomposer_graph(app: &Kool
     let goal = crate::core::lifecycle::LifecycleStore::new(&state.planning_store)
         .load_feature(&identity.uid)
         .unwrap();
-    let branches = state
+    let intent = state
         .workflow
-        .feature_branch_targets
+        .feature_git_intents
         .get(feature_id)
+        .and_then(|intents| intents.get("root"))
         .unwrap();
     let repository = state
         .repositories
@@ -46,7 +47,7 @@ pub(in crate::app::root::feature_approval::tests) fn decomposer_graph(app: &Kool
         .args([
             "rev-parse",
             "--verify",
-            &format!("refs/heads/{}^{{commit}}", branches.source),
+            &format!("refs/heads/{}^{{commit}}", intent.source_ref),
         ])
         .current_dir(checkout)
         .output()
@@ -74,9 +75,9 @@ pub(in crate::app::root::feature_approval::tests) fn decomposer_graph(app: &Kool
             relevant_files: vec![format!("src/approved_requirement_{index}.rs")],
             dependencies: Vec::new(),
             repository_id: repository.id.clone(),
-            source_branch: branches.source.clone(),
+            source_branch: intent.source_ref.clone(),
             source_sha: Some(sha.clone()),
-            destination_branch: branches.destination.clone(),
+            destination_branch: intent.destination_ref.clone(),
             estimated_concurrency_risks: vec!["The task owns its listed path.".into()],
             subtasks: Vec::new(),
         })
@@ -294,4 +295,47 @@ pub(crate) fn setup() -> (KooladeApp, std::path::PathBuf, serde_json::Value) {
         )],
     );
     (app, root, review)
+}
+pub(crate) fn approve_test_git_intent(app: &mut KooladeApp, work_key: &str, feature_id: &str) {
+    let Screen::Connected(project) = &app.screen else {
+        panic!("fixture remains connected");
+    };
+    let checkout = project
+        .state
+        .repositories
+        .target(
+            &project.state.planning_store,
+            &project.state.repo_root,
+            "root",
+        )
+        .unwrap();
+    let branch = std::process::Command::new("git")
+        .args(["branch", "--show-current"])
+        .current_dir(checkout)
+        .output()
+        .unwrap();
+    assert!(branch.status.success());
+    let branch = String::from_utf8(branch.stdout).unwrap().trim().to_owned();
+    let source = crate::core::git_intent::GitIntentSelectionV1 {
+        source_ref: branch.clone(),
+        destination_ref: branch,
+        publication_mode: crate::core::git_intent::PublicationModeV1::CreatePullRequest,
+    };
+    app.approve_feature_git_intents(
+        work_key,
+        feature_id,
+        std::collections::BTreeMap::from([("root".into(), source)]),
+    )
+    .unwrap();
+    let Screen::Connected(project) = &app.screen else {
+        panic!("fixture remains connected");
+    };
+    assert!(
+        project
+            .planning_work
+            .iter()
+            .find(|work| work.key == work_key)
+            .is_some_and(|work| work.git_intents.contains_key("root")),
+        "test Git intent must be saved before task generation"
+    );
 }

@@ -319,7 +319,6 @@ pub(super) fn persist_source_plan_before_task_state(
         dir: &dir,
         ticket,
         metadata: metadata.as_ref(),
-        publication_mode: PublicationMode::HoldForReview,
         runner,
     })?;
     Ok(())

@@ -16,7 +16,6 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
         lifecycle::{FeatureEvent, FeatureGoal, LifecycleStore, TaskPhase, TaskRecord},
         opportunity::{OpportunityDecisionKindV1, OpportunityStore},
         self_improvement::{SelfImprovementPhaseV1 as Phase, SelfImprovementStore},
-        workflow::BranchTargets,
     };
 
     // Pursue now probes the authenticated GitHub account. Serialize this
@@ -78,12 +77,37 @@ fn synchronize_requires_persisted_user_and_independent_plan_approval_before_read
             .as_ref()
             .map(|(id, _)| id.clone())
             .expect("Pursue creates its draft product feature");
-        project.state.workflow.feature_branch_targets.insert(
+        let source_branch = std::process::Command::new("git")
+            .args(["branch", "--show-current"])
+            .current_dir(&project.state.repo_root)
+            .output()
+            .unwrap();
+        assert!(source_branch.status.success());
+        let source_branch = String::from_utf8(source_branch.stdout)
+            .unwrap()
+            .trim()
+            .to_owned();
+        let source_sha = std::process::Command::new("git")
+            .args(["rev-parse", &format!("refs/heads/{source_branch}")])
+            .current_dir(&project.state.repo_root)
+            .output()
+            .unwrap();
+        assert!(source_sha.status.success());
+        let source_sha = String::from_utf8(source_sha.stdout)
+            .unwrap()
+            .trim()
+            .to_owned();
+        project.state.workflow.feature_git_intents.insert(
             feature_id.clone(),
-            BranchTargets {
-                source: "feat/fixture".into(),
-                destination: "main".into(),
-            },
+            std::collections::BTreeMap::from([(
+                "root".into(),
+                crate::test_support::approved_git_intent(
+                    "root",
+                    &source_branch,
+                    &source_sha,
+                    "main",
+                ),
+            )]),
         );
         crate::artifacts::task_docs::save_workflow(
             &project.state.planning_store,

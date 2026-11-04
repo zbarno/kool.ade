@@ -136,7 +136,7 @@ fn short_desktop_keeps_blocker_action_visible_and_branch_badge_compact() {
         .shapes
         .iter()
         .find_map(|shape| match &shape.shape {
-            egui::Shape::Text(text) if text.galley.text() == "master" => {
+            egui::Shape::Text(text) if text.galley.text().contains("master") => {
                 Some(egui::Rect::from_min_size(text.pos, text.galley.size()))
             }
             _ => None,

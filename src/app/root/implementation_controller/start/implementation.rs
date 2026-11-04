@@ -166,12 +166,16 @@ impl KooladeApp {
                 .implementation_states
                 .get(&ticket)
                 .is_some_and(|state| state.status == ImplementationStatus::ChangesRequested);
-            let is_subtask = p
+            let task_metadata = p
                 .task_documents
                 .iter()
                 .find(|doc| doc.path == ticket)
-                .and_then(|doc| doc.metadata.as_ref())
-                .is_some_and(|metadata| metadata.parent_task_uid.is_some());
+                .and_then(|doc| doc.metadata.as_ref());
+            let is_subtask =
+                task_metadata.is_some_and(|metadata| metadata.parent_task_uid.is_some());
+            let approved_intent_mode = task_metadata
+                .and_then(|metadata| metadata.git_intent.as_ref())
+                .map(|intent| intent.publication_mode);
             let (publication_mode, require_independent_checks) =
                 self_improvement::publication_policy(self_improvement::PublicationPolicyOptions {
                     is_self_improvement: self_improvement_task,
@@ -181,6 +185,7 @@ impl KooladeApp {
                     auto_publish: p.queue.auto_publish,
                     require_independent_checks: p.queue.require_independent_checks,
                     lifecycle_gate_refresh,
+                    approved_intent_mode,
                 });
             let Some(queue_start) = queue_state::begin(p, &ticket, manual) else {
                 return;

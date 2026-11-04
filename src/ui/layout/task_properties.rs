@@ -2,6 +2,7 @@ use super::board_state::task_document_board_column;
 use crate::core::implementation::{ImplementationStatus, PullRequestState};
 use crate::ui::Surface;
 use egui::RichText;
+mod git_intent;
 
 pub(crate) fn paint_task_properties(
     ui: &mut egui::Ui,
@@ -74,42 +75,33 @@ pub(crate) fn paint_task_properties(
             }
         }
     }
-    if doc.metadata.as_ref().is_some_and(|metadata| {
-        metadata.source_branch.is_some() || metadata.destination_branch.is_some()
-    }) {
-        let metadata = doc.metadata.as_ref().unwrap();
+    if let Some(intent) = doc
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.git_intent.as_ref())
+    {
         ui.collapsing("Branch intent", |ui| {
-            ui.label(format!(
-                "Source branch: {}",
-                metadata
-                    .source_branch
-                    .as_deref()
-                    .unwrap_or("Legacy task default")
-            ));
-            ui.label(format!(
-                "Destination branch: {}",
-                metadata
-                    .destination_branch
-                    .as_deref()
-                    .unwrap_or("Legacy task default")
-            ));
+            ui.label(format!("Repository: {}", intent.repository_id));
+            ui.label(format!("Source branch: {}", intent.source_ref));
+            ui.label(format!("Pinned source commit: {}", intent.source_sha));
+            ui.label(format!("Destination branch: {}", intent.destination_ref));
+            ui.label(format!("Publication mode: {:?}", intent.publication_mode));
+            ui.label(format!("Approval revision: {}", intent.approval_revision));
         });
     }
+    git_intent::paint(ui, s, doc, state.as_ref());
     if let Some(record) = &state {
         ui.collapsing("Implementation properties", |ui| {
             ui.label(format!(
                 "Source branch: {}",
-                record
-                    .source_branch
-                    .as_deref()
-                    .unwrap_or("Legacy task default")
+                record.source_branch.as_deref().unwrap_or("Not recorded")
             ));
             ui.label(format!(
                 "Destination branch: {}",
                 record
                     .destination_branch
                     .as_deref()
-                    .unwrap_or(record.base.as_str())
+                    .unwrap_or("Not recorded")
             ));
             for (label, value) in [
                 ("Branch", record.branch.as_str()),

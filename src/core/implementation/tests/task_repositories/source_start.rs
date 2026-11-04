@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn divergent_task_clone_starts_at_the_persisted_local_source_commit() {
+fn moved_source_ref_does_not_change_the_approved_task_starting_commit() {
     let sandbox = Sandbox::new();
     let source = "topic/source-start";
     sandbox.git(&sandbox.repo, &["checkout", "-b", source]);
@@ -10,6 +10,7 @@ fn divergent_task_clone_starts_at_the_persisted_local_source_commit() {
     sandbox.git(&sandbox.repo, &["add", "local-only.txt"]);
     sandbox.git(&sandbox.repo, &["commit", "-qm", "local source update"]);
     let local_commit = sandbox.git(&sandbox.repo, &["rev-parse", "HEAD"]);
+    super::super::sandbox::approve_ticket_source(&sandbox, source, "main");
 
     let peer = sandbox.root.join("peer-source-start");
     sandbox.git(
@@ -67,6 +68,9 @@ fn divergent_task_clone_starts_at_the_persisted_local_source_commit() {
 
     let state = run_on_worker(&sandbox, &sandbox.ticket).unwrap();
     assert!(state.task_repository.join("local-only.txt").is_file());
-    assert!(state.task_repository.join("remote-only.txt").is_file());
+    assert!(
+        state.task_repository.join("remote-only.txt").is_file(),
+        "the approved local commit remains pinned while reconciliation also preserves the advertised remote history"
+    );
     assert!(state.task_repository.join("implemented.txt").is_file());
 }

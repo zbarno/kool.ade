@@ -32,12 +32,22 @@ fn automatic_planner_completion_keeps_changed_specs_behind_publication_gate() {
     };
     let mut workflow = project.state.workflow.clone();
     workflow.reviewed_specification = project.state.planning_contract().map(str::to_owned);
-    workflow.feature_branch_targets.insert(
+    let source_sha = std::process::Command::new("git")
+        .args(["rev-parse", "refs/heads/main"])
+        .current_dir(&project.state.repo_root)
+        .output()
+        .unwrap();
+    assert!(source_sha.status.success());
+    let source_sha = String::from_utf8(source_sha.stdout)
+        .unwrap()
+        .trim()
+        .to_owned();
+    workflow.feature_git_intents.insert(
         "CHG-004".into(),
-        crate::core::workflow::BranchTargets {
-            source: "main".into(),
-            destination: "main".into(),
-        },
+        std::collections::BTreeMap::from([(
+            "root".into(),
+            crate::test_support::approved_git_intent("root", "main", &source_sha, "main"),
+        )]),
     );
     let (changes, checks) = crate::artifacts::task_docs::workflow_record_changes(
         &project.state.planning_store,

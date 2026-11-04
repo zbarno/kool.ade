@@ -12,6 +12,7 @@ pub(in crate::core::implementation::tests) fn save_clone_reconciliation_state(
     use crate::core::implementation::repository_cache::RepositoryCache;
     use std::time::{Duration, Instant};
 
+    super::super::sandbox::approve_ticket_git_intent(sandbox, ticket, base, base, local);
     let dir = state_dir(&sandbox.planning_store.root, ticket).unwrap();
     fs::create_dir_all(&dir).unwrap();
     let (progress, _updates) = mpsc::channel();
@@ -84,7 +85,7 @@ pub(in crate::core::implementation::tests) fn save_clone_reconciliation_state(
             repository_id: "root".into(),
             repository_identity: cache.identity.clone(),
             source_ref: base.into(),
-            destination_branch: format!("koolade/{task_key}"),
+            destination_branch: base.into(),
         },
     )
     .unwrap();
@@ -109,12 +110,12 @@ pub(in crate::core::implementation::tests) fn save_clone_reconciliation_state(
         "approved_specification": ticket_text,
         "task_uid": task_uid,
         "branch": format!("koolade/{task_key}"),
-        "source_branch": null,
-        "destination_branch": null,
+        "source_branch": base,
+        "destination_branch": base,
         "base": base,
         "base_commit": remote,
         "source_ref": "main",
-        "source_commit": remote,
+        "source_commit": local,
         "repository_id": "root",
         "project_id": project_id,
         "workspace_uid": planning.project_id.hyphenated().to_string(),

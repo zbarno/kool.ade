@@ -24,7 +24,6 @@ pub(super) fn generate_and_sync(
             .expect("reviewed Pursue creates a task-generation card"),
         Screen::Welcome => panic!("project remains connected"),
     };
-
     let Screen::Connected(project) = &mut app.screen else {
         panic!("project remains connected")
     };
@@ -50,8 +49,16 @@ pub(super) fn generate_and_sync(
     assert!(app.pending_feature_generation.is_none());
     assert!(
         matches!(&app.screen, Screen::Connected(project) if project.active_turn.is_some()),
-        "the current approved Evolve plan should start task generation; messages: {:?}",
-        app.chat_messages()
+        "the current approved Evolve plan should start task generation; messages: {:?}; work: {:?}",
+        app.chat_messages(),
+        match &app.screen {
+            Screen::Connected(project) => project
+                .planning_work
+                .iter()
+                .find(|work| work.key == task_key)
+                .map(|work| work.detail.as_str()),
+            Screen::Welcome => None,
+        }
     );
     assert!(
         harness::finish_main_turn(app),

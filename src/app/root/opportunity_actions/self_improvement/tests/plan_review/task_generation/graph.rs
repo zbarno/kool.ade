@@ -23,10 +23,11 @@ pub(super) fn decomposer_graph(app: &crate::app::root::KooladeApp) -> String {
     let feature = LifecycleStore::new(&state.planning_store)
         .load_feature(&identity.uid)
         .unwrap();
-    let branches = state
+    let intent = state
         .workflow
-        .feature_branch_targets
+        .feature_git_intents
         .get(feature_id)
+        .and_then(|intents| intents.get("root"))
         .expect("task generation persists the selected branch targets");
     let repository = state
         .repositories
@@ -42,7 +43,7 @@ pub(super) fn decomposer_graph(app: &crate::app::root::KooladeApp) -> String {
     assert!(
         run.source_ref
             .as_deref()
-            .is_none_or(|source_ref| source_ref == branches.source),
+            .is_none_or(|source_ref| source_ref == intent.source_ref),
         "selected source branch remains consistent with any persisted Evolve target"
     );
     let workspace_uid = state.planning_store.project_id.hyphenated().to_string();
@@ -73,9 +74,9 @@ pub(super) fn decomposer_graph(app: &crate::app::root::KooladeApp) -> String {
             relevant_files: vec![format!("src/approved_requirement_{index}.rs")],
             dependencies: Vec::new(),
             repository_id: repository.id.clone(),
-            source_branch: branches.source.clone(),
+            source_branch: intent.source_ref.clone(),
             source_sha: Some(source_sha.clone()),
-            destination_branch: branches.destination.clone(),
+            destination_branch: intent.destination_ref.clone(),
             estimated_concurrency_risks: vec!["The task owns its listed path.".into()],
             subtasks: Vec::new(),
         })

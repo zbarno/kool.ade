@@ -88,6 +88,69 @@ pub(super) fn validate(work: &[Work]) -> anyhow::Result<()> {
         if let Some(uid) = &item.feature_uid {
             anyhow::ensure!(uuid::Uuid::parse_str(uid).is_ok(), "Invalid feature UID");
         }
+        if let Some(git_intent) = &item.git_intent {
+            git_intent.validate()?;
+            anyhow::ensure!(
+                item.source_branch.as_deref() == Some(git_intent.source_ref.as_str())
+                    && item.destination_branch.as_deref()
+                        == Some(git_intent.destination_ref.as_str()),
+                "Planning work branch fields disagree with its approved Git intent"
+            );
+            if let Some(parent_uid) = git_intent.inherited_from_task_uid.as_deref() {
+                anyhow::ensure!(
+                    item.parent_uid.as_deref() == Some(parent_uid),
+                    "Inherited Git intent must name the current task parent"
+                );
+            }
+        }
+        for (repository_id, git_intent) in &item.git_intents {
+            git_intent.validate()?;
+            anyhow::ensure!(
+                repository_id == &git_intent.repository_id,
+                "Planning work Git intent key does not match its repository ID"
+            );
+            if let Some(parent_uid) = git_intent.inherited_from_task_uid.as_deref() {
+                anyhow::ensure!(
+                    item.parent_uid.as_deref() == Some(parent_uid),
+                    "Inherited Git intent must name the current task parent"
+                );
+            }
+            if let Some(parent_uid) = git_intent.inherited_from_task_uid.as_deref() {
+                let parent = work
+                    .iter()
+                    .find(|candidate| candidate.uid == parent_uid)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("Inherited Git intent parent task {parent_uid} is missing")
+                    })?;
+                let parent_intent = parent.git_intents.get(repository_id).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Inherited Git intent has no matching repository approval on parent task {parent_uid}"
+                    )
+                })?;
+                anyhow::ensure!(
+                    git_intent.source_ref == parent_intent.source_ref
+                        && git_intent.source_sha == parent_intent.source_sha
+                        && git_intent.destination_ref == parent_intent.destination_ref
+                        && git_intent.publication_mode == parent_intent.publication_mode,
+                    "Inherited Git intent differs from its parent approval; approve the override explicitly"
+                );
+            }
+        }
+        if let Some(primary) = item.git_intents.get("root") {
+            anyhow::ensure!(
+                item.git_intent.as_ref() == Some(primary)
+                    && item.source_branch.as_deref() == Some(primary.source_ref.as_str())
+                    && item.destination_branch.as_deref() == Some(primary.destination_ref.as_str()),
+                "Primary repository fields disagree with their approved Git intent"
+            );
+        } else {
+            anyhow::ensure!(
+                item.git_intent.is_none()
+                    && item.source_branch.is_none()
+                    && item.destination_branch.is_none(),
+                "Unmapped primary repository Git intent fields are not allowed"
+            );
+        }
         if let Some(uid) = &item.routing_inherited_from {
             anyhow::ensure!(
                 uuid::Uuid::parse_str(uid).is_ok(),

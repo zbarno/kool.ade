@@ -135,14 +135,7 @@ pub(super) fn render(
     if let Some(id) = &batch.feature_id {
         out.push_str(&format!("\nFeature ID: {id}\n"));
     }
-    out.push_str(&format!(
-        "Repository: {}\n",
-        if story.target_repository.is_empty() {
-            "root"
-        } else {
-            &story.target_repository
-        }
-    ));
+    out.push_str(&format!("Repository: {}\n", story.target_repository));
     optional_list(
         &mut out,
         "Technical design and contracts",
@@ -251,7 +244,7 @@ mod tests {
             specification: String::new(),
             feature_id: None,
             contract: None,
-            branch_targets: None,
+            repository_git_intents: Default::default(),
             task_routing: Default::default(),
             stories: Vec::new(),
         };

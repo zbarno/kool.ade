@@ -113,12 +113,22 @@ pub(super) fn prepare_reviewable_plan(project: &mut Project, feature_id: &str) {
         ready_for_tasks: true,
     });
     workflow.reviewed_specification = Some(markdown.clone());
-    workflow.feature_branch_targets.insert(
+    let run = crate::core::self_improvement::SelfImprovementStore::new(store)
+        .run_for_feature(&identity.uid)
+        .unwrap()
+        .expect("pursued feature has a source-pinned run");
+    let source_branch = run.source_ref.clone().unwrap_or_else(|| "main".into());
+    workflow.feature_git_intents.insert(
         feature_id.to_owned(),
-        crate::core::workflow::BranchTargets {
-            source: "main".into(),
-            destination: "main".into(),
-        },
+        std::collections::BTreeMap::from([(
+            "root".into(),
+            crate::test_support::approved_git_intent(
+                "root",
+                &source_branch,
+                &run.source_sha,
+                "main",
+            ),
+        )]),
     );
     crate::artifacts::task_docs::save_workflow(store, &workflow).unwrap();
     project.state.workflow = crate::artifacts::task_docs::load_workflow(store).unwrap();

@@ -63,9 +63,6 @@ pub fn snapshot(cwd: &Path) -> GitSnapshot {
             snap.branch = format!("detached @{head}", head = out.trim());
         }
     }
-    if snap.default_branch.is_empty() {
-        snap.default_branch = snap.branch.clone();
-    }
     if let Ok((code, out, _)) = run(cwd, &["rev-parse", "--short", "HEAD"])
         && code == 0
     {

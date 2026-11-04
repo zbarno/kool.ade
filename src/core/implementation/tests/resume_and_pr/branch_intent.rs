@@ -36,32 +36,34 @@ fn save_branch_intent(sandbox: &Sandbox, source: &str, destination: &str) {
         source: source.into(),
         destination: destination.into(),
     };
+    let source_ref = format!("refs/heads/{source}");
+    let source_sha = sandbox.git(&sandbox.repo, &["rev-parse", &source_ref]);
+    let git_intent = crate::core::git_intent::GitIntentV1::approve(
+        "root".into(),
+        source.into(),
+        source_sha.clone(),
+        destination.into(),
+        crate::core::git_intent::PublicationModeV1::CreatePullRequest,
+        None,
+    )
+    .unwrap();
     let identity_marker = serde_json::to_string(&identity).unwrap();
     let task_body =
         "# Branch task\n\nFeature: F1\n\n## Acceptance criteria\n\n- File contains implemented.\n";
     let document = format!("<!-- koolade-artifact-id:v1 {identity_marker} -->\n\n{task_body}");
-    fs::write(sandbox.ticket_path(), &document).unwrap();
-    super::super::sandbox::seed_lifecycle_task(&sandbox.planning_store, &sandbox.ticket, task_body);
-    let task_path = sandbox.ticket_path();
-    let seeded = fs::read_to_string(&task_path).unwrap();
-    let identity = crate::domain::ArtifactIdentity::from_markdown(&seeded)
-        .unwrap()
-        .unwrap();
     let metadata = crate::artifacts::task_docs::TaskMetadata::new(&identity, "root", vec![])
         .unwrap()
         .with_task_intent_uid(Some(&identity.uid))
         .unwrap()
         .with_branch_targets(Some(&targets))
+        .unwrap()
+        .with_source_sha(Some(&source_sha))
+        .unwrap()
+        .with_git_intent(Some(&git_intent))
         .unwrap();
-    sandbox
-        .planning_store
-        .atomic_write(
-            &sandbox.ticket,
-            crate::artifacts::task_docs::embed(&seeded, &metadata)
-                .unwrap()
-                .as_bytes(),
-        )
-        .unwrap();
+    let document = crate::artifacts::task_docs::embed(&document, &metadata).unwrap();
+    fs::write(sandbox.ticket_path(), &document).unwrap();
+    super::super::sandbox::seed_lifecycle_task(&sandbox.planning_store, &sandbox.ticket, task_body);
 }
 
 #[test]
@@ -195,7 +197,7 @@ fn same_source_and_destination_reconciles_destination_updates_before_opening_pr(
 }
 
 #[test]
-fn default_destination_pr_reconciles_remote_changes_before_publication() {
+fn approved_destination_pr_reconciles_remote_changes_before_publication() {
     let sandbox = Sandbox::new();
     let calls = Arc::new(AtomicUsize::new(0));
     let harness = AdvanceDestination {
@@ -222,7 +224,7 @@ fn default_destination_pr_reconciles_remote_changes_before_publication() {
     )
     .unwrap();
 
-    assert_eq!(state.destination_branch, None);
+    assert_eq!(state.destination_branch.as_deref(), Some("main"));
     assert_eq!(state.base, "main");
     assert!(state.task_repository.join("implemented.txt").exists());
     assert!(state.task_repository.join("upstream.txt").exists());
@@ -239,7 +241,9 @@ fn default_destination_pr_reconciles_remote_changes_before_publication() {
 #[test]
 fn missing_selected_source_needs_attention_without_falling_back_to_checkout_head() {
     let sandbox = Sandbox::new();
+    sandbox.git(&sandbox.repo, &["branch", "release/deleted"]);
     save_branch_intent(&sandbox, "release/deleted", "main");
+    sandbox.git(&sandbox.repo, &["branch", "-D", "release/deleted"]);
     let calls = Arc::new(AtomicUsize::new(0));
     let error = sandbox
         .run_with_publication_policy(
@@ -273,9 +277,10 @@ fn missing_selected_destination_needs_attention_during_final_reconciliation() {
     assert!(error.contains("Selected destination branch 'release/deleted'"));
     assert!(error.contains("code repository"));
     assert!(!sandbox.root.join("pr-created").exists());
-    let saved = load(&sandbox.planning_store.root, &sandbox.ticket).unwrap();
-    assert_eq!(saved.status, ImplementationStatus::Blocked);
-    assert!(saved.task_repository.exists());
+    assert!(
+        load(&sandbox.planning_store.root, &sandbox.ticket).is_none(),
+        "an invalid destination is rejected before a task clone is allocated"
+    );
 }
 
 #[test]

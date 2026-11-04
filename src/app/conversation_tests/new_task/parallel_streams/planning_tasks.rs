@@ -55,8 +55,14 @@ fn multiple_new_planning_tasks_keep_their_own_streams_while_main_chat_runs() {
             },
             description,
             None,
-            None,
-            None,
+            std::collections::BTreeMap::from([(
+                "root".into(),
+                crate::core::git_intent::GitIntentSelectionV1 {
+                    source_ref: "main".into(),
+                    destination_ref: "main".into(),
+                    publication_mode: crate::core::git_intent::PublicationModeV1::HoldForReview,
+                },
+            )]),
             Default::default(),
         );
         let Screen::Connected(project) = &app.screen else {

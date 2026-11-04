@@ -84,22 +84,6 @@ pub(super) fn update_pull_request_detail(state: &mut Implementation) {
     state.detail.push_str(&status);
 }
 
-pub(super) fn default_branch(repo: &Path, runner: &Runner) -> anyhow::Result<String> {
-    let refs = runner.git(repo, &["ls-remote", "--symref", "origin", "HEAD"])?;
-    if let Some(branch) = refs.lines().find_map(|line| {
-        line.strip_prefix("ref: refs/heads/")
-            .and_then(|rest| rest.split_whitespace().next())
-    }) {
-        return Ok(branch.into());
-    }
-    let branch = runner.git(repo, &["symbolic-ref", "--short", "HEAD"])?;
-    anyhow::ensure!(
-        matches!(branch.as_str(), "main" | "master"),
-        "Origin has no default branch; configure its HEAD before Auto mode"
-    );
-    Ok(branch)
-}
-
 pub(super) fn finish_auto_publish(
     repo: &Path,
     dir: &Path,

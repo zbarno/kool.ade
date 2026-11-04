@@ -115,19 +115,32 @@ impl KooladeApp {
                 kind,
                 description,
                 parent_uid,
-                source_branch,
-                destination_branch,
+                git_intents,
                 routing_overrides,
             } => {
                 self.create_planning_task(
                     kind,
                     &description,
                     parent_uid,
-                    source_branch,
-                    destination_branch,
+                    git_intents,
                     routing_overrides,
                 );
             }
+            ApplicationCommand::ApproveTaskGitIntent {
+                ticket,
+                repository_id,
+                selection,
+            } => self.approve_task_git_intent(&ticket, &repository_id, selection),
+            ApplicationCommand::ApproveFeatureGitIntents {
+                work_key,
+                feature_id,
+                selections,
+            } => match self.approve_feature_git_intents(&work_key, &feature_id, selections) {
+                Ok(()) => self
+                    .toasts
+                    .success("Repository Git intent approved for task generation."),
+                Err(error) => self.toasts.warning(error),
+            },
             ApplicationCommand::StartTaskIntentFollowUp { root_uid, goal } => {
                 self.start_task_intent_follow_up(&root_uid, &goal);
             }

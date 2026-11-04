@@ -194,6 +194,7 @@ fn local_commits_ahead_of_remote_are_preserved() {
     s.git(&s.repo, &["add", "."]);
     s.git(&s.repo, &["commit", "-qm", "local change"]);
     let local_source = s.git(&s.repo, &["rev-parse", "HEAD"]);
+    super::sandbox::approve_ticket_source(&s, "main", "main");
     let state = s.run("complete", Arc::new(AtomicUsize::new(0))).unwrap();
     assert_eq!(state.base_commit, remote_base);
     assert_eq!(state.source_commit.as_deref(), Some(local_source.as_str()));

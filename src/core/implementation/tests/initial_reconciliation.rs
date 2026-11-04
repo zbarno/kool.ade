@@ -187,6 +187,7 @@ fn run_with_agent_for_ticket(
     progress: Sender<LiveProgress>,
 ) -> anyhow::Result<Implementation> {
     super::sandbox::refresh_task_spec(&sandbox.planning_store, ticket);
+    super::sandbox::approve_current_task_source(sandbox, ticket);
     run_with_planning_store_options(
         &sandbox.planning_store,
         &sandbox.planning_store.root,

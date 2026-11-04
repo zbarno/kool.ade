@@ -47,6 +47,7 @@ fn detailed_story_keeps_the_approved_parent_task_reference() {
     let outline: crate::core::workflow::TaskOutline = serde_json::from_value(serde_json::json!({
         "title": "Implement the child task",
         "purpose": "Complete one bounded implementation slice.",
+        "targetRepository": "root",
         "scopeItems": [1],
         "successCriteria": [1, 2],
         "dependencies": [],

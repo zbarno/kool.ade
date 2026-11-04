@@ -1,7 +1,6 @@
 mod commit_identity;
 mod endpoints;
 mod identity;
-mod import;
 mod lock;
 mod operations;
 mod saved_state;

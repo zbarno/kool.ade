@@ -210,16 +210,117 @@ impl Surface for KooladeApp {
     fn default_repository_branch(&self) -> &str {
         match &self.screen {
             Screen::Connected(project) if !project.has_selected_code_repository() => "",
-            Screen::Connected(project) if project.git.default_branch.is_empty() => {
-                if project.git.branch.is_empty() {
-                    "main"
-                } else {
-                    &project.git.branch
-                }
-            }
             Screen::Connected(project) => &project.git.default_branch,
             Screen::Welcome => "",
         }
+    }
+
+    fn git_checkout_label(&self) -> String {
+        let Screen::Connected(project) = &self.screen else {
+            return "Primary code repository".into();
+        };
+        let Ok(manifest) =
+            crate::core::project_repos::ProjectManifest::load(&project.state.planning_store)
+        else {
+            return "Primary code repository".into();
+        };
+        let labels = crate::core::project_repos::display_labels(&manifest.repositories);
+        manifest
+            .repositories
+            .iter()
+            .position(|repository| repository.id == "root")
+            .and_then(|index| labels.get(index).cloned())
+            .unwrap_or_else(|| "Primary code repository".into())
+    }
+
+    fn repository_git_options(&self) -> Vec<crate::ui::RepositoryGitOptions> {
+        let Screen::Connected(project) = &self.screen else {
+            return Vec::new();
+        };
+        let Ok(manifest) =
+            crate::core::project_repos::ProjectManifest::load(&project.state.planning_store)
+        else {
+            return Vec::new();
+        };
+        let labels = crate::core::project_repos::display_labels(&manifest.repositories);
+        manifest
+            .repositories
+            .iter()
+            .zip(labels)
+            .map(|(repository, label)| {
+                let checkout = manifest.target_if_available(
+                    &project.state.planning_store,
+                    &project.state.repo_root,
+                    &repository.id,
+                );
+                match checkout {
+                    Ok(Some(checkout)) => {
+                        let mut git = crate::core::gitops::snapshot(&checkout);
+                        if repository.id == "root" {
+                            git.branches.extend(project.git.branches.iter().cloned());
+                            if git.branch.is_empty() {
+                                git.branch = project.git.branch.clone();
+                            }
+                            if git.default_branch.is_empty() {
+                                git.default_branch = project.git.default_branch.clone();
+                            }
+                            git.branches.sort();
+                            git.branches.dedup();
+                        }
+                        let sources = if git.branches.is_empty() && !git.branch.is_empty() {
+                            vec![git.branch.clone()]
+                        } else {
+                            git.branches.clone()
+                        };
+                        let destinations = if git.has_origin {
+                            git.remote_branches.clone()
+                        } else {
+                            sources.clone()
+                        };
+                        crate::ui::RepositoryGitOptions {
+                            id: repository.id.clone(),
+                            label,
+                            source_branches: sources,
+                            destination_branches: destinations,
+                            default_branch: if git.default_branch.is_empty() {
+                                git.branch.clone()
+                            } else {
+                                git.default_branch
+                            },
+                            unavailable_reason: None,
+                        }
+                    }
+                    Ok(None) => crate::ui::RepositoryGitOptions {
+                        id: repository.id.clone(),
+                        label,
+                        unavailable_reason: Some("No local checkout is mapped".into()),
+                        ..Default::default()
+                    },
+                    Err(error) => crate::ui::RepositoryGitOptions {
+                        id: repository.id.clone(),
+                        label,
+                        unavailable_reason: Some(error.to_string()),
+                        ..Default::default()
+                    },
+                }
+            })
+            .collect()
+    }
+
+    fn feature_git_intents(
+        &self,
+        feature_id: &str,
+    ) -> std::collections::BTreeMap<String, crate::core::git_intent::GitIntentV1> {
+        let Screen::Connected(project) = &self.screen else {
+            return Default::default();
+        };
+        project
+            .state
+            .workflow
+            .feature_git_intents
+            .get(feature_id)
+            .cloned()
+            .unwrap_or_default()
     }
 
     fn git_head(&self) -> &str {

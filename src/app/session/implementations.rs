@@ -199,6 +199,7 @@ mod tests {
                 source_branch: None,
                 source_sha: None,
                 destination_branch: None,
+                git_intent: None,
                 implementation_branch: None,
                 publication_status:
                     crate::artifacts::task_docs::ExecutionPublicationStatus::Planned,

@@ -163,11 +163,12 @@ pub(super) fn synchronize_run(
                 "persisted plan snapshot does not match the approved self-improvement plan".into(),
             );
         }
-        let Some(targets) = project
+        let Some(intent) = project
             .state
             .workflow
-            .feature_branch_targets
+            .feature_git_intents
             .get(&snapshot.feature_id)
+            .and_then(|intents| intents.get("root"))
         else {
             return Ok(());
         };
@@ -208,8 +209,8 @@ pub(super) fn synchronize_run(
                 approval_sha256: plan_hash.to_owned(),
                 capability_id: Some(capability_id),
                 review_uid: review.receipt_uid.clone(),
-                source_ref: targets.source.to_owned(),
-                destination_ref: targets.destination.to_owned(),
+                source_ref: intent.source_ref.clone(),
+                destination_ref: intent.destination_ref.clone(),
                 task_uids: tasks.iter().map(|task| task.task_uid.clone()).collect(),
                 owner_task_uid: owner.task_uid.clone(),
                 parent_task_uids: roots.iter().map(|task| task.task_uid.clone()).collect(),

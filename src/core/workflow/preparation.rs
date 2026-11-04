@@ -36,16 +36,12 @@ pub fn prepare(
         let manifest = crate::core::project_repos::ProjectManifest::load(&state.planning_store)
             .map_err(|error| vec![error.to_string()])?;
         for story in &stories {
-            if manifest.repositories.len() > 1 && story.target_repository.is_empty() {
+            if story.target_repository.is_empty() {
                 return Err(vec![
-                    "Every multi-repository task needs an explicit target_repository".into(),
+                    "Every generated task needs an explicit target_repository".into(),
                 ]);
             }
-            let id = if story.target_repository.is_empty() {
-                "root"
-            } else {
-                story.target_repository.as_str()
-            };
+            let id = story.target_repository.as_str();
             if !manifest.repositories.iter().any(|repo| repo.id == id) {
                 return Err(vec![format!("Unknown target repository {id}")]);
             }
@@ -82,9 +78,15 @@ pub fn prepare(
             feature_id: feature_id.clone(),
             contract: crate::core::contract_snapshot::freeze(state)
                 .map_err(|error| vec![error.to_string()])?,
-            branch_targets: feature_id
+            repository_git_intents: feature_id
                 .as_deref()
-                .and_then(|id| workflow.feature_branch_targets.get(id).cloned()),
+                .and_then(|id| workflow.feature_git_intents.get(id).cloned())
+                .or_else(|| {
+                    feature_id
+                        .is_none()
+                        .then(|| workflow.standalone_task_git_intents.clone())
+                })
+                .unwrap_or_default(),
             task_routing: Default::default(),
             stories,
         });

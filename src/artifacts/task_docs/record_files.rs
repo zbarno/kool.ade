@@ -83,6 +83,31 @@ pub(super) fn load_unlocked<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Resul
             );
             comparison.validate()?;
         }
+        for (feature_id, intents) in &record.data.feature_git_intents {
+            anyhow::ensure!(
+                record.feature_id.as_deref() == Some(feature_id.as_str()),
+                "Workflow feature scope mismatch for repository Git intents in {path}"
+            );
+            anyhow::ensure!(
+                !intents.is_empty(),
+                "Feature Git intent map is empty in {path}"
+            );
+            for (repository_id, intent) in intents {
+                intent.validate()?;
+                anyhow::ensure!(
+                    repository_id == &intent.repository_id
+                        && intent.inherited_from_task_uid.is_none(),
+                    "Feature Git intent has a wrong repository key or task inheritance in {path}"
+                );
+            }
+        }
+        for (repository_id, intent) in &record.data.standalone_task_git_intents {
+            intent.validate()?;
+            anyhow::ensure!(
+                repository_id == &intent.repository_id && intent.inherited_from_task_uid.is_none(),
+                "Standalone task Git intent has a wrong repository key or task inheritance in {path}"
+            );
+        }
         merge(&mut workflow, &record.data, &path)?;
         workflow
             .record_revisions
@@ -154,8 +179,8 @@ pub fn changes<R: PlanningRoot + ?Sized>(
             data.plan_comparisons
                 .insert(feature_id.clone(), value.clone());
         }
-        if let Some(value) = workflow.feature_branch_targets.get(feature_id) {
-            data.feature_branch_targets
+        if let Some(value) = workflow.feature_git_intents.get(feature_id) {
+            data.feature_git_intents
                 .insert(feature_id.clone(), value.clone());
         }
         data.task_batches.extend(
@@ -172,6 +197,7 @@ pub fn changes<R: PlanningRoot + ?Sized>(
     if brief_feature_id.is_none() {
         workspace.brief = workflow.brief.clone();
         workspace.reviewed_specification = workflow.reviewed_specification.clone();
+        workspace.standalone_task_git_intents = workflow.standalone_task_git_intents.clone();
     }
     workspace.task_batches.extend(
         workflow

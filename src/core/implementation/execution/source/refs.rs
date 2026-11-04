@@ -17,10 +17,11 @@ pub(in crate::core::implementation::execution) fn missing_saved_ref(
             "Selected source branch '{source_branch}' in code repository '{repository_id}' no longer exists. The task clone was preserved; restore the ref before resuming."
         )));
     }
-    let destination_branch = state
-        .destination_branch
-        .as_deref()
-        .unwrap_or(state.base.as_str());
+    let destination_branch = state.destination_branch.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Saved task has no approved destination branch in code repository '{repository_id}'"
+        )
+    })?;
     let destination_exists = if cache.fetch_url.is_some() {
         remote_branch_exists(cache, destination_branch, runner)?
     } else {

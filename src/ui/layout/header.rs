@@ -88,9 +88,6 @@ pub(super) fn paint(
                     },
                 )
                 .on_hover_text(s.queue_status());
-                if !compact {
-                    ui.label(theme::metadata_text("PROJECT"));
-                }
                 let branch = s.git_branch();
                 let branch = if branch.is_empty() {
                     "No branch"
@@ -99,16 +96,20 @@ pub(super) fn paint(
                 };
                 ui.add_sized(
                     [if compact { 100.0 } else { 240.0 }, 22.0],
-                    egui::Label::new(theme::helper_text(branch)).truncate(),
+                    egui::Label::new(theme::helper_text(format!(
+                        "Checkout: {} · {branch}",
+                        s.git_checkout_label()
+                    )))
+                    .truncate(),
                 )
-                .on_hover_text(branch);
+                .on_hover_text(format!("{} · {branch}", s.git_checkout_label()));
                 ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                     let (state, color) = if !s.is_git_repo() {
                         ("No repository", theme::TEXT_MUTED)
                     } else if s.git_dirty() {
-                        ("Unsaved changes", theme::WARNING)
+                        ("Checkout has changes", theme::WARNING)
                     } else {
-                        ("Saved to Git", theme::SUCCESS)
+                        ("Checkout clean", theme::SUCCESS)
                     };
                     ui.add(
                         egui::Label::new(RichText::new(state).size(12.0).color(color)).truncate(),

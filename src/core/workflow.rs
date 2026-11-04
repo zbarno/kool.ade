@@ -69,7 +69,14 @@ pub struct Workflow {
     #[serde(default)]
     pub plan_comparisons: std::collections::BTreeMap<String, PlanComparisonRecord>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub feature_branch_targets: std::collections::BTreeMap<String, BranchTargets>,
+    pub feature_git_intents: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeMap<String, crate::core::git_intent::GitIntentV1>,
+    >,
+    /// Explicit repository choices for task generation without a published feature identity.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub standalone_task_git_intents:
+        std::collections::BTreeMap<String, crate::core::git_intent::GitIntentV1>,
     /// Per-record concurrency metadata loaded from normalized workflow files.
     /// These fields are intentionally absent from serialized workflow data.
     #[serde(skip)]
@@ -90,12 +97,14 @@ impl PartialEq for Workflow {
             && self.task_batches == other.task_batches
             && self.approved_features == other.approved_features
             && self.plan_comparisons == other.plan_comparisons
-            && self.feature_branch_targets == other.feature_branch_targets
+            && self.feature_git_intents == other.feature_git_intents
+            && self.standalone_task_git_intents == other.standalone_task_git_intents
     }
 }
 
 impl Eq for Workflow {}
 
+/// Convenience projection for source/destination fields on executable task metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BranchTargets {
@@ -195,9 +204,41 @@ pub struct TaskBatch {
     pub specification: String,
     pub feature_id: Option<String>,
     pub contract: Option<crate::core::contract_snapshot::BatchContract>,
-    pub branch_targets: Option<BranchTargets>,
+    pub repository_git_intents:
+        std::collections::BTreeMap<String, crate::core::git_intent::GitIntentV1>,
     pub task_routing: TaskRoutingSnapshot,
     pub stories: Vec<TaskStory>,
+}
+
+impl TaskBatch {
+    pub fn git_intent_for_story(
+        &self,
+        repository_id: &str,
+        source_sha: &str,
+        parent_task_uid: Option<&str>,
+    ) -> anyhow::Result<crate::core::git_intent::GitIntentV1> {
+        let approved = self
+            .repository_git_intents
+            .get(repository_id)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Task generation has no approved Git intent for repository {repository_id}"
+                )
+            })?;
+        approved.validate()?;
+        anyhow::ensure!(
+            approved.repository_id == repository_id,
+            "Approved Git intent repository does not match generated task repository"
+        );
+        anyhow::ensure!(
+            approved.source_sha == source_sha,
+            "Generated task source SHA does not match its approved repository intent"
+        );
+        match parent_task_uid {
+            Some(uid) => approved.inherited_by(uid.to_owned()),
+            None => Ok(approved.clone()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

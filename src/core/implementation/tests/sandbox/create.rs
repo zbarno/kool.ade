@@ -82,6 +82,16 @@ pub(super) fn create(initial_files: &[(&str, &str)]) -> Sandbox {
     ]);
     git(&["push", "-q", "origin", "main"]);
     crate::test_support::set_test_origin_default(&repo);
+    let source_sha = std::process::Command::new("git")
+        .args(["rev-parse", "refs/heads/main"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    assert!(source_sha.status.success());
+    let source_sha = String::from_utf8(source_sha.stdout)
+        .unwrap()
+        .trim()
+        .to_owned();
     let project_id = uuid::Uuid::nil();
     let local_store_root = root
         .join("koolade-home/projects")
@@ -103,10 +113,29 @@ pub(super) fn create(initial_files: &[(&str, &str)]) -> Sandbox {
     let task_identity = crate::domain::ArtifactIdentity::from_markdown(&ticket_markdown)
         .unwrap()
         .unwrap();
+    let targets = crate::core::workflow::BranchTargets {
+        source: "main".into(),
+        destination: "main".into(),
+    };
+    let git_intent = crate::core::git_intent::GitIntentV1::approve(
+        "root".into(),
+        targets.source.clone(),
+        source_sha.clone(),
+        targets.destination.clone(),
+        crate::core::git_intent::PublicationModeV1::CreatePullRequest,
+        None,
+    )
+    .unwrap();
     let task_metadata =
         crate::artifacts::task_docs::TaskMetadata::new(&task_identity, "root", Vec::new())
             .unwrap()
             .with_task_intent_uid(Some(&task_identity.uid))
+            .unwrap()
+            .with_branch_targets(Some(&targets))
+            .unwrap()
+            .with_source_sha(Some(&source_sha))
+            .unwrap()
+            .with_git_intent(Some(&git_intent))
             .unwrap();
     let ticket_markdown =
         crate::artifacts::task_docs::embed(&ticket_markdown, &task_metadata).unwrap();

@@ -1,7 +1,7 @@
 use super::super::{KooladeApp, Screen};
 
-mod branch_targets;
-use branch_targets::feature_branch_targets;
+mod repository_intents;
+use repository_intents::feature_git_intents;
 
 impl KooladeApp {
     pub(crate) fn start_task_generation(&mut self, work_key: &str, feature_id: &str) {
@@ -150,38 +150,65 @@ impl KooladeApp {
                 return;
             }
             if project.has_selected_code_repository() {
-                let default_branch = if !project.git.default_branch.is_empty() {
-                    project.git.default_branch.as_str()
-                } else if !project.git.branch.is_empty() {
-                    project.git.branch.as_str()
-                } else {
-                    "main"
-                };
-                let targets = feature_branch_targets(
+                let intent_result = feature_git_intents(
                     &project.planning_work,
                     feature_id,
                     project.planning_work[index].feature_uid.as_deref(),
-                    default_branch,
                 );
-                let destination_branches = if !project.git.has_origin {
-                    &project.git.branches
-                } else {
-                    &project.git.remote_branches
+                let intents = match intent_result {
+                    Ok(intents) => intents.or_else(|| {
+                        project
+                            .state
+                            .workflow
+                            .feature_git_intents
+                            .get(feature_id)
+                            .filter(|intents| !intents.is_empty())
+                            .cloned()
+                    }),
+                    Err(error) => {
+                        project.planning_work[index].status =
+                            crate::core::planning_work::WorkStatus::NeedsAttention;
+                        project.planning_work[index].detail = format!(
+                            "Conflicting task-level repository Git approvals prevent generation: {error}"
+                        );
+                        if let Err(save_error) = project.save_planning_work() {
+                            self.toasts.danger(format!(
+                                "Git intent conflict remains unresolved, but the blocked status could not be saved: {save_error}"
+                            ));
+                        } else {
+                            self.toasts
+                                .warning(project.planning_work[index].detail.clone());
+                        }
+                        return;
+                    }
                 };
-                let source_available = project.git.branches.contains(&targets.source)
-                    || (!project.git.has_origin
-                        && project.git.branches.is_empty()
-                        && targets.source == default_branch);
-                let destination_available = destination_branches.contains(&targets.destination)
-                    || (!project.git.has_origin
-                        && destination_branches.is_empty()
-                        && targets.destination.as_str() == default_branch);
-                if !source_available || !destination_available {
+                let Some(intents) = intents else {
+                    project.planning_work[index].status =
+                        crate::core::planning_work::WorkStatus::NeedsAttention;
+                    project.planning_work[index].detail = "Select each implementation repository and approve its source commit, destination, and publication mode before generating tasks.".into();
+                    if let Err(error) = project.save_planning_work() {
+                        self.toasts.danger(format!(
+                            "Explicit branch intent is required, but the blocked task status could not be saved: {error}"
+                        ));
+                    } else {
+                        self.toasts
+                            .warning(project.planning_work[index].detail.clone());
+                    }
+                    return;
+                };
+                let validation = intents.iter().try_for_each(|(repository_id, intent)| {
+                    super::git_intent::validate_approved_intent(
+                        project,
+                        project.planning_work[index].feature_uid.as_deref(),
+                        repository_id,
+                        intent,
+                    )
+                });
+                if let Err(error) = validation {
                     project.planning_work[index].status =
                         crate::core::planning_work::WorkStatus::NeedsAttention;
                     project.planning_work[index].detail = format!(
-                        "The saved source or destination branch is no longer available. Select an existing branch before generating tasks. Source: {}; destination: {}.",
-                        targets.source, targets.destination
+                        "Approved repository Git intent is no longer valid: {error}. Review and approve the affected repository again before generating tasks."
                     );
                     if let Err(error) = project.save_planning_work() {
                         self.toasts
@@ -191,8 +218,8 @@ impl KooladeApp {
                 }
                 let mut workflow = project.state.workflow.clone();
                 workflow
-                    .feature_branch_targets
-                    .insert(feature_id.to_owned(), targets);
+                    .feature_git_intents
+                    .insert(feature_id.to_owned(), intents);
                 let planning_store = project.state.planning_store.clone();
                 let (changes, checks) = match crate::artifacts::task_docs::workflow_record_changes(
                     &planning_store,
