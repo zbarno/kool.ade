@@ -98,11 +98,29 @@ fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
             "-b",
             &branch,
         ]);
-        let task_document = project
+        let task_index = project
             .task_documents
             .iter()
-            .find(|document| document.path == ticket)
+            .position(|document| document.path == ticket)
             .expect("fixture contains the selected task");
+        let task_git_intent = crate::core::git_intent::GitIntentV1::approve(
+            "root".into(),
+            "main".into(),
+            base_commit.clone(),
+            "main".into(),
+            crate::core::git_intent::PublicationModeV1::HoldForReview,
+            None,
+        )
+        .unwrap();
+        let task_metadata = project.task_documents[task_index]
+            .metadata
+            .as_ref()
+            .expect("task metadata is seeded")
+            .clone()
+            .with_git_intent(Some(&task_git_intent))
+            .unwrap();
+        project.task_documents[task_index].metadata = Some(task_metadata);
+        let task_document = &project.task_documents[task_index];
         let (repository_cache, repository_identity, push_repository) =
             crate::core::implementation::prepare_repository_cache_for_test(
                 &project.state.planning_store,
@@ -163,8 +181,10 @@ fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
         record.repository_identity = Some(repository_identity);
         record.push_repository = push_repository;
         record.ticket_text = ticket_text.into();
+        record.source_branch = Some("main".into());
         record.source_ref = Some("main".into());
         record.source_commit = Some(base_commit.clone());
+        record.destination_branch = Some("main".into());
         record.branch = branch;
         record.task_repository_allocation_key = Some(allocation);
         record.task_repository = worktree.clone();
@@ -249,7 +269,12 @@ fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
                     .queue
                     .blocked
                     .get(ticket)
-                    .map(|failure| format!("{:?}/{:?}", failure.kind, failure.recovery))
+                    .map(|failure| {
+                        format!(
+                            "{:?}/{:?}: {}",
+                            failure.kind, failure.recovery, failure.message
+                        )
+                    })
                     .unwrap_or_else(|| "no typed failure recorded".into()),
                 Screen::Welcome => "project disconnected".into(),
             };
