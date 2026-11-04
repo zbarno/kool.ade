@@ -78,6 +78,7 @@ pub(in crate::execution::docker::qa_container::tests::browser_rootless::task_run
         "base": "main",
         "base_commit": base_sha,
         "task_repository": task_clone,
+        "task_repository_kind": "clone",
         "status": "completed",
         "detail": detail,
         "pr_url": null,

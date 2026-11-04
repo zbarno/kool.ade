@@ -25,9 +25,8 @@ use crate::{
 pub(super) fn create_fixture(required_dependencies: Vec<String>, kind: FixtureKind) -> Fixture {
     let cache_request_ids = required_dependencies.clone();
     let root = tempfile::tempdir().expect("temporary runtime QA fixture");
-    let home_root = root.path().join("operator-home");
-    fs::create_dir_all(&home_root).unwrap();
-    let home = crate::test_support::KooladeHomeGuard::set(&home_root);
+    let home_root = tempfile::tempdir().expect("temporary operator data root");
+    let home = crate::test_support::KooladeHomeGuard::set(home_root.path());
     let project_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let task_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let projects_root = root.path().join("projects");
@@ -295,5 +294,6 @@ pub(super) fn create_fixture(required_dependencies: Vec<String>, kind: FixtureKi
         ),
         _approval_cleanup: approval_cleanup,
         _home: home,
+        _home_root: home_root,
     }
 }
