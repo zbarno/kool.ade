@@ -118,7 +118,7 @@ fn graph_response(app: &KooladeApp) -> String {
         .state
         .repositories
         .target(
-            project.state.planning_store.project_id,
+            &project.state.planning_store,
             &project.state.repo_root,
             &repository.id,
         )

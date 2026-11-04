@@ -17,9 +17,12 @@ flows. These manual checks remain a release gate and have not been performed:
 - Review a local specification proposal, explicitly consent to publication,
   and confirm the isolated source-repository branch/PR flow, protected merge,
   pin refresh, and stale-pin rejection.
-- In a multi-code-repository workspace, change the human checkout branch and
-  verify the designated primary spec repository stays fixed while task targets
-  retain their selected repository and branch.
+- In Project Settings, register a secondary repository by selecting a checkout
+  with the matching remote, restart the app, and verify the private mapping is
+  retained. Create a task targeting that repository with explicit source and
+  destination branches; confirm its isolated clone uses those branches while
+  the primary published-spec pin stays fixed when the human checkout branch
+  changes.
 - Run a native end-to-end task through isolated clone execution, independent QA,
   human review, and guarded PR publication. Record each gate's real evidence.
 

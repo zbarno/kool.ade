@@ -40,16 +40,17 @@ pub(super) fn resolve(request: Request<'_>) -> anyhow::Result<TaskSource> {
         publication_mode,
         runner,
     } = request;
-    let _manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
+    let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
     let repository_id = task_repository_id(metadata)?;
-    let cache = RepositoryCache::open(repo, planning_store, &repository_id, runner)?;
+    let checkout = manifest.target(planning_store, repo, &repository_id)?;
+    let cache = RepositoryCache::open(&checkout, planning_store, &repository_id, runner)?;
     let explicitly_selected = metadata.and_then(|metadata| metadata.source_branch.as_deref());
     let source_ref = if let Some(source) = explicitly_selected {
         source.to_owned()
     } else if publication_mode == PublicationMode::AutoPublish {
-        publication::default_branch(repo, runner)?
+        publication::default_branch(&checkout, runner)?
     } else {
-        runner.git(repo, &["symbolic-ref", "--short", "HEAD"])?
+        runner.git(&checkout, &["symbolic-ref", "--short", "HEAD"])?
     };
     anyhow::ensure!(
         !source_ref.is_empty(),
@@ -77,7 +78,7 @@ pub(super) fn resolve(request: Request<'_>) -> anyhow::Result<TaskSource> {
     let local_ref = format!("refs/heads/{source_ref}");
     let local_commit = runner
         .git(
-            repo,
+            &checkout,
             &["rev-parse", "--verify", &format!("{local_ref}^{{commit}}")],
         )
         .ok();
@@ -89,13 +90,13 @@ pub(super) fn resolve(request: Request<'_>) -> anyhow::Result<TaskSource> {
     };
     let pinned_source = metadata.and_then(|metadata| metadata.source_sha.as_deref());
     let (source_commit, base_commit) = if let Some(source_sha) = pinned_source {
-        resolve_pinned_source(&cache, repo, source_sha, runner).with_context(|| {
+        resolve_pinned_source(&cache, &checkout, source_sha, runner).with_context(|| {
             format!("Recorded source commit {source_sha} in code repository '{repository_id}'")
         })?
     } else {
         resolve_source_head(SourceHeadRequest {
             cache: &cache,
-            repo,
+            repo: &checkout,
             dir,
             ticket,
             source_ref: &source_ref,
@@ -148,6 +149,10 @@ pub(super) fn resume_from_plan(
         "Saved task source reference does not match its reconciliation plan"
     );
     anyhow::ensure!(
+        task_repository_id(metadata)? == saved.repository_id,
+        "Task repository intent changed while its starting-point reconciliation was being prepared"
+    );
+    anyhow::ensure!(
         metadata
             .and_then(|metadata| metadata.source_branch.as_deref())
             .is_none_or(|source| source == saved.source_ref)
@@ -158,8 +163,10 @@ pub(super) fn resume_from_plan(
     );
     let cache_path =
         crate::core::implementation::repository_cache::cache_path(&saved.repository_identity)?;
+    let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
+    let checkout = manifest.target(planning_store, repo, &saved.repository_id)?;
     let cache = RepositoryCache::open_at(
-        repo,
+        &checkout,
         planning_store,
         &saved.repository_id,
         Some(&cache_path),

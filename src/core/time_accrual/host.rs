@@ -48,27 +48,19 @@ fn identifier(value: &str, fallback: &str) -> String {
     }
 }
 
-/// Lexical-or-canonical equality: manifest targets are often recorded
-/// relative to the planning root, while app paths arrive absolute.
-fn same_place(a: &Path, b: &Path) -> bool {
-    a == b || a.canonicalize().ok().as_deref() == b.canonicalize().ok().as_deref()
-}
-
 /// Stable id of the manifest entry rooted at `root`; `"root"` when none
 /// matches (the single-repository default).
 pub fn root_repo_id(
-    workspace_id: uuid::Uuid,
-    root: &Path,
+    _workspace_id: uuid::Uuid,
+    _root: &Path,
     manifest: &crate::core::project_repos::ProjectManifest,
 ) -> String {
-    for entry in &manifest.repositories {
-        if let Ok(Some(target)) = manifest.target_if_available(workspace_id, root, &entry.id)
-            && same_place(root, &target)
-        {
-            return entry.id.clone();
-        }
-    }
-    "root".to_owned()
+    manifest
+        .repositories
+        .iter()
+        .find(|entry| entry.id == "root")
+        .map(|entry| entry.id.clone())
+        .unwrap_or_else(|| "root".to_owned())
 }
 
 /// Activates metering for one connected project, replacing any previously

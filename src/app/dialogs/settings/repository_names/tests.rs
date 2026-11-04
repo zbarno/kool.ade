@@ -188,6 +188,67 @@ fn settings_save_persists_trimmed_repository_name_locally_without_git_commit() {
 }
 
 #[test]
+// Production boundary: exercises the Project Settings apply path that writes
+// repository registration and checkout mapping together. The core store test
+// alone cannot prove dialog state reaches the transaction. Uses local Git and
+// a temporary repository only; setup cost is low.
+fn settings_registers_a_secondary_repository_only_in_private_storage() {
+    let _shield = crate::core::gitops::test_support::shield("secondary-repository-settings");
+    let root = fixture();
+    let api = root.with_file_name(format!(
+        "{}-api",
+        root.file_name().unwrap().to_string_lossy()
+    ));
+    std::fs::create_dir_all(&api).unwrap();
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(&api)
+            .status()
+            .unwrap()
+    };
+    assert!(git(&["init", "-q", "-b", "main"]).success());
+    assert!(
+        git(&[
+            "remote",
+            "add",
+            "origin",
+            "https://example.test/team/api.git",
+        ])
+        .success()
+    );
+    let mut project = test_support::project_from(&root);
+    let initial_head = git_head(&root);
+    let mut dialog = DlgProjectSettings::from_project(&project);
+    dialog.new_repository_id = "api".into();
+    dialog.new_repository_role = "Backend API".into();
+    dialog.new_repository_remote = "https://example.test/team/api.git".into();
+    dialog.new_repository_checkout = Some(api.clone());
+    dialog.register_repository_requested = true;
+
+    assert!(dialog.apply(&mut project).unwrap().is_some());
+    let manifest = ProjectManifest::load(&project.state.planning_store).unwrap();
+    assert!(manifest.repositories.iter().any(|repo| repo.id == "api"));
+    assert_eq!(
+        manifest
+            .target(&project.state.planning_store, &root, "api")
+            .unwrap(),
+        api.canonicalize().unwrap()
+    );
+    assert_eq!(git_head(&root), initial_head);
+    let status = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert!(status.status.success());
+    assert!(status.stdout.is_empty());
+    test_support::remove_planning_store_for(&root);
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(api);
+}
+
+#[test]
 fn project_harness_route_is_saved_locally_and_restored_without_git_commit() {
     let _shield = crate::core::gitops::test_support::shield("project-harness-route-save");
     let root = fixture();

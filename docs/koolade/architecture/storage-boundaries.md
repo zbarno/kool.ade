@@ -24,9 +24,16 @@ to recover safely across crashes and competing local workers. None of this
 state is tracked by Git or synchronized to another installation.
 
 Each installation can open the same code repository and read the same merged
-specifications while keeping independent task boards and histories. A
-multi-code-repository workspace has one explicitly selected primary repository
-for shared published specifications; task targets remain separately identified.
+specifications while keeping independent task boards and histories. The
+connected `root` repository remains the stable primary for published specs;
+changing a task target or selecting a secondary checkout never changes it.
+Secondary repository identities and remotes are private workspace settings,
+and each installation explicitly associates them with a local checkout. The
+association is revision-fenced and checks the checkout's canonical Git root
+and `origin`. TaskIntent repository IDs and source/destination branches select
+the target; execution still uses application-owned isolated clones. Local
+checkout paths are never committed to source Git, and decomposition does not
+clone or mutate a selected checkout.
 
 ## Repository content is untrusted
 

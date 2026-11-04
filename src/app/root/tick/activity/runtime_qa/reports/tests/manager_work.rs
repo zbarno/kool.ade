@@ -131,7 +131,7 @@ fn persisted_failed_report_records_lifecycle_and_manager_repair_work() {
             &planning
                 .root
                 .join(crate::artifacts::planning_store::paths::PROJECT_MANIFEST),
-            br#"{"repositories":[]}"#,
+            br#"{"repositories":[{"id":"root","role":"Primary code","remote":""}]}"#,
         )
         .unwrap();
     let state = crate::core::state::PlannerState::load_with_store(root.path(), &planning).unwrap();

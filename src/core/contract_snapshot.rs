@@ -119,11 +119,10 @@ pub fn freeze(state: &PlannerState) -> anyhow::Result<Option<BatchContract>> {
     );
     let mut repository_bases = BTreeMap::new();
     for repository in &state.repositories.repositories {
-        let checkout = state.repositories.target(
-            state.planning_store.project_id,
-            &state.repo_root,
-            &repository.id,
-        )?;
+        let checkout =
+            state
+                .repositories
+                .target(&state.planning_store, &state.repo_root, &repository.id)?;
         let output = std::process::Command::new("git")
             .args(["rev-parse", "HEAD"])
             .current_dir(checkout)

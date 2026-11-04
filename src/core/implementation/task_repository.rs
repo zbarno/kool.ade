@@ -61,8 +61,10 @@ pub(super) fn cache_for_state(
         .repository_cache
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("Saved repository cache path is missing"))?;
+    let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
+    let checkout = manifest.target(planning_store, repo, repository_id)?;
     let cache = RepositoryCache::open_at(
-        repo,
+        &checkout,
         planning_store,
         repository_id,
         Some(cache_path),

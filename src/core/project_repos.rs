@@ -6,8 +6,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod checkouts;
 mod names;
 mod save;
+pub use checkouts::{
+    RepositoryCheckoutMapV1, RepositoryCheckoutRegistration, connect_checkout,
+    register_repository_checkout,
+};
 pub use names::{display_labels, normalize_display_name};
 pub use save::{save_display_names, save_display_names_expected};
 
@@ -92,6 +97,14 @@ impl ProjectManifest {
     }
     pub fn validate(&self) -> anyhow::Result<()> {
         let mut ids = HashSet::new();
+        anyhow::ensure!(
+            self.repositories
+                .iter()
+                .filter(|repository| repository.id == "root")
+                .count()
+                == 1,
+            "Repository manifest must contain exactly one stable primary repository with ID root"
+        );
         for repo in &self.repositories {
             if let Some(name) = &repo.display_name {
                 anyhow::ensure!(
@@ -117,17 +130,17 @@ impl ProjectManifest {
     }
     pub fn target(
         &self,
-        workspace_id: uuid::Uuid,
+        planning_store: &crate::artifacts::planning_store::PlanningStore,
         code_root: &Path,
         id: &str,
     ) -> anyhow::Result<PathBuf> {
-        self.target_if_available(workspace_id, code_root, id)?
+        self.target_if_available(planning_store, code_root, id)?
             .ok_or_else(|| anyhow::anyhow!("No local checkout mapped for {id}"))
     }
 
     pub fn target_if_available(
         &self,
-        _workspace_id: uuid::Uuid,
+        planning_store: &crate::artifacts::planning_store::PlanningStore,
         code_root: &Path,
         id: &str,
     ) -> anyhow::Result<Option<PathBuf>> {
@@ -141,7 +154,33 @@ impl ProjectManifest {
         if id == "root" {
             return Ok(Some(code_root.to_path_buf()));
         }
-        Ok(None)
+        let Some(path) = RepositoryCheckoutMapV1::load(planning_store)?
+            .checkouts
+            .get(id)
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        let canonical = path.canonicalize()?;
+        anyhow::ensure!(
+            crate::core::gitops::worktree_root(&canonical).as_deref() == Some(canonical.as_path()),
+            "Mapped checkout for {id} is not a Git worktree root"
+        );
+        anyhow::ensure!(
+            canonical != code_root.canonicalize()?,
+            "Secondary repository {id} cannot alias the primary code repository"
+        );
+        let repository = self.repositories.iter().find(|repo| repo.id == id).unwrap();
+        anyhow::ensure!(
+            !repository.remote.is_empty(),
+            "Repository {id} has no configured remote"
+        );
+        anyhow::ensure!(
+            crate::core::gitops::origin_url(&canonical).as_deref()
+                == Some(repository.remote.as_str()),
+            "Mapped checkout origin does not match the configured remote for {id}"
+        );
+        Ok(Some(canonical))
     }
 }
 
@@ -157,10 +196,17 @@ pub(crate) fn portable_remote(remote: &str) -> bool {
         return false;
     }
     if let Some((scheme, address)) = remote.split_once("://") {
-        return matches!(
-            scheme.to_ascii_lowercase().as_str(),
-            "http" | "https" | "ssh" | "git"
-        ) && !address.is_empty();
+        let authority = address.split(['/', '?', '#']).next().unwrap_or_default();
+        let scheme = scheme.to_ascii_lowercase();
+        let safe_user = authority
+            .split_once('@')
+            .is_none_or(|(user, _)| scheme == "ssh" && user == "git");
+        return authority.matches('@').count() <= 1
+            && safe_user
+            && !address.contains('?')
+            && !address.contains('#')
+            && matches!(scheme.as_str(), "http" | "https" | "ssh" | "git")
+            && !address.is_empty();
     }
     let (host, path) = if remote.starts_with('[') {
         let Some((host, path)) = remote.rsplit_once("]:") else {
@@ -173,7 +219,13 @@ pub(crate) fn portable_remote(remote: &str) -> bool {
         };
         (host, path)
     };
-    !host.is_empty() && !host.contains('/') && !host.starts_with('.') && !path.is_empty()
+    !host.is_empty()
+        && !host.contains('/')
+        && !host.starts_with('.')
+        && !path.is_empty()
+        && host.matches('@').count() <= 1
+        && host.split_once('@').is_none_or(|(user, _)| user == "git")
+        && !path.contains('@')
 }
 
 fn is_remote_helper(remote: &str) -> bool {
