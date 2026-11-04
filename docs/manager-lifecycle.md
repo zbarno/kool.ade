@@ -1,6 +1,9 @@
 # Man.ager lifecycle contract
 
-## Implementation status (2026-10-23)
+> Historical lifecycle implementation notes. For the current storage
+> authority and publication contract, see the [greenfield storage boundary](koolade/architecture/storage-boundaries.md).
+
+## Historical implementation status (2026-10-23)
 
 The durable event-driven planning, reviewer, living-spec and parent/subtask
 contracts are implemented, as are the Board and Task Details lifecycle
@@ -17,8 +20,8 @@ frozen-scope PR publication work is in open PR #288 for #164, not yet on
 `LifecycleStore` is the durable application-owned state machine for the
 feature-plan and implementation pipeline. Manager and worker output supplies
 proposals and evidence; Rust validates every transition before persisting it
-to the planning repository. Some Task Details flows project persisted
-lifecycle records, while other screens and legacy planning paths still use
+to the private local operational store. Some Task Details flows project
+persisted lifecycle records, while other screens and earlier planning paths use
 their existing models. This page describes the typed lifecycle domain and
 store contract; it does not imply that every application path is integrated.
 Freeform specification chat remains separate from per-item work.
@@ -37,8 +40,8 @@ Freeform specification chat remains separate from per-item work.
 
 New tasks can be recorded only after their feature reaches `Executing`, and the
 task must reference the same approved plan hash. Feature and task snapshots are
-per-record files in the planning repository's `state/lifecycle_*` collections.
-They use the existing planning-store transaction and revision-fencing layer,
+per-record files in the local store's `state/lifecycle_*` collections. They
+use the transactional local-store and revision-fencing layer,
 while avoiding collisions with canonical workflow records (`state/workflow/`),
 task state (`state/tasks/`), and board work records (`state/work/`). Each
 transition writes an immutable event record and advances the snapshot atomically.
@@ -56,8 +59,8 @@ Publication authorization is bound to the task's implementation hash and the
 explicit create-PR user action. Only after these checks pass does replay restore
 missing snapshots, one revision at a time through revision-fenced writes.
 Conflicting or malformed snapshots are reported rather than overwritten. Older
-version-1 histories and version-2 PR histories remain readable from their
-snapshots but cannot restore projections whose original state was not recorded.
+Older snapshots and incomplete event histories do not define the greenfield
+store format and are not imported during cutover.
 
 ## Task transitions
 
@@ -128,7 +131,7 @@ live_reviewer_detects_seeded_overengineering_and_unrelated_changes` and
 requires the returned verdict to identify both categories. These integrations
 are not yet a single end-to-end lifecycle coordinator across
 all application paths; legacy feature and task workflows remain. The transition store writes
-each snapshot and event in the same revision-checked planning-store
+each snapshot and event in the same revision-checked local-store
 transaction. Implementation `Done` is separate from PR opening and merging.
 PR publication requires its own authorization and records its state
 independently.

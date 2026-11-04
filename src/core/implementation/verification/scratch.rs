@@ -21,7 +21,7 @@ impl ReportCheckClone {
             artifact_dir,
         )?;
         let source = &state.task_repository;
-        let key = task_repository::allocation_key(state);
+        let key = task_repository::allocation_key(state)?;
         let nonce = chrono::Utc::now()
             .timestamp_nanos_opt()
             .unwrap_or_default()

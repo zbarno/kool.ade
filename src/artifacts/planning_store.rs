@@ -1,13 +1,8 @@
-//! Explicit owner for planning artifacts.
+//! Installation-local store for operational project data and private drafts.
 //!
-//! A [`PlanningStore`] is always the standalone Git repository that holds a
-//! project's planning state. Planning state never lives inside a code
-//! checkout. See `docs/planning-repository-v1.md`.
-#[cfg(test)]
-use std::{
-    collections::HashSet,
-    sync::{OnceLock, RwLock},
-};
+//! Published product, feature, and architecture documents are read from the
+//! primary code repository by the pinned published-spec service. This store
+//! remains outside every Git repository and is never synchronized.
 use std::{
     fmt, io,
     path::{Path, PathBuf},
@@ -27,12 +22,9 @@ pub use records::RecordRevisionCheck;
 pub(crate) use records::validate_record_revisions as validate_record_changes;
 pub use root::PlanningRoot;
 
-pub(crate) type RecordChangePlan = (Vec<(String, Vec<u8>)>, Vec<RecordRevisionCheck>, bool);
+pub(crate) type RecordChangePlan = (Vec<(String, Vec<u8>)>, Vec<RecordRevisionCheck>);
 
-/// Local-only slots: private state (MCP operator config, implementation
-/// journal, time ledger) that must never enter the shared planning-store
-/// sync. Defined ONCE so the store I/O fence and the transaction fence
-/// cannot drift apart.
+/// Private records managed by their own bounded local-storage services.
 pub(crate) fn is_local_only(relative: &Path) -> bool {
     relative == Path::new("config/mcp.json")
         || relative.starts_with("implementation")
@@ -42,20 +34,30 @@ pub(crate) fn is_local_only(relative: &Path) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoreMode {
     ManagedLocal,
-    ManagedShared,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct PlanningStore {
     pub project_id: uuid::Uuid,
     pub root: PathBuf,
     pub mode: StoreMode,
-    #[cfg(test)]
-    pub(crate) revision_code_root_fixture: bool,
+    /// Primary code repository used only for pinned published-document reads.
+    pub published_repository_root: Option<PathBuf>,
+    /// Optional immutable revision already selected for this loaded project.
+    pub published_spec_pin: Option<crate::core::published_specs::PublishedSpecPin>,
 }
 
-#[cfg(test)]
-static CODE_ROOT_FIXTURES: OnceLock<RwLock<HashSet<PathBuf>>> = OnceLock::new();
+impl PartialEq for PlanningStore {
+    fn eq(&self, other: &Self) -> bool {
+        self.project_id == other.project_id
+            && self.root == other.root
+            && self.mode == other.mode
+            && self.published_repository_root == other.published_repository_root
+            && self.published_spec_pin == other.published_spec_pin
+    }
+}
+
+impl Eq for PlanningStore {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreFile {
@@ -134,30 +136,29 @@ impl PlanningStore {
         } else {
             std::fs::canonicalize(&root).unwrap_or(root)
         };
-        #[cfg(test)]
-        let revision_code_root_fixture = is_code_root_fixture(&root);
         Self {
             project_id,
             root,
             mode,
-            #[cfg(test)]
-            revision_code_root_fixture,
+            published_repository_root: None,
+            published_spec_pin: None,
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn for_code_root_fixture(
+    pub fn for_code_repository(
         project_id: uuid::Uuid,
         root: impl Into<PathBuf>,
-        mode: StoreMode,
+        code_repository: impl Into<PathBuf>,
     ) -> Self {
-        let mut store = Self::new(project_id, root, mode);
-        CODE_ROOT_FIXTURES
-            .get_or_init(Default::default)
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(store.root.clone());
-        store.revision_code_root_fixture = true;
+        let mut store = Self::new(project_id, root, StoreMode::ManagedLocal);
+        store.published_repository_root = Some(code_repository.into());
+        #[cfg(test)]
+        {
+            crate::persistence::dependency_authorization::identity::register_test_local_project(
+                &store.root,
+                &project_id.hyphenated().to_string(),
+            );
+        }
         store
     }
 
@@ -165,14 +166,13 @@ impl PlanningStore {
         PlanningLayout::for_store(self)
     }
 
-    /// Git root for checkpointing planning writes.
-    pub fn git_root(&self) -> PathBuf {
+    /// Root of this installation-local operational store.
+    pub fn local_root(&self) -> PathBuf {
         self.root.clone()
     }
 
-    /// Convert a store-relative path to the path staged by the store's Git
-    /// repository.
-    pub fn git_path(&self, relative: &str) -> String {
+    /// Preserve a validated store-relative path in transaction plans.
+    pub fn relative_path(&self, relative: &str) -> String {
         relative.to_owned()
     }
 
@@ -208,7 +208,7 @@ impl PlanningStore {
     }
 
     /// Combine a store-wide snapshot fence with record-specific checks for a
-    /// transaction that also changes legacy singleton planning artifacts.
+    /// transaction that changes singleton records alongside independent ones.
     pub fn transaction_with_revision_and_record_revisions(
         &self,
         changes: &[(String, Vec<u8>)],
@@ -286,13 +286,4 @@ impl PlanningStore {
         self.validate_root().map_err(E::from)?;
         crate::artifacts::transaction::with_consistent_read(self, read)
     }
-}
-
-#[cfg(test)]
-fn is_code_root_fixture(root: &Path) -> bool {
-    CODE_ROOT_FIXTURES
-        .get_or_init(Default::default)
-        .read()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .contains(root)
 }

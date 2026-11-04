@@ -142,7 +142,7 @@ impl KooladeApp {
         {
             turn.request_cancel();
         }
-        if let Err(error) = project.queue.save(&project.state.repo_root) {
+        if let Err(error) = project.queue.save(&project.state.planning_store.root) {
             self.toasts.warning(format!(
                 "Work is cancelled, but its queue checkpoint could not be saved: {error}"
             ));
@@ -160,14 +160,16 @@ impl KooladeApp {
             };
             project.queue.pause_task_for_resume(ticket);
             if project.queue_lock.is_none() {
-                match crate::core::implementation_queue::Queue::acquire(&project.state.repo_root) {
+                match crate::core::implementation_queue::Queue::acquire(
+                    &project.state.planning_store.root,
+                ) {
                     Ok(lock) => project.queue_lock = Some(lock),
                     Err(error) => persistence_error = Some(error.to_string()),
                 }
             }
             controller.request_cancel();
             if project.queue_lock.is_some()
-                && let Err(error) = project.queue.save(&project.state.repo_root)
+                && let Err(error) = project.queue.save(&project.state.planning_store.root)
             {
                 persistence_error = Some(error.to_string());
             }

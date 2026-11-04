@@ -126,12 +126,12 @@ impl KooladeApp {
                 state,
                 receipt,
                 normalized,
-                commit_result,
+                save_result,
                 ..
             } => {
                 let previous_batches = project.state.workflow.task_batches.len();
                 let previous_state = project.state.clone();
-                // Another worker may have committed since this outcome was
+                // Another worker may have saved since this outcome was
                 // queued. Adopt current disk truth, never an older snapshot.
                 project.state = crate::core::state::PlannerState::load_with_store(
                     &state.repo_root,
@@ -200,16 +200,6 @@ impl KooladeApp {
                         normalized.next_question_id.clone(),
                     )]
                 };
-                if !receipt.synthesized_open_items.is_empty() {
-                    chat.push(ChatMessage::new(
-                        ChatRole::System,
-                        format!(
-                            "Raised ownership gap(s): {}",
-                            receipt.synthesized_open_items.join(", ")
-                        ),
-                        None,
-                    ));
-                }
                 chat.extend(
                     normalized
                         .warnings
@@ -247,15 +237,16 @@ impl KooladeApp {
                 }
                 project.refresh_git();
                 self.refresh_derived(project);
-                match &commit_result {
-                    Ok(sha) => self.toasts.success(format!(
-                        "Checkpoint {} · {}",
-                        sha.chars().take(7).collect::<String>(),
-                        receipt.commit_message
+                match &save_result {
+                    Ok(revision) => self.toasts.success(format!(
+                        "Saved locally · {} · {}",
+                        revision.chars().take(7).collect::<String>(),
+                        receipt.summary
                     )),
-                    Err(e) => self
-                        .toasts
-                        .warning(format!("Applied; git checkpoint failed: {}", e.headline())),
+                    Err(e) => self.toasts.warning(format!(
+                        "Applied; local state could not be reread: {}",
+                        e.headline()
+                    )),
                 }
             }
             TurnOutcome::Discussion { .. } => {

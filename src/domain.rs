@@ -7,7 +7,6 @@ pub mod chatlog;
 pub mod decision;
 pub mod feature_plan;
 pub mod item;
-pub mod stakeholder;
 pub mod user;
 
 pub use artifact_identity::ArtifactIdentity;
@@ -16,5 +15,4 @@ pub use chatlog::*;
 pub use decision::*;
 pub use feature_plan::*;
 pub use item::*;
-pub use stakeholder::*;
 pub use user::*;

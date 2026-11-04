@@ -2,14 +2,15 @@ use super::*;
 
 #[test]
 fn all_role_templates_are_versioned_and_hashes_are_stable() {
+    assert_eq!(PromptRole::Planner.id(), "planner/v6");
+    assert_eq!(
+        PromptRole::PlannerConversationV6.id(),
+        "planner_conversation/v6"
+    );
     let roles = [
         PromptRole::Manager,
-        PromptRole::ManagerV7,
-        PromptRole::ManagerV6,
-        PromptRole::ManagerV5,
-        PromptRole::ManagerV4,
         PromptRole::Planner,
-        PromptRole::PlannerConversationV5,
+        PromptRole::PlannerConversationV6,
         PromptRole::PlanReviewer,
         PromptRole::PlanReviewerV1,
         PromptRole::Decomposer,
@@ -53,38 +54,13 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
             "b845b50de27043e90e20825ff59ed35cac004e524e18d58f64273802818743ca",
         ),
         (
-            PromptRole::ManagerV7,
-            "879d8c647d8b7e49b8f522ffe248c039481dd80ff6d5f1744a68c733b469d921",
-            "b845b50de27043e90e20825ff59ed35cac004e524e18d58f64273802818743ca",
-        ),
-        (
-            PromptRole::ManagerV6,
-            "468e2674dd902540b54fe27ef2b9a59355d1f1d70d4427d7431c26de24d22193",
-            "8663ac074e52dd8160ca00b9cb9c195c494e17f237cc34a8e7dae1ed847ee3c5",
-        ),
-        (
-            PromptRole::ManagerV5,
-            "af69db79f5331908352438b63d50d5b5bb196642cfc61a41c44ddd000bf910a2",
-            "6d51474bd11a1c73bbfb27bfc2e4772a6d4577dbca5080f75b1cdd14f74bcda2",
-        ),
-        (
-            PromptRole::ManagerV4,
-            "49b6ef5b567c537d92b16933105b699dd38a846caf013973a649682d8d0c0a57",
-            "8f5765813a134806e7af2ac19bcd4af7cdeb814d2ab63b2b63ae26ef0c0a3120",
-        ),
-        (
             PromptRole::Planner,
-            "2f754aeacabeeb8b9a9c5ee7f62fc530d55a4585173caadcc3aa45eb6de48b12",
+            "7590c196cab433c3d61fa7750285071367b4b3d5baadc5d9740321b19d3e8a4a",
             "a314b43f01133cc3f580d68776795502e14e6a099992c4c1a38abab2a14f584d",
         ),
         (
-            PromptRole::PlannerConversation,
-            "3c7bc74a492c8bbf68458a6b143dab9dc0b45e75c59af68bed7831316d48560b",
-            "98e0693846529ebc50343e77dccccd2b8aca76421272101f657c954dfe453df8",
-        ),
-        (
-            PromptRole::PlannerConversationV5,
-            "3c7bc74a492c8bbf68458a6b143dab9dc0b45e75c59af68bed7831316d48560b",
+            PromptRole::PlannerConversationV6,
+            "700d7c1662da977329dffebca1c1e3d29f08af6938f5194ca47a76d659cfa338",
             "98e0693846529ebc50343e77dccccd2b8aca76421272101f657c954dfe453df8",
         ),
         (
@@ -173,13 +149,8 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
         "manager's trusted operational policy changed without a version bump"
     );
     assert_eq!(
-        template_hash(PromptRole::PlannerConversation.policy()),
-        "be538113ae370de50f98c1e58ac02801ab1c5f05988cef17b26f0c8a77120a88",
-        "planner's trusted operational policy changed without a version bump"
-    );
-    assert_eq!(
-        template_hash(PromptRole::PlannerConversationV5.policy()),
-        "0741dc18acf1044e2b0b70a916b694facdf443fc94da3066e91bd3cf3d5d19e4",
+        template_hash(PromptRole::PlannerConversationV6.policy()),
+        "aed16e82f1d61b2a05be2f80b59cd60fd6aa31bd3ad0cae3f7f8991a196fc4a8",
         "planner conversation policy changed without a version bump"
     );
     let generic_policy_hash = "7d883b0198159f09d1f87d2f3ca4e3c09683d06617eb6082aa22e5147b4e871a";

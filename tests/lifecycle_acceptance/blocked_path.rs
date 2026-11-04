@@ -31,7 +31,7 @@ fn cancellation_persists_after_store_reopen_without_spec_or_pr_work() {
         .unwrap();
     assert_eq!(cancelled.phase, TaskPhase::Cancelled);
 
-    let reopened_store = PlanningStore::new(store.project_id, store.root.clone(), store.mode);
+    let reopened_store = reopen_store(&store);
     let reopened = LifecycleStore::new(&reopened_store);
     let persisted = reopened.load_task(&task_uid).unwrap();
     assert_eq!(persisted.phase, TaskPhase::Cancelled);
@@ -87,7 +87,7 @@ fn ambiguous_goal_replays_to_reviewed_dag_and_blocks_without_real_qa() {
     let approved_hash = feature.approved_plan_sha256.unwrap();
     let (parent_uid, mut parent) =
         task_review::reviewed_task_after_repair(&store, &feature_uid, &approved_hash);
-    let reopened_store = PlanningStore::new(store.project_id, store.root.clone(), store.mode);
+    let reopened_store = reopen_store(&store);
     let reopened = LifecycleStore::new(&reopened_store);
     // No live browser/desktop evidence exists in this fixture. Persist an
     // explicit blocker and prove store reopen does not synthesize QA/spec
@@ -103,7 +103,7 @@ fn ambiguous_goal_replays_to_reviewed_dag_and_blocks_without_real_qa() {
             },
         )
         .unwrap();
-    let final_store = PlanningStore::new(store.project_id, store.root.clone(), store.mode);
+    let final_store = reopen_store(&store);
     let final_lifecycle = LifecycleStore::new(&final_store);
     let persisted = final_lifecycle.load_task(&parent_uid).unwrap();
     assert_eq!(persisted.phase, TaskPhase::AwaitingRuntimeQa);

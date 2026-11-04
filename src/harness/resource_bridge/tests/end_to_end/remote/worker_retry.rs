@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     core::task_claim::{
-        ClaimExecutionAttemptStatus as AttemptStatus, ClaimLease, ClaimLeaseHandle,
+        ClaimExecutionAttemptStatus as AttemptStatus, ClaimLeaseHandle, ClaimRequest,
     },
     execution::{
         contract::{ResourceBudgetV1, TargetPreference, WorkspaceRef},
@@ -28,12 +28,12 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     }
     report_stage("started");
     // Production boundary: the actual auto scheduler probes trusted workers, reserves capacity,
-    // pins the selected target, confirms a Git-backed claim loss after the worker process dies,
+    // pins the selected target, revokes the local execution attempt after the worker dies,
     // excludes that worker, and retries over authenticated SSH with rootless Docker. A unit
     // backend cannot prove this path composes with worker enrollment, host-key verification,
     // Docker staging, result fencing, and cleanup of a killed worker's labeled container.
     // Dependencies: rootless Docker CLI/daemon, sshd, and KOOLADE_TEST_WORKER_BINARY.
-    // Setup cost: two worker keys/configs, two handshakes per scheduler pass, a bare Git remote,
+    // Setup cost: two worker keys/configs, two handshakes per scheduler pass, a local task fence,
     // and a label-scoped Docker cleanup after worker loss.
     let worker_binary = std::env::var_os("KOOLADE_TEST_WORKER_BINARY")
         .map(std::path::PathBuf::from)
@@ -143,12 +143,14 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     let project_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let project_uid = uuid::Uuid::parse_str(&project_id).unwrap();
     let task_id = uuid::Uuid::new_v4().hyphenated().to_string();
-    let source_sha = super::planning_repositories::git_output(&repository, &["rev-parse", "HEAD"]);
-    let (_planning_remote, planning_a, _planning_b) =
-        super::planning_repositories::create(root.path());
-    let lease = ClaimLease::acquire(&planning_a, project_uid, &task_id, "web", &source_sha)
-        .unwrap()
-        .expect("the retry E2E must acquire a real Git-backed task claim");
+    let source_sha = git_output(&repository, &["rev-parse", "HEAD"]);
+    let lease = ClaimRequest::new_at(
+        root.path().join("operator-state"),
+        project_uid,
+        task_id.clone(),
+    )
+    .acquire()
+    .expect("the retry E2E must acquire a private local task fence");
     let claim = Arc::new(ClaimLeaseHandle::new(lease));
     let observed_statuses = Arc::new(Mutex::new(Vec::new()));
     let authorization = Arc::new(ObservedAuthorization {
@@ -277,7 +279,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
             .lock()
             .unwrap()
             .contains(&Some(AttemptStatus::ConfirmedLost)),
-        "the production scheduler must open the alternate target only after durable loss fencing"
+        "the production scheduler must open the alternate target only after local attempt fencing"
     );
     assert_eq!(
         claim.execution_attempt_for_test().unwrap().status,
@@ -287,4 +289,20 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     drop(retry_session);
     drop(sshd_a);
     drop(sshd_b);
+}
+
+fn git_output(root: &std::path::Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("launch git fixture command");
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }

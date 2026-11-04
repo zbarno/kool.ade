@@ -20,7 +20,6 @@ fn task(
         verified_result: None,
         attempts: Vec::new(),
         events: Vec::new(),
-        legacy_source_id: None,
         superseded_by: Vec::new(),
     }
 }

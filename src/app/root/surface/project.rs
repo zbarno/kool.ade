@@ -1,14 +1,6 @@
 macro_rules! project_surface_methods {
     () => {
-        fn planning_repository(&self) -> Option<crate::ui::PlanningRepositoryViewModel> {
-            self.planning_repository_view()
-        }
-
-        fn save_planning_remote(&mut self, remote: &str) -> Result<(), String> {
-            self.update_planning_remote(remote)
-        }
-
-        fn people_settings_draft(&self) -> Option<crate::app::dialogs::DlgSettings> {
+        fn local_user_settings_draft(&self) -> Option<crate::app::dialogs::DlgSettings> {
             match &self.screen {
                 Screen::Connected(project) => {
                     Some(crate::app::dialogs::DlgSettings::from_project(project))
@@ -17,15 +9,15 @@ macro_rules! project_surface_methods {
             }
         }
 
-        fn save_people_settings(
+        fn save_local_user_settings(
             &mut self,
             draft: &mut crate::app::dialogs::DlgSettings,
         ) -> Result<String, String> {
             let Screen::Connected(project) = &mut self.screen else {
-                return Err("Connect a workspace before editing its people settings.".into());
+                return Err("Connect a workspace before editing local identity settings.".into());
             };
             let sha = draft.apply(project).map_err(|error| error.detail())?;
-            (self.cached_user, self.synth) = Self::derive_caches(project);
+            self.cached_user = Self::derive_caches(project);
             self.toasts.success(format!("Saved · checkpoint {sha}"));
             Ok(sha)
         }
@@ -66,10 +58,6 @@ macro_rules! project_surface_methods {
 
         fn is_git_repo(&self) -> bool {
             matches!(&self.screen, Screen::Connected(project) if project.has_selected_code_repository())
-        }
-
-        fn registered_repositories(&self) -> Vec<crate::ui::RepositoryChoice> {
-            repository_switcher::choices(&self.screen)
         }
 
         fn git_branch(&self) -> &str {

@@ -21,7 +21,7 @@ impl KooladeApp {
                 for (ticket, activity) in result.activity {
                     p.activity.tasks.entry(ticket).or_insert(activity);
                 }
-                (self.cached_user, self.synth) = Self::derive_caches(p);
+                self.cached_user = Self::derive_caches(p);
             }
             self.last_git_refresh = Instant::now();
         }
@@ -31,6 +31,7 @@ impl KooladeApp {
         {
             let repo = p.state.repo_root.clone();
             let planning_store = p.state.planning_store.clone();
+            let local_state_root = planning_store.root.clone();
             let workflow = p.state.workflow.clone();
             let previous_implementations = p.implementation_states.clone();
             let ctx = ctx.clone();
@@ -38,13 +39,13 @@ impl KooladeApp {
                 let git = crate::core::gitops::snapshot(&repo);
                 let documents = crate::artifacts::task_docs::load_board(&planning_store, &workflow);
                 let implementations = crate::core::implementation::load_board_states_with_store(
-                    &repo,
+                    &local_state_root,
                     &planning_store,
                 );
                 let activity = implementations
                     .keys()
                     .filter_map(|ticket| {
-                        crate::core::implementation::load_activity(&repo, ticket)
+                        crate::core::implementation::load_activity(&local_state_root, ticket)
                             .map(|p| (ticket.clone(), p))
                     })
                     .collect();

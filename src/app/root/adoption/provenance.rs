@@ -44,20 +44,6 @@ impl KooladeApp {
                     self.toasts.warning(format!(
                         "Plan author provenance for {feature_id} could not be recorded: {error}"
                     ));
-                } else {
-                    let path = format!(
-                        "state/lifecycle_plan_authors/{}.json",
-                        provenance.feature_uid
-                    );
-                    if let Err(error) = crate::core::gitops::commit(
-                        &store.git_root(),
-                        &format!("planner: record plan author provenance {feature_id}"),
-                        &[store.git_path(&path)],
-                    ) {
-                        self.toasts.warning(format!(
-                                "Plan author provenance for {feature_id} was saved but its Git checkpoint failed: {error}"
-                            ));
-                    }
                 }
             }
         }

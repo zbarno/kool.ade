@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::OpenItem;
 
 #[test]
 fn main_and_two_task_chats_accept_input_concurrently_and_cancel_independently() {
@@ -20,7 +21,6 @@ fn main_and_two_task_chats_accept_input_concurrently_and_cancel_independently() 
                 crate::domain::Priority::High,
                 crate::domain::ItemKind::Question,
                 "General".into(),
-                None,
                 format!("Question {id}?"),
                 "Planning".into(),
             ));
@@ -45,7 +45,12 @@ fn main_and_two_task_chats_accept_input_concurrently_and_cancel_independently() 
     };
     assert_eq!(p.task_turns.len(), 2);
     assert!(p.active_turn.is_some());
-    assert_eq!(crate::core::planning_work::load(&root).unwrap().len(), 1);
+    assert_eq!(
+        crate::core::planning_work::load(&p.state.planning_store)
+            .unwrap()
+            .len(),
+        1
+    );
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);

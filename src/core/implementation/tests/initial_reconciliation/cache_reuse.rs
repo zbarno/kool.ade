@@ -9,8 +9,11 @@ fn create_follow_up_ticket(sandbox: &Sandbox, path: &str) {
         "Follow-up implementation",
     )
     .unwrap();
-    fs::write(sandbox.repo.join(path), ticket).unwrap();
-    super::super::sandbox::seed_lifecycle_task(&sandbox.repo, path, ticket_text);
+    sandbox
+        .planning_store
+        .atomic_write(path, ticket.as_bytes())
+        .unwrap();
+    super::super::sandbox::seed_lifecycle_task(&sandbox.planning_store, path, ticket_text);
 }
 
 #[test]
@@ -18,9 +21,6 @@ fn verified_disjoint_baseline_is_reused_by_followup_tasks() {
     let sandbox = Sandbox::new();
     let second_ticket = "planning/tasks/feature/002-follow-up-ticket.md";
     create_follow_up_ticket(&sandbox, second_ticket);
-    sandbox.git(&sandbox.repo, &["add", second_ticket]);
-    sandbox.git(&sandbox.repo, &["commit", "-qm", "add follow-up ticket"]);
-    sandbox.git(&sandbox.repo, &["push", "-q", "origin", "main"]);
     sandbox.advance_remote();
     fs::write(sandbox.repo.join("local.txt"), "local change\n").unwrap();
     sandbox.git(&sandbox.repo, &["add", "local.txt"]);
@@ -88,9 +88,6 @@ fn fast_forward_hook_edits_are_not_accepted_as_a_cached_baseline() {
     let sandbox = Sandbox::new();
     let second_ticket = "planning/tasks/feature/002-follow-up-ticket.md";
     create_follow_up_ticket(&sandbox, second_ticket);
-    sandbox.git(&sandbox.repo, &["add", second_ticket]);
-    sandbox.git(&sandbox.repo, &["commit", "-qm", "add follow-up ticket"]);
-    sandbox.git(&sandbox.repo, &["push", "-q", "origin", "main"]);
     sandbox.advance_remote();
     fs::write(sandbox.repo.join("local.txt"), "local change\n").unwrap();
     sandbox.git(&sandbox.repo, &["add", "local.txt"]);
@@ -109,7 +106,7 @@ fn fast_forward_hook_edits_are_not_accepted_as_a_cached_baseline() {
         &first, &runner,
     )
     .unwrap();
-    let first_dir = state_dir(&sandbox.repo, &sandbox.ticket).unwrap();
+    let first_dir = state_dir(&sandbox.planning_store.root, &sandbox.ticket).unwrap();
     let plan = crate::core::implementation::initial_reconciliation::load_plan(&first_dir)
         .unwrap()
         .unwrap();
@@ -119,7 +116,7 @@ fn fast_forward_hook_edits_are_not_accepted_as_a_cached_baseline() {
         crate::core::implementation::key_for_ticket(second_ticket)
     );
     let task_repository = crate::core::implementation::task_repository::task_path(
-        &sandbox.repo,
+        &sandbox.planning_store.root,
         first.repository_id.as_deref().unwrap(),
         second_ticket,
     )
@@ -139,7 +136,9 @@ fn fast_forward_hook_edits_are_not_accepted_as_a_cached_baseline() {
     second.ticket = second_ticket.into();
     second.task_repository_allocation_key =
         Some(crate::core::implementation::key_for_ticket(second_ticket));
-    second.ticket_text = fs::read_to_string(sandbox.repo.join(second_ticket)).unwrap();
+    second.ticket_text = crate::artifacts::task_docs::visible_content(
+        &fs::read_to_string(sandbox.planning_store.root.join(second_ticket)).unwrap(),
+    );
     second.branch = branch;
     second.source_ref = Some(source_ref);
     second.source_commit = Some(plan.remote_commit.clone());

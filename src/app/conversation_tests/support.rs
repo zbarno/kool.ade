@@ -226,14 +226,8 @@ pub(super) fn persisted_len_helper(
                     .map(|uid| (item.conversation_key().to_owned(), uid.clone()))
             }),
     );
-    let legacy_migration_keys = p
-        .task_documents
-        .iter()
-        .filter(|doc| doc.identity.is_some())
-        .map(|doc| doc.path.clone())
-        .collect::<Vec<_>>();
     store
-        .bind_conversation_identities(&identities, &legacy_migration_keys)
+        .bind_conversation_identities(&identities)
         .expect("reloaded task histories use the board's stable identities");
     store.ensure_loaded(&p.chat_slug);
     store.messages["CLR-001"].len()

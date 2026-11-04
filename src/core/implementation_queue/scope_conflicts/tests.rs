@@ -7,12 +7,20 @@ fn task(number: usize, repository: &str, affected: Option<&str>) -> TaskDocument
     let scope = affected
         .map(|path| format!("\n## Affected files and components\n- `{path}`\n"))
         .unwrap_or_default();
+    let mut identity = crate::domain::ArtifactIdentity::new(
+        &format!("TASK-{number:03}"),
+        &format!("Task {number}"),
+    );
+    identity.uid = uuid::Uuid::from_u128(number as u128).to_string();
+    identity.parent_uid = Some(uuid::Uuid::from_u128(10_000).to_string());
+    let metadata = crate::artifacts::task_docs::TaskMetadata::new(&identity, repository, vec![])
+        .expect("valid fixture task metadata");
     TaskDocument {
         path: format!("tasks/{number:03}-task.md"),
         title: format!("Task {number}"),
         text: format!("# Task {number}\n\nRepository: {repository}{scope}"),
-        identity: None,
-        metadata: None,
+        identity: Some(identity),
+        metadata: Some(metadata),
         task_state: None,
 
         metadata_error: None,

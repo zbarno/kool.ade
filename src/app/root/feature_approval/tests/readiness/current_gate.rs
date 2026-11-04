@@ -12,7 +12,7 @@ fn changed_readiness_blocks_existing_confirmation_and_review() {
     let (mut app, root, _) = setup();
     record_test_plan_author(&mut app, "CHG-004");
     app.approve_feature_only("CHG-004");
-    record_test_plan_review(
+    record_test_plan_review_and_merge(
         &mut app,
         "CHG-004",
         crate::core::lifecycle::GateDecision::Approved,
@@ -87,7 +87,7 @@ fn pending_manager_contest_blocks_task_generation_actions_and_dispatch() {
     let (mut app, root, _) = setup();
     record_test_plan_author(&mut app, "CHG-004");
     app.approve_feature_only("CHG-004");
-    record_test_plan_review(
+    record_test_plan_review_and_merge(
         &mut app,
         "CHG-004",
         crate::core::lifecycle::GateDecision::Approved,

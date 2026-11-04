@@ -1,9 +1,11 @@
 //! Bounded, read-only SpecReconciler passes over exact reviewed task or feature state.
 mod feature_decision;
+mod initial_publication;
 use crate::app::session::Project;
 use crate::core::lifecycle::TaskRecord;
 use crate::harness::AiHarness;
 pub(crate) use feature_decision::decide_feature_delta;
+pub(crate) use initial_publication::publish_initial_product_specification;
 use sha2::Digest as _;
 use std::sync::{
     Arc,

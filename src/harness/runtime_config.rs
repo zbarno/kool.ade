@@ -21,10 +21,6 @@ pub(crate) struct Grant {
     pub files: Vec<String>,
 }
 
-pub(crate) fn paths(root: &Path) -> anyhow::Result<BTreeSet<String>> {
-    paths_with_source(root, None)
-}
-
 pub(crate) fn paths_with_source(
     root: &Path,
     runtime_source: Option<&Path>,

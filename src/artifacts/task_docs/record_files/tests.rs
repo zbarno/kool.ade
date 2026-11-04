@@ -9,14 +9,6 @@ fn fixture(name: &str, ids: &[&str]) -> (std::path::PathBuf, PlanningStore) {
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&root).unwrap();
-    assert!(
-        std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(&root)
-            .status()
-            .unwrap()
-            .success()
-    );
     let store = PlanningStore::new(
         uuid::Uuid::new_v4(),
         &root,
@@ -140,24 +132,5 @@ fn unrelated_feature_updates_coexist_and_same_feature_stale_update_is_rejected()
     assert!(error.to_string().contains("expected revision"));
     let final_state = crate::artifacts::task_docs::load_workflow(&store).unwrap();
     assert_eq!(final_state.approved_features["CHG-203"], "winner");
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
-fn legacy_workflow_migrates_to_records_and_keeps_recovery_source() {
-    let (root, store) = fixture("migration", &["CHG-205"]);
-    let legacy = serde_json::to_vec_pretty(&approvals(&["CHG-205"])).unwrap();
-    store.atomic_write(paths::WORKFLOW, &legacy).unwrap();
-    let loaded = crate::artifacts::task_docs::load_workflow(&store).unwrap();
-    crate::artifacts::task_docs::save_workflow(&store, &loaded).unwrap();
-
-    assert_eq!(store.read(paths::WORKFLOW).unwrap(), legacy);
-    assert_eq!(store.list_files(paths::WORKFLOW_RECORDS).unwrap().len(), 1);
-    assert_eq!(
-        crate::artifacts::task_docs::load_workflow(&store)
-            .unwrap()
-            .approved_features["CHG-205"],
-        "approved CHG-205"
-    );
     let _ = std::fs::remove_dir_all(root);
 }

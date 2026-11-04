@@ -8,16 +8,14 @@ fn auto_mode_verifies_and_stops_for_review_without_pushing_or_creating_pr() {
     let calls = Arc::new(AtomicUsize::new(0));
     let run = || {
         let (tx, _rx) = mpsc::channel();
-        run_with_options(
-            &s.repo,
-            &s.ticket,
+        s.run_options(
             &Fixture {
                 mode: "complete",
                 calls: calls.clone(),
             },
             Arc::new(AtomicBool::new(false)),
             tx,
-            s.gh.to_str().unwrap(),
+            true,
             true,
         )
     };
@@ -91,8 +89,9 @@ fn resumed_worker_receives_the_submitted_task_decision() {
     let s = Sandbox::new();
     let prompt = Arc::new(std::sync::Mutex::new(String::new()));
     let (tx, _rx) = mpsc::channel();
-    run_with_project_options(
-        &s.repo,
+    run_with_planning_store_options(
+        &s.planning_store,
+        &s.planning_store.root,
         &s.repo,
         &s.ticket,
         RunOptions {
@@ -125,19 +124,18 @@ fn auto_mode_starts_on_remote_when_local_history_diverged() {
     s.git(&s.repo, &["commit", "-qm", "local work"]);
     let local = s.git(&s.repo, &["rev-parse", "HEAD"]);
     let (tx, _rx) = mpsc::channel();
-    let result = run_with_options(
-        &s.repo,
-        &s.ticket,
-        &Fixture {
-            mode: "complete",
-            calls: Arc::new(AtomicUsize::new(0)),
-        },
-        Arc::new(AtomicBool::new(false)),
-        tx,
-        s.gh.to_str().unwrap(),
-        true,
-    )
-    .unwrap();
+    let result = s
+        .run_options(
+            &Fixture {
+                mode: "complete",
+                calls: Arc::new(AtomicUsize::new(0)),
+            },
+            Arc::new(AtomicBool::new(false)),
+            tx,
+            true,
+            true,
+        )
+        .unwrap();
     assert_eq!(result.status, ImplementationStatus::AwaitingApproval);
     assert_eq!(result.base_commit, remote);
     assert_eq!(
@@ -198,19 +196,18 @@ fn auto_mode_includes_remote_changes_that_arrive_during_implementation() {
     let s = Sandbox::new();
     let calls = Arc::new(AtomicUsize::new(0));
     let (tx, _rx) = mpsc::channel();
-    let result = run_with_options(
-        &s.repo,
-        &s.ticket,
-        &Advancing {
-            sandbox: &s,
-            calls: calls.clone(),
-        },
-        Arc::new(AtomicBool::new(false)),
-        tx,
-        s.gh.to_str().unwrap(),
-        true,
-    )
-    .unwrap();
+    let result = s
+        .run_options(
+            &Advancing {
+                sandbox: &s,
+                calls: calls.clone(),
+            },
+            Arc::new(AtomicBool::new(false)),
+            tx,
+            true,
+            true,
+        )
+        .unwrap();
     assert_eq!(result.status, ImplementationStatus::AwaitingApproval);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(

@@ -1,50 +1,16 @@
-//! Git-backed time ledger (F7, Scope 3 / AD-3): durable interval rows in a
-//! dedicated artifact slot in the separate planning repository.
+//! Private local time ledger with durable interval rows.
 //!
-//! Slot: `state/time-ledger.log`
-//! ([`crate::artifacts::layout::store::LEDGER`]). The file carries one
-//! header line ([`HEADER_LINE`]) followed by interval rows, one UTF-8 line
-//! each, `:`-separated with a stable field order:
+//! The store keeps one header line ([`HEADER_LINE`]) followed by interval
+//! rows, one UTF-8 line each, `:`-separated with a stable field order:
 //!
 //! ```text
 //! T:<repo_id>:<workspace_id>:<session_id>:<worker_pid|->:<start_epoch_s>:<end_epoch_s|->:<item_uid>:<feature_ref|->:<end_status>
 //! ```
 //!
-//! `<end_status>` is exactly one of `ended`, `interrupted-discard`,
-//! `interrupted-count`; absence is the single-token `-`. Text fields are
-//! non-empty printables with no `:`, `,`, or control characters; epochs and
-//! PIDs are unsigned ASCII decimals. Line parsing and torn-tail salvage live
-//! in the [`format`] submodule.
-//!
-//! # Count-vs-discard rule for interrupted intervals
-//! Rows reach disk only through [`crate::artifacts::atomic_write_bytes`]
-//! (temp + rename + dirsync), so a crash between write_all and rename leaves
-//! either the complete pre-crash file or the complete post-crash file. The
-//! torn-final-line handling in [`format`] is defense-in-depth for foreign or
-//! pre-atomic writers and implements one consistent policy:
-//!
-//! * Any terminated row failing strict validation is corruption: [`load`] and
-//!   [`append_row`] fail instead of guessing.
-//! * The single unterminated final fragment (no closing newline, including
-//!   stray-CR tails) is *salvaged*, never fatal: the longest cleanly decodable
-//!   field prefix is kept, damaged or missing fields neutralize, and the
-//!   status is forced to [`EndStatus::InterruptedDiscard`] — even when nine
-//!   fields visibly decode, because the missing terminator proves the write
-//!   stopped short. Billable sums MUST exclude `InterruptedDiscard` rows, so
-//!   an interrupted interval is always counted-or-discarded the same way and
-//!   can never be double-counted: at most one salvage row ever exists, and the
-//!   next successful [`append_row`] crystallizes it into a stable, strictly
-//!   valid discard row that reloads byte-identically.
-//! * `EndStatus::InterruptedCount` reserves the opposite policy (credit a
-//!   partial interval whose end instant is provable); v1 [`load`] never
-//!   synthesizes it.
-//!
-//! # Coarse git commit triggers (wired in F7 task 6, not here)
-//! Commit this ledger at coarse grain only — [`COARSE_COMMIT_TRIGGER_SET`] —
-//! and reuse the FR-3 scoped checkpoint helper verbatim when wiring:
-//! `crate::core::gitops::commit_planning_changes(cwd: &Path, message: &str,
-//! paths: &[String]) -> Result<String, AppError>`, which commits only the
-//! supplied paths under the shared repository lock.
+//! Text fields are non-empty printables with no `:`, `,`, or control
+//! characters; epochs and PIDs are unsigned ASCII decimals. Parsing and
+//! torn-tail handling live in the [`format`] submodule. Local atomic writes
+//! and validated records preserve crash recovery without Git commits.
 
 use std::fs;
 use std::path::{Path, PathBuf};

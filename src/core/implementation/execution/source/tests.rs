@@ -42,7 +42,7 @@ fn task_metadata_source_sha_keeps_the_task_on_its_recorded_commit() {
 
     let planning = PlanningStore::new(
         uuid::Uuid::nil(),
-        &repo,
+        temp.path().join("private-state"),
         crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let repository_manifest = crate::core::project_repos::ProjectManifest {
@@ -82,7 +82,6 @@ fn task_metadata_source_sha_keeps_the_task_on_its_recorded_commit() {
         repo: &repo,
         dir: &dir,
         ticket: "task.md",
-        text: "Pinned source fixture",
         metadata: Some(&metadata),
         publication_mode: PublicationMode::HoldForReview,
         runner: &runner,

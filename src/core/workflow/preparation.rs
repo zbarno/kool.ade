@@ -12,11 +12,7 @@ pub fn prepare(
         if !workflow.ready(state.planning_contract()) {
             return Err(vec!["Task generation requires approval of a ready, current specification. Continue the interview first.".into()]);
         }
-        if nt
-            .spec_markdown
-            .as_deref()
-            .is_some_and(|s| Some(s) != state.planning_contract())
-            || !nt.document_updates.is_empty()
+        if !nt.document_updates.is_empty()
             || !nt.added.is_empty()
             || !nt.updates.is_empty()
             || !nt.resolved.is_empty()
@@ -65,11 +61,11 @@ pub fn prepare(
             &declared,
             feature_id.as_deref(),
             &|id| {
-                crate::artifacts::product_docs::document_path(
+                crate::artifacts::product_docs::current_document(
                     &state.planning_store,
                     &format!("feature:{id}"),
                 )
-                .is_ok()
+                .is_ok_and(|document| document.is_some())
             },
             &state.planning_store,
         ) {
@@ -155,7 +151,6 @@ pub fn prepare(
                     None
                 };
                 let spec = updated_feature
-                    .or(nt.spec_markdown.as_deref())
                     .or(updated_product.as_deref())
                     .or(state.planning_contract())
                     .unwrap_or_default();

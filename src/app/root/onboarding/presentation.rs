@@ -44,17 +44,3 @@ pub(super) fn problem(ui: &mut egui::Ui, detail: Option<&str>) {
         ui.label(crate::error::redact_secrets(detail));
     });
 }
-
-pub(super) fn single_line(
-    ui: &mut egui::Ui,
-    value: &mut String,
-    label: egui::Id,
-) -> egui::Response {
-    ui.add(
-        egui::TextEdit::singleline(value)
-            .desired_width(f32::INFINITY)
-            .min_size(egui::vec2(0.0, 44.0))
-            .margin(egui::vec2(8.0, 12.0)),
-    )
-    .labelled_by(label)
-}

@@ -15,14 +15,11 @@ fn publication_runner(sandbox: &Sandbox) -> Runner {
 }
 
 fn align_manifest_remote(sandbox: &Sandbox, remote: &str) {
-    let planning = crate::artifacts::planning_store::PlanningStore::new(
-        uuid::Uuid::nil(),
-        &sandbox.repo,
-        crate::artifacts::planning_store::StoreMode::ManagedLocal,
-    );
-    let mut manifest = crate::core::project_repos::ProjectManifest::load(&planning).unwrap();
+    let mut manifest =
+        crate::core::project_repos::ProjectManifest::load(&sandbox.planning_store).unwrap();
     manifest.repositories[0].remote = remote.to_owned();
-    planning
+    sandbox
+        .planning_store
         .atomic_write(
             crate::artifacts::layout::store::PROJECT_MANIFEST,
             &serde_json::to_vec(&manifest).unwrap(),
@@ -53,7 +50,7 @@ fn task_clone_remote_changes_refuse_pull_request_publication() {
             &["config", key, attacker.to_str().unwrap()],
         );
         let error = publication::create_pull_request(
-            &state_dir(&sandbox.repo, &sandbox.ticket).unwrap(),
+            &state_dir(&sandbox.planning_store.root, &sandbox.ticket).unwrap(),
             &mut state,
             &publication_runner(&sandbox),
             None,
@@ -101,7 +98,7 @@ fn task_clone_with_separate_push_repository_refuses_pr_before_publication() {
     );
 
     let error = publication::create_pull_request(
-        &state_dir(&sandbox.repo, &sandbox.ticket).unwrap(),
+        &state_dir(&sandbox.planning_store.root, &sandbox.ticket).unwrap(),
         &mut state,
         &publication_runner(&sandbox),
         None,
@@ -146,7 +143,7 @@ fn task_clone_url_rewrite_cannot_redirect_the_trusted_publication_push() {
     );
 
     publication::create_pull_request(
-        &state_dir(&sandbox.repo, &sandbox.ticket).unwrap(),
+        &state_dir(&sandbox.planning_store.root, &sandbox.ticket).unwrap(),
         &mut state,
         &publication_runner(&sandbox),
         None,
@@ -213,7 +210,7 @@ fn required_independent_checks_reject_redirected_push_destinations() {
         sandbox.git(&sandbox.repo, &["rev-parse", "origin/main"]),
         remote_main
     );
-    let state_dir = state_dir(&sandbox.repo, &sandbox.ticket).unwrap();
+    let state_dir = state_dir(&sandbox.planning_store.root, &sandbox.ticket).unwrap();
     let state = read_state_file(&state_dir.join("state.json")).unwrap();
     assert_eq!(state.status, ImplementationStatus::Blocked);
     assert!(state.independent_check.is_none());
@@ -242,11 +239,15 @@ fn required_independent_checks_fail_closed_for_unsupported_git_hosting() {
         )
         .unwrap_err();
 
-    assert!(error.to_string().contains("no supported CI provider"));
+    let error_detail = format!("{error:#}");
+    assert!(
+        error_detail.contains("no supported CI provider"),
+        "unexpected unsupported-hosting failure: {error_detail}"
+    );
     let classified = Failure::from_error(&error);
     assert_eq!(classified.kind, FailureKind::ExternalPrerequisite);
     assert_eq!(classified.recovery, RecoveryDisposition::UserAction);
-    let state_dir = state_dir(&sandbox.repo, &sandbox.ticket).unwrap();
+    let state_dir = state_dir(&sandbox.planning_store.root, &sandbox.ticket).unwrap();
     let state = read_state_file(&state_dir.join("state.json")).unwrap();
     assert_eq!(state.status, ImplementationStatus::Blocked);
     let check = state.independent_check.unwrap();

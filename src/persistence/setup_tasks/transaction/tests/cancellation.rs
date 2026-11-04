@@ -55,7 +55,7 @@ fn cancellation_after_reconciliation_discards_candidate_but_persists_recovery() 
 
     assert!(result.is_none());
     assert_eq!(currentness_checks.get(), 3);
-    let store = load_from(&path).unwrap().0;
+    let store = load_from(&path).unwrap();
     let task = &store.tasks[TASK_ID];
     assert_eq!(task.title, "original scan");
     assert_eq!(task.state, SetupTaskStateV1::Interrupted);

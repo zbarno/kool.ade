@@ -17,8 +17,7 @@ impl TaskReplyLock {
         let Some(claim_id) = self.reply_claim_id.as_deref() else {
             return Ok(());
         };
-        let (mut stored, _) = super::super::read_stored(&self.slug)?;
-        super::super::canonicalize(&mut stored);
+        let mut stored = super::super::read_stored(&self.slug)?;
         let storage_key = stored
             .task_identities
             .get(&self.key)
@@ -47,7 +46,6 @@ impl TaskReplyLock {
         );
         marker.id = marker_id;
         messages.push(marker);
-        super::super::canonicalize(&mut stored);
         let json = serde_json::to_string(&stored).map_err(|error| error.to_string())?;
         let path = crate::persistence::project_dir(&self.slug).join("task-conversations.json");
         crate::artifacts::atomic_write(&path, &json).map_err(|error| error.to_string())
@@ -68,19 +66,10 @@ impl TaskChats {
         }
         let user_id = user.id.clone();
         let _lock = Self::lock_store(slug)?;
-        let (mut stored, _) = super::super::read_stored(slug)?;
-        for path in &self.ambiguous_paths {
-            super::super::detach_other_history(&mut stored, path, "legacy");
-        }
+        let mut stored = super::super::read_stored(slug)?;
         for (path, uid) in &self.identities {
-            super::super::merge_identity(
-                &mut stored,
-                path,
-                uid,
-                self.legacy_migration_keys.contains(path),
-            )?;
+            super::super::merge_identity(&mut stored, path, uid);
         }
-        super::super::canonicalize(&mut stored);
         let storage_key = self.storage_key(key, &stored);
         if stored_history(&stored, &storage_key)
             .is_some_and(|history| has_active_reply_claim(history))
@@ -112,7 +101,6 @@ impl TaskChats {
         );
         let claim_id = claim.id.clone();
         messages.insert(latest_user + 1, claim);
-        super::super::canonicalize(&mut stored);
         let dir = crate::persistence::project_dir(slug);
         let json = serde_json::to_string(&stored).map_err(|error| error.to_string())?;
         crate::artifacts::atomic_write(&dir.join("task-conversations.json"), &json)
@@ -137,23 +125,14 @@ impl TaskChats {
         user_id: &str,
     ) -> Result<Option<String>, String> {
         let _lock = Self::lock_store(slug)?;
-        let (mut stored, _) = super::super::read_stored(slug)?;
-        for path in &self.ambiguous_paths {
-            super::super::detach_other_history(&mut stored, path, "legacy");
-        }
+        let mut stored = super::super::read_stored(slug)?;
         for (path, uid) in &self.identities {
-            super::super::merge_identity(
-                &mut stored,
-                path,
-                uid,
-                self.legacy_migration_keys.contains(path),
-            )?;
+            super::super::merge_identity(&mut stored, path, uid);
         }
         for (pending_key, pending) in &self.pending {
             let storage_key = self.storage_key(pending_key, &stored);
             Self::merge_key(&mut stored, &storage_key, pending);
         }
-        super::super::canonicalize(&mut stored);
         let storage_key = self.storage_key(key, &stored);
         let Some(messages) = stored_history_mut(&mut stored, &storage_key) else {
             return Ok(None);
@@ -209,7 +188,6 @@ impl TaskChats {
             Some(claim.id.clone())
         };
         messages.push(claim);
-        super::super::canonicalize(&mut stored);
         let json = serde_json::to_string(&stored).map_err(|error| error.to_string())?;
         let dir = crate::persistence::project_dir(slug);
         crate::artifacts::atomic_write(&dir.join("task-conversations.json"), &json)
@@ -234,8 +212,7 @@ impl TaskChats {
         claim_id: &str,
     ) -> Result<bool, String> {
         let _lock = Self::lock_store(slug)?;
-        let (mut stored, _) = super::super::read_stored(slug)?;
-        super::super::canonicalize(&mut stored);
+        let mut stored = super::super::read_stored(slug)?;
         let storage_key = self.storage_key(key, &stored);
         let Some(messages) = stored_history_mut(&mut stored, &storage_key) else {
             return Ok(false);

@@ -141,9 +141,6 @@ fn prepare_and_publish(
     }
     publication::prepare_lifecycle_pr_proposal(planning_store, dir, state, harness, runner)?;
     match publication::prepare_lifecycle_publication(planning_store, state)? {
-        publication::LifecyclePublicationGate::Legacy => {
-            publication::create_pull_request(dir, state, runner, policy.claim_lease)
-        }
         publication::LifecyclePublicationGate::Blocked(reason) => {
             runner.update(format!(
                         "PR preparation remains blocked: {reason}. Verified code and review are preserved; no remote changes were made."

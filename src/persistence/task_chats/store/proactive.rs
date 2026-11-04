@@ -1,4 +1,4 @@
-use super::{TaskChats, canonicalize, detach_other_history, merge_identity, read_stored};
+use super::{TaskChats, merge_identity, read_stored};
 use crate::domain::{ChatMessage, ChatRole};
 
 #[cfg(test)]
@@ -28,19 +28,10 @@ impl TaskChats {
         self.last_slug = Some(slug.to_owned());
         let dir = crate::persistence::project_dir(slug);
         let _lock = Self::lock_store(slug)?;
-        let (mut next, _) = read_stored(slug)?;
-        for path in &self.ambiguous_paths {
-            detach_other_history(&mut next, path, "legacy");
-        }
+        let mut next = read_stored(slug)?;
         for (path, uid) in &self.identities {
-            merge_identity(
-                &mut next,
-                path,
-                uid,
-                self.legacy_migration_keys.contains(path),
-            )?;
+            merge_identity(&mut next, path, uid);
         }
-        canonicalize(&mut next);
         for (pending_key, pending) in &self.pending {
             let storage_key = self.storage_key(pending_key, &next);
             Self::merge_key(&mut next, &storage_key, pending);
@@ -73,7 +64,6 @@ impl TaskChats {
         }
 
         Self::merge_key(&mut next, &storage_key, &messages);
-        canonicalize(&mut next);
         let json = serde_json::to_string(&next).map_err(|error| error.to_string())?;
         crate::artifacts::atomic_write(&dir.join("task-conversations.json"), &json)
             .map_err(|error| error.to_string())?;

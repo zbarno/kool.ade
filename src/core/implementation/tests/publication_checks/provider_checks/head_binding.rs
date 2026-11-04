@@ -59,7 +59,7 @@ fi
     };
 
     let error = publication::create_pull_request(
-        &state_dir(&sandbox.repo, &sandbox.ticket).unwrap(),
+        &state_dir(&sandbox.planning_store.root, &sandbox.ticket).unwrap(),
         &mut state,
         &runner,
         None,
@@ -85,7 +85,7 @@ fi
 
     fs::write(sandbox.root.join("closed"), &state.branch).unwrap();
     publication::create_pull_request(
-        &state_dir(&sandbox.repo, &sandbox.ticket).unwrap(),
+        &state_dir(&sandbox.planning_store.root, &sandbox.ticket).unwrap(),
         &mut state,
         &runner,
         None,

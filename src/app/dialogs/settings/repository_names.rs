@@ -76,7 +76,7 @@ pub(super) fn persist(
 pub(super) fn paint(ui: &mut egui::Ui, rows: &mut [RepositoryNameRow]) {
     ui.collapsing("Registered repository names", |ui| {
         ui.label(
-            egui::RichText::new("Optional shared names; blank uses the stable ID. Duplicate names are allowed and disambiguated.")
+            egui::RichText::new("Optional local names; blank uses the stable ID. Duplicate names are allowed and disambiguated.")
                 .size(11.0)
                 .weak(),
         );

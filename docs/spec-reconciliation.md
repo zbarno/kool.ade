@@ -1,5 +1,9 @@
 # Specification reconciliation records
 
+> Target data is stored in the private installation-local operational store.
+> The legacy planning-repository paths and record envelopes are not imported or
+> used as fallbacks during the greenfield cutover.
+
 The lifecycle store keeps a per-feature current specification revision at
 `state/spec_revisions/{featureUid}.json`, immutable revision snapshots and
 deltas at `state/spec_revision_history/`, and event keyed work at
@@ -19,7 +23,7 @@ the same draft is idempotent; a competing stale writer is rejected. Only a
 synchronized revision or one with outstanding nonblocking findings completes
 its origin queue entries.
 
-New immutable history envelopes use schema version 2 and contain a validated
+Current immutable history envelopes contain a validated
 disposition for **every** origin event. A disposition either references the
 exact event/requirement deltas in that revision, records an explicit bounded
 application-policy reason for accepting an empty delta result, or records an
@@ -32,14 +36,11 @@ explicitly declined with a persisted no-new-evidence reason so they do not
 recursively schedule another pass.
 
 Dispositions, immutable history, current projection and queue acknowledgements
-commit in the same revision-checked transaction. Exact retries preserve the
-original bytes; changed explanations cannot overwrite them. The
-`specification_origin_dispositions` query returns `None` for legacy version 1
-history, without fabricating a past rationale. New version 2 history requires
-complete dispositions and rejects missing or mismatched references. Older
-binaries reject version 2 history: this is intentional fail-closed downgrade
-behavior, so a planning repository with new history requires a compatible
-reader. Historical approvals and version 1 records are not rewritten.
+commit in the same revision-checked local transaction. Exact retries preserve
+the original bytes; changed explanations cannot overwrite them. Current
+records require complete dispositions and reject missing or mismatched
+references. Previous planning-store records are unsupported; the application
+does not migrate, replay, or dual-read them.
 
 ## Current application behavior
 

@@ -1,32 +1,13 @@
 use super::*;
-mod launcher;
-mod opening;
-pub(super) use launcher::Launcher;
-pub(super) use opening::OpenJob;
 mod help;
 mod presentation;
 mod progress;
 mod project;
 mod readiness;
-mod recovery;
 use crate::app::welcome::onboarding::Step;
-pub(super) use recovery::Recovery;
 impl KooladeApp {
-    /// Returns false for the existing workspace/advanced surface.
+    /// Returns false for the code-repository and advanced surface.
     pub(super) fn paint_onboarding(&mut self, ui: &mut egui::Ui) -> bool {
-        self.poll_onboarding_creation();
-        self.poll_onboarding_open();
-        if self.onboarding_open.is_some() {
-            egui::CentralPanel::default().show(ui, |ui| {
-                ui.spinner(); ui.heading("Opening your workspace…");
-                ui.label("Loading and checking its existing history. Closing the app may interrupt loading; reopen the same workspace to resume safely.");
-            });
-            ui.ctx().request_repaint_after(Duration::from_millis(100));
-            return true;
-        }
-        if self.onboarding.step == Step::Projects {
-            self.onboarding_launcher.poll(ui);
-        }
         if !matches!(self.screen, Screen::Welcome) {
             return false;
         }
@@ -96,16 +77,16 @@ impl KooladeApp {
                                 &self.machine_setup_tasks, &self.setup_attention,
                                 self.setup_probe.is_some(), &mut selection);
                         });
-                        if ui.add(presentation::primary_button("Continue to my projects")).clicked() { next = Some(Step::Projects); }
+                        if ui.add(presentation::primary_button("Continue to a code repository")).clicked() { next = Some(Step::Projects); }
                         if ui.button("Back").clicked() { next = Some(Step::Manager); }
                     }
-                    Step::Projects | Step::NewProject | Step::ReviewProject => {
+                    Step::Projects => {
                         self.paint_project_entry(ui, &mut next);
                     }
                     _ => {}
                 }
                 ui.add_space(24.0);
-                if self.onboarding_creation.is_none() && ui.button("Advanced options").clicked() { next = Some(Step::Advanced); }
+                if ui.button("Advanced options").clicked() { next = Some(Step::Advanced); }
                 });
             });
         });

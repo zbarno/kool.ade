@@ -68,12 +68,13 @@ fn runtime_config_survives_recovery_and_never_enters_stash_or_task_commit() {
         "preserve unrelated work\n",
     )
     .unwrap();
-    super::save_legacy_reconciliation_state(
+    super::save_clone_reconciliation_state(
         &s, &s.ticket, &worktree, "main", &local, &remote, &common,
     );
+    let worktree = super::merge_recovery::current_task_repository(&s);
     let (_, agent) = super::merge_recovery::agent();
     let result = run_with_agent(&s, &agent, None).unwrap();
-    assert_eq!(result.status, ImplementationStatus::AwaitingReview);
+    assert_eq!(result.status, ImplementationStatus::AwaitingApproval);
     assert_eq!(
         fs::read_to_string(worktree.join("App/.env")).unwrap(),
         "SYNTHETIC_CONFIG=old-task\n"
@@ -119,7 +120,7 @@ fn runtime_config_is_excluded_from_staging_even_without_generated_ledger() {
     let (_, agent) = super::merge_recovery::agent();
     let result = run_with_agent(&s, &agent, None).unwrap();
     assert!(
-        !state_dir(&s.repo, &s.ticket)
+        !state_dir(&s.planning_store.root, &s.ticket)
             .unwrap()
             .join("base-reconciliation-generated.json")
             .exists()
@@ -143,9 +144,9 @@ fn runtime_config_recovery_blocks_revoked_grants_without_rotating_snapshot() {
     let (path, _) = super::merge_recovery::recovery_snapshot(&s);
     let before = fs::read(&path).unwrap();
     fs::remove_file(s.repo.join(".git/koolade/runtime-config.json")).unwrap();
-    let worktree = super::merge_recovery::migrated_task_repository(&s);
+    let worktree = super::merge_recovery::current_task_repository(&s);
     fs::write(worktree.join("build/cache.txt"), "operator edit\n").unwrap();
-    crate::core::implementation::mark_resume_started(&s.repo, &s.ticket).unwrap();
+    crate::core::implementation::mark_resume_started(&s.planning_store.root, &s.ticket).unwrap();
     let (_, agent) = super::merge_recovery::agent();
     let error = run_with_agent(&s, &agent, Some("Resume verification"))
         .unwrap_err()
@@ -178,9 +179,9 @@ fn runtime_config_recovery_reviews_new_grants_already_inside_old_stash() {
     )
     .unwrap();
     approve_path(&s, ".cache/.env");
-    let worktree = super::merge_recovery::migrated_task_repository(&s);
+    let worktree = super::merge_recovery::current_task_repository(&s);
     fs::write(worktree.join("build/cache.txt"), "operator edit\n").unwrap();
-    crate::core::implementation::mark_resume_started(&s.repo, &s.ticket).unwrap();
+    crate::core::implementation::mark_resume_started(&s.planning_store.root, &s.ticket).unwrap();
     let (_, agent) = super::merge_recovery::agent();
     let error = run_with_agent(&s, &agent, Some("Resume verification"))
         .unwrap_err()

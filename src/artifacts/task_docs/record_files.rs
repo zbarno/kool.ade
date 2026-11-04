@@ -1,4 +1,4 @@
-use crate::artifacts::planning_store::{PlanningRoot, RecordRevisionCheck, StoreError, paths};
+use crate::artifacts::planning_store::{PlanningRoot, RecordRevisionCheck, paths};
 use crate::core::workflow::Workflow;
 use serde::{Deserialize, Serialize};
 
@@ -6,12 +6,13 @@ mod scope;
 pub(super) use scope::next_batch_timestamp;
 use scope::{
     batch_feature_id, batch_matches_feature, existing_times, feature_ids, feature_uid, is_empty,
-    legacy_exists, matching_feature_id, merge, normalize_legacy_batch_order, now_ms,
-    validate_scope, with_creation_order,
+    matching_feature_id, merge, now_ms, validate_scope, with_creation_order,
 };
 
 const RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_WORKFLOW_RECORD_BYTES: usize = 4 * 1024 * 1024;
+
+pub(crate) type WorkflowRecordChangePlan = (Vec<(String, Vec<u8>)>, Vec<RecordRevisionCheck>);
 
 #[cfg(test)]
 #[path = "record_files/tests.rs"]
@@ -38,7 +39,7 @@ pub(super) fn load_unlocked<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Resul
     let store = repo.planning_store();
     let files = store.list_files(paths::WORKFLOW_RECORDS)?;
     if files.is_empty() {
-        return load_legacy(repo);
+        return Ok(Workflow::default());
     }
     let mut workflow = Workflow::default();
     for file in files {
@@ -96,38 +97,11 @@ pub(super) fn load_unlocked<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Resul
     Ok(workflow)
 }
 
-fn load_legacy<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<Workflow> {
-    match repo.read_planning(paths::WORKFLOW) {
-        Ok(bytes) => {
-            anyhow::ensure!(
-                bytes.len() <= MAX_WORKFLOW_RECORD_BYTES,
-                "legacy workflow record exceeds the 4 MiB size limit"
-            );
-            let text = String::from_utf8(bytes)?;
-            let mut workflow: Workflow = serde_json::from_str(&text)?;
-            normalize_legacy_batch_order(&mut workflow);
-            for (feature_id, record) in &workflow.plan_comparisons {
-                anyhow::ensure!(
-                    feature_id == &record.feature_id,
-                    "Comparison workflow key does not match its feature ID"
-                );
-                record.validate()?;
-            }
-            super::workflow::promote_legacy_comparisons(repo, workflow)
-        }
-        Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
-            super::workflow::promote_legacy_comparisons(repo, Workflow::default())
-        }
-        Err(error) => Err(error.into()),
-    }
-}
-
 pub fn changes<R: PlanningRoot + ?Sized>(
     repo: &R,
     workflow: &Workflow,
-) -> anyhow::Result<crate::artifacts::planning_store::RecordChangePlan> {
+) -> anyhow::Result<WorkflowRecordChangePlan> {
     let store = repo.planning_store();
-    let migrating = workflow.record_revisions.is_empty() && legacy_exists(&store)?;
     let mut by_uid = std::collections::BTreeMap::<String, (Option<String>, Workflow)>::new();
 
     for (id, uid) in &workflow.feature_record_ids {
@@ -184,10 +158,6 @@ pub fn changes<R: PlanningRoot + ?Sized>(
             data.feature_branch_targets
                 .insert(feature_id.clone(), value.clone());
         }
-        if let Some(value) = workflow.legacy_plan_comparison_evidence.get(feature_id) {
-            data.legacy_plan_comparison_evidence
-                .insert(feature_id.clone(), value.clone());
-        }
         data.task_batches.extend(
             workflow
                 .task_batches
@@ -234,7 +204,7 @@ pub fn changes<R: PlanningRoot + ?Sized>(
     let now = now_ms();
     for (uid, (feature_id, data)) in by_uid {
         let serialized = serde_json::to_string(&data)?;
-        if !migrating && workflow.record_baselines.get(&uid) == Some(&serialized) {
+        if workflow.record_baselines.get(&uid) == Some(&serialized) {
             continue;
         }
         let expected_revision = workflow.record_revisions.get(&uid).copied().unwrap_or(0);
@@ -258,5 +228,5 @@ pub fn changes<R: PlanningRoot + ?Sized>(
             expected_revision,
         });
     }
-    Ok((writes, checks, migrating))
+    Ok((writes, checks))
 }

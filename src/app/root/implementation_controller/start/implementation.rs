@@ -11,8 +11,6 @@ impl KooladeApp {
         let StartOptions {
             manual,
             capabilities,
-            stale_session,
-            allow_offline,
             lifecycle_pr_publication,
             lifecycle_gate_refresh,
         } = options;
@@ -35,7 +33,11 @@ impl KooladeApp {
                         .map(|state| state.detail.as_str())
                 });
             let context = detail.map(|detail| {
-                crate::core::attention::answer_context(&p.state.repo_root, &ticket, detail)
+                crate::core::attention::answer_context(
+                    &p.state.planning_store.root,
+                    &ticket,
+                    detail,
+                )
             });
             if p.task_cancelled(&ticket) {
                 return;
@@ -127,13 +129,9 @@ impl KooladeApp {
                 }
             };
             let claim_request = match claim::prepare(
-                &p.state.planning_store,
-                &target_repo,
-                &code_repository_id,
+                p.state.planning_store.project_id,
                 &p.task_documents,
                 &ticket,
-                stale_session.as_deref(),
-                allow_offline && manual && stale_session.is_none(),
             ) {
                 Ok(request) => request,
                 Err(error) => {
@@ -142,7 +140,6 @@ impl KooladeApp {
                     return;
                 }
             };
-            p.queue.stale_claim = None;
             let running = p
                 .active_implementations
                 .keys()
@@ -169,8 +166,6 @@ impl KooladeApp {
                 .implementation_states
                 .get(&ticket)
                 .is_some_and(|state| state.status == ImplementationStatus::ChangesRequested);
-            // Explicit offline execution must never publish remotely. A fresh
-            // coordinated run is required before creating a PR or pushing.
             let is_subtask = p
                 .task_documents
                 .iter()
@@ -182,7 +177,6 @@ impl KooladeApp {
                     is_self_improvement: self_improvement_task,
                     explicit_publish,
                     is_subtask,
-                    allow_offline,
                     requested_changes,
                     auto_publish: p.queue.auto_publish,
                     require_independent_checks: p.queue.require_independent_checks,
@@ -193,7 +187,7 @@ impl KooladeApp {
             };
             if queue_start.resuming {
                 match crate::core::implementation::mark_resume_started_for_action(
-                    &p.state.repo_root,
+                    &p.state.planning_store.root,
                     &ticket,
                     manual,
                 ) {
@@ -205,7 +199,7 @@ impl KooladeApp {
                         p.queue = queue_start.previous_queue;
                         p.queue.last_error =
                             format!("Cannot record the resumed attempt: {error:#}");
-                        if let Err(save_error) = p.queue.save(&p.state.repo_root) {
+                        if let Err(save_error) = p.queue.save(&p.state.planning_store.root) {
                             p.queue
                                 .last_error
                                 .push_str(&format!("\nCannot restore queue state: {save_error:#}"));
@@ -219,13 +213,12 @@ impl KooladeApp {
                 }
             }
             super::queue_wait::record(queue_start.task_id.as_deref(), queue_start.wait_ms);
-            self_improvement::record_start_notice(&mut p.activity, &ticket, allow_offline);
+            self_improvement::record_start_notice(&mut p.activity, &ticket);
             p.remember_chat(vec![ChatMessage::new(
                 ChatRole::System,
                 format!(
                     "Assigned {ticket}; the worker will verify and {}.",
                     self_improvement::start_message(
-                        allow_offline,
                         explicit_publish && !lifecycle_gate_refresh,
                         publication_mode,
                         p.queue.auto_build,
@@ -276,7 +269,7 @@ impl KooladeApp {
                 crate::core::implementation::Controller::start_project_with_store_and_policy_and_claim_request(
                     crate::core::implementation::ProjectStartRequest {
                         planning_store: p.state.planning_store.clone(),
-                        state_root: p.state.repo_root.clone(),
+                        state_root: p.state.planning_store.root.clone(),
                         target_repo,
                         ticket,
                         policy: crate::core::implementation::StartPolicy {

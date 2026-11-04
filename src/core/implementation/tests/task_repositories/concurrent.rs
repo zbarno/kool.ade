@@ -12,9 +12,15 @@ fn concurrent_tasks_get_independent_clones_and_branches() {
         "Independent task",
     )
     .unwrap();
-    fs::write(sandbox.repo.join(second_ticket), second_ticket_document).unwrap();
-    sandbox.git(&sandbox.repo, &["add", second_ticket]);
-    sandbox.git(&sandbox.repo, &["commit", "-qm", "add independent task"]);
+    sandbox
+        .planning_store
+        .atomic_write(second_ticket, second_ticket_document.as_bytes())
+        .unwrap();
+    super::super::sandbox::seed_lifecycle_task(
+        &sandbox.planning_store,
+        second_ticket,
+        second_ticket_text,
+    );
 
     let (first, second) = std::thread::scope(|scope| {
         let first = scope.spawn(|| {

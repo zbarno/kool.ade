@@ -76,19 +76,19 @@ fn backdrop_click_dismisses_the_wizard_without_submitting_the_canvas() {
 }
 
 #[test]
-fn modal_veil_does_not_switch_to_the_blank_project_journey() {
+fn background_action_click_dismisses_the_clone_wizard_without_running() {
     let (base, _state_home, mut app, ctx) = setup("veil", WelcomeEntry::CloneRepository);
     let _ = frame(&mut app, &ctx, Vec::new());
     let _ = frame(&mut app, &ctx, Vec::new());
-    click(&mut app, &ctx, "Create a brand-new project");
+    click(&mut app, &ctx, "Open a local code repository…");
     let output = frame(&mut app, &ctx, Vec::new());
     assert!(matches!(app.screen, Screen::Welcome));
-    assert!(app.wiz.is_some());
+    assert!(app.wiz.is_none());
     assert!(
-        visible_text(&output)
+        !visible_text(&output)
             .iter()
             .any(|line| line.contains("Step 1 of 2")),
-        "backdrop must leave the clone wizard active"
+        "dismissing through the background action must close the wizard"
     );
     let _ = std::fs::remove_dir_all(base);
 }

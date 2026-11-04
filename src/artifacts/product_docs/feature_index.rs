@@ -1,5 +1,6 @@
 //! Feature identifiers, safe paths, and the application-maintained index.
 use crate::artifacts::planning_store::PlanningRoot;
+#[cfg(test)]
 use std::path::Path;
 
 pub fn valid_feature_id(id: &str) -> bool {
@@ -20,6 +21,7 @@ pub(super) fn directory_feature_id(name: &str) -> Option<&str> {
     valid_feature_id(id).then_some(id)
 }
 
+#[cfg(test)]
 fn feature_number(id: &str) -> Option<u32> {
     id.strip_prefix('F')
         .or_else(|| id.strip_prefix("CHG-"))?
@@ -27,6 +29,7 @@ fn feature_number(id: &str) -> Option<u32> {
         .ok()
 }
 
+#[cfg(test)]
 pub(super) fn regular(path: &Path) -> anyhow::Result<bool> {
     match std::fs::symlink_metadata(path) {
         Ok(meta) => {
@@ -42,6 +45,7 @@ pub(super) fn regular(path: &Path) -> anyhow::Result<bool> {
     }
 }
 
+#[cfg(test)]
 pub(super) fn real_dir(path: &Path) -> anyhow::Result<bool> {
     match std::fs::symlink_metadata(path) {
         Ok(meta) => {
@@ -58,6 +62,19 @@ pub(super) fn real_dir(path: &Path) -> anyhow::Result<bool> {
 }
 
 pub fn next_feature_id<R: PlanningRoot + ?Sized>(repo: &R) -> String {
+    let store = repo.planning_store();
+    if store.published_repository_root.is_some() {
+        return super::document_updates::next_feature_id_for_update(repo)
+            .unwrap_or_else(|_| "unavailable".to_owned());
+    }
+    #[cfg(not(test))]
+    return "unavailable".to_owned();
+    #[cfg(test)]
+    next_local_feature_id(repo)
+}
+
+#[cfg(test)]
+pub(super) fn next_local_feature_id<R: PlanningRoot + ?Sized>(repo: &R) -> String {
     let layout = repo.planning_layout();
     let mut maximum = 0u32;
     if let Ok(entries) = std::fs::read_dir(layout.changes_root()) {
@@ -69,33 +86,12 @@ pub fn next_feature_id<R: PlanningRoot + ?Sized>(repo: &R) -> String {
             }
         }
     }
-    let store = repo.planning_store();
-    let git_root = store.git_root();
-    let history_path = crate::artifacts::planning_store::paths::CHANGES;
-    if let Ok(output) = std::process::Command::new("git")
-        .args([
-            "log",
-            "--all",
-            "--name-only",
-            "--pretty=format:",
-            "--",
-            history_path,
-        ])
-        .current_dir(git_root)
-        .output()
-        && output.status.success()
-    {
-        for line in String::from_utf8_lossy(&output.stdout).lines() {
-            if let Some(name) = line.strip_prefix(&format!("{history_path}/"))
-                && let Some(number) = directory_feature_id(name).and_then(feature_number)
-            {
-                maximum = maximum.max(number);
-            }
-        }
-    }
+    // Feature drafts live only in local application storage. Their identifier
+    // allocator must not inspect Git history or any remote planning branch.
     format!("F{}", maximum + 1)
 }
 
+#[cfg(test)]
 pub fn refreshed_index<R: PlanningRoot + ?Sized>(
     repo: &R,
     updates: &[(String, String)],
@@ -105,6 +101,7 @@ pub fn refreshed_index<R: PlanningRoot + ?Sized>(
     refreshed_index_from(repo, &index, updates)
 }
 
+#[cfg(test)]
 pub fn refreshed_index_from<R: PlanningRoot + ?Sized>(
     repo: &R,
     index: &str,

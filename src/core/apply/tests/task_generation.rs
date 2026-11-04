@@ -2,10 +2,10 @@ use super::*;
 
 #[test]
 fn generated_progress_revision_is_used_by_the_real_apply_finalizer() {
-    let (mut state, root) = state_at("task_generation_revision");
-    let store = state.planning_store.clone();
+    let (mut state, root, _local_root, _home_guard) = state_at("task_generation_revision");
     let mut batch = task_batch();
-    approve_batch_feature(&mut state, &root, &mut batch);
+    approve_batch_feature(&mut state, &mut batch);
+    let store = state.planning_store.clone();
     let (_, revision) = crate::artifacts::task_docs::save_progress_expected(
         &store,
         "revision-fenced-run",
@@ -28,7 +28,7 @@ fn generated_progress_revision_is_used_by_the_real_apply_finalizer() {
     );
     assert!(
         receipt
-            .repo_relative_paths
+            .changed_store_paths
             .iter()
             .any(|path| { path.ends_with(".koolade-progress.json") })
     );
@@ -53,9 +53,9 @@ fn generated_progress_revision_is_used_by_the_real_apply_finalizer() {
 /// External dependencies: temporary managed-local store only. Setup cost: low.
 #[test]
 fn readiness_change_after_generation_preflight_rejects_task_batch_atomically() {
-    let (mut state, root) = state_at("task_generation_readiness_race");
+    let (mut state, root, _local_root, _home_guard) = state_at("task_generation_readiness_race");
     let mut batch = task_batch();
-    approve_batch_feature(&mut state, &root, &mut batch);
+    approve_batch_feature(&mut state, &mut batch);
     let identity =
         crate::domain::ArtifactIdentity::from_markdown(&state.active_feature.as_ref().unwrap().1)
             .unwrap()

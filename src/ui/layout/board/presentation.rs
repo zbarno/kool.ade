@@ -21,9 +21,8 @@ pub(in crate::ui::layout) fn legend(ui: &mut Ui) {
         (Some(ItemKind::Question), "Question"),
         (Some(ItemKind::Ambiguity), "Ambiguity"),
         (Some(ItemKind::Assumption), "Assumption"),
-        (Some(ItemKind::Ownership), "Ownership"),
     ];
-    let per_row = if ui.available_width() < 440.0 { 3 } else { 5 };
+    let per_row = if ui.available_width() < 440.0 { 3 } else { 4 };
     for row in entries.chunks(per_row) {
         let widths: Vec<_> = row
             .iter()
@@ -39,7 +38,7 @@ pub(in crate::ui::layout) fn legend(ui: &mut Ui) {
                     + 16.0
             })
             .collect();
-        let gap = if per_row == 5 { 20.0 } else { 14.0 };
+        let gap = if per_row == 4 { 20.0 } else { 14.0 };
         let width = widths.iter().sum::<f32>() + gap * (row.len() - 1) as f32;
         let left = ((ui.available_width() - width) / 2.0).max(0.0);
         ui.horizontal(|ui| {

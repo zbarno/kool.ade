@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::artifacts::planning_store::{PlanningStore, StoreError};
 
 pub(crate) fn revision(store: &PlanningStore) -> Result<String, StoreError> {
+    store.validate_root()?;
     let root_metadata = match std::fs::symlink_metadata(&store.root) {
         Ok(metadata) => metadata,
         Err(source) if source.kind() == std::io::ErrorKind::NotFound => {
@@ -20,11 +21,7 @@ pub(crate) fn revision(store: &PlanningStore) -> Result<String, StoreError> {
         return Err(StoreError::InvalidPath(store.root.display().to_string()));
     }
     let mut files = Vec::new();
-    #[cfg(test)]
-    let test_code_root_fixture = store.revision_code_root_fixture;
-    #[cfg(not(test))]
-    let test_code_root_fixture = false;
-    collect_files(&store.root, &store.root, &mut files, test_code_root_fixture)?;
+    collect_files(&store.root, &store.root, &mut files)?;
     files.sort_by(|left, right| left.0.cmp(&right.0));
 
     let mut hash = Sha256::new();
@@ -45,7 +42,6 @@ fn collect_files(
     root: &Path,
     directory: &Path,
     files: &mut Vec<(String, PathBuf)>,
-    test_code_root_fixture: bool,
 ) -> Result<(), StoreError> {
     let mut entries = std::fs::read_dir(directory)
         .map_err(|source| StoreError::Io {
@@ -64,9 +60,6 @@ fn collect_files(
         if is_local_only(relative) || relative == Path::new(".git") {
             continue;
         }
-        if test_code_root_fixture && !is_test_planning_path(relative) {
-            continue;
-        }
         let metadata = std::fs::symlink_metadata(&path).map_err(|source| StoreError::Io {
             path: path.clone(),
             source,
@@ -80,23 +73,12 @@ fn collect_files(
             continue;
         }
         if metadata.is_dir() {
-            collect_files(root, &path, files, test_code_root_fixture)?;
+            collect_files(root, &path, files)?;
         } else if metadata.is_file() {
             files.push((relative.to_string_lossy().into_owned(), path));
         }
     }
     Ok(())
-}
-
-fn is_test_planning_path(relative: &Path) -> bool {
-    let mut components = relative.components();
-    let Some(std::path::Component::Normal(first)) = components.next() else {
-        return false;
-    };
-    matches!(
-        first.to_str(),
-        Some("manifest.json" | "config" | "planning" | "state" | "implementation")
-    )
 }
 
 /// Record collections have their own optimistic revisions. Excluding these

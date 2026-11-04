@@ -1,10 +1,8 @@
 # CHG-001 acceptance evidence
 
-Historical evidence note: the repository paths recorded below refer to an
-earlier artifact layout. Current shared project artifacts live in the separate
-planning repository, not in a `.koolade-packet/` directory inside a code
-checkout. The similarly named directory under the user's home stores local
-application data. See [the artifact layout](artifact-layout.md).
+Historical evidence note: this acceptance record predates the greenfield
+storage architecture. It records evidence for CHG-001 only and is not a current
+storage contract. Current authority is documented in the [storage boundary](koolade/architecture/storage-boundaries.md).
 
 This index maps the feature's numbered acceptance criteria to current repository evidence. The feature specification remains the normative acceptance list; this file points reviewers to the smallest proof for each item.
 

@@ -52,27 +52,6 @@ impl ChangeStatus {
             .find(|status| status.wire_name() == value)
     }
 
-    /// Strictly parse the legacy human-readable status, including supported
-    /// explanatory suffixes, during migration only.
-    pub fn parse_legacy(value: &str) -> anyhow::Result<Self> {
-        let value = value.trim();
-        for status in Self::ALL {
-            if let Some(suffix) = value.strip_prefix(status.label()) {
-                let suffix = suffix.trim_start();
-                anyhow::ensure!(
-                    suffix.is_empty()
-                        || suffix.starts_with('—')
-                        || suffix.starts_with('-')
-                        || suffix.starts_with(':')
-                        || suffix.starts_with('('),
-                    "Unknown or ambiguous change status {value:?}"
-                );
-                return Ok(status);
-            }
-        }
-        anyhow::bail!("Unknown or ambiguous change status {value:?}")
-    }
-
     pub const fn can_transition_to(self, next: Self) -> bool {
         use ChangeStatus::*;
         self as u8 == next as u8
@@ -134,17 +113,13 @@ mod tests {
     }
 
     #[test]
-    fn legacy_status_parser_is_strict_and_wire_values_are_stable() {
-        assert_eq!(
-            ChangeStatus::parse_legacy("Ready — planning complete").unwrap(),
-            ChangeStatus::Ready
-        );
+    fn legacy_visible_status_is_rejected_and_wire_values_are_stable() {
         assert_eq!(
             ChangeStatus::parse_wire("reconciliation"),
             Some(ChangeStatus::Reconciliation)
         );
-        assert!(ChangeStatus::parse_legacy("Ready whenever").is_err());
-        assert!(ChangeStatus::parse_legacy("Unknown").is_err());
+        let old = "# CHG-001: Search\n\n**Status:** Ready — planning complete\n";
+        assert!(ChangeMetadata::require_markdown(old).is_err());
     }
 
     #[test]
@@ -173,62 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn plan_comparison_persists_selection_across_status_transitions() {
-        let markdown = "# CHG-001: Search\n\n**Status:** Draft\n";
-        let identified =
-            ArtifactIdentity::preserve_markdown(markdown, None, "CHG-001", "Search").unwrap();
-        let identity = ArtifactIdentity::from_markdown(&identified)
-            .unwrap()
-            .unwrap();
-        let draft =
-            ChangeMetadata::write_markdown(&identified, &identity, ChangeStatus::Draft).unwrap();
-        let ready = ChangeMetadata::write_markdown(&draft, &identity, ChangeStatus::Ready).unwrap();
-        let plan = |id: &str| crate::domain::PlanAlternative {
-            id: id.into(),
-            objective: "Safe rollout".into(),
-            phases: vec![crate::domain::PlanPhase {
-                name: "Prepare".into(),
-                subtasks: vec!["Record current state".into()],
-            }],
-            files_touched: vec!["src/a.rs".into()],
-            state_changes: vec!["Persist marker".into()],
-            failure_modes: vec!["Write fails".into()],
-            effort_band: "Small".into(),
-            known_risks: vec!["Extra state".into()],
-            reversibility: "Remove marker".into(),
-        };
-        let compared = ChangeMetadata::save_plan_comparison(
-            &ready,
-            crate::domain::PlanComparison {
-                alternatives: vec![plan("A"), plan("B")],
-                recommendation: crate::domain::PlanRecommendation {
-                    plan_id: "A".into(),
-                    rationale: "Safer".into(),
-                    evidence: vec!["src/a.rs".into()],
-                },
-                selected_plan: None,
-            },
-        )
-        .unwrap();
-        let selected = ChangeMetadata::select_plan(&compared, "B").unwrap();
-        let metadata = ChangeMetadata::require_markdown(&selected).unwrap();
-        assert_eq!(
-            metadata.plan_comparison.unwrap().selected_plan.as_deref(),
-            Some("B")
-        );
-        let transitioned =
-            ChangeMetadata::write_markdown(&selected, &identity, ChangeStatus::Implementing)
-                .unwrap();
-        let metadata = ChangeMetadata::require_markdown(&transitioned).unwrap();
-        assert_eq!(metadata.status, ChangeStatus::Implementing);
-        assert_eq!(
-            metadata.plan_comparison.unwrap().selected_plan.as_deref(),
-            Some("B")
-        );
-    }
-
-    #[test]
-    fn draft_becoming_ready_opts_into_comparison_metadata_without_upgrading_legacy_ready() {
+    fn draft_becoming_ready_enables_the_current_plan_comparison_gate() {
         let draft = "# CHG-001: Search\n\n**Status:** Draft\n";
         let draft = ArtifactIdentity::preserve_markdown(draft, None, "CHG-001", "Search").unwrap();
         let identity = ArtifactIdentity::from_markdown(&draft).unwrap().unwrap();
@@ -246,70 +166,32 @@ mod tests {
                 .schema_version,
             2
         );
-
-        let legacy_source = "# CHG-002: Old search\n\n**Status:** Ready\n";
-        let legacy_source =
-            ArtifactIdentity::preserve_markdown(legacy_source, None, "CHG-002", "Old search")
-                .unwrap();
-        let legacy_identity = ArtifactIdentity::from_markdown(&legacy_source)
-            .unwrap()
-            .unwrap();
-        let legacy =
-            ChangeMetadata::write_markdown(&legacy_source, &legacy_identity, ChangeStatus::Ready)
-                .unwrap();
-        assert_eq!(
-            ChangeMetadata::require_markdown(&legacy)
-                .unwrap()
-                .schema_version,
-            1
-        );
     }
 
     #[test]
-    fn discard_keeps_the_previous_comparison_before_a_retry() {
-        let markdown = "# CHG-001: Search\n\n**Status:** Draft\n";
-        let markdown =
-            ArtifactIdentity::preserve_markdown(markdown, None, "CHG-001", "Search").unwrap();
-        let identity = ArtifactIdentity::from_markdown(&markdown).unwrap().unwrap();
-        let draft =
-            ChangeMetadata::write_markdown(&markdown, &identity, ChangeStatus::Draft).unwrap();
-        let ready = ChangeMetadata::write_markdown(&draft, &identity, ChangeStatus::Ready).unwrap();
-        let plan = |id: &str| crate::domain::PlanAlternative {
-            id: id.into(),
-            objective: format!("Objective {id}"),
-            phases: vec![
-                crate::domain::PlanPhase {
-                    name: "Prepare".into(),
-                    subtasks: vec!["Record current state".into()],
-                };
-                3
-            ],
-            files_touched: vec![format!("src/{id}.rs")],
-            state_changes: vec![format!("State {id}")],
-            failure_modes: vec![format!("Failure {id}")],
-            effort_band: "Small — one module".into(),
-            known_risks: vec![format!("Risk {id}")],
-            reversibility: format!("Undo {id}"),
-        };
-        let comparison = crate::domain::PlanComparison {
-            alternatives: vec![plan("A"), plan("B")],
-            recommendation: crate::domain::PlanRecommendation {
-                plan_id: "A".into(),
-                rationale: "Less risky".into(),
-                evidence: vec!["src/A.rs".into()],
-            },
-            selected_plan: None,
-        };
-        let first = ChangeMetadata::save_plan_comparison(&ready, comparison.clone()).unwrap();
-        let discarded = ChangeMetadata::discard_plan_comparison(&first).unwrap();
-        assert!(!discarded.contains("## Plan Comparison\n"));
-        assert!(discarded.contains("## Plan Comparison History\n"));
-        let second = ChangeMetadata::save_plan_comparison(&discarded, comparison).unwrap();
-        let metadata = ChangeMetadata::require_markdown(&second).unwrap();
-        assert_eq!(metadata.comparison_history.len(), 1);
-        assert_eq!(
-            metadata.plan_comparison.unwrap().alternatives[0].objective,
-            "Objective A"
+    fn removed_comparison_fields_and_ready_schema_one_are_rejected() {
+        let uid = uuid::Uuid::new_v4().to_string();
+        let comparison = serde_json::json!({
+            "schemaVersion": 2,
+            "uid": uid,
+            "displayId": "F1",
+            "status": "ready",
+            "planComparison": {"selectedPlan": "A"},
+        });
+        let markdown = format!(
+            "# F1: Feature\n\n**Status:** Ready\n\n<!-- koolade-change:v1 {comparison} -->\n"
         );
+        assert!(ChangeMetadata::from_markdown(&markdown).is_err());
+
+        let old_ready = serde_json::json!({
+            "schemaVersion": 1,
+            "uid": uuid::Uuid::new_v4().to_string(),
+            "displayId": "F2",
+            "status": "ready",
+        });
+        let markdown = format!(
+            "# F2: Feature\n\n**Status:** Ready\n\n<!-- koolade-change:v1 {old_ready} -->\n"
+        );
+        assert!(ChangeMetadata::from_markdown(&markdown).is_err());
     }
 }

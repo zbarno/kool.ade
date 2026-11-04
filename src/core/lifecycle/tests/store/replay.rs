@@ -128,42 +128,40 @@ fn replay_rejects_a_v3_feature_event_without_revision_metadata() {
 }
 
 #[test]
-fn legacy_creation_history_remains_readable_but_is_not_replayable() {
-    let fixture = Fixture::new();
-    let store = fixture.store();
-    let lifecycle = LifecycleStore::new(&store);
-    let feature_uid = uuid::Uuid::new_v4().hyphenated().to_string();
-    let create_uid = uuid::Uuid::new_v4().hyphenated().to_string();
-    let feature = FeatureGoal {
-        schema_version: 1,
-        feature_uid: feature_uid.clone(),
-        original_intent: "preserve a version one snapshot".into(),
-        draft: String::new(),
-        scope: Vec::new(),
-        non_goals: Vec::new(),
-        revision: 0,
-        phase: FeaturePhase::Exploring,
-        approved_plan_sha256: None,
-        plan_snapshot_uid: None,
-        plan_snapshot_sha256: None,
-        unresolved_questions: Vec::new(),
-        decision_refs: Vec::new(),
-        review_refs: Vec::new(),
-        readiness_evidence_refs: Vec::new(),
-        task_uids: Vec::new(),
-    };
-    lifecycle.create_feature(&feature, &create_uid).unwrap();
-    let path = fixture
-        .0
-        .join(format!("state/lifecycle_events/{create_uid}.json"));
-    let mut event: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    let object = event.as_object_mut().unwrap();
-    object.insert("schemaVersion".into(), serde_json::Value::from(1));
-    object.remove("featureRevisionAfter");
-    object.remove("initialFeature");
-    std::fs::write(&path, serde_json::to_vec(&event).unwrap()).unwrap();
+fn unsupported_creation_schema_is_rejected_for_replay() {
+    for old_schema_version in [1, 2] {
+        let fixture = Fixture::new();
+        let store = fixture.store();
+        let lifecycle = LifecycleStore::new(&store);
+        let feature_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+        let create_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+        let feature = FeatureGoal {
+            schema_version: 1,
+            feature_uid: feature_uid.clone(),
+            original_intent: "reject unsupported lifecycle event schemas".into(),
+            draft: String::new(),
+            scope: Vec::new(),
+            non_goals: Vec::new(),
+            revision: 0,
+            phase: FeaturePhase::Exploring,
+            approved_plan_sha256: None,
+            plan_snapshot_uid: None,
+            plan_snapshot_sha256: None,
+            unresolved_questions: Vec::new(),
+            decision_refs: Vec::new(),
+            review_refs: Vec::new(),
+            readiness_evidence_refs: Vec::new(),
+            task_uids: Vec::new(),
+        };
+        lifecycle.create_feature(&feature, &create_uid).unwrap();
+        let path = fixture
+            .0
+            .join(format!("state/lifecycle_events/{create_uid}.json"));
+        let mut event: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        event["schemaVersion"] = serde_json::Value::from(old_schema_version);
+        std::fs::write(&path, serde_json::to_vec(&event).unwrap()).unwrap();
 
-    assert_eq!(lifecycle.load_feature(&feature_uid).unwrap().revision, 1);
-    assert!(lifecycle.replay_feature(&feature_uid).is_err());
+        assert!(lifecycle.replay_feature(&feature_uid).is_err());
+    }
 }

@@ -73,8 +73,6 @@ pub enum ItemKind {
     Ambiguity,
     /// Something the agent assumes but believes should be confirmed.
     Assumption,
-    /// The item needs a stakeholder category that has no configured owner.
-    Ownership,
 }
 
 impl ItemKind {
@@ -89,7 +87,6 @@ impl ItemKind {
             "question" => Some(Self::Question),
             "ambiguity" | "ambiguous" => Some(Self::Ambiguity),
             "assumption" | "assumed" => Some(Self::Assumption),
-            "ownership" | "owner" | "ownershipgap" => Some(Self::Ownership),
             _ => None,
         }
     }
@@ -99,7 +96,6 @@ impl ItemKind {
             Self::Question => "Question",
             Self::Ambiguity => "Ambiguity",
             Self::Assumption => "Assumption",
-            Self::Ownership => "Ownership",
         }
     }
 }
@@ -186,10 +182,6 @@ mod tests {
         assert_eq!(Priority::parse_i("Medium"), Some(Priority::Normal));
         assert_eq!(Priority::parse_i("urgent-ish"), None);
         assert_eq!(ItemKind::parse_i("Ambiguity"), Some(ItemKind::Ambiguity));
-        assert_eq!(
-            ItemKind::parse_i("ownership-gap"),
-            Some(ItemKind::Ownership)
-        );
         assert_eq!(ItemKind::parse_i("risk"), None);
         assert_eq!(ItemStatus::parse_i("CLOSED"), Some(ItemStatus::Resolved));
     }
@@ -201,7 +193,6 @@ mod tests {
             Priority::High,
             ItemKind::Question,
             "Product".into(),
-            Some("Zach".into()),
             "what\n happens\n on conflict?".into(),
             "demo".into(),
         );

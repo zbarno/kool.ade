@@ -111,13 +111,16 @@ mod current_gate;
 fn readiness_binding_survives_store_restart_and_allows_current_confirmation() {
     let _shield = crate::core::gitops::test_support::shield("approval-readiness-restart");
     let (mut app, root, _) = setup();
+    ensure_test_plan_adopted(&mut app, "CHG-004");
+    record_test_plan_author(&mut app, "CHG-004");
+    let store_root = private_store_root(&app);
     let snapshot = current_snapshot(&app, "CHG-004");
     let reopened = crate::artifacts::planning_store::PlanningStore::new(
         match &app.screen {
             Screen::Connected(project) => project.state.planning_store.project_id,
             Screen::Welcome => panic!(),
         },
-        root.clone(),
+        store_root.clone(),
         crate::artifacts::planning_store::StoreMode::ManagedLocal,
     );
     let (readiness, _) = crate::core::planning::QuestionStore::new(&reopened)
@@ -151,7 +154,8 @@ fn confirmation_fails_closed_for_missing_readiness_binding() {
     let _shield = crate::core::gitops::test_support::shield("approval-readiness-missing");
     let (mut app, root, _) = setup();
     let snapshot = current_snapshot(&app, "CHG-004");
-    std::fs::remove_file(root.join(format!("state/readiness/{}.json", snapshot.feature_uid)))
+    let store_root = private_store_root(&app);
+    std::fs::remove_file(store_root.join(format!("state/readiness/{}.json", snapshot.feature_uid)))
         .unwrap();
     if let Screen::Connected(project) = &mut app.screen {
         project.state = crate::core::state::PlannerState::load(&root).unwrap();

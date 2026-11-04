@@ -75,17 +75,6 @@ impl SshdFixture {
         let wrong_host_key = root.join("sshd-wrong-host-key");
         let wrong_host_key_public = wrong_host_key.with_extension("pub");
         generate_key(&wrong_host_key)?;
-        if unsafe { libc::geteuid() } != 0 {
-            let status = Command::new("sudo")
-                .args(["-n", "chown", "root:root"])
-                .arg(&host_key)
-                .status()?;
-            if !status.success() {
-                return Err(std::io::Error::other(
-                    "could not assign generated SSH host key to root for sshd",
-                ));
-            }
-        }
         let authorized_keys = root.join("sshd-authorized-keys");
         fs::copy(&client_key_public, &authorized_keys)?;
 
@@ -134,13 +123,10 @@ impl SshdFixture {
                 worker_command,
             ),
         )?;
-        let mut command = if unsafe { libc::geteuid() } == 0 {
-            Command::new(&sshd)
-        } else {
-            let mut elevated = Command::new("sudo");
-            elevated.arg("-n").arg(&sshd);
-            elevated
-        };
+        // The fixture binds only loopback on an ephemeral high port, uses
+        // StrictModes no, and runs commands as the current test user. OpenSSH
+        // supports this without root, so local and CI E2Es do not need sudo.
+        let mut command = Command::new(&sshd);
         command
             .args(["-D", "-e", "-f"])
             .arg(&config)

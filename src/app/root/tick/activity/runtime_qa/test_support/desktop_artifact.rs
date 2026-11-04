@@ -35,6 +35,7 @@ pub(crate) struct DesktopArtifactFixture {
     pub project: Project,
     pub task: TaskRecord,
     _project_root: tempfile::TempDir,
+    _private_state: tempfile::TempDir,
     _task_clone: tempfile::TempDir,
     _approval_cleanup: WorkspaceCleanup,
 }
@@ -65,6 +66,7 @@ impl DesktopArtifactFixture {
         start_arguments: Vec<String>,
     ) -> Self {
         let project_root = tempfile::tempdir().unwrap();
+        let private_state = tempfile::tempdir().unwrap();
         let task_clone = tempfile::tempdir().unwrap();
         let artifact_relative = PathBuf::from("dist/approved-desktop-app");
         let artifact_path = task_clone.path().join(&artifact_relative);
@@ -81,7 +83,7 @@ impl DesktopArtifactFixture {
         let workspace_uid = project_id.hyphenated().to_string();
         let planning = PlanningStore::new(
             project_id,
-            project_root.path(),
+            private_state.path(),
             crate::artifacts::planning_store::StoreMode::ManagedLocal,
         );
         let mut project = crate::app::session::test_support::project_from(project_root.path());
@@ -122,6 +124,7 @@ impl DesktopArtifactFixture {
             "base": "main",
             "base_commit": source_sha,
             "task_repository": task_clone.path(),
+            "task_repository_kind": "clone",
             "status": "completed",
             "detail": "approved desktop artifact fixture",
             "pr_url": null,
@@ -294,6 +297,7 @@ impl DesktopArtifactFixture {
             project,
             task,
             _project_root: project_root,
+            _private_state: private_state,
             _task_clone: task_clone,
             _approval_cleanup: approval_cleanup,
         }

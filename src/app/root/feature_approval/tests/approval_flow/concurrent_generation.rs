@@ -4,6 +4,8 @@ use super::*;
 fn approved_task_generation_runs_alongside_an_unrelated_implementation() {
     let _shield = crate::core::gitops::test_support::shield("parallel-task-generation");
     let (mut app, root, review) = setup();
+    ensure_test_plan_adopted(&mut app, "CHG-004");
+    record_test_plan_author(&mut app, "CHG-004");
     if let Screen::Connected(project) = &mut app.screen {
         project.active_implementations.insert(
             "planning/tasks/other-feature/001-running.md".into(),
@@ -16,7 +18,7 @@ fn approved_task_generation_runs_alongside_an_unrelated_implementation() {
     frame(&mut app, &context, vec![]);
     click_text(&mut app, &context, "Review specification");
     click_text(&mut app, &context, "Confirm this plan");
-    record_test_plan_review(
+    record_test_plan_review_and_merge(
         &mut app,
         "CHG-004",
         crate::core::lifecycle::GateDecision::Approved,

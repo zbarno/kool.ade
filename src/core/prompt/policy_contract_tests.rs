@@ -46,7 +46,7 @@ fn new_feature_and_human_decision_have_complete_wire_examples() {
     assert!(
         policy.contains("when the application assigns a new ID such as `F7`, use `# F7: Title`")
     );
-    assert!(policy.contains("a non-empty `assigned_to`"));
+    assert!(policy.contains("Human questions belong to the local user"));
     assert!(policy.contains("Omit the new item's `id` so Kool.ad/e assigns its `CLR-nnn` ID"));
     assert!(policy.contains("an omitted `offset` starts again at the beginning of the file"));
     assert!(policy.contains("Never repeat a covered range to refresh it."));
@@ -62,8 +62,9 @@ fn new_feature_and_human_decision_have_complete_wire_examples() {
     assert!(policy.contains("leave\n`decision_brief.id` empty"));
     assert!(policy.contains("a prose-only answer saves nothing"));
     assert!(policy.contains("`document_updates` using"));
-    assert!(policy.contains("`question` (never `text`)"));
-    assert!(policy.contains("`assigned_to` (never `assignee`)"));
+    assert!(policy.contains("`question`"));
+    assert!(policy.contains("never `text`"));
+    assert!(!policy.contains("`assigned_to`"));
     assert!(policy.contains("\"deferConsequence\": \"What remains unresolved while waiting.\""));
     assert!(policy.contains("\"revisitWhen\": []"));
 }

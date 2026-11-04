@@ -16,7 +16,6 @@ fn a_saved_peer_window_reply_is_not_asked_again() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "General".into(),
-        None,
         "Which branch should receive this task?".into(),
         "The task needs a destination.".into(),
     );
@@ -30,7 +29,7 @@ fn a_saved_peer_window_reply_is_not_asked_again() {
     };
 
     let mut peer = crate::persistence::task_chats::TaskChats::default();
-    peer.bind_conversation_identities(&[(key.clone(), uid)], &[])
+    peer.bind_conversation_identities(&[(key.clone(), uid)])
         .unwrap();
     peer.ensure_loaded(&slug);
     peer.append(
@@ -62,10 +61,10 @@ fn a_saved_peer_window_reply_is_not_asked_again() {
 }
 
 #[test]
-/// Production boundary: a legacy clarification is detached on upgrade, then
-/// the current UID receives its own prompt record. UI focus and persistence
-/// need local Git fixtures but no Docker or network.
-fn legacy_clarification_history_is_detached_and_current_uid_is_prompted() {
+/// Production boundary: an unmatched conversation identity cannot suppress
+/// the current item's prompt. UI focus and persistence need local fixtures,
+/// but no Docker or network.
+fn unmatched_conversation_does_not_suppress_the_current_prompt() {
     let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let item = crate::domain::OpenItem::new(
@@ -73,31 +72,27 @@ fn legacy_clarification_history_is_detached_and_current_uid_is_prompted() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "General".into(),
-        None,
         "Which branch should receive this task?".into(),
         "The task needs a destination.".into(),
     );
-    let legacy_prompt_id = legacy_clarification_prompt_id(&item);
-    let key = item.conversation_key().to_owned();
+    let unmatched_key = "unmatched-conversation-identity";
     let slug = if let Screen::Connected(project) = &mut app.screen {
         project.state.items.push(item);
         project.chat_slug.clone()
     } else {
         panic!("fixture remains connected")
     };
-    // Simulate an older version that saved this prompt under its display key
-    // without a board artifact UID.
-    let mut legacy = crate::persistence::task_chats::TaskChats::default();
-    legacy.ensure_loaded(&slug);
-    legacy
+    let mut unmatched = crate::persistence::task_chats::TaskChats::default();
+    unmatched.ensure_loaded(&slug);
+    unmatched
         .append(
             &slug,
-            &key,
+            unmatched_key,
             vec![crate::domain::chatlog::ChatMessage {
-                id: legacy_prompt_id,
+                id: "unmatched-agent-message".into(),
                 role: crate::domain::chatlog::ChatRole::Agent,
-                text: "Previously presented clarification".into(),
-                ref_item: Some(key.clone()),
+                text: "An unrelated conversation message".into(),
+                ref_item: Some(unmatched_key.into()),
                 lease_renewed_at: None,
                 answer_context: None,
                 clarification: false,
@@ -113,10 +108,9 @@ fn legacy_clarification_history_is_detached_and_current_uid_is_prompted() {
         ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_planning")))
             .as_deref(),
         Some("CLR-033"),
-        "a detached legacy prompt must not claim an unknown current identity"
+        "an unmatched conversation must not claim the current item's identity"
     );
     if let Screen::Connected(project) = &app.screen {
-        assert_eq!(project.task_chats.messages["@legacy:CLR-033"].len(), 1);
         assert!(
             project.task_chats.messages["CLR-033"]
                 .iter()
@@ -126,11 +120,11 @@ fn legacy_clarification_history_is_detached_and_current_uid_is_prompted() {
 }
 
 #[test]
-/// Production boundary: a prompt detached from a reused CLR display ID must
-/// not suppress a new identity even when the question copy is identical. The
-/// UI integration test uses persisted history and attention focus with local
-/// Git only.
-fn detached_legacy_prompt_for_reused_clr_id_does_not_hide_new_question() {
+/// Production boundary: a conversation attached to an earlier item identity
+/// cannot suppress a prompt for a new item that reuses the same display ID.
+/// The UI integration test uses persisted history and attention focus with
+/// local Git only.
+fn prior_item_conversation_does_not_hide_question_for_reused_display_id() {
     let _environment = crate::test_support::lock_process_environment();
     let mut app = fixture();
     let old_item = crate::domain::OpenItem::new(
@@ -138,39 +132,36 @@ fn detached_legacy_prompt_for_reused_clr_id_does_not_hide_new_question() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "General".into(),
-        None,
         "Which branch should receive this task?".into(),
         "The task needs a destination.".into(),
     );
-    let legacy_prompt_id = legacy_clarification_prompt_id(&old_item);
+    let old_key = old_item.conversation_key().to_owned();
     let current_item = crate::domain::OpenItem::new(
         "CLR-036".into(),
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "General".into(),
-        None,
         "Which branch should receive this task?".into(),
         "The task needs a destination.".into(),
     );
     assert_ne!(old_item.uid, current_item.uid);
-    let key = current_item.conversation_key().to_owned();
     let slug = if let Screen::Connected(project) = &mut app.screen {
         project.state.items.push(current_item);
         project.chat_slug.clone()
     } else {
         panic!("fixture remains connected")
     };
-    let mut legacy = crate::persistence::task_chats::TaskChats::default();
-    legacy.ensure_loaded(&slug);
-    legacy
+    let mut prior_conversation = crate::persistence::task_chats::TaskChats::default();
+    prior_conversation.ensure_loaded(&slug);
+    prior_conversation
         .append(
             &slug,
-            &key,
+            &old_key,
             vec![crate::domain::chatlog::ChatMessage {
-                id: legacy_prompt_id,
+                id: "prior-item-agent-message".into(),
                 role: crate::domain::chatlog::ChatRole::Agent,
-                text: "Previously presented question for the original item".into(),
-                ref_item: Some(key.clone()),
+                text: "Question previously presented for another item".into(),
+                ref_item: Some(old_key.clone()),
                 lease_renewed_at: None,
                 answer_context: None,
                 clarification: false,
@@ -187,6 +178,13 @@ fn detached_legacy_prompt_for_reused_clr_id_does_not_hide_new_question() {
         ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_planning")))
             .as_deref(),
         Some("CLR-036"),
-        "a detached prompt cannot establish that the new CLR identity was already handled"
+        "a prior item's conversation cannot suppress the new item's prompt"
     );
+    if let Screen::Connected(project) = &app.screen {
+        assert!(
+            project.task_chats.messages["CLR-036"]
+                .iter()
+                .any(|message| message.id.starts_with("needs-attention:clarification:"))
+        );
+    }
 }

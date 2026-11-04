@@ -28,15 +28,3 @@ fn canonical_paths_are_rooted_and_logical_children_cannot_escape() {
         );
     }
 }
-
-#[test]
-fn task_root_uses_only_the_canonical_tree() {
-    let root = std::env::temp_dir().join(format!("koolade-layout-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(root.join(legacy::TASKS)).unwrap();
-    let layout = ArtifactLayout::new(&root);
-    assert_eq!(layout.tasks_root(), root.join(store::TASKS));
-    std::fs::remove_dir_all(root.join(legacy::TASKS)).unwrap();
-    assert_eq!(layout.tasks_root(), root.join(store::TASKS));
-    let _ = std::fs::remove_dir_all(root);
-}

@@ -12,7 +12,7 @@ fn a_later_reserved_generation_fences_an_older_scan_that_finishes_last() {
 
     let slow = snapshot(slow_generation, "older reserved scan");
     assert!(reconcile_live_at(&path, &slow, slow_generation).is_err());
-    let store = load_from(&path).unwrap().0;
+    let store = load_from(&path).unwrap();
     assert_eq!(
         store.tasks["setup:docker:rootless"].title,
         "newer reserved scan"

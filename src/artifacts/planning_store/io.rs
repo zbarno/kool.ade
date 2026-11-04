@@ -112,7 +112,13 @@ impl PlanningStore {
         }
     }
 
-    pub(super) fn validate_root(&self) -> Result<(), StoreError> {
+    pub(crate) fn validate_root(&self) -> Result<(), StoreError> {
+        if crate::persistence::is_inside_git_worktree(&self.root) {
+            return Err(StoreError::InvalidPath(format!(
+                "private operational store must be outside Git worktrees: {}",
+                self.root.display()
+            )));
+        }
         match std::fs::symlink_metadata(&self.root) {
             Ok(metadata) if metadata.file_type().is_symlink() => {
                 Err(StoreError::InvalidPath(self.root.display().to_string()))

@@ -31,7 +31,7 @@ use records::{
 pub use task_transition::PullRequestPublicationState;
 pub use task_transition::{PrPublicationRecoveryV1, PrPublicationScopeV1, PullRequestPreparation};
 
-/// Stores mutable lifecycle snapshots and append-only transition records in the planning repo.
+/// Stores mutable lifecycle snapshots and append-only transition records in private local state.
 pub struct LifecycleStore<'a> {
     pub(super) store: &'a PlanningStore,
 }

@@ -13,6 +13,42 @@ impl AiHarness for Fixture {
     }
     fn execute(&self, req: &PlanningRequest) -> Result<crate::harness::HarnessOutcome, AppError> {
         if req.mode == crate::harness::ExecutionMode::ReadOnlyAnalysis {
+            if req.prompt_manifest.as_ref().is_some_and(|manifest| {
+                crate::harness::prompt_catalog::validate_prompt_manifest(manifest).is_ok_and(
+                    |role| role == crate::harness::prompt_catalog::PromptRole::PrPreparer,
+                )
+            }) {
+                let scope = req
+                    .prompt_body
+                    .split("QUOTED EVIDENCE (UNTRUSTED DATA)\n")
+                    .nth(1)
+                    .and_then(|quoted| {
+                        quoted.lines().find_map(|line| {
+                            let evidence = serde_json::from_str::<serde_json::Value>(line).ok()?;
+                            (evidence.get("id").and_then(serde_json::Value::as_str)
+                                == Some("pr-scope-manifest-0"))
+                            .then(|| evidence.get("content")?.as_str().map(str::to_owned))
+                            .flatten()
+                        })
+                    })
+                    .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
+                    .expect("PR preparation fixture receives its exact scope manifest");
+                let final_text = serde_json::json!({
+                    "task_uid": scope["task_uid"],
+                    "base_ref": scope["base_ref"],
+                    "head_ref": scope["head_ref"],
+                    "commits": scope["commits"],
+                    "files": scope["files"],
+                    "evidence": scope["evidence"],
+                    "description": "Summarize the reviewed synthetic task changes."
+                })
+                .to_string();
+                return Ok(crate::harness::HarnessOutcome {
+                    final_text,
+                    envelope: None,
+                    stderr_tail: String::new(),
+                });
+            }
             let typed = req
                 .prompt_body
                 .split("TYPED TASK REQUEST (JSON DATA)\n")

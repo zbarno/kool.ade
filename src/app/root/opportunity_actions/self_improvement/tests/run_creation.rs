@@ -2,64 +2,16 @@ use super::*;
 
 #[test]
 fn pursuing_koolade_product_persists_a_planning_run_from_the_user_receipt() {
-    let temp = tempfile::tempdir().unwrap();
-    let planning = PlanningStore::new(
-        uuid::Uuid::new_v4(),
-        temp.path().join("planning"),
-        StoreMode::ManagedLocal,
-    );
-    crate::artifacts::migration::bootstrap_product_with_store(
-        temp.path(),
-        &planning,
-        "Synthetic Kool.ad/e fixture",
-    )
-    .unwrap();
+    let mut app = crate::app::root::board_tests::fixture();
+    let (planning, opportunity_uid) = {
+        let crate::app::root::Screen::Connected(project) = &mut app.screen else {
+            panic!("fixture should be connected")
+        };
+        let opportunity_uid = app_product_proposal(project);
+        (project.state.planning_store.clone(), opportunity_uid)
+    };
     let opportunities = OpportunityStore::new(&planning);
-    let proposal = OpportunityV1 {
-        schema_version: 1,
-        opportunity_uid: uuid::Uuid::new_v4().to_string(),
-        workspace_uid: uuid::Uuid::new_v4().to_string(),
-        origin: OpportunityOriginV1::Roadmap,
-        kind: OpportunityKindV1::Quality,
-        target: OpportunityTargetV1 {
-            kind: OpportunityTargetKindV1::KooladeProduct,
-            repository_uid: uuid::Uuid::new_v4().to_string(),
-            canonical_remote: "ssh://git@github.com/zbarno/kool.ade".into(),
-            source_sha: "a".repeat(40),
-        },
-        related_feature_uids: Vec::new(),
-        related_task_uids: Vec::new(),
-        discovered_at_ms: 1,
-        observation_revision: 1,
-        evidence_refs: vec![OpportunityEvidenceRefV1 {
-            evidence_uid: uuid::Uuid::new_v4().to_string(),
-            sha256: "b".repeat(64),
-            confidentiality: EvidenceConfidentialityV1::Public,
-        }],
-        problem_or_opportunity: "Improve planning reliability".into(),
-        user_value: "Plans stay consistent".into(),
-        expected_outcome: "A reviewed feature is available".into(),
-        possible_approaches: vec!["Use current planning records".into()],
-        recommended_approach: "Use current planning records".into(),
-        alternatives: vec!["Defer".into()],
-        estimated_scope: OpportunityScopeV1::Small,
-        impact: "Clearer planning".into(),
-        cost_or_risk: "Ordinary product risk".into(),
-        affected_systems: vec!["planning".into()],
-        current_capability_state: "Not implemented".into(),
-        generic_workaround: None,
-        proposed_approach: "Create a reviewed feature".into(),
-        dedup_fingerprint: "c".repeat(64),
-        status: OpportunityStatusV1::Proposed,
-        revision: 1,
-    };
-    let OpportunitySaveResult::Created {
-        proposal,
-        record_revision,
-    } = opportunities.save_advisory(proposal).unwrap()
-    else {
-        panic!("test proposal should be created")
-    };
+    let (proposal, record_revision) = opportunities.load(&opportunity_uid).unwrap();
     let decision = OpportunityDecisionV1 {
         uid: uuid::Uuid::new_v4().to_string(),
         opportunity_uid: proposal.opportunity_uid.clone(),

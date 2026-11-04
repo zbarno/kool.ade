@@ -7,46 +7,66 @@ use super::*;
 // local Git/PlanningStore fixture only, moderate setup, no external services.
 fn reconfirming_the_same_plan_uses_current_product_without_rewriting_lifecycle_consent() {
     let fixture = Fixture::new();
-    let store = fixture.store();
+    let mut store = fixture.store();
     let (uid, markdown) = traceability::support::reviewed_feature(
         &fixture,
-        &store,
+        &mut store,
         "CHG-983",
         "CHG-983-reconfirmation",
     );
-    let lifecycle = LifecycleStore::new(&store);
-    let feature = lifecycle.load_feature(&uid).unwrap();
-    let snapshot = crate::core::lifecycle::plan_snapshot::load_persisted(
-        &store,
-        feature.plan_snapshot_uid.as_deref().unwrap(),
-    )
-    .unwrap()
-    .unwrap();
-    let old = crate::core::lifecycle::plan_snapshot::user_confirmation_receipt(&store, &snapshot)
+    let (feature, snapshot, old, original_events) = {
+        let lifecycle = LifecycleStore::new(&store);
+        let feature = lifecycle.load_feature(&uid).unwrap();
+        let snapshot = crate::core::lifecycle::plan_snapshot::load_persisted(
+            &store,
+            feature.plan_snapshot_uid.as_deref().unwrap(),
+        )
         .unwrap()
         .unwrap();
-    let original_events = lifecycle.events_for_feature(&uid).unwrap();
+        let old =
+            crate::core::lifecycle::plan_snapshot::user_confirmation_receipt(&store, &snapshot)
+                .unwrap()
+                .unwrap();
+        let original_events = lifecycle.events_for_feature(&uid).unwrap();
+        (feature, snapshot, old, original_events)
+    };
     let docs = crate::artifacts::product_docs::load_documents(&store)
         .unwrap()
         .unwrap();
     let doc = &docs[0];
-    let path = store
-        .layout()
-        .product_root()
-        .join(&doc.module.path)
-        .strip_prefix(store.layout().root())
-        .unwrap()
-        .to_string_lossy()
-        .into_owned();
-    store
-        .transaction(
-            &[(
-                path,
-                format!("{}\nUpdated context.\n", doc.content).into_bytes(),
-            )],
-            None,
-        )
-        .unwrap();
+    let path = fixture
+        .0
+        .join("docs/koolade/product")
+        .join(&doc.module.path);
+    std::fs::write(&path, format!("{}\nUpdated context.\n", doc.content)).unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["add", "docs/koolade/product"])
+            .current_dir(&fixture.0)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        std::process::Command::new("git")
+            .args(["commit", "-qm", "publish refreshed test product context"])
+            .current_dir(&fixture.0)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let reader =
+        crate::core::published_specs::PublishedSpecReader::for_primary_repository(&fixture.0)
+            .unwrap();
+    store.published_spec_pin = Some(reader.pin().unwrap());
+    store.remove("state/spec_drafts/current.json").unwrap();
+    let proposal = crate::core::apply::private_document_draft_changes(
+        &store,
+        &[("feature:CHG-983".into(), markdown.clone())],
+    )
+    .unwrap();
+    store.transaction(&proposal, None).unwrap();
+    let lifecycle = LifecycleStore::new(&store);
     let workflow = crate::artifacts::task_docs::load_workflow(&store).unwrap();
     assert!(!crate::core::workflow::feature_approved(
         &store, &workflow, "CHG-983"

@@ -66,7 +66,7 @@ fn board_state_follows_task_uid_after_story_path_changes() {
         base: "main".into(),
         base_commit: "base".into(),
         task_repository: root.join("worktree"),
-        task_repository_kind: TaskRepositoryKind::LegacyWorktree,
+        task_repository_kind: TaskRepositoryKind::Clone,
         task_repository_ready: false,
         task_repositories: vec![root.join("worktree")],
         task_repository_commits: std::collections::BTreeMap::new(),
@@ -88,7 +88,7 @@ fn board_state_follows_task_uid_after_story_path_changes() {
     fs::create_dir_all(&state_dir).unwrap();
     fs::write(
         state_dir.join("state.json"),
-        serde_json::to_vec(&record).unwrap(),
+        crate::core::implementation::serialize_state(&record).unwrap(),
     )
     .unwrap();
 

@@ -5,7 +5,6 @@ pub(super) struct CardStatus<'a> {
     pub expanded: bool,
     pub retry: bool,
     pub resolved: bool,
-    pub ownership: bool,
     pub review: bool,
     pub blocked: bool,
     pub blocked_by: &'a [String],
@@ -24,7 +23,6 @@ pub(super) fn labels(status: CardStatus<'_>) -> (&'static str, String) {
         expanded,
         retry,
         resolved,
-        ownership,
         review,
         blocked,
         blocked_by,
@@ -52,11 +50,6 @@ pub(super) fn labels(status: CardStatus<'_>) -> (&'static str, String) {
         )
     } else if resolved {
         ("Resolved", "No reply needed.".to_string())
-    } else if ownership {
-        (
-            "Your next step",
-            "Choose who owns this category.".to_string(),
-        )
     } else if review {
         (
             "Your next step",
@@ -96,19 +89,15 @@ pub(super) fn labels(status: CardStatus<'_>) -> (&'static str, String) {
                 "Start implementation, or add context before Kool.ad/e begins.".to_string(),
             ),
         }
-    } else if !eligible {
-        (
-            "Waiting on the owner",
-            format!(
-                "Assigned to {}. You can still add context.",
-                item.and_then(|i| i.assigned_to.as_deref())
-                    .unwrap_or("another stakeholder")
-            ),
-        )
-    } else if item.is_some_and(|i| i.authority == Authority::Agent) {
+    } else if item.is_some_and(|i| i.authority == Authority::Agent) && eligible {
         (
             "Assigned to Kool.ad/e",
             "No answer needed from you.".to_string(),
+        )
+    } else if !eligible {
+        (
+            "Waiting on the prerequisite",
+            "This item is not currently actionable. You can still add context.".to_string(),
         )
     } else {
         ("No reply needed", String::new())

@@ -5,7 +5,7 @@ pub(super) fn app_proposal(
     target_kind: OpportunityTargetKindV1,
 ) -> String {
     let planning = &project.state.planning_store;
-    crate::artifacts::migration::bootstrap_product_with_store(
+    crate::artifacts::product_bootstrap::bootstrap_product_with_store(
         &project.state.repo_root,
         planning,
         "Synthetic Kool.ad/e fixture",
@@ -30,7 +30,7 @@ pub(super) fn app_proposal(
         )
         .unwrap();
     project.state.identity = crate::domain::user::ResolvedIdentity {
-        user: crate::domain::user::CurrentUser::new("Koolade Acceptance", Vec::new()),
+        user: crate::domain::user::CurrentUser::new("Koolade Acceptance"),
         source: crate::domain::user::IdentitySource::ConfigBlock,
     };
     project.state.baseline_planning_revision = planning.revision().unwrap();

@@ -1,6 +1,6 @@
 use super::Queue;
 use crate::core::implementation::Failure;
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _, ser::Error as _};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod decode;
@@ -9,57 +9,29 @@ pub(super) use decode::decode_value;
 const QUEUE_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct TaskQueueState {
-    #[serde(default)]
-    pub(super) path_hint: String,
-    #[serde(default)]
     pub(super) current: bool,
-    #[serde(default)]
     pub(super) in_flight: bool,
-    #[serde(default)]
     pub(super) blocked: Option<Failure>,
-    #[serde(default)]
     pub(super) recovery_attempts: usize,
-    #[serde(default)]
     pub(super) waiting_since_unix_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct PersistedQueue {
     #[serde(rename = "schemaVersion")]
     schema_version: u32,
-    #[serde(default = "default_auto_plan")]
     auto_plan: bool,
-    #[serde(default = "default_auto_build")]
     auto_build: bool,
-    #[serde(default)]
     auto_publish: bool,
-    #[serde(default)]
     require_independent_checks: bool,
-    #[serde(default)]
     running: bool,
-    #[serde(default = "default_parallel")]
     max_parallel: usize,
-    #[serde(default)]
     last_error: String,
-    #[serde(default)]
     recovery_paused: bool,
-    #[serde(default)]
     pub(super) tasks: BTreeMap<String, TaskQueueState>,
-    #[serde(default)]
-    legacy_tasks: BTreeMap<String, TaskQueueState>,
-    #[serde(default)]
-    task_identity_aliases: BTreeMap<String, String>,
-}
-
-fn default_auto_plan() -> bool {
-    true
-}
-fn default_auto_build() -> bool {
-    true
-}
-fn default_parallel() -> usize {
-    3
 }
 
 impl Serialize for Queue {
@@ -67,7 +39,9 @@ impl Serialize for Queue {
     where
         S: Serializer,
     {
-        persisted(self).serialize(serializer)
+        persisted(self)
+            .map_err(S::Error::custom)?
+            .serialize(serializer)
     }
 }
 
@@ -77,35 +51,30 @@ impl<'de> Deserialize<'de> for Queue {
         D: Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-        decode_value(value)
-            .map(|(queue, _)| queue)
-            .map_err(D::Error::custom)
+        decode_value(value).map_err(D::Error::custom)
     }
 }
 
-pub(super) fn persisted(queue: &Queue) -> PersistedQueue {
+pub(super) fn persisted(queue: &Queue) -> anyhow::Result<PersistedQueue> {
     let mut tasks = queue
         .stable_tasks
         .iter()
         .filter(|(_, state)| has_state(state))
         .map(|(uid, state)| (uid.clone(), state.clone()))
         .collect::<BTreeMap<_, _>>();
-    for state in tasks.values_mut() {
-        state.waiting_since_unix_ms = queue.waiting_since_unix_ms.get(&state.path_hint).copied();
-    }
-    tasks.retain(|_, state| has_state(state));
     for uid in queue.current_paths.keys() {
         tasks.remove(uid);
     }
-    let mut legacy_tasks = BTreeMap::new();
     let mut paths = queue.in_flight.iter().cloned().collect::<BTreeSet<_>>();
     paths.extend(queue.blocked.keys().cloned());
     paths.extend(queue.recovery_attempts.keys().cloned());
     paths.extend(queue.current_ticket.iter().cloned());
     paths.extend(queue.waiting_since_unix_ms.keys().cloned());
     for path in paths {
+        let uid = queue.task_uids.get(&path).ok_or_else(|| {
+            anyhow::anyhow!("Queued task state has no current stable task identity: {path}")
+        })?;
         let state = TaskQueueState {
-            path_hint: path.clone(),
             current: queue.current_ticket.as_deref() == Some(path.as_str()),
             in_flight: queue.in_flight.contains(&path),
             blocked: queue.blocked.get(&path).cloned(),
@@ -116,13 +85,11 @@ pub(super) fn persisted(queue: &Queue) -> PersistedQueue {
                 .unwrap_or_default(),
             waiting_since_unix_ms: queue.waiting_since_unix_ms.get(&path).copied(),
         };
-        if let Some(uid) = queue.task_uids.get(&path) {
+        if has_state(&state) {
             tasks.insert(uid.clone(), state);
-        } else {
-            legacy_tasks.insert(path, state);
         }
     }
-    PersistedQueue {
+    Ok(PersistedQueue {
         schema_version: QUEUE_VERSION,
         auto_plan: queue.auto_plan,
         auto_build: queue.auto_build,
@@ -133,9 +100,7 @@ pub(super) fn persisted(queue: &Queue) -> PersistedQueue {
         last_error: queue.last_error.clone(),
         recovery_paused: queue.recovery_paused,
         tasks,
-        legacy_tasks,
-        task_identity_aliases: queue.task_uids.clone(),
-    }
+    })
 }
 
 fn has_state(state: &TaskQueueState) -> bool {
@@ -151,33 +116,34 @@ fn from_current(data: PersistedQueue) -> anyhow::Result<Queue> {
         data.schema_version == QUEUE_VERSION,
         "Task queue schema version is inconsistent"
     );
+    anyhow::ensure!(
+        !data.auto_publish || data.require_independent_checks,
+        "Task queue publication policy is missing its independent-check requirement"
+    );
+    anyhow::ensure!(
+        (1..=8).contains(&data.max_parallel),
+        "Task queue maximum parallelism is invalid"
+    );
     let mut queue = Queue {
         auto_plan: data.auto_plan,
         auto_build: data.auto_build,
         auto_publish: data.auto_publish,
-        require_independent_checks: data.require_independent_checks || data.auto_publish,
+        require_independent_checks: data.require_independent_checks,
         running: data.running,
-        max_parallel: data.max_parallel.clamp(1, 8),
+        max_parallel: data.max_parallel,
         last_error: data.last_error,
         recovery_paused: data.recovery_paused,
-        task_uids: data.task_identity_aliases,
-        stable_tasks: data.tasks.clone(),
+        stable_tasks: BTreeMap::new(),
         ..Queue::default()
     };
     for (uid, state) in data.tasks {
-        if state.path_hint.is_empty() {
-            continue;
-        }
-        if let Some(previous) = queue.task_uids.insert(state.path_hint.clone(), uid.clone()) {
-            anyhow::ensure!(
-                previous == uid,
-                "Task queue state contains conflicting task path identities"
-            );
-        }
-        queue.put_runtime_state(&state.path_hint, &state);
-    }
-    for (path, state) in data.legacy_tasks {
-        queue.put_runtime_state(&path, &state);
+        let parsed = uuid::Uuid::parse_str(&uid)
+            .map_err(|_| anyhow::anyhow!("Task queue contains an invalid task UID"))?;
+        anyhow::ensure!(
+            parsed.hyphenated().to_string() == uid,
+            "Task queue contains a noncanonical task UID"
+        );
+        queue.stable_tasks.insert(uid, state);
     }
     Ok(queue)
 }

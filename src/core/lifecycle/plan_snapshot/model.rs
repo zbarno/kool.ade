@@ -13,21 +13,10 @@ mod validation;
 pub struct PlanRequirementV1 {
     pub stable_id: String,
     pub text: String,
-    #[serde(
-        default,
-        skip_serializing_if = "String::is_empty",
-        deserialize_with = "deserialize_optional_string"
-    )]
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub rationale: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty", alias = "acIds")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub acceptance_criteria_ids: Vec<String>,
-}
-
-fn deserialize_optional_string<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 /// Immutable, application-parsed input to explicit plan confirmation.
@@ -42,7 +31,6 @@ pub struct PlanSnapshotV1 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capability_id: Option<String>,
     pub original_goal_ref: String,
-    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub original_goal: String,
     pub intent: String,
     pub outcome: String,
@@ -65,7 +53,7 @@ pub struct PlanSnapshotV1 {
     pub approval_contract_sha256: String,
     pub content_hash: String,
     /// Persisted identity of the run/session that authored this confirmed plan.
-    /// Missing provenance is valid legacy data but blocks independent review.
+    /// Missing provenance blocks independent review.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub author_run_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -151,13 +139,7 @@ impl PlanSnapshotV1 {
             })
             .cloned()
             .collect();
-        let schema_version = if original_goal.is_some() {
-            3
-        } else if capability_id.is_some() {
-            2
-        } else {
-            1
-        };
+        let schema_version = 3;
         let spec_revision = match original_goal {
             Some((reference, goal)) => sha256(
                 &serde_json::to_vec(&(approval_contract, reference, goal))
@@ -206,7 +188,7 @@ impl PlanSnapshotV1 {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        if !matches!(self.schema_version, 1..=3)
+        if self.schema_version != 3
             || !canonical_uuid(&self.uid)
             || !canonical_uuid(&self.feature_uid)
             || self.feature_id.trim().is_empty()
@@ -215,9 +197,6 @@ impl PlanSnapshotV1 {
                 .capability_id
                 .as_deref()
                 .is_some_and(|value| !valid_capability_id(value))
-            || (self.schema_version == 1 && self.capability_id.is_some())
-            || (self.schema_version < 3 && !self.original_goal.is_empty())
-            || (self.schema_version >= 3 && self.original_goal.trim().is_empty())
             || self.intent.trim().is_empty()
             || self.outcome.trim().is_empty()
             || self.current_state.trim().is_empty()

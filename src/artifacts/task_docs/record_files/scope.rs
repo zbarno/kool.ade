@@ -1,5 +1,5 @@
 use super::WorkflowRecord;
-use crate::artifacts::planning_store::{PlanningRoot, PlanningStore, StoreError, paths};
+use crate::artifacts::planning_store::{PlanningRoot, PlanningStore, StoreError};
 use crate::core::workflow::{TaskBatchRef, Workflow};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -26,11 +26,6 @@ pub(super) fn merge(target: &mut Workflow, source: &Workflow, path: &str) -> any
         "branch target",
         &source.feature_branch_targets,
         &mut target.feature_branch_targets,
-    )?;
-    merge_map(
-        "legacy comparison",
-        &source.legacy_plan_comparison_evidence,
-        &mut target.legacy_plan_comparison_evidence,
     )?;
     target.task_batches.extend(source.task_batches.clone());
     target.task_batches.sort_by(|left, right| {
@@ -71,7 +66,6 @@ pub(super) fn validate_scope(record: &WorkflowRecord, path: &str) -> anyhow::Res
         .keys()
         .chain(record.data.plan_comparisons.keys())
         .chain(record.data.feature_branch_targets.keys())
-        .chain(record.data.legacy_plan_comparison_evidence.keys())
     {
         anyhow::ensure!(
             record.feature_id.as_deref() == Some(id.as_str()),
@@ -97,7 +91,6 @@ pub(super) fn feature_ids(workflow: &Workflow) -> std::collections::BTreeSet<Str
         .keys()
         .chain(workflow.plan_comparisons.keys())
         .chain(workflow.feature_branch_targets.keys())
-        .chain(workflow.legacy_plan_comparison_evidence.keys())
         .cloned()
         .collect()
 }
@@ -109,7 +102,6 @@ pub(super) fn is_empty(workflow: &Workflow) -> bool {
         && workflow.approved_features.is_empty()
         && workflow.plan_comparisons.is_empty()
         && workflow.feature_branch_targets.is_empty()
-        && workflow.legacy_plan_comparison_evidence.is_empty()
 }
 
 pub(super) fn batch_feature_uid(batch: &TaskBatchRef) -> Option<String> {
@@ -157,14 +149,6 @@ pub(super) fn with_creation_order(
     batch
 }
 
-pub(super) fn normalize_legacy_batch_order(workflow: &mut Workflow) {
-    for (index, batch) in workflow.task_batches.iter_mut().enumerate() {
-        if batch.created_at_ms == 0 {
-            batch.created_at_ms = (index as u64).saturating_add(1);
-        }
-    }
-}
-
 pub fn next_batch_timestamp(workflow: &Workflow) -> u64 {
     now_ms().max(
         workflow
@@ -207,21 +191,11 @@ pub(super) fn matching_feature_id<R: PlanningRoot + ?Sized>(
 }
 
 pub(super) fn feature_uid<R: PlanningRoot + ?Sized>(repo: &R, id: &str) -> anyhow::Result<String> {
-    let path = crate::artifacts::product_docs::document_path(repo, &format!("feature:{id}"))?;
-    let text = String::from_utf8(repo.read_planning_path(&path)?)?;
+    let text = crate::artifacts::product_docs::current_document(repo, &format!("feature:{id}"))?
+        .ok_or_else(|| anyhow::anyhow!("Feature {id} is not published or proposed"))?;
     crate::domain::ArtifactIdentity::from_markdown(&text)?
         .map(|identity| identity.uid)
         .ok_or_else(|| anyhow::anyhow!("Feature {id} has no stable artifact identity"))
-}
-
-pub(super) fn legacy_exists(store: &PlanningStore) -> anyhow::Result<bool> {
-    match store.read(paths::WORKFLOW) {
-        Ok(_) => Ok(true),
-        Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
-            Ok(false)
-        }
-        Err(error) => Err(error.into()),
-    }
 }
 
 pub(super) fn existing_times(

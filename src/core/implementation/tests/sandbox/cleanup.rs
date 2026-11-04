@@ -26,6 +26,10 @@ pub(crate) fn completed_cleanup_fixture(sandbox: &Sandbox) -> Implementation {
     state.status = ImplementationStatus::Completed;
     state.pr_state = Some(PullRequestState::Merged);
     state.merged_commit = state.verified_head.clone();
-    save(&state_dir(&sandbox.repo, &sandbox.ticket).unwrap(), &state).unwrap();
+    save(
+        &state_dir(&sandbox.planning_store.root, &sandbox.ticket).unwrap(),
+        &state,
+    )
+    .unwrap();
     state
 }

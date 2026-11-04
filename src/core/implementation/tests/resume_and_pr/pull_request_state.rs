@@ -4,8 +4,9 @@ use super::*;
 fn pr_checks_persist_closed_reopened_merged_and_keep_state_on_failure() {
     let s = Sandbox::new();
     s.run("complete", Arc::new(AtomicUsize::new(0))).unwrap();
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
-    let mut held = load(&s.repo, &s.ticket).unwrap();
+    let dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
+    let mut held = load(&s.planning_store.root, &s.ticket).unwrap();
+    held.pr_url = Some("https://github.com/fixture/repo/pull/1".into());
     held.detail =
         "Verified locally. No remote changes were made; share for review when ready.".into();
     save(&dir, &held).unwrap();
@@ -36,8 +37,8 @@ fn pr_checks_persist_closed_reopened_merged_and_keep_state_on_failure() {
             format!("#!/bin/sh\nprintf '%s\\n' '{{\"state\":\"{value}\"}}'\n")
         };
         fs::write(&s.gh, response).unwrap();
-        refresh_pr(&s.repo, &s.ticket, &runner).unwrap();
-        let state = load(&s.repo, &s.ticket).unwrap();
+        refresh_pr(&s.planning_store.root, &s.ticket, &runner).unwrap();
+        let state = load(&s.planning_store.root, &s.ticket).unwrap();
         assert_eq!(state.pr_state.map(PullRequestState::label), Some(value));
         assert_eq!(board_column(Some(&state), false), column);
         assert!(state.pr_checked_at.is_some());
@@ -60,8 +61,8 @@ fn pr_checks_persist_closed_reopened_merged_and_keep_state_on_failure() {
         if value != "MERGED" {
             for output in ["echo offline >&2; exit 1", "echo '{\"state\":\"UNKNOWN\"}'"] {
                 fs::write(&s.gh, format!("#!/bin/sh\n{output}\n")).unwrap();
-                refresh_pr(&s.repo, &s.ticket, &runner).unwrap();
-                let failed = load(&s.repo, &s.ticket).unwrap();
+                refresh_pr(&s.planning_store.root, &s.ticket, &runner).unwrap();
+                let failed = load(&s.planning_store.root, &s.ticket).unwrap();
                 assert_eq!(failed.pr_state, state.pr_state);
                 assert_eq!(failed.pr_checked_at, state.pr_checked_at);
                 assert_eq!(failed.detail, state.detail);
@@ -69,12 +70,12 @@ fn pr_checks_persist_closed_reopened_merged_and_keep_state_on_failure() {
             }
         }
     }
-    assert_eq!(load_all(&s.repo).len(), 1);
+    assert_eq!(load_all(&s.planning_store.root).len(), 1);
     assert_eq!(
-        load(&s.repo, &s.ticket).unwrap().status,
+        load(&s.planning_store.root, &s.ticket).unwrap().status,
         ImplementationStatus::Completed
     );
-    let mut stale = load(&s.repo, &s.ticket).unwrap();
+    let mut stale = load(&s.planning_store.root, &s.ticket).unwrap();
     stale.detail =
         "Verified locally. No remote changes were made; share for review when ready.".into();
     save(&dir, &stale).unwrap();
@@ -83,8 +84,8 @@ fn pr_checks_persist_closed_reopened_merged_and_keep_state_on_failure() {
         "#!/bin/sh\necho unexpected GitHub request >&2; exit 1\n",
     )
     .unwrap();
-    refresh_pr(&s.repo, &s.ticket, &runner).unwrap();
-    let migrated = load(&s.repo, &s.ticket).unwrap();
+    refresh_pr(&s.planning_store.root, &s.ticket, &runner).unwrap();
+    let migrated = load(&s.planning_store.root, &s.ticket).unwrap();
     assert!(!migrated.detail.contains("No remote changes were made"));
     assert!(
         migrated
@@ -112,7 +113,7 @@ fn approval_and_change_request_states_stay_in_review() {
 fn pr_refresh_does_not_overwrite_an_active_implementation() {
     let s = Sandbox::new();
     s.run("complete", Arc::new(AtomicUsize::new(0))).unwrap();
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
+    let dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
     let before = fs::read(dir.join("state.json")).unwrap();
     let lock = fs::OpenOptions::new()
         .read(true)
@@ -131,7 +132,7 @@ fn pr_refresh_does_not_overwrite_an_active_implementation() {
         authorization_verifier: None,
     };
     let started = Instant::now();
-    refresh_pr(&s.repo, &s.ticket, &runner).unwrap();
+    refresh_pr(&s.planning_store.root, &s.ticket, &runner).unwrap();
     // The deliberate no-op must stay bounded: a held lock may add at most
     // the short settle budget, never an unbounded block.
     assert!(started.elapsed() < Duration::from_secs(2));

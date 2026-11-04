@@ -135,12 +135,6 @@ macro_rules! activity_surface_methods {
             }
         }
 
-        fn stale_task_claim(&self) -> Option<(String, crate::core::task_claim::ClaimRecord)> {
-            match &self.screen {
-                Screen::Connected(project) => project.queue.stale_claim.clone(),
-                Screen::Welcome => None,
-            }
-        }
     };
 }
 

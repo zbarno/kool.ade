@@ -2,15 +2,34 @@ use super::Project;
 use crate::core::state::PlannerState;
 use std::path::Path;
 
+pub(crate) fn planning_store_for(root: &Path) -> crate::artifacts::planning_store::PlanningStore {
+    let canonical = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let project_id = uuid::Uuid::new_v5(
+        &uuid::Uuid::NAMESPACE_URL,
+        canonical.to_string_lossy().as_bytes(),
+    );
+    let private_root = std::env::temp_dir().join(format!("koolade-session-store-{project_id}"));
+    crate::artifacts::planning_store::PlanningStore::for_code_repository(
+        project_id,
+        private_root,
+        root,
+    )
+}
+
+pub(crate) fn remove_planning_store_for(root: &Path) {
+    let store = planning_store_for(root);
+    let _ = std::fs::remove_dir_all(store.root);
+}
+
 pub(crate) fn project_from(root: &Path) -> Project {
+    crate::core::state::test_support::seed_published_product_document(root).unwrap();
+    crate::test_support::set_test_origin_default(root);
+    let store = planning_store_for(root);
     Project {
         specification_trace_navigation: None,
         task_chats: Default::default(),
         activity: Default::default(),
-        state: PlannerState::load(root).unwrap(),
-        managed_workspace: None,
-        planning_sync: crate::core::planning_sync::PlanningSyncStatus::local(),
-        planning_remote_url: None,
+        state: PlannerState::load_with_store(root, &store).unwrap(),
         chat_slug: "test-repository-names".into(),
         chat: Vec::new(),
         draft: String::new(),

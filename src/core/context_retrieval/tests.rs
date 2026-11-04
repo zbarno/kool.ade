@@ -44,19 +44,76 @@ fn fixture() -> (PlannerState, std::path::PathBuf) {
             .unwrap()
             .success()
     );
+    let docs = root.join("docs/koolade");
+    let fixture_docs = [
+        (
+            "AGENTS.md",
+            "# Navigation\n\n- [architecture/](./architecture/AGENTS.md) - Read for architecture.\n- [product/](./product/AGENTS.md) - Read for product.\n",
+        ),
+        (
+            "architecture/AGENTS.md",
+            "# Navigation\n\n- [architecture-and-constraints.md](./architecture-and-constraints.md) - Read for architecture constraints.\n- [quality-and-acceptance.md](./quality-and-acceptance.md) - Read for quality requirements.\n",
+        ),
+        (
+            "architecture/architecture-and-constraints.md",
+            "# Architecture and Constraints\n\nSession credentials are restored from the local session store.\n",
+        ),
+        (
+            "architecture/quality-and-acceptance.md",
+            "# Quality and Acceptance\n\nUNSELECTED_RISK_SOURCE\n",
+        ),
+        (
+            "product/AGENTS.md",
+            "# Navigation\n\n- [overview.md](./overview.md) - Read for product overview.\n- [offline-sync.md](./offline-sync.md) - Read for offline sync.\n",
+        ),
+        (
+            "product/overview.md",
+            "# Product Overview\n\nThe product restores sessions safely.\n",
+        ),
+        (
+            "product/offline-sync.md",
+            "# Offline Sync\n\nThe offline queue replays after connectivity returns.\n",
+        ),
+    ];
+    for (relative, content) in fixture_docs {
+        let path = docs.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, content).unwrap();
+    }
+    for (key, value) in [
+        ("user.name", "Fixture User"),
+        ("user.email", "fixture@example.test"),
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .args(["config", key, value])
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    assert!(
+        std::process::Command::new("git")
+            .args(["add", "docs/koolade"])
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        std::process::Command::new("git")
+            .args(["commit", "-qm", "publish fixture specifications"])
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    // Load only after publishing fixture documents: the state pins the code
+    // repository's current documentation revision and must never see later,
+    // uncommitted document changes.
     let mut state = PlannerState::load(&root).unwrap();
     state.bootstrap_missing().unwrap();
-    let layout = crate::artifacts::layout::ArtifactLayout::new(&root);
-    std::fs::write(
-        layout.product_root().join("architecture-and-constraints.md"),
-        "# Architecture and Constraints\n\nSession credentials are restored from the local session store.\n",
-    )
-    .unwrap();
-    std::fs::write(
-        layout.product_root().join("quality-and-acceptance.md"),
-        "# Quality and Acceptance\n\nUNSELECTED_RISK_SOURCE\n",
-    )
-    .unwrap();
     std::fs::create_dir_all(root.join("src/persistence")).unwrap();
     std::fs::write(
         root.join("src/persistence/session.rs"),
@@ -75,7 +132,6 @@ fn fixture() -> (PlannerState, std::path::PathBuf) {
             crate::domain::Priority::High,
             crate::domain::ItemKind::Question,
             "Product".into(),
-            Some("All".into()),
             "Should a restored session retain its pending request?".into(),
             "This determines safe retry behavior after restart.".into(),
         ),
@@ -84,7 +140,6 @@ fn fixture() -> (PlannerState, std::path::PathBuf) {
             crate::domain::Priority::Normal,
             crate::domain::ItemKind::Question,
             "Product".into(),
-            Some("All".into()),
             "Which notification sound should play?".into(),
             "This only affects notification preferences.".into(),
         ),
@@ -112,7 +167,9 @@ fn model_selected_sources_follow_the_issue_without_literal_names_in_the_request(
     let (state, root) = fixture();
     let model = RetrievalModel {
         plan: RetrievalPlan {
-            documents: vec!["product:architecture-and-constraints".into()],
+            documents: vec![
+                "published:docs/koolade/architecture/architecture-and-constraints.md".into(),
+            ],
             open_items: vec!["CLR-021".into()],
             repository_areas: vec!["src/persistence".into()],
         },
@@ -138,7 +195,7 @@ fn model_selected_sources_follow_the_issue_without_literal_names_in_the_request(
             .contains(user_message)
     );
     assert!(prompt.contains("Session credentials are restored from the local session store."));
-    assert!(prompt.contains("Source: planning/product/architecture-and-constraints.md"));
+    assert!(prompt.contains("Source: docs/koolade/architecture/architecture-and-constraints.md"));
     assert!(prompt.contains("CLR-021"));
     assert!(prompt.contains("This determines safe retry behavior after restart."));
     assert!(prompt.contains("repo:src/persistence/session.rs"));
@@ -152,28 +209,10 @@ fn model_selected_sources_follow_the_issue_without_literal_names_in_the_request(
 #[test]
 fn model_can_retrieve_a_project_specific_optional_product_module() {
     let (state, root) = fixture();
-    let content = "# Offline Sync\n\nThe offline queue replays after connectivity returns.\n";
-    let updates = vec![("product:offline-sync".into(), content.into())];
-    let path = crate::artifacts::product_docs::document_path_for_update(
-        &root,
-        "product:offline-sync",
-        content,
-    )
-    .unwrap();
-    let manifest = crate::artifacts::product_docs::updated_manifest(&root, &updates).unwrap();
-    let index = crate::artifacts::product_docs::refreshed_index(&root, &updates).unwrap();
-    std::fs::write(path, content).unwrap();
-    let layout = crate::artifacts::layout::ArtifactLayout::new(&root);
-    std::fs::write(
-        layout.product_manifest(),
-        serde_json::to_vec_pretty(&manifest).unwrap(),
-    )
-    .unwrap();
-    std::fs::write(layout.product_index(), index).unwrap();
 
     let model = RetrievalModel {
         plan: RetrievalPlan {
-            documents: vec!["product:offline-sync".into()],
+            documents: vec!["published:docs/koolade/product/offline-sync.md".into()],
             open_items: vec![],
             repository_areas: vec![],
         },
@@ -185,7 +224,10 @@ fn model_can_retrieve_a_project_specific_optional_product_module() {
         "What happens to queued edits when the connection returns?",
     );
     assert_eq!(selected.documents.len(), 1);
-    assert_eq!(selected.documents[0].id, "product:offline-sync");
+    assert_eq!(
+        selected.documents[0].id,
+        "published:docs/koolade/product/offline-sync.md"
+    );
     assert!(
         selected.documents[0]
             .content
@@ -205,13 +247,11 @@ fn invalid_references_are_ignored_and_retrieval_limits_are_deterministic() {
     let plan = RetrievalPlan {
         documents: vec![
             "../../outside/secret.md".into(),
-            "product:architecture-and-constraints".into(),
-            "product:architecture-and-constraints".into(),
-            "product:overview".into(),
-            "product:users-and-outcomes".into(),
-            "product:current-capabilities".into(),
-            "product:decisions".into(),
-            "product:quality-and-acceptance".into(),
+            "published:docs/koolade/architecture/architecture-and-constraints.md".into(),
+            "published:docs/koolade/architecture/architecture-and-constraints.md".into(),
+            "published:docs/koolade/product/overview.md".into(),
+            "published:docs/koolade/product/missing.md".into(),
+            "published:docs/koolade/architecture/quality-and-acceptance.md".into(),
         ],
         open_items: vec!["../../outside".into(), "CLR-022".into(), "CLR-021".into()],
         repository_areas: vec!["../outside".into(), "src/persistence".into()],
@@ -229,7 +269,7 @@ fn invalid_references_are_ignored_and_retrieval_limits_are_deterministic() {
         selected
             .documents
             .iter()
-            .all(|doc| doc.source_path.starts_with("planning/product/"))
+            .all(|doc| doc.source_path.starts_with("docs/koolade/"))
     );
     assert!(
         selected
@@ -238,29 +278,6 @@ fn invalid_references_are_ignored_and_retrieval_limits_are_deterministic() {
             .all(|area| area.path == "src/persistence")
     );
     assert!(selected.repository_areas[0].content.chars().count() <= 16_100);
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[test]
-fn historical_change_catalog_stays_bounded() {
-    let (state, root) = fixture();
-    let changes = crate::artifacts::layout::ArtifactLayout::new(&root).changes_root();
-    for n in 1..=220 {
-        let directory = changes.join(format!("CHG-{n:03}-history"));
-        std::fs::create_dir_all(&directory).unwrap();
-        std::fs::write(
-            directory.join("specification.md"),
-            format!(
-                "# CHG-{n:03}: History {n}\n\n**Status:** Implemented\n\nHISTORICAL_MARKER_{n}\n"
-            ),
-        )
-        .unwrap();
-    }
-    let catalog = catalog::Catalog::build(&state);
-    let prompt = catalog.prompt("Explain an older project choice", &[]);
-    assert!(prompt.chars().count() <= 48_000);
-    assert!(prompt.contains("change:CHG-220"));
-    assert!(!prompt.contains("HISTORICAL_MARKER_001"));
     let _ = std::fs::remove_dir_all(root);
 }
 

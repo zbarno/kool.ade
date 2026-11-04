@@ -75,7 +75,7 @@ fn new_task_can_override_and_persist_source_and_destination_branches() {
     let created = project.planning_work.last().unwrap();
     assert_eq!(created.source_branch.as_deref(), Some("release/2.1"));
     assert_eq!(created.destination_branch.as_deref(), Some("integration"));
-    let saved = crate::core::planning_work::load(&root).unwrap();
+    let saved = crate::core::planning_work::load(&project.state.planning_store).unwrap();
     assert_eq!(
         saved.last().unwrap().source_branch.as_deref(),
         Some("release/2.1")

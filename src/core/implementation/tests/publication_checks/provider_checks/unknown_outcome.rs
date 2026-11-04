@@ -17,7 +17,7 @@ fn provider_timeout_after_creation_reconciles_without_another_create() {
             false,
         )
         .unwrap();
-    let dir = state_dir(&sandbox.repo, &sandbox.ticket).unwrap();
+    let dir = state_dir(&sandbox.planning_store.root, &sandbox.ticket).unwrap();
     fs::write(dir.join("pr-body.md"), "Scoped reviewed publication body").unwrap();
     fs::write(&sandbox.gh, r##"#!/bin/sh
 root=$(dirname "$0")

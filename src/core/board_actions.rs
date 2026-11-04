@@ -1,7 +1,7 @@
 //! Direct board decisions use the same envelope validator and artifact
 //! transaction as conversation turns. The board never stores parallel truth.
 use crate::{
-    core::{apply, gitops, state::PlannerState, validation},
+    core::{apply, state::PlannerState, validation},
     domain::{Authority, OpenItem},
     harness::{DocumentUpdate, TurnEnvelope},
 };
@@ -97,11 +97,11 @@ pub fn approve_review(state: &mut PlannerState, id: &str) -> anyhow::Result<Stri
         .feature_id
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("Review item has no related feature"))?;
-    let path = crate::artifacts::product_docs::document_path(
+    let feature = crate::artifacts::product_docs::current_document(
         &state.planning_store,
         &format!("feature:{feature_id}"),
-    )?;
-    let feature = String::from_utf8(state.planning_store.read_planning_path(&path)?)?;
+    )?
+    .ok_or_else(|| anyhow::anyhow!("Feature {feature_id} is not published or proposed"))?;
     let revised = insert_decision(&feature, id, &recommendation, &evidence)?;
     let envelope = TurnEnvelope {
         schema_version: Some(2),
@@ -136,14 +136,9 @@ pub fn approve_review(state: &mut PlannerState, id: &str) -> anyhow::Result<Stri
             .additional_planning_artifacts
             .push((path, content));
     }
-    let receipt = apply::apply(state, &normalized)?;
-    let result = gitops::commit(
-        &state.planning_store.git_root(),
-        &receipt.commit_message,
-        &receipt.repo_relative_paths,
-    )
-    .map_err(|error| {
-        anyhow::anyhow!("Board decision was saved but git checkpoint failed: {error}")
+    let _receipt = apply::apply(state, &normalized)?;
+    let result = state.planning_store.revision().map_err(|error| {
+        anyhow::anyhow!("Board decision was saved but local state could not be reread: {error}")
     });
     drop(guard);
     result

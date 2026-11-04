@@ -108,8 +108,8 @@ routing time, while context-only modes do not require Docker. Codex CLI and
 Claude Code are currently blocked in every task mode because their managed
 account policy can require host-side hooks that Kool.ad/e cannot contain; local
 launch flags cannot prove that managed hooks are absent. Other providers remain
-subject to fresh authentication, model, and role evidence. Project routes
-are stored in the project's planning store and participate in the same central
+subject to fresh authentication, model, and role evidence. Provider routes
+are stored in private local application settings and participate in the same
 precedence resolver across planning, task, review, reconciliation, and QA
 entry points. The six-by-seven
 fake CLI result matrix exercises each task-capable production adapter through

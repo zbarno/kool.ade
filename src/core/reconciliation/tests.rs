@@ -42,15 +42,44 @@ fn fixture() -> (PathBuf, PlannerState, Candidate, String) {
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap()
     ));
-    std::fs::create_dir_all(repo.join("planning/changes/CHG-001-search")).unwrap();
+    std::fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q"]);
+    git(&repo, &["branch", "-M", "main"]);
     git(&repo, &["config", "user.name", "Fixture"]);
     git(&repo, &["config", "user.email", "fixture@example.test"]);
-    let legacy = crate::artifacts::spec_doc::bootstrap_template("Demo");
-    std::fs::create_dir_all(repo.join("planning")).unwrap();
-    std::fs::write(repo.join("planning/specification.md"), &legacy).unwrap();
-    crate::artifacts::product_docs::migrate(&repo, &legacy).unwrap();
-    std::fs::create_dir_all(repo.join("planning")).unwrap();
+    let product = repo.join("docs/koolade/product");
+    std::fs::create_dir_all(&product).unwrap();
+    std::fs::write(
+        product.join("current-capabilities.md"),
+        "# Current Capabilities\n\nNo persistence.\n",
+    )
+    .unwrap();
+    std::fs::write(
+        product.join("AGENTS.md"),
+        "# Navigation\n\n- [current-capabilities.md](./current-capabilities.md) - Current capabilities.\n",
+    )
+    .unwrap();
+    git(&repo, &["add", "docs/koolade/product"]);
+    git(
+        &repo,
+        &["commit", "-qm", "publish fixture product documentation"],
+    );
+    let base = git(&repo, &["rev-parse", "HEAD"]);
+    std::fs::write(repo.join("implemented.txt"), "search queries persist\n").unwrap();
+    git(&repo, &["add", "implemented.txt"]);
+    git(&repo, &["commit", "-qm", "implement search"]);
+    let merged = git(&repo, &["rev-parse", "HEAD"]);
+    let store_root = repo.with_extension("private-state");
+    let store = crate::artifacts::planning_store::PlanningStore::for_code_repository(
+        uuid::Uuid::new_v4(),
+        &store_root,
+        &repo,
+    );
+    let mut state = PlannerState::load_with_store(&repo, &store).unwrap();
+    state.bootstrap_missing().unwrap();
+    // PlannerState resolves the pin from the final published code revision;
+    // bind every subsequent local proposal to that exact snapshot.
+    let store = state.planning_store.clone();
     let feature = crate::domain::ArtifactIdentity::preserve_markdown(
         "# CHG-001: Search\n\n**Status:** Implementing\n\n## Intent\n\nSave searches.\n\n## Current Behavior\n\nNo persistence.\n\n## Desired Behavior\n\nQueries persist.\n\n## Scope\n\nSearch.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\nQueries persist.\n\n## Decisions and Assumptions\n\nUse local store.\n\n## Acceptance Criteria\n\nQuery survives restart.\n",
         None,
@@ -58,34 +87,56 @@ fn fixture() -> (PathBuf, PlannerState, Candidate, String) {
         "Search",
     )
     .unwrap();
-    std::fs::write(
-        repo.join("planning/changes/CHG-001-search/specification.md"),
+    let identity = crate::domain::ArtifactIdentity::from_markdown(&feature)
+        .unwrap()
+        .unwrap();
+    let feature = crate::domain::ChangeMetadata::write_markdown(
         &feature,
+        &identity,
+        crate::domain::ChangeStatus::Implementing,
     )
     .unwrap();
+    let proposal = crate::core::apply::private_document_draft_changes(
+        &store,
+        &[("feature:CHG-001".to_owned(), feature.clone())],
+    )
+    .unwrap();
+    let revision = store.revision().unwrap();
+    store
+        .transaction_with_revision(&proposal, Some(&revision))
+        .unwrap();
     let mut workflow = workflow::Workflow::default();
-    crate::artifacts::task_docs::save_workflow(&repo, &workflow).unwrap();
-    git(&repo, &["add", "-A"]);
-    git(&repo, &["commit", "-qm", "planning baseline"]);
-    let approval_state = PlannerState::load(&repo).unwrap();
-    crate::core::lifecycle::test_support::approve_and_review_feature(
-        &approval_state.planning_store,
+    crate::artifacts::task_docs::save_workflow(&store, &workflow).unwrap();
+    let feature = crate::core::lifecycle::test_support::approve_and_review_feature(
+        &store,
         &mut workflow,
         "CHG-001",
         &feature,
     )
     .unwrap();
-    std::fs::create_dir_all(repo.join("planning/tasks/search")).unwrap();
-    let ticket = "# Save query\n\nFeature ID: CHG-001\nRepository: root\n";
-    std::fs::write(repo.join("planning/tasks/search/001-save-query.md"), ticket).unwrap();
-    git(&repo, &["add", "-A"]);
-    git(&repo, &["commit", "-qm", "baseline"]);
-    let base = git(&repo, &["rev-parse", "HEAD"]);
-    std::fs::write(repo.join("implemented.txt"), "search queries persist\n").unwrap();
-    git(&repo, &["add", "implemented.txt"]);
-    git(&repo, &["commit", "-qm", "implement search"]);
-    let merged = git(&repo, &["rev-parse", "HEAD"]);
-    let initial_state = PlannerState::load(&repo).unwrap();
+    std::fs::create_dir_all(store.root.join("planning/tasks/search")).unwrap();
+    let ticket_text = "# Save query\n\nFeature ID: CHG-001\nRepository: root\n";
+    let batch_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    let ticket_markdown = crate::domain::ArtifactIdentity::preserve_markdown_with_parent(
+        ticket_text,
+        None,
+        "TASK-001",
+        "Save query",
+        Some(&batch_uid),
+    )
+    .unwrap();
+    let task_identity = crate::domain::ArtifactIdentity::from_markdown(&ticket_markdown)
+        .unwrap()
+        .unwrap();
+    let task_metadata =
+        crate::artifacts::task_docs::TaskMetadata::new(&task_identity, "root", Vec::new()).unwrap();
+    let ticket = crate::artifacts::task_docs::embed(&ticket_markdown, &task_metadata).unwrap();
+    std::fs::write(
+        store.root.join("planning/tasks/search/001-save-query.md"),
+        &ticket,
+    )
+    .unwrap();
+    let initial_state = PlannerState::load_with_store(&repo, &store).unwrap();
     let identity = crate::domain::ArtifactIdentity::from_markdown(&feature)
         .unwrap()
         .unwrap();
@@ -113,10 +164,10 @@ fn fixture() -> (PathBuf, PlannerState, Candidate, String) {
             )
             .unwrap();
     }
-    let state = PlannerState::load(&repo).unwrap();
+    let state = PlannerState::load_with_store(&repo, &store).unwrap();
     let task: crate::core::implementation::Implementation = serde_json::from_value(serde_json::json!({
-            "ticket":"planning/tasks/search/001-save-query.md","ticket_text":ticket,"branch":"koolade/task",
-            "base":"main","base_commit":base,"worktree":repo,"status":"completed","detail":"",
+            "ticket":"planning/tasks/search/001-save-query.md","ticket_text":crate::artifacts::task_docs::visible_content(&ticket),"branch":"koolade/task",
+            "base":"main","base_commit":base,"task_repository":repo,"task_repository_kind":"clone","status":"completed","detail":"",
             "pr_url":null,"verified_head":merged,"merged_commit":merged
         })).unwrap();
     let contract = crate::core::contract_snapshot::BatchContract {
@@ -124,7 +175,8 @@ fn fixture() -> (PathBuf, PlannerState, Candidate, String) {
         feature_specification: feature.clone(),
         product_modules: [(
             "current-capabilities".to_string(),
-            std::fs::read_to_string(repo.join("planning/product/current-capabilities.md")).unwrap(),
+            std::fs::read_to_string(repo.join("docs/koolade/product/current-capabilities.md"))
+                .unwrap(),
         )]
         .into(),
         repository_bases: Default::default(),
@@ -174,7 +226,7 @@ fn material_discrepancy_requires_board_item_and_preserves_product() {
             "schema_version":2,"assistant_message":"Found a mismatch.",
             "document_updates":[{"document_id":"feature:CHG-001","content":revised,"status":"reconciliation"}],
             "open_items_added":[{"kind":"Assumption","priority":"Normal","authority":"Review",
-                "category":"General","assigned_to":"All","feature_id":"CHG-001",
+                "category":"General","feature_id":"CHG-001",
                 "question":"Reconciliation found missing persisted queries; approve a corrective task?",
                 "reason":"Merged commit does not match the approved feature.",
                 "recommendation":"Create a corrective task before product truth is updated.",

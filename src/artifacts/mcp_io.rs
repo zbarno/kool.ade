@@ -4,7 +4,7 @@
 //!
 //! The file lives in the workspace's operator-local state directory, OUTSIDE
 //! every Git repository: MCP commands routinely carry credentials, so they
-//! are never committed to code or shared planning repositories.
+//! are never committed to code or shared with another installation.
 //! Validation remains syntactic (JSON well-formedness probe only) and
 //! structural (blank ⇔ unconfigured).
 
@@ -15,7 +15,7 @@ use crate::error::AppError;
 pub const MCP_FILE_NAME: &str = "mcp.json";
 
 /// Dedicated checkpoint subject for a Write save (NFR-9: short imperative;
-/// parallels the existing "settings: update stakeholders and identity").
+/// parallels the existing local identity settings operation.
 pub const UPDATE_SUBJECT: &str = "settings: update mcp server configuration";
 /// Dedicated checkpoint subject for a blank-save removal.
 pub const CLEAR_SUBJECT: &str = "settings: clear mcp server configuration";

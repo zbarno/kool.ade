@@ -4,10 +4,12 @@ use super::*;
 fn request_changes_is_candidate_bound_and_gives_the_exact_feature_work_all_review_evidence() {
     let _shield = crate::core::gitops::test_support::shield("feature-plan-remediation");
     let (mut app, root, _) = setup();
+    ensure_test_plan_adopted(&mut app, "CHG-004");
+    record_test_plan_author(&mut app, "CHG-004");
     if let Screen::Connected(project) = &mut app.screen {
-        let store = &project.state.planning_store;
-        let (changes, checks, _) = crate::artifacts::items_io::record_changes(
-            store,
+        let store = project.state.planning_store.clone();
+        let (changes, checks) = crate::artifacts::items_io::record_changes(
+            &store,
             &project.state.items,
             &project.state.resolved_items,
         )
@@ -15,7 +17,7 @@ fn request_changes_is_candidate_bound_and_gives_the_exact_feature_work_all_revie
         store
             .transaction_with_record_revisions(&changes, &checks)
             .unwrap();
-        project.state = crate::core::state::PlannerState::load(&root).unwrap();
+        project.state = crate::core::state::PlannerState::load_with_store(&root, &store).unwrap();
     }
     let Screen::Connected(project) = &mut app.screen else {
         panic!("project remains connected")

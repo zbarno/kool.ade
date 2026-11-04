@@ -46,6 +46,15 @@ pub(super) fn ready_task(gh: &std::path::Path) -> ReadyTask {
             .output()
             .unwrap();
         assert!(remote.status.success());
+        let code_root = project.state.repo_root.clone();
+        crate::test_support::set_test_origin_default(&code_root);
+        let store = PlanningStore::for_code_repository(
+            project.state.planning_store.project_id,
+            project.state.planning_store.root.clone(),
+            &code_root,
+        );
+        project.state = crate::core::state::PlannerState::load_with_store(&code_root, &store)
+            .expect("pin published specifications using the configured repository identity");
         super::super::super::app_product_proposal(project)
     };
     let (planning, opportunity_revision, repo_root) = match &mut app.screen {

@@ -49,7 +49,7 @@ pub(crate) fn prepare_plan_choice_record<R: PlanningRoot + ?Sized>(
         path.display()
     );
     Ok((
-        store.git_path(&path.strip_prefix(&store.root)?.to_string_lossy()),
+        store.relative_path(&path.strip_prefix(&store.root)?.to_string_lossy()),
         content,
     ))
 }

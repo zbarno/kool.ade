@@ -3,14 +3,20 @@ use crate::artifacts::task_docs::TaskDocument;
 use std::collections::{BTreeMap, BTreeSet};
 
 fn task(path: &str, feature: &str, file: &str) -> TaskDocument {
+    let uid = uuid::Uuid::new_v4().to_string();
+    let mut identity = crate::domain::ArtifactIdentity::new(path, path);
+    identity.uid = uid;
+    identity.parent_uid = Some(uuid::Uuid::from_u128(10_000).to_string());
+    let metadata = crate::artifacts::task_docs::TaskMetadata::new(&identity, "root", vec![])
+        .expect("valid fixture task metadata");
     TaskDocument {
         path: path.into(),
         title: path.into(),
         text: format!(
             "# Task\n\nFeature ID: {feature}\n\n## Dependencies\nNone.\n\n## Affected files and components\n- {file}\n"
         ),
-        identity: None,
-        metadata: None,
+        identity: Some(identity),
+        metadata: Some(metadata),
         task_state: None,
 
         metadata_error: None,

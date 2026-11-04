@@ -10,7 +10,8 @@ fn two_device_approvals_for_one_candidate_commit_only_once() {
 
     let root =
         std::env::temp_dir().join(format!("plan-confirmation-race-{}", uuid::Uuid::new_v4()));
-    crate::artifacts::migration::bootstrap_product(&root, "Plan Confirmation Race").unwrap();
+    crate::artifacts::product_bootstrap::bootstrap_product(&root, "Plan Confirmation Race")
+        .unwrap();
     let project_id = uuid::Uuid::new_v4();
     let path = root.clone();
     let first = PlanningStore::new(project_id, path.clone(), StoreMode::ManagedLocal);

@@ -26,7 +26,9 @@ pub(crate) fn is_opportunity_quota_record(path: &str) -> bool {
 pub(crate) fn validate_record_path(path: &str) -> Result<(), StoreError> {
     if matches!(
         path,
-        "state/opportunity_discovery_settings.json" | "state/self_improvement_active_runs.json"
+        "state/opportunity_discovery_settings.json"
+            | "state/self_improvement_active_runs.json"
+            | "state/project-runtime.json"
     ) {
         return Ok(());
     }

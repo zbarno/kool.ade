@@ -1,7 +1,8 @@
 //! Durable, operator-local lifecycle records for container executions.
 //!
-//! Records live outside project clones and shared planning repositories so a
-//! restart can reconcile an execution without publishing runtime metadata.
+//! Records live in private application storage outside project clones and
+//! source repositories so a restart can reconcile executions without
+//! publishing runtime metadata.
 
 mod journal;
 mod owner;

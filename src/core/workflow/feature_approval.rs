@@ -27,14 +27,14 @@ pub fn approve_feature_if_current<R: crate::artifacts::planning_store::PlanningR
         &expected_revision,
     )?;
     receipt
-        .commit_result
+        .save_result
         .map_err(|error| anyhow::anyhow!("approval saved but checkpoint failed: {error}"))
 }
 
 #[derive(Debug)]
 pub struct FeatureApprovalReceipt {
     pub planning_revision: String,
-    pub commit_result: Result<String, String>,
+    pub save_result: Result<String, String>,
 }
 
 pub fn approve_feature_if_current_with_revision<
@@ -70,8 +70,8 @@ pub fn approve_feature_if_current_with_snapshot_with_revision<
     // lock with background turns/reconciliation.
     let guard = crate::core::writer_gate::acquire();
     let store = repo.planning_store();
-    let path = crate::artifacts::product_docs::document_path(repo, &format!("feature:{id}"))?;
-    let text = String::from_utf8(repo.read_planning_path(&path)?)?;
+    let text = crate::artifacts::product_docs::current_document(repo, &format!("feature:{id}"))?
+        .ok_or_else(|| anyhow::anyhow!("Feature {id} is not published or proposed"))?;
     crate::core::specification::validate_feature(id, &text)?;
     let metadata = crate::domain::ChangeMetadata::require_markdown(&text)?;
     let status = metadata.status;
@@ -124,7 +124,7 @@ pub fn approve_feature_if_current_with_snapshot_with_revision<
     workflow
         .approved_features
         .insert(id.to_string(), contract.clone());
-    let (mut changes, mut checks, _) =
+    let (mut changes, mut checks) =
         crate::artifacts::task_docs::workflow_record_changes(repo, workflow)?;
     if let Some((path, bytes, check)) = snapshot_change {
         changes.push((path, bytes));
@@ -134,26 +134,18 @@ pub fn approve_feature_if_current_with_snapshot_with_revision<
         changes.push((path, bytes));
         checks.push(check);
     }
-    let (paths, planning_revision) = store.transaction_with_revision_and_record_revisions(
+    let (_, planning_revision) = store.transaction_with_revision_and_record_revisions(
         &changes,
         Some(expected_revision),
         &checks,
     )?;
     *workflow = crate::artifacts::task_docs::load_workflow(repo)?;
-    let result = crate::core::gitops::commit(
-        &store.git_root(),
-        &format!("planner: approve feature {id}"),
-        &paths
-            .iter()
-            .map(|path| store.git_path(path))
-            .collect::<Vec<_>>(),
-    )
-    .map_err(|error| error.to_string());
-    crate::persistence::feature_approvals::record(&store.git_root(), id, &contract)?;
+    let result = Ok(planning_revision.clone());
+    crate::persistence::feature_approvals::record(&store.local_root(), id, &contract)?;
     drop(guard);
     Ok(FeatureApprovalReceipt {
         planning_revision,
-        commit_result: result,
+        save_result: result,
     })
 }
 
@@ -162,14 +154,9 @@ pub fn feature_approved<R: crate::artifacts::planning_store::PlanningRoot + ?Siz
     workflow: &Workflow,
     id: &str,
 ) -> bool {
-    let Ok(path) = crate::artifacts::product_docs::document_path(repo, &format!("feature:{id}"))
+    let Ok(Some(text)) =
+        crate::artifacts::product_docs::current_document(repo, &format!("feature:{id}"))
     else {
-        return false;
-    };
-    let Ok(bytes) = repo.read_planning_path(&path) else {
-        return false;
-    };
-    let Ok(text) = String::from_utf8(bytes) else {
         return false;
     };
     let Ok(metadata) = crate::domain::ChangeMetadata::require_markdown(&text) else {
@@ -183,7 +170,7 @@ pub fn feature_approved<R: crate::artifacts::planning_store::PlanningRoot + ?Siz
     }
     let contract = feature_contract(&text);
     if !crate::persistence::feature_approvals::contains(
-        &repo.planning_store().git_root(),
+        &repo.planning_store().local_root(),
         id,
         &contract,
     ) {
@@ -217,18 +204,13 @@ pub fn feature_approval_lapsed<R: crate::artifacts::planning_store::PlanningRoot
     let Some(previous_contract) = workflow.approved_features.get(id) else {
         return false;
     };
-    let git_root = repo.planning_store().git_root();
-    if !crate::persistence::feature_approvals::contains(&git_root, id, previous_contract) {
+    let local_root = repo.planning_store().local_root();
+    if !crate::persistence::feature_approvals::contains(&local_root, id, previous_contract) {
         return false;
     }
-    let Ok(path) = crate::artifacts::product_docs::document_path(repo, &format!("feature:{id}"))
+    let Ok(Some(text)) =
+        crate::artifacts::product_docs::current_document(repo, &format!("feature:{id}"))
     else {
-        return false;
-    };
-    let Ok(bytes) = repo.read_planning_path(&path) else {
-        return false;
-    };
-    let Ok(text) = String::from_utf8(bytes) else {
         return false;
     };
     feature_contract(&text) != *previous_contract

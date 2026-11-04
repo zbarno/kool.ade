@@ -57,3 +57,36 @@ fn catalog_fence_rejects_a_question_added_after_the_snapshot() {
     ));
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn question_store_ignores_records_in_the_removed_questions_collection() {
+    use crate::artifacts::planning_store::{PlanningStore, StoreMode};
+
+    let root = std::env::temp_dir().join(format!("question-store-{}", uuid::Uuid::new_v4()));
+    let planning = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
+    let questions = QuestionStore::new(&planning);
+    let stale = question(47, &uuid::Uuid::from_u128(44).to_string());
+    let record = QuestionRecord {
+        record_kind: Some("clarification_question_v1".into()),
+        schema_version: 1,
+        uid: stale.uid.clone(),
+        created_at_ms: 1,
+        updated_at_ms: 1,
+        revision: 1,
+        data: stale.clone(),
+    };
+    planning
+        .transaction(
+            &[(
+                format!("state/questions/{}.json", stale.uid),
+                serde_json::to_vec(&record).unwrap(),
+            )],
+            None,
+        )
+        .unwrap();
+
+    assert!(questions.load(&stale.uid).is_err());
+    assert!(questions.list().unwrap().is_empty());
+    assert!(questions.revision_check(&stale.uid).is_err());
+    let _ = std::fs::remove_dir_all(root);
+}

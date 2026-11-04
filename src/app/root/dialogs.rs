@@ -27,28 +27,6 @@ impl KooladeApp {
                     self.dialog = Some(Dialog::Import(d));
                 }
             }
-            Dialog::Settings(mut d) => {
-                let save_slot = std::cell::RefCell::new(false);
-                let close_slot = std::cell::RefCell::new(false);
-                let closed = crate::ui::overlays::show_modal(
-                    ui,
-                    true,
-                    "People & stakeholders",
-                    660.0,
-                    |ui| {
-                        let (save, close) = app_dialogs::paint_settings_card(ui, &mut d);
-                        *save_slot.borrow_mut() = save;
-                        *close_slot.borrow_mut() = close;
-                    },
-                );
-                if *save_slot.borrow() {
-                    self.perform_settings(&mut d);
-                }
-                let positive = d.feedback.as_ref().is_some_and(|(ok, _)| *ok);
-                if !closed && !*close_slot.borrow() && !positive {
-                    self.dialog = Some(Dialog::Settings(d));
-                }
-            }
             Dialog::ProjectSettings(mut d) => {
                 let save_slot = std::cell::RefCell::new(false);
                 let close_slot = std::cell::RefCell::new(false);
@@ -148,23 +126,6 @@ impl KooladeApp {
                     self.toasts
                         .success(format!("Imported {n} reference doc(s)"));
                 }
-            }
-            Err(e) => d.feedback = Some((false, e.detail())),
-        }
-    }
-
-    fn perform_settings(&mut self, d: &mut DlgSettings) {
-        let result = match &mut self.screen {
-            Screen::Connected(p) => d.apply(p),
-            _ => return,
-        };
-        match result {
-            Ok(sha) => {
-                if let Screen::Connected(project) = &self.screen {
-                    (self.cached_user, self.synth) = Self::derive_caches(project);
-                }
-                self.dialog = None;
-                self.toasts.success(format!("Saved · checkpoint {sha}"));
             }
             Err(e) => d.feedback = Some((false, e.detail())),
         }

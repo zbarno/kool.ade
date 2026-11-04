@@ -13,7 +13,6 @@ fn render_onboarding_review_gallery() {
     for size in [[1280, 800], [360, 640]] {
         let mut gallery = Gallery::new(size, dir.clone());
         gallery.app = KooladeApp::default();
-        gallery.app.onboarding.project_parent = "/home/demo/Projects".into();
         gallery.app.onboarding.step = Step::Start;
         gallery.save("welcome");
         gallery.click("Get started");
@@ -26,11 +25,8 @@ fn render_onboarding_review_gallery() {
         gallery.app.onboarding.help_open = false;
         gallery.click("Continue setup");
         gallery.save("readiness");
-        gallery.click("Continue to my projects");
+        gallery.click("Continue to a code repository");
         gallery.save("projects");
-        gallery.click("Create something new");
-        gallery.app.onboarding.project_name = "Garden notes".into();
-        gallery.app.onboarding.project_intent = "Help me track planting dates".into();
-        gallery.save("new-project");
+        gallery.save("code-repository-entry");
     }
 }

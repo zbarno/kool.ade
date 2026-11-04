@@ -17,7 +17,6 @@ fn task(id: &str, state: crate::persistence::setup_tasks::State) -> LocalTask {
         verified_result: None,
         attempts: Vec::new(),
         events: Vec::new(),
-        legacy_source_id: None,
         superseded_by: Vec::new(),
     }
 }

@@ -1,8 +1,48 @@
 use super::*;
 
+fn draft_changes(
+    store: &crate::artifacts::planning_store::PlanningStore,
+    changed_paths: &[String],
+) -> Vec<(String, String)> {
+    assert!(
+        changed_paths
+            .iter()
+            .any(|path| path == "state/spec_drafts/current.json")
+    );
+    crate::core::apply::load_current(store)
+        .unwrap()
+        .expect("document updates are saved as a private specification draft")
+        .changes
+        .into_iter()
+        .map(|change| (change.document_id, change.content))
+        .collect()
+}
+
+fn private_draft_files(
+    store: &crate::artifacts::planning_store::PlanningStore,
+) -> Vec<(String, Vec<u8>)> {
+    let root = store.root.join("state/spec_drafts");
+    let Ok(entries) = std::fs::read_dir(&root) else {
+        return Vec::new();
+    };
+    let mut files = entries
+        .map(|entry| {
+            let path = entry.unwrap().path();
+            (
+                path.file_name().unwrap().to_string_lossy().into_owned(),
+                std::fs::read(path).unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    files.sort_by(|left, right| left.0.cmp(&right.0));
+    files
+}
+
 #[test]
-fn happy_path_writes_files_and_commits() {
+fn happy_path_writes_private_state_without_committing_code() {
     let (inputs, dir) = inputs_for("happy", "please draft the initial spec");
+    let code_head = git_stdout(&dir, &["rev-parse", "HEAD"]);
+    let store = inputs.state.planning_store.clone();
     let env = TurnEnvelope {
         schema_version: Some(2),
         assistant_message: Some("Drafted an initial spec and raised the first question.".into()),
@@ -15,7 +55,6 @@ fn happy_path_writes_files_and_commits() {
             id: None,
             kind: Some("Question".into()),
             category: Some("General".into()),
-            assigned_to: Some("All".into()),
             priority: Some("Normal".into()),
             question: Some("Which deployment target first?".into()),
             reason: Some("packaging depends on it".into()),
@@ -49,30 +88,33 @@ fn happy_path_writes_files_and_commits() {
         TurnOutcome::Applied {
             state,
             receipt,
-            commit_result,
+            save_result,
             ..
         } => {
-            assert_eq!(receipt.repo_relative_paths.len(), 4);
-            assert!(receipt.commit_message.starts_with("planner: "));
-            assert!(commit_result.is_ok(), "commit failed: {commit_result:?}");
+            assert_eq!(receipt.changed_store_paths.len(), 4);
+            assert_eq!(receipt.summary, "draft initial specification");
+            assert!(save_result.is_ok(), "private save failed: {save_result:?}");
             assert_eq!(state.items.len(), 1);
+            let changes = draft_changes(&store, &receipt.changed_store_paths);
+            assert!(changes.iter().any(|(id, content)| {
+                id == "product:overview" && content.contains("Demo the planner end-to-end.")
+            }));
         }
         other => panic!("expected Applied, got: {other:?}"),
     }
+    assert_eq!(git_stdout(&dir, &["rev-parse", "HEAD"]), code_head);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn modular_turn_changes_only_named_modules_and_rejects_bad_id_atomically() {
     let (mut inputs, dir) = inputs_for("modular_turn", "refine product scope");
-    git_stdout(&dir, &["add", "-A"]);
-    git_stdout(&dir, &["commit", "-m", "Seed modular product"]);
-    inputs.state = PlannerState::load(&dir).unwrap();
-    let product = dir.join("planning/product");
-    let vision = product.join("overview.md");
-    let scope = product.join("users-and-outcomes.md");
-    let unrelated = product.join("current-capabilities.md");
-    let original_unrelated = std::fs::read(&unrelated).unwrap();
+    let store = inputs.state.planning_store.clone();
+    let published_overview = dir.join("docs/koolade/product/overview.md");
+    let published_scope = dir.join("docs/koolade/product/users-and-outcomes.md");
+    let original_overview = std::fs::read(&published_overview).unwrap();
+    let original_scope = std::fs::read(&published_scope).unwrap();
+    let code_head = git_stdout(&dir, &["rev-parse", "HEAD"]);
     let changed_vision = "# Overview\n\nCurrent purpose from inspected evidence.\n";
     let changed_scope = "# Users and Outcomes\n\nCurrent scope from accepted intent.\n";
     let env = TurnEnvelope {
@@ -82,12 +124,12 @@ fn modular_turn_changes_only_named_modules_and_rejects_bad_id_atomically() {
         document_updates: Some(vec![
             crate::harness::DocumentUpdate {
                 document_id: "product:overview".into(),
-                content: changed_vision.into(),
+                content: changed_vision.to_owned(),
                 status: None,
             },
             crate::harness::DocumentUpdate {
                 document_id: "product:users-and-outcomes".into(),
-                content: changed_scope.into(),
+                content: changed_scope.to_owned(),
                 status: None,
             },
         ]),
@@ -113,28 +155,36 @@ fn modular_turn_changes_only_named_modules_and_rejects_bad_id_atomically() {
             raw: None,
         }),
     ));
-    match result {
+    let changed_paths = match result {
         TurnOutcome::Applied {
             receipt,
-            commit_result,
+            save_result,
             ..
         } => {
-            assert!(commit_result.is_ok());
-            assert_eq!(receipt.repo_relative_paths.len(), 3);
+            assert!(save_result.is_ok());
+            assert_eq!(receipt.changed_store_paths.len(), 2);
+            let changes = draft_changes(&store, &receipt.changed_store_paths);
+            assert_eq!(changes.len(), 2);
+            assert!(changes.contains(&("product:overview".into(), changed_vision.into())));
+            assert!(changes.contains(&("product:users-and-outcomes".into(), changed_scope.into())));
+            receipt.changed_store_paths
         }
         other => panic!("expected modular apply, got {other:?}"),
-    }
-    assert_eq!(std::fs::read_to_string(&vision).unwrap(), changed_vision);
-    assert_eq!(std::fs::read_to_string(&scope).unwrap(), changed_scope);
-    assert_eq!(std::fs::read(&unrelated).unwrap(), original_unrelated);
+    };
+    assert_eq!(
+        std::fs::read(&published_overview).unwrap(),
+        original_overview
+    );
+    assert_eq!(std::fs::read(&published_scope).unwrap(), original_scope);
+    assert_eq!(git_stdout(&dir, &["rev-parse", "HEAD"]), code_head);
     let before_commit = git_stdout(&dir, &["rev-list", "--count", "HEAD"]);
-    let before_vision = std::fs::read(&vision).unwrap();
-    inputs.state = PlannerState::load(&dir).unwrap();
+    let before_drafts = private_draft_files(&store);
+    inputs.state = PlannerState::load_with_store(&dir, &store).unwrap();
     let bad = serde_json::json!({"schema_version":2,"assistant_message":"Changed scope",
             "document_updates":[{"document_id":"product:overview","content":"# Overview\n\nWrong\n"},
                 {"document_id":"product:../../escape","content":"bad"}],
             "open_items_added":[{"kind":"Question","priority":"Normal","authority":"Human",
-                "category":"General","assigned_to":"All","question":"Should this ship?","reason":"Release decision"}]}).to_string();
+                "category":"General","question":"Should this ship?","reason":"Release decision"}]}).to_string();
     let result = drain(&TurnController::start(
         inputs,
         Box::new(ScriptedHarness {
@@ -143,8 +193,8 @@ fn modular_turn_changes_only_named_modules_and_rejects_bad_id_atomically() {
         }),
     ));
     assert!(matches!(result, TurnOutcome::Rejected { .. }));
-    assert_eq!(std::fs::read(&vision).unwrap(), before_vision);
-    assert_eq!(std::fs::read(&unrelated).unwrap(), original_unrelated);
+    assert_eq!(private_draft_files(&store), before_drafts);
+    assert_eq!(changed_paths.len(), 2);
     assert_eq!(
         git_stdout(&dir, &["rev-list", "--count", "HEAD"]),
         before_commit
@@ -154,13 +204,12 @@ fn modular_turn_changes_only_named_modules_and_rejects_bad_id_atomically() {
 
 #[test]
 fn planner_can_add_a_project_specific_module_and_apply_it_atomically() {
-    let (mut inputs, dir) = inputs_for(
+    let (inputs, dir) = inputs_for(
         "adaptive_module",
         "record this project's billing integration",
     );
-    git_stdout(&dir, &["add", "-A"]);
-    git_stdout(&dir, &["commit", "-m", "Seed adaptive product"]);
-    inputs.state = PlannerState::load(&dir).unwrap();
+    let store = inputs.state.planning_store.clone();
+    let code_head = git_stdout(&dir, &["rev-parse", "HEAD"]);
     let content = "# Billing\n\nThe application uses the Acme billing service for subscriptions.\n";
     let env = TurnEnvelope {
         schema_version: Some(2),
@@ -195,46 +244,29 @@ fn planner_can_add_a_project_specific_module_and_apply_it_atomically() {
     ));
     let TurnOutcome::Applied {
         receipt,
-        commit_result,
+        save_result,
         ..
     } = result
     else {
         panic!("expected adaptive module apply, got {result:?}");
     };
-    assert!(commit_result.is_ok());
-    let layout = crate::artifacts::layout::ArtifactLayout::new(&dir);
-    let manifest = crate::artifacts::product_docs::load_manifest(&dir)
+    assert!(save_result.is_ok());
+    assert_eq!(receipt.changed_store_paths.len(), 2);
+    assert_eq!(
+        draft_changes(&store, &receipt.changed_store_paths),
+        vec![("product:billing".into(), content.into())]
+    );
+    let manifest = crate::artifacts::product_docs::load_manifest(&store)
         .unwrap()
         .unwrap();
-    assert_eq!(manifest.modules.last().unwrap().id, "billing");
-    assert_eq!(
-        std::fs::read_to_string(layout.product_root().join("billing.md")).unwrap(),
-        content
-    );
-    assert!(
-        std::fs::read_to_string(layout.product_index())
-            .unwrap()
-            .contains("- [Billing](billing.md)")
-    );
-    assert!(
-        receipt
-            .repo_relative_paths
-            .contains(&crate::artifacts::layout::store::PRODUCT_MANIFEST.to_owned())
-    );
-    assert!(
-        crate::artifacts::product_docs::render_product(&dir)
-            .unwrap()
-            .unwrap()
-            .contains("## Billing\n\nThe application uses the Acme billing service")
-    );
+    assert!(!manifest.modules.iter().any(|module| module.id == "billing"));
+    assert_eq!(git_stdout(&dir, &["rev-parse", "HEAD"]), code_head);
 }
 
 #[test]
-fn modular_turn_creates_next_feature_and_indexes_it() {
-    let (mut inputs, dir) = inputs_for("new_feature", "Plan saved searches");
-    git_stdout(&dir, &["add", "-A"]);
-    git_stdout(&dir, &["commit", "-m", "Seed modular product"]);
-    inputs.state = PlannerState::load(&dir).unwrap();
+fn modular_turn_keeps_new_feature_as_a_private_draft_until_publication() {
+    let (inputs, dir) = inputs_for("new_feature", "Plan saved searches");
+    let store = inputs.state.planning_store.clone();
     let feature = "# F1: Saved searches\n\n**Status:** Draft\n\n## Intent\n\nSave repeated searches.\n\n## Current Behavior\n\nNo saved searches observed.\n\n## Desired Behavior\n\nUsers can save searches.\n\n## Scope\n\nSearch UI only.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\nSave and restore.\n\n## Decisions and Assumptions\n\nNone yet.\n\n## Acceptance Criteria\n\nA saved search reopens.\n";
     let env = TurnEnvelope {
         schema_version: Some(2),
@@ -242,7 +274,7 @@ fn modular_turn_creates_next_feature_and_indexes_it() {
         change_summary: Some("Draft saved searches".into()),
         document_updates: Some(vec![crate::harness::DocumentUpdate {
             document_id: "feature:F1".into(),
-            content: feature.into(),
+            content: feature.to_owned(),
             status: Some(crate::domain::ChangeStatus::Draft),
         }]),
         planning_tasks: None,
@@ -267,32 +299,24 @@ fn modular_turn_creates_next_feature_and_indexes_it() {
             raw: None,
         }),
     ));
-    match result {
+    let (draft_paths, state) = match result {
         TurnOutcome::Applied {
             receipt,
-            commit_result,
+            save_result,
             state,
             ..
         } => {
-            assert!(commit_result.is_ok());
-            assert_eq!(receipt.repo_relative_paths.len(), 2);
-            let contract = crate::core::contract_snapshot::freeze(&state)
-                .unwrap()
-                .unwrap();
-            assert_eq!(contract.feature_id, "F1");
-            assert!(
-                contract
-                    .product_modules
-                    .contains_key("current-capabilities")
-            );
-            assert!(contract.repository_bases.contains_key("root"));
+            assert!(save_result.is_ok());
+            assert_eq!(receipt.changed_store_paths.len(), 2);
+            (receipt.changed_store_paths, state)
         }
         other => panic!("expected new feature, got {other:?}"),
-    }
-    let saved_feature =
-        std::fs::read_to_string(dir.join("planning/changes/F1-saved-searches/specification.md"))
-            .unwrap();
-    let identity = crate::domain::ArtifactIdentity::from_markdown(&saved_feature)
+    };
+    let changes = draft_changes(&store, &draft_paths);
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].0, "feature:F1");
+    let saved_feature = &changes[0].1;
+    let identity = crate::domain::ArtifactIdentity::from_markdown(saved_feature)
         .unwrap()
         .unwrap();
     assert_eq!(identity.display_id, "F1");
@@ -308,10 +332,21 @@ fn modular_turn_creates_next_feature_and_indexes_it() {
         + "\n";
     assert_eq!(visible_feature, feature);
     assert!(
-        std::fs::read_to_string(dir.join("planning/product/index.md"))
-            .unwrap()
-            .contains("F1-saved-searches")
+        state
+            .active_features
+            .iter()
+            .any(|(id, body)| { id == "F1" && body.contains("**Status:** Draft") })
     );
-    assert_eq!(crate::artifacts::product_docs::next_feature_id(&dir), "F2");
+    assert!(
+        !std::fs::read_to_string(dir.join("docs/koolade/features/F1.md"))
+            .unwrap_or_default()
+            .contains("Saved searches")
+    );
+    assert!(
+        !store
+            .root
+            .join("planning/changes/F1-saved-searches")
+            .exists()
+    );
     let _ = std::fs::remove_dir_all(dir);
 }

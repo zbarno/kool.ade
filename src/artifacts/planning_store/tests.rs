@@ -43,25 +43,38 @@ fn separate_store_roots_resolve_the_same_artifact_independently() {
 }
 
 #[test]
-fn test_code_root_fixture_revision_mode_survives_store_reconstruction() {
-    let temp = TempDir::new();
-    std::fs::write(temp.path().join("README.md"), "code checkout only").unwrap();
-    std::fs::create_dir_all(temp.path().join("planning")).unwrap();
-    std::fs::write(
-        temp.path().join("planning/specification.md"),
-        "planning data",
-    )
-    .unwrap();
-    let original = PlanningStore::for_code_root_fixture(
-        uuid::Uuid::new_v4(),
-        temp.path(),
-        StoreMode::ManagedLocal,
-    );
-    let reopened = PlanningStore::new(original.project_id, temp.path(), StoreMode::ManagedLocal);
+fn operational_store_rejects_a_root_inside_a_git_worktree_before_writing() {
+    let repository = TempDir::new();
+    std::fs::create_dir(repository.path().join(".git")).unwrap();
+    let root = repository.path().join(".koolade-private/operational-state");
+    let store =
+        PlanningStore::for_code_repository(uuid::Uuid::new_v4(), root.clone(), repository.path());
 
-    assert!(original.revision_code_root_fixture);
-    assert!(reopened.revision_code_root_fixture);
-    assert_eq!(original.revision().unwrap(), reopened.revision().unwrap());
+    let result = store.transaction(&[("state/private.json".into(), b"private".to_vec())], None);
+    assert!(
+        matches!(&result, Err(StoreError::InvalidPath(_))),
+        "unexpected store result: {result:?}"
+    );
+    assert!(!root.exists());
+}
+
+#[test]
+fn transaction_journal_rejects_a_private_data_root_inside_git() {
+    let _lock = crate::test_support::lock_process_environment();
+    let repository = TempDir::new();
+    std::fs::create_dir(repository.path().join(".git")).unwrap();
+    let home = repository.path().join(".koolade-private");
+    let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
+    environment.set("KOOLADE_HOME", &home);
+    let external_store = TempDir::new();
+    let store = store(external_store.path().join("operational-state"));
+
+    let result = store.transaction(&[("state/private.json".into(), b"private".to_vec())], None);
+    assert!(
+        matches!(&result, Err(StoreError::InvalidPath(_))),
+        "unexpected transaction result: {result:?}"
+    );
+    assert!(!home.exists());
 }
 
 #[test]
@@ -141,40 +154,11 @@ fn dangling_planning_store_root_symlink_is_not_treated_as_an_empty_store() {
 }
 
 #[test]
-fn separate_planning_store_never_reads_code_checkout_artifacts() {
-    let temp = TempDir::new();
-    let project = temp.path().join("code");
-    let planning = temp.path().join("planning-repo");
-    std::fs::create_dir_all(project.join("planning")).unwrap();
-    std::fs::create_dir_all(planning.join("planning")).unwrap();
-    std::fs::write(
-        project.join("planning/product.md"),
-        b"stale code checkout bytes",
-    )
-    .unwrap();
-    std::fs::write(
-        planning.join("planning/product.md"),
-        b"planning repository bytes",
-    )
-    .unwrap();
-    let store = PlanningStore::new(uuid::Uuid::new_v4(), &planning, StoreMode::ManagedLocal);
-
-    assert_eq!(store.root, planning);
-    assert_eq!(
-        store.read("planning/product.md").unwrap(),
-        b"planning repository bytes"
-    );
-    assert_eq!(
-        store.layout().legacy_path("planning/product.md"),
-        Some(planning.join("planning/product.md"))
-    );
-}
-
-#[test]
 fn relative_store_roots_are_anchored_to_the_creation_directory() {
     const ROOT_ENV: &str = "KOOLADE_TEST_ANCHORED_STORE_ROOT";
     const ID_ENV: &str = "KOOLADE_TEST_ANCHORED_STORE_ID";
     const CWD_ENV: &str = "KOOLADE_TEST_ANCHORED_STORE_CWD";
+    const SEED_ENV: &str = "KOOLADE_TEST_ANCHORED_STORE_SEED";
 
     if let (Some(root), Some(id), Some(cwd)) = (
         std::env::var_os(ROOT_ENV),
@@ -187,36 +171,42 @@ fn relative_store_roots_are_anchored_to_the_creation_directory() {
         let id = uuid::Uuid::parse_str(&id.to_string_lossy()).unwrap();
         let store = PlanningStore::new(id, PathBuf::from(root), StoreMode::ManagedLocal);
         assert!(store.root.is_absolute());
-        assert_eq!(
-            store.read("planning/specification.md").unwrap(),
-            b"anchored"
-        );
+        if std::env::var_os(SEED_ENV).is_some() {
+            store
+                .atomic_write("planning/specification.md", b"anchored")
+                .unwrap();
+        } else {
+            assert_eq!(
+                store.read("planning/specification.md").unwrap(),
+                b"anchored"
+            );
+        }
         return;
     }
 
-    let original = std::env::current_dir().unwrap();
-    let relative = PathBuf::from(format!(".koolade-relative-store-{}", uuid::Uuid::new_v4()));
-    let id = uuid::Uuid::new_v4();
-    let store = PlanningStore::new(id, &relative, StoreMode::ManagedLocal);
-    assert!(store.root.is_absolute());
-    std::fs::create_dir_all(&store.root).unwrap();
-    store
-        .atomic_write("planning/specification.md", b"anchored")
-        .unwrap();
+    let temp = TempDir::new();
     let other_directory = TempDir::new();
-    let status = std::process::Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--exact",
-            "artifacts::planning_store::tests::relative_store_roots_are_anchored_to_the_creation_directory",
-            "--nocapture",
-        ])
-        .env(ROOT_ENV, &store.root)
-        .env(ID_ENV, id.to_string())
-        .env(CWD_ENV, other_directory.path())
-        .status()
-        .unwrap();
-    assert!(status.success(), "isolated cwd verification process failed");
-    std::fs::remove_dir_all(original.join(relative)).unwrap();
+    let relative = PathBuf::from(format!("relative-store-{}", uuid::Uuid::new_v4()));
+    let id = uuid::Uuid::new_v4();
+    let run = |root: &Path, cwd: &Path, seed: bool| {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "artifacts::planning_store::tests::relative_store_roots_are_anchored_to_the_creation_directory",
+                "--nocapture",
+            ])
+            .env(ROOT_ENV, root)
+            .env(ID_ENV, id.to_string())
+            .env(CWD_ENV, cwd);
+        if seed {
+            command.env(SEED_ENV, "1");
+        }
+        command.status().unwrap()
+    };
+    assert!(run(&relative, temp.path(), true).success());
+    let anchored = temp.path().join(relative);
+    assert!(run(&anchored, other_directory.path(), false).success());
 }
 
 #[test]
@@ -224,11 +214,6 @@ fn optimistic_transaction_rejects_a_stale_revision() {
     let temp = TempDir::new();
     let root = temp.path().join("planning-repo");
     std::fs::create_dir_all(&root).unwrap();
-    std::process::Command::new("git")
-        .args(["init", "-q"])
-        .current_dir(&root)
-        .status()
-        .unwrap();
     let store = store(root);
     let revision = store.revision().unwrap();
     store

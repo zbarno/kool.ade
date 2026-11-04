@@ -12,19 +12,10 @@ impl TaskChats {
         retries: usize,
     ) -> Result<bool, String> {
         let _lock = Self::lock_store(slug)?;
-        let (mut stored, _) = super::super::read_stored(slug)?;
-        for path in &self.ambiguous_paths {
-            super::super::detach_other_history(&mut stored, path, "legacy");
-        }
+        let mut stored = super::super::read_stored(slug)?;
         for (path, uid) in &self.identities {
-            super::super::merge_identity(
-                &mut stored,
-                path,
-                uid,
-                self.legacy_migration_keys.contains(path),
-            )?;
+            super::super::merge_identity(&mut stored, path, uid);
         }
-        super::super::canonicalize(&mut stored);
         let storage_key = self.storage_key(key, &stored);
         let Some(messages) = stored_history_mut(&mut stored, &storage_key) else {
             return Ok(false);
@@ -68,7 +59,6 @@ impl TaskChats {
         stored_history_mut(&mut stored, &storage_key)
             .ok_or_else(|| format!("Task conversation {key} disappeared during recovery."))?
             .push(outcome);
-        super::super::canonicalize(&mut stored);
         let json = serde_json::to_string(&stored).map_err(|error| error.to_string())?;
         let dir = crate::persistence::project_dir(slug);
         crate::artifacts::atomic_write(&dir.join("task-conversations.json"), &json)
@@ -126,23 +116,14 @@ impl TaskChats {
             return Ok(None);
         }
         let _lock = Self::lock_store(slug)?;
-        let (mut stored, _) = super::super::read_stored(slug)?;
-        for path in &self.ambiguous_paths {
-            super::super::detach_other_history(&mut stored, path, "legacy");
-        }
+        let mut stored = super::super::read_stored(slug)?;
         for (path, uid) in &self.identities {
-            super::super::merge_identity(
-                &mut stored,
-                path,
-                uid,
-                self.legacy_migration_keys.contains(path),
-            )?;
+            super::super::merge_identity(&mut stored, path, uid);
         }
         for (pending_key, pending) in &self.pending {
             let storage_key = self.storage_key(pending_key, &stored);
             Self::merge_key(&mut stored, &storage_key, pending);
         }
-        super::super::canonicalize(&mut stored);
         let storage_key = self.storage_key(key, &stored);
         let messages = stored_history_mut(&mut stored, &storage_key)
             .ok_or_else(|| format!("Task conversation {key} disappeared before retry."))?;
@@ -198,7 +179,6 @@ impl TaskChats {
         claim.id = format!("{scope}{}", uuid::Uuid::new_v4());
         let claim_id = claim.id.clone();
         messages.push(claim);
-        super::super::canonicalize(&mut stored);
         let json = serde_json::to_string(&stored).map_err(|error| error.to_string())?;
         let dir = crate::persistence::project_dir(slug);
         crate::artifacts::atomic_write(&dir.join("task-conversations.json"), &json)

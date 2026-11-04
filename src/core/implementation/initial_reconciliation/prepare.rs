@@ -23,16 +23,17 @@ pub fn prepare(
         return Ok(());
     }
     let mut plan = read_plan(&path)?;
-    support::validate_pinned_commits(repo, runner, &task_repository::allocation_key(state), &plan)?;
+    support::validate_pinned_commits(
+        repo,
+        runner,
+        &task_repository::allocation_key(state)?,
+        &plan,
+    )?;
     requirements::refresh(repo, runner, &path, &mut plan)?;
     if super::integrated_candidate_matches(dir, state)? {
         return Ok(());
     }
     if let Some(verified) = plan.verified_commit.as_deref() {
-        anyhow::ensure!(
-            state.task_repository_kind == TaskRepositoryKind::Clone,
-            "Legacy reconciliation repositories must migrate before use"
-        );
         let (clean, head) = verification::prepare_task_workspace(repo, dir, state, runner)?;
         import_pinned_commits(repo, state, &plan, runner)?;
         if !is_ancestor(runner, &state.task_repository, verified, &head)? {
@@ -237,7 +238,7 @@ fn import_pinned_commits(
     let cache_path = cache
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("Non-UTF8 repository cache path"))?;
-    let task_key = task_repository::allocation_key(state);
+    let task_key = task_repository::allocation_key(state)?;
     for (side, expected) in [
         ("local", plan.local_commit.as_str()),
         ("remote", plan.remote_commit.as_str()),

@@ -228,7 +228,7 @@ fn checkout_matches_current_evidence(
     repository: &std::path::Path,
     evidence: &crate::core::lifecycle::CurrentImplementationEvidenceV1,
 ) -> bool {
-    let Ok(mut head) = crate::core::planning_sync::validated_git_command(repository) else {
+    let Ok(mut head) = crate::core::git_commands::validated_git_command(repository) else {
         return false;
     };
     let Ok(output) = head.args(["rev-parse", "HEAD"]).output() else {
@@ -239,7 +239,7 @@ fn checkout_matches_current_evidence(
     {
         return false;
     }
-    let Ok(mut status) = crate::core::planning_sync::validated_git_command(repository) else {
+    let Ok(mut status) = crate::core::git_commands::validated_git_command(repository) else {
         return false;
     };
     let Ok(output) = status

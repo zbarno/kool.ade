@@ -97,17 +97,6 @@ fn paint_item_details(
     decision::paint(ui, surface, item, items);
     if item.status == crate::domain::item::ItemStatus::Resolved {
         ui.label("This item is resolved.");
-    } else if item.is_ownership_gap() {
-        ui.label("Assign an owner to clear this item.");
-        if ui.button("Manage stakeholders").clicked() {
-            ui.ctx().data_mut(|data| {
-                data.insert_temp(egui::Id::new("koolade_workspace_settings_open"), true);
-                data.insert_temp(
-                    egui::Id::new("koolade_settings_open_page"),
-                    "People & Stakeholders".to_owned(),
-                );
-            });
-        }
     } else if item.authority == crate::domain::Authority::Agent {
         ui.label("Kool.ad/e is investigating this item.");
     } else if item.authority == crate::domain::Authority::Review

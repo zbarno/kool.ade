@@ -60,7 +60,7 @@ fn planning_children_keep_the_root_identity_separate_from_nesting() {
 }
 
 #[test]
-fn legacy_nested_work_is_backfilled_and_original_goal_cannot_be_rewritten() {
+fn task_intent_immutability_and_child_identity_survive_restart() {
     let repo = super::root();
     let mut intent = Work::new(
         "task:legacy-root".into(),
@@ -114,6 +114,39 @@ fn legacy_nested_work_is_backfilled_and_original_goal_cannot_be_rewritten() {
         .original_goal = Some("Changed original request".into());
     assert!(save(&repo, &tampered).is_err());
     std::fs::remove_dir_all(repo).unwrap();
+}
+
+#[test]
+fn loading_an_incomplete_task_intent_rejects_it_without_backfilling_storage() {
+    let repo = super::root();
+    let mut intent = Work::new(
+        String::new(),
+        "Feature: explicit task intent".into(),
+        "Keep task identity explicit".into(),
+        String::new(),
+    );
+    intent.kind = WorkKind::Feature;
+    intent.task_intent_uid = Some(intent.uid.clone());
+    save(&repo, &[intent.clone()]).unwrap();
+
+    let path = repo.join(format!("state/work/{}.json", intent.uid));
+    let mut record: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let data = record["data"].as_object_mut().unwrap();
+    data.remove("taskIntentUid");
+    data.remove("originalGoal");
+    let bytes = serde_json::to_vec_pretty(&record).unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+
+    let before_revision = crate::artifacts::planning_store::PlanningStore::new(
+        uuid::Uuid::nil(),
+        &repo,
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    )
+    .revision()
+    .unwrap();
+    assert!(load_expected(&repo, &before_revision).is_err());
+    assert_eq!(std::fs::read(path).unwrap(), bytes);
 }
 
 #[test]
@@ -268,7 +301,6 @@ fn decision_and_approval_history_is_cycle_scoped_and_idempotent() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "Product".into(),
-        None,
         "Should the migration be reversible?".into(),
         "The approved scope depends on this choice.".into(),
     );

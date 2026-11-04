@@ -86,6 +86,29 @@ impl KooladeApp {
             self.toasts.warning(message);
             return;
         }
+        if !publication::pin_is_published(p, &identity.uid, &action.specification) {
+            if let Err(error) = publication::stage(
+                p,
+                id,
+                &identity.uid,
+                &snapshot.content_hash,
+                &action.specification,
+            ) {
+                self.toasts.danger(format!(
+                    "Cannot confirm {id}: feature publication could not be prepared: {error}"
+                ));
+                return;
+            }
+            match p.state.planning_store.revision() {
+                Ok(revision) => p.state.baseline_planning_revision = revision,
+                Err(error) => {
+                    self.toasts.danger(format!(
+                        "Cannot confirm {id}: private publication state could not be verified: {error}"
+                    ));
+                    return;
+                }
+            }
+        }
         let mut approved_workflow = p.state.workflow.clone();
         let receipt = match workflow::approve_feature_if_current_with_snapshot_with_revision(
             &p.state.planning_store,
@@ -108,9 +131,9 @@ impl KooladeApp {
         };
         p.state.workflow = approved_workflow;
         p.state.baseline_planning_revision = receipt.planning_revision;
-        if let Err(error) = receipt.commit_result {
+        if let Err(error) = receipt.save_result {
             self.toasts.warning(format!(
-                "{id} was approved, but its Git checkpoint failed: {error}"
+                "{id} was approved, but its private state save failed: {error}"
             ));
             return;
         }

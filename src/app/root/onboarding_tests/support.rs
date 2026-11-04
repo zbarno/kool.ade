@@ -1,5 +1,5 @@
 use super::super::super::KooladeApp;
-use std::{path::Path, process::Command};
+use std::path::Path;
 
 pub(super) struct StateHome {
     _environment: crate::test_support::ProcessEnvironmentGuard,
@@ -183,38 +183,4 @@ pub(super) fn visible_text(output: &egui::FullOutput) -> Vec<String> {
             _ => None,
         })
         .collect()
-}
-
-pub(super) fn git(cwd: Option<&Path>, args: &[&str]) {
-    let mut command = Command::new("git");
-    command
-        .args(args)
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_INDEX_FILE")
-        .env("GIT_CONFIG_NOSYSTEM", "1");
-    if let Some(cwd) = cwd {
-        command.current_dir(cwd);
-    }
-    let output = command.output().unwrap();
-    assert!(
-        output.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-pub(super) fn clone_bare_remote(source: &Path, path: &Path) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    git(
-        None,
-        &[
-            "clone",
-            "--bare",
-            "--no-hardlinks",
-            "--",
-            source.to_str().unwrap(),
-            path.to_str().unwrap(),
-        ],
-    );
 }

@@ -122,7 +122,6 @@ pub struct SetupAttemptV1 {
     pub version: u16,
     /// UUID of the live application instance that owns this active attempt.
     /// It is cleared when the attempt terminates or startup recovery interrupts it.
-    #[serde(default)]
     pub owner_instance_id: Option<String>,
     /// Stable prerequisite IDs only; never shell arguments or environment data.
     pub requested_scopes: Vec<String>,
@@ -135,10 +134,8 @@ pub struct SetupAttemptV1 {
     pub updated_at_unix_ms: u64,
     pub verified_result: Option<VerifiedResultV1>,
     /// Sanitized repair result and the fresh probe receipt, if repair started.
-    #[serde(default)]
     pub remediation_result: Option<RemediationAttemptResultV1>,
     /// A successful, isolated smoke receipt for a locked runtime image.
-    #[serde(default)]
     pub image_preparation_receipt: Option<ImagePreparationReceiptV1>,
     /// Enumerated, redacted failure information; raw diagnostics are not stored.
     pub failure: Option<FailureCode>,
@@ -173,8 +170,6 @@ pub struct SetupTaskV1 {
     pub verified_result: Option<VerifiedResultV1>,
     pub attempts: Vec<SetupAttemptV1>,
     pub events: Vec<SetupTaskEventV1>,
-    /// Present only for records migrated from the old generic setup cards.
-    pub legacy_source_id: Option<String>,
     pub superseded_by: Vec<String>,
 }
 
@@ -215,7 +210,6 @@ impl SetupTaskV1 {
                 scan_generation: generation,
                 state,
             }],
-            legacy_source_id: None,
             superseded_by: Vec::new(),
         }
     }

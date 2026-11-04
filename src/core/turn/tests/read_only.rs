@@ -153,7 +153,6 @@ fn human_choice_discussion_remains_context_only_in_a_git_workspace() {
         crate::domain::Priority::High,
         crate::domain::ItemKind::Question,
         "General".into(),
-        None,
         "Which storage?".into(),
         "Choose a product direction".into(),
     );

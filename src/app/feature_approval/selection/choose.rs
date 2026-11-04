@@ -26,31 +26,26 @@ impl KooladeApp {
             return;
         };
         let store = &project.state.planning_store;
-        let path =
-            match crate::artifacts::product_docs::document_path(store, &format!("feature:{id}")) {
-                Ok(path) => path,
+        let guard = crate::core::writer_gate::acquire();
+        let current =
+            match crate::artifacts::product_docs::current_document(store, &format!("feature:{id}"))
+            {
+                Ok(Some(current)) if current == *body => current,
+                Ok(Some(_)) => {
+                    self.toasts
+                        .warning("The feature changed. Reopen it and review the current plans.");
+                    return;
+                }
+                Ok(None) => {
+                    self.toasts
+                        .danger(format!("Cannot select plan: feature {id} is unavailable."));
+                    return;
+                }
                 Err(error) => {
-                    self.toasts.danger(format!("Cannot select plan: {error}"));
+                    self.toasts.danger(format!("Cannot read feature: {error}"));
                     return;
                 }
             };
-        let guard = crate::core::writer_gate::acquire();
-        let current = match store.read_planning_path(&path).and_then(|bytes| {
-            String::from_utf8(bytes).map_err(|error| {
-                crate::artifacts::planning_store::StoreError::MalformedState(error.to_string())
-            })
-        }) {
-            Ok(current) if current == *body => current,
-            Ok(_) => {
-                self.toasts
-                    .warning("The feature changed. Reopen it and review the current plans.");
-                return;
-            }
-            Err(error) => {
-                self.toasts.danger(format!("Cannot read feature: {error}"));
-                return;
-            }
-        };
         let comparison = project
             .state
             .workflow
@@ -144,13 +139,8 @@ impl KooladeApp {
             workflow.plan_comparisons.insert(id.to_owned(), record);
         }
         workflow.approved_features.remove(id);
-        let feature_rel = path
-            .strip_prefix(store.root.as_path())
-            .unwrap()
-            .to_string_lossy()
-            .replace('\\', "/");
         let adr_relative = adr_path;
-        let (mut changes, workflow_checks, _) =
+        let (mut changes, workflow_checks) =
             match crate::artifacts::task_docs::workflow_record_changes(store, &workflow) {
                 Ok(changes) => changes,
                 Err(error) => {
@@ -159,23 +149,24 @@ impl KooladeApp {
                     return;
                 }
             };
-        changes.extend([
-            (feature_rel.clone(), updated.clone().into_bytes()),
-            (adr_relative, adr_content.into_bytes()),
-        ]);
-        let (committed_paths, committed_revision) = match store
-            .transaction_with_revision_and_record_revisions(
-                &changes,
-                Some(&project.state.baseline_planning_revision),
-                &workflow_checks,
-            ) {
-            Ok((paths, revision)) => (
-                paths
-                    .iter()
-                    .map(|path| store.git_path(path))
-                    .collect::<Vec<_>>(),
-                revision,
-            ),
+        match crate::core::apply::private_document_draft_changes(
+            store,
+            &[(format!("feature:{id}"), updated.clone())],
+        ) {
+            Ok(draft_changes) => changes.extend(draft_changes),
+            Err(error) => {
+                self.toasts
+                    .danger(format!("Cannot save selected plan: {error}"));
+                return;
+            }
+        }
+        changes.push((adr_relative, adr_content.into_bytes()));
+        let committed_revision = match store.transaction_with_revision_and_record_revisions(
+            &changes,
+            Some(&project.state.baseline_planning_revision),
+            &workflow_checks,
+        ) {
+            Ok((_, revision)) => revision,
             Err(error) => {
                 self.toasts
                     .danger(format!("Plan adoption was rolled back: {error}"));
@@ -208,18 +199,14 @@ impl KooladeApp {
         {
             project.state.active_feature = Some((id.to_owned(), updated));
         }
-        let commit = crate::core::gitops::commit(
-            &store.git_root(),
-            &format!("planner: adopt plan {plan_id} for {id}"),
-            &committed_paths,
-        );
+        let commit = store.revision();
         drop(guard);
         match commit {
             Ok(_) => self.toasts.success(format!(
                 "Plan {plan_id} adopted for {id}; its ADR is saved and approval is now available."
             )),
             Err(error) => self.toasts.warning(format!(
-                "Plan {plan_id} was adopted with its ADR, but the Git checkpoint failed: {error}"
+                "Plan {plan_id} was adopted with its ADR, but local state could not be reread: {error}"
             )),
         }
     }

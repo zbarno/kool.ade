@@ -3,17 +3,6 @@ use super::*;
 #[path = "metadata_tests/task_parent_persistence.rs"]
 mod task_parent_persistence;
 
-fn init_git(root: &std::path::Path) {
-    assert!(
-        std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(root)
-            .status()
-            .unwrap()
-            .success()
-    );
-}
-
 fn identified_story() -> (crate::domain::ArtifactIdentity, String, String) {
     let batch = crate::domain::ArtifactIdentity::new("BATCH-001", "Batch");
     let mut task = crate::domain::ArtifactIdentity::new("TASK-001", "Story");
@@ -44,7 +33,7 @@ fn execution_metadata_round_trips_and_body_formatting_cannot_change_it() {
 }
 
 #[test]
-fn invalid_metadata_fails_closed_and_legacy_parser_is_bounded_to_dependency_section() {
+fn invalid_metadata_fails_closed_and_unannotated_dependencies_are_not_imported() {
     let malformed = "---\nkoolade-task: {broken}\n---\n# Story\n";
     assert!(parse(malformed).is_err());
     let identity = crate::domain::ArtifactIdentity::new("TASK-1", "Story");
@@ -69,11 +58,11 @@ fn invalid_metadata_fails_closed_and_legacy_parser_is_bounded_to_dependency_sect
 
     let markdown =
         "# Task\n\n[not a dependency](other.md)\n\n## Dependencies\n\n- [Task](001-task.md)\n";
-    assert_eq!(legacy_dependencies(markdown).unwrap(), vec!["001-task.md"]);
+    assert_eq!(parse(markdown).unwrap(), None);
 }
 
 #[test]
-fn branch_targets_round_trip_and_legacy_metadata_keeps_optional_intent_empty() {
+fn branch_targets_round_trip_and_unsupported_metadata_schema_is_rejected() {
     let (identity, _, _) = identified_story();
     let targets = crate::core::workflow::BranchTargets {
         source: "feature/platform-refactor".into(),
@@ -99,70 +88,25 @@ fn branch_targets_round_trip_and_legacy_metadata_keeps_optional_intent_empty() {
     let reopened: TaskMetadata = serde_json::from_str(&encoded).unwrap();
     assert_eq!(reopened, child);
 
-    let legacy = serde_json::json!({
-        "schemaVersion": 1,
+    let unsupported = serde_json::json!({
+        "schemaVersion": 6,
         "uid": identity.uid.clone(),
         "batchUid": identity.parent_uid.clone().unwrap(),
         "repositoryId": "root",
         "dependencyUids": []
     });
-    let legacy: TaskMetadata = serde_json::from_value(legacy).unwrap();
-    legacy.validate(None).unwrap();
-    assert_eq!(legacy.source_branch, None);
-    assert_eq!(legacy.destination_branch, None);
+    let unsupported: TaskMetadata = serde_json::from_value(unsupported).unwrap();
+    assert!(unsupported.validate(None).is_err());
 
-    let legacy_snake_case: TaskMetadata = serde_json::from_value(serde_json::json!({
-        "schemaVersion": 1,
+    let unsupported_field_names = serde_json::json!({
+        "schemaVersion": 7,
         "uid": identity.uid,
         "batchUid": uuid::Uuid::new_v4().to_string(),
         "repositoryId": "root",
         "dependencyUids": [],
-        "source_branch": "release/1.2",
-        "destination_branch": "develop"
-    }))
-    .unwrap();
-    assert_eq!(
-        legacy_snake_case.source_branch.as_deref(),
-        Some("release/1.2")
-    );
-    assert_eq!(
-        legacy_snake_case.destination_branch.as_deref(),
-        Some("develop")
-    );
-}
-
-#[test]
-fn legacy_task_intent_resolves_from_its_authenticated_routing_source() {
-    let (identity, _, _) = identified_story();
-    let mut root = crate::core::planning_work::Work::new(
-        "planning:root".into(),
-        "Feature request".into(),
-        "Preserve the user's request".into(),
-        String::new(),
-    );
-    root.task_intent_uid = Some(root.uid.clone());
-    let expected_uid = root.uid.clone();
-    let metadata = TaskMetadata::new(&identity, "root", vec![])
-        .unwrap()
-        .with_task_routing(&Default::default(), Some(&root.uid), None)
-        .unwrap();
-    let document = crate::artifacts::task_docs::TaskDocument {
-        path: "planning/tasks/fixture/001-story.md".into(),
-        title: "Story".into(),
-        text: "# Story".into(),
-        identity: Some(identity),
-        metadata: Some(metadata),
-        task_state: None,
-        metadata_error: None,
-    };
-    assert_eq!(
-        crate::artifacts::task_docs::task_intent_uid_for_document(
-            &document,
-            std::slice::from_ref(&document),
-            std::slice::from_ref(&root),
-        ),
-        Some(expected_uid)
-    );
+        "source_branch": "release/1.2"
+    });
+    assert!(serde_json::from_value::<TaskMetadata>(unsupported_field_names).is_err());
 }
 
 #[test]
@@ -193,7 +137,7 @@ fn task_intent_link_is_persisted_separately_from_batch_and_task_parent() {
 }
 
 #[test]
-fn task_intent_cycle_is_persisted_and_resolved_from_its_routing_source() {
+fn task_intent_cycle_is_persisted_and_read_from_current_metadata() {
     let (identity, _, _) = identified_story();
     let root_uid = uuid::Uuid::new_v4().to_string();
     let cycle_uid = uuid::Uuid::new_v4().to_string();
@@ -232,14 +176,12 @@ fn task_intent_cycle_is_persisted_and_resolved_from_its_routing_source() {
         .unwrap()
         .with_task_routing(&Default::default(), Some(&cycle_work.uid), None)
         .unwrap();
-    let mut legacy_metadata = metadata.clone();
-    legacy_metadata.task_intent_cycle_uid = None;
     let document = crate::artifacts::task_docs::TaskDocument {
         path: "planning/tasks/fixture/001-story.md".into(),
         title: "Story".into(),
         text: "# Story".into(),
         identity: Some(identity),
-        metadata: Some(legacy_metadata),
+        metadata: Some(metadata.clone()),
         task_state: None,
         metadata_error: None,
     };
@@ -333,7 +275,6 @@ fn generated_task_stories_copy_the_batch_source_and_destination() {
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&root).unwrap();
-    init_git(&root);
     let targets = crate::core::workflow::BranchTargets {
         source: "release/2.1".into(),
         destination: "integration".into(),
@@ -377,7 +318,6 @@ fn decomposer_task_uid_survives_progress_replay_and_is_deduplicated() {
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&root).unwrap();
-    init_git(&root);
     let graph_uid = uuid::Uuid::new_v4().hyphenated().to_string();
     let batch = crate::core::workflow::TaskBatch {
         brief: crate::core::workflow::InterviewBrief {
@@ -418,7 +358,6 @@ fn generated_task_stories_embed_the_batch_routing_snapshot() {
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&root).unwrap();
-    init_git(&root);
     let source_uid = uuid::Uuid::new_v4().to_string();
     let inherited_from = uuid::Uuid::new_v4().to_string();
     let routes = std::collections::BTreeMap::from([(

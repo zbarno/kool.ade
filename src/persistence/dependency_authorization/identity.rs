@@ -4,12 +4,77 @@ use std::{
     process::Command,
 };
 
+#[cfg(test)]
+static TEST_LOCAL_PROJECTS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<PathBuf, String>>,
+> = std::sync::OnceLock::new();
+
 pub(crate) fn project_id(root: &Path) -> anyhow::Result<String> {
     let root = root.canonicalize()?;
+    #[cfg(test)]
+    if let Some(id) = TEST_LOCAL_PROJECTS
+        .get_or_init(Default::default)
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Test project identity registry is unavailable"))?
+        .get(&root)
+        .cloned()
+    {
+        return Ok(id);
+    }
+    if let Some(project_id) = private_project_id(&root)? {
+        return Ok(project_id);
+    }
     if let Some(project_id) = task_clone_project_id(&root)? {
         return Ok(project_id);
     }
     Ok(crate::persistence::project_slug(&git_project_root(&root)?))
+}
+
+#[cfg(test)]
+pub(crate) fn register_test_local_project(root: &Path, project_id: &str) {
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    TEST_LOCAL_PROJECTS
+        .get_or_init(Default::default)
+        .lock()
+        .expect("test project identity registry is not poisoned")
+        .insert(root, project_id.to_owned());
+}
+
+fn private_project_id(root: &Path) -> anyhow::Result<Option<String>> {
+    let state_root = crate::persistence::state_root();
+    let Ok(state_root) = state_root.canonicalize() else {
+        return Ok(None);
+    };
+    let projects = state_root.join("projects");
+    let Ok(projects) = projects.canonicalize() else {
+        return Ok(None);
+    };
+    let Ok(relative) = root.strip_prefix(&projects) else {
+        return Ok(None);
+    };
+    let mut components = relative.components();
+    let Some(Component::Normal(project_id)) = components.next() else {
+        return Ok(None);
+    };
+    if components.next() != Some(Component::Normal(std::ffi::OsStr::new("operational-state")))
+        || components.next().is_some()
+    {
+        return Ok(None);
+    }
+    let project_id = project_id
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Local project identity is not valid UTF-8"))?;
+    let valid_component = |value: &str| {
+        !value.is_empty()
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    };
+    anyhow::ensure!(
+        project_id.len() <= 128 && valid_component(project_id),
+        "Local project identity is invalid"
+    );
+    Ok(Some(project_id.to_owned()))
 }
 
 fn git_project_root(root: &Path) -> anyhow::Result<PathBuf> {

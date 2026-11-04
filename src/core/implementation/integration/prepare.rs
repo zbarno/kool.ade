@@ -11,10 +11,6 @@ pub(super) fn prepare_integration(
     runner: &Runner,
     policy: &ExecutionPolicy<'_>,
 ) -> anyhow::Result<Implementation> {
-    anyhow::ensure!(
-        state.task_repository_kind == TaskRepositoryKind::Clone,
-        "Legacy tasks must migrate before integration"
-    );
     let commit_identity =
         crate::core::implementation::repository_cache::read_task_git_identity(dir)?;
     let integration_dir = dir.join(format!("integration-{integration_base}"));
@@ -23,7 +19,7 @@ pub(super) fn prepare_integration(
         &integration_dir,
         &commit_identity,
     )?;
-    let task_key = task_repository::allocation_key(state);
+    let task_key = task_repository::allocation_key(state)?;
     let mut integration: Implementation = if integration_dir.join("state.json").exists() {
         read_state_file(&integration_dir.join("state.json"))?
     } else {

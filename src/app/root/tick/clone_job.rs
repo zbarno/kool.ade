@@ -21,7 +21,7 @@ impl KooladeApp {
                 self.finish_connect(welcome::attempt_connect(&path));
                 if matches!(self.screen, Screen::Welcome) {
                     let detail = self.conn_error.clone().unwrap_or_else(|| {
-                        "The repositories were paired, but Kool.ad/e could not open the workspace.".into()
+                        "The code repository was cloned, but Kool.ad/e could not open it.".into()
                     });
                     self.wiz_error(format!(
                         "The repositories are set up, but the workspace could not open:\n{detail}"
@@ -39,7 +39,7 @@ impl KooladeApp {
     fn clone_failed(&mut self, detail: &str) {
         self.conn_error = Some(detail.to_owned());
         self.wiz_error(format!(
-            "The clone and planning setup did not finish:\n{detail}\nYour code clone and any completed planning work were preserved. Correct the issue and retry."
+            "The code clone did not finish:\n{detail}\nAny completed code checkout was preserved. Correct the issue and retry."
         ));
     }
 }

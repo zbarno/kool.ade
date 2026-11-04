@@ -26,7 +26,7 @@ pub(crate) fn verify_source_checkout_scoped(
     {
         return Err("the reviewed source revision is not a valid Git object ID".into());
     }
-    let mut command = crate::core::planning_sync::validated_git_command(repo)
+    let mut command = crate::core::git_commands::validated_git_command(repo)
         .map_err(|error| format!("task checkout Git configuration is unsafe: {error}"))?;
     let output = command
         .args(["rev-parse", "--verify", "HEAD^{commit}"])
@@ -40,7 +40,7 @@ pub(crate) fn verify_source_checkout_scoped(
         return Err("task checkout HEAD no longer matches the reviewed source revision".into());
     }
 
-    let mut command = crate::core::planning_sync::validated_git_command(repo)
+    let mut command = crate::core::git_commands::validated_git_command(repo)
         .map_err(|error| format!("task checkout Git configuration is unsafe: {error}"))?;
     let output = command
         .args([
@@ -79,7 +79,7 @@ pub(crate) fn verify_source_checkout_scoped(
         }
         return Err("task checkout has unreviewed tracked or unapproved untracked changes".into());
     }
-    let mut command = crate::core::planning_sync::validated_git_command(repo)
+    let mut command = crate::core::git_commands::validated_git_command(repo)
         .map_err(|error| format!("task checkout Git configuration is unsafe: {error}"))?;
     let ignored = command
         .args([

@@ -192,18 +192,20 @@ fn next_repair_with_store(project: &mut Project, qa: &RuntimeQaStore) -> Option<
         context.work_id, context.finding_id
     );
     updated.manager_repair_context = Some(context);
-    let state_dir =
-        match implementation::state_dir_for_task(&project.state.repo_root, &ticket, Some(task_uid))
-        {
-            Ok(path) => path,
-            Err(_) => {
-                return mark_attention(
-                    project,
-                    work_index,
-                    "The isolated task state for the Runtime QA repair could not be located.",
-                );
-            }
-        };
+    let state_dir = match implementation::state_dir_for_task(
+        &project.state.planning_store.root,
+        &ticket,
+        Some(task_uid),
+    ) {
+        Ok(path) => path,
+        Err(_) => {
+            return mark_attention(
+                project,
+                work_index,
+                "The isolated task state for the Runtime QA repair could not be located.",
+            );
+        }
+    };
     if implementation::save(&state_dir, &updated).is_err() {
         return mark_attention(
             project,

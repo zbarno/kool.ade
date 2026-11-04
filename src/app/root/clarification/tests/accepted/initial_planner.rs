@@ -101,12 +101,21 @@ fn main_chat_spec_update_runs_initial_clarification_planner() {
         crate::core::workflow::TurnPurpose::Interview,
     );
     assert!(matches!(&app.screen, Screen::Connected(project) if project.active_turn.is_some()));
+    let Screen::Connected(project) = &app.screen else {
+        panic!("fixture remains connected")
+    };
+    assert_eq!(
+        project.state.baseline_planning_revision,
+        project.state.planning_store.revision().unwrap(),
+        "initial Planner turn starts from the fixture's current private-store revision"
+    );
 
     let context = egui::Context::default();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(45);
     loop {
         // Keep the deterministic Planner harness available through the Manager
         // completion tick, when the application starts the initial Planner pass.
+        super::suppress_background_manager(&mut app);
         app.task_harness = Some(Box::new(FixedClarificationHarness(planner_output.clone())));
         app.tick(0.016, &context);
         let completed = match &app.screen {

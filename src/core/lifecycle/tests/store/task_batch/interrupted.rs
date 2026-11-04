@@ -11,7 +11,8 @@ fn interrupted_generation_resumes_its_own_events_but_rejects_unrelated_work() {
         let store = fixture.store();
         let lifecycle = LifecycleStore::new(&store);
         let (feature_uid, hash) = approved_feature(&lifecycle);
-        crate::artifacts::migration::bootstrap_product(&fixture.0, "Batch recovery").unwrap();
+        crate::artifacts::product_bootstrap::bootstrap_product(&fixture.0, "Batch recovery")
+            .unwrap();
         record_approved_spec_baseline(&lifecycle, &feature_uid);
         let tasks = [
             task(&feature_uid, &hash, &uuid::Uuid::new_v4().to_string()),

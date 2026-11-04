@@ -81,7 +81,7 @@ fn typed_image_receipt_persists_only_for_the_approved_attempt() {
         },
     )
     .unwrap();
-    let after_smoke = load_from_for_test(&path).unwrap().0;
+    let after_smoke = load_from_for_test(&path).unwrap();
     assert_eq!(
         after_smoke.tasks[TASK_ID].state,
         SetupTaskStateV1::InProgress
@@ -97,7 +97,7 @@ fn typed_image_receipt_persists_only_for_the_approved_attempt() {
         },
     )
     .unwrap();
-    let awaiting = load_from_for_test(&path).unwrap().0;
+    let awaiting = load_from_for_test(&path).unwrap();
     assert_eq!(
         awaiting.tasks[TASK_ID].state,
         SetupTaskStateV1::AwaitingVerification

@@ -1,14 +1,14 @@
-//! Painting half of the welcome front door: the two journey doors, the
-//! two-step wizard panel, browse fields, error labels, and the action row.
+//! Painting half of the welcome front door: the code clone door, the
+//! two-step wizard panel, error labels, and the action row.
 //! Lifecycle and commit authority live in the parent module; this half only
 //! paints against the deferred [`PrimaryBus`] cells.
 #![allow(clippy::too_many_arguments)]
 use egui::{RichText, Ui, WidgetText};
 
-use super::super::{KooladeApp, WelcomeEntry, WelcomeWizard, WizField};
+use super::super::{KooladeApp, WelcomeEntry, WelcomeWizard};
 use super::{PrimaryBus, WizAction};
 
-/// The primary card is permanently the two journey doors. An ACTIVE
+/// The primary card is permanently the code-repository clone door. An ACTIVE
 /// wizard no longer replaces this canvas — it floats above it as a modal
 /// dialog ([`paint_wizard_modal`]), so the welcome screen stays visible
 /// (and interaction-locked) beneath the dialog.
@@ -33,19 +33,10 @@ fn paint_doors(ui: &mut Ui, bus: &PrimaryBus) {
         door(
             ui,
             bus,
-            "Clone a code repository and its planning repository",
-            "Paste the code repository's GitHub URL. Kool.ad/e clones it into its managed folder, then opens owner/repository.packet or creates it with matching visibility.",
-            "Clone and open project",
+            "Clone a code repository",
+            "Paste a GitHub repository URL to clone and open the code checkout.",
+            "Clone repository",
             WelcomeEntry::CloneRepository,
-        );
-        ui.add_space(10.0);
-        door(
-            ui,
-            bus,
-            "Start a blank project",
-            "Nothing exists yet. Kool.ad/e creates the code repository where you choose and keeps planning in its managed workspace area.",
-            "Create a brand-new project",
-            WelcomeEntry::BlankProject,
         );
         ui.add_space(10.0);
     });
@@ -71,14 +62,6 @@ fn door(
             ui.label(crate::ui::theme::helper_text(blurb));
             ui.add_space(4.0);
             let response = ui.add(egui::Button::new(action));
-            if entry == WelcomeEntry::BlankProject {
-                ui.ctx().data_mut(|data| {
-                    data.insert_temp(
-                        egui::Id::new("koolade_welcome_blank_project_button_rect"),
-                        response.rect,
-                    );
-                });
-            }
             if response.clicked() {
                 bus.door.replace(Some(entry));
             }
@@ -109,39 +92,12 @@ fn paint_wizard_panel(
         ui.add_space(12.0);
 
         if wiz.step == 0 {
-            match wiz.entry {
-                WelcomeEntry::CloneRepository => {
-                    ui.label(crate::ui::theme::helper_text("Code repository GitHub URL"));
-                    ui.add_space(4.0);
-                    ui.add(
-                        egui::TextEdit::singleline(&mut wiz.url)
-                            .desired_width(FIELD_W)
-                            .hint_text("Example: https://github.com/zorgco/payroll-service"),
-                    );
-                }
-                WelcomeEntry::BlankProject => paint_browse_field(
-                    ui,
-                    bus,
-                    WizField::Parent,
-                    &mut wiz.parent,
-                    "Folder where the project lives",
-                    "Choose folder…",
-                ),
-            }
-            ui.add_space(12.0);
-
-            ui.label(crate::ui::theme::helper_text(match wiz.entry {
-                WelcomeEntry::CloneRepository => "Name shown in Kool.ad/e (optional)",
-                WelcomeEntry::BlankProject => "Project name",
-            }));
+            ui.label(crate::ui::theme::helper_text("Code repository GitHub URL"));
             ui.add_space(4.0);
             ui.add(
-                egui::TextEdit::singleline(&mut wiz.project_name)
+                egui::TextEdit::singleline(&mut wiz.url)
                     .desired_width(FIELD_W)
-                    .hint_text(match wiz.entry {
-                        WelcomeEntry::CloneRepository => "Defaults to the repository name",
-                        WelcomeEntry::BlankProject => "Shown on the board and planning repository",
-                    }),
+                    .hint_text("Example: https://github.com/zorgco/payroll-service"),
             );
             ui.add_space(12.0);
 
@@ -171,30 +127,14 @@ fn paint_wizard_panel(
             if busy {
                 ui.label(crate::ui::theme::helper_text("Finishing up…"));
             } else {
-                action_row(ui, bus, false, WizAction::Commit, "Clone and open project");
+                action_row(
+                    ui,
+                    bus,
+                    false,
+                    WizAction::Commit,
+                    "Clone and open repository",
+                );
             }
-        }
-    });
-}
-
-fn paint_browse_field(
-    ui: &mut Ui,
-    bus: &PrimaryBus,
-    which: WizField,
-    value: &mut String,
-    caption: &str,
-    button: &str,
-) {
-    ui.label(crate::ui::theme::helper_text(caption));
-    ui.add_space(4.0);
-    ui.add(egui::TextEdit::singleline(value).desired_width(340.0));
-    ui.add_space(8.0);
-    ui.vertical_centered(|ui| {
-        if value.is_empty() {
-            ui.label(crate::ui::theme::helper_text("(not chosen yet)"));
-        }
-        if ui.button(button).clicked() {
-            bus.request_browse(which);
         }
     });
 }
@@ -230,8 +170,7 @@ fn action_row(ui: &mut Ui, bus: &PrimaryBus, busy: bool, primary: WizAction, pri
 /// mirrors the card-era deferred-cell bus. Chrome close (X, `Esc`, or
 /// backdrop) retires the wizard — EXCEPT while a clone download is in
 /// flight: the in-panel buttons are disabled for that phase for the same
-/// reason, so a stray `Esc` mid-download cannot strand a partially paired
-/// workspace.
+/// reason, so a stray `Esc` mid-download cannot strand a partial clone.
 pub(crate) fn paint_wizard_modal(ui: &mut Ui, app: &mut KooladeApp, cloning: Option<(&str, &str)>) {
     if app.wiz.is_none() {
         return;
@@ -245,11 +184,9 @@ pub(crate) fn paint_wizard_modal(ui: &mut Ui, app: &mut KooladeApp, cloning: Opt
         .to_string();
     let door_req = std::cell::Cell::new(None::<WelcomeEntry>);
     let action_req = std::cell::Cell::new(None::<WizAction>);
-    let browse_req = std::cell::Cell::new(None::<WizField>);
     let bus = PrimaryBus {
         door: &door_req,
         action: &action_req,
-        browse: &browse_req,
     };
     let clone_busy = app.clone_job.is_some();
     let closed = crate::ui::overlays::show_modal(ui, !clone_busy, &title, 560.0, |ui| {
@@ -261,19 +198,9 @@ pub(crate) fn paint_wizard_modal(ui: &mut Ui, app: &mut KooladeApp, cloning: Opt
     if let Some(action) = action_req.take() {
         app.wizard_actuate(action);
     }
-    if let Some(which) = browse_req.take() {
-        app.browse_wizard_field(which);
-    }
-    let click_position = ui.ctx().input(|input| input.pointer.interact_pos());
-    let blank_project_button = ui.ctx().data(|data| {
-        data.get_temp::<egui::Rect>(egui::Id::new("koolade_welcome_blank_project_button_rect"))
-    });
-    let background_door_clicked = click_position
-        .zip(blank_project_button)
-        .is_some_and(|(position, rect)| rect.contains(position));
     // Chrome dismissal is a draft discard, but a running clone owns the
-    // modal until the code and planning repositories are paired.
-    if closed && !clone_busy && !background_door_clicked {
+    // modal until the code checkout is ready.
+    if closed && !clone_busy {
         app.wizard_close();
     }
 }

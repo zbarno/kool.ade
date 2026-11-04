@@ -2,14 +2,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ManagerOutputV1 {
-    pub summary: String,
-    pub proposed_actions: Vec<ManagerActionV1>,
-    #[serde(default)]
-    pub opportunities: Vec<OpportunityProposalV1Legacy>,
-}
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct ManagerOutputV2 {
     pub summary: String,
     pub proposed_actions: Vec<ManagerActionV1>,
@@ -80,37 +72,6 @@ pub struct OpportunityProposalV1 {
     pub dedup_fingerprint: String,
     pub inference: String,
     pub confidence: OpportunityConfidence,
-    pub speculative: bool,
-    pub generic_capability_check: String,
-    pub deduplication_basis: String,
-}
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct OpportunityProposalV1Legacy {
-    pub origin: OpportunityOrigin,
-    pub kind: OpportunityKind,
-    pub target: OpportunityTarget,
-    pub target_repository: String,
-    pub target_repository_ref: String,
-    pub related_feature_uids: Vec<String>,
-    pub related_task_uids: Vec<String>,
-    pub observation_revision: String,
-    pub evidence_refs: Vec<String>,
-    pub problem_or_opportunity: String,
-    pub user_value: String,
-    pub expected_outcome: String,
-    pub possible_approaches: Vec<String>,
-    pub recommended_approach: String,
-    pub alternatives: String,
-    pub estimated_scope: OpportunityScope,
-    pub impact: String,
-    pub cost_or_risk: String,
-    pub affected_systems: Vec<String>,
-    pub current_capability_state: String,
-    pub generic_workaround: Option<String>,
-    pub proposed_approach: String,
-    pub dedup_fingerprint: String,
-    pub inference: String,
     pub speculative: bool,
     pub generic_capability_check: String,
     pub deduplication_basis: String,

@@ -14,7 +14,6 @@ use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
 use crate::core::apply::apply;
-use crate::core::gitops;
 use crate::core::state::PlannerState;
 use crate::core::validation::{self};
 use crate::error::AppError;
@@ -319,15 +318,13 @@ fn run_turn_mode(
                             }
                         }
                     };
-                    let commit_result = if receipt.repo_relative_paths.is_empty() {
+                    let save_result = if receipt.changed_store_paths.is_empty() {
                         Ok(String::new())
                     } else {
-                        gitops::commit_cancellable(
-                            &state.planning_store.git_root(),
-                            &receipt.commit_message,
-                            &receipt.repo_relative_paths,
-                            cancel,
-                        )
+                        state
+                            .planning_store
+                            .revision()
+                            .map_err(|error| AppError::Other(error.to_string()))
                     };
                     if let Some(lock) = &task_reply_lock
                         && let Err(error) = lock.mark_applied()
@@ -341,7 +338,7 @@ fn run_turn_mode(
                         state: Box::new(state),
                         receipt,
                         normalized: Box::new(normalized),
-                        commit_result,
+                        save_result,
                         elapsed: started.elapsed(),
                         stderr_tail: outcome.stderr_tail,
                     }

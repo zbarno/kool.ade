@@ -1,5 +1,3 @@
-use crate::artifacts::planning_store::PlanningRoot;
-
 pub(super) fn create_draft_feature(
     store: &crate::artifacts::planning_store::PlanningStore,
     proposal: &crate::core::opportunity::OpportunityV1,
@@ -53,26 +51,12 @@ pub(super) fn create_draft_feature(
     let markdown =
         crate::domain::ChangeMetadata::write_markdown(&identified, &identity, ChangeStatus::Draft)?;
     let logical_id = format!("feature:{feature_id}");
-    let path =
-        crate::artifacts::product_docs::document_path_for_update(store, &logical_id, &markdown)?;
-    let layout = store.planning_layout();
-    let relative = path
-        .strip_prefix(layout.root())?
-        .to_string_lossy()
-        .into_owned();
-    let index =
-        crate::artifacts::product_docs::refreshed_index(store, &[(logical_id, markdown.clone())])?;
-    let current = store.revision()?;
-    let (_, revision) = store.transaction_with_revision(
-        &[
-            (relative, markdown.as_bytes().to_vec()),
-            (
-                crate::artifacts::planning_store::paths::PRODUCT_INDEX.into(),
-                index.into_bytes(),
-            ),
-        ],
-        Some(&current),
+    let changes = crate::core::apply::private_document_draft_changes(
+        store,
+        &[(logical_id, markdown.clone())],
     )?;
+    let current = store.revision()?;
+    let (_, revision) = store.transaction_with_revision(&changes, Some(&current))?;
     Ok((feature_id, identity.uid, markdown, revision))
 }
 
@@ -80,39 +64,18 @@ fn existing_opportunity_feature(
     store: &crate::artifacts::planning_store::PlanningStore,
     uid: &str,
 ) -> anyhow::Result<Option<(String, String, String, String)>> {
-    use crate::artifacts::planning_store::PlanningRoot;
-    let root = store.planning_layout().changes_root();
-    let entries = match std::fs::read_dir(&root) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
-    };
     let marker = format!("<!-- opportunity-uid: {uid} -->");
-    for entry in entries {
-        let entry = entry?;
-        let metadata = std::fs::symlink_metadata(entry.path())?;
-        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+    let Some(draft) = crate::core::apply::load_current(store)? else {
+        return Ok(None);
+    };
+    for change in draft.changes {
+        let Some(feature_id) = change.document_id.strip_prefix("feature:") else {
             continue;
-        }
-        let specification = entry.path().join("specification.md");
-        let metadata = match std::fs::symlink_metadata(&specification) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(error.into()),
         };
-        if !metadata.is_file() || metadata.file_type().is_symlink() {
-            continue;
-        }
-        let markdown = std::fs::read_to_string(specification)?;
+        let markdown = change.content;
         if !markdown.contains(&marker) {
             continue;
         }
-        let feature_id = markdown
-            .lines()
-            .next()
-            .and_then(|line| line.strip_prefix("# "))
-            .and_then(|line| line.split_once(": ").map(|(id, _)| id))
-            .ok_or_else(|| anyhow::anyhow!("adopted opportunity feature has no valid title"))?;
         let identity = crate::domain::ArtifactIdentity::from_markdown(&markdown)?
             .ok_or_else(|| anyhow::anyhow!("adopted opportunity feature has no identity"))?;
         return Ok(Some((

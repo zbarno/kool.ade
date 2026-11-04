@@ -64,7 +64,6 @@ fn task() -> SetupTaskV1 {
             scan_generation: 1,
             state: SetupTaskStateV1::ReadyToFix,
         }],
-        legacy_source_id: None,
         superseded_by: Vec::new(),
     }
 }
@@ -94,7 +93,7 @@ fn request(path: &std::path::Path, attempt: &AttemptContext) {
 }
 
 fn disk_store(path: &std::path::Path) -> SetupTaskStoreV1 {
-    load_from_for_test(path).unwrap().0
+    load_from_for_test(path).unwrap()
 }
 
 /// Production boundary: invokes the same post-approval transition pipeline as

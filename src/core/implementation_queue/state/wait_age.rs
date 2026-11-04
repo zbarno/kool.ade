@@ -73,8 +73,13 @@ impl Queue {
     }
 
     pub fn clear_ready_waits(&mut self) -> bool {
-        let changed = !self.waiting_since_unix_ms.is_empty();
+        let mut changed = !self.waiting_since_unix_ms.is_empty();
         self.waiting_since_unix_ms.clear();
+        for state in self.stable_tasks.values_mut() {
+            if state.waiting_since_unix_ms.take().is_some() {
+                changed = true;
+            }
+        }
         changed
     }
 }
@@ -123,35 +128,24 @@ mod tests {
     }
 
     #[test]
-    fn restored_queue_age_is_cleared_before_dispatch_and_version_four_migrates() {
+    fn current_queue_state_restores_and_clears_ready_age() {
         let mut queue = Queue::default();
+        let stable_uid = uuid::Uuid::from_u128(1).to_string();
         queue
             .task_uids
-            .insert("tasks/oldest.md".into(), "stable-task-id".into());
+            .insert("tasks/oldest.md".into(), stable_uid.clone());
         queue
             .waiting_since_unix_ms
             .insert("tasks/oldest.md".into(), 100);
         let bytes = serde_json::to_vec(&queue).unwrap();
-        let (mut restored, migrated) = Queue::decode_persisted(&bytes).unwrap();
-        assert!(!migrated);
+        let mut restored = Queue::decode_persisted(&bytes).unwrap();
         assert!(restored.clear_ready_waits());
-        assert_eq!(restored.take_queue_wait_ms("tasks/oldest.md", 150), None);
+        assert_eq!(
+            restored.stable_tasks[&stable_uid].waiting_since_unix_ms,
+            None
+        );
 
-        let version_four = serde_json::json!({
-            "schemaVersion": 4,
-            "auto_plan": true,
-            "auto_build": true,
-            "auto_publish": false,
-            "require_independent_checks": false,
-            "running": false,
-            "max_parallel": 3,
-            "tasks": {},
-            "legacy_tasks": {},
-            "task_identity_aliases": {}
-        });
-        let (migrated, needs_save) =
-            Queue::decode_persisted(&serde_json::to_vec(&version_four).unwrap()).unwrap();
-        assert!(needs_save);
-        assert_eq!(serde_json::to_value(migrated).unwrap()["schemaVersion"], 5);
+        let unsupported = serde_json::json!({"schemaVersion": 0});
+        assert!(Queue::decode_persisted(&serde_json::to_vec(&unsupported).unwrap()).is_err());
     }
 }

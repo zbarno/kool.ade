@@ -31,6 +31,24 @@ impl KooladeApp {
                 &project.state.workflow,
                 &id,
             )
+            && project
+                .state
+                .active_features
+                .iter()
+                .find(|(feature_id, _)| feature_id == &id)
+                .and_then(|(_, markdown)| {
+                    let identity = crate::domain::ArtifactIdentity::from_markdown(markdown)
+                        .ok()
+                        .flatten()?;
+                    Some(
+                        crate::app::root::feature_approval::publication::pin_is_published(
+                            project,
+                            &identity.uid,
+                            markdown,
+                        ),
+                    )
+                })
+                .unwrap_or(false)
         {
             self.start_turn_for_work(
                 &format!("Generate task stories for approved feature {id}."),
@@ -40,8 +58,28 @@ impl KooladeApp {
             );
             return;
         }
+        let published = project
+            .state
+            .active_features
+            .iter()
+            .find(|(feature_id, _)| feature_id == &id)
+            .and_then(|(_, markdown)| {
+                let identity = crate::domain::ArtifactIdentity::from_markdown(markdown)
+                    .ok()
+                    .flatten()?;
+                Some(
+                    crate::app::root::feature_approval::publication::pin_is_published(
+                        project,
+                        &identity.uid,
+                        markdown,
+                    ),
+                )
+            })
+            .unwrap_or(false);
         let reason = if !current {
             "The feature contract or planning focus changed; review the current feature before continuing."
+        } else if !published {
+            "Merge the consented feature documentation PR and refresh the published-spec pin before task generation."
         } else {
             "The planning review did not produce a current, ready task plan. Resolve the reported issue, then use Prepare tasks to retry; the existing feature approval is retained."
         };

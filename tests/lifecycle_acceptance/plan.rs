@@ -66,7 +66,7 @@ pub(super) fn reviewed_feature_plan(
         revision: 0,
     };
     QuestionStore::new(store).save(&card, 0).unwrap();
-    let reopened_store = PlanningStore::new(store.project_id, store.root.clone(), store.mode);
+    let reopened_store = reopen_store(store);
     let reopened = LifecycleStore::new(&reopened_store);
     let questions = QuestionStore::new(&reopened_store);
     let (mut card, card_record_revision) = questions.load(&card.uid).unwrap();

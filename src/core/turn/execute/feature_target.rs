@@ -19,12 +19,10 @@ fn task_target(state: &PlannerState, key: &str) -> Option<TaskTarget> {
         });
     }
 
-    let synthetic = crate::core::ownership::synthesize_for_state(state);
     state
         .items
         .iter()
         .chain(&state.resolved_items)
-        .chain(&synthetic)
         .find(|item| item.conversation_key() == key)
         .map(|item| TaskTarget {
             key: item.conversation_key().to_owned(),

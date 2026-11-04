@@ -4,6 +4,7 @@ mod active_features;
 mod document_updates;
 mod feature_index;
 pub(crate) mod identity;
+#[cfg(test)]
 mod manifest;
 mod paths;
 mod schema;
@@ -13,46 +14,100 @@ mod index_stickiness;
 #[cfg(test)]
 mod tests;
 
-pub const PRODUCT_DIR: &str = crate::artifacts::layout::store::PRODUCT;
-pub const INDEX: &str = crate::artifacts::layout::store::PRODUCT_INDEX;
-pub const LEGACY_ARCHIVE: &str = crate::artifacts::layout::store::LEGACY_SPEC_ARCHIVE;
-/// Compatibility paths used only to import the old thirteen-file layout.
-pub const LEGACY_MODULES: [&str; 13] = [
-    "01-vision.md",
-    "02-scope.md",
-    "03-actors-and-roles.md",
-    "04-feature-inventory.md",
-    "05-functional-requirements.md",
-    "06-non-functional-requirements.md",
-    "07-data-model.md",
-    "08-architecture.md",
-    "09-environment.md",
-    "10-decisions.md",
-    "11-risks.md",
-    "12-acceptance.md",
-    "13-source-map.md",
-];
 #[cfg(test)]
-pub(crate) use active_features::migrate_legacy_change_fixtures;
+pub const PRODUCT_DIR: &str = crate::artifacts::layout::store::PRODUCT;
+#[cfg(test)]
+pub const INDEX: &str = crate::artifacts::layout::store::PRODUCT_INDEX;
 pub use active_features::{
-    active_feature, active_feature_for_workflow, active_features, validate_change_metadata,
+    active_feature, active_feature_for_workflow, active_feature_for_workflow_in, active_features,
+    published_features, validate_change_metadata,
 };
+#[cfg(test)]
+pub use document_updates::updated_manifest;
 pub use document_updates::{
-    document_path, document_path_for_update, preserved_ids, updated_manifest,
+    current_document, document_path, document_path_for_update, next_feature_id_for_update,
+    preserved_ids,
 };
-pub use feature_index::{next_feature_id, refreshed_index, refreshed_index_from, valid_feature_id};
-pub use manifest::{CoreConcept, ProductManifest, ProductModule};
-pub use manifest::{legacy_manifest, read as load_manifest};
+pub use feature_index::{next_feature_id, valid_feature_id};
+#[cfg(test)]
+pub use feature_index::{refreshed_index, refreshed_index_from};
+#[cfg(test)]
+pub use manifest::{ProductManifest, read as load_manifest};
 pub use paths::{safe_module_path, valid_id};
+pub(crate) use schema::load_published_product;
 pub use schema::{
     ProductDocument, load_documents, load_modules, module_title, render_product,
-    render_product_with_updates, split_legacy, split_sections, validate_module,
+    render_product_with_updates, render_published_product, render_published_product_with_updates,
+    split_sections, validate_module,
 };
 
-/// Test-suite stand-in for the retired in-place migration: seeds product
-/// modules from the fixture's legacy specification so existing fixture
-/// corpora observe the current layout.
-#[cfg(test)]
-pub(crate) fn migrate(repo: &std::path::Path, _legacy: &str) -> anyhow::Result<Vec<String>> {
-    crate::artifacts::migration::fixtures::migrate_files_for_test(repo)
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "kebab-case")]
+pub enum CoreConcept {
+    Overview,
+    UsersAndOutcomes,
+    CurrentCapabilities,
+    ArchitectureAndConstraints,
+    Decisions,
+    QualityAndAcceptance,
+}
+
+impl CoreConcept {
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Overview => "overview",
+            Self::UsersAndOutcomes => "users-and-outcomes",
+            Self::CurrentCapabilities => "current-capabilities",
+            Self::ArchitectureAndConstraints => "architecture-and-constraints",
+            Self::Decisions => "decisions",
+            Self::QualityAndAcceptance => "quality-and-acceptance",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Overview => "Overview",
+            Self::UsersAndOutcomes => "Users and Outcomes",
+            Self::CurrentCapabilities => "Current Capabilities",
+            Self::ArchitectureAndConstraints => "Architecture and Constraints",
+            Self::Decisions => "Decisions",
+            Self::QualityAndAcceptance => "Quality and Acceptance",
+        }
+    }
+
+    pub fn all() -> [Self; 6] {
+        [
+            Self::Overview,
+            Self::UsersAndOutcomes,
+            Self::CurrentCapabilities,
+            Self::ArchitectureAndConstraints,
+            Self::Decisions,
+            Self::QualityAndAcceptance,
+        ]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductModule {
+    pub uid: String,
+    pub id: String,
+    pub title: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub core_concept: Option<CoreConcept>,
+}
+
+impl ProductModule {
+    pub fn new(id: &str, title: &str, core_concept: Option<CoreConcept>) -> Self {
+        Self {
+            uid: uuid::Uuid::new_v4().hyphenated().to_string(),
+            id: id.to_owned(),
+            title: title.to_owned(),
+            path: format!("{id}.md"),
+            core_concept,
+        }
+    }
 }

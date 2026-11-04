@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::OpenItem;
 
 #[test]
 fn saved_json_replies_render_as_readable_text_with_optional_diagnostics() {
@@ -12,7 +13,6 @@ fn saved_json_replies_render_as_readable_text_with_optional_diagnostics() {
             crate::domain::Priority::High,
             crate::domain::ItemKind::Question,
             "General".into(),
-            None,
             "Which provider?".into(),
             "Access".into(),
         )];

@@ -1,13 +1,10 @@
 //! Recoverable planning-store transactions.
 //!
-//! Writes land in the planning repository's Git metadata as a journaled,
-//! multi-file transaction with optimistic revision fencing. See
-//! `docs/planning-repository-v1.md` §"Writes are journaled transactions".
+//! Writes use a journaled multi-file transaction with optimistic revision
+//! fencing in the installation-local operational store.
 
 mod store;
 
-#[cfg(test)]
-pub(crate) use store::apply_store_with_record_revisions_interruption_for_test;
 pub(crate) use store::{
     apply_store, apply_store_with_record_revisions, apply_store_with_removals,
     apply_store_with_removals_and_record_revisions, apply_store_with_removals_and_revision,

@@ -14,6 +14,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  documentation-navigation:
+    name: documentation navigation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Test documentation navigation validator
+        run: python3 -m unittest scripts.tests.test_doc_navigation -v
+      - name: Validate documentation navigation indexes
+        run: python3 scripts/check-doc-navigation.py
+
   format:
     name: format
     runs-on: ubuntu-latest

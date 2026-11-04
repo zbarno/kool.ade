@@ -14,7 +14,6 @@ mod setup_welcome;
 mod task_cards;
 mod task_details;
 mod task_properties;
-mod workspace_repositories;
 mod workspace_tabs;
 
 pub(crate) use setup_welcome::{
@@ -35,11 +34,9 @@ pub(crate) fn setup_task_title(task: &crate::persistence::setup_tasks::LocalTask
 pub enum HeaderAction {
     Refresh,
     Import,
-    Stakeholders,
     McpServers,
     CopySpec,
     OpenWorkspace,
-    OpenRegisteredRepository { id: String },
     Disconnect,
 }
 

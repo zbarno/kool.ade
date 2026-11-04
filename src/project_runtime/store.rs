@@ -15,7 +15,7 @@ const RECEIPTS_ROOT: &str = "state/runtime-receipts";
 const MAX_MANIFEST_BYTES: usize = 2 * 1024 * 1024;
 const MAX_RECEIPT_BYTES: usize = 256 * 1024;
 
-/// Versioned runtime metadata stored only in the active planning repository.
+/// Versioned runtime metadata stored only in the installation-local project store.
 pub struct ProjectRuntimeStore<'a> {
     store: &'a PlanningStore,
 }

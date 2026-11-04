@@ -112,8 +112,7 @@ pub fn span_for_ticket_with_store(
     task_uid: Option<&str>,
 ) -> Option<AgentSpan> {
     let manifest = crate::core::project_repos::ProjectManifest::load(planning_store).ok()?;
-    let workspace_id =
-        crate::core::implementation::task_repository_id(ticket_text, metadata, &manifest).ok()?;
+    let workspace_id = crate::core::implementation::task_repository_id(metadata).ok()?;
     let ticket_stem = Path::new(ticket_text)
         .file_name()
         .and_then(|name| name.to_str())

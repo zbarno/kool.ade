@@ -2,7 +2,7 @@
 
 mod areas;
 mod catalog;
-mod documents;
+mod published_navigation;
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -29,6 +29,9 @@ pub struct ContextSelection {
 pub struct RetrievedDocument {
     pub id: String,
     pub source_path: String,
+    pub source_repository_id: Option<String>,
+    pub source_revision: Option<String>,
+    pub content_sha256: Option<String>,
     pub content: String,
 }
 
@@ -36,12 +39,6 @@ pub struct RetrievedDocument {
 pub struct RetrievedArea {
     pub path: String,
     pub content: String,
-}
-
-pub(super) struct CandidateDocument {
-    pub(super) id: String,
-    pub(super) source_path: String,
-    pub(super) excerpt: String,
 }
 
 /// Returns `None` when this harness has no retrieval planner. The caller then
@@ -55,7 +52,15 @@ pub fn select(
     progress_tx: Sender<LiveProgress>,
     cancel: Arc<AtomicBool>,
 ) -> Result<Option<ContextSelection>, AppError> {
-    let catalog = catalog::Catalog::build(state);
+    let reader = crate::core::published_specs::PublishedSpecReader::for_primary_repository(
+        &state.repo_root,
+    )?;
+    let pin = state
+        .published_spec_pin
+        .clone()
+        .map(Ok)
+        .unwrap_or_else(|| reader.pin())?;
+    let catalog = catalog::Catalog::build_with_published_specs(state, reader, pin);
     let remaining = timeout.min(RETRIEVAL_TIMEOUT);
     if remaining.is_zero() || cancel.load(std::sync::atomic::Ordering::Relaxed) {
         return Ok(None);

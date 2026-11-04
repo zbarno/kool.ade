@@ -41,9 +41,7 @@ pub(super) fn validate_acceptance_criteria(snapshot: &PlanSnapshotV1) -> Result<
             })
         })
     });
-    if (snapshot.schema_version == 2 && !identified)
-        || (identified && ids.len() != snapshot.acceptance_criteria.len())
-    {
+    if !identified || ids.len() != snapshot.acceptance_criteria.len() {
         return Err("plan acceptance criteria need unique IDs and nonempty text".into());
     }
     if snapshot

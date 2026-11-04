@@ -3,6 +3,12 @@ use crate::ui::Surface;
 
 struct FixedClarificationHarness(String);
 
+fn suppress_background_manager(app: &mut KooladeApp) {
+    if let Screen::Connected(project) = &mut app.screen {
+        project.activity.last_update = Some(std::time::Instant::now());
+    }
+}
+
 impl crate::harness::AiHarness for FixedClarificationHarness {
     fn label(&self) -> String {
         "clarification lifecycle fixture".into()
@@ -53,6 +59,18 @@ fn accepted_answer_persists_its_thread_and_starts_spec_reconciliation() {
         answer: "Keep retention configurable for each workspace.".into(),
         selected_option: Some("yes".into()),
     });
+    let Screen::Connected(project) = &app.screen else {
+        panic!("answer keeps the fixture connected")
+    };
+    assert!(
+        project.active_turn.is_some(),
+        "Manager turn starts after save"
+    );
+    assert_eq!(
+        project.state.baseline_planning_revision,
+        project.state.planning_store.revision().unwrap(),
+        "Manager turn starts from the revision that includes the saved answer"
+    );
 
     // This app-level dispatch runs concurrently with thousands of other
     // nextest cases in CI; leave room for a loaded scheduler to start the turn.

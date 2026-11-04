@@ -4,7 +4,7 @@ use std::path::Path;
 use super::StoreMode;
 use super::{PlanningLayout, PlanningStore, StoreError};
 
-/// Surface shared by types that expose the separate planning repository.
+/// Surface shared by types that expose a project's private operational store.
 pub trait PlanningRoot {
     fn planning_layout(&self) -> PlanningLayout;
     fn planning_store(&self) -> PlanningStore;
@@ -46,7 +46,7 @@ impl<T: PlanningRoot + ?Sized> PlanningRoot for &T {
     }
 }
 
-/// Test-fixture adapter: treats a path as the planning repository root.
+/// Test-fixture adapter: treats a path as a private operational-store root.
 /// Never usable from non-test builds.
 #[cfg(test)]
 impl PlanningRoot for Path {

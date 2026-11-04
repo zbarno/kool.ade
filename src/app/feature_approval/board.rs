@@ -29,7 +29,7 @@ impl KooladeApp {
                 &project.state.workflow,
                 id,
             ) && crate::persistence::feature_approvals::contains(
-                &project.state.planning_store.git_root(),
+                &project.state.planning_store.local_root(),
                 id,
                 &contract,
             )
@@ -50,7 +50,7 @@ impl KooladeApp {
         };
         let contract = crate::core::workflow::feature_contract(body);
         if !crate::persistence::feature_approvals::contains(
-            &project.state.planning_store.git_root(),
+            &project.state.planning_store.local_root(),
             id,
             &contract,
         ) {

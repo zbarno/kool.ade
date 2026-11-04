@@ -1,21 +1,8 @@
-//! Cross-process coordination gates for project state.
-//!
-//! Kool.ad/e processes coordinate first-use actions (such as generating task
-//! evidence) with a file lock keyed to the Git common directory of the
-//! repository they operate on. For managed planning state that repository is
-//! the planning repository.
-use std::{fs, path::PathBuf, process::Command};
+//! Cross-process coordination gates for private project state.
+use std::{fs, path::PathBuf};
 
-pub(crate) fn common_dir(repo: &std::path::Path) -> anyhow::Result<PathBuf> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
-        .current_dir(repo)
-        .output()?;
-    anyhow::ensure!(
-        output.status.success(),
-        "Cannot locate Git common directory for project state gate"
-    );
-    Ok(PathBuf::from(String::from_utf8(output.stdout)?.trim()))
+fn lock_root() -> PathBuf {
+    crate::persistence::state_root().join("locks")
 }
 
 fn root_identity(repo: &std::path::Path) -> anyhow::Result<String> {
@@ -28,19 +15,13 @@ fn root_key(repo: &std::path::Path) -> anyhow::Result<String> {
     Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-fn lock_path(
-    common: &std::path::Path,
-    repo: &std::path::Path,
-) -> anyhow::Result<std::path::PathBuf> {
-    Ok(common.join(format!(
-        "koolade-artifact-migration-{}.lock",
-        root_key(repo)?
-    )))
+fn lock_path(root: &std::path::Path, repo: &std::path::Path) -> anyhow::Result<std::path::PathBuf> {
+    Ok(root.join(format!("project-state-{}.lock", root_key(repo)?)))
 }
 
-fn lock(common: &std::path::Path, repo: &std::path::Path) -> anyhow::Result<fs::File> {
-    let path = lock_path(common, repo)?;
-    fs::create_dir_all(common)?;
+fn lock(root: &std::path::Path, repo: &std::path::Path) -> anyhow::Result<fs::File> {
+    let path = lock_path(root, repo)?;
+    fs::create_dir_all(root)?;
     let file = fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -51,8 +32,11 @@ fn lock(common: &std::path::Path, repo: &std::path::Path) -> anyhow::Result<fs::
     Ok(file)
 }
 
-/// Coordinate first creation of task evidence and other project-wide state
-/// transitions across Kool.ad/e instances sharing one repository.
+/// Coordinate private state transitions across app instances for one code repo.
 pub(crate) fn acquire_project_state_gate(repo: &std::path::Path) -> anyhow::Result<fs::File> {
-    lock(&common_dir(repo)?, repo)
+    lock(&lock_root(), repo)
 }
+
+#[cfg(test)]
+#[path = "locks_tests.rs"]
+mod tests;

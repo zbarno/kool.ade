@@ -19,6 +19,7 @@ fn integrated_destination_head_invalidates_prior_lifecycle_receipts() {
     let fixture = Fixture::new(40);
     let mut implementation = fixture.implementation();
     let repository = &implementation.task_repository;
+    std::fs::write(repository.join("publication-baseline.txt"), "baseline\n").unwrap();
     git(repository, &["add", "-A"]);
     git(
         repository,

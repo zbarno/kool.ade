@@ -4,7 +4,7 @@ use super::{
     read::read_records,
 };
 use crate::artifacts::planning_store::{
-    PlanningStore, RecordChangePlan, RecordRevisionCheck, StoreError, paths,
+    PlanningStore, RecordChangePlan, RecordRevisionCheck, paths,
 };
 use crate::domain::{ItemStatus, OpenItem};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -25,7 +25,6 @@ fn record_changes_unlocked(
     validate_items(open_items.iter().chain(resolved_items))?;
     super::task_intent::validate_links(store, open_items.iter().chain(resolved_items).cloned())?;
     let records = read_records(store)?;
-    let legacy_migration = records.is_empty() && legacy_files_exist(store)?;
     let current = records
         .into_iter()
         .map(|loaded| (loaded.record.uid.clone(), loaded))
@@ -41,24 +40,6 @@ fn record_changes_unlocked(
     }));
     normalize_uids(&mut desired)?;
 
-    let mut legacy_items = Vec::new();
-    if legacy_migration {
-        let (legacy_open, legacy_resolved, _) = super::read::load_store_unlocked(store)?;
-        legacy_items.extend(legacy_open);
-        legacy_items.extend(legacy_resolved);
-        normalize_uids(&mut legacy_items)?;
-        let included = desired
-            .iter()
-            .filter_map(|item| item.uid.as_ref())
-            .cloned()
-            .collect::<std::collections::BTreeSet<_>>();
-        desired.extend(
-            legacy_items
-                .into_iter()
-                .filter(|item| !included.contains(item.uid.as_ref().expect("normalized UID"))),
-        );
-    }
-
     let mut changes = Vec::new();
     let mut checks = Vec::new();
     let mut next_creation_time = now_ms();
@@ -67,7 +48,7 @@ fn record_changes_unlocked(
         let previous = current.get(&uid);
         let baseline = item.record_baseline.as_deref();
         let current = serde_json::to_string(&item)?;
-        if !legacy_migration && baseline == Some(current.as_str()) {
+        if baseline == Some(current.as_str()) {
             continue;
         }
         let expected_revision = item.record_revision;
@@ -97,7 +78,7 @@ fn record_changes_unlocked(
             expected_revision,
         });
     }
-    Ok((changes, checks, legacy_migration))
+    Ok((changes, checks))
 }
 
 fn validate_items<'a>(items: impl Iterator<Item = &'a OpenItem>) -> anyhow::Result<()> {
@@ -118,34 +99,15 @@ fn validate_items<'a>(items: impl Iterator<Item = &'a OpenItem>) -> anyhow::Resu
 }
 
 fn normalize_uids(items: &mut [OpenItem]) -> anyhow::Result<()> {
-    use sha2::{Digest, Sha256};
     for item in items {
-        let uid = match &item.uid {
-            Some(uid) => uuid::Uuid::parse_str(uid)?.hyphenated().to_string(),
-            None => {
-                let mut bytes: [u8; 16] = Sha256::digest(item.id.as_bytes())[..16]
-                    .try_into()
-                    .expect("SHA-256 provides at least 16 bytes");
-                bytes[6] = (bytes[6] & 0x0f) | 0x50;
-                bytes[8] = (bytes[8] & 0x3f) | 0x80;
-                uuid::Uuid::from_bytes(bytes).hyphenated().to_string()
-            }
-        };
+        let uid = item
+            .uid
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Item {} has no immutable UID", item.id))?;
+        let uid = uuid::Uuid::parse_str(uid)?.hyphenated().to_string();
         item.uid = Some(uid);
     }
     Ok(())
-}
-
-fn legacy_files_exist(store: &PlanningStore) -> anyhow::Result<bool> {
-    for path in [paths::OPEN_ITEMS, paths::RESOLVED_ITEMS] {
-        match store.read(path) {
-            Ok(_) => return Ok(true),
-            Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
-            }
-            Err(error) => return Err(error.into()),
-        }
-    }
-    Ok(false)
 }
 
 fn now_ms() -> u64 {

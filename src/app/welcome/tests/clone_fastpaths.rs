@@ -38,43 +38,39 @@ fn perform_clone_refuses_to_adopt_an_existing_same_origin_checkout() {
     let _ = std::fs::remove_dir_all(&src);
 }
 
+/// Production boundary: both typed connection and the clone path use
+/// installation-local operational storage for the same ordinary code repo.
+/// A helper test cannot prove the welcome routing behavior. Uses temporary
+/// local Git repositories and no external services.
 #[test]
-fn perform_clone_plain_repo_meets_the_same_planning_setup_gate_as_a_typed_path() {
-    // Identity clause under the enforced model: the SAME planning-less
-    // tree, reached once THROUGH the clone and once by hand-typing the
-    // source's path, is refused with the same actionable planning-setup
-    // guidance — the clone feeds EXACTLY today's connect path because it
-    // literally is that call.
+fn plain_code_repo_connects_by_clone_and_typed_path() {
     let _sb = EnvSandbox::enter("plain", false);
-    let src = local_source_repo("plain-src"); // planning-less
-
-    // Clone leg first, while `src` is still pristine.
+    let src = local_source_repo("plain-src");
     let dest =
         perform_clone(src.to_str().unwrap(), "sw-plain").expect("offline local-source clone lands");
     assert!(gitops::is_work_tree(&dest));
 
-    // Identity clause under the enforced model: the SAME planning-less
-    // tree, reached once through the clone and once by hand-typing the
-    // source's path, meets the same planning-setup gate — neither leg
-    // may silently adopt an unregistered checkout or write project state there.
     for (path, what) in [(dest.as_path(), "clone leg"), (src.as_path(), "typed leg")] {
-        match attempt_connect(path.to_str().unwrap()) {
-            Ok(project) => panic!(
-                "{what}: planning-less checkout must not connect ({:?})",
-                project.state.title
-            ),
-            Err(err) => {
-                let msg = format!("{} | {}", err.headline(), err.detail());
-                assert!(
-                    msg.contains("planning repository"),
-                    "{what}: actionable planning-setup guidance (got: {msg})"
-                );
-            }
-        }
+        let project = attempt_connect(path.to_str().unwrap()).unwrap_or_else(|error| {
+            panic!("{what}: ordinary code repository should connect: {error}")
+        });
+        assert_eq!(project.state.repo_root, path, "{what}");
         assert!(
-            !path.join(".koolade-packet").exists(),
-            "{what}: the refusal must not plant any state"
+            project
+                .state
+                .planning_store
+                .root
+                .starts_with(crate::persistence::state_root())
         );
+        assert!(!project.state.planning_store.root.starts_with(path));
+        assert!(!path.join(".koolade-packet").exists());
+        assert!(!path.join("planning").exists());
+        let status = std::process::Command::new("git")
+            .args(["-C", path.to_str().unwrap(), "status", "--porcelain"])
+            .output()
+            .unwrap();
+        assert!(status.status.success());
+        assert!(status.stdout.is_empty(), "{what}: connect changed code Git");
     }
     let _ = std::fs::remove_dir_all(&src);
 }

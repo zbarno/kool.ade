@@ -20,13 +20,6 @@ pub(in crate::persistence::setup_tasks) fn positive_domain_for(
         }
         _ => {}
     }
-    if id == "setup:legacy:provider" {
-        return snapshot
-            .checked_domains
-            .iter()
-            .find(|domain| domain.starts_with("cli:"))
-            .cloned();
-    }
     if matches!(
         id,
         "setup:docker:image-unverified"

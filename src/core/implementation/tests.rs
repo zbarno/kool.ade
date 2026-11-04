@@ -1,49 +1,5 @@
 use super::*;
 
-#[cfg(test)]
-fn run_with_gh(
-    repo: &Path,
-    ticket: &str,
-    harness: &dyn AiHarness,
-    cancel: Arc<AtomicBool>,
-    progress: Sender<LiveProgress>,
-    gh: &str,
-) -> anyhow::Result<Implementation> {
-    run_with_options(repo, ticket, harness, cancel, progress, gh, false)
-}
-#[cfg(test)]
-fn run_with_options(
-    repo: &Path,
-    ticket: &str,
-    harness: &dyn AiHarness,
-    cancel: Arc<AtomicBool>,
-    progress: Sender<LiveProgress>,
-    gh: &str,
-    auto_merge: bool,
-) -> anyhow::Result<Implementation> {
-    let mode = if auto_merge {
-        PublicationMode::AutoPublish
-    } else {
-        PublicationMode::CreatePullRequest
-    };
-    run_with_project_options(
-        repo,
-        repo,
-        ticket,
-        RunOptions {
-            harness,
-            cancel,
-            progress,
-            gh,
-            publication_mode: mode,
-            require_independent_checks: false,
-            user_context: None,
-            auto_publish_gate: None,
-            claim_lease: None,
-        },
-    )
-}
-
 use crate::error::AppError;
 use std::sync::atomic::AtomicUsize;
 

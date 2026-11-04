@@ -66,8 +66,8 @@ pub fn scan(repo: &Path) -> Overview {
     scan_inner(repo)
 }
 
-/// Scan only the code checkout. Planning artifacts are read from the
-/// associated planning repository by the planning-specific readers.
+/// Scan only the code checkout. Operational artifacts are read from the
+/// private local store and never from repository files.
 pub fn scan_for_store(
     repo: &Path,
     _store: &crate::artifacts::planning_store::PlanningStore,

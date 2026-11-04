@@ -1,30 +1,20 @@
-//! Right pane: live open-items queue, regrouped for the signed-in user.
-//! Uses the routing layer directly under the D-14 law: `eligible_items`
-//! (General broadcast; direct name or group address; a lane this user
-//! owns, sole or via group; or an unowned lane this seat inherits) =
-//! “FOR YOU NOW”; everything else — including lanes claimed by other
-//! holders, which are NEVER posed here — stays in “THE REST OF THE
-//! QUEUE”. Ownership-gap items ride the synthetic section.
+//! Right pane for local user questions and other planning items.
 
 use egui::{Frame, RichText};
 
 use crate::core::routing;
 use crate::domain::item::OpenItem;
-use crate::domain::stakeholder::Stakeholders;
 use crate::domain::user::CurrentUser;
 use crate::ui::theme;
 
 pub struct Args<'a> {
     pub items: &'a [OpenItem],
-    pub synthetic: &'a [OpenItem],
     pub user: &'a CurrentUser,
-    /// Category→owner map the D-14 law judges partition eligibility against.
-    pub stakes: &'a Stakeholders,
     pub next_question_id: Option<&'a str>,
 }
 
 pub fn paint(ui: &mut egui::Ui, args: &Args<'_>) {
-    if args.items.is_empty() && args.synthetic.is_empty() {
+    if args.items.is_empty() {
         ui.add_space(20.0);
         ui.vertical_centered(|ui| {
             ui.label(RichText::new("All clear").strong().color(theme::SUCCESS));
@@ -42,12 +32,11 @@ pub fn paint(ui: &mut egui::Ui, args: &Args<'_>) {
     egui::ScrollArea::vertical()
         .auto_shrink(egui::Vec2b::new(false, false))
         .show(ui, |ui| {
-            let mine: Vec<&OpenItem> = routing::eligible_items(args.items, args.user, args.stakes);
-            let recommended =
-                routing::recommended_next(args.items, args.user, args.stakes).filter(|item| {
-                    item.authority == crate::domain::Authority::Human
-                        && item.priority == crate::domain::Priority::Blocking
-                });
+            let mine: Vec<&OpenItem> = routing::eligible_items(args.items, args.user);
+            let recommended = routing::recommended_next(args.items, args.user).filter(|item| {
+                item.authority == crate::domain::Authority::Human
+                    && item.priority == crate::domain::Priority::Blocking
+            });
             let recommended_id = recommended.map(|r| r.id.clone());
             let mine_ids: Vec<String> = mine.iter().map(|i| i.id.clone()).collect();
 
@@ -72,13 +61,6 @@ pub fn paint(ui: &mut egui::Ui, args: &Args<'_>) {
                     card(ui, it, false);
                 }
             });
-            if !args.synthetic.is_empty() {
-                section(ui, "CATEGORY NEEDS AN OWNER", theme::WARNING, |ui| {
-                    for it in args.synthetic {
-                        card(ui, it, false);
-                    }
-                });
-            }
         });
 }
 
@@ -163,11 +145,6 @@ fn card(ui: &mut egui::Ui, item: &OpenItem, asking_now: bool) {
                         .weak()
                         .size(10.5),
                 );
-                ui.label(
-                    RichText::new(owner_line(item.assigned_to.as_deref().unwrap_or("-")))
-                        .weak()
-                        .size(10.5),
-                );
             });
         });
     ui.add_space(7.0);
@@ -179,8 +156,4 @@ fn priority_label(item: &OpenItem) -> String {
 
 fn category_line(cat: &str) -> String {
     format!("▣ {cat}")
-}
-
-fn owner_line(owner: &str) -> String {
-    format!("◉ {owner}")
 }

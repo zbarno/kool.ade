@@ -206,7 +206,6 @@ fn image_task(id: &str, state: SetupTaskStateV1, attempt: Option<SetupAttemptV1>
                 state,
             })
             .collect(),
-        legacy_source_id: None,
         superseded_by: Vec::new(),
     }
 }

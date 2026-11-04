@@ -163,7 +163,7 @@ pub(super) fn import_verified_result(
         .ok_or_else(|| anyhow::anyhow!("Non-UTF8 task repository path"))?;
     let reference = format!(
         "refs/koolade-reconciliation-results/{}/{}",
-        task_repository::allocation_key(state),
+        task_repository::allocation_key(state)?,
         commit
     );
     let source = format!("+refs/heads/{}:{reference}", state.branch);

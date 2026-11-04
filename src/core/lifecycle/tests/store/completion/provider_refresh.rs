@@ -21,9 +21,10 @@ mod fixture_support;
 fn provider_refresh_persists_and_queues_pr_open_close_reopen_and_merge() {
     let fixture = Fixture::new();
     let _home = crate::test_support::KooladeHomeGuard::set(&fixture.0.join("app-state"));
-    let (base_sha, head_sha, merge_sha) = current_support::init_merged_repo(&fixture.0);
+    let code_repo = fixture.code_repo();
+    let (base_sha, head_sha, merge_sha) = current_support::init_merged_repo(&code_repo);
     let store = fixture.store();
-    let _ssh = bind_fixture_provider_remote(&fixture.0, &store);
+    let _ssh = bind_fixture_provider_remote(&code_repo, &store);
     let lifecycle = LifecycleStore::new(&store);
     let (feature_uid, task_uid, _, _) = support::create_feature_graph(&lifecycle);
     let (mut task, _) = support::finish_task_through_qa_with_head(
@@ -99,13 +100,24 @@ fn provider_refresh_persists_and_queues_pr_open_close_reopen_and_merge() {
         .unwrap();
 
     let ticket = "planning/tasks/feature/001-pr-refresh.md";
-    let ticket_markdown = crate::domain::ArtifactIdentity::preserve_markdown(
+    let ticket_markdown = crate::domain::ArtifactIdentity::preserve_markdown_with_parent(
         "# PR refresh\n\nRepository: root\n",
         None,
         "TASK-PR-REFRESH",
         "PR refresh",
+        Some(&feature_uid),
     )
     .unwrap();
+    let ticket_identity = crate::domain::ArtifactIdentity::from_markdown(&ticket_markdown)
+        .unwrap()
+        .unwrap();
+    let task_metadata =
+        crate::artifacts::task_docs::TaskMetadata::new(&ticket_identity, "root", Vec::new())
+            .unwrap()
+            .with_task_intent_uid(Some(&task_uid))
+            .unwrap();
+    let ticket_markdown =
+        crate::artifacts::task_docs::embed(&ticket_markdown, &task_metadata).unwrap();
     let task_ticket_uid = crate::domain::ArtifactIdentity::from_markdown(&ticket_markdown)
         .unwrap()
         .unwrap()
@@ -139,6 +151,7 @@ fn provider_refresh_persists_and_queues_pr_open_close_reopen_and_merge() {
         crate::core::implementation::refresh_pr_with_store_for_test(
             &store,
             &fixture.0,
+            &code_repo,
             ticket,
             gh.to_str().unwrap(),
         )
@@ -166,6 +179,7 @@ fn provider_refresh_persists_and_queues_pr_open_close_reopen_and_merge() {
             crate::core::implementation::refresh_pr_with_store_for_test(
                 &store,
                 &fixture.0,
+                &code_repo,
                 ticket,
                 gh.to_str().unwrap(),
             )
@@ -198,6 +212,7 @@ fn provider_refresh_persists_and_queues_pr_open_close_reopen_and_merge() {
     crate::core::implementation::refresh_pr_with_store_for_test(
         &store,
         &fixture.0,
+        &code_repo,
         ticket,
         gh.to_str().unwrap(),
     )
@@ -212,6 +227,7 @@ fn provider_refresh_persists_and_queues_pr_open_close_reopen_and_merge() {
     crate::core::implementation::refresh_pr_with_store_for_test(
         &store,
         &fixture.0,
+        &code_repo,
         ticket,
         gh.to_str().unwrap(),
     )
@@ -226,6 +242,7 @@ fn provider_refresh_persists_and_queues_pr_open_close_reopen_and_merge() {
     crate::core::implementation::refresh_pr_with_store_for_test(
         &store,
         &fixture.0,
+        &code_repo,
         ticket,
         gh.to_str().unwrap(),
     )

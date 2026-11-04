@@ -57,7 +57,7 @@ fn approval_state_rejects_a_symlink_into_a_git_checkout() {
 }
 
 #[test]
-fn one_user_receipt_can_bind_a_target_and_each_recipe_without_overwriting() {
+fn current_bindings_ignore_old_receipt_only_records() {
     let home = tempfile::tempdir().unwrap();
     let _home = crate::test_support::KooladeHomeGuard::set(home.path());
     let target = binding();
@@ -66,16 +66,25 @@ fn one_user_receipt_can_bind_a_target_and_each_recipe_without_overwriting() {
     let mut start = target.clone();
     start.proposal_sha256 = "d".repeat(64);
 
-    // Read an existing single-binding record from the pre-migration layout.
-    let legacy_path = legacy_record_path(&operator_approval_root().unwrap(), &target).unwrap();
+    // A pre-migration receipt-only record cannot prove the proposal binding.
+    let root = operator_approval_root().unwrap();
+    let old_path = root
+        .join("projects")
+        .join(&target.workspace_id)
+        .join("runtime-target-approvals")
+        .join(format!("{}.json", target.receipt_id));
+    fs::create_dir_all(old_path.parent().unwrap()).unwrap();
     let bytes = serde_json::to_vec(&Record {
         schema_version: 1,
         binding: target.clone(),
     })
     .unwrap();
-    crate::artifacts::atomic_create_bytes(&legacy_path, &bytes).unwrap();
-    set_private_file(&legacy_path).unwrap();
+    crate::artifacts::atomic_create_bytes(&old_path, &bytes).unwrap();
+    set_private_file(&old_path).unwrap();
 
+    assert!(!contains(&target).unwrap());
+
+    save(&target).unwrap();
     save(&build).unwrap();
     save(&start).unwrap();
 
@@ -86,6 +95,7 @@ fn one_user_receipt_can_bind_a_target_and_each_recipe_without_overwriting() {
     assert!(contains(&target).unwrap());
     assert!(!contains(&build).unwrap());
     assert!(contains(&start).unwrap());
+    assert_eq!(fs::read(&old_path).unwrap(), bytes);
 }
 
 fn binding() -> Binding {

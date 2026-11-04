@@ -80,7 +80,9 @@ fn reviewer_dispatch_requires_distinct_controller_identity_and_read_only_prompt(
 
 #[test]
 fn runtime_qa_reviewer_dispatch_uses_a_fresh_toolless_context() {
-    let request = runtime_qa_review_request();
+    let repository = tempfile::tempdir().unwrap();
+    let mut request = runtime_qa_review_request();
+    request.repo_root = repository.path().to_path_buf();
     assert!(super::validate_review_invocation(&request).is_ok());
     let boundary = crate::harness::execution_security::ApplicationBoundary::new(&request).unwrap();
     assert_eq!(boundary.access(), ToolAccess::None);

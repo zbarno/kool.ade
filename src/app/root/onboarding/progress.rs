@@ -8,14 +8,12 @@ impl KooladeApp {
         let stage = match self.onboarding.step {
             Step::Manager => 0,
             Step::Readiness => 1,
-            Step::ReviewProject => 3,
             _ => 2,
         };
         let labels = [
             "Meet your Man.ager",
             "Prepare this computer",
-            "Choose a project",
-            "Review and open",
+            "Choose a code repository",
         ];
         if ui.available_width() >= 1100.0 {
             egui::Panel::left("onboarding_progress")
@@ -36,7 +34,7 @@ impl KooladeApp {
                 });
         } else {
             egui::Panel::top("onboarding_progress_compact").show(ui, |ui| {
-                ui.label(format!("Step {} of 4 · {}", stage + 1, labels[stage]));
+                ui.label(format!("Step {} of 3 · {}", stage + 1, labels[stage]));
             });
         }
     }

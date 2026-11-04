@@ -107,37 +107,13 @@ impl KooladeApp {
                     .warning("TaskIntent root is no longer available.");
                 return;
             };
-            let key = project.planning_work[index].key.clone();
             let previous = project.planning_work[index].task_intent_archived_at_ms;
-            let mut archived = project.archived_tasks.clone();
-            let had_legacy_archive = archived.remove(&key);
-            if had_legacy_archive
-                && let Err(error) =
-                    crate::persistence::archived_tasks::save(&project.chat_slug, &archived)
-            {
-                Err(error.to_string())
-            } else {
-                project.planning_work[index].task_intent_archived_at_ms = None;
-                match project.save_planning_work() {
-                    Ok(()) => {
-                        project.archived_tasks = archived;
-                        Ok(())
-                    }
-                    Err(error) => {
-                        project.planning_work[index].task_intent_archived_at_ms = previous;
-                        let rollback = if had_legacy_archive {
-                            crate::persistence::archived_tasks::save(
-                                &project.chat_slug,
-                                &project.archived_tasks,
-                            )
-                        } else {
-                            Ok(())
-                        };
-                        Err(rollback.map_or_else(
-                            |rollback| format!("{error}; archive rollback failed: {rollback}"),
-                            |_| error.to_string(),
-                        ))
-                    }
+            project.planning_work[index].task_intent_archived_at_ms = None;
+            match project.save_planning_work() {
+                Ok(()) => Ok(()),
+                Err(error) => {
+                    project.planning_work[index].task_intent_archived_at_ms = previous;
+                    Err(error)
                 }
             }
         } else {

@@ -1,11 +1,11 @@
 //! Koolade — conversational project planner.
 //!
-//! See `planning/product/index.md` for the current product contract.
+//! See `docs/koolade/product/index.md` for the current product contract.
 //! Module map (each file is intentionally small, ~<=300 lines):
 //!
-//! - [`domain`] — value types: open items, stakeholders, current user, chat log
-//! - [`artifacts`] — planning file IO: product modules, open-items.md, project config, imports/
-//! - [`persistence`] — out-of-git runtime state under `~/.koolade` (chat history)
+//! - [`domain`] — value types: open items, local user identity, chat log
+//! - [`artifacts`] — published specification reads and private local task records
+//! - [`persistence`] — out-of-git runtime state under `~/.koolade-packet`
 //! - [`harness`] — [`AiHarness`] trait + pi-CLI implementation (external LLM boundary)
 //! - [`core`] — planning engine: state, routing, validation, apply, git, turn pipeline
 //! - [`app`] — desktop UI session wiring (eframe)

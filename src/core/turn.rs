@@ -65,14 +65,14 @@ pub enum TurnOutcome {
         clarification: bool,
         elapsed: Duration,
     },
-    /// Success: artifacts written; `commit_result` carries the checkpoint sha
+    /// Success: artifacts written; `save_result` carries the checkpoint sha
     /// or the git error. Adoption proceeds either way — the files on disk
     /// already reflect the turn, and the state clone matches disk.
     Applied {
         state: Box<PlannerState>,
         receipt: ApplyReceipt,
         normalized: Box<NormalizedTurn>,
-        commit_result: Result<String, AppError>,
+        save_result: Result<String, AppError>,
         elapsed: Duration,
         stderr_tail: String,
     },

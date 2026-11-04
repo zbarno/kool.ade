@@ -3,7 +3,7 @@ use super::{
     model::{ItemRecord, LoadedItem, RECORD_SCHEMA_VERSION},
 };
 use crate::{
-    artifacts::planning_store::{PlanningStore, StoreError, paths},
+    artifacts::planning_store::{PlanningStore, paths},
     domain::OpenItem,
 };
 
@@ -40,11 +40,7 @@ pub(crate) fn load_store_unlocked(
             "Item content files exist without matching state/items records"
         );
     }
-    let (open, open_exists) = read_open_items(store)?;
-    let (resolved, resolved_exists) = read_resolved_items(store)?;
-    validate_items(open.iter().chain(&resolved))?;
-    super::task_intent::validate_links(store, open.iter().chain(&resolved).cloned())?;
-    Ok((open, resolved, open_exists || resolved_exists))
+    Ok((Vec::new(), Vec::new(), false))
 }
 
 pub(super) fn read_records(store: &PlanningStore) -> anyhow::Result<Vec<LoadedItem>> {
@@ -99,30 +95,6 @@ pub(super) fn read_records(store: &PlanningStore) -> anyhow::Result<Vec<LoadedIt
     Ok(records)
 }
 
-fn read_open_items(store: &PlanningStore) -> anyhow::Result<(Vec<OpenItem>, bool)> {
-    match store.read(paths::OPEN_ITEMS) {
-        Ok(bytes) => {
-            let text = String::from_utf8(bytes)?;
-            let items = crate::artifacts::items_io::parse(&text).map_err(anyhow::Error::msg)?;
-            Ok((items, true))
-        }
-        Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
-            Ok((Vec::new(), false))
-        }
-        Err(error) => Err(error.into()),
-    }
-}
-
-fn read_resolved_items(store: &PlanningStore) -> anyhow::Result<(Vec<OpenItem>, bool)> {
-    match store.read(paths::RESOLVED_ITEMS) {
-        Ok(bytes) => Ok((serde_json::from_slice(&bytes)?, true)),
-        Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
-            Ok((Vec::new(), false))
-        }
-        Err(error) => Err(error.into()),
-    }
-}
-
 fn validate_items<'a>(items: impl Iterator<Item = &'a OpenItem>) -> anyhow::Result<()> {
     let mut ids = std::collections::BTreeSet::new();
     let mut uids = std::collections::BTreeSet::new();
@@ -137,10 +109,12 @@ fn validate_items<'a>(items: impl Iterator<Item = &'a OpenItem>) -> anyhow::Resu
             "Duplicate item ID {}",
             item.id
         );
-        if let Some(uid) = &item.uid {
-            let canonical = uuid::Uuid::parse_str(uid)?.hyphenated().to_string();
-            anyhow::ensure!(uids.insert(canonical), "Duplicate item UID {uid}");
-        }
+        let uid = item
+            .uid
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Item {} has no immutable UID", item.id))?;
+        let canonical = uuid::Uuid::parse_str(uid)?.hyphenated().to_string();
+        anyhow::ensure!(uids.insert(canonical), "Duplicate item UID {uid}");
     }
     Ok(())
 }

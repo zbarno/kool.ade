@@ -1,5 +1,5 @@
 use super::{Project, RepositoryNameRow, repository_names};
-use crate::{AppError, core::gitops};
+use crate::AppError;
 use std::collections::BTreeMap;
 
 mod project_routes;
@@ -45,21 +45,12 @@ impl DlgProjectSettings {
             agent_guidance::apply(project, self)?;
             return Ok(None);
         }
-        let mut paths = Vec::new();
-        if repositories_changed {
-            paths.push(
-                project
-                    .state
-                    .planning_store
-                    .git_path(crate::artifacts::planning_store::paths::PROJECT_MANIFEST),
-            );
-        }
         if routes_changed {
             let updated =
                 crate::persistence::project_harness_routes::ProjectHarnessRoutes::with_routes(
                     self.harness_routes.clone(),
                 );
-            let (changed, revision) = updated
+            let (_, revision) = updated
                 .save(
                     &project.state.planning_store,
                     &project.state.baseline_planning_revision,
@@ -67,26 +58,29 @@ impl DlgProjectSettings {
                 .map_err(|error| crate::AppError::Other(error.to_string()))?;
             project.state.harness_routes = updated;
             project.state.baseline_planning_revision = revision;
-            paths.extend(
-                changed
-                    .iter()
-                    .map(|path| project.state.planning_store.git_path(path)),
-            );
         }
-        let sha = gitops::commit(
-            &project.state.planning_store.git_root(),
-            "settings: update project configuration",
-            &paths,
-        )?;
-        project.refresh_git();
-        let short_sha = sha.chars().take(7).collect::<String>();
+        let revision = project
+            .state
+            .planning_store
+            .revision()
+            .map_err(|error| crate::AppError::Other(error.to_string()))?;
+        project
+            .state
+            .baseline_planning_revision
+            .clone_from(&revision);
+        let short_revision = revision
+            .strip_prefix("sha256:")
+            .unwrap_or(&revision)
+            .chars()
+            .take(7)
+            .collect::<String>();
         if let Err(error) = agent_guidance::apply(project, self) {
             return Err(AppError::Other(format!(
-                "Shared project settings were saved at checkpoint {short_sha}, but approved guidance was not saved: {}",
+                "Private project settings were saved at local state revision {short_revision}, but approved guidance was not saved: {}",
                 error.detail()
             )));
         }
-        Ok(Some(short_sha))
+        Ok(Some(short_revision))
     }
 }
 
@@ -95,7 +89,7 @@ pub fn paint_project_settings_card(
     dialog: &mut DlgProjectSettings,
 ) -> (bool, bool) {
     ui.label(crate::ui::theme::section_heading("Repository names"));
-    ui.label("Choose shared display names for this project's registered repositories.");
+    ui.label("Choose local display names for this project's registered repositories.");
     ui.add_space(8.0);
     repository_names::paint(ui, &mut dialog.repositories);
     agent_guidance::paint(ui, dialog);

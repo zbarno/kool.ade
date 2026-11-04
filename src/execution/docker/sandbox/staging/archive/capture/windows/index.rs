@@ -17,7 +17,7 @@ pub(super) struct Snapshot {
 
 impl Snapshot {
     pub(super) fn read(root: &Path) -> anyhow::Result<Self> {
-        let mut child = crate::core::planning_sync::validated_git_command(root)?
+        let mut child = crate::core::git_commands::validated_git_command(root)?
             .args(["ls-files", "--stage", "-z"])
             .stdout(Stdio::piped())
             .spawn()

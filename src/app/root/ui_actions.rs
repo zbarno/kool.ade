@@ -79,7 +79,7 @@ impl KooladeApp {
             project.queue.waiting_for_capacity.clear();
             project.queue.recovery_paused = true;
             if project.queue_lock.is_some()
-                && let Err(error) = project.queue.save(&project.state.repo_root)
+                && let Err(error) = project.queue.save(&project.state.planning_store.root)
             {
                 project.queue.last_error = error.to_string();
             }
@@ -92,7 +92,9 @@ impl KooladeApp {
     fn set_max_parallel_tasks(&mut self, count: usize) {
         if let Screen::Connected(project) = &mut self.screen {
             let temporary_lock = if project.queue_lock.is_none() {
-                match crate::core::implementation_queue::Queue::acquire(&project.state.repo_root) {
+                match crate::core::implementation_queue::Queue::acquire(
+                    &project.state.planning_store.root,
+                ) {
                     Ok(lock) => Some(lock),
                     Err(error) => {
                         project.queue.last_error = error.to_string();
@@ -104,7 +106,7 @@ impl KooladeApp {
             };
             let previous = project.queue.max_parallel;
             project.queue.max_parallel = count.clamp(1, 8);
-            if let Err(error) = project.queue.save(&project.state.repo_root) {
+            if let Err(error) = project.queue.save(&project.state.planning_store.root) {
                 project.queue.max_parallel = previous;
                 project.queue.last_error = error.to_string();
             }
@@ -186,7 +188,7 @@ impl KooladeApp {
             }
             Err(error) => {
                 if let Ok(current) = crate::core::state::PlannerState::load_with_store(
-                    &project.state.repo_root,
+                    &project.state.planning_store.root,
                     &project.state.planning_store,
                 ) {
                     project.state = current;

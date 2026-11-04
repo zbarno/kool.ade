@@ -27,7 +27,7 @@ fn older_reserved_generation_cannot_replace_a_newer_child_result() {
 
     let slow = snapshot(slow_generation, "older reserved scan");
     assert!(reconcile_live_at(&path, &slow, slow_generation).is_err());
-    let store = load_from(&path).unwrap().0;
+    let store = load_from(&path).unwrap();
     assert_eq!(
         store.tasks["setup:docker:rootless"].title,
         "newer child scan"
@@ -73,7 +73,7 @@ fn cross_process_reconciliation_waits_for_the_os_file_lock() {
     assert!(blocked, "child reconciled while the parent held the lock");
     assert!(completed, "child did not reconcile after lock release");
     assert!(status.success(), "child test process failed: {status}");
-    let store = load_from(&path).unwrap().0;
+    let store = load_from(&path).unwrap();
     assert_eq!(store.tasks["setup:docker:rootless"].title, "child process");
 }
 
@@ -122,7 +122,7 @@ fn cross_process_cancellation_skips_the_waiting_snapshot() {
     assert!(reached_lock, "child did not reach the OS lock boundary");
     assert!(completed, "child did not report the canceled scan");
     assert!(status.success(), "child test process failed: {status}");
-    let store = load_from(&path).unwrap().0;
+    let store = load_from(&path).unwrap();
     assert!(store.tasks.is_empty());
     assert_eq!(store.latest_scan_generation, reserved_generation);
 }

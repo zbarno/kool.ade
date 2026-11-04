@@ -26,7 +26,7 @@ pub(super) fn replay_task(
         StoreError::MalformedState("task event history has no creation event".into())
     })?;
     if creations.next().is_some()
-        || creation.schema_version < 2
+        || creation.schema_version != 3
         || creation.feature_uid != feature_uid
         || creation.expected_revision != 0
         || creation.actor != LifecycleActor::ApplicationPolicy
@@ -50,7 +50,7 @@ pub(super) fn replay_task(
             "task creation event has an invalid initial task".into(),
         ));
     }
-    if creation.schema_version >= 3 && creation.task_revision_after != Some(1) {
+    if creation.task_revision_after != Some(1) {
         return Err(StoreError::MalformedState(
             "task creation event is missing its resulting task revision".into(),
         ));
@@ -86,7 +86,7 @@ pub(super) fn replay_task(
             .ok_or_else(|| StoreError::MalformedState("task revision is exhausted".into()))?;
         match &record.event {
             LifecycleEventKind::Task(proposal) => {
-                if record.schema_version < 2
+                if record.schema_version != 3
                     || record.feature_uid != feature_uid
                     || record.expected_revision != task.revision
                     || record.feature_revision_after.is_some()
@@ -94,9 +94,7 @@ pub(super) fn replay_task(
                     || record.initial_task.is_some()
                     || record.parent_task_after.is_some()
                     || record.actor != task_actor(proposal)
-                    || (record.schema_version >= 3
-                        && record.task_revision_after != Some(next_revision))
-                    || (record.schema_version < 3 && record.task_revision_after.is_some())
+                    || record.task_revision_after != Some(next_revision)
                 {
                     return Err(StoreError::MalformedState(format!(
                         "task event {} has inconsistent replay metadata (expected {}, current {}, resulting {:?})",
@@ -108,7 +106,6 @@ pub(super) fn replay_task(
                 }
                 if matches!(proposal, TaskEvent::ReconcileSpec { .. })
                     != record.pr_preparation_after.is_some()
-                    && record.schema_version >= 3
                 {
                     return Err(StoreError::MalformedState(
                         "task completion event is missing its PR preparation projection".into(),

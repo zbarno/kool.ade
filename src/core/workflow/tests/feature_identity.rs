@@ -4,15 +4,16 @@ use crate::artifacts::planning_store::PlanningStore;
 #[path = "feature_identity/separate_store.rs"]
 mod separate_store;
 
-fn feature_document(state_tag: &str, root: &std::path::Path, id: &str, title: &str) -> String {
-    let dir = root
-        .join("planning/changes")
-        .join(format!("{id}-fixture-{state_tag}"));
-    std::fs::create_dir_all(&dir).unwrap();
+fn feature_document(
+    state_tag: &str,
+    store: &crate::artifacts::planning_store::PlanningStore,
+    id: &str,
+    title: &str,
+) -> String {
     let body = format!(
         "# {id}: {title}\n\n**Status:** Ready\n\n## Intent\n\nFixture intent.\n\n## Current Behavior\n\nFixture current.\n\n## Desired Behavior\n\nFixture desired.\n\n## Scope\n\nIn: fixture.\n\n## Affected Product Areas\n\nOverview.\n\n## Requirements\n\n- FIXTURE-R1 (MUST). fixture behavior.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** recorded.\n\n## Acceptance Criteria\n\n1. Observable fixture outcome.\n"
     );
-    let path = dir.join("specification.md");
+    let path = store.root.join(format!("feature-{state_tag}-{id}.md"));
     let body =
         crate::artifacts::product_docs::identity::preserve_feature_identity(&path, id, &body)
             .unwrap();
@@ -25,7 +26,15 @@ fn feature_document(state_tag: &str, root: &std::path::Path, id: &str, title: &s
         crate::domain::ChangeStatus::Ready,
     )
     .unwrap();
-    std::fs::write(path, &body).unwrap();
+    let changes = crate::core::apply::private_document_draft_changes(
+        store,
+        &[(format!("feature:{id}"), body.clone())],
+    )
+    .unwrap();
+    let revision = store.revision().unwrap();
+    store
+        .transaction_with_revision(&changes, Some(&revision))
+        .unwrap();
     body
 }
 
@@ -34,13 +43,13 @@ fn brief_targeting_an_inactive_feature_cannot_generate_that_batch() {
     let mut s = state("gen-target-mismatch");
     let _inactive = feature_document(
         "gen-target-mismatch",
-        &s.repo_root,
+        &s.planning_store,
         "CHG-098",
         "Other feature",
     );
     let active = feature_document(
         "gen-target-mismatch",
-        &s.repo_root,
+        &s.planning_store,
         "CHG-097",
         "Active feature",
     );
@@ -49,7 +58,7 @@ fn brief_targeting_an_inactive_feature_cannot_generate_that_batch() {
         .approved_features
         .insert("CHG-097".into(), feature_contract(&active));
     crate::persistence::feature_approvals::record(
-        &s.repo_root,
+        &s.planning_store.root,
         "CHG-097",
         &feature_contract(&active),
     )
@@ -63,7 +72,7 @@ fn brief_targeting_an_inactive_feature_cannot_generate_that_batch() {
         joined.contains("targets CHG-098") && joined.contains("active feature is CHG-097"),
         "guard must name both sides of the drift: {joined}"
     );
-    assert!(!s.repo_root.join("planning/tasks").exists());
+    assert!(!s.planning_store.root.join("planning/tasks").exists());
     std::fs::remove_dir_all(s.repo_root).unwrap();
 }
 
@@ -72,7 +81,7 @@ fn brief_matching_the_active_feature_passes_the_identity_guard() {
     let mut s = state("gen-target-match");
     let active = feature_document(
         "gen-target-match",
-        &s.repo_root,
+        &s.planning_store,
         "CHG-097",
         "Active feature",
     );

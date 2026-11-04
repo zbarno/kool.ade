@@ -30,7 +30,7 @@ pub(super) fn prepare(
     timeout: Duration,
     started: Instant,
 ) -> Result<PreparedTurn, Box<TurnOutcome>> {
-    // Snapshot the planning repo AS FOUND ON DISK (one retry: a single
+    // Snapshot private application state AS FOUND ON DISK (one retry: a single
     // transient read hiccup should not silently disable the guard). Caller-side
     // in-memory staging (e.g. an investigated item appended before its reply
     // turn) is not competitor motion — this turn's apply will persist it. A

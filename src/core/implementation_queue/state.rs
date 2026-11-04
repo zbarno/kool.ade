@@ -33,8 +33,6 @@ pub struct Queue {
     pub waiting_for_capacity: BTreeSet<String>,
     pub blocked: BTreeMap<String, Failure>,
     pub last_error: String,
-    /// In-memory stale remote claim offered for an explicit recovery action.
-    pub stale_claim: Option<(String, crate::core::task_claim::ClaimRecord)>,
     pub recovery_paused: bool,
     pub recovery_attempts: BTreeMap<String, usize>,
     /// First time this task became runnable while all implementation slots were occupied.
@@ -59,7 +57,6 @@ impl Default for Queue {
             waiting_for_capacity: BTreeSet::new(),
             blocked: BTreeMap::new(),
             last_error: String::new(),
-            stale_claim: None,
             recovery_paused: false,
             recovery_attempts: BTreeMap::new(),
             waiting_since_unix_ms: BTreeMap::new(),
@@ -150,9 +147,9 @@ impl Queue {
         let queue_lock = Self::acquire(repo).ok();
         match fs::read(&path) {
             Ok(bytes) => {
-                let (mut queue, migrated) = Self::decode_persisted(&bytes)?;
+                let mut queue = Self::decode_persisted(&bytes)?;
                 let reset_ages = queue.clear_ready_waits();
-                if queue_lock.is_some() && (migrated || reset_ages) {
+                if queue_lock.is_some() && reset_ages {
                     crate::artifacts::atomic_write(&path, &serde_json::to_string_pretty(&queue)?)?;
                 }
                 Ok(queue)
@@ -162,7 +159,7 @@ impl Queue {
         }
     }
 
-    pub(crate) fn decode_persisted(bytes: &[u8]) -> anyhow::Result<(Self, bool)> {
+    pub(crate) fn decode_persisted(bytes: &[u8]) -> anyhow::Result<Self> {
         let value: serde_json::Value = serde_json::from_slice(bytes)?;
         store::decode_value(value)
     }
@@ -170,7 +167,7 @@ impl Queue {
     pub fn save(&mut self, repo: &Path) -> anyhow::Result<()> {
         let _gate = crate::artifacts::locks::acquire_project_state_gate(repo)?;
         let path = directory(repo)?.join("koolade-queue.json");
-        let data = store::persisted(self);
+        let data = store::persisted(self)?;
         crate::artifacts::atomic_write(&path, &serde_json::to_string_pretty(&data)?)?;
         self.stable_tasks = data.tasks.clone();
         self.identity_dirty = false;
@@ -212,10 +209,35 @@ fn combine_failures(failures: Vec<Failure>) -> Failure {
 }
 
 pub(super) fn directory(repo: &Path) -> anyhow::Result<PathBuf> {
-    let result = std::process::Command::new("git")
-        .args(["rev-parse", "--path-format=absolute", "--git-common-dir"])
-        .current_dir(repo)
-        .output()?;
-    anyhow::ensure!(result.status.success(), "Cannot locate queue metadata");
-    Ok(PathBuf::from(String::from_utf8(result.stdout)?.trim()))
+    let project_key = crate::persistence::dependency_authorization::project_id(repo)?;
+    let project_id = uuid::Uuid::parse_str(&project_key)
+        .unwrap_or_else(|_| uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, project_key.as_bytes()));
+    let root = crate::persistence::state_root();
+    std::fs::create_dir_all(&root)?;
+    let root = root.canonicalize()?;
+    let project_component = project_id.hyphenated().to_string();
+    let mut directory = root.clone();
+    for component in ["projects", project_component.as_str(), "execution"] {
+        directory.push(component);
+        match std::fs::symlink_metadata(&directory) {
+            Ok(metadata) => anyhow::ensure!(
+                metadata.is_dir() && !metadata.file_type().is_symlink(),
+                "Private execution state path is not a regular directory"
+            ),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                std::fs::create_dir(&directory)?;
+            }
+            Err(error) => return Err(error.into()),
+        }
+        #[cfg(unix)]
+        std::fs::set_permissions(
+            &directory,
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )?;
+    }
+    anyhow::ensure!(
+        directory.starts_with(root),
+        "Private execution state escaped KOOLADE_HOME"
+    );
+    Ok(directory)
 }

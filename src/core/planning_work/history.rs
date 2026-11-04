@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Append-only, shared TaskIntent history stored with its root Work record.
+/// Append-only, installation-local TaskIntent history stored with its root Work record.
 /// Entries hold visible state changes and links, never private transcripts.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]

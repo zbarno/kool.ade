@@ -1,18 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use crate::artifacts::planning_store::PlanningStore;
 use crate::core::context_build::clip;
+use crate::core::published_specs::{PublishedSpecPin, PublishedSpecReader};
 use crate::core::repo_overview;
 use crate::core::state::PlannerState;
 use crate::domain::OpenItem;
 use crate::harness::RetrievalPlan;
 
 use super::areas;
-use super::documents;
-use super::{CandidateDocument, ContextSelection, RetrievedDocument};
+use super::{ContextSelection, RetrievedDocument};
 
-const MAX_CHANGE_CANDIDATES: usize = 64;
 const MAX_ITEM_CANDIDATES: usize = 64;
 // Planning is incremental: each turn should carry only a small slice of the
 // project into the model context. The catalog may describe many candidates,
@@ -25,40 +23,35 @@ const MAX_CATALOG_CHARS: usize = 48_000;
 
 pub(super) struct Catalog {
     repo_root: PathBuf,
-    planning_store: PlanningStore,
-    documents: BTreeMap<String, CandidateDocument>,
+    published_documents: BTreeMap<String, super::published_navigation::PublishedCandidate>,
+    published_reader: Option<PublishedSpecReader>,
+    published_pin: Option<PublishedSpecPin>,
     items: BTreeMap<String, OpenItem>,
     areas: BTreeMap<String, String>,
 }
 
 impl Catalog {
-    pub(super) fn build(state: &PlannerState) -> Self {
-        let mut documents = documents::product_documents(&state.planning_store);
-        for (id, body) in state.active_features.iter().take(MAX_CHANGE_CANDIDATES) {
-            let Some(path) = documents::find_change_path(&state.planning_store, id, body) else {
-                continue;
-            };
-            documents::insert_document(
-                &mut documents,
-                &state.planning_store,
-                format!("change:{id}"),
-                &path,
-                body,
-            );
-        }
-        documents::add_recent_changes(&state.planning_store, &mut documents);
+    /// Build a bounded catalog whose specification candidates all come from
+    /// one immutable revision of the primary code repository.
+    pub(super) fn build_with_published_specs(
+        state: &PlannerState,
+        reader: PublishedSpecReader,
+        pin: PublishedSpecPin,
+    ) -> Self {
+        let published_documents = super::published_navigation::catalog(&reader, &pin);
         let items = state
             .items
             .iter()
             .take(MAX_ITEM_CANDIDATES)
             .map(|item| (item.id.clone(), item.clone()))
             .collect();
-        let overview = repo_overview::scan_for_store(&state.repo_root, &state.planning_store);
+        let overview = repo_overview::scan(&state.repo_root);
         let areas = areas::catalog(&state.repo_root, &overview);
         Self {
             repo_root: state.repo_root.clone(),
-            planning_store: state.planning_store.clone(),
-            documents,
+            published_documents,
+            published_reader: Some(reader),
+            published_pin: Some(pin),
             items,
             areas,
         }
@@ -71,12 +64,14 @@ impl Catalog {
         for (speaker, text) in recent.iter().rev().take(4).rev() {
             out.push_str(&format!("{}: {}\n", clip(speaker, 80), clip(text, 900)));
         }
-        out.push_str("\nAVAILABLE DOCUMENTS (logical ID | authoritative source | excerpt)\n");
-        for (id, candidate) in &self.documents {
-            out.push_str(&format!(
-                "- {id} | {} | {}\n",
-                candidate.source_path, candidate.excerpt
-            ));
+        if let Some(pin) = &self.published_pin {
+            out.push_str("\nPUBLISHED DOCUMENT NAVIGATION HINTS (untrusted summaries; select only relevant IDs)\n");
+            for (id, candidate) in &self.published_documents {
+                out.push_str(&format!(
+                    "- {id} | repository {} at commit {} | {} | {}\n",
+                    pin.repository_id, pin.commit_sha, candidate.path, candidate.summary
+                ));
+            }
         }
         out.push_str("\nOPEN ITEMS (exact item ID | question | reason)\n");
         for (id, item) in &self.items {
@@ -98,26 +93,31 @@ impl Catalog {
         let mut used_budget = 0;
         let mut seen = BTreeSet::new();
         for id in plan.documents.into_iter().take(MAX_DOCUMENT_SELECTIONS * 2) {
-            let Some(candidate) = self.documents.get(&id) else {
-                continue;
-            };
-            if !seen.insert(id) || used_budget >= DOCUMENT_BUDGET {
-                continue;
-            }
-            let remaining = DOCUMENT_BUDGET - used_budget;
-            let Some(document) =
-                documents::load_selected(&self.planning_store, candidate, remaining.min(8_000))
-            else {
-                continue;
-            };
-            let content = clip(&document.content, remaining.min(8_000));
-            used_budget += content.chars().count();
-            selection.documents.push(RetrievedDocument {
-                content,
-                ..document
-            });
-            if selection.documents.len() == MAX_DOCUMENT_SELECTIONS {
-                break;
+            if let Some(candidate) = self.published_documents.get(&id) {
+                if !seen.insert(id) || used_budget >= DOCUMENT_BUDGET {
+                    continue;
+                }
+                let (Some(reader), Some(pin)) = (&self.published_reader, &self.published_pin)
+                else {
+                    continue;
+                };
+                let Ok(document) = reader.read(pin, &candidate.path) else {
+                    continue;
+                };
+                let remaining = DOCUMENT_BUDGET - used_budget;
+                let content = clip(&document.content, remaining.min(8_000));
+                used_budget += content.chars().count();
+                selection.documents.push(RetrievedDocument {
+                    id: candidate.id.clone(),
+                    source_path: candidate.path.clone(),
+                    source_repository_id: Some(document.pin.repository_id),
+                    source_revision: Some(document.pin.commit_sha),
+                    content_sha256: Some(document.content_sha256),
+                    content,
+                });
+                if selection.documents.len() == MAX_DOCUMENT_SELECTIONS {
+                    break;
+                }
             }
         }
         let mut seen_items = BTreeSet::new();

@@ -20,7 +20,7 @@ fn independent_check_gate_pushes_only_the_candidate_and_records_the_exact_result
         let commit = state.verified_head.clone().unwrap();
         let candidate_ref = checks::candidate_ref("fixture", &commit);
         let worktree = state.task_repository.clone();
-        let dir = state_dir(&s.repo, &s.ticket).unwrap();
+        let dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
         let (progress, _updates) = mpsc::channel();
         let runner = Runner {
             gh: s.gh.to_string_lossy().into_owned(),
@@ -86,7 +86,7 @@ fn disabling_auto_publish_during_successful_checks_keeps_default_branch_unchange
     let commit = state.verified_head.clone().unwrap();
     let candidate_ref = checks::candidate_ref("fixture", &commit);
     let worktree = state.task_repository.clone();
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
+    let dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
     let (progress, _updates) = mpsc::channel();
     let runner = Runner {
         gh: s.gh.to_string_lossy().into_owned(),

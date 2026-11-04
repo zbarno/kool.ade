@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 struct ReplaceFeatureOnce {
-    path: std::path::PathBuf,
+    store: crate::artifacts::planning_store::PlanningStore,
     replacement: String,
     calls: Arc<AtomicUsize>,
 }
@@ -19,10 +19,14 @@ impl AiHarness for ReplaceFeatureOnce {
 
     fn execute(&self, _request: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        std::fs::write(&self.path, &self.replacement).map_err(|error| AppError::Io {
-            op: "replace feature during scripted planning".into(),
-            detail: error.to_string(),
-        })?;
+        let changes = crate::core::apply::private_document_draft_changes(
+            &self.store,
+            &[("feature:F1".into(), self.replacement.clone())],
+        )
+        .map_err(|error| AppError::Other(error.to_string()))?;
+        self.store
+            .transaction(&changes, None)
+            .map_err(|error| AppError::Other(error.to_string()))?;
         Ok(HarnessOutcome {
             final_text: serde_json::json!({
                 "schema_version": 1,
@@ -38,7 +42,7 @@ impl AiHarness for ReplaceFeatureOnce {
 
 fn feature(id: &str, title: &str) -> (String, String) {
     let identified = crate::domain::ArtifactIdentity::preserve_markdown(
-        &format!("# {id}: {title}\n\n## Intent\n\n{title}\n"),
+        &format!("# {id}: {title}\n\n## Intent\n\n{title}\n\n## Current Behavior\n\nCurrent behavior is documented.\n\n## Desired Behavior\n\n{title} is supported.\n\n## Scope\n\nThis feature has a bounded scope.\n\n## Affected Product Areas\n\n`product:overview`\n\n## Requirements\n\n- {id}-R1 (MUST). Support {title}.\n\n## Decisions and Assumptions\n\n- No unresolved decisions.\n\n## Acceptance Criteria\n\n1. {title} is verified.\n"),
         None,
         id,
         title,
@@ -63,15 +67,17 @@ fn feature(id: &str, title: &str) -> (String, String) {
 /// files with no Docker, SSH, or network and low setup cost.
 fn task_reply_keeps_original_feature_uid_after_revision_retry() {
     let (mut inputs, root) = inputs_for("task_reply_retry_identity", "Continue planning F1.");
-    let feature_path = root
-        .join("planning/changes/F1-retry-identity")
-        .join("specification.md");
-    std::fs::create_dir_all(feature_path.parent().unwrap()).unwrap();
+    let store = inputs.state.planning_store.clone();
     let (original, original_uid) = feature("F1", "Original feature");
     let (replacement, replacement_uid) = feature("F1", "Replacement feature");
     assert_ne!(original_uid, replacement_uid);
-    std::fs::write(&feature_path, original).unwrap();
-    inputs.state = PlannerState::load(&root).unwrap();
+    let changes = crate::core::apply::private_document_draft_changes(
+        &store,
+        &[("feature:F1".into(), original)],
+    )
+    .unwrap();
+    store.transaction(&changes, None).unwrap();
+    inputs.state = PlannerState::load_with_store(&root, &store).unwrap();
     assert_eq!(
         crate::core::turn::execute::task_feature_uid(&inputs.state, "feature:F1").as_deref(),
         Some(original_uid.as_str())
@@ -93,7 +99,7 @@ fn task_reply_keeps_original_feature_uid_after_revision_retry() {
     let controller = TurnController::start_task_reply(
         inputs,
         Box::new(ReplaceFeatureOnce {
-            path: feature_path,
+            store: store.clone(),
             replacement,
             calls: calls.clone(),
         }),

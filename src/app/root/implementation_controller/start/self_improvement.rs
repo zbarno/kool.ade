@@ -83,7 +83,6 @@ pub(super) struct PublicationPolicyOptions {
     pub(super) is_self_improvement: bool,
     pub(super) explicit_publish: bool,
     pub(super) is_subtask: bool,
-    pub(super) allow_offline: bool,
     pub(super) requested_changes: bool,
     pub(super) auto_publish: bool,
     pub(super) require_independent_checks: bool,
@@ -99,7 +98,6 @@ pub(super) fn publication_policy(
         is_self_improvement,
         explicit_publish,
         is_subtask,
-        allow_offline,
         requested_changes,
         auto_publish,
         require_independent_checks,
@@ -108,7 +106,6 @@ pub(super) fn publication_policy(
     let mode = super::publication_retry::publication_mode(
         lifecycle_gate_refresh,
         is_subtask,
-        allow_offline,
         explicit_publish,
         requested_changes,
         auto_publish,
@@ -118,24 +115,19 @@ pub(super) fn publication_policy(
     } else {
         mode
     };
-    let require_independent_checks = !allow_offline
-        && (is_self_improvement
-            || mode == PublicationMode::AutoPublish
-            || require_independent_checks);
+    let require_independent_checks =
+        is_self_improvement || mode == PublicationMode::AutoPublish || require_independent_checks;
     (mode, require_independent_checks)
 }
 
 pub(super) fn start_message(
-    allow_offline: bool,
     explicit_publish: bool,
     publication_mode: crate::core::implementation::PublicationMode,
     auto_build: bool,
 ) -> &'static str {
     use crate::core::implementation::PublicationMode;
 
-    if allow_offline {
-        "keep all work local without a shared claim; publishing requires a fresh coordinated attempt"
-    } else if explicit_publish {
+    if explicit_publish {
         "share the already verified changes for review"
     } else if publication_mode == PublicationMode::AutoPublish {
         "publish verified changes automatically"
@@ -149,14 +141,8 @@ pub(super) fn start_message(
 pub(super) fn record_start_notice(
     activity: &mut crate::app::manager::WorkspaceActivity,
     ticket: &str,
-    allow_offline: bool,
 ) {
     activity.pending.push(format!("Assigned task {ticket} to an implementation worker. Verification and integration are managed by the queue."));
-    if allow_offline {
-        activity.pending.push(format!(
-            "{ticket}: operator explicitly chose local-only execution; automatic publication is disabled until a new remote claim is acquired."
-        ));
-    }
 }
 
 #[cfg(test)]
@@ -262,17 +248,6 @@ mod tests {
             }),
             (PublicationMode::CreatePullRequest, true),
             "self-improvement must require independent checks even when the global gate is off"
-        );
-        assert_eq!(
-            publication_policy(PublicationPolicyOptions {
-                is_self_improvement: true,
-                explicit_publish: true,
-                allow_offline: true,
-                auto_publish: true,
-                ..Default::default()
-            }),
-            (PublicationMode::HoldForReview, false),
-            "offline self-improvement stays held and cannot claim independent checks"
         );
         assert_eq!(
             publication_policy(PublicationPolicyOptions {

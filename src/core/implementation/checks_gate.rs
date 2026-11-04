@@ -79,7 +79,7 @@ pub(super) fn wait_for_independent_checks(
     let push_repository = provider.repository(&push_identity).ok_or_else(|| {
         anyhow::anyhow!("Supported CI provider could not identify its repository")
     })?;
-    let candidate_ref = checks::candidate_ref(&task_repository::allocation_key(state), commit);
+    let candidate_ref = checks::candidate_ref(&task_repository::allocation_key(state)?, commit);
     wait_with_provider(
         CheckRequest {
             provider,
@@ -148,9 +148,8 @@ pub(super) fn wait_with_provider(
         "Starting {} for the verified integrated change…",
         provider.name()
     ));
-    if let Some(claim_lease) = claim_lease {
-        publication::fenced_push(claim_lease, repository_path, commit, candidate_ref)?;
-    } else if let Some(cache) = repository_cache.as_ref() {
+    publication::verify_claim(claim_lease)?;
+    if let Some(cache) = repository_cache.as_ref() {
         cache.push_commit(repository_path, commit, candidate_ref, runner)?;
     } else {
         runner.git(
@@ -158,6 +157,7 @@ pub(super) fn wait_with_provider(
             &["push", "origin", &format!("{commit}:{candidate_ref}")],
         )?;
     }
+    publication::verify_claim(claim_lease)?;
 
     let deadline = Instant::now() + Duration::from_secs(15 * 60);
     loop {

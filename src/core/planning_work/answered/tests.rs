@@ -30,7 +30,6 @@ fn applied_child_refreshes_only_its_unblocked_identity_matched_parent() {
         Priority::High,
         ItemKind::Question,
         "General".into(),
-        None,
         "Which store?".into(),
         "Need a decision".into(),
     );

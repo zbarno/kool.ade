@@ -57,9 +57,6 @@ pub struct TurnItem {
     #[serde(alias = "itemType", alias = "item_type")]
     pub kind: Option<String>,
     pub category: Option<String>,
-    #[serde(default)]
-    #[serde(alias = "assigned_to")]
-    pub assigned_to: Option<String>,
     pub question: Option<String>,
     #[serde(default)]
     pub reason: Option<String>,
@@ -89,9 +86,6 @@ pub struct TurnItemUpdate {
     #[serde(alias = "itemType", alias = "item_type")]
     pub kind: Option<String>,
     pub category: Option<String>,
-    #[serde(default)]
-    #[serde(alias = "assigned_to")]
-    pub assigned_to: Option<String>,
     pub question: Option<String>,
     #[serde(default)]
     pub reason: Option<String>,

@@ -27,7 +27,7 @@ fn derive_caches_projects_the_git_derived_seat_not_third_identities() {
     std::fs::create_dir_all(&config).unwrap();
     std::fs::write(
         config.join("project.md"),
-        "# Planner Configuration\n\n## Current User\nName: Bob\nGroups: Ops\n\n## Stakeholders\n\n### QA\n(no owner configured)\n",
+        "# Planner Configuration\n\n## Current User\nName: Bob\n",
     )
     .unwrap();
 
@@ -37,9 +37,6 @@ fn derive_caches_projects_the_git_derived_seat_not_third_identities() {
         task_chats: Default::default(),
         activity: Default::default(),
         state,
-        managed_workspace: None,
-        planning_sync: crate::core::planning_sync::PlanningSyncStatus::local(),
-        planning_remote_url: None,
         chat_slug: "test-slug".into(),
         chat: Vec::new(),
         draft: String::new(),
@@ -69,9 +66,8 @@ fn derive_caches_projects_the_git_derived_seat_not_third_identities() {
     };
     // Connect: the git seat is projected — not the block's 'Bob',
     // not the project title.
-    let (cached, _eligible) = KooladeApp::derive_caches(&proj);
+    let cached = KooladeApp::derive_caches(&proj);
     assert_eq!(cached.name, "Sam Lee");
-    assert_eq!(cached.groups, vec!["Ops".to_string()]);
     assert_eq!(
         proj.state.identity.source,
         crate::domain::user::IdentitySource::GitUserName
@@ -80,25 +76,29 @@ fn derive_caches_projects_the_git_derived_seat_not_third_identities() {
     // External edit of the local git identity takes effect only on the
     // next resync — the cache is still stale before the save.
     git(&["config", "user.name", "Mira Chen"]);
-    let (stale, _eligible) = KooladeApp::derive_caches(&proj);
+    let stale = KooladeApp::derive_caches(&proj);
     assert_eq!(stale.name, "Sam Lee");
 
-    // AC5: a no-edit settings Save (write → resync → checkpoint) re-
-    // derives the seat, and the refreshed display cache follows.
+    // A no-edit settings Save persists private settings and resyncs the Git seat.
+    let before_save = git(&["rev-parse", "HEAD"]);
     let mut dlg = crate::app::dialogs::DlgSettings::from_project(&proj);
     assert_eq!(dlg.user_name, "Sam Lee");
     dlg.apply(&mut proj)
         .expect("no-edit settings save must succeed");
-    let (resynced, _eligible) = KooladeApp::derive_caches(&proj);
+    let resynced = KooladeApp::derive_caches(&proj);
     assert_eq!(resynced.name, "Mira Chen");
     assert_eq!(
         proj.state.identity.source,
         crate::domain::user::IdentitySource::GitUserName
     );
-    let log = String::from_utf8_lossy(&git(&["log", "-1", "--pretty=%s"]).stdout).into_owned();
+    let after_save = git(&["rev-parse", "HEAD"]);
     assert!(
-        log.contains("settings: update workspace settings"),
-        "checkpoint subject: {log}"
+        before_save.status.success() && after_save.status.success(),
+        "the code repository revision remains readable"
+    );
+    assert_eq!(
+        before_save.stdout, after_save.stdout,
+        "private settings do not checkpoint into the code repository"
     );
     let _ = std::fs::remove_dir_all(&root);
 }

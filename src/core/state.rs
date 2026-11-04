@@ -26,28 +26,34 @@ use crate::artifacts::planning_store::PlanningStore;
 use crate::artifacts::spec_doc;
 use crate::domain::{OpenItem, ResolvedIdentity};
 
+pub(crate) mod proposals;
+
 /// Snapshot of one connected project.
 #[derive(Debug, Clone)]
 pub struct PlannerState {
     pub repo_root: PathBuf,
-    /// Shared planning data root; `repo_root` remains the code workspace.
+    /// Private installation-local operational root, separate from the code repository.
     pub planning_store: PlanningStore,
     /// Repository display name (directory name).
     pub title: String,
     /// Current specification Markdown, `None` before it existed.
     pub spec_text: Option<String>,
+    /// Immutable published-document revision used by this state snapshot.
+    pub published_spec_pin: Option<crate::core::published_specs::PublishedSpecPin>,
+    /// The single current private proposal set, separate from published truth.
+    pub local_spec_draft: Option<crate::core::apply::LocalSpecDraftV1>,
     pub active_feature: Option<(String, String)>,
     /// All feature deltas that have not reached Implemented or Abandoned.
     /// `active_feature` remains the current workflow focus for compatibility.
     pub active_features: Vec<(String, String)>,
     pub repositories: crate::core::project_repos::ProjectManifest,
-    /// Shared provider routes selected for this project's work categories.
+    /// Local provider routes selected for this project's work categories.
     pub harness_routes: crate::persistence::project_harness_routes::ProjectHarnessRoutes,
     /// Open-item queue (sorted per `items_io::sort_queue`).
     pub items: Vec<OpenItem>,
     /// Completed planning items remain available on the board with their outcomes.
     pub resolved_items: Vec<OpenItem>,
-    /// Stakeholder/current-user configuration.
+    /// Local human identity configuration.
     pub config: PlannerConfig,
     /// Seated operator per FR-13 (git user.name → git user.email → config
     /// Current User block → `(guest)`), recomputed on every `load`/`resync`.
@@ -65,55 +71,56 @@ impl PlannerState {
     /// reported rather than guessed around — §16).
     #[cfg(test)]
     pub fn load(repo: &Path) -> anyhow::Result<Self> {
-        let workspace_id = test_support::ensure_workspace_manifest(repo)?;
-        let store = PlanningStore::for_code_root_fixture(
-            workspace_id.unwrap_or_else(uuid::Uuid::nil),
-            repo,
-            crate::artifacts::planning_store::StoreMode::ManagedLocal,
-        );
-        let manifest_path = store.layout().project_manifest();
-        if !manifest_path.is_file() {
-            let manifest = crate::core::project_repos::ProjectManifest {
-                repositories: vec![crate::core::project_repos::Repository {
-                    id: "root".into(),
-                    role: "Test code repository".into(),
-                    remote: test_support::git_remote(repo).unwrap_or_default(),
-                    display_name: None,
-                }],
-            };
-            store.atomic_write(
-                crate::artifacts::planning_store::paths::PROJECT_MANIFEST,
-                &serde_json::to_vec_pretty(&manifest)?,
-            )?;
-        }
+        let workspace_id = test_support::project_id_for_code_root(repo);
+        test_support::seed_published_product_document(repo)?;
+        let local_root = crate::persistence::project_dir(&workspace_id.hyphenated().to_string())
+            .join("operational-state");
+        let store = PlanningStore::for_code_repository(workspace_id, local_root, repo);
         Self::load_with_store(repo, &store)
     }
 
     /// Load planning artifacts from the injected store while keeping Git
     /// identity and code-workspace operations on `repo`.
     pub fn load_with_store(repo: &Path, store: &PlanningStore) -> anyhow::Result<Self> {
-        #[cfg(test)]
-        crate::artifacts::product_docs::migrate_legacy_change_fixtures(store)?;
         store.with_consistent_read(|| Self::load_with_store_snapshot(repo, store))
     }
 
     fn load_with_store_snapshot(repo: &Path, store: &PlanningStore) -> anyhow::Result<Self> {
         let starting_revision = store.revision()?;
-        crate::artifacts::product_docs::validate_change_metadata(store)?;
-        let spec = spec_doc::load(store)?;
-        let (items, resolved_items, _) = items_io::load_store_unlocked(store)
+        let published = spec_doc::load_published(store)?;
+        let mut loaded_store = store.clone();
+        loaded_store.published_spec_pin = published.as_ref().map(|snapshot| snapshot.pin.clone());
+        #[cfg(not(test))]
+        anyhow::ensure!(
+            loaded_store.published_repository_root.is_some(),
+            "connect a code Git repository before opening a project"
+        );
+        #[cfg(test)]
+        if loaded_store.published_repository_root.is_none() {
+            crate::artifacts::product_docs::validate_change_metadata(&loaded_store)?;
+        }
+        #[cfg(test)]
+        let local_draft = spec_doc::load_local(&loaded_store)?;
+        #[cfg(not(test))]
+        let local_draft = None;
+        let spec = match published.as_ref() {
+            Some(snapshot) => snapshot.markdown.clone(),
+            None if loaded_store.published_repository_root.is_some() => None,
+            None => local_draft,
+        };
+        let (items, resolved_items, _) = items_io::load_store_unlocked(&loaded_store)
             .map_err(|error| anyhow!("planning items are unreadable to the planner: {error}"))?;
         let baseline_items_md = items_io::serialize(&items);
-        let config_text = match store.read(crate::artifacts::planning_store::paths::PROJECT_CONFIG)
-        {
-            Ok(bytes) => String::from_utf8(bytes)?,
-            Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
-                if source.kind() == std::io::ErrorKind::NotFound =>
-            {
-                String::new()
-            }
-            Err(error) => return Err(error.into()),
-        };
+        let config_text =
+            match loaded_store.read(crate::artifacts::planning_store::paths::PROJECT_CONFIG) {
+                Ok(bytes) => String::from_utf8(bytes)?,
+                Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
+                    if source.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    String::new()
+                }
+                Err(error) => return Err(error.into()),
+            };
         let config = config_io::parse(&config_text)
             .map_err(|e| anyhow!("{CONFIG_FILE} failed to parse: {e}"))?;
         // FR-13: derive the seated operator from the connected repository's
@@ -130,17 +137,36 @@ impl PlannerState {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "project".into());
-        let title = crate::core::managed_workspace::WorkspaceManifest::read(&store.root)
-            .ok()
-            .and_then(|manifest| manifest.title)
-            .unwrap_or(fallback_title);
-        let workflow = crate::artifacts::task_docs::load_workflow_unlocked(store)?;
-        let active_features = crate::artifacts::product_docs::active_features(store);
-        let active_feature =
-            crate::artifacts::product_docs::active_feature_for_workflow(store, &workflow);
-        let repositories = crate::core::project_repos::ProjectManifest::load(store)?;
+        let title = fallback_title;
+        let workflow = crate::artifacts::task_docs::load_workflow_unlocked(&loaded_store)?;
+        let local_spec_draft = crate::core::apply::load_current(&loaded_store)?;
+        let mut active_features = match (
+            loaded_store.published_repository_root.as_deref(),
+            published.as_ref(),
+        ) {
+            (Some(code_root), Some(snapshot)) => {
+                let reader =
+                    crate::core::published_specs::PublishedSpecReader::for_primary_repository(
+                        code_root,
+                    )?;
+                crate::artifacts::product_docs::published_features(&reader, &snapshot.pin)?
+            }
+            #[cfg(test)]
+            (None, _) => crate::artifacts::product_docs::active_features(&loaded_store),
+            _ => Vec::new(),
+        };
+        proposals::apply_local_feature_proposals(
+            &mut active_features,
+            local_spec_draft.as_ref(),
+            loaded_store.published_spec_pin.as_ref(),
+        )?;
+        let active_feature = crate::artifacts::product_docs::active_feature_for_workflow_in(
+            &active_features,
+            &workflow,
+        );
+        let repositories = crate::core::project_repos::ProjectManifest::load(&loaded_store)?;
         let harness_routes =
-            crate::persistence::project_harness_routes::ProjectHarnessRoutes::load(store)?;
+            crate::persistence::project_harness_routes::ProjectHarnessRoutes::load(&loaded_store)?;
         let ending_revision = store.revision()?;
         anyhow::ensure!(
             starting_revision == ending_revision,
@@ -148,10 +174,12 @@ impl PlannerState {
         );
         Ok(Self {
             repo_root: repo.to_path_buf(),
-            planning_store: store.clone(),
+            planning_store: loaded_store,
             title,
             baseline_spec: spec.clone(),
             spec_text: spec,
+            published_spec_pin: published.map(|snapshot| snapshot.pin),
+            local_spec_draft,
             active_feature,
             active_features,
             repositories,
@@ -166,34 +194,12 @@ impl PlannerState {
         })
     }
 
-    /// Create any missing planning artifacts. Returns the relpaths created.
+    /// Create only missing private operator settings. Published product
+    /// documents are read from the code repository and are never bootstrapped
+    /// into local operational state.
     pub fn bootstrap_missing(&mut self) -> anyhow::Result<Vec<String>> {
-        let (mut created, product_revision) =
-            crate::artifacts::migration::bootstrap_product_with_store_expected(
-                &self.repo_root,
-                &self.planning_store,
-                &self.title,
-                &self.baseline_planning_revision,
-            )?;
-        let spec_now = spec_doc::load(&self.planning_store)?.unwrap_or_default();
-        self.baseline_spec = Some(spec_now.clone());
-        self.spec_text = Some(spec_now);
-
         let mut seeded_config = None;
         let mut changes = Vec::new();
-        let manifest_missing = matches!(
-            self.planning_store
-                .read(crate::artifacts::planning_store::paths::PROJECT_MANIFEST),
-            Err(crate::artifacts::planning_store::StoreError::Io { source, .. })
-                if source.kind() == std::io::ErrorKind::NotFound
-        );
-        if manifest_missing {
-            self.repositories.validate()?;
-            changes.push((
-                crate::artifacts::planning_store::paths::PROJECT_MANIFEST.to_owned(),
-                serde_json::to_vec_pretty(&self.repositories)?,
-            ));
-        }
         let config_missing = matches!(
             self.planning_store
                 .read(crate::artifacts::planning_store::paths::PROJECT_CONFIG),
@@ -209,15 +215,14 @@ impl PlannerState {
             let re_parsed = config_io::parse(&seeded).map_err(|e| anyhow::anyhow!("{e}"))?;
             seeded_config = Some(re_parsed);
         }
-        let (paths, revision) = self
+        let (_, revision) = self
             .planning_store
-            .transaction_with_revision(&changes, Some(&product_revision))?;
-        created.extend(paths.iter().map(|path| self.planning_store.git_path(path)));
+            .transaction_with_revision(&changes, Some(&self.baseline_planning_revision))?;
         self.baseline_planning_revision = revision;
         if let Some(config) = seeded_config {
             self.config = config;
         }
-        Ok(created)
+        Ok(Vec::new())
     }
 
     /// Content-addressed comparison of an in-memory snapshot against a fresh
@@ -230,6 +235,9 @@ impl PlannerState {
         let mut changed = Vec::new();
         if previous.spec_text != current.spec_text {
             changed.push("specification");
+        }
+        if previous.local_spec_draft != current.local_spec_draft {
+            changed.push("local specification proposal");
         }
         if previous.items != current.items {
             changed.push("open items");
@@ -258,7 +266,12 @@ impl PlannerState {
     /// Re-read artifacts from disk (e.g. user clicked Refresh after an
     /// external edit). Keeps baselines consistent with what is now on disk.
     pub fn resync(&mut self) -> anyhow::Result<()> {
-        *self = Self::load_with_store(&self.repo_root, &self.planning_store)?;
+        // A refresh is a new observation of the designated published ref.
+        // Keep each already-built invocation pinned, while allowing an
+        // explicit user refresh to resolve and pin the ref's current commit.
+        let mut store = self.planning_store.clone();
+        store.published_spec_pin = None;
+        *self = Self::load_with_store(&self.repo_root, &store)?;
         Ok(())
     }
 
@@ -279,21 +292,11 @@ impl PlannerState {
 
 mod mcp_config;
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 
-/// Seed a fresh config with the starter categories (§7) so the team sees
-/// exactly where to write owners; no invented members.
+/// Serialize the optional local user identity.
 fn seed_initial_config(existing: &PlannerConfig) -> String {
-    let mut merged = existing.clone();
-    if merged.stakeholders.entries.is_empty() {
-        merged.stakeholders = crate::domain::Stakeholders::new(
-            crate::domain::DEFAULT_CATEGORIES
-                .iter()
-                .map(|c| crate::domain::CategoryOwners::new((*c).to_string(), Vec::new()))
-                .collect(),
-        );
-    }
-    config_io::serialize(&merged)
+    config_io::serialize(existing)
 }
 
 #[cfg(test)]

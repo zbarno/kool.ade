@@ -5,7 +5,8 @@ fn review_unable_attempts_are_persisted_revision_checked_and_bounded() {
     use crate::artifacts::planning_store::{PlanningStore, StoreError, StoreMode};
     use crate::core::lifecycle::GateDecision;
     let root = std::env::temp_dir().join(format!("plan-review-retry-{}", uuid::Uuid::new_v4()));
-    crate::artifacts::migration::bootstrap_product(&root, "Plan Review Retry Fixture").unwrap();
+    crate::artifacts::product_bootstrap::bootstrap_product(&root, "Plan Review Retry Fixture")
+        .unwrap();
     let mut store = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
     let (identity, markdown) = identified(&spec());
     let contract = crate::core::workflow::feature_contract(&markdown);

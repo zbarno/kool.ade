@@ -28,6 +28,7 @@ struct Status {
 pub(super) fn refresh(
     store: &PlanningStore,
     state_root: &Path,
+    code_root: &Path,
     ticket: &str,
     runner: &Runner,
 ) -> anyhow::Result<()> {
@@ -53,7 +54,7 @@ pub(super) fn refresh(
     };
     let mapped_repository_id = super::task_repository_id_with_store(store, ticket)?;
     validate_repository_id_binding(&current.repository_id, &mapped_repository_id)?;
-    let target_repo = super::target_repository_with_store(store, state_root, ticket)?;
+    let target_repo = super::target_repository_with_store(store, code_root, ticket)?;
     lifecycle
         .validate_deployment_repository(&current, &target_repo, pr_url, pr_id)
         .map_err(|error| anyhow::anyhow!("Deployment repository binding is invalid: {error}"))?;

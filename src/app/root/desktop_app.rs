@@ -23,29 +23,10 @@ impl App for KooladeApp {
 
 impl KooladeApp {
     pub(super) fn paint_screen(&mut self, ui: &mut egui::Ui) {
-        let mut pending = Vec::new();
-        for job in self.launch_history_jobs.drain(..) {
-            if job.is_finished() {
-                if !matches!(job.join(), Ok(Ok(()))) {
-                    self.toasts
-                        .warning("Could not save recent workspace history.");
-                }
-                self.onboarding_launcher.invalidate();
-            } else {
-                pending.push(job);
-            }
-        }
-        self.launch_history_jobs = pending;
-        if !self.launch_history_jobs.is_empty() {
-            ui.ctx().request_repaint_after(Duration::from_millis(100));
-        }
         crate::ui::theme::apply(ui.ctx());
         let welcome_screen = matches!(&self.screen, Screen::Welcome);
         if welcome_screen && self.paint_onboarding(ui) {
             return;
-        }
-        if !welcome_screen {
-            self.paint_onboarding_handoff(ui);
         }
         let selection_id = egui::Id::new("koolade_welcome_setup_selection");
         let mut welcome_selection = ui
@@ -56,26 +37,12 @@ impl KooladeApp {
         match &mut self.screen {
             Screen::Welcome => {
                 let harness_setup_slot = std::cell::RefCell::new(false);
-                let local_workspaces =
-                    crate::core::managed_workspace::WorkspaceManager::from_state_root()
-                        .list_launcher()
-                        .map(|launcher| launcher.available);
-                let mut local_workspaces = local_workspaces.unwrap_or_default();
-                // A damaged personal history must not hide otherwise usable workspaces.
-                let _ = crate::core::managed_workspace::WorkspaceManager::from_state_root()
-                    .sort_by_recent_open(&mut local_workspaces);
-                if self.conn_workspace_id.is_none() {
-                    self.conn_workspace_id = local_workspaces.first().map(|workspace| workspace.id);
-                }
                 // In-flight badge for the card: ("github.com/{o}/{r}", repo).
                 let cloning = self
                     .clone_job
                     .as_ref()
                     .map(|j| (j.url_display.clone(), j.repo.clone()));
-                // Copy for the modal overlay (the tuple below is moved into
-                // `paint_more_connections`).
-                // Owned copy for the modal overlay (drawn AFTER
-                // `paint_more_connections` has moved `cloning`).
+                // Owned copy for the modal overlay, drawn after the welcome card.
                 let cloning_arg = cloning
                     .as_ref()
                     .map(|(url_display, repo)| (url_display.to_string(), repo.to_string()));
@@ -94,12 +61,7 @@ impl KooladeApp {
                                     );
                                     columns[0].add_space(10.0);
                                 }
-                                paint_more_connections(
-                                    &mut columns[0],
-                                    self,
-                                    &harness_setup_slot,
-                                    &local_workspaces,
-                                );
+                                paint_more_connections(&mut columns[0], self, &harness_setup_slot);
                                 columns[1].vertical_centered(|ui| {
                                     welcome_setup_action =
                                         crate::ui::layout::paint_welcome_setup_board(
@@ -119,12 +81,7 @@ impl KooladeApp {
                                 cloning.as_ref().map(|(a, b)| (a.as_str(), b.as_str())),
                             );
                             ui.add_space(10.0);
-                            paint_more_connections(
-                                ui,
-                                self,
-                                &harness_setup_slot,
-                                &local_workspaces,
-                            );
+                            paint_more_connections(ui, self, &harness_setup_slot);
                             ui.vertical_centered(|ui| {
                                 welcome_setup_action = crate::ui::layout::paint_welcome_setup_board(
                                     ui,

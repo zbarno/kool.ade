@@ -49,10 +49,8 @@ pub(super) fn replay_for_task(
     if event_work_item_uid != work_item_uid
         || creation.feature_uid != task.feature_uid
         || creation.actor != LifecycleActor::ApplicationPolicy
-        || (creation.schema_version >= 3
-            && creation.task_revision_after != creation.expected_revision.checked_add(1))
-        || (creation.schema_version < 3
-            && creation.expected_revision.checked_add(1) != Some(task.revision))
+        || creation.schema_version != 3
+        || creation.task_revision_after != creation.expected_revision.checked_add(1)
     {
         return Err(StoreError::MalformedState(
             "PR preparation event does not match the completed task".into(),
@@ -60,17 +58,9 @@ pub(super) fn replay_for_task(
     }
 
     let Some(mut preparation) = creation.pr_preparation_after.clone() else {
-        // Older v2 histories did not capture the PR projection. They remain
-        // readable while the durable record exists, but cannot recover it.
-        let existing = lifecycle.load_pr_preparation(work_item_uid)?;
-        return ensure_pr_task_binding(
-            &existing,
-            task,
-            work_item_uid,
-            events,
-            tasks,
-            creation.updated_at_ms,
-        );
+        return Err(StoreError::MalformedState(
+            "PR preparation event is missing its resulting projection".into(),
+        ));
     };
     validate_creation(
         &preparation,
@@ -107,7 +97,7 @@ pub(super) fn replay_for_task(
             && preparation.publication_authorization != next.publication_authorization;
         let first_authorization = preparation.publication_authorization.is_none()
             && next.publication_authorization.is_some();
-        if event.schema_version < 3
+        if event.schema_version != 3
             || event.feature_uid != task.feature_uid
             || event.task_uid.as_deref() != Some(task.task_uid.as_str())
             || event.expected_revision != preparation.revision

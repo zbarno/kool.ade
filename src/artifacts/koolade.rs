@@ -1,8 +1,8 @@
 //! Koolade-owned working artifacts and ADR publication.
 //!
-//! Planning artifacts live in a standalone planning repository, separate
-//! from code and product documentation. A verified implementation is
-//! summarized into an approved decision record under `planning/decisions/`.
+//! Operational artifacts live in the installation-local store. A verified
+//! implementation can be summarized into an approved local decision draft;
+//! publication uses the primary code repository's reviewed documentation PR.
 
 mod decision;
 mod identity;

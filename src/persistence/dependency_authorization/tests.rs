@@ -1,6 +1,4 @@
-use super::{
-    Grant, SCHEMA_VERSION, matching_scope, project_id, save, set_private_file, store_path,
-};
+use super::{SCHEMA_VERSION, matching_scope, project_id, save, set_private_file, store_path};
 use crate::harness::{
     DependencyAuthorizationScope, DependencyDecision, DependencyFailureCategory, DependencyKind,
     DependencyNeed, DependencyRequest, DependencyRequestStatus, PackageEcosystem,
@@ -10,7 +8,7 @@ use std::{fs, path::Path, process::Command, sync::Mutex};
 static STATE_ROOT_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
-fn project_grants_match_independent_task_clones_and_migrate_legacy_store() {
+fn project_grants_match_independent_task_clones() {
     let _guard = STATE_ROOT_LOCK.lock().unwrap();
     let root = std::env::temp_dir().join(format!(
         "koolade-dependency-grant-clone-{}",
@@ -38,28 +36,12 @@ fn project_grants_match_independent_task_clones_and_migrate_legacy_store() {
     );
 
     let path = store_path(&id).unwrap();
-    let legacy = serde_json::json!({
-        "schemaVersion": 1,
-        "projectRoot": project.canonicalize().unwrap(),
-        "grants": [serde_json::to_value(Grant {
-            task_id: first.task_id.clone(),
-            need: first.need.clone(),
-            scope: DependencyAuthorizationScope::Project,
-        }).unwrap()],
-    });
-    fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
-    set_private_file(&path).unwrap();
-    assert_eq!(
-        matching_scope(&task_clone, "TASK-1", &first.need).unwrap(),
-        Some(DependencyAuthorizationScope::Project)
-    );
-
     let second = request("TASK-2", "serde");
     save(&task_clone, &second, DependencyAuthorizationScope::Project).unwrap();
-    let migrated: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-    assert_eq!(migrated["schemaVersion"], SCHEMA_VERSION);
-    assert_eq!(migrated["projectId"], id);
-    assert_eq!(migrated["grants"].as_array().unwrap().len(), 2);
+    let stored: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert_eq!(stored["schemaVersion"], SCHEMA_VERSION);
+    assert_eq!(stored["projectId"], id);
+    assert_eq!(stored["grants"].as_array().unwrap().len(), 2);
     assert_eq!(
         matching_scope(&project, "TASK-2", &second.need).unwrap(),
         Some(DependencyAuthorizationScope::Project)
@@ -80,6 +62,17 @@ fn project_grants_match_independent_task_clones_and_migrate_legacy_store() {
         matching_scope(&project, "TASK-OTHER", &production_command).unwrap(),
         None
     );
+
+    let unsupported = serde_json::json!({
+        "schemaVersion": 1,
+        "projectRoot": project.canonicalize().unwrap(),
+        "grants": [],
+    });
+    let original = serde_json::to_vec(&unsupported).unwrap();
+    fs::write(&path, &original).unwrap();
+    set_private_file(&path).unwrap();
+    assert!(matching_scope(&project, "TASK-1", &first.need).is_err());
+    assert_eq!(fs::read(&path).unwrap(), original);
 
     drop(_state_root);
     fs::remove_dir_all(root).unwrap();

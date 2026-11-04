@@ -2,8 +2,8 @@ use crate::core::lifecycle::{LifecycleStore, TaskRecord};
 
 pub(super) fn record(lifecycle: &LifecycleStore<'_>, task: &TaskRecord) {
     let store = lifecycle.store;
-    crate::artifacts::migration::bootstrap_product_with_store(
-        &store.git_root(),
+    crate::artifacts::product_bootstrap::bootstrap_product_with_store(
+        &store.local_root(),
         store,
         "Completion fixture",
     )

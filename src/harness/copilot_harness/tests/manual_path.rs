@@ -28,7 +28,7 @@ fn saved_manual_cli_precedes_environment_and_path_and_executes_wrapper() {
 
     let settings_path = state.join("harness-settings.json");
     let mut settings = crate::persistence::harness_settings::HarnessSettings {
-        schema_version: 2,
+        schema_version: 5,
         ..crate::persistence::harness_settings::HarnessSettings::default()
     };
     settings
@@ -80,7 +80,7 @@ fn invalid_saved_manual_path_does_not_silently_select_environment_cli() {
     let fallback = fake_cli(&root, "echo 'GitHub Copilot CLI 3.0.0'\n");
     std::fs::set_permissions(&fallback, std::fs::Permissions::from_mode(0o755)).unwrap();
     let settings = crate::persistence::harness_settings::HarnessSettings {
-        schema_version: 3,
+        schema_version: 5,
         manual_executable_paths: std::collections::BTreeMap::from([(
             "copilot".into(),
             root.join("missing/copilot").display().to_string(),

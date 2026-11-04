@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::OpenItem;
 
 #[test]
 fn board_restores_blue_activity_on_cards_and_sums_all_sources() {
@@ -107,7 +108,6 @@ fn planning_and_question_cards_show_their_recorded_blue_activity() {
         crate::domain::Priority::Normal,
         crate::domain::ItemKind::Question,
         "Product".into(),
-        None,
         "Who can join the workspace?".into(),
         "Defines access".into(),
     )];

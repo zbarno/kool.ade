@@ -35,7 +35,7 @@ fn setup() -> (KooladeApp, crate::core::planning::QuestionV1, String) {
 
     let mut app = crate::app::root::board_tests::fixture();
     let feature_id = "CHG-997";
-    let draft = "# CHG-997: Clarification fence\n\n**Status:** Ready\n\n## Intent\n\nTest stale clarification answers.\n\n## Current Behavior\n\nClarification replies can outlive the feature revision they reference.\n\n## Desired Behavior\n\nAnswers apply only to the specification they were written for.\n\n## Scope\n\n- Preserve each clarification against the active specification.\n\n## Affected Product Areas\n\n`product:current-capabilities`\n\n## Requirements\n\n- REQ-1: Answers are bound to the active specification.\n\n## Decisions and Assumptions\n\n- No retention choice recorded yet.\n\n## Acceptance Criteria\n\n- AC-001: Stale answers are rejected.\n";
+    let draft = "# CHG-997: Clarification fence\n\n**Status:** Ready\n\n## Intent\n\nTest stale clarification answers.\n\n## Current Behavior\n\nClarification replies can outlive the feature revision they reference.\n\n## Desired Behavior\n\nAnswers apply only to the specification they were written for.\n\n## Scope\n\n- Preserve each clarification against the active specification.\n\n## Affected Product Areas\n\n`product:overview`\n\n## Requirements\n\n- REQ-1: Answers are bound to the active specification.\n\n## Decisions and Assumptions\n\n- No retention choice recorded yet.\n\n## Acceptance Criteria\n\n- AC-001: Stale answers are rejected.\n";
     let identified = crate::domain::ArtifactIdentity::preserve_markdown(
         draft,
         None,
@@ -55,25 +55,45 @@ fn setup() -> (KooladeApp, crate::core::planning::QuestionV1, String) {
     let Screen::Connected(project) = &mut app.screen else {
         panic!("fixture must be connected")
     };
-    crate::artifacts::migration::bootstrap_product_with_store(
-        &project.state.repo_root,
-        &project.state.planning_store,
-        "Clarification fence",
+    let code_root = project.state.repo_root.clone();
+    let feature_path = code_root
+        .join("docs/koolade/features")
+        .join(format!("{}.md", identity.uid));
+    std::fs::write(&feature_path, &feature).unwrap();
+    std::fs::write(
+        code_root.join("docs/koolade/features/AGENTS.md"),
+        format!(
+            "# Navigation\n\n- [{feature_id}: Clarification fence](./{}.md) - Synthetic published feature fixture.\n",
+            identity.uid
+        ),
     )
     .unwrap();
-    project
-        .state
-        .planning_store
-        .transaction(
-            &[(
-                "planning/changes/CHG-997-clarification-fence/specification.md".into(),
-                feature.as_bytes().to_vec(),
-            )],
-            None,
-        )
-        .unwrap();
-    project.state.active_features = vec![(feature_id.into(), feature.clone())];
-    project.state.active_feature = Some((feature_id.into(), feature.clone()));
+    for args in [
+        vec!["add", "docs/koolade/features/AGENTS.md"],
+        vec!["add", feature_path.to_str().unwrap()],
+        vec!["commit", "-q", "-m", "Seed synthetic published feature"],
+    ] {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&code_root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "could not seed published test feature: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let mut store = project.state.planning_store.clone();
+    store.published_spec_pin = None;
+    project.state = crate::core::state::PlannerState::load_with_store(&code_root, &store).unwrap();
+    assert!(
+        project
+            .state
+            .active_features
+            .iter()
+            .any(|(id, _)| id == feature_id)
+    );
     let spec_revision =
         crate::app::root::planner_pass::spec_revision(project, &identity.uid).unwrap();
     let proposal = QuestionProposal {
@@ -131,6 +151,7 @@ fn setup() -> (KooladeApp, crate::core::planning::QuestionV1, String) {
             0,
         )
         .unwrap();
+    project.state.baseline_planning_revision = project.state.planning_store.revision().unwrap();
     (app, question, feature)
 }
 
@@ -144,19 +165,19 @@ fn changed_snapshot_replaces_a_stale_running_planner_without_restarting_the_same
         "REQ-1: Answers are bound to the active specification.",
         "REQ-1: Answers are bound to the active specification and decision history.",
     );
+    let proposal = crate::core::apply::private_document_draft_changes(
+        &project.state.planning_store,
+        &[("feature:CHG-997".into(), changed.clone())],
+    )
+    .unwrap();
     project
         .state
         .planning_store
-        .transaction(
-            &[(
-                "planning/changes/CHG-997-clarification-fence/specification.md".into(),
-                changed.as_bytes().to_vec(),
-            )],
-            None,
-        )
+        .transaction(&proposal, None)
         .unwrap();
-    project.state.active_features = vec![("CHG-997".into(), changed.clone())];
-    project.state.active_feature = Some(("CHG-997".into(), changed.clone()));
+    let code_root = project.state.repo_root.clone();
+    let store = project.state.planning_store.clone();
+    project.state = crate::core::state::PlannerState::load_with_store(&code_root, &store).unwrap();
     let revision = crate::app::root::planner_pass::spec_revision_for_markdown(
         &project.state.planning_store,
         &question.feature_uid,
@@ -200,20 +221,23 @@ fn stale_spec_rejects_answer_without_mutating_question_or_starting_a_turn() {
     let Screen::Connected(project) = &mut app.screen else {
         panic!("fixture must be connected")
     };
-    let updated = format!("{feature}\n\n## Updated intent\n\nThe plan changed.\n");
+    let updated = feature.replace(
+        "Test stale clarification answers.",
+        "Test stale clarification answers after the plan changed.",
+    );
+    let proposal = crate::core::apply::private_document_draft_changes(
+        &project.state.planning_store,
+        &[("feature:CHG-997".into(), updated)],
+    )
+    .unwrap();
     project
         .state
         .planning_store
-        .transaction(
-            &[(
-                "planning/changes/CHG-997-clarification-fence/specification.md".into(),
-                updated.as_bytes().to_vec(),
-            )],
-            None,
-        )
+        .transaction(&proposal, None)
         .unwrap();
-    project.state.active_features[0].1 = updated.clone();
-    project.state.active_feature = Some(("CHG-997".into(), updated));
+    let code_root = project.state.repo_root.clone();
+    let store = project.state.planning_store.clone();
+    project.state = crate::core::state::PlannerState::load_with_store(&code_root, &store).unwrap();
     let before_store_revision = project.state.planning_store.revision().unwrap();
     let before_markdown = project
         .state

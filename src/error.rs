@@ -266,13 +266,13 @@ mod tests {
     fn display_does_not_double_other_messages() {
         // The operator incident: a wrap whose detail repeats the headline
         // used to render the sentence twice.
-        let message = "new project could not be created: planning repository name may contain letters, digits, dots, underscores, and dashes only";
+        let message = "new local project could not be created: store name may contain letters, digits, dots, underscores, and dashes only";
         let error = AppError::Other(message.to_string());
         let rendered = error.to_string();
         assert_eq!(rendered, message);
         assert_eq!(
             rendered
-                .matches("new project could not be created:")
+                .matches("new local project could not be created:")
                 .count(),
             1,
             "the wrap phrase prints exactly once"

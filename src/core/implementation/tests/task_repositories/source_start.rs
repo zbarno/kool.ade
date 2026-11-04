@@ -41,7 +41,7 @@ fn divergent_task_clone_starts_at_the_persisted_local_source_commit() {
         authorization_verifier: None,
     };
     execution::persist_source_plan_before_task_state(
-        &sandbox.repo,
+        &sandbox.planning_store.root,
         &sandbox.repo,
         &sandbox.ticket,
         &runner,
@@ -49,7 +49,7 @@ fn divergent_task_clone_starts_at_the_persisted_local_source_commit() {
     .unwrap();
 
     let state = execution::prepare_task_repository_before_reconciliation(
-        &sandbox.repo,
+        &sandbox.planning_store.root,
         &sandbox.repo,
         &sandbox.ticket,
         &runner,

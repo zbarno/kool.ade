@@ -18,7 +18,7 @@ fn destination_advance_during_provider_creation_is_detected_and_retry_is_safe() 
             false,
         )
         .unwrap();
-    let dir = state_dir(&sandbox.repo, &sandbox.ticket).unwrap();
+    let dir = state_dir(&sandbox.planning_store.root, &sandbox.ticket).unwrap();
 
     sandbox.git(&sandbox.repo, &["checkout", "-b", "fixture-next-base"]);
     fs::write(sandbox.repo.join("destination-update.txt"), "advanced base").unwrap();

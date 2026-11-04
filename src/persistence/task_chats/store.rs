@@ -1,8 +1,5 @@
 //! Identity-keyed durable conversations, projected onto current board paths.
-use super::storage::{
-    StoredHistories, canonicalize, detach_other_history, display_histories, merge, merge_identity,
-    read_stored,
-};
+use super::storage::{StoredHistories, display_histories, merge, merge_identity, read_stored};
 use crate::domain::ChatMessage;
 use std::collections::BTreeMap;
 
@@ -27,7 +24,6 @@ pub struct TaskChats {
     identities: BTreeMap<String, String>,
     paths: BTreeMap<String, String>,
     ambiguous_paths: std::collections::BTreeSet<String>,
-    legacy_migration_keys: std::collections::BTreeSet<String>,
     stored: StoredHistories,
 }
 
@@ -60,7 +56,16 @@ impl TaskChats {
     }
 
     fn project_messages(&mut self) {
-        self.messages = display_histories(&self.stored, &self.paths);
+        self.messages =
+            display_histories(&self.stored, &self.paths, &self.excluded_history_paths());
+    }
+
+    fn excluded_history_paths(&self) -> std::collections::BTreeSet<String> {
+        self.identities
+            .keys()
+            .chain(self.ambiguous_paths.iter())
+            .cloned()
+            .collect()
     }
 
     pub fn take_updates(&mut self) -> Vec<String> {
@@ -86,23 +91,12 @@ impl TaskChats {
         }
         self.refreshed = Some(std::time::Instant::now());
         match read_stored(slug) {
-            Ok((mut stored, migrated)) => {
-                for key in &self.ambiguous_paths {
-                    detach_other_history(&mut stored, key, "legacy");
-                }
-                let old_messages = display_histories(&stored, &self.paths);
+            Ok(mut stored) => {
+                let excluded = self.excluded_history_paths();
+                let old_messages = display_histories(&stored, &self.paths, &excluded);
                 for (path, uid) in &self.identities {
-                    if let Err(error) = merge_identity(
-                        &mut stored,
-                        path,
-                        uid,
-                        self.legacy_migration_keys.contains(path),
-                    ) {
-                        self.error = Some(error);
-                        return;
-                    }
+                    merge_identity(&mut stored, path, uid);
                 }
-                canonicalize(&mut stored);
                 let aliases_changed =
                     stored.task_identities.len() > self.stored.task_identities.len();
                 let previous = self
@@ -111,7 +105,7 @@ impl TaskChats {
                     .flat_map(|messages| messages.iter())
                     .map(|m| m.id.as_str())
                     .collect::<std::collections::HashSet<_>>();
-                let current = display_histories(&stored, &self.paths);
+                let current = display_histories(&stored, &self.paths, &excluded);
                 if self.loaded {
                     for (key, history) in &current {
                         let added = history
@@ -137,7 +131,6 @@ impl TaskChats {
                     let storage_key = self.storage_key(key, &stored);
                     Self::merge_key(&mut stored, &storage_key, pending);
                 }
-                canonicalize(&mut stored);
                 self.stored = stored;
                 self.project_messages();
                 self.loaded = true;
@@ -146,11 +139,11 @@ impl TaskChats {
                 }
                 let has_histories = !self.stored.task_histories.is_empty()
                     || !self.stored.other_histories.is_empty();
-                if (migrated || old_messages != self.messages || (aliases_changed && has_histories))
+                if (old_messages != self.messages || (aliases_changed && has_histories))
                     && let Err(error) = self.persist(slug, "", &[])
                 {
                     self.error = Some(format!(
-                        "Task conversation migration could not be saved: {error}"
+                        "Task conversation state could not be saved: {error}"
                     ));
                 }
             }
@@ -167,19 +160,10 @@ impl TaskChats {
         self.last_slug = Some(slug.to_owned());
         let dir = crate::persistence::project_dir(slug);
         let _lock = Self::lock_store(slug)?;
-        let (mut next, _) = read_stored(slug)?;
-        for key in &self.ambiguous_paths {
-            detach_other_history(&mut next, key, "legacy");
-        }
+        let mut next = read_stored(slug)?;
         for (path, uid) in &self.identities {
-            merge_identity(
-                &mut next,
-                path,
-                uid,
-                self.legacy_migration_keys.contains(path),
-            )?;
+            merge_identity(&mut next, path, uid);
         }
-        canonicalize(&mut next);
         let storage_key = self.storage_key(key, &next);
         let new_user_message = messages.iter().any(|message| {
             message.role == crate::domain::ChatRole::User
@@ -212,7 +196,6 @@ impl TaskChats {
             Self::merge_key(&mut next, &pending_storage_key, pending);
         }
         Self::merge_key(&mut next, &storage_key, messages);
-        canonicalize(&mut next);
         let json = serde_json::to_string(&next).map_err(|e| e.to_string())?;
         crate::artifacts::atomic_write(&dir.join("task-conversations.json"), &json)
             .map_err(|e| e.to_string())?;

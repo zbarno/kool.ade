@@ -68,23 +68,20 @@ pub(super) fn draft_matches(draft: &SpecRevisionDraftV1, history: &SpecRevisionH
         && draft.reconciliation_status == entry.reconciliation_status
         && draft.outcome_reason == entry.outcome_reason
         && draft.deltas == history.deltas
-        && history.origin_dispositions.as_ref().is_none_or(|stored| {
-            for_draft(draft)
-                .as_ref()
-                .is_ok_and(|proposed| proposed == stored)
-        })
+        && for_draft(draft)
+            .as_ref()
+            .is_ok_and(|proposed| proposed == &history.origin_dispositions)
 }
 
 pub(super) fn validate(history: &SpecRevisionHistory) -> Result<(), StoreError> {
-    let Some(dispositions) = &history.origin_dispositions else {
-        return Ok(());
-    };
-    let no_change_reason = dispositions
-        .iter()
-        .find_map(|disposition| match &disposition.outcome {
-            SpecOriginOutcomeV1::NoChange { reason } => Some(reason.clone()),
-            _ => None,
-        });
+    let no_change_reason =
+        history
+            .origin_dispositions
+            .iter()
+            .find_map(|disposition| match &disposition.outcome {
+                SpecOriginOutcomeV1::NoChange { reason } => Some(reason.clone()),
+                _ => None,
+            });
     let draft = SpecRevisionDraftV1 {
         content_hash: history.entry.content_hash.clone(),
         source_revision: history.entry.source_revision,
@@ -99,7 +96,7 @@ pub(super) fn validate(history: &SpecRevisionHistory) -> Result<(), StoreError> 
         no_change_reason,
         deltas: history.deltas.clone(),
     };
-    if dispositions != &for_draft(&draft)? {
+    if history.origin_dispositions != for_draft(&draft)? {
         return Err(StoreError::MalformedState(
             "specification origin dispositions do not match their revision and deltas".into(),
         ));
@@ -108,8 +105,7 @@ pub(super) fn validate(history: &SpecRevisionHistory) -> Result<(), StoreError> 
 }
 
 impl LifecycleStore<'_> {
-    /// Load the recorded dispositions of an exact immutable revision. None
-    /// means legacy history without explicit outcomes, never an inferred pass.
+    /// Load the recorded dispositions of an exact immutable revision.
     pub fn specification_origin_dispositions(
         &self,
         feature_uid: &str,
@@ -125,6 +121,6 @@ impl LifecycleStore<'_> {
                 "specification origin history identity mismatch".into(),
             ));
         }
-        Ok(history.origin_dispositions)
+        Ok(Some(history.origin_dispositions))
     }
 }

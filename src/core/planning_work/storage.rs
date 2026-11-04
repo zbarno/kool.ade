@@ -1,68 +1,72 @@
 use super::{Work, WorkRecord, normalize_task_intents, validate};
-use crate::artifacts::planning_store::{PlanningRoot, RecordRevisionCheck, paths};
+use crate::artifacts::planning_store::{PlanningRoot, RecordRevisionCheck, StoreError, paths};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const RECORD_SCHEMA_VERSION: u32 = 3;
 
 mod discovered;
-mod legacy;
 mod task_intent_events;
 mod task_intent_history;
 pub use discovered::{append_discovered, find};
-use legacy::{legacy_work_exists, now_ms, read_legacy_work};
 pub(crate) use task_intent_events::linked_executable_task_changes;
 
-pub fn load<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<Vec<Work>> {
-    read_work(repo).map(|(work, _)| work)
+pub(super) fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        .min(u128::from(u64::MAX)) as u64
 }
 
-/// Load records against the caller's view. Legacy aggregates are converted to
-/// independent record files on this explicit migration path; the originals
-/// remain intact as recovery evidence.
+pub fn load<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<Vec<Work>> {
+    read_work(repo)
+}
+
+/// Load current work records against the caller's planning revision.
 pub fn load_expected<R: PlanningRoot + ?Sized>(
     repo: &R,
     expected_revision: &str,
 ) -> anyhow::Result<(Vec<Work>, String)> {
     let store = repo.planning_store();
-    let (work, needs_migration) = read_work(repo)?;
-    let needs_intent_backfill = work.iter().any(|item| {
-        item.record_baseline
-            .as_deref()
-            .is_some_and(|baseline| serde_json::to_string(item).ok().as_deref() != Some(baseline))
-    });
-    if needs_migration || needs_intent_backfill {
-        let (changes, checks, _) = record_changes(&store, &work)?;
-        let (_, revision) = store.transaction_with_revision_and_record_revisions(
-            &changes,
-            Some(expected_revision),
-            &checks,
-        )?;
-        let (work, _) = read_work(&store)?;
-        Ok((work, revision))
-    } else {
-        let (_, revision) = store.transaction_with_revision(&[], Some(expected_revision))?;
-        Ok((work, revision))
-    }
+    let work = read_work(repo)?;
+    let (_, revision) = store.transaction_with_revision(&[], Some(expected_revision))?;
+    Ok((work, revision))
 }
 
-fn read_work<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<(Vec<Work>, bool)> {
+fn read_work<R: PlanningRoot + ?Sized>(repo: &R) -> anyhow::Result<Vec<Work>> {
     let store = repo.planning_store();
     store.with_consistent_read(|| read_work_unlocked(&store))
 }
 
 fn read_work_unlocked(
     store: &crate::artifacts::planning_store::PlanningStore,
-) -> anyhow::Result<(Vec<Work>, bool)> {
+) -> anyhow::Result<Vec<Work>> {
+    ensure_no_legacy_work_aggregate(store)?;
     let records = read_record_files(store)?;
     if !records.is_empty() {
-        let mut work = records
+        let work = records
             .into_iter()
             .map(|record| record.data)
             .collect::<Vec<_>>();
-        normalize_task_intents(&mut work);
         validate(&work)?;
-        return Ok((work, false));
+        return Ok(work);
     }
-    read_legacy_work(store)
+    Ok(Vec::new())
+}
+
+fn ensure_no_legacy_work_aggregate(
+    store: &crate::artifacts::planning_store::PlanningStore,
+) -> anyhow::Result<()> {
+    match store.read(paths::WORK) {
+        Ok(_) => anyhow::bail!(
+            "Unsupported legacy planning work aggregate {}; current records were not changed",
+            paths::WORK
+        ),
+        Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+            Ok(())
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn read_record_files(
@@ -81,7 +85,7 @@ fn read_record_files(
         let bytes = store.read(&relative)?;
         let mut record: WorkRecord = serde_json::from_slice(&bytes)?;
         anyhow::ensure!(
-            (1..=RECORD_SCHEMA_VERSION).contains(&record.schema_version),
+            record.schema_version == RECORD_SCHEMA_VERSION,
             "Unsupported work record schema version {} in {relative}",
             record.schema_version
         );
@@ -109,8 +113,7 @@ fn read_record_files(
     Ok(records)
 }
 
-/// Build atomic record writes and their revision fences. Legacy aggregate
-/// contents are included when the collection has not yet been migrated.
+/// Build atomic current-record writes and their revision fences.
 pub fn record_changes(
     store: &crate::artifacts::planning_store::PlanningStore,
     work: &[Work],
@@ -122,44 +125,14 @@ fn record_changes_unlocked(
     store: &crate::artifacts::planning_store::PlanningStore,
     work: &[Work],
 ) -> anyhow::Result<crate::artifacts::planning_store::RecordChangePlan> {
+    ensure_no_legacy_work_aggregate(store)?;
     let existing_records = read_record_files(store)?;
-    let legacy_migration = existing_records.is_empty() && legacy_work_exists(store)?;
     let mut current = std::collections::BTreeMap::<String, WorkRecord>::new();
-    let mut legacy_items = Vec::new();
-    if !existing_records.is_empty() {
-        for record in existing_records {
-            current.insert(record.uid.clone(), record);
-        }
-    } else if legacy_migration {
-        let (items, _) = read_legacy_work(store)?;
-        legacy_items = items;
-        for item in &legacy_items {
-            current.insert(
-                item.uid.clone(),
-                WorkRecord {
-                    schema_version: RECORD_SCHEMA_VERSION,
-                    uid: item.uid.clone(),
-                    revision: 0,
-                    created_at_ms: 0,
-                    updated_at_ms: 0,
-                    data: item.clone(),
-                },
-            );
-        }
+    for record in existing_records {
+        current.insert(record.uid.clone(), record);
     }
 
     let mut desired = work.to_vec();
-    if legacy_migration {
-        let included = desired
-            .iter()
-            .map(|item| item.uid.clone())
-            .collect::<std::collections::BTreeSet<_>>();
-        for item in &legacy_items {
-            if !included.contains(&item.uid) {
-                desired.push(item.clone());
-            }
-        }
-    }
 
     for item in &mut desired {
         if item.parent_uid.is_some() || !item.kind.starts_task_intent() {
@@ -227,7 +200,7 @@ fn record_changes_unlocked(
         let previous = current.get(&uid);
         let baseline = item.record_baseline.as_deref();
         let current_data = serde_json::to_string(&item)?;
-        if !legacy_migration && baseline == Some(current_data.as_str()) {
+        if baseline == Some(current_data.as_str()) {
             continue;
         }
         let expected_revision = item.record_revision;
@@ -255,5 +228,5 @@ fn record_changes_unlocked(
             expected_revision,
         });
     }
-    Ok((changes, checks, legacy_migration))
+    Ok((changes, checks))
 }

@@ -6,8 +6,6 @@ use super::execute::{EnvelopeDecode, decode_envelope};
 use crate::core::prompt;
 use crate::harness::{AiHarness, PlanningRequest, TurnEnvelope};
 
-use crate::artifacts::config_io;
-use crate::domain::{CategoryOwners, ItemKind, Stakeholders};
 use crate::harness::{DocumentUpdate, HarnessOutcome, RetrievalPlan, TurnItem};
 
 fn captured_persona(prompt: &str) -> Option<String> {
@@ -49,7 +47,7 @@ impl AiHarness for ScriptedHarness {
                 req.prompt_manifest
                     .as_ref()
                     .map(|manifest| manifest.role_version.as_str()),
-                Some("planner_conversation/v5")
+                Some("planner_conversation/v6")
             );
         }
         let text = match (&self.raw, &self.canned) {
@@ -63,77 +61,6 @@ impl AiHarness for ScriptedHarness {
         Ok(HarnessOutcome {
             final_text: text,
             envelope: None, // force the pipeline to extract + decode itself
-            stderr_tail: String::new(),
-        })
-    }
-}
-
-struct RetrievalPipelineHarness;
-
-impl AiHarness for RetrievalPipelineHarness {
-    fn label(&self) -> String {
-        "retrieval-pipeline-test".into()
-    }
-
-    fn check_available(&self) -> Result<String, AppError> {
-        Ok(self.label())
-    }
-
-    fn plan_retrieval(&self, request: &PlanningRequest) -> Result<Option<RetrievalPlan>, AppError> {
-        assert_eq!(
-            request.mode,
-            crate::harness::ExecutionMode::ReadOnlyAnalysis
-        );
-        assert!(
-            request
-                .system_instructions
-                .contains("select authoritative context")
-        );
-        assert!(
-            request
-                .prompt_body
-                .contains("The session vanishes after restart.")
-        );
-        Ok(Some(RetrievalPlan {
-            documents: vec!["product:architecture-and-constraints".into()],
-            open_items: vec![],
-            repository_areas: vec!["src".into()],
-        }))
-    }
-
-    fn execute(&self, request: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
-        assert_eq!(request.mode, crate::harness::ExecutionMode::Planning);
-        assert!(
-            request
-                .system_instructions
-                .contains("Planning Analyst for Kool.ad/e")
-        );
-        assert_eq!(
-            request
-                .prompt_manifest
-                .as_ref()
-                .map(|manifest| manifest.role_version.as_str()),
-            Some("planner_conversation/v5")
-        );
-        assert!(
-            request
-                .prompt_body
-                .contains("SESSION_CONTEXT_FROM_RETRIEVAL")
-        );
-        assert!(
-            request
-                .prompt_body
-                .contains("Source: planning/product/architecture-and-constraints.md")
-        );
-        assert!(request.prompt_body.contains("repo:src/session.rs"));
-        Ok(HarnessOutcome {
-            final_text: serde_json::json!({
-                "schema_version": 2,
-                "assistant_message": "I will explain how session recovery works.",
-                "change_summary": "explain session recovery"
-            })
-            .to_string(),
-            envelope: None,
             stderr_tail: String::new(),
         })
     }
@@ -156,8 +83,7 @@ fn head_count(dir: &std::path::Path) -> usize {
 /// and checkpoints, exactly as another gated turn would.
 struct RivalCheckpoint {
     raw: String,
-    root: std::path::PathBuf,
-    path: std::path::PathBuf,
+    store: crate::artifacts::planning_store::PlanningStore,
 }
 impl AiHarness for RivalCheckpoint {
     fn label(&self) -> String {
@@ -167,31 +93,31 @@ impl AiHarness for RivalCheckpoint {
         Ok("fixture".into())
     }
     fn execute(&self, _req: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
-        let text = std::fs::read_to_string(&self.path).map_err(|e| AppError::Io {
-            op: "read spec".into(),
-            detail: e.to_string(),
+        let proposal = format!(
+            "# Overview\n\nRival writer private proposal {}.\n",
+            uuid::Uuid::new_v4()
+        );
+        let updates = vec![("product:overview".to_owned(), proposal)];
+        let changes = crate::core::apply::private_document_draft_changes(&self.store, &updates)
+            .map_err(|error| AppError::Io {
+                op: "prepare private rival proposal".into(),
+                detail: error.to_string(),
+            })?;
+        let revision = self.store.revision().map_err(|error| AppError::Io {
+            op: "read private rival revision".into(),
+            detail: error.to_string(),
         })?;
-        std::fs::write(&self.path, format!("{text}\n\n<!-- rival writer -->\n")).map_err(|e| {
-            AppError::Io {
-                op: "edit spec".into(),
-                detail: e.to_string(),
-            }
-        })?;
-        for args in [
-            ["add", "-A"].as_slice(),
-            ["commit", "-qm", "rival: external edit"].as_slice(),
-        ] {
-            let ok = std::process::Command::new("git")
-                .args(args)
-                .current_dir(&self.root)
-                .status()
-                .map_err(|e| AppError::Io {
-                    op: "git".into(),
-                    detail: e.to_string(),
-                })?
-                .success();
-            assert!(ok, "rival commit failed");
-        }
+        let (_, committed_revision) = self
+            .store
+            .transaction_with_revision(&changes, Some(&revision))
+            .map_err(|error| AppError::Io {
+                op: "save private rival proposal".into(),
+                detail: error.to_string(),
+            })?;
+        assert_ne!(
+            committed_revision, revision,
+            "rival proposal must advance store revision"
+        );
         Ok(HarnessOutcome {
             final_text: self.raw.clone(),
             envelope: None,
@@ -203,9 +129,10 @@ impl AiHarness for RivalCheckpoint {
 fn inputs_for(tag: &str, msg: &str) -> (TurnInputs, std::path::PathBuf) {
     let root = std::env::temp_dir().join(format!("koolade_turn_{tag}_{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(root.with_extension("private-state"));
     std::fs::create_dir_all(&root).unwrap();
     for args in [
-        ["init"].as_slice(),
+        ["init", "-b", "main"].as_slice(),
         ["config", "user.email", "koolade@test.local"].as_slice(),
         ["config", "user.name", "Kool.ad/e Test"].as_slice(),
     ] {
@@ -214,8 +141,20 @@ fn inputs_for(tag: &str, msg: &str) -> (TurnInputs, std::path::PathBuf) {
             .current_dir(&root)
             .output();
     }
-    let mut st = PlannerState::load(&root).unwrap();
+    seed_published_documentation(&root);
+    let store = private_store(&root);
+    let mut st = PlannerState::load_with_store(&root, &store).unwrap();
     st.bootstrap_missing().unwrap();
+    // Seed only the private proposal workspace. Published documents remain
+    // pinned from code Git; this local copy supplies a baseline for proposed
+    // edits until they pass the publication gate.
+    crate::artifacts::product_bootstrap::bootstrap_product_with_store(
+        &root,
+        &st.planning_store,
+        "Fixture",
+    )
+    .unwrap();
+    st = PlannerState::load_with_store(&root, &st.planning_store).unwrap();
     let inputs = TurnInputs {
         state: st,
         user_message: msg.into(),
@@ -225,6 +164,87 @@ fn inputs_for(tag: &str, msg: &str) -> (TurnInputs, std::path::PathBuf) {
     };
     let dir = inputs.state.repo_root.clone();
     (inputs, dir)
+}
+
+fn private_store(root: &std::path::Path) -> crate::artifacts::planning_store::PlanningStore {
+    let project_id = crate::core::state::test_support::project_id_for_code_root(root);
+    crate::artifacts::planning_store::PlanningStore::for_code_repository(
+        project_id,
+        root.with_extension("private-state"),
+        root,
+    )
+}
+
+fn load_test_state(root: &std::path::Path) -> PlannerState {
+    PlannerState::load_with_store(root, &private_store(root)).unwrap()
+}
+
+fn seed_published_documentation(root: &std::path::Path) {
+    let docs = root.join("docs/koolade");
+    let files = [
+        (
+            "AGENTS.md",
+            "# Navigation\n\n- [architecture/](./architecture/AGENTS.md) - Architecture.\n- [features/](./features/AGENTS.md) - Features.\n- [product/](./product/AGENTS.md) - Product.\n",
+        ),
+        (
+            "architecture/AGENTS.md",
+            "# Navigation\n\n- [architecture-and-constraints.md](./architecture-and-constraints.md) - Architecture constraints.\n- [quality-and-acceptance.md](./quality-and-acceptance.md) - Quality requirements.\n",
+        ),
+        (
+            "architecture/architecture-and-constraints.md",
+            "# Architecture and Constraints\n\nTests use local application storage.\n",
+        ),
+        (
+            "architecture/quality-and-acceptance.md",
+            "# Quality and Acceptance\n\nChecks are recorded.\n",
+        ),
+        (
+            "features/AGENTS.md",
+            "# Navigation\n\n- [task-intents.md](./task-intents.md) - Private task intent model.\n",
+        ),
+        (
+            "features/task-intents.md",
+            "# Task intents\n\nTasks remain private local state.\n",
+        ),
+        (
+            "product/AGENTS.md",
+            "# Navigation\n\n- [overview.md](./overview.md) - Product overview.\n- [users-and-outcomes.md](./users-and-outcomes.md) - Users and outcomes.\n- [current-capabilities.md](./current-capabilities.md) - Capabilities.\n- [decisions.md](./decisions.md) - Decisions.\n- [quality-and-acceptance.md](./quality-and-acceptance.md) - Quality.\n- [architecture-and-constraints.md](./architecture-and-constraints.md) - Architecture.\n",
+        ),
+        (
+            "product/overview.md",
+            "# Overview\n\nKool.ad/e plans projects.\n",
+        ),
+        (
+            "product/users-and-outcomes.md",
+            "# Users and Outcomes\n\nOperators plan work.\n",
+        ),
+        (
+            "product/current-capabilities.md",
+            "# Current Capabilities\n\nPlanning conversations are supported.\n",
+        ),
+        (
+            "product/decisions.md",
+            "# Decisions\n\nNo fixture decisions.\n",
+        ),
+        (
+            "product/quality-and-acceptance.md",
+            "# Quality and Acceptance\n\nTests check outcomes.\n",
+        ),
+        (
+            "product/architecture-and-constraints.md",
+            "# Architecture and Constraints\n\nProject docs are published in code Git.\n",
+        ),
+    ];
+    for (relative, content) in files {
+        let path = docs.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, content).unwrap();
+    }
+    git_stdout(root, &["add", "docs/koolade"]);
+    git_stdout(
+        root,
+        &["commit", "-qm", "publish synthetic test documentation"],
+    );
 }
 
 fn drain(controller: &TurnController) -> TurnOutcome {
@@ -302,8 +322,12 @@ impl AiHarness for StreamingHarness {
 /// Byte-level pre/post evidence for zero-mutation proofs: the three
 /// planning artifacts plus the commit-chain length.
 fn law_evidence(root: &std::path::Path) -> (Vec<u8>, Vec<u8>, Vec<u8>, usize) {
-    let read =
-        |rel: &str| std::fs::read(root.join(rel)).unwrap_or_else(|e| panic!("reading {rel}: {e}"));
+    let store = private_store(root);
+    let read = |rel: &str| {
+        store
+            .read(rel)
+            .unwrap_or_else(|e| panic!("reading private {rel}: {e}"))
+    };
     let out = std::process::Command::new("git")
         .arg("-C")
         .arg(root)
@@ -317,19 +341,14 @@ fn law_evidence(root: &std::path::Path) -> (Vec<u8>, Vec<u8>, Vec<u8>, usize) {
         .parse()
         .expect("commit count parses");
     (
-        read(crate::artifacts::SPEC_FILE),
-        item_files_evidence(root),
-        read(crate::artifacts::CONFIG_FILE),
+        git_stdout(root, &["show", "HEAD:docs/koolade/product/overview.md"]).into_bytes(),
+        item_files_evidence(&store),
+        read(crate::artifacts::planning_store::paths::PROJECT_CONFIG),
         count,
     )
 }
 
-fn item_files_evidence(root: &std::path::Path) -> Vec<u8> {
-    let store = crate::artifacts::planning_store::PlanningStore::new(
-        uuid::Uuid::nil(),
-        root,
-        crate::artifacts::planning_store::StoreMode::ManagedLocal,
-    );
+fn item_files_evidence(store: &crate::artifacts::planning_store::PlanningStore) -> Vec<u8> {
     let mut files = Vec::new();
     for directory in [
         crate::artifacts::planning_store::paths::ITEM_CONTENTS,
@@ -410,7 +429,6 @@ mod persona_boundary;
 /// Pipeline battery for operator persona binding and uncached reloads.
 mod persona_injection;
 mod prompt_bounds;
-mod routing;
 mod validation;
 
 mod read_only;

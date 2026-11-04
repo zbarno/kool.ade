@@ -1,28 +1,16 @@
-//! Process-wide planning-writer gate.
+//! Process-wide gate for local operational-state writers.
 //!
-//! Koolade connects ONE repository per process at a time, so a single gate is
-//! sufficient. Every subsystem that writes planning artifacts OR checkpoints
-//! the planning repository — interview/task turns, reconciliation,
-//! investigations, board decisions, feature approval, imports, MCP and
-//! settings edits, and a worker's best-effort publication fast-forward —
-//! must hold this gate for its ENTIRE file-write-plus-git-commit
-//! transaction. Holding the gate only around the git call would let a second
-//! writer rewrite artifacts underneath the first mid-commit.
+//! Koolade connects one project per process at a time, so a single gate is
+//! sufficient. Writers hold it for the complete local transaction, including
+//! interview/task turns, reconciliation, investigations, board decisions,
+//! feature approval, imports, MCP, settings, and worker publication state.
 //!
 //! Serialization alone does not prevent lost updates: writers snapshot state
-//! at start and would happily commit stale bytes over a rival's newer commit.
-//! Each writer therefore ALSO runs its drift guard (see
-//! [`crate::core::state::PlannerState`] / `drift_report`) inside the gate and
-//! refuses to apply a stale snapshot instead of clobbering.
+//! at start and could overwrite a rival's newer local revision. Each writer
+//! also checks its drift baseline inside the gate and refuses stale writes.
 //!
-//! Deliberate exemptions:
-//! - Task-story STREAMING (`task_generation` publish progress) writes
-//!   uncommitted working files across many model rounds; it never touches the
-//!   git index and its final commit goes through the gated apply path, so it
-//!   opts out of holding the gate across multi-hour generations.
-//! - Cross-process actors (humans, editors, a second Koolade instance) cannot
-//!   hold this in-process gate; per-writer drift baselines plus explicit-path
-//!   commits are the defense against them.
+//! Cross-process actors use durable per-store locks and record revisions; the
+//! in-process gate covers coordinated writers in this application instance.
 
 use std::sync::{Mutex, MutexGuard};
 

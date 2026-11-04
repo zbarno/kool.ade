@@ -96,7 +96,6 @@ pub(super) fn ready_store(task_id: &str) -> SetupTaskStoreV1 {
                     scan_generation: 1,
                     state: SetupTaskStateV1::ReadyToFix,
                 }],
-                legacy_source_id: None,
                 superseded_by: Vec::new(),
             },
         )]),

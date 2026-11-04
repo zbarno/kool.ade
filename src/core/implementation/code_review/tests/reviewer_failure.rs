@@ -61,6 +61,7 @@ fn reviewer_crash_cannot_create_a_passing_receipt() {
         "base": "main",
         "base_commit": base_sha,
         "task_repository": task_repo,
+        "task_repository_kind": "clone",
         "status": "verifying",
         "detail": "verification complete",
         "pr_url": null,

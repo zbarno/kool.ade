@@ -21,6 +21,8 @@ fn board_approval_adds_a_task_generation_card_that_generates_stories_on_request(
     // External dependencies: none. Setup cost: one temporary Git project plus egui frames.
     let _shield = crate::core::gitops::test_support::shield("feature-approval");
     let (mut app, root, review) = setup();
+    ensure_test_plan_adopted(&mut app, "CHG-004");
+    record_test_plan_author(&mut app, "CHG-004");
     assert!(
         app.task_offer().is_none(),
         "reproduce stale review hiding the old offer"
@@ -37,7 +39,7 @@ fn board_approval_adds_a_task_generation_card_that_generates_stories_on_request(
     assert!(text_position(&details, "Request changes").is_some());
     click_text(&mut app, &ctx, "Confirm this plan");
     assert_current_test_plan_confirmation(&mut app, "CHG-004");
-    record_test_plan_review(
+    record_test_plan_review_and_merge(
         &mut app,
         "CHG-004",
         crate::core::lifecycle::GateDecision::Approved,
@@ -94,7 +96,7 @@ fn board_approval_adds_a_task_generation_card_that_generates_stories_on_request(
 /// Production boundary: plan review completion persists its task action even
 /// when confirmation did not originate from the board. Pure UI tests cannot
 /// verify the durable planning-work store. External dependency: local Git;
-/// setup cost: one isolated temporary planning repository.
+/// setup cost: one isolated temporary code repository and private local store.
 #[test]
 fn reviewed_plan_without_board_handler_gets_durable_generation_card() {
     let _shield = crate::core::gitops::test_support::shield("generation-reconcile");
@@ -140,13 +142,15 @@ fn reviewed_plan_without_board_handler_gets_durable_generation_card() {
 fn resolved_conversation_has_action_and_failed_review_retains_approval_for_retry() {
     let _shield = crate::core::gitops::test_support::shield("feature-approval-retry");
     let (mut app, root, _) = setup();
+    ensure_test_plan_adopted(&mut app, "CHG-004");
+    record_test_plan_author(&mut app, "CHG-004");
     let (h, _) = harness(vec!["malformed response".into()]);
     app.task_harness = Some(h);
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     click_text(&mut app, &ctx, "Review specification");
     click_text(&mut app, &ctx, "Confirm this plan");
-    record_test_plan_review(
+    record_test_plan_review_and_merge(
         &mut app,
         "CHG-004",
         crate::core::lifecycle::GateDecision::Approved,

@@ -12,6 +12,8 @@ mod available;
 pub(super) mod board;
 #[path = "feature_approval/continuation.rs"]
 mod continuation;
+#[path = "feature_approval/publication.rs"]
+pub(crate) mod publication;
 #[path = "feature_approval/readiness.rs"]
 pub(super) mod readiness;
 #[path = "feature_approval/request_changes.rs"]

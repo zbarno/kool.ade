@@ -17,7 +17,7 @@ impl KooladeApp {
             if !recovery.is_empty() {
                 if project.queue_lock.is_none() {
                     match crate::core::implementation_queue::Queue::acquire(
-                        &project.state.repo_root,
+                        &project.state.planning_store.root,
                     ) {
                         Ok(lock) => project.queue_lock = Some(lock),
                         Err(_) => return,
@@ -25,7 +25,7 @@ impl KooladeApp {
                 }
                 let previous = project.queue.clone();
                 project.queue.schedule_recovery(&recovery);
-                if let Err(error) = project.queue.save(&project.state.repo_root) {
+                if let Err(error) = project.queue.save(&project.state.planning_store.root) {
                     project.queue = previous;
                     project.queue.last_error =
                         format!("Cannot persist automatic recovery: {error}");
@@ -80,7 +80,9 @@ impl KooladeApp {
                 project.queue.running = true;
             }
             if project.queue_lock.is_none() {
-                match crate::core::implementation_queue::Queue::acquire(&project.state.repo_root) {
+                match crate::core::implementation_queue::Queue::acquire(
+                    &project.state.planning_store.root,
+                ) {
                     Ok(lock) => project.queue_lock = Some(lock),
                     Err(error) => {
                         project.queue.running = false;
@@ -108,7 +110,7 @@ impl KooladeApp {
             let mut recovered = false;
             for ticket in interrupted {
                 if let Some(detail) = crate::core::implementation::latest_external_blocker(
-                    &project.state.repo_root,
+                    &project.state.planning_store.root,
                     &ticket,
                 ) {
                     project.queue.in_flight.remove(&ticket);
@@ -126,7 +128,8 @@ impl KooladeApp {
                     ));
                 }
             }
-            if recovered && let Err(error) = project.queue.save(&project.state.repo_root) {
+            if recovered && let Err(error) = project.queue.save(&project.state.planning_store.root)
+            {
                 project.queue.last_error =
                     format!("Cannot persist recovered task checkpoints: {error}");
                 return;
@@ -200,7 +203,7 @@ impl KooladeApp {
                 &ready,
                 crate::persistence::harness_settings::current_unix_ms(),
                 capacity_full,
-            ) && let Err(error) = project.queue.save(&project.state.repo_root)
+            ) && let Err(error) = project.queue.save(&project.state.planning_store.root)
             {
                 project.queue = previous_queue;
                 project.queue.last_error = format!("Cannot persist fair task queue age: {error}");
@@ -236,7 +239,7 @@ impl KooladeApp {
                         .collect::<Vec<_>>();
                     stall_notes.extend(approval_notes);
                     project.queue.last_error = stall_notes.join("\n");
-                    if let Err(error) = project.queue.save(&project.state.repo_root) {
+                    if let Err(error) = project.queue.save(&project.state.planning_store.root) {
                         project.queue.last_error = error.to_string();
                     }
                     project.queue_lock = None;
@@ -255,7 +258,7 @@ impl KooladeApp {
                     project.queue.last_error = reasons.join("\n");
                     if project.active_implementations.is_empty() {
                         project.queue.running = false;
-                        let _ = project.queue.save(&project.state.repo_root);
+                        let _ = project.queue.save(&project.state.planning_store.root);
                         project.queue_lock = None;
                     }
                     None
@@ -274,7 +277,7 @@ impl KooladeApp {
                     crate::core::implementation::Failure::other(p.queue.last_error.clone()),
                 );
                 if p.queue_lock.is_some() {
-                    let _ = p.queue.save(&p.state.repo_root);
+                    let _ = p.queue.save(&p.state.planning_store.root);
                 }
             }
         }

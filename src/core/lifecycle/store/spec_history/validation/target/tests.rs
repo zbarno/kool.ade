@@ -11,17 +11,19 @@ fn fixture() -> (
 ) {
     let root = std::env::temp_dir().join(format!("feature-target-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
+    let code = root.join("code");
+    std::fs::create_dir_all(&code).unwrap();
     std::process::Command::new("git")
         .args(["init", "-q"])
-        .current_dir(&root)
+        .current_dir(&code)
         .status()
         .unwrap();
-    crate::artifacts::migration::bootstrap_product(&root, "Target Adoption Fixture").unwrap();
+    crate::core::state::test_support::seed_published_product_document(&code).unwrap();
     let store = Box::leak(Box::new(
-        crate::artifacts::planning_store::PlanningStore::new(
+        crate::artifacts::planning_store::PlanningStore::for_code_repository(
             uuid::Uuid::new_v4(),
-            &root,
-            crate::artifacts::planning_store::StoreMode::ManagedLocal,
+            root.join("private-state"),
+            &code,
         ),
     ));
     let feature_uid = uuid::Uuid::new_v4().hyphenated().to_string();

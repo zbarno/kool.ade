@@ -203,7 +203,6 @@ mod tests {
                 publication_status:
                     crate::artifacts::task_docs::ExecutionPublicationStatus::Planned,
                 pull_requests: Vec::new(),
-                legacy_linkage: false,
                 revision: 1,
             }),
             metadata_error: None,

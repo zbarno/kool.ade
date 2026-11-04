@@ -3,6 +3,7 @@ use super::*;
 #[test]
 fn merged_commit_is_inspected_before_product_truth_is_checkpointed() {
     let (repo, state, candidate, feature) = fixture();
+    let code_head = git(&repo, &["rev-parse", "HEAD"]);
     let merged = candidate.tasks[0].merged_commit.as_deref().unwrap();
     let updated_feature = feature.replace(
         "**Status:** Implementing",
@@ -23,17 +24,22 @@ fn merged_commit_is_inspected_before_product_truth_is_checkpointed() {
     )
     .unwrap();
     assert!(updated.active_feature.is_none());
-    assert!(
-        std::fs::read_to_string(repo.join("planning/product/current-capabilities.md"))
-            .unwrap()
-            .contains("Search queries persist across restart")
-    );
-    assert!(
-        std::fs::read_to_string(repo.join("planning/changes/CHG-001-search/specification.md"))
-            .unwrap()
-            .contains(merged)
-    );
-    assert_eq!(git(&repo, &["rev-list", "--count", "HEAD"]), "6");
+    let product = crate::artifacts::product_docs::current_document(
+        &updated.planning_store,
+        "product:current-capabilities",
+    )
+    .unwrap()
+    .unwrap();
+    assert!(product.contains("Search queries persist across restart"));
+    let feature = crate::artifacts::product_docs::current_document(
+        &updated.planning_store,
+        "feature:CHG-001",
+    )
+    .unwrap()
+    .unwrap();
+    assert!(feature.contains(merged));
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), code_head);
+    assert!(!repo.join("planning").exists());
     let _ = std::fs::remove_dir_all(repo);
 }
 
@@ -42,7 +48,7 @@ fn merged_commit_is_inspected_before_product_truth_is_checkpointed() {
 /// against is stale by the time the apply section is reached.
 struct DriftHarness {
     envelope: String,
-    feature_path: std::path::PathBuf,
+    store: crate::artifacts::planning_store::PlanningStore,
 }
 impl AiHarness for DriftHarness {
     fn label(&self) -> String {
@@ -55,13 +61,29 @@ impl AiHarness for DriftHarness {
         &self,
         _request: &PlanningRequest,
     ) -> Result<HarnessOutcome, crate::error::AppError> {
-        let text = std::fs::read_to_string(&self.feature_path)
-            .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
-        std::fs::write(
-            &self.feature_path,
-            format!("{text}\n\nExternal edit arrived.\n"),
+        let current = crate::core::apply::load_current(&self.store)
+            .map_err(|error| crate::error::AppError::Other(error.to_string()))?
+            .ok_or_else(|| crate::error::AppError::Other("fixture proposal is missing".into()))?;
+        let feature = current
+            .changes
+            .iter()
+            .find(|change| change.document_id == "feature:CHG-001")
+            .ok_or_else(|| crate::error::AppError::Other("fixture feature is missing".into()))?
+            .content
+            .clone();
+        let update = format!("{feature}\n\nExternal edit arrived.\n");
+        let changes = crate::core::apply::private_document_draft_changes(
+            &self.store,
+            &[("feature:CHG-001".to_owned(), update)],
         )
-        .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
+        .map_err(|error| crate::error::AppError::Other(error.to_string()))?;
+        let revision = self
+            .store
+            .revision()
+            .map_err(|error| crate::error::AppError::Other(error.to_string()))?;
+        self.store
+            .transaction_with_revision(&changes, Some(&revision))
+            .map_err(|error| crate::error::AppError::Other(error.to_string()))?;
         Ok(HarnessOutcome {
             final_text: self.envelope.clone(),
             envelope: None,
@@ -73,6 +95,7 @@ impl AiHarness for DriftHarness {
 #[test]
 fn drifting_project_is_deferred_not_clobbered() {
     let (repo, state, candidate, feature) = fixture();
+    let code_head = git(&repo, &["rev-parse", "HEAD"]);
     let merged = candidate.tasks[0].merged_commit.as_ref().unwrap().clone();
     let updated_feature = feature.replace(
         "**Status:** Implementing",
@@ -83,10 +106,9 @@ fn drifting_project_is_deferred_not_clobbered() {
     let response = serde_json::json!({"schema_version":2,"assistant_message":"Reconciled persisted search queries.",
             "document_updates":[{"document_id":"feature:CHG-001","content":updated_feature,"status":"implemented"},
                 {"document_id":"product:current-capabilities","content":product}]}).to_string();
-    let feature_path = repo.join("planning/changes/CHG-001-search/specification.md");
     let harness = DriftHarness {
         envelope: response,
-        feature_path: feature_path.clone(),
+        store: state.planning_store.clone(),
     };
     let (progress, _events) = mpsc::channel();
     let error = run_with_settle_window(
@@ -104,15 +126,17 @@ fn drifting_project_is_deferred_not_clobbered() {
         "expected a benign deferral, got: {message}"
     );
     // Reconciliation must not have checkpointed or applied anything.
-    assert_eq!(git(&repo, &["rev-list", "--count", "HEAD"]), "5");
+    assert_eq!(git(&repo, &["rev-parse", "HEAD"]), code_head);
     assert!(
-        !std::fs::read_to_string(repo.join("planning/product/current-capabilities.md"))
+        !crate::artifacts::product_docs::render_product(&state.planning_store)
+            .unwrap()
             .unwrap()
             .contains("persist across restart")
     );
     // The external edit survives untouched by the deferral.
     assert!(
-        std::fs::read_to_string(feature_path)
+        crate::artifacts::product_docs::current_document(&state.planning_store, "feature:CHG-001",)
+            .unwrap()
             .unwrap()
             .contains("External edit arrived.")
     );
@@ -121,13 +145,19 @@ fn drifting_project_is_deferred_not_clobbered() {
 
 #[test]
 fn candidate_waits_for_every_task_to_reach_merged_state() {
-    let (repo, _, expected, _) = fixture();
+    let (repo, fixture_state, expected, _) = fixture();
+    let mut state = PlannerState::load_with_store(&repo, &fixture_state.planning_store).unwrap();
+    let contract_path = state
+        .planning_store
+        .root
+        .join("planning/tasks/search/contract.json");
+    std::fs::create_dir_all(contract_path.parent().unwrap()).unwrap();
     std::fs::write(
-        repo.join("planning/tasks/search/contract.json"),
+        contract_path,
         serde_json::to_string_pretty(&expected.contract).unwrap(),
     )
     .unwrap();
-    let mut workflow = crate::artifacts::task_docs::load_workflow(&repo).unwrap();
+    let mut workflow = crate::artifacts::task_docs::load_workflow(&state.planning_store).unwrap();
     workflow.task_batches.push(workflow::TaskBatchRef {
         identity: None,
         feature: "Search".into(),
@@ -135,22 +165,26 @@ fn candidate_waits_for_every_task_to_reach_merged_state() {
         count: 1,
         created_at_ms: 0,
     });
-    crate::artifacts::task_docs::save_workflow(&repo, &workflow).unwrap();
-    let storage = crate::core::implementation::state_dir(&repo, &expected.tasks[0].ticket).unwrap();
+    crate::artifacts::task_docs::save_workflow(&state.planning_store, &workflow).unwrap();
+    state = PlannerState::load_with_store(&repo, &state.planning_store).unwrap();
+    let storage = crate::core::implementation::state_dir(
+        &state.planning_store.root,
+        &expected.tasks[0].ticket,
+    )
+    .unwrap();
     std::fs::create_dir_all(&storage).unwrap();
     let mut record = expected.tasks[0].clone();
     record.status = ImplementationStatus::AwaitingReview;
     std::fs::write(
         storage.join("state.json"),
-        serde_json::to_vec(&record).unwrap(),
+        crate::core::implementation::serialize_state(&record).unwrap(),
     )
     .unwrap();
-    let state = PlannerState::load(&repo).unwrap();
     assert!(candidate(&state).unwrap().is_none());
     record.status = ImplementationStatus::Completed;
     std::fs::write(
         storage.join("state.json"),
-        serde_json::to_vec(&record).unwrap(),
+        crate::core::implementation::serialize_state(&record).unwrap(),
     )
     .unwrap();
     let selected = candidate(&state).unwrap().unwrap();
@@ -162,11 +196,13 @@ fn candidate_waits_for_every_task_to_reach_merged_state() {
 #[test]
 fn conflicting_merged_behavior_creates_review_card_without_rewriting_product() {
     let (repo, state, candidate, feature) = fixture();
-    let before = std::fs::read(repo.join("planning/product/current-capabilities.md")).unwrap();
+    let before = crate::artifacts::product_docs::render_product(&state.planning_store)
+        .unwrap()
+        .unwrap();
     let response = serde_json::json!({"schema_version":2,"assistant_message":"Merged code differs from approved intent.",
             "document_updates":[{"document_id":"feature:CHG-001","content":feature.replace("**Status:** Implementing", "**Status:** Reconciliation"),"status":"reconciliation"}],
             "open_items_added":[{"kind":"Assumption","priority":"Normal","authority":"Review",
-                "category":"General","assigned_to":"All","feature_id":"CHG-001",
+                "category":"General","feature_id":"CHG-001",
                 "question":"Reconciliation found a material mismatch in saved-query retention; approve a corrective task?",
                 "reason":"Merged behavior omits the approved retention rule.",
                 "recommendation":"Implement the approved retention rule before changing product truth.",
@@ -181,7 +217,9 @@ fn conflicting_merged_behavior_creates_review_card_without_rewriting_product() {
     )
     .unwrap();
     assert_eq!(
-        std::fs::read(repo.join("planning/product/current-capabilities.md")).unwrap(),
+        crate::artifacts::product_docs::render_product(&state.planning_store)
+            .unwrap()
+            .unwrap(),
         before
     );
     assert_eq!(updated.items.len(), 1);

@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::OpenItem;
 
 #[test]
 fn a_stranded_last_reply_drains_before_the_instance_is_replaced() {
@@ -37,7 +38,6 @@ fn a_stranded_last_reply_drains_before_the_instance_is_replaced() {
             crate::domain::Priority::High,
             crate::domain::ItemKind::Question,
             "General".into(),
-            Some("All".into()),
             question.into(),
             "Storage choice".into(),
         )];

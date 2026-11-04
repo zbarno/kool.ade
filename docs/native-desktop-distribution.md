@@ -29,14 +29,11 @@ provider credentials or a Docker daemon. Provider discovery must use bounded
 direct process launch and explicit executable selection; shell startup hooks
 are not run.
 
-On first launch, the setup-task store is copied from the legacy
-`~/.koolade-packet/machine-setup` location into the platform user-data
-directory and verified with a migration receipt. The new app keeps a shared
-lock on the legacy store while it is running, so an older build cannot write a
-second copy concurrently. If an older build changes that store while the new
-app is closed, the next new-app access fails closed and preserves both copies
-for recovery instead of silently choosing one. A real update and duplicate
-install check is still required.
+On first launch, setup records are initialized only in the current
+installation-local data store. The application does not import or dual-read
+older machine-setup locations. A real clean-install and restart check is still
+required; no human-operated validation has been recorded for the greenfield
+cutover.
 
 ## Release gate
 

@@ -1,5 +1,6 @@
 use super::*;
 use crate::artifacts::IMPORTS_DIR;
+use std::path::{Path, PathBuf};
 
 fn sandbox(prefix: &str) -> (PathBuf, PathBuf) {
     let root = std::env::temp_dir().join(format!("koolade_imp_{prefix}_{}", std::process::id()));
@@ -20,13 +21,23 @@ fn sandbox(prefix: &str) -> (PathBuf, PathBuf) {
     (root, outside)
 }
 
+fn local_store(root: &Path) -> PlanningStore {
+    PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        root.join("private-app-data"),
+        crate::artifacts::planning_store::StoreMode::ManagedLocal,
+    )
+}
+
 #[test]
 fn textual_source_gets_companion_and_collision_numbering() {
     let (repo, out) = sandbox("txt");
+    let store = local_store(&out);
     let src = out.join("notes.txt");
     std::fs::write(&src, "hello\nworld\n").unwrap();
-    let r1 = import_into_repo(&repo, &src).unwrap();
-    let r2 = import_into_repo(&repo, &src).unwrap();
+    let expected = store.revision().unwrap();
+    let (r1, expected) = import_into_store(&store, &src, &expected).unwrap();
+    let (r2, _) = import_into_store(&store, &src, &expected).unwrap();
     assert_eq!(r1.stored_name, "notes.txt");
     assert_eq!(r1.companion.as_deref(), Some("notes-txt.md"));
     assert!(r1.note.is_none());
@@ -38,9 +49,10 @@ fn textual_source_gets_companion_and_collision_numbering() {
 #[test]
 fn markdown_sources_do_not_duplicate_themselves() {
     let (repo, out) = sandbox("md");
+    let store = local_store(&out);
     let src = out.join("design.md");
     std::fs::write(&src, "# hi\n").unwrap();
-    let r = import_into_repo(&repo, &src).unwrap();
+    let (r, _) = import_into_store(&store, &src, &store.revision().unwrap()).unwrap();
     assert_eq!(r.stored_name, "design.md");
     assert!(r.companion.is_none());
     let _ = std::fs::remove_dir_all(&repo);
@@ -50,21 +62,7 @@ fn markdown_sources_do_not_duplicate_themselves() {
 #[test]
 fn managed_imports_write_to_the_selected_store_and_return_its_revision() {
     let (repo, out) = sandbox("managed");
-    let store_root = out.join("planning-store");
-    std::fs::create_dir_all(&store_root).unwrap();
-    assert!(
-        std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(&store_root)
-            .status()
-            .unwrap()
-            .success()
-    );
-    let store = PlanningStore::new(
-        uuid::Uuid::new_v4(),
-        &store_root,
-        crate::artifacts::planning_store::StoreMode::ManagedLocal,
-    );
+    let store = local_store(&out);
     let source = out.join("notes.txt");
     std::fs::write(&source, "managed evidence").unwrap();
     let expected = store.revision().unwrap();
@@ -89,22 +87,8 @@ fn managed_imports_write_to_the_selected_store_and_return_its_revision() {
 #[test]
 fn refuses_self_copy_from_a_separate_managed_planning_store() {
     let (repo, out) = sandbox("managed_self");
-    let store_root = out.join("planning-store");
-    std::fs::create_dir_all(&store_root).unwrap();
-    assert!(
-        std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(&store_root)
-            .status()
-            .unwrap()
-            .success()
-    );
-    let store = PlanningStore::new(
-        uuid::Uuid::new_v4(),
-        &store_root,
-        crate::artifacts::planning_store::StoreMode::ManagedLocal,
-    );
-    let imports = store_root.join("planning/imports");
+    let store = local_store(&out);
+    let imports = store.root.join("planning/imports");
     std::fs::create_dir_all(&imports).unwrap();
     let source = imports.join("existing.txt");
     std::fs::write(&source, "already in the planning store").unwrap();
@@ -121,9 +105,10 @@ fn refuses_self_copy_from_a_separate_managed_planning_store() {
 #[test]
 fn binary_sources_are_flagged_but_kept() {
     let (repo, out) = sandbox("bin");
+    let store = local_store(&out);
     let src = out.join("diagram.bin");
     std::fs::write(&src, vec![0xFF, 0xD8, 0x00]).unwrap();
-    let r = import_into_repo(&repo, &src).unwrap();
+    let (r, _) = import_into_store(&store, &src, &store.revision().unwrap()).unwrap();
     assert_eq!(r.stored_name, "diagram.bin");
     assert!(r.note.is_some());
     let _ = std::fs::remove_dir_all(&repo);
@@ -131,28 +116,33 @@ fn binary_sources_are_flagged_but_kept() {
 }
 
 #[test]
-fn refuses_self_copy_into_same_repo() {
+fn refuses_self_copy_from_the_local_store() {
     let (repo, out) = sandbox("self");
-    std::fs::create_dir_all(repo.join(IMPORTS_DIR)).unwrap();
-    let inside = repo.join(IMPORTS_DIR).join("a.txt");
+    let store = local_store(&out);
+    let imports = store.root.join("planning/imports");
+    std::fs::create_dir_all(&imports).unwrap();
+    let inside = imports.join("a.txt");
     std::fs::write(&inside, "x").unwrap();
-    assert!(import_into_repo(&repo, &inside).is_err());
+    assert!(import_into_store(&store, &inside, &store.revision().unwrap()).is_err());
     let _ = std::fs::remove_dir_all(&repo);
     let _ = std::fs::remove_dir_all(&out);
 }
 
 #[test]
 fn list_reports_sorted_entries() {
-    let (repo, _out) = sandbox("list");
-    std::fs::create_dir_all(repo.join(IMPORTS_DIR)).unwrap();
-    std::fs::write(repo.join(IMPORTS_DIR).join("b.md"), "bb").unwrap();
-    std::fs::write(repo.join(IMPORTS_DIR).join("a.md"), "a").unwrap();
-    let v = list_imports(&repo);
+    let (repo, out) = sandbox("list");
+    let store = local_store(&out);
+    let imports = store.root.join("planning/imports");
+    std::fs::create_dir_all(&imports).unwrap();
+    std::fs::write(imports.join("b.md"), "bb").unwrap();
+    std::fs::write(imports.join("a.md"), "a").unwrap();
+    let v = list_imports_in_store(&store).unwrap();
     assert_eq!(
         v.iter().map(|e| e.name.clone()).collect::<Vec<_>>(),
         vec!["a.md", "b.md"]
     );
     let _ = std::fs::remove_dir_all(&repo);
+    let _ = std::fs::remove_dir_all(&out);
 }
 
 #[cfg(unix)]
@@ -161,12 +151,9 @@ fn list_rejects_symlinked_import_parent_and_entries() {
     use std::os::unix::fs::symlink;
 
     let (repo, outside) = sandbox("list_symlink");
-    let store = PlanningStore::new(
-        uuid::Uuid::new_v4(),
-        &repo,
-        crate::artifacts::planning_store::StoreMode::ManagedLocal,
-    );
-    let imports = repo.join("planning/imports");
+    let store = local_store(&outside);
+    let imports = store.root.join("planning/imports");
+    std::fs::create_dir_all(&store.root).unwrap();
     std::fs::create_dir_all(&imports).unwrap();
     std::fs::write(outside.join("secret.txt"), "outside data").unwrap();
     symlink(outside.join("secret.txt"), imports.join("linked.txt")).unwrap();
@@ -176,8 +163,8 @@ fn list_rejects_symlinked_import_parent_and_entries() {
         Err(StoreError::InvalidPath(_))
     ));
     std::fs::remove_file(imports.join("linked.txt")).unwrap();
-    std::fs::remove_dir_all(repo.join("planning")).unwrap();
-    symlink(&outside, repo.join("planning")).unwrap();
+    std::fs::remove_dir_all(store.root.join("planning")).unwrap();
+    symlink(&repo, store.root.join("planning")).unwrap();
     assert!(matches!(
         list_imports_in_store(&store),
         Err(StoreError::InvalidPath(_))

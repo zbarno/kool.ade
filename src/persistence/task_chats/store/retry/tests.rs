@@ -217,7 +217,7 @@ fn retry_claim_takeover_fences_old_owner_renewal_and_final_write() {
         .unwrap()
         .expect("first window claims the retry");
 
-    let (mut stored, _) = super::super::read_stored(slug).unwrap();
+    let mut stored = super::super::read_stored(slug).unwrap();
     let old_claim = stored
         .other_histories
         .get_mut(key)

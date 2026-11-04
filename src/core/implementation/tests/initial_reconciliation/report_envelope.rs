@@ -69,7 +69,7 @@ fn environment_blocker_stops_without_consuming_report_retries() {
     assert_eq!(failure.recovery, RecoveryDisposition::UserAction);
     assert!(failure.message.contains("Waiting for environment"));
     assert!(failure.message.contains("Seed the npm cache"));
-    let saved = load(&sandbox.repo, &sandbox.ticket).unwrap();
+    let saved = load(&sandbox.planning_store.root, &sandbox.ticket).unwrap();
     assert!(saved.task_repository.is_dir());
     assert!(
         !sandbox

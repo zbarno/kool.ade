@@ -53,7 +53,6 @@ fn stale_awaiting_verification_attempt_is_closed_when_engine_changes() {
             scan_generation: 1,
             state: SetupTaskStateV1::AwaitingVerification,
         }],
-        legacy_source_id: None,
         superseded_by: Vec::new(),
     };
     let mut store = SetupTaskStoreV1 {

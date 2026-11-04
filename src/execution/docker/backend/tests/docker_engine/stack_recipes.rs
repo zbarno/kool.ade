@@ -54,7 +54,7 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
         let (docker, _) = backend(&fixture, workspace.clone());
         let planning = PlanningStore::new(
             uuid::Uuid::parse_str(&workspace.project_id).unwrap(),
-            &fixture.root,
+            fixture.operational_state_root(),
             crate::artifacts::planning_store::StoreMode::ManagedLocal,
         );
         let runtime_store = ProjectRuntimeStore::new(&planning);

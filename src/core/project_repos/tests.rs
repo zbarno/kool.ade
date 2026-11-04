@@ -78,16 +78,14 @@ fn unmanaged_planning_roots_do_not_resolve_arbitrary_local_checkouts() {
     let code = root.join("api-checkout");
     std::fs::create_dir_all(&planning).unwrap();
     std::fs::create_dir_all(&code).unwrap();
-    for repository in [&planning, &code] {
-        assert!(
-            std::process::Command::new("git")
-                .args(["init", "-q"])
-                .current_dir(repository)
-                .status()
-                .unwrap()
-                .success()
-        );
-    }
+    assert!(
+        std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&code)
+            .status()
+            .unwrap()
+            .success()
+    );
     let manifest = ProjectManifest {
         repositories: vec![Repository {
             id: "api".into(),

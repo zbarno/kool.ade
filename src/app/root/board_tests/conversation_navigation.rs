@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::OpenItem;
 
 #[test]
 fn board_is_primary_and_legacy_main_chat_is_hidden() {
@@ -168,7 +169,6 @@ fn narrow_workspace_does_not_restore_main_chat_for_questions() {
             crate::domain::Priority::Normal,
             crate::domain::ItemKind::Question,
             "General".into(),
-            Some("All".into()),
             "Which authentication provider?".into(),
             "Choose how users sign in.".into(),
         )];

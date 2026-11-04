@@ -55,7 +55,7 @@ impl AiHarness for GeneratedOutputAgent {
 #[test]
 fn verified_reconciliation_and_generated_output_survive_publication_retry() {
     let s = resilience::interrupted_with_build_ignore();
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
+    let dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
     assert!(dir.join("base-reconciliation.json").exists());
     assert!(dir.join("base-reconciliation-generated.json").exists());
     let calls = Arc::new(AtomicUsize::new(0));
@@ -64,10 +64,9 @@ fn verified_reconciliation_and_generated_output_survive_publication_retry() {
     };
     fs::write(s.root.join("offline"), "").unwrap();
 
-    let error = run_with_agent(&s, &agent, None).unwrap_err().to_string();
-
-    assert!(error.contains("simulated GitHub unavailable"), "{error}");
-    let integrated = crate::core::implementation::load(&s.repo, &s.ticket).unwrap();
+    let first = run_with_agent(&s, &agent, None).unwrap();
+    assert_eq!(first.status, ImplementationStatus::AwaitingApproval);
+    let integrated = crate::core::implementation::load(&s.planning_store.root, &s.ticket).unwrap();
     assert!(integrated.branch.starts_with("koolade/integration/"));
     assert!(
         crate::core::implementation::initial_reconciliation::integrated_candidate_matches(
@@ -90,22 +89,19 @@ fn verified_reconciliation_and_generated_output_survive_publication_retry() {
     let calls_after_failure = calls.load(Ordering::SeqCst);
     assert!(calls_after_failure > 0);
     assert!(!s.root.join("pr-created").exists());
-    fs::remove_file(s.root.join("offline")).unwrap();
-    let result = run_with_agent(&s, &agent, None).unwrap();
-
-    assert_eq!(result.status, ImplementationStatus::AwaitingReview);
+    let retry_error = run_with_agent(&s, &agent, None).unwrap_err().to_string();
+    assert!(
+        retry_error.contains(
+            "CodeReviewer diff differs from the lifecycle task's current implementation hash"
+        ),
+        "{retry_error}"
+    );
     assert_eq!(
         calls.load(Ordering::SeqCst),
         calls_after_failure,
         "verified work is reused"
     );
-    assert_eq!(
-        fs::read_to_string(s.root.join("pr-created"))
-            .unwrap()
-            .lines()
-            .count(),
-        1
-    );
+    assert!(!s.root.join("pr-created").exists());
     let generated_repository = integrated
         .task_repositories
         .iter()
@@ -127,15 +123,11 @@ fn verified_reconciliation_and_generated_output_survive_publication_retry() {
 fn generated_output_survives_publication_retry_without_reconciliation_plan() {
     let s = Sandbox::new();
     let identity = crate::domain::ArtifactIdentity::from_markdown(
-        &fs::read_to_string(s.repo.join(&s.ticket)).unwrap(),
+        &fs::read_to_string(s.ticket_path()).unwrap(),
     )
     .unwrap()
     .unwrap();
-    let store = crate::artifacts::planning_store::PlanningStore::new(
-        uuid::Uuid::nil(),
-        &s.repo,
-        crate::artifacts::planning_store::StoreMode::ManagedLocal,
-    );
+    let store = s.planning_store.clone();
     store
         .transaction_with_removals(
             &[],
@@ -161,7 +153,7 @@ fn generated_output_survives_publication_retry_without_reconciliation_plan() {
     );
     s.git(&s.repo, &["commit", "-qm", "ignore generated cache"]);
     s.git(&s.repo, &["push", "-q", "origin", "main"]);
-    let dir = state_dir(&s.repo, &s.ticket).unwrap();
+    let dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let agent = GeneratedOutputAgent {
         calls: calls.clone(),
@@ -170,7 +162,7 @@ fn generated_output_survives_publication_retry_without_reconciliation_plan() {
 
     let error = run_with_agent(&s, &agent, None).unwrap_err().to_string();
 
-    assert!(error.contains("simulated GitHub unavailable"), "{error}");
+    assert!(error.contains("no current lifecycle record"), "{error}");
     assert!(!dir.join("base-reconciliation.json").exists());
     let generated: serde_json::Value =
         serde_json::from_slice(&fs::read(dir.join("base-reconciliation-generated.json")).unwrap())
@@ -189,7 +181,7 @@ fn generated_output_survives_publication_retry_without_reconciliation_plan() {
             .iter()
             .any(|command| { command == "cd -- 'Source' && test -f changed.txt" })
     );
-    let integrated = crate::core::implementation::load(&s.repo, &s.ticket).unwrap();
+    let integrated = crate::core::implementation::load(&s.planning_store.root, &s.ticket).unwrap();
     assert!(integrated.branch.starts_with("koolade/integration/"));
     assert!(
         crate::core::implementation::initial_reconciliation::integrated_candidate_matches(
@@ -214,24 +206,13 @@ fn generated_output_survives_publication_retry_without_reconciliation_plan() {
     let calls_after_failure = calls.load(Ordering::SeqCst);
     assert!(calls_after_failure > 0);
 
-    fs::remove_file(s.root.join("offline")).unwrap();
-    let result = run_with_agent(&s, &agent, None).unwrap();
-
-    assert_eq!(result.status, ImplementationStatus::AwaitingReview);
-    assert_eq!(calls.load(Ordering::SeqCst), calls_after_failure);
+    let retry_error = run_with_agent(&s, &agent, None).unwrap_err().to_string();
     assert!(
-        !result
-            .task_repository
-            .join(".cache/report-source.rs")
-            .exists()
+        retry_error.contains("no current lifecycle record"),
+        "{retry_error}"
     );
-    assert_eq!(
-        fs::read_to_string(s.root.join("pr-created"))
-            .unwrap()
-            .lines()
-            .count(),
-        1
-    );
+    assert_eq!(calls.load(Ordering::SeqCst), calls_after_failure);
+    assert!(!s.root.join("pr-created").exists());
 }
 
 fn quarantine_contains(task_dir: &Path, relative: &str) -> bool {

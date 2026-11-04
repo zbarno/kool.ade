@@ -46,7 +46,6 @@ mod tests {
                     crate::domain::Priority::Normal,
                     ItemKind::Question,
                     "General".into(),
-                    None,
                     format!("Question {n} {}", "q".repeat(200)),
                     "why".into(),
                 );

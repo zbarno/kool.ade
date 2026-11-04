@@ -42,22 +42,26 @@ fn git_fixture(prefix: &str, local_name: Option<&str>) -> PathBuf {
         );
     };
     git(&["init", "-q", "-b", "main"]);
+    git(&["branch", "-M", "main"]);
     if let Some(name) = local_name {
         git(&["config", "user.name", name]);
     }
     git(&["config", "user.email", "developer@example.test"]);
-    let dest = crate::artifacts::repo_artifact(&p, CONFIG_FILE);
+    let dest = config_path(&p);
     std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
     std::fs::write(
-            &dest,
-            "# Planner Configuration\n\n## Current User\nName: Bob\nGroups: Ops\n\n## Stakeholders\n\n### QA\n(no owner configured)\n",
-        )
-        .unwrap();
+        &dest,
+        "# Planner Configuration\n\n## Current User\nName: Bob\n",
+    )
+    .unwrap();
     p
 }
 
 fn config_path(p: &Path) -> PathBuf {
-    crate::artifacts::repo_artifact(p, CONFIG_FILE)
+    let project_id = test_support::project_id_for_code_root(p);
+    crate::persistence::project_dir(&project_id.hyphenated().to_string())
+        .join("operational-state")
+        .join(crate::artifacts::planning_store::paths::PROJECT_CONFIG)
 }
 
 #[test]
@@ -65,15 +69,15 @@ fn bootstraps_skeletons_and_reports_creations() {
     let repo = mkrepo("boot");
     let mut st = PlannerState::load(&repo).unwrap();
     let created = st.bootstrap_missing().unwrap();
-    assert!(created.contains(&crate::artifacts::SPEC_FILE.to_owned()));
-    assert!(!created.contains(&OPEN_ITEMS_FILE.to_owned()));
-    assert!(!repo.join(OPEN_ITEMS_FILE).exists());
-    assert!(created.contains(&CONFIG_FILE.to_owned()));
+    assert!(created.is_empty());
     assert!(
-        !created.contains(&crate::core::project_repos::PROJECT_FILE.to_owned()),
-        "the test fixture explicitly seeds its required repository manifest"
+        st.planning_store
+            .root
+            .join(crate::artifacts::planning_store::paths::PROJECT_CONFIG)
+            .exists()
     );
-    assert_eq!(created.len(), 9);
+    assert!(!repo.join(OPEN_ITEMS_FILE).exists());
+    assert!(!repo.join(".koolade-packet").exists());
     // Second call creates nothing.
     let created2 = st.bootstrap_missing().unwrap();
     assert!(created2.is_empty());
@@ -87,8 +91,13 @@ fn concurrent_bootstrap_rejects_the_stale_initializer_without_overwriting() {
     let mut stale = PlannerState::load(&repo).unwrap();
 
     first.bootstrap_missing().unwrap();
-    let before_config =
-        std::fs::read(repo.join(crate::artifacts::layout::store::PROJECT_CONFIG)).unwrap();
+    let before_config = std::fs::read(
+        first
+            .planning_store
+            .root
+            .join(crate::artifacts::planning_store::paths::PROJECT_CONFIG),
+    )
+    .unwrap();
     let error = stale.bootstrap_missing().unwrap_err();
 
     assert!(error.to_string().contains("planning store changed"));
@@ -98,7 +107,13 @@ fn concurrent_bootstrap_rejects_the_stale_initializer_without_overwriting() {
             .exists()
     );
     assert_eq!(
-        std::fs::read(repo.join(crate::artifacts::layout::store::PROJECT_CONFIG)).unwrap(),
+        std::fs::read(
+            first
+                .planning_store
+                .root
+                .join(crate::artifacts::planning_store::paths::PROJECT_CONFIG)
+        )
+        .unwrap(),
         before_config
     );
     let _ = std::fs::remove_dir_all(&repo);
@@ -108,16 +123,15 @@ fn concurrent_bootstrap_rejects_the_stale_initializer_without_overwriting() {
 mod managed_store;
 
 #[test]
-fn seeded_config_contains_starter_categories() {
+fn seeded_config_contains_only_local_user_identity() {
     let repo = mkrepo("seed");
     let mut st = PlannerState::load(&repo).unwrap();
-    st.config.user = Some(CurrentUser::new("Sam", vec!["QA".into()]));
+    st.config.user = Some(CurrentUser::new("Sam"));
     st.bootstrap_missing().unwrap();
-    let text =
-        crate::artifacts::read_utf8_lossy(&crate::artifacts::repo_artifact(&repo, CONFIG_FILE))
-            .unwrap();
+    let text = crate::artifacts::read_utf8_lossy(&config_path(&repo)).unwrap();
     assert!(text.contains("Name: Sam"));
-    assert!(text.contains("### InfoSec"));
+    assert!(!text.contains("Owner:"));
+    assert!(!text.contains("Stakeholder"));
     let _ = std::fs::remove_dir_all(&repo);
 }
 
@@ -136,7 +150,6 @@ fn git_identity_seats_operator_and_survives_resync_descent() {
     assert_eq!(st.identity.source, IdentitySource::GitUserName);
     assert_eq!(st.effective_user().name, "Alex Developer");
     // …while config still contributes the groups git cannot express.
-    assert_eq!(st.effective_user().groups, vec!["Ops".to_string()]);
     // …and never writes to the config block on the way.
     assert_eq!(
         std::fs::read_to_string(config_path(&repo)).unwrap(),
@@ -161,7 +174,6 @@ fn git_identity_seats_operator_and_survives_resync_descent() {
     st.resync().unwrap();
     assert_eq!(st.identity.user.name, "developer@example.test");
     assert_eq!(st.identity.source, IdentitySource::GitUserEmail);
-    assert_eq!(st.effective_user().groups, vec!["Ops".to_string()]);
 
     // Unset email too → the config block finally seats the operator.
     let _ = std::process::Command::new("git")
@@ -173,7 +185,6 @@ fn git_identity_seats_operator_and_survives_resync_descent() {
     st.resync().unwrap();
     assert_eq!(st.identity.user.name, "Carol");
     assert_eq!(st.identity.source, IdentitySource::ConfigBlock);
-    assert_eq!(st.effective_user().groups, vec!["Ops".to_string()]);
 
     // An external edit of the local git user.name takes effect on the
     // next resync — derivation is not one-shot at connect.
@@ -193,20 +204,18 @@ fn git_identity_seats_operator_and_survives_resync_descent() {
 /// identity probes and simply falls to config-else-guest.
 #[test]
 fn gitless_tree_degrades_to_config_block_then_guest() {
+    let _shield = gitops::test_support::shield("state-gitless");
     // Config block only (no .git anywhere) → ConfigBlock seat.
     let repo = mkrepo_without_git("cfgonly");
-    let config = crate::artifacts::layout::ArtifactLayout::new(&repo).config_root();
-    std::fs::create_dir_all(&config).unwrap();
+    let config = config_path(&repo);
+    std::fs::create_dir_all(config.parent().unwrap()).unwrap();
     std::fs::write(
-            config.join("project.md"),
-            "# Planner Configuration\n\n## Current User\nName: Dana\nGroups: Ops, Platform\n\n## Stakeholders\n\n### QA\n(no owner configured)\n",
-        ).unwrap();
+        &config,
+        "# Planner Configuration\n\n## Current User\nName: Dana\n",
+    )
+    .unwrap();
     let st = PlannerState::load(&repo).unwrap();
     assert_eq!(st.identity.user.name, "Dana");
-    assert_eq!(
-        st.identity.user.groups,
-        vec!["Ops".to_string(), "Platform".to_string()]
-    );
     assert_eq!(st.identity.source, IdentitySource::ConfigBlock);
     assert_eq!(st.effective_user().name, "Dana");
     let _ = std::fs::remove_dir_all(&repo);
@@ -237,7 +246,6 @@ fn email_fallback_seats_when_name_unset_and_ambient_shadowed() {
     assert_eq!(st.identity.user.name, "eve@example.org");
     assert_eq!(st.identity.source, IdentitySource::GitUserEmail);
     assert_eq!(st.effective_user().name, "eve@example.org");
-    assert_eq!(st.effective_user().groups, vec!["Ops".to_string()]);
     let _ = std::fs::remove_dir_all(&repo);
 }
 

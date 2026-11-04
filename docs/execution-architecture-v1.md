@@ -23,7 +23,7 @@ flowchart LR
 ```
 
 The controller owns user approval, provider CLI and model credentials,
-dependency/resource authorization, task claims, branch selection, Git
+dependency/resource authorization, local execution leases, branch selection, Git
 commits, pushes, and pull requests. Provider model transport remains on the
 controller. The worker executes only approved repository tools and QA
 commands; it never receives provider credentials, task-claim authority, Git

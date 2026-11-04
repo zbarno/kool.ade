@@ -20,8 +20,7 @@ pub(super) fn task_record_matches_previous(
             && task_state.destination_branch == linkage.destination_branch
             && task_state.implementation_branch == linkage.implementation_branch
             && task_state.publication_status == linkage.publication_status
-            && task_state.pull_requests == linkage.pull_requests
-            || task_state.legacy_linkage))
+            && task_state.pull_requests == linkage.pull_requests))
         || (task_state.status == WorkStatus::Todo
             && task_state.execution_status.is_none()
             && task_state.revision == 1)

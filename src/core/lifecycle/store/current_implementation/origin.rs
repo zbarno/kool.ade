@@ -20,8 +20,8 @@ pub(in crate::core::lifecycle::store) fn validate(
                 "target repository is not registered with a provider remote".into(),
             )
         })?;
-    let mut origin_command = crate::core::planning_sync::validated_git_command(repository)
-        .map_err(|_| {
+    let mut origin_command =
+        crate::core::git_commands::validated_git_command(repository).map_err(|_| {
             StoreError::MalformedState("target repository origin is unavailable".into())
         })?;
     let origin = origin_command

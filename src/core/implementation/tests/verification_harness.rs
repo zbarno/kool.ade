@@ -74,7 +74,7 @@ fn verification_receives_corrections_even_after_report_retries_are_used() {
     let calls = Arc::new(AtomicUsize::new(0));
     let state = s.run("repair_mixed", calls.clone()).unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 5);
-    assert_eq!(state.status, ImplementationStatus::AwaitingReview);
+    assert_eq!(state.status, ImplementationStatus::AwaitingApproval);
     assert!(state.task_repository.join("missing-file").exists());
 }
 
@@ -184,7 +184,7 @@ fn harness_failures_retry_and_saved_diagnostics_survive_lost_final_message() {
         let s = Sandbox::new();
         let calls = Arc::new(AtomicUsize::new(0));
         let result = s.run(mode, calls.clone()).unwrap();
-        assert_eq!(result.status, ImplementationStatus::AwaitingReview);
+        assert_eq!(result.status, ImplementationStatus::AwaitingApproval);
         assert_eq!(calls.load(Ordering::SeqCst), expected);
         assert_eq!(
             s.git(

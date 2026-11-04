@@ -4,7 +4,7 @@ use super::*;
 /// resume, Docker verification, and its publication controller. Docker must be
 /// the rootless Engine provisioned by the CI E2E job.
 #[test]
-fn cancelled_task_clone_resumes_through_docker_verification_and_pr_preparation() {
+fn cancelled_task_clone_resumes_through_docker_verification_and_waits_for_pr_authorization() {
     if std::env::var("KOOLADE_DOCKER_BACKEND_INTEGRATION").as_deref() != Ok("1") {
         eprintln!("skipping task lifecycle Docker E2E; set KOOLADE_DOCKER_BACKEND_INTEGRATION=1");
         return;
@@ -25,7 +25,7 @@ fn cancelled_task_clone_resumes_through_docker_verification_and_pr_preparation()
     let user_status = s.git(&s.repo, &["status", "--porcelain"]);
     assert!(s.run("cancel", calls.clone()).is_err());
 
-    let interrupted = load(&s.repo, &s.ticket).expect("cancelled state is durable");
+    let interrupted = load(&s.planning_store.root, &s.ticket).expect("cancelled state is durable");
     assert_eq!(interrupted.status, ImplementationStatus::Interrupted);
     assert_eq!(interrupted.task_repository_kind, TaskRepositoryKind::Clone);
     assert_eq!(
@@ -46,16 +46,13 @@ fn cancelled_task_clone_resumes_through_docker_verification_and_pr_preparation()
             .task_repositories
             .contains(&interrupted.task_repository)
     );
-    assert_eq!(resumed.status, ImplementationStatus::AwaitingReview);
-    assert_eq!(
-        resumed.pr_url.as_deref(),
-        Some("https://github.com/fixture/repo/pull/1")
-    );
+    assert_eq!(resumed.status, ImplementationStatus::AwaitingApproval);
+    assert!(resumed.pr_url.is_none());
     assert_eq!(
         fs::read_to_string(resumed.task_repository.join("implemented.txt")).unwrap(),
         "implemented\n"
     );
-    assert!(s.root.join("pr-created").exists());
+    assert!(!s.root.join("pr-created").exists());
     assert_eq!(s.git(&s.repo, &["status", "--porcelain"]), user_status);
     assert_eq!(
         fs::read_to_string(s.repo.join("implemented.txt")).unwrap_or_default(),

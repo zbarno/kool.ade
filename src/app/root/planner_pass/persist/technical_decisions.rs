@@ -52,18 +52,12 @@ pub(super) fn prepare(
     }
 
     let updated = snapshot(store, &feature_id, &identity, &markdown)?;
-    let path =
-        crate::artifacts::product_docs::document_path(store, &format!("feature:{feature_id}"))
-            .map_err(|error| error.to_string())?;
-    let relative = path
-        .strip_prefix(&store.root)
-        .map_err(|_| "feature specification is outside the planning store".to_owned())?
-        .to_string_lossy()
-        .into_owned();
-    Ok((
-        vec![(relative, markdown.into_bytes())],
-        updated.spec_revision,
-    ))
+    let changes = crate::core::apply::private_document_draft_changes(
+        store,
+        &[(format!("feature:{feature_id}"), markdown)],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok((changes, updated.spec_revision))
 }
 
 fn snapshot(

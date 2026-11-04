@@ -7,7 +7,7 @@ fn add_product_proposal(project: &mut crate::app::session::Project) {
         OpportunityStore, OpportunityTargetKindV1, OpportunityTargetV1, OpportunityV1,
     };
     let store = &project.state.planning_store;
-    crate::artifacts::migration::bootstrap_product_with_store(
+    crate::artifacts::product_bootstrap::bootstrap_product_with_store(
         &project.state.repo_root,
         store,
         "Synthetic plan review fixture",

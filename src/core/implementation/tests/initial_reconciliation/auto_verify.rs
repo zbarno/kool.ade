@@ -10,29 +10,18 @@ fn clean_disjoint_merge_with_an_unexpected_head_is_not_auto_accepted() {
     sandbox.git(&sandbox.repo, &["commit", "-qm", "local change"]);
     let local = sandbox.git(&sandbox.repo, &["rev-parse", "HEAD"]);
 
-    let task_key = crate::core::implementation::key_for_ticket(&sandbox.ticket);
-    let worktree = sandbox
-        .repo
-        .parent()
-        .unwrap()
-        .join(".koolade-worktrees")
-        .join(crate::persistence::project_slug(
-            &sandbox.repo.canonicalize().unwrap(),
-        ))
-        .join(&task_key);
-    fs::create_dir_all(worktree.parent().unwrap()).unwrap();
-    let branch = format!("koolade/{task_key}");
-    sandbox.git(
+    let common = sandbox.git(&sandbox.repo, &["merge-base", &local, &remote]);
+    super::save_clone_reconciliation_state(
+        &sandbox,
+        &sandbox.ticket,
         &sandbox.repo,
-        &[
-            "worktree",
-            "add",
-            "-b",
-            &branch,
-            worktree.to_str().unwrap(),
-            &remote,
-        ],
+        "main",
+        &local,
+        &remote,
+        &common,
     );
+    let worktree = super::merge_recovery::current_task_repository(&sandbox);
+    sandbox.git(&worktree, &["merge", "--abort"]);
     fs::write(worktree.join("unplanned.txt"), "preserved extra commit\n").unwrap();
     sandbox.git(&worktree, &["add", "unplanned.txt"]);
     sandbox.git(
@@ -43,17 +32,6 @@ fn clean_disjoint_merge_with_an_unexpected_head_is_not_auto_accepted() {
         &worktree,
         &["merge", "--no-ff", "--no-commit", "--no-edit", &local],
     );
-    let common = sandbox.git(&sandbox.repo, &["merge-base", &local, &remote]);
-    super::save_legacy_reconciliation_state(
-        &sandbox,
-        &sandbox.ticket,
-        &worktree,
-        "main",
-        &local,
-        &remote,
-        &common,
-    );
-
     let agent = ReconcilingAgent {
         calls: Arc::new(AtomicUsize::new(0)),
         conflict: false,

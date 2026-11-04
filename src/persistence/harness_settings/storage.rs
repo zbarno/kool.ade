@@ -53,9 +53,7 @@ pub fn load() -> (HarnessSettings, Option<String>) {
 pub(super) fn load_from(path: &Path) -> (HarnessSettings, Option<String>) {
     match std::fs::read(path) {
         Ok(bytes) => match serde_json::from_slice::<HarnessSettings>(&bytes) {
-            Ok(mut settings) if (1..=CURRENT_SCHEMA_VERSION).contains(&settings.schema_version) => {
-                let original_schema_version = settings.schema_version;
-                super::migration::apply(&mut settings, original_schema_version);
+            Ok(mut settings) if settings.schema_version == CURRENT_SCHEMA_VERSION => {
                 if settings
                     .bootstrap_provider
                     .as_deref()
@@ -63,7 +61,6 @@ pub(super) fn load_from(path: &Path) -> (HarnessSettings, Option<String>) {
                 {
                     settings.bootstrap_provider = None;
                 }
-                settings.schema_version = CURRENT_SCHEMA_VERSION;
                 (settings, None)
             }
             Ok(settings) => (

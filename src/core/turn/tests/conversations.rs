@@ -3,6 +3,17 @@ use super::*;
 #[path = "conversations/retry_identity.rs"]
 mod retry_identity;
 
+fn private_draft_documents(
+    store: &crate::artifacts::planning_store::PlanningStore,
+) -> Vec<(String, String)> {
+    crate::core::apply::load_current(store)
+        .unwrap()
+        .into_iter()
+        .flat_map(|draft| draft.changes)
+        .map(|change| (change.document_id, change.content))
+        .collect()
+}
+
 #[test]
 fn quiescence_longer_than_one_poll_interval_is_not_a_vanished_turn() {
     // Regression: `drain` used to declare the turn vanished on the first
@@ -44,45 +55,6 @@ fn quiescence_longer_than_one_poll_interval_is_not_a_vanished_turn() {
 }
 
 #[test]
-fn synthetic_ownership_conversation_keeps_identity_after_numbering_and_reload() {
-    let (mut inputs, dir) = inputs_for("synthetic_conversation", "Who can assign this?");
-    inputs.state.items.push(crate::domain::OpenItem::new(
-        "CLR-001".into(),
-        crate::domain::Priority::High,
-        crate::domain::ItemKind::Question,
-        "Security".into(),
-        None,
-        "Audit policy?".into(),
-        "Controls access".into(),
-    ));
-    let gaps = crate::core::ownership::synthesize_missing_owners(
-        &inputs.state.items,
-        &inputs.state.config.stakeholders,
-    );
-    let key = gaps[0].conversation_key().to_string();
-    let body =
-        crate::core::task_conversation::prompt(&inputs.state, &key, &inputs.user_message, &[])
-            .unwrap();
-    assert!(body.contains("has no assigned stakeholder"));
-    let c = TurnController::start_scoped(inputs, Box::new(ScriptedHarness {
-            canned: None,
-            raw: Some(serde_json::json!({"schema_version":1, "assistant_message":"Use Assign ownership to choose the responsible group.",
-                "open_items_added":[], "open_items_updated":[], "open_items_resolved":[]}).to_string()),
-        }), Some(key.clone()));
-    assert!(matches!(drain(&c), TurnOutcome::Applied { .. }));
-    let state = PlannerState::load(&dir).unwrap();
-    let gap = state
-        .items
-        .iter()
-        .find(|item| item.is_ownership_gap())
-        .unwrap();
-    assert!(gap.id.starts_with("CLR-"));
-    assert_eq!(gap.conversation_key(), key);
-    assert!(crate::core::task_conversation::prompt(&state, &key, "Continue", &[]).is_ok());
-    let _ = std::fs::remove_dir_all(dir);
-}
-
-#[test]
 fn focused_conversation_persists_resolution_without_other_chat_context() {
     let (mut inputs, dir) = inputs_for("task_conversation", "Use corporate SSO");
     let item = crate::domain::OpenItem::new(
@@ -90,7 +62,6 @@ fn focused_conversation_persists_resolution_without_other_chat_context() {
         crate::domain::Priority::High,
         crate::domain::ItemKind::Question,
         "General".into(),
-        Some("All".into()),
         "Which authentication provider?".into(),
         "Controls access".into(),
     );
@@ -120,13 +91,15 @@ fn focused_conversation_persists_resolution_without_other_chat_context() {
         TurnOutcome::Applied { .. } => {}
         other => panic!("expected applied task reply: {other:?}"),
     }
-    let loaded = PlannerState::load(&dir).unwrap();
+    let loaded = load_test_state(&dir);
     assert!(!loaded.items.iter().any(|i| i.id == "CLR-001"));
     assert!(
-        loaded
-            .spec_text
-            .unwrap()
-            .contains("Authentication uses corporate SSO.")
+        private_draft_documents(&loaded.planning_store)
+            .iter()
+            .any(|(id, content)| {
+                id == "product:overview" && content.contains("Authentication uses corporate SSO.")
+            }),
+        "the answer remains a private proposal until reviewed publication"
     );
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -139,12 +112,9 @@ fn task_conversation_cannot_dispatch_a_project_application_action() {
         crate::domain::Priority::High,
         crate::domain::ItemKind::Question,
         "General".into(),
-        Some("All".into()),
         "Which export format should the task use?".into(),
         "The task needs a user decision.".into(),
     ));
-    git_stdout(&dir, &["add", "."]);
-    git_stdout(&dir, &["commit", "-m", "Seed planning artifacts"]);
     let before = law_evidence(&dir);
     let response = serde_json::json!({
         "schema_version": 1,
@@ -232,7 +202,7 @@ fn task_link_cannot_retarget_a_reused_feature_id() {
         other => panic!("stale task must be stopped before generation: {other:?}"),
     }
 
-    let stored = PlannerState::load(&dir).unwrap();
+    let stored = load_test_state(&dir);
     assert!(stored.active_features.is_empty());
     assert_ne!(replacement_identity.uid, old_uid);
     let _ = std::fs::remove_dir_all(&dir);

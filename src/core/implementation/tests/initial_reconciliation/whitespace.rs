@@ -28,7 +28,7 @@ fn new_resolution_whitespace_is_rejected_before_baseline_commit() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("New whitespace defects"), "{error}");
-    let state = load(&s.repo, &s.ticket).unwrap();
+    let state = load(&s.planning_store.root, &s.ticket).unwrap();
     assert_eq!(state.status, ImplementationStatus::Blocked);
     assert!(!state.task_repository.join("implemented.txt").exists());
     assert!(
@@ -50,7 +50,7 @@ fn moved_whitespace_inherited_from_both_sources_is_preserved() {
     s.git(&s.repo, &["commit", "-qm", "retain local whitespace"]);
     let contents = "local implementation \nshared implementation \n";
     let result = run_with_agent(&s, &Resolution(contents), None).unwrap();
-    assert_eq!(result.status, ImplementationStatus::AwaitingReview);
+    assert_eq!(result.status, ImplementationStatus::AwaitingApproval);
     assert_eq!(
         fs::read_to_string(result.task_repository.join("shared.txt")).unwrap(),
         contents
@@ -73,7 +73,7 @@ fn inherited_defect_counts_cannot_exempt_extra_resolution_duplicates() {
         .to_string();
     assert!(error.contains("New whitespace defects"), "{error}");
     assert!(
-        !load(&s.repo, &s.ticket)
+        !load(&s.planning_store.root, &s.ticket)
             .unwrap()
             .task_repository
             .join("implemented.txt")

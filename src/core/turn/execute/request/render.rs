@@ -21,7 +21,7 @@ pub(super) fn planner_conversation(
         })
         .unwrap_or_else(|| format!("planning:{workspace_uid}"));
     prompt_catalog::render(&RoleInputV1 {
-        role: PromptRole::PlannerConversationV5,
+        role: PromptRole::PlannerConversationV6,
         workspace_uid,
         feature_uid,
         task_uid: None,
@@ -31,7 +31,7 @@ pub(super) fn planner_conversation(
         decision_refs: vec![],
         evidence_manifest: vec![],
         execution_policy_ref: "planning-turn/application-validation-only/v1".into(),
-        output_schema_version: PromptRole::PlannerConversationV5
+        output_schema_version: PromptRole::PlannerConversationV6
             .output_schema_version()
             .into(),
         payload: RolePayloadV1::PlannerTurn {

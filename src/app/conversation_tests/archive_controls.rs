@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::OpenItem;
 
 #[test]
 fn all_resolved_planning_kinds_have_persistent_archive_controls() {
@@ -6,7 +7,6 @@ fn all_resolved_planning_kinds_have_persistent_archive_controls() {
         crate::domain::ItemKind::Question,
         crate::domain::ItemKind::Assumption,
         crate::domain::ItemKind::Ambiguity,
-        crate::domain::ItemKind::Ownership,
     ] {
         let mut app = fixture();
         let Screen::Connected(p) = &mut app.screen else {
@@ -18,7 +18,6 @@ fn all_resolved_planning_kinds_have_persistent_archive_controls() {
             crate::domain::Priority::Normal,
             kind,
             "General".into(),
-            None,
             "Resolved planning work".into(),
             "Answered".into(),
         );

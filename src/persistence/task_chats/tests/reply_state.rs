@@ -59,7 +59,7 @@ fn uid_task_reply_claim_blocks_a_second_window_from_saving_a_new_answer() {
     let slug = dir.to_str().unwrap();
     let aliases = [("feature:F1".into(), "feature-uid".into())];
     let mut first = TaskChats::default();
-    first.bind_conversation_identities(&aliases, &[]).unwrap();
+    first.bind_conversation_identities(&aliases).unwrap();
     first.ensure_loaded(slug);
     let user = ChatMessage::new(ChatRole::User, "Keep the current behavior", None);
     first
@@ -67,7 +67,7 @@ fn uid_task_reply_claim_blocks_a_second_window_from_saving_a_new_answer() {
         .unwrap();
 
     let mut second = TaskChats::default();
-    second.bind_conversation_identities(&aliases, &[]).unwrap();
+    second.bind_conversation_identities(&aliases).unwrap();
     second.ensure_loaded(slug);
     assert!(
         second

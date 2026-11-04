@@ -103,6 +103,11 @@ fn successful_manager_update_runs_planner_and_persists_follow_up_readiness() {
         project.active_turn.is_some(),
         "Manager reconciliation turn did not start"
     );
+    assert_eq!(
+        project.state.baseline_planning_revision,
+        project.state.planning_store.revision().unwrap(),
+        "Manager reconciliation starts from the revision that includes the saved answer"
+    );
     // The Manager override is consumed by the answer turn; install a distinct
     // override before its completion dispatches the follow-up Planner.
     let context = egui::Context::default();
@@ -113,6 +118,7 @@ fn successful_manager_update_runs_planner_and_persists_follow_up_readiness() {
         // Background activity may request a harness during the Manager turn.
         // Reinstall the scripted Planner route immediately before each tick so
         // the completion handoff always receives it.
+        super::suppress_background_manager(&mut app);
         app.task_harness = Some(Box::new(FixedClarificationHarness(planner_output.clone())));
         app.tick(0.016, &context);
         let completed = match &app.screen {

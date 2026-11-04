@@ -12,7 +12,7 @@ pub(super) struct QueueStart {
 
 pub(super) fn begin(project: &mut Project, ticket: &str, manual: bool) -> Option<QueueStart> {
     if project.queue_lock.is_none() {
-        match Queue::acquire(&project.state.repo_root) {
+        match Queue::acquire(&project.state.planning_store.root) {
             Ok(lock) => project.queue_lock = Some(lock),
             Err(error) => {
                 project.queue.last_error = error.to_string();
@@ -46,7 +46,7 @@ pub(super) fn begin(project: &mut Project, ticket: &str, manual: bool) -> Option
     project.queue.in_flight.insert(ticket.to_owned());
     project.queue.blocked.remove(ticket);
     project.queue.last_error.clear();
-    if let Err(error) = project.queue.save(&project.state.repo_root) {
+    if let Err(error) = project.queue.save(&project.state.planning_store.root) {
         project.queue = previous_queue;
         project.queue.running = false;
         project.queue.last_error = error.to_string();

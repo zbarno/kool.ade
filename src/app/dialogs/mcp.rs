@@ -7,7 +7,7 @@ pub const MCP_EXAMPLE_HINT: &str = "{\n  \"mcpServers\": {\n    \"example\": { \
 /// F-18 / D-16: the in-app editor for the operator-local `mcp.json`.
 /// Raw free-text, mono-spaced; write/remove is owned by
 /// `crate::artifacts::mcp_io`. The file lives in the workspace's local
-/// state directory — it is never committed to code or planning repos,
+/// state directory — it is never committed to code or synchronized,
 pub struct DlgMcp {
     /// The editor buffer; bound to the file's live bytes on open.
     pub text: String,
@@ -26,18 +26,7 @@ pub struct DlgMcp {
 impl DlgMcp {
     /// Seed the card from the LIVE file bytes (first-run: absent → hint).
     pub fn from_project(proj: &Project) -> Self {
-        let Some(dir) = proj.state.mcp_config_dir() else {
-            return Self {
-                text: String::new(),
-                hint_active: true,
-                feedback: None,
-                warning: Some(
-                    "MCP configuration is stored per managed workspace; associate this checkout with a workspace to configure servers."
-                        .into(),
-                ),
-                keep_open: true,
-            };
-        };
+        let dir = proj.state.mcp_config_dir();
         let st = crate::artifacts::mcp_io::load_state(&dir);
         let (text, hint_active, warning) = Self::dialog_fields(&st);
         Self {
@@ -82,13 +71,7 @@ impl DlgMcp {
         &mut self,
         proj: &mut Project,
     ) -> Result<crate::artifacts::mcp_io::McpApplyReceipt, AppError> {
-        let dir = proj
-            .state
-            .mcp_config_dir()
-            .ok_or_else(|| AppError::InvalidRepo {
-                path: "mcp.json".into(),
-                detail: "no managed workspace is associated with this checkout".into(),
-            })?;
+        let dir = proj.state.mcp_config_dir();
         crate::artifacts::mcp_io::apply_save(&dir, &self.text)
     }
 }

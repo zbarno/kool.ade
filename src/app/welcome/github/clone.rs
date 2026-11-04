@@ -78,7 +78,7 @@ pub(crate) fn perform_clone_at_with_pre_publish(
         return Err(error);
     }
 
-    if let Err(error) = crate::core::managed_workspace::publish_directory(&scratch, &destination) {
+    if let Err(error) = crate::core::fs_publish::directory(&scratch, &destination) {
         remove_owned_scratch(&scratch);
         return Err(AppError::Io {
             op: "place cloned repository".into(),

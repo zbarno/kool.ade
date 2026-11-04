@@ -15,10 +15,10 @@ use crate::core::lifecycle::{
 fn reverse_lookup_resolves_decision_task_review_qa_and_pr_state_references() {
     use crate::core::lifecycle::{QaExecutionStateV1, QaExecutionStatusV1, TaskPhase, TaskRecord};
     let fixture = Fixture::new();
-    let store = fixture.store();
+    let mut store = fixture.store();
     let (feature_uid, _) = traceability::support::reviewed_feature(
         &fixture,
-        &store,
+        &mut store,
         "CHG-111",
         "CHG-111-reverse-refs",
     );

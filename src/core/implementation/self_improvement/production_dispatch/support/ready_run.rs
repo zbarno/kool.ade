@@ -26,8 +26,12 @@ pub(crate) fn build_ready_run(temp: &Path, repo: &Path, source_sha: &str) -> Rea
         temp.join("planning"),
         StoreMode::ManagedLocal,
     );
-    crate::artifacts::migration::bootstrap_product_with_store(repo, &planning, "Auth fixture")
-        .unwrap();
+    crate::artifacts::product_bootstrap::bootstrap_product_with_store(
+        repo,
+        &planning,
+        "Auth fixture",
+    )
+    .unwrap();
     let workspace_uid = planning.project_id.hyphenated().to_string();
     let repository_uid =
         crate::core::project_repos::stable_uid(&workspace_uid, "repository", "root");

@@ -16,7 +16,7 @@ pub struct ExecutionEnvironmentSettings {
     #[serde(default)]
     pub task_targets: BTreeMap<String, TargetPreference>,
     /// Task capabilities are operator-local constraints and never enter the
-    /// planning repository. Unsupported capabilities fail closed at routing.
+    /// local project store. Unsupported capabilities fail closed at routing.
     #[serde(default)]
     pub task_capabilities: BTreeMap<String, TaskCapabilityRequirements>,
     /// Optional per-task allowlist for targets selected by Auto or explicitly.

@@ -1,5 +1,6 @@
 use super::*;
 use crate::app::root::board_tests::text_contains;
+use crate::domain::OpenItem;
 
 #[test]
 fn task_conversation_preserves_the_open_question_and_earlier_context() {
@@ -11,7 +12,6 @@ fn task_conversation_preserves_the_open_question_and_earlier_context() {
             crate::domain::Priority::High,
             crate::domain::ItemKind::Question,
             "General".into(),
-            None,
             "Which provider?".into(),
             "Access".into(),
         )];

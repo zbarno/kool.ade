@@ -1,5 +1,6 @@
 use super::*;
 use crate::app::root::board_tests::text_contains;
+use crate::domain::OpenItem;
 
 #[test]
 fn submitted_answers_share_history_and_keep_other_chats_out_of_prompts() {
@@ -31,7 +32,6 @@ fn submitted_answers_share_history_and_keep_other_chats_out_of_prompts() {
             crate::domain::Priority::High,
             crate::domain::ItemKind::Question,
             "General".into(),
-            Some("All".into()),
             question.into(),
             "Controls access".into(),
         )];
@@ -110,11 +110,18 @@ fn submitted_answers_share_history_and_keep_other_chats_out_of_prompts() {
             .unwrap()
             .contains("Require MFA as well")
     );
-    app.task_harness = Some(Box::new(ReplyHarness { prompts: prompts.clone(), reply: serde_json::json!({
-        "schema_version":1, "assistant_message":"Corporate SSO with MFA is confirmed.",
-        "document_updates":[{"document_id":"product:current-capabilities","content":"## 5. Functional Requirements\n\nUse corporate SSO with MFA.\n"}],
-        "open_items_resolved":["CLR-001"]
-    }).to_string() }));
+    let updated_overview = std::fs::read_to_string(repo.join("docs/koolade/product/overview.md"))
+        .unwrap()
+        .replace("Test product context.", "Corporate SSO with MFA.");
+    app.task_harness = Some(Box::new(ReplyHarness {
+        prompts: prompts.clone(),
+        reply: serde_json::json!({
+            "schema_version":1, "assistant_message":"Corporate SSO with MFA is confirmed.",
+            "document_updates":[{"document_id":"product:overview","content":updated_overview}],
+            "open_items_resolved":["CLR-001"]
+        })
+        .to_string(),
+    }));
     click_text(&mut app, &ctx, "Submit answer");
     assert!(
         app.task_messages("CLR-001").iter().any(|message| {
@@ -140,7 +147,15 @@ fn submitted_answers_share_history_and_keep_other_chats_out_of_prompts() {
         panic!()
     };
     let persisted = crate::core::state::PlannerState::load(&repo).unwrap();
-    assert!(persisted.spec_text.unwrap().contains("SSO with MFA"));
+    assert!(
+        persisted
+            .local_spec_draft
+            .unwrap()
+            .changes
+            .iter()
+            .any(|change| change.content.contains("SSO with MFA")),
+        "the reply should remain a private proposal until publication"
+    );
     assert_eq!(persisted.resolved_items[0].conversation_key(), "CLR-001");
     let expected_task_history = p.task_chats.messages["CLR-001"].clone();
     p.task_chats = Default::default();

@@ -8,7 +8,6 @@ pub(super) fn paint(
 ) {
     if item.status == crate::domain::ItemStatus::Resolved
         || item.authority == crate::domain::Authority::Agent
-        || item.is_ownership_gap()
         || crate::core::routing::has_open_prerequisite(items, item)
     {
         return;

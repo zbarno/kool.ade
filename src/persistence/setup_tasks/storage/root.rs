@@ -1,12 +1,7 @@
 use std::path::PathBuf;
 
-pub(super) struct Roots {
-    pub(super) app_data_root: PathBuf,
-    pub(super) legacy_state_root: Option<PathBuf>,
-}
-
 #[cfg(not(test))]
-pub(super) fn resolve() -> anyhow::Result<Roots> {
+pub(super) fn resolve() -> anyhow::Result<PathBuf> {
     if let Some(value) = std::env::var_os("KOOLADE_HOME")
         && !value.is_empty()
     {
@@ -15,10 +10,7 @@ pub(super) fn resolve() -> anyhow::Result<Roots> {
             root.is_absolute(),
             "KOOLADE_HOME must be an absolute path for machine setup state"
         );
-        return Ok(Roots {
-            app_data_root: root,
-            legacy_state_root: None,
-        });
+        return Ok(root);
     }
 
     let home = std::env::var_os("HOME")
@@ -27,15 +19,7 @@ pub(super) fn resolve() -> anyhow::Result<Roots> {
     let xdg = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from);
     let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
     let app_data_root = user_data_root(std::env::consts::OS, home, xdg, local)?;
-    let legacy_state_root = crate::persistence::state_root();
-    anyhow::ensure!(
-        legacy_state_root.is_absolute(),
-        "the legacy machine setup state directory is unavailable"
-    );
-    Ok(Roots {
-        app_data_root,
-        legacy_state_root: Some(legacy_state_root),
-    })
+    Ok(app_data_root)
 }
 
 fn user_data_root(

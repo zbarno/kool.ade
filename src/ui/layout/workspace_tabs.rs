@@ -1,6 +1,8 @@
 use super::*;
 
+mod initial_specification;
 mod lifecycle;
+mod proposal;
 
 pub(super) fn paint(
     ui: &mut egui::Ui,
@@ -110,6 +112,8 @@ pub(super) fn paint(
                 .into_iter()
                 .map(|(id, body)| (id.to_owned(), body.to_owned()))
                 .collect::<Vec<_>>();
+            let proposal = s.local_spec_draft();
+            let proposal_changes = proposal.map(|draft| &draft.changes[..]).unwrap_or_default();
             ui.horizontal(|ui| {
                 if ui
                     .selectable_label(view == 0, "Product Specification")
@@ -123,6 +127,16 @@ pub(super) fn paint(
                         .clicked()
                 {
                     view = 1;
+                }
+                if !proposal_changes.is_empty()
+                    && ui
+                        .selectable_label(
+                            view == 2,
+                            format!("Local proposal  {}", proposal_changes.len()),
+                        )
+                        .clicked()
+                {
+                    view = 2;
                 }
             });
             ui.ctx().data_mut(|d| d.insert_temp(view_id, view));
@@ -158,7 +172,9 @@ pub(super) fn paint(
                 d.insert_persisted(selected_id, selected.clone());
                 d.insert_temp(selected_id, selected.clone());
             });
-            let document = if view == 1 {
+            let document = if view == 2 {
+                proposal::paint(ui, s).unwrap_or_default()
+            } else if view == 1 {
                 selected
                     .as_deref()
                     .and_then(|selected| {
@@ -188,6 +204,8 @@ pub(super) fn paint(
                 ui.label(
                     RichText::new(if view == 1 {
                         "Feature specification"
+                    } else if view == 2 {
+                        "Private local proposal"
                     } else {
                         "Product specification"
                     })
@@ -214,6 +232,16 @@ pub(super) fn paint(
                 });
             });
             ui.add_space(8.0);
+            if let Some(pin) = s.published_spec_pin() {
+                ui.label(
+                    RichText::new(format!(
+                        "Published {} at {} · {}",
+                        pin.repository_id, pin.reference, pin.commit_sha
+                    ))
+                    .size(11.0)
+                    .weak(),
+                );
+            }
             ui.label(
                 RichText::new("LIVING DOCUMENT  /  Refined through conversation")
                     .size(10.0)
@@ -225,6 +253,9 @@ pub(super) fn paint(
                 .show(ui, |ui| {
                     crate::ui::spec_viewer::render(ui, Some(&document));
                 });
+            if view == 0 && !s.has_published_product_spec() {
+                initial_specification::paint(ui, s);
+            }
         });
 }
 

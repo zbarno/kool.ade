@@ -4,7 +4,7 @@ use std::{
     process::Stdio,
 };
 
-use crate::core::planning_sync::validated_git_command;
+use crate::core::git_commands::validated_git_command;
 
 const MAX_INDEX_OUTPUT_BYTES: u64 = 512 * 1024 * 1024;
 

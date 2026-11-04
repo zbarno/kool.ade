@@ -25,31 +25,8 @@ pub(super) struct PlanReviewRecord {
     verdict: Option<crate::harness::prompt_catalog::ReviewVerdictV1>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     attempts: Vec<PlanReviewAttempt>,
-    #[serde(
-        default,
-        alias = "arbitration",
-        deserialize_with = "deserialize_arbitrations",
-        skip_serializing_if = "Vec::is_empty"
-    )]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     arbitrations: Vec<PlanReviewArbitration>,
-}
-
-fn deserialize_arbitrations<'de, D>(deserializer: D) -> Result<Vec<PlanReviewArbitration>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum OneOrMany<T> {
-        One(T),
-        Many(Vec<T>),
-    }
-    Ok(
-        match OneOrMany::<PlanReviewArbitration>::deserialize(deserializer)? {
-            OneOrMany::One(arbitration) => vec![arbitration],
-            OneOrMany::Many(arbitrations) => arbitrations,
-        },
-    )
 }
 
 #[derive(Serialize, Deserialize)]
@@ -252,3 +229,44 @@ mod record;
 use record::{
     MAX_REVIEW_ATTEMPTS, is_review_unable, read_review, review_path, validate_plan_review,
 };
+
+#[cfg(test)]
+mod tests {
+    use super::PlanReviewRecord;
+    use crate::core::lifecycle::{GateActor, GateDecision, GateReceipt};
+
+    #[test]
+    fn review_record_rejects_the_obsolete_singular_arbitration_field() {
+        let record = PlanReviewRecord {
+            schema_version: 1,
+            uid: uuid::Uuid::new_v4().to_string(),
+            created_at_ms: 1,
+            updated_at_ms: 1,
+            revision: 1,
+            receipt: GateReceipt {
+                receipt_uid: uuid::Uuid::new_v4().to_string(),
+                subject_uid: uuid::Uuid::new_v4().to_string(),
+                subject_sha256: "a".repeat(64),
+                actor: GateActor::IndependentReviewer,
+                decision: GateDecision::Approved,
+                recorded_at_unix_ms: 1,
+                evidence_refs: vec!["plan:fixture".into()],
+                prompt_sha256: None,
+                prompt_manifest: None,
+                reviewer_run_id: None,
+                author_run_id: None,
+                reviewer_session_id: None,
+                author_session_id: None,
+            },
+            verdict: None,
+            attempts: Vec::new(),
+            arbitrations: Vec::new(),
+        };
+        let mut value = serde_json::to_value(record).unwrap();
+        assert!(value.get("arbitrations").is_none());
+        assert!(serde_json::from_value::<PlanReviewRecord>(value.clone()).is_ok());
+
+        value["arbitration"] = serde_json::Value::Null;
+        assert!(serde_json::from_value::<PlanReviewRecord>(value).is_err());
+    }
+}

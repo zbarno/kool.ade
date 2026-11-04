@@ -1,5 +1,9 @@
 use super::super::super::*;
+
+#[path = "run/diagnostics.rs"]
+mod diagnostics;
 use super::setup::{self, Prepared};
+use diagnostics::execution_lock_diagnostics;
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
@@ -8,8 +12,8 @@ use std::{
 pub(super) fn exercise(prepared: Prepared) -> PathBuf {
     let Prepared {
         root,
-        repo,
-        planning_repo,
+        repo_root,
+        local_state_root,
         remote,
         docs,
         mut app,
@@ -131,7 +135,17 @@ pub(super) fn exercise(prepared: Prepared) -> PathBuf {
         std::thread::sleep(Duration::from_millis(20));
     }
     if let Screen::Connected(project) = &app.screen {
-        assert_eq!(max_workers, 2, "Independent implementations must overlap");
+        assert_eq!(
+            max_workers,
+            2,
+            "Independent implementations must overlap; final_statuses={:?}, queue_running={}",
+            project
+                .implementation_states
+                .iter()
+                .map(|(path, state)| (path, state.status))
+                .collect::<Vec<_>>(),
+            project.queue.running
+        );
         assert_eq!(project.queue.recovery_attempts.get(&docs[1].path), Some(&1));
         for doc in &docs[..2] {
             let task_uid = doc
@@ -149,18 +163,47 @@ pub(super) fn exercise(prepared: Prepared) -> PathBuf {
                 std::fs::read_to_string(root.join("fake-pi-trace.jsonl"))
                     .unwrap_or_else(|error| format!("trace unavailable: {error}"))
             );
+            let implementation = project.implementation_states.get(&doc.path).unwrap_or_else(
+                || {
+                    panic!(
+                        "completed fixture task has no persisted implementation state; known={:?}",
+                        project.implementation_states.keys().collect::<Vec<_>>()
+                    )
+                },
+            );
             assert_eq!(
-                project.implementation_states.get(&doc.path).unwrap().status,
+                implementation.status,
                 ImplementationStatus::AwaitingApproval
             );
         }
         assert!(!project.implementation_states.contains_key(&docs[2].path));
+        let unrelated = project
+            .implementation_states
+            .get(&docs[3].path)
+            .unwrap_or_else(|| {
+                let excluded = project.queue.blocked.keys().cloned().collect();
+                let running = project
+                    .active_implementations
+                    .keys()
+                    .cloned()
+                    .collect();
+                let scheduler = crate::core::implementation_queue::next_ready_ticket_with_lifecycle_subtasks(
+                    &project.task_documents,
+                    &project.implementation_states,
+                    &excluded,
+                    &running,
+                    &std::collections::BTreeSet::new(),
+                );
+                panic!(
+                    "unrelated task did not start after capacity opened; queue_error={:?}, waiting={:?}, blocked={:?}, scheduler={scheduler:?}, task_paths={:?}",
+                    project.queue.last_error,
+                    project.queue.waiting_for_capacity,
+                    project.queue.blocked.keys().collect::<Vec<_>>(),
+                    project.task_documents.iter().map(|doc| &doc.path).collect::<Vec<_>>()
+                )
+            });
         assert_eq!(
-            project
-                .implementation_states
-                .get(&docs[3].path)
-                .unwrap()
-                .status,
+            unrelated.status,
             ImplementationStatus::AwaitingApproval,
             "an unrelated task must continue after other tasks reach an approval gate"
         );
@@ -190,7 +233,7 @@ pub(super) fn exercise(prepared: Prepared) -> PathBuf {
             .any(|m| m.text == "Planning fixture: I can discuss this while the worker runs.")
     );
     for doc in &docs[..2] {
-        let progress = crate::core::implementation::load_activity(&repo, &doc.path).unwrap();
+        let progress = crate::core::implementation::load_activity(&repo_root, &doc.path).unwrap();
         assert!(
             progress.activity.is_some()
                 || !progress.posts.is_empty()
@@ -203,77 +246,17 @@ pub(super) fn exercise(prepared: Prepared) -> PathBuf {
     assert_eq!(setup::git(&remote, &["rev-list", "--count", "main"]), "1");
     assert!(!published_files.contains("planning/local-approval.md"));
     assert_eq!(
-        std::fs::read_to_string(planning_repo.join("planning/local-approval.md")).unwrap(),
+        std::fs::read_to_string(local_state_root.join("planning/local-approval.md")).unwrap(),
         "approved locally\n"
     );
     assert!(!published_files.contains("001-task.txt"));
     assert!(!published_files.contains("002-task.txt"));
     assert!(!published_files.contains("003-task.txt"));
     assert!(
-        !crate::core::implementation_queue::Queue::load(&repo)
+        !crate::core::implementation_queue::Queue::load(&local_state_root)
             .unwrap()
             .running
     );
     drop(app);
     root
-}
-
-fn execution_lock_diagnostics(root: &std::path::Path, task_uid: &str) -> String {
-    let lock_state = match crate::persistence::execution_records::try_task_lock(task_uid) {
-        Ok(Some(lock)) => {
-            drop(lock);
-            "available at probe time"
-        }
-        Ok(None) => "held (owner not identified at probe time)",
-        Err(_) => "unavailable (probe error)",
-    };
-    let records = root.join("app-home").join("executions").join(task_uid);
-    let mut records = std::fs::read_dir(records)
-        .ok()
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .is_some_and(|extension| extension == "json")
-        })
-        .map(|entry| {
-            let record = std::fs::read(entry.path()).ok().and_then(|bytes| {
-                serde_json::from_slice::<crate::persistence::execution_records::ExecutionRecordV1>(
-                    &bytes,
-                )
-                .ok()
-            });
-            match record {
-                Some(record) => {
-                    let updated_at = record.updated_at_unix_ms;
-                    let execution_id = record.execution_id;
-                    let summary = format!(
-                        "{}:updated-{}/{:?}/{:?}/attempt-{}/command-started-{}",
-                        execution_id,
-                        updated_at,
-                        record.state,
-                        record.cleanup,
-                        record.attempt,
-                        record.command_started
-                    );
-                    (updated_at, execution_id, summary)
-                }
-                None => (0, String::new(), "unreadable-record".into()),
-            }
-        })
-        .collect::<Vec<_>>();
-    records.sort_by(|left, right| (right.0, right.1.as_str()).cmp(&(left.0, left.1.as_str())));
-    let total_records = records.len();
-    let summaries = records
-        .into_iter()
-        .take(8)
-        .map(|(_, _, summary)| summary)
-        .collect::<Vec<_>>();
-    format!(
-        "lock={lock_state}, newest_records={summaries:?}, total_records={total_records}, omitted_records={}",
-        total_records.saturating_sub(summaries.len())
-    )
 }

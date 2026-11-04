@@ -20,20 +20,16 @@ impl KooladeApp {
                     .state
                     .items
                     .iter()
-                    .chain(&self.synth)
                     .chain(&p.state.resolved_items)
                     .cloned()
                     .collect::<Vec<_>>();
                 planning_items.sort_by_key(|item| (item.priority.rank(), item.id.clone()));
                 planning_items.dedup_by(|a, b| a.id == b.id);
-                let eligible_item_ids = crate::core::routing::eligible_items(
-                    &planning_items,
-                    &self.cached_user,
-                    &p.state.config.stakeholders,
-                )
-                .into_iter()
-                .map(|item| item.id.clone())
-                .collect();
+                let eligible_item_ids =
+                    crate::core::routing::eligible_items(&planning_items, &self.cached_user)
+                        .into_iter()
+                        .map(|item| item.id.clone())
+                        .collect();
                 let active_work_keys = p
                     .active_implementations
                     .keys()

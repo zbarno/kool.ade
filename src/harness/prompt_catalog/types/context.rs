@@ -77,12 +77,6 @@ pub enum RolePayloadV1 {
         unresolved_findings: Vec<String>,
         latest_review_receipts: Vec<String>,
     },
-    Planner {
-        open_questions: Vec<String>,
-        previous_answers: Vec<String>,
-        research_evidence: Vec<String>,
-        requested_scope: String,
-    },
     PlannerOpportunity {
         open_questions: Vec<String>,
         previous_answers: Vec<String>,

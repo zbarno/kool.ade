@@ -62,7 +62,6 @@ fn sample_items() -> Vec<OpenItem> {
             Priority::Blocking,
             ItemKind::Ambiguity,
             "Security".into(),
-            Some("InfoSec".into()),
             "Should API tokens expire automatically?\nOr live until revoked?".into(),
             "Token creation defined, lifetime is not.".into(),
         ),
@@ -71,7 +70,6 @@ fn sample_items() -> Vec<OpenItem> {
             Priority::Normal,
             ItemKind::Question,
             "Product".into(),
-            None,
             "What happens when an export is interrupted?".into(),
             "Unspecified in the conversation.".into(),
         ),
@@ -99,7 +97,7 @@ fn serialize_parse_round_trip_preserves_everything() {
 }
 
 #[test]
-fn legacy_items_without_koolade_identity_load_for_migration() {
+fn items_without_immutable_identity_are_rejected() {
     let current = serialize(&sample_items());
     let legacy = current
         .lines()
@@ -110,9 +108,7 @@ fn legacy_items_without_koolade_identity_load_for_migration() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let parsed = parse(&legacy).unwrap();
-    assert!(parsed.iter().all(|item| item.uid.is_none()));
-    assert!(parsed.iter().all(|item| item.feature_uid.is_none()));
+    assert!(parse(&legacy).unwrap_err().contains("missing '**UID:**'"));
 }
 
 #[test]
@@ -125,24 +121,24 @@ fn empty_queue_marker_survives() {
 
 #[test]
 fn rejects_duplicate_ids_and_missing_question() {
-    let bad = "## CLR-001\n\n**Priority:** High\n**Type:** Question\n**Category:** QA\n**Assigned To:** Taylor\n\n### Question\nA?\n\n### Reason\nr\n\n## CLR-001\n\n**Priority:** High\n**Type:** Question\n**Category:** QA\n\n### Question\nB?\n\n### Reason\nr\n";
+    let bad = "## CLR-001\n\n**UID:** 00000000-0000-4000-8000-000000000001\n**Priority:** High\n**Type:** Question\n**Category:** QA\n\n### Question\nA?\n\n### Reason\nr\n\n## CLR-001\n\n**UID:** 00000000-0000-4000-8000-000000000002\n**Priority:** High\n**Type:** Question\n**Category:** QA\n\n### Question\nB?\n\n### Reason\nr\n";
     assert!(parse(bad).is_err());
-    let missing = "## CLR-007\n\n**Priority:** High\n**Type:** Question\n**Category:** QA\n\n### Reason\nforgot question\n";
+    let missing = "## CLR-007\n\n**UID:** 00000000-0000-4000-8000-000000000007\n**Priority:** High\n**Type:** Question\n**Category:** QA\n\n### Reason\nforgot question\n";
     assert!(parse(missing).is_err());
 }
 
 #[test]
 fn field_lookalike_inside_question_does_not_break_parse() {
-    let md = "## CLR-009\n\n**Priority:** High\n**Type:** Question\n**Category:** QA\n**Assigned To:** (unassigned)\n\n### Question\n**Note:** bold prose here must stay in the question.\nSecond line.\n\n### Reason\nr\n";
+    let md = "## CLR-009\n\n**UID:** 00000000-0000-4000-8000-000000000009\n**Priority:** High\n**Type:** Question\n**Category:** QA\n\n### Question\n**Assigned To:** this is question prose and must stay in the question.\nSecond line.\n\n### Reason\nr\n";
     let v = parse(md).unwrap();
-    assert!(v[0].question.starts_with("**Note:**"));
+    assert!(v[0].question.starts_with("**Assigned To:**"));
     assert!(v[0].question.contains("Second line."));
 }
 
 #[test]
-fn unassigned_placeholder_parses_to_none() {
-    let md = "## CLR-003\n\n**Priority:** High\n**Type:** Assumption\n**Category:** Ops\n**Assigned To:** (unassigned)\n\n### Question\nAssumed? \n\n### Reason\nWhy\n";
+fn item_records_parse_without_assignment_fields() {
+    let md = "## CLR-003\n\n**UID:** 00000000-0000-4000-8000-000000000003\n**Priority:** High\n**Type:** Assumption\n**Category:** Ops\n\n### Question\nAssumed? \n\n### Reason\nWhy\n";
     let v = parse(md).unwrap();
-    assert_eq!(v[0].assigned_to, None);
     assert_eq!(v[0].reason, "Why");
+    assert_eq!(v[0].category, "Ops");
 }

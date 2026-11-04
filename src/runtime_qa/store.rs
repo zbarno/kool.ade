@@ -41,8 +41,8 @@ impl RuntimeQaStore {
     }
 
     /// Return the persistent per-workspace evidence directory in the current
-    /// user's application data area. Runtime QA screenshots and logs must not
-    /// be written into a project checkout or its planning Git repository.
+    /// user's application data area. Runtime QA screenshots and logs remain
+    /// private local operational evidence.
     pub fn local_root_for_workspace(workspace_id: uuid::Uuid) -> Result<PathBuf, String> {
         storage_root::local_root_for_workspace(workspace_id)
     }

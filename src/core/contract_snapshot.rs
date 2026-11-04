@@ -7,7 +7,7 @@ use crate::artifacts::planning_store::PlanningRoot;
 use crate::core::state::PlannerState;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BatchContract {
     pub feature_id: String,
     pub feature_specification: String,
@@ -22,39 +22,26 @@ pub fn batch_contract_matches_feature<R: PlanningRoot + ?Sized>(
     feature_id: &str,
     feature: &str,
 ) -> bool {
-    let store = repo.planning_store();
-    let git_task_root = format!(
-        "{}/",
-        store.git_path(crate::artifacts::planning_store::paths::TASKS)
-    );
     let store_task_root = format!("{}/", crate::artifacts::planning_store::paths::TASKS);
-    // TaskBatchRef.directory is persisted in both the legacy Git-root form
-    // and the planning-store-root form. Resolve both through the active
-    // layout so legacy records remain readable after the path normalization.
-    let Some(name) = directory
-        .strip_prefix(&git_task_root)
-        .or_else(|| directory.strip_prefix(&store_task_root))
-    else {
+    let Some(name) = directory.strip_prefix(&store_task_root) else {
         return false;
     };
+    if name.is_empty() || name.contains('/') || name.contains('\\') {
+        return false;
+    }
     let layout = repo.planning_layout();
     let Some(batch_dir) = layout.task_batch(name) else {
         return false;
     };
     let Ok(dir_meta) = std::fs::symlink_metadata(&batch_dir) else {
-        // References written before batch directories were durable remain
-        // authoritative for duplicate-generation gating.
-        return true;
+        return false;
     };
     if !dir_meta.is_dir() || dir_meta.file_type().is_symlink() {
         return false;
     }
     let path = batch_dir.join("contract.json");
     let Ok(file_meta) = std::fs::symlink_metadata(&path) else {
-        // Legacy batches predate frozen contract snapshots. Preserve their
-        // incumbent reuse behavior while enforcing freshness when a snapshot
-        // is present.
-        return true;
+        return false;
     };
     if !file_meta.is_file() || file_meta.file_type().is_symlink() {
         return false;

@@ -20,7 +20,7 @@ pub(super) fn save_product_proposal(
     repository_root: &std::path::Path,
     source_sha: &str,
 ) -> (String, u64) {
-    crate::artifacts::migration::bootstrap_product_with_store(
+    crate::artifacts::product_bootstrap::bootstrap_product_with_store(
         repository_root,
         store,
         "Synthetic Kool.ad/e pursuit fixture",

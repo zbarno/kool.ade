@@ -31,12 +31,10 @@ pub(crate) fn planning_column(
         4
     } else if crate::core::routing::has_open_prerequisite(items, item) {
         0
-    } else if item.is_ownership_gap()
-        || matches!(
-            item.authority,
-            crate::domain::Authority::Human | crate::domain::Authority::Review
-        )
-    {
+    } else if matches!(
+        item.authority,
+        crate::domain::Authority::Human | crate::domain::Authority::Review
+    ) {
         3
     } else {
         match item.authority {

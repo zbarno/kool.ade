@@ -105,7 +105,6 @@ fn unrelated_brief_preserves_only_unchanged_unblocked_ready_contracts() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "General".into(),
-        None,
         "A new decision".into(),
         "Needs an answer".into(),
     );

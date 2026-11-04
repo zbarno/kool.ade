@@ -144,18 +144,20 @@ pub(crate) fn next_repair(project: &mut Project) -> Option<(String, String)> {
         context.work_id, context.finding_id
     );
     state.manager_repair_context = Some(context);
-    let state_dir =
-        match implementation::state_dir_for_task(&project.state.repo_root, &ticket, Some(task_uid))
-        {
-            Ok(path) => path,
-            Err(error) => {
-                return mark_dispatch_attention(
-                    project,
-                    work_index,
-                    &format!("Cannot locate implementation state for the repair: {error}"),
-                );
-            }
-        };
+    let state_dir = match implementation::state_dir_for_task(
+        &project.state.planning_store.root,
+        &ticket,
+        Some(task_uid),
+    ) {
+        Ok(path) => path,
+        Err(error) => {
+            return mark_dispatch_attention(
+                project,
+                work_index,
+                &format!("Cannot locate implementation state for the repair: {error}"),
+            );
+        }
+    };
     if let Err(error) = implementation::save(&state_dir, &state) {
         return mark_dispatch_attention(
             project,

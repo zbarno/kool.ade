@@ -206,8 +206,8 @@ remains gated on the trusted VM transport and capacity evidence tracked by #347.
 - A Docker or image finding comes only from its own typed probe evidence. An
   unavailable, stopped, rootful, or untrusted daemon does not prove an image is
   missing.
-- Machine setup records live under operator-local app state. They are not added
-  to `.koolade-packet`, project planning Git, task clones, or shared team state.
+- Machine setup records live in the private installation-local store. They are
+  not added to code Git, task clones, or shared task records.
 - Task identity is stable across workspaces on one machine. A new scan cannot
   duplicate an existing prerequisite or overwrite a newer observation.
 - A verified state requires fresh authoritative evidence for that task's

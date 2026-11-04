@@ -246,19 +246,6 @@ pub(crate) fn repair_audit_path(state_directory: &std::path::Path) -> std::path:
     state_directory.join("repair-approval-audit.json")
 }
 
-#[cfg(test)]
-pub(crate) fn append_audit_for_test(path: &std::path::Path) -> anyhow::Result<()> {
-    audit::append(
-        path,
-        bootstrap_repair_policy::Operation::PrepareLockedImage,
-        &format!("setup:images:general:amd64:{}", "e".repeat(64)),
-        &"a".repeat(64),
-        &"b".repeat(64),
-        "approved",
-        1,
-    )
-}
-
 #[cfg(target_os = "linux")]
 pub(crate) fn linux_machine_id() -> anyhow::Result<String> {
     binding::linux_machine_id()

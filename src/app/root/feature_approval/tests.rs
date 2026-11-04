@@ -49,7 +49,8 @@ mod support;
 use support::decomposer_graph;
 pub(crate) use support::setup;
 pub(crate) use support::{
-    assert_current_test_plan_confirmation, record_test_plan_author, record_test_plan_review,
+    assert_current_test_plan_confirmation, ensure_test_plan_adopted, private_store_root,
+    record_test_plan_author, record_test_plan_review, record_test_plan_review_and_merge,
     remove_fixture_root,
 };
 

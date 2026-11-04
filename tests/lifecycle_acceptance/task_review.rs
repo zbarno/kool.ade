@@ -43,7 +43,7 @@ pub(super) fn reviewed_task_after_repair(
     // review; record-level revisions avoid a workspace-wide serialization.
     let mut parent = reopened.load_task(&parent_uid).unwrap();
     let unrelated = reopened.load_task(&unrelated_uid).unwrap();
-    let other_store = PlanningStore::new(store.project_id, store.root.clone(), store.mode);
+    let other_store = reopen_store(store);
     let thread = std::thread::spawn(move || {
         let other = LifecycleStore::new(&other_store);
         other.apply_task_event(&unrelated_uid, unrelated.revision, &id(), TaskEvent::Start)

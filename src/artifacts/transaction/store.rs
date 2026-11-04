@@ -82,24 +82,6 @@ fn apply_store_with_interruption(
     apply_store_inner(store, changes, &[], expected_revision, fail_after)
 }
 
-#[cfg(test)]
-pub(crate) fn apply_store_with_record_revisions_interruption_for_test(
-    store: &PlanningStore,
-    changes: &[(String, Vec<u8>)],
-    expected_revision: Option<&str>,
-    expected_records: &[crate::artifacts::planning_store::RecordRevisionCheck],
-    fail_after: usize,
-) -> Result<(Vec<String>, String), StoreError> {
-    apply_store_inner_with_checks(
-        store,
-        changes,
-        &[],
-        expected_revision,
-        expected_records,
-        Some(fail_after),
-    )
-}
-
 fn apply_store_inner(
     store: &PlanningStore,
     changes: &[(String, Vec<u8>)],

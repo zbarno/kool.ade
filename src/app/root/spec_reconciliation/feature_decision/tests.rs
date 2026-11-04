@@ -4,7 +4,6 @@ use super::*;
 mod atomic;
 use crate::{
     app::root::{KooladeApp, Screen},
-    artifacts::planning_store::PlanningRoot,
     core::lifecycle::{
         FeatureGoal, FeaturePhase, LifecycleStore, SpecDeltaClassificationV1, SpecDeltaRecordV1,
         SpecReconciliationStatusV1, SpecRevisionDraftV1,
@@ -21,10 +20,47 @@ struct Proposal {
     sequence: u64,
 }
 
+fn code_head(root: &std::path::Path) -> String {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(root)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
 fn seed_proposal(app: &mut KooladeApp) -> Proposal {
     let Screen::Connected(project) = &mut app.screen else {
         panic!("connected fixture")
     };
+    let published_path = project
+        .state
+        .repo_root
+        .join("docs/koolade/product/overview.md");
+    let mut published = std::fs::read_to_string(&published_path).unwrap();
+    published
+        .push_str("\n\nREQ-001: Original target wording.\nREQ-002: Secondary target wording.\n");
+    std::fs::write(&published_path, published).unwrap();
+    for args in [
+        vec!["add", "docs/koolade/product/overview.md"],
+        vec![
+            "commit",
+            "-q",
+            "-m",
+            "Publish synthetic reconciliation fixture",
+        ],
+    ] {
+        assert!(
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(&project.state.repo_root)
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    project.state.resync().unwrap();
     let raw = "# CHG-921: Feature target fixture\n\n## Intent\n\nKeep the fixture feature clear.\n\n## Current Behavior\n\nThe fixture has no target.\n\n## Desired Behavior\n\nThe fixture target is explicit.\n\n## Scope\n\n- target wording\n\n## Requirements\n\n- REQ-001: Original target wording.\n- REQ-002: Secondary target wording.\n\n## Acceptance Criteria\n\n1. The target wording is visible.\n";
     let markdown =
         ArtifactIdentity::preserve_markdown(raw, None, "CHG-921", "Feature target fixture")
@@ -36,12 +72,6 @@ fn seed_proposal(app: &mut KooladeApp) -> Proposal {
     )
     .unwrap();
     let store = &project.state.planning_store;
-    crate::artifacts::migration::bootstrap_product_with_store(
-        &project.state.repo_root,
-        store,
-        "Feature target fixture",
-    )
-    .unwrap();
     let (snapshot_path, snapshot_bytes, snapshot_check) =
         crate::core::lifecycle::plan_snapshot::record_change(store, &snapshot)
             .unwrap()
@@ -50,27 +80,8 @@ fn seed_proposal(app: &mut KooladeApp) -> Proposal {
         .transaction_with_record_revisions(&[(snapshot_path, snapshot_bytes)], &[snapshot_check])
         .unwrap();
 
-    let documents = crate::artifacts::product_docs::load_documents(store)
-        .unwrap()
-        .unwrap();
-    let document = &documents[0];
     let old = "REQ-001: Original target wording.".to_owned();
     let new = "REQ-001: Adopted target wording.".to_owned();
-    let content = format!(
-        "{}\n\n{old}\nREQ-002: Secondary target wording.\n",
-        document.content
-    );
-    let path = store
-        .planning_layout()
-        .product_root()
-        .join(&document.module.path)
-        .strip_prefix(store.planning_layout().root())
-        .unwrap()
-        .to_string_lossy()
-        .into_owned();
-    store
-        .transaction(&[(path, content.into_bytes())], None)
-        .unwrap();
     project
         .state
         .active_features
@@ -154,6 +165,17 @@ fn seed_proposal(app: &mut KooladeApp) -> Proposal {
 fn production_command_dispatch_adopts_proposal_and_updates_revision_and_prose() {
     let mut app = crate::app::root::board_tests::fixture();
     let proposal = seed_proposal(&mut app);
+    let Screen::Connected(project) = &app.screen else {
+        panic!("connected fixture")
+    };
+    let published_head = code_head(&project.state.repo_root);
+    let published_docs =
+        crate::artifacts::product_docs::load_documents(&project.state.planning_store)
+            .unwrap()
+            .unwrap()
+            .into_iter()
+            .map(|document| (document.module.path, document.content))
+            .collect::<Vec<_>>();
     app.dispatch_ui_command(ApplicationCommand::DecideFeatureSpecDelta {
         feature_uid: proposal.feature_uid.clone(),
         requirement_id: proposal.requirement_id,
@@ -172,11 +194,39 @@ fn production_command_dispatch_adopts_proposal_and_updates_revision_and_prose() 
         .spec_revision_history(&proposal.feature_uid)
         .unwrap();
     let (_, deltas) = history.last().unwrap();
-    let rendered = crate::artifacts::product_docs::render_product(store)
+    let proposed = crate::core::apply::load_current(store)
         .unwrap()
-        .unwrap();
-    assert!(rendered.contains(&proposal.new));
-    assert!(!rendered.contains(&proposal.old));
+        .unwrap_or_else(|| {
+            panic!(
+                "proposal missing; last app message: {:?}",
+                app.toasts.last_message()
+            )
+        })
+        .changes
+        .into_iter()
+        .find(|change| change.document_id == "product:overview")
+        .expect("adopted product proposal is stored locally")
+        .content;
+    assert!(
+        proposed.contains(&proposal.new),
+        "proposal was not persisted; last app message: {:?}; proposal: {proposed}",
+        app.toasts.last_message()
+    );
+    assert!(!proposed.contains(&proposal.old));
+    assert_eq!(code_head(&project.state.repo_root), published_head);
+    for (path, content) in published_docs {
+        assert_eq!(
+            std::fs::read_to_string(
+                project
+                    .state
+                    .repo_root
+                    .join("docs/koolade/product")
+                    .join(path)
+            )
+            .unwrap(),
+            content
+        );
+    }
     assert_eq!(current.seq, proposal.sequence + 1);
     assert_eq!(
         current.approved_target_hash.as_deref(),

@@ -24,7 +24,6 @@ fn update(document_id: &str) -> NormalizedTurn {
     NormalizedTurn {
         assistant_message: "Updated another feature".into(),
         change_summary: None,
-        spec_markdown: None,
         document_updates: vec![(document_id.into(), "replacement".into())],
         planning_tasks: Vec::new(),
         task_intent_context: None,
@@ -101,7 +100,6 @@ fn linked_board_item_cannot_follow_a_reused_feature_id() {
         crate::domain::Priority::High,
         crate::domain::ItemKind::Question,
         "General".into(),
-        Some("Product".into()),
         "Clarify the feature behavior".into(),
         "A planning decision is needed".into(),
     );

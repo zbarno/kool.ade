@@ -19,9 +19,13 @@ fn qa_finding_repairs_new_code_repasses_and_reconciles_once_to_pr_work_item() {
     std::fs::write(source_root.join("server.py"), initial_source).unwrap();
     assert!(!temp.path().join("Cargo.toml").exists());
     assert!(!temp.path().join("package.json").exists());
-    let store = PlanningStore::new(uuid::Uuid::new_v4(), temp.path(), StoreMode::ManagedLocal);
+    let mut store = PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        temp.path().join("application-data"),
+        StoreMode::ManagedLocal,
+    );
+    bootstrap_product(&mut store);
     let lifecycle = LifecycleStore::new(&store);
-    bootstrap_product(&store);
     let feature_uid = id();
     lifecycle
         .create_feature(&new_feature(feature_uid.clone()), &id())
@@ -227,7 +231,7 @@ fn qa_finding_repairs_new_code_repasses_and_reconciles_once_to_pr_work_item() {
         .unwrap();
     assert_eq!(task_record.phase, TaskPhase::AwaitingSpecReconciliation);
 
-    let reopened_store = PlanningStore::new(store.project_id, store.root.clone(), store.mode);
+    let reopened_store = reopen_store(&store);
     let reopened = LifecycleStore::new(&reopened_store);
     task_record = reopened.load_task(&task_uid).unwrap();
     assert_eq!(

@@ -1,6 +1,5 @@
 use crate::{
     app::session::Project,
-    artifacts::{planning_store::PlanningRoot, product_docs},
     core::{
         lifecycle::plan_snapshot::{self, PlanAuthorProvenanceV1},
         planning::QuestionStore,
@@ -24,7 +23,7 @@ pub(super) fn prepare_reviewable_plan(project: &mut Project, feature_id: &str) {
         .find(|line| line.starts_with("<!-- koolade-change:v1 "))
         .expect("Pursue draft has structured change metadata");
     let body = format!(
-        "# {feature_id}: {title}\n\n## Intent\n\nUse the ordinary planning gates for Kool.ad/e self-improvements.\n\n## Current Behavior\n\nPursued ideas remain unapproved planning drafts.\n\n## Desired Behavior\n\nThe app obtains current user confirmation and independent plan review before task creation.\n\n## Scope\n\n- Bind Evolve planning to the ordinary reviewed plan lifecycle.\n\n## Affected Product Areas\n\n- planning\n\n## Requirements\n\n- REQ-001 (MUST). Keep self-improvement planning separate from clone execution. Rationale: Pursue does not authorize implementation. ACs: AC-001\n\n## Decisions and Assumptions\n\n- Plan confirmation and implementation authorization are separate decisions.\n\n## Acceptance Criteria\n\n- AC-001: No task clone is allocated until the current plan is user confirmed and independently reviewed.\n\n## Capability ID\n\nself-improvement-lifecycle\n\n{metadata_marker}\n"
+        "# {feature_id}: {title}\n\n## Intent\n\nUse the ordinary planning gates for Kool.ad/e self-improvements.\n\n## Current Behavior\n\nPursued ideas remain unapproved planning drafts.\n\n## Desired Behavior\n\nThe app obtains current user confirmation and independent plan review before task creation.\n\n## Scope\n\n- Bind Evolve planning to the ordinary reviewed plan lifecycle.\n\n## Affected Product Areas\n\n- `product:overview`\n\n## Requirements\n\n- REQ-001 (MUST). Keep self-improvement planning separate from clone execution. Rationale: Pursue does not authorize implementation. ACs: AC-001\n\n## Decisions and Assumptions\n\n- Plan confirmation and implementation authorization are separate decisions.\n\n## Acceptance Criteria\n\n- AC-001: No task clone is allocated until the current plan is user confirmed and independently reviewed.\n\n## Capability ID\n\nself-improvement-lifecycle\n\n{metadata_marker}\n"
     );
     let prior_identity = ArtifactIdentity::from_markdown(&prior)
         .unwrap()
@@ -34,26 +33,14 @@ pub(super) fn prepare_reviewable_plan(project: &mut Project, feature_id: &str) {
     let identity = ArtifactIdentity::from_markdown(&body).unwrap().unwrap();
     let markdown = ChangeMetadata::write_markdown(&body, &identity, ChangeStatus::Ready).unwrap();
     let logical_id = format!("feature:{feature_id}");
-    let path = product_docs::document_path_for_update(store, &logical_id, &markdown).unwrap();
-    let layout = store.planning_layout();
-    let relative = path
-        .strip_prefix(layout.root())
-        .unwrap()
-        .to_string_lossy()
-        .into_owned();
-    let index = product_docs::refreshed_index(store, &[(logical_id, markdown.clone())]).unwrap();
+    let changes = crate::core::apply::private_document_draft_changes(
+        store,
+        &[(logical_id, markdown.clone())],
+    )
+    .unwrap();
     let expected = store.revision().unwrap();
     store
-        .transaction_with_revision(
-            &[
-                (relative, markdown.as_bytes().to_vec()),
-                (
-                    crate::artifacts::planning_store::paths::PRODUCT_INDEX.to_owned(),
-                    index.into_bytes(),
-                ),
-            ],
-            Some(&expected),
-        )
+        .transaction_with_revision(&changes, Some(&expected))
         .unwrap();
     let mut workflow = crate::artifacts::task_docs::load_workflow(store).unwrap();
     let comparison = crate::domain::PlanComparison {

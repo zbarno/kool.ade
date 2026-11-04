@@ -1,4 +1,4 @@
-use super::{ChangeMetadata, ChangeStatus, replace_metadata};
+use super::{ChangeMetadata, ChangeStatus};
 use crate::domain::PlanComparison;
 
 impl ChangeMetadata {
@@ -17,7 +17,7 @@ impl ChangeMetadata {
             "Malformed typed plan comparison"
         );
         anyhow::ensure!(["A", "B"].contains(&plan_id), "Unknown plan alternative");
-        let mut metadata = Self::require_markdown(markdown)?;
+        let metadata = Self::require_markdown(markdown)?;
         anyhow::ensure!(
             metadata.schema_version == 2,
             "Feature predates the Compare Plans gate"
@@ -26,21 +26,14 @@ impl ChangeMetadata {
             metadata.status == ChangeStatus::Ready,
             "Only a Ready feature can adopt a plan"
         );
-        anyhow::ensure!(
-            metadata.selected_alt.is_none(),
-            "An adopted plan is frozen; start a new feature revision"
-        );
         let selected = comparison
             .alternatives
             .iter()
             .find(|plan| plan.id == plan_id)
             .ok_or_else(|| anyhow::anyhow!("Selected plan is missing from the comparison"))?;
-        // Workflow state owns adoption lifecycle and selected alternative;
-        // keep the selected plan's complete specification in readable text.
-        metadata.selected_alt = None;
-        metadata.plan_comparison = None;
-        metadata.comparison_history.clear();
-        let mut updated = replace_metadata(markdown, &metadata)?;
+        // Workflow state owns comparison and adoption; the feature document
+        // retains only the selected plan's readable specification.
+        let mut updated = markdown.to_owned();
         updated = remove_h2_section(&updated, "Plan Comparison")?;
         updated = remove_h2_section(&updated, "Plan Comparison History")?;
         let selected_content = render_selected(plan_id, selected);

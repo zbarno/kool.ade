@@ -21,9 +21,6 @@ pub struct Project {
     pub task_chats: crate::persistence::task_chats::TaskChats,
     pub activity: super::manager::WorkspaceActivity,
     pub state: PlannerState,
-    pub managed_workspace: Option<crate::core::managed_workspace::ManagedWorkspace>,
-    pub planning_sync: crate::core::planning_sync::PlanningSyncStatus,
-    pub planning_remote_url: Option<String>,
     /// Project slug keying the ~/.koolade chat store.
     pub chat_slug: String,
     pub chat: Vec<ChatMessage>,
@@ -60,14 +57,7 @@ pub struct Project {
 
 impl Project {
     pub fn has_selected_code_repository(&self) -> bool {
-        let Some(workspace) = &self.managed_workspace else {
-            return true;
-        };
-        workspace
-            .association
-            .code_checkouts
-            .iter()
-            .any(|checkout| checkout.path == self.state.repo_root && checkout.path.is_dir())
+        true
     }
 
     pub fn save_planning_work(&mut self) -> Result<(), String> {
@@ -113,9 +103,9 @@ impl Project {
     pub fn bind_task_conversation_identities(&mut self) {
         match self.queue.bind_task_documents(&self.task_documents) {
             Ok(true) => {
-                if let Err(error) = self.queue.save(&self.state.repo_root) {
+                if let Err(error) = self.queue.save(&self.state.planning_store.root) {
                     self.queue.last_error =
-                        format!("Task identity migration could not be saved: {error}");
+                        format!("Task queue identity update could not be saved: {error}");
                 }
             }
             Ok(false) => {}
@@ -132,10 +122,6 @@ impl Project {
                     .as_ref()
                     .map(|identity| (doc.path.clone(), identity.uid.clone()))
             })
-            .collect::<Vec<_>>();
-        let legacy_migration_keys = task_document_identities
-            .iter()
-            .map(|(path, _)| path.clone())
             .collect::<Vec<_>>();
         let mut conversation_identities = task_document_identities;
         conversation_identities.extend(self.state.active_features.iter().filter_map(
@@ -157,7 +143,7 @@ impl Project {
         );
         if let Err(error) = self
             .task_chats
-            .bind_conversation_identities(&conversation_identities, &legacy_migration_keys)
+            .bind_conversation_identities(&conversation_identities)
         {
             self.task_chats.error =
                 Some(format!("Task conversations could not be linked: {error}"));

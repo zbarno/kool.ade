@@ -61,7 +61,7 @@ impl KooladeApp {
             return;
         }
         let Ok(dir) = crate::core::implementation::state_dir_for_task(
-            &project.state.repo_root,
+            &project.state.planning_store.root,
             ticket,
             state.task_uid.as_deref(),
         ) else {

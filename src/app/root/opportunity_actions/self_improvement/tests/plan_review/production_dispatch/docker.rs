@@ -67,7 +67,7 @@ pub(super) fn execute(ready: &ReadyTask, root: &Path) {
     let ticket_path = ready.planning.root.join(&ready.ticket);
     assert!(
         !ready.repo_root.join(&ready.ticket).exists(),
-        "task tickets stay in the separate planning repository"
+        "task tickets stay in private local application storage"
     );
     let text = std::fs::read_to_string(ticket_path).unwrap();
     let implementation: Implementation = serde_json::from_value(serde_json::json!({

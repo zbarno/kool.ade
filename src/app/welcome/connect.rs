@@ -1,23 +1,15 @@
 use crate::app::session::Project;
 use crate::artifacts::planning_store::PlanningStore;
 use crate::core::gitops;
-use crate::core::state::PlannerState;
 use crate::error::AppError;
-use crate::persistence::chat_store;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
 mod load;
-mod managed;
 use load::connect_canonical_with_key;
-mod prepared;
-pub use managed::{attempt_create_project, attempt_open_workspace};
-pub use prepared::{PreparedConnection, prepare_open_workspace};
-/// Normalize user-typed paths (`~` expansion), then load the managed
-/// planning repository or the checkout's associated workspace. A code
-/// checkout with no planning association cannot connect: Kool.ad/e keeps
-/// planning state in a separate Git repository, so the operator must create
-/// or join a workspace first.
+/// Connect directly to a code checkout. Published project documentation is
+/// read from its Git history; operator-private planning state lives under
+/// KOOLADE_HOME and is scoped to this checkout.
 pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
     let canonical = canonical_repository(raw)?;
     if !gitops::is_work_tree(&canonical) {
@@ -26,42 +18,22 @@ pub fn attempt_connect(raw: &str) -> Result<Project, AppError> {
             detail: "no .git directory found \u{2014} Kool.ad/e plans inside a git working tree. Initialize one first (git init) or choose a different folder.".into(),
         });
     }
-    let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
-    if let Some(workspace) = manager
-        .workspace_for_checkout(&canonical)
-        .map_err(|error| {
-            AppError::Other(format!(
-                "managed workspace association is invalid: {error:#}"
-            ))
-        })?
-    {
-        return connect_canonical(canonical, workspace.store);
-    }
-    Err(missing_planning_repository(canonical))
-}
-
-fn missing_planning_repository(checkout: PathBuf) -> AppError {
-    AppError::InvalidRepo {
-        path: checkout.to_string_lossy().into_owned(),
-        detail: "no managed planning repository is associated with this code checkout. Clone it from the Kool.ad/e welcome screen so its planning repository is paired automatically.".into(),
-    }
-}
-
-/// Connect a code checkout to an explicitly selected managed planning store.
-/// Private project state remains tied to the code checkout.
-#[cfg(test)]
-pub(crate) fn attempt_connect_with_store(
-    raw: &str,
-    store: PlanningStore,
-) -> Result<Project, AppError> {
-    let canonical = canonical_repository(raw)?;
-    if canonical.starts_with(&store.root) || store.root.starts_with(&canonical) {
+    let state_root = crate::persistence::state_root();
+    if crate::persistence::is_inside_git_worktree(&state_root) {
         return Err(AppError::InvalidRepo {
             path: canonical.to_string_lossy().into_owned(),
-            detail: "code and planning repositories must be separate".into(),
+            detail: format!(
+                "private Kool.ad/e data must live outside Git worktrees; move KOOLADE_HOME outside Git (current location: {})",
+                state_root.display()
+            ),
         });
     }
-    connect_canonical(canonical, store)
+    let slug = crate::persistence::project_slug(&canonical);
+    let project_id = uuid::Uuid::new_v5(&uuid::Uuid::NAMESPACE_URL, slug.as_bytes());
+    let local_root = crate::persistence::project_dir(&project_id.hyphenated().to_string())
+        .join("operational-state");
+    let store = PlanningStore::for_code_repository(project_id, local_root, canonical.clone());
+    connect_canonical_with_key(canonical, store, slug)
 }
 
 fn canonical_repository(raw: &str) -> Result<PathBuf, AppError> {
@@ -84,14 +56,8 @@ fn canonical_repository(raw: &str) -> Result<PathBuf, AppError> {
         });
     }
     // A folder picker can select a subfolder inside a checkout. Normalize it
-    // to the worktree root before managed detection so connections resolve
-    // against the checkout root.
-    Ok(crate::core::managed_workspace::repository_root(&canonical).unwrap_or(canonical))
-}
-
-fn connect_canonical(canonical: PathBuf, store: PlanningStore) -> Result<Project, AppError> {
-    let local_key = store.project_id.hyphenated().to_string();
-    connect_canonical_with_key(canonical, store, local_key)
+    // to the worktree root so state uses the code repository identity.
+    Ok(gitops::worktree_root(&canonical).unwrap_or(canonical))
 }
 
 fn expand_home(raw: &str) -> OsString {

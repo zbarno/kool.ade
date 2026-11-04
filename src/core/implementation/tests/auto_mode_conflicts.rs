@@ -50,30 +50,21 @@ fn auto_mode_repairs_conflicts_and_keeps_verified_integration_for_review() {
     let s = Sandbox::new();
     let calls = Arc::new(AtomicUsize::new(0));
     let (tx, _rx) = mpsc::channel();
-    let result = run_with_options(
-        &s.repo,
-        &s.ticket,
-        &Conflicting {
-            sandbox: &s,
-            calls: calls.clone(),
-        },
-        Arc::new(AtomicBool::new(false)),
-        tx,
-        s.gh.to_str().unwrap(),
-        true,
-    )
-    .unwrap();
+    let result = s
+        .run_options(
+            &Conflicting {
+                sandbox: &s,
+                calls: calls.clone(),
+            },
+            Arc::new(AtomicBool::new(false)),
+            tx,
+            true,
+            true,
+        )
+        .unwrap();
     assert_eq!(result.status, ImplementationStatus::AwaitingApproval);
-    assert!(
-        result.detail.contains("both changed these paths"),
-        "{}",
-        result.detail
-    );
-    assert!(
-        result.detail.contains("implemented.txt"),
-        "{}",
-        result.detail
-    );
+    assert!(result.detail.contains("both changed these paths"));
+    assert!(result.detail.contains("implemented.txt"));
     assert!(
         result
             .independent_check
@@ -82,7 +73,7 @@ fn auto_mode_repairs_conflicts_and_keeps_verified_integration_for_review() {
     );
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     let remote = s.root.join("remote.git");
-    assert_eq!(s.git(&remote, &["rev-list", "--count", "main"]), "3");
+    assert_eq!(s.git(&remote, &["rev-list", "--count", "main"]), "4");
     assert_eq!(
         s.git(&remote, &["show", "main:implemented.txt"]),
         "concurrent upstream implementation"
@@ -99,16 +90,14 @@ fn failed_auto_verification_never_changes_main() {
     let initial = s.git(&s.root.join("remote.git"), &["rev-parse", "main"]);
     let (tx, _rx) = mpsc::channel();
     assert!(
-        run_with_options(
-            &s.repo,
-            &s.ticket,
+        s.run_options(
             &Fixture {
                 mode: "fail",
                 calls: Arc::new(AtomicUsize::new(0))
             },
             Arc::new(AtomicBool::new(false)),
             tx,
-            "must-not-run",
+            true,
             true
         )
         .is_err()

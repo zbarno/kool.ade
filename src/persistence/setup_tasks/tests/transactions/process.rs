@@ -150,7 +150,7 @@ fn startup_preserves_live_owner_then_interrupts_persisted_attempts_after_exit() 
         assert!(task.attempts[0].authorization_binding.is_none());
         assert!(task.attempts[0].owner_instance_id.is_none());
     }
-    assert_eq!(transaction::load_from(&path).unwrap().0, recovered);
+    assert_eq!(transaction::load_from(&path).unwrap(), recovered);
     assert_eq!(
         transaction::recover_interrupted_at(&path, checked_at + 1).unwrap(),
         recovered
@@ -238,7 +238,7 @@ fn concurrent_process_scan_writers_do_not_lose_generation_updates() {
         );
     }
     let path = transaction::path_for_state_root(&state_root);
-    let store = transaction::load_from(&path).unwrap().0;
+    let store = transaction::load_from(&path).unwrap();
     assert_eq!(store.latest_scan_generation, 30);
 }
 

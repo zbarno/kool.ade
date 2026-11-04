@@ -111,7 +111,8 @@ pub(super) struct Fixture {
     pub has_index_html: bool,
     _approval_cleanup: crate::persistence::runtime_target_approvals::WorkspaceCleanup,
     _home: crate::test_support::KooladeHomeGuard,
-    pub root: tempfile::TempDir,
+    _home_root: tempfile::TempDir,
+    _root: tempfile::TempDir,
 }
 
 impl Fixture {

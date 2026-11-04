@@ -31,14 +31,6 @@ fn interrupted_transaction_recovers_after_restart_then_retries() {
     let temp = TempDir::new();
     let root = temp.root.join("planning");
     std::fs::create_dir_all(&root).unwrap();
-    assert!(
-        std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(&root)
-            .status()
-            .unwrap()
-            .success()
-    );
     let store = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
     store.atomic_write("planning/a.md", b"before a").unwrap();
     store.atomic_write("planning/b.md", b"before b").unwrap();
@@ -65,6 +57,8 @@ fn interrupted_transaction_recovers_across_git_availability_changes() {
     let temp = TempDir::new();
     let root = temp.root.join("planning");
     std::fs::create_dir_all(&root).unwrap();
+    let code = temp.root.join("code");
+    std::fs::create_dir_all(&code).unwrap();
     let store = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
     store.atomic_write("planning/a.md", b"before a").unwrap();
     store.atomic_write("planning/b.md", b"before b").unwrap();
@@ -78,7 +72,7 @@ fn interrupted_transaction_recovers_across_git_availability_changes() {
     assert!(
         std::process::Command::new("git")
             .args(["init", "-q"])
-            .current_dir(&root)
+            .current_dir(&code)
             .status()
             .unwrap()
             .success()
@@ -90,8 +84,8 @@ fn interrupted_transaction_recovers_across_git_availability_changes() {
     assert_eq!(restarted.read("planning/b.md").unwrap(), b"before b");
 
     assert!(apply_store_with_interruption(&restarted, &changes, None, Some(1)).is_err());
-    let hidden_git_metadata = root.with_extension("git-offline");
-    std::fs::rename(root.join(".git"), &hidden_git_metadata).unwrap();
+    let hidden_git_metadata = code.with_extension("git-offline");
+    std::fs::rename(code.join(".git"), &hidden_git_metadata).unwrap();
     assert!(restarted.recover().unwrap());
     assert_eq!(restarted.read("planning/a.md").unwrap(), b"before a");
     assert_eq!(restarted.read("planning/b.md").unwrap(), b"before b");
@@ -112,14 +106,6 @@ fn transaction_removals_are_atomic_and_recoverable() {
     let temp = TempDir::new();
     let root = temp.root.join("planning");
     std::fs::create_dir_all(&root).unwrap();
-    assert!(
-        std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(&root)
-            .status()
-            .unwrap()
-            .success()
-    );
     let store = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
     store.atomic_write("planning/a.md", b"old").unwrap();
     store.atomic_write("planning/b.md", b"old b").unwrap();
@@ -174,8 +160,9 @@ fn transaction_removals_are_atomic_and_recoverable() {
 #[test]
 fn linked_worktrees_keep_recovery_journals_scoped_to_each_store_root() {
     let temp = TempDir::new();
-    let first = temp.root.join("first");
-    let second = temp.root.join("second");
+    let code = temp.root.join("code");
+    let first = code.join("first");
+    let second = code.join("second");
     std::fs::create_dir_all(&first).unwrap();
     let git = |dir: &Path, args: &[&str]| {
         let output = std::process::Command::new("git")
@@ -206,8 +193,16 @@ fn linked_worktrees_keep_recovery_journals_scoped_to_each_store_root() {
             second.to_str().unwrap(),
         ],
     );
-    let store_a = PlanningStore::new(uuid::Uuid::new_v4(), &first, StoreMode::ManagedLocal);
-    let store_b = PlanningStore::new(uuid::Uuid::new_v4(), &second, StoreMode::ManagedLocal);
+    let store_a = PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        temp.root.join("private-state/first"),
+        StoreMode::ManagedLocal,
+    );
+    let store_b = PlanningStore::new(
+        uuid::Uuid::new_v4(),
+        temp.root.join("private-state/second"),
+        StoreMode::ManagedLocal,
+    );
     assert_eq!(
         transaction_root(&store_a).unwrap(),
         transaction_root(&store_b).unwrap()

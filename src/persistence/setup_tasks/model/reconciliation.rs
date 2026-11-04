@@ -93,29 +93,6 @@ impl SetupTaskStoreV1 {
             if seen.contains(task.id.as_str()) || task.state == SetupTaskStateV1::Superseded {
                 continue;
             }
-            if task.legacy_source_id.is_some() {
-                let superseded_by = snapshot
-                    .findings
-                    .iter()
-                    .filter(|finding| legacy_matches(task.id.as_str(), finding.id.as_str()))
-                    .map(|finding| finding.id.clone())
-                    .collect::<Vec<_>>();
-                if !superseded_by.is_empty() || positive_domain_for_task(task, snapshot).is_some() {
-                    let meaningful = task.state != SetupTaskStateV1::Superseded
-                        || task.superseded_by != superseded_by;
-                    task.state = SetupTaskStateV1::Superseded;
-                    task.superseded_by = superseded_by;
-                    task.verified_result = None;
-                    task.observed_at_unix_ms = snapshot.checked_at_unix_ms;
-                    task.scan_generation = generation;
-                    if meaningful {
-                        record(task, snapshot.checked_at_unix_ms, generation);
-                    }
-                    changed |= meaningful;
-                }
-                continue;
-            }
-
             if let Some(superseding_changed) =
                 image_superseding::supersede_stale_image_task(task, snapshot, generation)
             {
@@ -288,9 +265,4 @@ fn task_observation_changed(existing: &SetupTaskV1, next: &SetupTaskV1) -> bool 
         || existing.state != next.state
         || existing.verified_result != next.verified_result
         || existing.attempts != next.attempts
-}
-
-fn legacy_matches(legacy_id: &str, current_id: &str) -> bool {
-    (legacy_id == "setup:legacy:docker" && current_id.starts_with("setup:docker:"))
-        || (legacy_id == "setup:legacy:provider" && current_id.starts_with("setup:cli:"))
 }

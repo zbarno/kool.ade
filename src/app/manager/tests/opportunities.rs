@@ -91,12 +91,13 @@ fn product_proposal_json() -> serde_json::Value {
 pub(super) fn initialized_repository() -> (tempfile::TempDir, crate::app::session::Project, String)
 {
     let temp = tempfile::tempdir().expect("temporary project directory");
-    let root = temp.path();
-    git(root, &["init", "-q"]);
-    git(root, &["config", "user.name", "Fixture User"]);
-    git(root, &["config", "user.email", "fixture@example.invalid"]);
+    let root = temp.path().join("code");
+    std::fs::create_dir_all(&root).unwrap();
+    git(&root, &["init", "-q", "-b", "main"]);
+    git(&root, &["config", "user.name", "Fixture User"]);
+    git(&root, &["config", "user.email", "fixture@example.invalid"]);
     git(
-        root,
+        &root,
         &[
             "remote",
             "add",
@@ -105,9 +106,30 @@ pub(super) fn initialized_repository() -> (tempfile::TempDir, crate::app::sessio
         ],
     );
     std::fs::write(root.join("README.md"), "fixture\n").unwrap();
-    git(root, &["add", "README.md"]);
-    git(root, &["commit", "-qm", "fixture"]);
-    let project = crate::app::session::test_support::project_from(root);
+    git(&root, &["add", "README.md"]);
+    git(&root, &["commit", "-qm", "fixture"]);
+    let mut project = crate::app::session::test_support::project_from(&root);
+    let store_root = temp.path().join("private-state");
+    let store = crate::artifacts::planning_store::PlanningStore::for_code_repository(
+        project.state.planning_store.project_id,
+        &store_root,
+        &root,
+    );
+    let repositories = crate::core::project_repos::ProjectManifest {
+        repositories: vec![crate::core::project_repos::Repository {
+            id: "root".into(),
+            role: "Primary code".into(),
+            remote: "https://github.com/example/project.git".into(),
+            display_name: None,
+        }],
+    };
+    store
+        .atomic_write(
+            crate::artifacts::planning_store::paths::PROJECT_MANIFEST,
+            &serde_json::to_vec_pretty(&repositories).unwrap(),
+        )
+        .unwrap();
+    project.state = crate::core::state::PlannerState::load_with_store(&root, &store).unwrap();
     (
         temp,
         project,

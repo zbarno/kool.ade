@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::implementation::publication::lifecycle::tests::fixture::Fixture as LifecycleFixture;
 
 #[path = "publication_checks/provider_checks.rs"]
 mod provider_checks;
@@ -12,6 +13,10 @@ fn isolated_implementation_verifies_pushes_and_reuses_pr() {
     let s = Sandbox::new();
     fs::write(s.repo.join("unrelated.txt"), "main checkout draft").unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
+    let held = s.run("complete", calls.clone()).unwrap();
+    assert_eq!(held.status, ImplementationStatus::AwaitingApproval);
+    assert!(held.pr_url.is_none());
+    authorize_fixture_publication(&s, &held);
     let result = s.run("complete", calls.clone()).unwrap();
     assert_eq!(result.status, ImplementationStatus::AwaitingReview);
     assert!(result.pr_url.is_some());
@@ -22,7 +27,7 @@ fn isolated_implementation_verifies_pushes_and_reuses_pr() {
         "implementing a task alone must not create an ADR"
     );
     assert!(
-        state_dir(&s.repo, &s.ticket)
+        state_dir(&s.planning_store.root, &s.ticket)
             .unwrap()
             .join("verified-report.json")
             .exists(),
@@ -37,7 +42,11 @@ fn isolated_implementation_verifies_pushes_and_reuses_pr() {
     // Simulate a crash after GitHub created the PR but before its URL was saved.
     let mut recovery = result.clone();
     recovery.pr_url = None;
-    save(&state_dir(&s.repo, &s.ticket).unwrap(), &recovery).unwrap();
+    save(
+        &state_dir(&s.planning_store.root, &s.ticket).unwrap(),
+        &recovery,
+    )
+    .unwrap();
     let again = s.run("complete", calls.clone()).unwrap();
     assert_eq!(again.pr_url, result.pr_url);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -69,13 +78,15 @@ fn disabled_auto_publish_keeps_verified_work_local_until_explicit_pr_action() {
     assert!(held.pr_url.is_none() && held.merged_commit.is_none());
     assert!(held.task_repository.exists());
     assert!(
-        state_dir(&s.repo, &s.ticket)
+        state_dir(&s.planning_store.root, &s.ticket)
             .unwrap()
             .join("verified-report.json")
             .exists()
     );
     assert!(!s.root.join("pr-created").exists());
     assert_eq!(s.git(&s.repo, &["rev-parse", "origin/main"]), remote_main);
+
+    authorize_fixture_publication(&s, &held);
 
     let pr = s
         .run_with_publication_policy(
@@ -114,8 +125,10 @@ fn pr_creation_failure_moves_the_approved_task_to_actionable_attention() {
         .unwrap();
     assert_eq!(held.status, ImplementationStatus::AwaitingApproval);
 
+    authorize_fixture_publication(&s, &held);
+
     fs::write(s.root.join("offline"), "").unwrap();
-    let error = s
+    let outcome = s
         .run_with_publication_policy(
             "complete",
             calls.clone(),
@@ -123,16 +136,56 @@ fn pr_creation_failure_moves_the_approved_task_to_actionable_attention() {
             None,
             false,
         )
-        .unwrap_err();
-    let failure = Failure::from_error(&error);
-    let blocked = record_failed_attempt(&s.repo, &s.ticket, &failure.message)
-        .unwrap()
         .unwrap();
 
-    assert_eq!(blocked.status, ImplementationStatus::Blocked);
-    assert_eq!(board_column(Some(&blocked), false), 3);
+    assert_eq!(outcome.status, ImplementationStatus::Completed);
+    assert!(outcome.detail.contains("GitHub unavailable"));
+    let blocked = load(&s.planning_store.root, &s.ticket).unwrap();
+
+    assert_eq!(blocked.status, ImplementationStatus::Completed);
+    assert_eq!(board_column(Some(&blocked), false), 4);
     assert!(blocked.detail.contains("GitHub unavailable"));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+pub(super) fn authorize_fixture_publication(sandbox: &Sandbox, implementation: &Implementation) {
+    let task_uid = implementation
+        .task_uid
+        .as_deref()
+        .expect("fixture implementation has a private task identity");
+    let task_record = sandbox
+        .planning_store
+        .root
+        .join(format!("state/lifecycle_tasks/{task_uid}.json"));
+    let _ = fs::remove_file(task_record);
+    let mut fixture = LifecycleFixture::with_store(
+        sandbox.planning_store.clone(),
+        sandbox.repo.clone(),
+        uuid::Uuid::new_v4().hyphenated().to_string(),
+        implementation
+            .verified_head
+            .as_deref()
+            .expect("completed fixture has a verified head"),
+        task_uid.to_owned(),
+        false,
+    );
+    fixture.bind_task_contents(&implementation.ticket_text);
+    let gate = crate::core::implementation::publication::lifecycle::prepare_lifecycle_publication(
+        &sandbox.planning_store,
+        implementation,
+    )
+    .unwrap();
+    assert!(matches!(
+        gate,
+        crate::core::implementation::publication::LifecyclePublicationGate::Authorized(_)
+    ));
+    assert_eq!(
+        crate::core::lifecycle::LifecycleStore::new(&sandbox.planning_store)
+            .load_pr_preparation(&fixture.work_uid)
+            .unwrap()
+            .status,
+        crate::core::lifecycle::PullRequestPreparationStatus::Publishing
+    );
 }
 
 #[test]
@@ -158,7 +211,7 @@ fn explicit_evidence_only_task_completes_without_commit_or_pr() {
     assert!(!result.task_repository.exists());
     assert_eq!(s.git(&s.repo, &["rev-parse", "HEAD"]), base);
     assert!(
-        state_dir(&s.repo, &s.ticket)
+        state_dir(&s.planning_store.root, &s.ticket)
             .unwrap()
             .join("verified-report.json")
             .exists()
@@ -168,7 +221,7 @@ fn explicit_evidence_only_task_completes_without_commit_or_pr() {
 fn ordinary_implementation_contract_without_product_changes_is_rejected() {
     let s = Sandbox::new();
     s.make_evidence_only();
-    let ticket_path = s.repo.join(&s.ticket);
+    let ticket_path = s.ticket_path();
     let ticket = fs::read_to_string(&ticket_path).unwrap();
     fs::write(
         &ticket_path,
@@ -178,9 +231,7 @@ fn ordinary_implementation_contract_without_product_changes_is_rejected() {
         ),
     )
     .unwrap();
-    s.git(&s.repo, &["add", &s.ticket]);
-    s.git(&s.repo, &["commit", "-qm", "make no-op contract ordinary"]);
-    s.git(&s.repo, &["push", "-q", "origin", "main"]);
+    refresh_task_spec(&s.planning_store, &s.ticket);
     let base = s.git(&s.repo, &["rev-parse", "HEAD"]);
     let calls = Arc::new(AtomicUsize::new(0));
     let error = s.run("evidence_only", calls.clone()).unwrap_err();

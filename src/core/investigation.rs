@@ -3,7 +3,7 @@
 //! transaction path to preserve a durable conclusion or escalate authority.
 use crate::core::reconciliation::DEFER_PREFIX;
 use crate::{
-    core::{apply, context_build::TurnContext, gitops, prompt, state::PlannerState, validation},
+    core::{apply, context_build::TurnContext, prompt, state::PlannerState, validation},
     domain::Authority,
     harness::{AiHarness, ExecutionMode, LiveProgress, PlanningRequest, TurnEnvelope},
 };
@@ -189,18 +189,12 @@ fn run_with_settle_window(
                             anyhow::bail!("{DEFER_PREFIX}");
                         }
                         let mut next = state.clone();
-                        let receipt = apply::apply(&mut next, &normalized)?;
-                        let commit = gitops::commit(
-                            &next.planning_store.git_root(),
-                            &receipt.commit_message,
-                            &receipt.repo_relative_paths,
-                        )
-                        .map_err(|error| {
-                            anyhow::anyhow!(
-                                "Investigation was saved but checkpoint failed: {error}"
-                            )
-                        })?;
-                        Ok((next, format!("{} ({commit})", envelope.assistant())))
+                        let _receipt = apply::apply(&mut next, &normalized)?;
+                        let revision = next.planning_store.revision()?;
+                        Ok((
+                            next,
+                            format!("{} (saved locally {})", envelope.assistant(), revision),
+                        ))
                     })();
                     drop(guard);
                     match attempt {

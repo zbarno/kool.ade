@@ -3,8 +3,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-mod index_isolation;
-
 fn fresh_dir(prefix: &str) -> PathBuf {
     let path = std::env::temp_dir().join(format!("koolade_git_{prefix}_{}", std::process::id()));
     let _ = fs::remove_dir_all(&path);
@@ -47,23 +45,6 @@ fn snapshot_reports_branch_dirty_and_subject() {
     assert_eq!(initial.dirty, 0);
     fs::write(repo.join("b.txt"), "two").unwrap();
     assert_eq!(snapshot(&repo).dirty, 1);
-    let _ = fs::remove_dir_all(repo);
-}
-
-#[test]
-fn commit_lands_a_checkpoint_with_planner_authorship() {
-    let repo = mkrepo("commit");
-    fs::write(repo.join("planning.md"), "spec").unwrap();
-    let sha = commit(
-        &repo,
-        "planner: establish initial specification",
-        &["planning.md".into()],
-    )
-    .unwrap();
-    let log = git_in(&repo, &["log", "-1", "--pretty=%an %s"]);
-    assert!(log.contains(AUTHOR_NAME));
-    assert!(log.contains("planner: establish initial specification"));
-    assert!(!sha.is_empty());
     let _ = fs::remove_dir_all(repo);
 }
 

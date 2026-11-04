@@ -13,7 +13,6 @@ fn failed_saved_answer_is_recovered_internally_without_a_repeat_question() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "General".into(),
-        None,
         "Which branch should receive this task?".into(),
         "The task needs a destination.".into(),
     );

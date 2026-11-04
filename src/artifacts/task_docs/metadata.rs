@@ -2,17 +2,14 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-mod legacy;
 mod routing;
-
-pub use legacy::legacy_dependencies;
 
 const VERSION: u32 = 7;
 const MAX_FRONTMATTER_BYTES: usize = 8192;
 const MAX_DEPENDENCIES: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskMetadata {
     schema_version: u32,
     pub uid: String,
@@ -29,17 +26,9 @@ pub struct TaskMetadata {
     /// Standalone task UID that owns this internal subtask, when applicable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_task_uid: Option<String>,
-    #[serde(
-        default,
-        alias = "source_branch",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_branch: Option<String>,
-    #[serde(
-        default,
-        alias = "destination_branch",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub destination_branch: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_sha: Option<String>,
@@ -148,7 +137,7 @@ impl TaskMetadata {
         identity: Option<&crate::domain::ArtifactIdentity>,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(
-            (1..=VERSION).contains(&self.schema_version),
+            self.schema_version == VERSION,
             "Unsupported task metadata version {}",
             self.schema_version
         );

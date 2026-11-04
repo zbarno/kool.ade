@@ -91,7 +91,6 @@ fn newer_saved_task_reply_keeps_an_older_applied_outcome_without_stale_prose() {
     let normalized = crate::core::validation::NormalizedTurn {
         assistant_message: "The release branch was selected.".into(),
         change_summary: None,
-        spec_markdown: None,
         document_updates: Vec::new(),
         planning_tasks: Vec::new(),
         task_intent_context: None,
@@ -118,14 +117,13 @@ fn newer_saved_task_reply_keeps_an_older_applied_outcome_without_stale_prose() {
             TurnOutcome::Applied {
                 state: Box::new(state),
                 receipt: crate::core::apply::ApplyReceipt {
-                    spec_written: false,
+                    draft_written: false,
                     items_written: false,
-                    commit_message: "planner: apply earlier saved reply".into(),
-                    repo_relative_paths: Vec::new(),
-                    synthesized_open_items: Vec::new(),
+                    summary: "planner: apply earlier saved reply".into(),
+                    changed_store_paths: Vec::new(),
                 },
                 normalized: Box::new(normalized),
-                commit_result: Ok("abcdef0123456789".into()),
+                save_result: Ok("abcdef0123456789".into()),
                 elapsed: Duration::ZERO,
                 stderr_tail: String::new(),
             },

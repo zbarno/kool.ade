@@ -1,40 +1,75 @@
-//! Stage module, manifest, and index updates as one product-document batch.
+//! Persist document proposals as private drafts until explicit publication.
+mod model;
+#[cfg(test)]
+#[path = "product_documents/tests.rs"]
+mod tests;
+
 use crate::artifacts::planning_store::PlanningRoot;
+pub(crate) use model::load_current;
+pub use model::{LocalSpecDraftChange, LocalSpecDraftV1};
+use model::{StoredSpecDraftV1, validate_changes};
+use sha2::{Digest, Sha256};
 
 pub(super) fn changes<R: PlanningRoot + ?Sized>(
     repo: &R,
     updates: &[(String, String)],
 ) -> anyhow::Result<Vec<(String, String)>> {
-    anyhow::ensure!(
-        !updates.iter().any(|(id, _)| id == "product:index"),
-        "The product index is application-maintained"
-    );
-    let layout = repo.planning_layout();
-    let mut changes = Vec::new();
+    if updates.is_empty() {
+        return Ok(Vec::new());
+    }
+    let store = repo.planning_store();
+    let current = load_current(&store)?;
+    if let Some(draft) = &current {
+        anyhow::ensure!(
+            draft.base_published_spec_pin == store.published_spec_pin,
+            "local specification proposal is based on a stale published revision; review it against the current revision"
+        );
+    }
+    let mut changes = current
+        .map(|draft| {
+            draft
+                .changes
+                .into_iter()
+                .map(|change| (change.document_id, change.content))
+                .collect::<std::collections::BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
+    let mut seen = std::collections::BTreeSet::new();
     for (id, content) in updates {
-        let path = crate::artifacts::product_docs::document_path_for_update(repo, id, content)?;
-        changes.push((
-            path.strip_prefix(layout.root())?
-                .to_string_lossy()
-                .into_owned(),
-            content.clone(),
-        ));
+        anyhow::ensure!(seen.insert(id), "Document {id} is updated more than once");
+        changes.insert(id.clone(), content.clone());
     }
+    let changes = changes
+        .into_iter()
+        .map(|(document_id, content)| LocalSpecDraftChange {
+            document_id,
+            content,
+        })
+        .collect::<Vec<_>>();
+    validate_changes(&changes)?;
 
-    let has_product_update = updates.iter().any(|(id, _)| id.starts_with("product:"));
-    let has_feature_update = updates.iter().any(|(id, _)| id.starts_with("feature:"));
-    if has_product_update {
-        let manifest = crate::artifacts::product_docs::updated_manifest(repo, updates)?;
-        changes.push((
-            crate::artifacts::planning_store::paths::PRODUCT_MANIFEST.into(),
-            serde_json::to_string_pretty(&manifest)?,
-        ));
-    }
-    if has_product_update || has_feature_update {
-        changes.push((
-            crate::artifacts::planning_store::paths::PRODUCT_INDEX.into(),
-            crate::artifacts::product_docs::refreshed_index(repo, updates)?,
-        ));
-    }
-    Ok(changes)
+    let snapshot = StoredSpecDraftV1 {
+        schema_version: 1,
+        base_published_spec_pin: store.published_spec_pin.clone(),
+        changes: changes.clone(),
+    };
+    let snapshot_bytes = serde_json::to_vec_pretty(&snapshot)?;
+    let digest = format!("{:x}", Sha256::digest(&snapshot_bytes));
+    let projection = LocalSpecDraftV1 {
+        schema_version: snapshot.schema_version,
+        base_published_spec_pin: snapshot.base_published_spec_pin,
+        changes: snapshot.changes,
+        proposal_sha256: digest.clone(),
+    };
+    let current_bytes = serde_json::to_vec_pretty(&projection)?;
+    Ok(vec![
+        (
+            format!("state/spec_drafts/{digest}.json"),
+            String::from_utf8(snapshot_bytes)?,
+        ),
+        (
+            "state/spec_drafts/current.json".into(),
+            String::from_utf8(current_bytes)?,
+        ),
+    ])
 }

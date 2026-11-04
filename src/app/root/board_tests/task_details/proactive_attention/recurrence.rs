@@ -13,7 +13,6 @@ fn changed_copy_of_the_same_human_item_does_not_repeat_its_question() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "General".into(),
-        None,
         "Which branch should receive this task?".into(),
         "The task needs a destination.".into(),
     );
@@ -76,7 +75,6 @@ fn saved_human_reply_is_not_reported_as_waiting_on_the_user() {
         crate::domain::Priority::Blocking,
         crate::domain::ItemKind::Question,
         "General".into(),
-        None,
         "Which branch should receive this task?".into(),
         "The task needs a destination.".into(),
     );

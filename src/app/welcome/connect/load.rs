@@ -1,5 +1,5 @@
 use super::*;
-use crate::artifacts::planning_store::StoreMode;
+use crate::{core::state::PlannerState, persistence::chat_store};
 
 pub(super) fn connect_canonical_with_key(
     canonical: PathBuf,
@@ -15,47 +15,16 @@ pub(super) fn connect_canonical_with_key(
 
     store
         .recover()
-        .map_err(|e| AppError::Other(format!("planning store recovery failed: {e}")))?;
+        .map_err(|e| AppError::Other(format!("local application storage recovery failed: {e}")))?;
     let mut state =
         PlannerState::load_with_store(&canonical, &store).map_err(|e| AppError::Artifact {
             path: canonical.to_string_lossy().into_owned(),
             detail: e.to_string(),
         })?;
-    let created = state.bootstrap_missing().map_err(|e| AppError::Io {
+    state.bootstrap_missing().map_err(|e| AppError::Io {
         op: "bootstrap planning artifacts".into(),
         detail: e.to_string(),
     })?;
-    let paths = created;
-    if !paths.is_empty() {
-        gitops::commit(
-            &store.git_root(),
-            "Kool.ad/e: bootstrap project artifacts",
-            &paths,
-        )
-        .map_err(|e| {
-            AppError::Other(format!(
-                "bootstrapped artifacts are preserved but checkpoint failed: {e}"
-            ))
-        })?;
-    }
-    let task_record_paths =
-        crate::artifacts::task_docs::backfill_missing_task_records(&store, &state.workflow)
-            .map_err(|error| AppError::Artifact {
-                path: canonical.to_string_lossy().into_owned(),
-                detail: format!("task record migration failed: {error:#}"),
-            })?;
-    if !task_record_paths.is_empty() {
-        gitops::commit(
-            &store.git_root(),
-            "Kool.ad/e: normalize task status records",
-            &task_record_paths,
-        )
-        .map_err(|error| {
-            AppError::Other(format!(
-                "task records were migrated but checkpoint failed: {error}"
-            ))
-        })?;
-    }
     let slug = local_key;
     let mut chat = chat_store::load(&slug).0;
     if chat.is_empty() {
@@ -108,31 +77,6 @@ pub(super) fn connect_canonical_with_key(
     } else {
         None
     };
-    let (managed_workspace, planning_sync, planning_remote_url) = {
-        let manager = crate::core::managed_workspace::WorkspaceManager::from_state_root();
-        let status = manager
-            .planning_sync_status(state.planning_store.project_id)
-            .unwrap_or_else(|error| crate::core::planning_sync::PlanningSyncStatus {
-                mode: if state.planning_store.mode == StoreMode::ManagedShared {
-                    crate::core::planning_sync::PlanningSyncMode::Shared
-                } else {
-                    crate::core::planning_sync::PlanningSyncMode::Local
-                },
-                state: crate::core::planning_sync::PlanningSyncState::IncompatibleSchema,
-                canonical_ref: None,
-                confirmed_commit: None,
-                confirmed_at_ms: None,
-                pending_operations: 0,
-                pending: Vec::new(),
-                conflicts: Vec::new(),
-                detail: Some(error.to_string()),
-            });
-        let managed = manager.open(state.planning_store.project_id).ok();
-        let remote = managed
-            .as_ref()
-            .and_then(|workspace| manager.planning_remote_url(workspace.id).ok().flatten());
-        (managed, status, remote)
-    };
     let mut project = Project {
         specification_trace_navigation: None,
         task_chats: Default::default(),
@@ -141,9 +85,6 @@ pub(super) fn connect_canonical_with_key(
         archived_tasks,
         cancelled_work,
         state,
-        managed_workspace,
-        planning_sync,
-        planning_remote_url,
         chat_slug: slug,
         chat,
         draft: String::new(),
@@ -154,7 +95,7 @@ pub(super) fn connect_canonical_with_key(
         task_live: Default::default(),
         planning_work,
         active_planning_work: None,
-        queue: crate::core::implementation_queue::Queue::load(&canonical)
+        queue: crate::core::implementation_queue::Queue::load(&store.root)
             .map_err(|e| AppError::Other(e.to_string()))?,
         queue_lock: None,
         active_implementations: Default::default(),
@@ -183,7 +124,9 @@ pub(super) fn connect_canonical_with_key(
         ));
     }
     for item in &project.state.items {
-        if let Some(activity) = crate::core::implementation::load_activity(&canonical, &item.id) {
+        if let Some(activity) =
+            crate::core::implementation::load_activity(&project.state.planning_store.root, &item.id)
+        {
             project.activity.tasks.insert(item.id.clone(), activity);
         }
     }

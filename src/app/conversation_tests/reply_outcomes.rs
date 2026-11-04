@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::OpenItem;
 
 #[test]
 fn rejected_failed_and_cancelled_replies_stay_in_task_and_preserve_project_state() {
@@ -16,7 +17,6 @@ fn rejected_failed_and_cancelled_replies_stay_in_task_and_preserve_project_state
                 crate::domain::Priority::High,
                 crate::domain::ItemKind::Question,
                 "General".into(),
-                None,
                 "Provider?".into(),
                 "Access".into(),
             ));
@@ -27,7 +27,7 @@ fn rejected_failed_and_cancelled_replies_stay_in_task_and_preserve_project_state
                 None,
             )];
         }
-        let product_vision = root.join("planning/product/overview.md");
+        let product_vision = root.join("docs/koolade/product/overview.md");
         let before = std::fs::read(&product_vision).unwrap();
         app.task_harness = Some(if mode == "rejected" {
             Box::new(ReplyHarness {

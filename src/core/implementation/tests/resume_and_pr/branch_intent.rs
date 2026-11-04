@@ -36,47 +36,32 @@ fn save_branch_intent(sandbox: &Sandbox, source: &str, destination: &str) {
         source: source.into(),
         destination: destination.into(),
     };
+    let identity_marker = serde_json::to_string(&identity).unwrap();
+    let task_body =
+        "# Branch task\n\nFeature: F1\n\n## Acceptance criteria\n\n- File contains implemented.\n";
+    let document = format!("<!-- koolade-artifact-id:v1 {identity_marker} -->\n\n{task_body}");
+    fs::write(sandbox.ticket_path(), &document).unwrap();
+    super::super::sandbox::seed_lifecycle_task(&sandbox.planning_store, &sandbox.ticket, task_body);
+    let task_path = sandbox.ticket_path();
+    let seeded = fs::read_to_string(&task_path).unwrap();
+    let identity = crate::domain::ArtifactIdentity::from_markdown(&seeded)
+        .unwrap()
+        .unwrap();
     let metadata = crate::artifacts::task_docs::TaskMetadata::new(&identity, "root", vec![])
+        .unwrap()
+        .with_task_intent_uid(Some(&identity.uid))
         .unwrap()
         .with_branch_targets(Some(&targets))
         .unwrap();
-    let identity_marker = serde_json::to_string(&identity).unwrap();
-    let metadata_json = serde_json::to_string(&metadata).unwrap();
-    let task_body =
-        "# Branch task\n\nFeature: F1\n\n## Acceptance criteria\n\n- File contains implemented.\n";
-    let document = format!(
-        "---\nkoolade-task: {metadata_json}\n---\n\n<!-- koolade-artifact-id:v1 {identity_marker} -->\n\n{task_body}"
-    );
-    fs::write(sandbox.repo.join(&sandbox.ticket), &document).unwrap();
-    // These tests cover branch-intent routing for a legacy task. Keep the
-    // stable Markdown identity, but omit a lifecycle record so the lifecycle
-    // publication gate does not mistake this routing fixture for an approved
-    // task with completed QA and specification reconciliation.
-    sandbox.git(&sandbox.repo, &["add", &sandbox.ticket]);
-    sandbox.git(
-        &sandbox.repo,
-        &["commit", "-qm", "save selected branch intent"],
-    );
-    sandbox.git(&sandbox.repo, &["push", "-q", "origin", "main"]);
-}
-
-fn remove_lifecycle_task_record(sandbox: &Sandbox) {
-    let uid = crate::domain::ArtifactIdentity::from_markdown(
-        &fs::read_to_string(sandbox.repo.join(&sandbox.ticket)).unwrap(),
-    )
-    .unwrap()
-    .unwrap()
-    .uid;
-    let store = crate::artifacts::planning_store::PlanningStore::new(
-        uuid::Uuid::nil(),
-        &sandbox.repo,
-        crate::artifacts::planning_store::StoreMode::ManagedLocal,
-    );
-    match fs::remove_file(store.root.join(format!("state/lifecycle_tasks/{uid}.json"))) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => panic!("could not remove legacy lifecycle task: {error}"),
-    }
+    sandbox
+        .planning_store
+        .atomic_write(
+            &sandbox.ticket,
+            crate::artifacts::task_docs::embed(&seeded, &metadata)
+                .unwrap()
+                .as_bytes(),
+        )
+        .unwrap();
 }
 
 #[test]
@@ -114,13 +99,9 @@ fn release_1_2_source_and_develop_destination_are_honored_exactly() {
     assert_eq!(state.destination_branch.as_deref(), Some("develop"));
     assert_eq!(state.base, "develop");
     assert_eq!(state.base_commit, destination_head);
-    let pull_request = state.pr_details.as_ref().unwrap();
-    assert_eq!(pull_request.number, 1);
-    assert_eq!(
-        pull_request.head_sha,
-        state.verified_head.as_deref().unwrap()
-    );
-    assert_eq!(pull_request.base_branch, "develop");
+    assert_eq!(state.status, ImplementationStatus::AwaitingApproval);
+    assert!(state.pr_details.is_none());
+    assert!(!sandbox.root.join("pr-created").exists());
     assert!(state.task_repository.join("destination.txt").exists());
     assert!(state.task_repository.join("source.txt").exists());
     assert!(state.task_repository.join("implemented.txt").exists());
@@ -142,13 +123,6 @@ fn release_1_2_source_and_develop_destination_are_honored_exactly() {
             .exists()
     );
     assert!(cache.join("koolade-auto-publish.lock").exists());
-    let args = fs::read_to_string(sandbox.root.join("pr-args")).unwrap();
-    assert!(
-        args.lines()
-            .collect::<Vec<_>>()
-            .windows(2)
-            .any(|pair| pair == ["--base", "develop"])
-    );
 }
 
 #[test]
@@ -178,7 +152,9 @@ fn local_only_source_branch_is_supported_when_destination_is_origin_backed() {
     assert_eq!(state.source_commit.as_deref(), Some(source_commit.as_str()));
     assert!(state.task_repository.join("local-source.txt").exists());
     assert!(state.task_repository.join("implemented.txt").exists());
-    assert!(sandbox.root.join("pr-created").exists());
+    assert_eq!(state.status, ImplementationStatus::AwaitingApproval);
+    assert!(state.pr_details.is_none());
+    assert!(!sandbox.root.join("pr-created").exists());
 }
 
 #[test]
@@ -191,8 +167,9 @@ fn same_source_and_destination_reconciles_destination_updates_before_opening_pr(
         calls,
     };
     let (tx, _rx) = mpsc::channel();
-    let state = run_with_project_options(
-        &sandbox.repo,
+    let state = run_with_planning_store_options(
+        &sandbox.planning_store,
+        &sandbox.planning_store.root,
         &sandbox.repo,
         &sandbox.ticket,
         RunOptions {
@@ -212,28 +189,23 @@ fn same_source_and_destination_reconciles_destination_updates_before_opening_pr(
     assert_eq!(state.destination_branch.as_deref(), Some("main"));
     assert!(state.task_repository.join("upstream.txt").exists());
     assert!(state.task_repository.join("implemented.txt").exists());
-    assert!(sandbox.root.join("pr-created").exists());
-    let args = fs::read_to_string(sandbox.root.join("pr-args")).unwrap();
-    assert!(
-        args.lines()
-            .collect::<Vec<_>>()
-            .windows(2)
-            .any(|pair| pair == ["--base", "main"])
-    );
+    assert_eq!(state.status, ImplementationStatus::AwaitingApproval);
+    assert!(state.pr_details.is_none());
+    assert!(!sandbox.root.join("pr-created").exists());
 }
 
 #[test]
 fn default_destination_pr_reconciles_remote_changes_before_publication() {
     let sandbox = Sandbox::new();
-    remove_lifecycle_task_record(&sandbox);
     let calls = Arc::new(AtomicUsize::new(0));
     let harness = AdvanceDestination {
         sandbox: &sandbox,
         calls: calls.clone(),
     };
     let (progress, _updates) = mpsc::channel();
-    let state = run_with_project_options(
-        &sandbox.repo,
+    let state = run_with_planning_store_options(
+        &sandbox.planning_store,
+        &sandbox.planning_store.root,
         &sandbox.repo,
         &sandbox.ticket,
         RunOptions {
@@ -254,14 +226,12 @@ fn default_destination_pr_reconciles_remote_changes_before_publication() {
     assert_eq!(state.base, "main");
     assert!(state.task_repository.join("implemented.txt").exists());
     assert!(state.task_repository.join("upstream.txt").exists());
-    assert!(sandbox.root.join("pr-created").exists());
-    let remote = sandbox.root.join("remote.git");
+    assert_eq!(state.status, ImplementationStatus::AwaitingApproval);
+    assert!(state.pr_details.is_none());
+    assert!(!sandbox.root.join("pr-created").exists());
     assert_eq!(
-        sandbox.git(
-            &remote,
-            &["show", &format!("refs/heads/{}:upstream.txt", state.branch),],
-        ),
-        "latest upstream\nremote advance"
+        fs::read_to_string(state.task_repository.join("upstream.txt")).unwrap(),
+        "latest upstream\nremote advance\n"
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
@@ -283,7 +253,7 @@ fn missing_selected_source_needs_attention_without_falling_back_to_checkout_head
         .to_string();
     assert!(error.contains("Selected source branch 'release/deleted'"));
     assert_eq!(calls.load(Ordering::SeqCst), 0);
-    assert!(load(&sandbox.repo, &sandbox.ticket).is_none());
+    assert!(load(&sandbox.planning_store.root, &sandbox.ticket).is_none());
 }
 
 #[test]
@@ -303,7 +273,7 @@ fn missing_selected_destination_needs_attention_during_final_reconciliation() {
     assert!(error.contains("Selected destination branch 'release/deleted'"));
     assert!(error.contains("code repository"));
     assert!(!sandbox.root.join("pr-created").exists());
-    let saved = load(&sandbox.repo, &sandbox.ticket).unwrap();
+    let saved = load(&sandbox.planning_store.root, &sandbox.ticket).unwrap();
     assert_eq!(saved.status, ImplementationStatus::Blocked);
     assert!(saved.task_repository.exists());
 }
@@ -316,7 +286,7 @@ fn deleted_pinned_source_needs_attention_then_retries_after_ref_is_restored() {
     save_branch_intent(&sandbox, "release/2.1", "main");
     let calls = Arc::new(AtomicUsize::new(0));
     assert!(sandbox.run("cancel", calls.clone()).is_err());
-    let saved = load(&sandbox.repo, &sandbox.ticket).unwrap();
+    let saved = load(&sandbox.planning_store.root, &sandbox.ticket).unwrap();
     let pinned_source = saved.source_commit.clone().unwrap();
     sandbox.git(&sandbox.repo, &["push", "origin", ":release/2.1"]);
     sandbox.git(&sandbox.repo, &["branch", "-D", "release/2.1"]);
@@ -328,7 +298,7 @@ fn deleted_pinned_source_needs_attention_then_retries_after_ref_is_restored() {
     assert!(error.contains("code repository"));
     assert!(error.contains("task clone was preserved"));
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    let resumed = load(&sandbox.repo, &sandbox.ticket).unwrap();
+    let resumed = load(&sandbox.planning_store.root, &sandbox.ticket).unwrap();
     assert_eq!(resumed.status, ImplementationStatus::Blocked);
     assert_eq!(
         resumed.source_commit.as_deref(),
@@ -344,5 +314,7 @@ fn deleted_pinned_source_needs_attention_then_retries_after_ref_is_restored() {
         Some(pinned_source.as_str())
     );
     assert!(retried.task_repository.join("implemented.txt").exists());
-    assert!(sandbox.root.join("pr-created").exists());
+    assert_eq!(retried.status, ImplementationStatus::AwaitingApproval);
+    assert!(retried.pr_details.is_none());
+    assert!(!sandbox.root.join("pr-created").exists());
 }

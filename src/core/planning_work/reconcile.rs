@@ -232,8 +232,8 @@ mod tests {
         assert_eq!(work[1].status, WorkStatus::NeedsAttention);
         assert_eq!(work[2].status, WorkStatus::InProgress);
         assert_eq!(work[2].key, "planning:active");
-        super::super::save(&root, &work).unwrap();
-        let persisted = super::super::load(&root).unwrap();
+        super::super::save(&state.planning_store, &work).unwrap();
+        let persisted = super::super::load(&state.planning_store).unwrap();
         assert_eq!(persisted[0].status, WorkStatus::InReview);
         assert_eq!(persisted[1].status, WorkStatus::NeedsAttention);
         assert_eq!(persisted[2].status, WorkStatus::InProgress);

@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, fs};
+use std::collections::BTreeSet;
 
 use crate::{
     execution::docker::images::RuntimeProfile,
@@ -22,7 +22,7 @@ fn selected_profiles_are_persisted_as_a_bounded_set() {
         )
         .unwrap();
     }
-    let (store, _) = super::super::transaction::load_from(&path).unwrap();
+    let store = super::super::transaction::load_from(&path).unwrap();
     assert_eq!(
         store.required_image_profiles,
         BTreeSet::from([
@@ -54,21 +54,6 @@ fn qa_profiles_cannot_be_recorded_as_bootstrap_requirements() {
         ..SetupTaskStoreV1::default()
     };
     assert!(malformed.validate().is_err());
-}
-
-#[test]
-fn old_task_store_without_profile_requirements_loads_empty() {
-    let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("tasks.json");
-    fs::write(
-        &path,
-        br#"{"schemaVersion":2,"latestScanGeneration":0,"tasks":{}}"#,
-    )
-    .unwrap();
-
-    let (store, migrated) = super::super::transaction::load_from(&path).unwrap();
-    assert!(!migrated);
-    assert!(store.required_image_profiles.is_empty());
 }
 
 #[test]

@@ -14,7 +14,7 @@ use crate::{
 mod recipes;
 
 pub(super) struct Fixture {
-    pub root: tempfile::TempDir,
+    _root: tempfile::TempDir,
     pub projects_root: PathBuf,
     pub task_clone: PathBuf,
     pub planning: PlanningStore,
@@ -23,15 +23,15 @@ pub(super) struct Fixture {
     pub lifecycle_task: TaskRecord,
     pub dependency_cache: crate::execution::docker::qa_container::tests::browser_rootless::task_runtime::setup::prepared_cache::SeededCache,
     _home: crate::test_support::KooladeHomeGuard,
+    _home_root: tempfile::TempDir,
     _approval_cleanup: crate::persistence::runtime_target_approvals::WorkspaceCleanup,
 }
 
 impl Fixture {
     pub fn new() -> Self {
         let root = tempfile::tempdir().expect("temporary polyglot runtime fixture");
-        let operator_home = root.path().join("operator-home");
-        fs::create_dir_all(&operator_home).unwrap();
-        let home = crate::test_support::KooladeHomeGuard::set(&operator_home);
+        let operator_home = tempfile::tempdir().expect("temporary polyglot operator data root");
+        let home = crate::test_support::KooladeHomeGuard::set(operator_home.path());
         let project_id = uuid::Uuid::new_v4().hyphenated().to_string();
         let task_id = uuid::Uuid::new_v4().hyphenated().to_string();
         let projects_root = root.path().join("projects");
@@ -81,7 +81,7 @@ impl Fixture {
             crate::persistence::runtime_target_approvals::WorkspaceCleanup::new(&project_id);
         let planning = PlanningStore::new(
             uuid::Uuid::parse_str(&project_id).unwrap(),
-            root.path().join("project"),
+            operator_home.path().join("projects").join(&project_id),
             crate::artifacts::planning_store::StoreMode::ManagedLocal,
         );
         let runtime = ProjectRuntimeStore::new(&planning);
@@ -194,7 +194,7 @@ impl Fixture {
         );
 
         Self {
-            root,
+            _root: root,
             projects_root,
             task_clone,
             planning,
@@ -203,6 +203,7 @@ impl Fixture {
             lifecycle_task,
             dependency_cache,
             _home: home,
+            _home_root: operator_home,
             _approval_cleanup: approval_cleanup,
         }
     }

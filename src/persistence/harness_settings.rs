@@ -38,7 +38,7 @@ thread_local! {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct HarnessSettings {
     pub schema_version: u8,
     pub default_harness: Option<String>,
@@ -54,7 +54,7 @@ pub struct HarnessSettings {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub struct WorkRoute {
     pub harness: String,
     /// CLI-native model identifier. Empty means use that harness's configured default.
@@ -104,22 +104,14 @@ pub struct DetectedHarness {
     pub executable: Option<String>,
     pub diagnostic: Option<String>,
     pub ready: bool,
-    #[serde(default)]
     pub models: Vec<String>,
-    #[serde(default)]
     pub default_model: Option<String>,
-    #[serde(default)]
     pub model_catalog_fresh: bool,
-    #[serde(default)]
     pub configuration_required: bool,
-    #[serde(default)]
     pub implementation_available: bool,
-    /// Detailed per-mode and per-role evidence. Older settings omit this field;
-    /// consumers requiring mode evidence must treat that as unknown.
-    #[serde(default)]
+    /// Detailed per-mode and per-role evidence.
     pub capability_snapshot: Option<crate::execution::contract::HarnessCapabilitySnapshotV1>,
     /// Unix time when this provider result and model catalog were last refreshed.
-    #[serde(default)]
     pub checked_at_unix_ms: u64,
 }
 
@@ -276,5 +268,3 @@ use storage::{load_from, save_to};
 #[cfg(test)]
 #[path = "harness_settings/tests.rs"]
 mod tests;
-
-mod migration;
