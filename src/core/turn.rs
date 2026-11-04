@@ -49,6 +49,8 @@ pub struct TurnInputs {
     pub purpose: crate::core::workflow::TurnPurpose,
     /// Stable target identity for a ComparePlans turn.
     pub comparison_feature: Option<String>,
+    /// Application-owned mode and target captured at Specification send time.
+    pub specification_chat: Option<crate::core::specification_chat::Request>,
 }
 
 pub enum TurnEvt {

@@ -194,6 +194,7 @@ impl KooladeApp {
                 recent_chat,
                 purpose,
                 comparison_feature: None,
+                specification_chat: None,
             };
             let route_label = harness.label();
             project.task_turns.insert(

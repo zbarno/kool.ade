@@ -50,6 +50,7 @@ pub(crate) mod runtime_qa_applicability;
 mod runtime_qa_scenarios;
 mod setup_attention;
 mod setup_repair;
+mod specification_chat;
 mod specification_trace_navigation;
 mod surface;
 mod task_batch;

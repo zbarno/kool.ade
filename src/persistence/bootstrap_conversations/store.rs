@@ -87,6 +87,7 @@ fn append_at(
             lease_renewed_at: None,
             answer_context: None,
             clarification: false,
+            specification_context: None,
             ts: message.ts,
         };
         StoredMessageV1::from_message(&sanitized)?;

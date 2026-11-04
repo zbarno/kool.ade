@@ -161,6 +161,7 @@ fn inputs_for(tag: &str, msg: &str) -> (TurnInputs, std::path::PathBuf) {
         recent_chat: Vec::new(),
         purpose: crate::core::workflow::TurnPurpose::Interview,
         comparison_feature: None,
+        specification_chat: None,
     };
     let dir = inputs.state.repo_root.clone();
     (inputs, dir)
@@ -432,3 +433,5 @@ mod prompt_bounds;
 mod validation;
 
 mod read_only;
+#[path = "tests/specification_chat.rs"]
+mod specification_chat;

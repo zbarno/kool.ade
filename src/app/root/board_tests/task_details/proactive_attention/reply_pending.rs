@@ -96,6 +96,7 @@ fn unmatched_conversation_does_not_suppress_the_current_prompt() {
                 lease_renewed_at: None,
                 answer_context: None,
                 clarification: false,
+                specification_context: None,
                 ts: chrono::Utc::now(),
             }],
         )
@@ -165,6 +166,7 @@ fn prior_item_conversation_does_not_hide_question_for_reused_display_id() {
                 lease_renewed_at: None,
                 answer_context: None,
                 clarification: false,
+                specification_context: None,
                 ts: chrono::Utc::now(),
             }],
         )

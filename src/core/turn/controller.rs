@@ -15,6 +15,7 @@ use super::{TurnEvt, TurnInputs, TurnOutcome, configured_turn_timeout};
 pub struct TurnController {
     pub author_run_id: String,
     pub author_session_id: String,
+    pub specification_chat: Option<crate::core::specification_chat::Request>,
     rx: Receiver<TurnEvt>,
     /// Held (deliberately unread) so the channel stays open while a turn runs.
     #[allow(dead_code)]
@@ -86,6 +87,7 @@ impl TurnController {
         read_only: bool,
         task_reply: Option<TaskReplyContext>,
     ) -> TurnController {
+        let specification_chat = inputs.specification_chat.clone();
         let (evt_tx, evt_rx) = channel();
         let (act_tx, act_rx) = channel::<LiveProgress>();
         let cancel = Arc::new(AtomicBool::new(false));
@@ -115,7 +117,7 @@ impl TurnController {
             let budget = configured_turn_timeout();
             let began = Instant::now();
             let mut inputs = inputs;
-            if read_only {
+            if read_only && inputs.specification_chat.is_none() {
                 inputs.user_message = format!(
                     "Clarification only: answer briefly without changing project state or treating this as a submitted decision.\n\n{}",
                     inputs.user_message
@@ -186,6 +188,7 @@ impl TurnController {
         TurnController {
             author_run_id,
             author_session_id,
+            specification_chat,
             rx: evt_rx,
             keepalive: Some(evt_tx),
             cancel_flag: cancel,

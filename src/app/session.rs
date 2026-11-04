@@ -11,6 +11,7 @@ use crate::persistence::chat_store;
 
 mod cancellation;
 mod implementations;
+mod specification_chat_history;
 pub(crate) mod task_intent_history;
 mod task_status;
 #[cfg(test)]
@@ -192,6 +193,16 @@ impl Project {
                 (who, clip(&m.text, clip_chars))
             })
             .collect()
+    }
+
+    /// Snapshot only this Specification conversation's human and assistant turns.
+    /// System status and Manager patrol messages are never conversational authority.
+    pub fn recent_specification_chat(
+        &self,
+        scope_key: &str,
+        max_msgs: usize,
+    ) -> (Vec<(String, String)>, usize) {
+        specification_chat_history::recent(&self.chat, scope_key, max_msgs)
     }
 
     /// Push messages into memory AND the durable ~/.koolade store.

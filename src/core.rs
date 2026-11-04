@@ -42,6 +42,7 @@ pub mod planning;
 pub mod planning_work;
 pub mod published_specs;
 pub mod spec_publication;
+pub mod specification_chat;
 
 pub mod implementation_queue;
 

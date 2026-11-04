@@ -164,6 +164,7 @@ pub(super) fn run(state: PlannerState, generation: bool, failure_mode: u8) -> Tu
                 TurnPurpose::Interview
             },
             comparison_feature: None,
+            specification_chat: None,
         },
         Box::new(FixtureHarness {
             calls: calls.clone(),

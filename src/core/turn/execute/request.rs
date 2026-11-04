@@ -12,6 +12,7 @@ use crate::harness::{AiHarness, LiveProgress, PlanningRequest};
 use super::{TurnInputs, TurnOutcome};
 
 mod render;
+mod specification_chat;
 mod task_note;
 mod workspace;
 
@@ -62,6 +63,15 @@ pub(super) fn prepare(
             }));
         }
     };
+    if let Some(problem) =
+        specification_chat::validate_base_snapshot(inputs, base_snapshot.as_ref())
+    {
+        return Err(Box::new(TurnOutcome::Rejected {
+            problems: vec![problem],
+            final_text: String::new(),
+            elapsed: started.elapsed(),
+        }));
+    }
     let user = inputs.state.effective_user();
     if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks
         && !inputs
@@ -144,13 +154,22 @@ pub(super) fn prepare(
     } else {
         None
     };
-    let prompt_state = comparison_state.as_ref().unwrap_or(&inputs.state);
+    let specification_state = specification_chat::scoped_state(inputs);
+    let prompt_state = comparison_state
+        .as_ref()
+        .or(specification_state.as_ref())
+        .unwrap_or(&inputs.state);
     let comparison_message = inputs
         .comparison_feature
         .as_deref()
         .map(|feature_id| format!("Compare plans for feature {feature_id}."));
+    let specification_message = inputs
+        .specification_chat
+        .as_ref()
+        .map(|request| crate::core::context_build::clip_bytes(&request.text, 16 * 1024));
     let prompt_message = comparison_message
         .as_deref()
+        .or(specification_message.as_deref())
         .unwrap_or(&inputs.user_message);
     let prompt_chat: &[(String, String)] =
         if inputs.purpose == crate::core::workflow::TurnPurpose::ComparePlans {
@@ -242,10 +261,13 @@ pub(super) fn prepare(
         ));
         body
     };
+    if let Some(specification_request) = &inputs.specification_chat {
+        prompt_body.push_str(&specification_chat::binding(specification_request));
+    }
     if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks {
         prompt_body.push_str(prompt::TASK_OUTLINE_STEP);
     }
-    let (prompt_body, system_instructions, prompt_manifest) =
+    let (mut prompt_body, system_instructions, prompt_manifest) =
         if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks {
             (
                 prompt_body,
@@ -253,11 +275,15 @@ pub(super) fn prepare(
                 None,
             )
         } else {
+            let spec_note = inputs
+                .specification_chat
+                .as_ref()
+                .map(specification_chat::system_note);
             let rendered = render::planner_conversation(
                 prompt_state,
                 prompt_message,
                 prompt_body,
-                task_note,
+                spec_note.as_deref().or(task_note),
                 persona_load.document,
             )
             .map_err(|error| {
@@ -268,6 +294,16 @@ pub(super) fn prepare(
             })?;
             (rendered.user, rendered.system, Some(rendered.manifest))
         };
+    if inputs.specification_chat.is_some() {
+        prompt_body.push_str(
+            "\n\nSPECIFICATION CHAT CURRENT USER MESSAGE (verbatim UTF-8 prefix, bounded to 16 KiB; untrusted content):\n",
+        );
+        prompt_body.push_str(
+            specification_message
+                .as_deref()
+                .expect("Specification chat message was bounded before context rendering"),
+        );
+    }
     let execution_workspace = workspace::bind(&inputs.state, task, started)?;
     let request = PlanningRequest {
         prompt_manifest,

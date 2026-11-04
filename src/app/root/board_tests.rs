@@ -13,7 +13,7 @@ impl KooladeApp {
 
 #[path = "board_tests/support.rs"]
 mod support;
-pub(super) use support::*;
+pub(crate) use support::*;
 
 #[cfg(test)]
 pub(crate) fn trace_navigation_test_app() -> KooladeApp {

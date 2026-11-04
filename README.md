@@ -147,6 +147,8 @@ Specifications capture things such as:
 
 Changes are proposed separately, reviewed, approved, implemented, and eventually reconciled into published product knowledge.
 
+In the Specification conversation, **Ask** answers from the pinned published revision without changing project state. **Propose change** creates a private local document draft for review; it does not publish or authorize a Git action. Each turn keeps the submitted text, selected product or feature identity, and source revision bound together while it runs.
+
 Git keeps the history.
 
 The specification keeps the truth.

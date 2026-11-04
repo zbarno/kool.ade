@@ -10,6 +10,11 @@ impl KooladeApp {
         task_author: Option<(String, String)>,
         superseded_task_reply: bool,
     ) -> Option<crate::harness::RequestedAction> {
+        let specification_context = project
+            .active_turn
+            .as_ref()
+            .and_then(|turn| turn.specification_chat.as_ref())
+            .map(crate::core::specification_chat::Request::conversation_context);
         if let Some(key) = task_conversation {
             project.task_chats.active = Some(key.to_owned());
         }
@@ -21,6 +26,7 @@ impl KooladeApp {
         {
             let mut response = ChatMessage::new(ChatRole::Agent, final_text, None);
             response.clarification = *clarification;
+            response.specification_context = specification_context;
             remember_turn_messages(project, None, vec![response]);
             project.task_chats.active = None;
             return None;
@@ -200,6 +206,12 @@ impl KooladeApp {
                         normalized.next_question_id.clone(),
                     )]
                 };
+                if let (Some(context), Some(message)) =
+                    (specification_context.clone(), chat.first_mut())
+                    && message.role == ChatRole::Agent
+                {
+                    message.specification_context = Some(context);
+                }
                 chat.extend(
                     normalized
                         .warnings
