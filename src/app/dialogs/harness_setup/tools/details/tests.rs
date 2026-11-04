@@ -22,6 +22,20 @@ fn opencode(model_catalog: ReadinessState, fresh: bool) -> DetectedHarness {
         capability_snapshot: Some(HarnessCapabilitySnapshotV1 {
             schema_version: 1,
             provider_id: "opencode".into(),
+            authentication_mode: crate::execution::contract::current_authentication_mode(
+                "opencode",
+            ),
+            manager_profile_id:
+                crate::execution::contract::profile_evidence_id_for_current_snapshot(
+                    "opencode",
+                    Some("1.0.0"),
+                    crate::harness::ExecutionProfile::Manager,
+                ),
+            worker_profile_id: crate::execution::contract::profile_evidence_id_for_current_snapshot(
+                "opencode",
+                Some("1.0.0"),
+                crate::harness::ExecutionProfile::Worker,
+            ),
             probe_id: "123e4567-e89b-12d3-a456-426614174000".into(),
             probe_cancellation_generation: 1,
             probe_sequence: 1,

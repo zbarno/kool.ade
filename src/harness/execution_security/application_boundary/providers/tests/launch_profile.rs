@@ -3,6 +3,8 @@ use std::path::Path;
 
 #[path = "launch_profile/blocked.rs"]
 mod blocked;
+#[path = "launch_profile/pi.rs"]
+mod pi;
 
 fn complete_evidence(provider: CliProvider, version: &str) -> ProfileProbeEvidence {
     ProfileProbeEvidence::validated(
@@ -29,6 +31,9 @@ fn provider_argv(provider: CliProvider) -> Vec<String> {
                 }
             }),
     );
+    if provider == CliProvider::Pi {
+        argv.push("--no-tools".into());
+    }
     argv
 }
 
@@ -117,6 +122,31 @@ fn every_provider_launch_profile_binds_its_required_arguments_and_environment() 
                 (*token).to_owned()
             }
         }));
+        let pi_scratch = tempfile::tempdir().unwrap();
+        if provider == CliProvider::Pi {
+            std::fs::write(
+                pi_scratch.path().join("pi-koolade-mcp.ts"),
+                include_bytes!("../../pi_mcp_extension.ts"),
+            )
+            .unwrap();
+            let skill = pi_scratch
+                .path()
+                .join("worker-skills/koolade-task/SKILL.md");
+            std::fs::create_dir_all(skill.parent().unwrap()).unwrap();
+            std::fs::write(&skill, include_bytes!("../../pi_worker_skill.md")).unwrap();
+            argv.extend([
+                "--tools".into(),
+                "koolade_bash,koolade_resource,koolade_dependency".into(),
+                "--extension".into(),
+                pi_scratch
+                    .path()
+                    .join("pi-koolade-mcp.ts")
+                    .to_string_lossy()
+                    .into_owned(),
+                "--skill".into(),
+                skill.to_string_lossy().into_owned(),
+            ]);
+        }
         let env = requirements
             .environment_keys()
             .iter()
@@ -131,8 +161,13 @@ fn every_provider_launch_profile_binds_its_required_arguments_and_environment() 
                 )
             })
             .collect();
+        let cwd = if provider == CliProvider::Pi {
+            pi_scratch.path()
+        } else {
+            Path::new("/tmp")
+        };
         assert!(
-            ValidatedProviderLaunch::bind(evidence, argv, Path::new("/tmp"), env).is_ok(),
+            ValidatedProviderLaunch::bind(evidence, argv, cwd, env).is_ok(),
             "{provider:?}"
         );
     }

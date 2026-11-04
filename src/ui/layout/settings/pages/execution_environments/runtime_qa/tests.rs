@@ -72,11 +72,22 @@ fn image_diagnostic_separates_reviewed_policy_from_local_presence() {
 
 #[test]
 fn reviewer_diagnostic_uses_the_fresh_qa_route_capability() {
-    let id = "synthetic";
+    let id = "pi";
     let now = crate::persistence::harness_settings::current_unix_ms();
     let snapshot = HarnessCapabilitySnapshotV1 {
         schema_version: 1,
         provider_id: id.into(),
+        authentication_mode: crate::execution::contract::current_authentication_mode(id),
+        manager_profile_id: crate::execution::contract::profile_evidence_id_for_current_snapshot(
+            id,
+            Some("1.0"),
+            crate::harness::ExecutionProfile::Manager,
+        ),
+        worker_profile_id: crate::execution::contract::profile_evidence_id_for_current_snapshot(
+            id,
+            Some("1.0"),
+            crate::harness::ExecutionProfile::Worker,
+        ),
         probe_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         probe_cancellation_generation: 1,
         probe_sequence: 1,

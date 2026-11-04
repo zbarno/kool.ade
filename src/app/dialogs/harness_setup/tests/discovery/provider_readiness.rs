@@ -53,6 +53,7 @@ fn verified_profiles_enable_provider_roles_without_a_docker_target() {
             snapshot
                 .modes
                 .iter()
+                .filter(|mode| mode.mode.profile() == crate::harness::ExecutionProfile::Worker)
                 .all(|mode| mode.available == ReadinessState::Ready),
             "{id}"
         );
@@ -68,12 +69,19 @@ fn verified_profiles_enable_provider_roles_without_a_docker_target() {
             snapshot
                 .roles
                 .iter()
-                .filter(|role| !role.role.requires_execution_target())
+                .filter(|role| {
+                    role.role != HarnessRole::Manager && !role.role.requires_execution_target()
+                })
                 .all(|role| role.available == ReadinessState::Ready),
             "{id}"
         );
         assert!(snapshot.supports_role(HarnessRole::SpecReconciler), "{id}");
         assert!(!snapshot.supports_role(HarnessRole::Implementer), "{id}");
+        assert_eq!(
+            snapshot.supports_profile(crate::harness::ExecutionProfile::Manager),
+            id == "pi",
+            "{id}"
+        );
 
         let mut refreshed_report = provider.clone();
         super::super::super::discovery::update_runtime_readiness(

@@ -122,8 +122,91 @@ fn runnable_provider_clis_pass_implementation_requests_through_the_shared_policy
     };
     let error = unsupported.execute(&request).unwrap_err();
     assert!(!error.detail().is_empty());
-    assert!(error.detail().contains("unsupported"));
+    assert!(
+        error.detail().contains("unsupported")
+            || error
+                .detail()
+                .contains("no verified application-owned execution profile"),
+        "{}",
+        error.detail()
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn routed_provider_refuses_expired_or_changed_role_evidence_before_execution() {
+    let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
+    let request = crate::harness::PlanningRequest {
+        prompt_manifest: None,
+        mode: crate::harness::ExecutionMode::Implementation,
+        task_id: None,
+        reasoning_level: "medium".into(),
+        telemetry_phase: None,
+        repo_root: std::path::PathBuf::from("/synthetic/project"),
+        runtime_config_source: None,
+        prompt_body: String::new(),
+        system_instructions: String::new(),
+        timeout: std::time::Duration::from_secs(1),
+        progress_tx,
+        cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        execution_workspace: None,
+        destination_sha: None,
+        authorization_verifier: None,
+        review_identity: None,
+    };
+    let provider = "pi";
+    let changed_authentication =
+        match crate::execution::contract::current_authentication_mode(provider) {
+            crate::execution::contract::AuthenticationModeV1::Environment => {
+                crate::execution::contract::AuthenticationModeV1::ProviderProfile
+            }
+            _ => crate::execution::contract::AuthenticationModeV1::Environment,
+        };
+    let cases = [
+        {
+            let mut route = test_route_provenance(provider);
+            route.capability_expires_at_unix_ms = Some(0);
+            route
+        },
+        {
+            let mut route = test_route_provenance(provider);
+            route.cli_version = Some("0.0.0".into());
+            route.profile_evidence_id = Some(
+                crate::execution::contract::profile_evidence_id_for_snapshot(
+                    provider,
+                    route.cli_version.as_deref(),
+                    route.authentication_mode.unwrap(),
+                    crate::harness::ExecutionProfile::Worker,
+                ),
+            );
+            route
+        },
+        {
+            let mut route = test_route_provenance(provider);
+            route.authentication_mode = Some(changed_authentication);
+            route.profile_evidence_id = Some(
+                crate::execution::contract::profile_evidence_id_for_snapshot(
+                    provider,
+                    route.cli_version.as_deref(),
+                    changed_authentication,
+                    crate::harness::ExecutionProfile::Worker,
+                ),
+            );
+            route
+        },
+    ];
+
+    for provenance in cases {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let harness = RoutedHarness {
+            inner: Box::new(CountHarness(calls.clone(), "supported")),
+            harness_id: provider.into(),
+            model: None,
+            provenance,
+        };
+        assert!(harness.execute(&request).is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
 }
 
 fn test_route_provenance(provider: &str) -> crate::harness::HarnessRouteProvenance {
@@ -135,6 +218,18 @@ fn test_route_provenance(provider: &str) -> crate::harness::HarnessRouteProvenan
         requested_model: None,
         capability_probe_id: None,
         capability_generation: None,
+        authentication_mode: Some(crate::execution::contract::current_authentication_mode(
+            provider,
+        )),
+        profile_evidence_id: Some(
+            crate::execution::contract::profile_evidence_id_for_current_snapshot(
+                provider,
+                Some("supported"),
+                crate::harness::ExecutionProfile::Worker,
+            ),
+        ),
+        cli_version: Some("supported".into()),
+        capability_expires_at_unix_ms: Some(u64::MAX),
     }
 }
 

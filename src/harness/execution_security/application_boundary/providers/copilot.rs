@@ -214,6 +214,7 @@ mod tests {
             app_binary: None,
             server_config: None,
             access: ToolAccess::None,
+            profile: crate::harness::ExecutionProfile::Worker,
             _session_bridge: None,
             _resource_bridge: None,
             execution_session: None,

@@ -131,14 +131,27 @@ pub(super) fn routed_harness<'a>(
         ));
     };
     let harness = resolve(selected);
-    let detected = settings.discovered.get(harness_id);
-    let now = crate::persistence::harness_settings::current_unix_ms();
-    if let Some(reason) =
-        crate::harness::execution_security::task_execution_block_reason(harness_id)
-    {
+    let category = work_type.unwrap_or(crate::persistence::harness_settings::PLANNING);
+    let role = role_for_work_category(category)
+        .unwrap_or(crate::execution::contract::HarnessRole::PlanningAnalyst);
+    if let Some(reason) = crate::harness::execution_security::profile_block_reason(
+        harness_id,
+        role.harness_mode().profile(),
+    ) {
         return Box::new(UnavailableHarness::guidance(reason.into()));
     }
+    let detected = settings.discovered.get(harness_id);
+    let now = crate::persistence::harness_settings::current_unix_ms();
     let discovery_fresh = detected.is_some_and(|entry| entry.is_fresh_at(now));
+    if detected
+        .and_then(|entry| entry.capability_snapshot.as_ref())
+        .is_none_or(|snapshot| !snapshot.profile_evidence_is_current())
+    {
+        crate::app::dialogs::request_cli_auto_refresh();
+        return Box::new(UnavailableHarness::guidance(format!(
+            "CLI {harness_id} role profile or authentication source changed. Kool.ad/e is refreshing its eligibility evidence; retry when verification completes."
+        )));
+    }
     let authenticated =
         detected.is_some_and(|entry| has_current_authenticated_snapshot(harness_id, entry, now));
     if !discovery_fresh {
@@ -157,9 +170,6 @@ pub(super) fn routed_harness<'a>(
             "Authentication for harness {harness_id} is unconfirmed or unavailable; no current authenticated capability snapshot exists. Refresh Coding tools before starting this task; no fallback will run it."
         )));
     }
-    let category = work_type.unwrap_or(crate::persistence::harness_settings::PLANNING);
-    let role = role_for_work_category(category)
-        .unwrap_or(crate::execution::contract::HarnessRole::PlanningAnalyst);
     if !detected.is_some_and(|entry| entry.supports_role_or_context_only_planning_at(role, now)) {
         return Box::new(UnavailableHarness::guidance(format!(
             "Harness {harness_id} has no current capability proof for the {category:?} role; refresh Coding tools and review its provider diagnostics."
@@ -218,6 +228,17 @@ pub(super) fn routed_harness<'a>(
             requested_model,
             capability_probe_id: snapshot.map(|snapshot| snapshot.probe_id.clone()),
             capability_generation: snapshot.map(|snapshot| snapshot.probe_sequence),
+            authentication_mode: snapshot.map(|snapshot| snapshot.authentication_mode),
+            profile_evidence_id: snapshot.map(|snapshot| match role.harness_mode().profile() {
+                crate::harness::ExecutionProfile::Manager => snapshot.manager_profile_id.clone(),
+                crate::harness::ExecutionProfile::Worker => snapshot.worker_profile_id.clone(),
+            }),
+            cli_version: snapshot.and_then(|snapshot| snapshot.cli_version.clone()),
+            capability_expires_at_unix_ms: detected.map(|entry| {
+                entry
+                    .checked_at_unix_ms
+                    .saturating_add(crate::persistence::harness_settings::DISCOVERY_FRESHNESS_MS)
+            }),
         },
     })
 }

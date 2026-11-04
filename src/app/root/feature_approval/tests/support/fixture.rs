@@ -1,6 +1,10 @@
 use super::super::*;
 use crate::domain::OpenItem;
 
+#[path = "fixture/store.rs"]
+mod store;
+pub(crate) use store::{planning_store, private_store_root};
+
 pub(in crate::app::root::feature_approval::tests) fn decomposer_graph(app: &KooladeApp) -> String {
     use crate::harness::prompt_catalog::{TaskDraftV1, TaskGraphV1};
     let Screen::Connected(project) = &app.screen else {
@@ -290,11 +294,4 @@ pub(crate) fn setup() -> (KooladeApp, std::path::PathBuf, serde_json::Value) {
         )],
     );
     (app, root, review)
-}
-
-pub(crate) fn private_store_root(app: &KooladeApp) -> std::path::PathBuf {
-    match &app.screen {
-        Screen::Connected(project) => project.state.planning_store.root.clone(),
-        Screen::Welcome => panic!("fixture remains connected"),
-    }
 }

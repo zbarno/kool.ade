@@ -33,7 +33,7 @@ impl AiHarness for ClaudeHarness {
         if let Some(reason) =
             crate::harness::execution_security::task_execution_block_reason("claude")
         {
-            return Err(AppError::Other(reason.into()));
+            return Err(AppError::Other(format!("{reason} No CLI was started.")));
         }
         crate::harness::validate_reasoning_level("claude", &request.reasoning_level)?;
         crate::harness::require_application_implementation_boundary("Claude Code", request)?;
@@ -79,6 +79,7 @@ impl AiHarness for ClaudeHarness {
         let launch =
             crate::harness::execution_security::ValidatedProviderLaunch::bind_for_workspace(
                 evidence,
+                request.mode,
                 argv,
                 boundary.working_directory(),
                 child_env,

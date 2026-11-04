@@ -16,7 +16,7 @@ use std::{
     time::Duration,
 };
 
-const MODES: [ExecutionMode; 8] = ExecutionMode::ALL;
+const MODES: [ExecutionMode; 9] = ExecutionMode::ALL;
 const MATRIX_RESULT: &str = "matrix-result";
 
 #[cfg(unix)]

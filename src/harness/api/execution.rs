@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionMode {
+    /// The application-owned Manager control plane. Provider output is advisory.
+    Manager,
     Planning,
     ReadOnlyAnalysis,
     TaskGeneration,
@@ -21,8 +23,17 @@ pub enum ExecutionMode {
     RuntimeQaVisualReview,
 }
 
+/// Security profile selected by the application for a provider invocation.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionProfile {
+    Manager,
+    Worker,
+}
+
 impl ExecutionMode {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
+        Self::Manager,
         Self::Planning,
         Self::ReadOnlyAnalysis,
         Self::TaskGeneration,
@@ -35,12 +46,22 @@ impl ExecutionMode {
 
     pub fn tool_access(self) -> ToolAccess {
         match self {
-            Self::Planning | Self::TaskGeneration | Self::Investigation => ToolAccess::ReadOnly,
+            Self::Manager | Self::Planning | Self::TaskGeneration | Self::Investigation => {
+                ToolAccess::ReadOnly
+            }
             Self::Implementation => ToolAccess::BoundedImplementation,
             Self::RuntimeQaVisualReview => ToolAccess::RuntimeQaScreenshots,
             Self::ReadOnlyAnalysis | Self::Reconciliation | Self::DecisionExplanation => {
                 ToolAccess::None
             }
+        }
+    }
+
+    pub fn profile(self) -> ExecutionProfile {
+        if self == Self::Manager {
+            ExecutionProfile::Manager
+        } else {
+            ExecutionProfile::Worker
         }
     }
 }

@@ -30,6 +30,28 @@ pub(crate) use qa_findings::{
 };
 use sha2::Digest;
 
+/// Give one validated Manager disposition a stable local identity so
+/// simultaneous proposals for the same revision collide on the same fenced
+/// record instead of creating duplicate dispatch cards.
+pub(crate) fn manager_action_uid(key: &str) -> String {
+    let digest = sha2::Sha256::digest(key.as_bytes());
+    let mut bytes = [0_u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    uuid::Uuid::from_bytes(bytes).hyphenated().to_string()
+}
+
+pub(crate) fn plan_disposition_uid(
+    feature_id: &str,
+    expected_revision: &str,
+    finding_id: &str,
+) -> String {
+    manager_action_uid(&format!(
+        "manager-plan:{feature_id}:{expected_revision}:{finding_id}"
+    ))
+}
+
 /// Persist validated Manager decisions as ordinary planning work, using a
 /// stable candidate/finding identity so repeated Manager runs cannot duplicate cards.
 #[cfg(test)]

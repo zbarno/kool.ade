@@ -116,6 +116,7 @@ pub(super) fn prepare(
             request.into(),
             detail,
         );
+        record.uid = code_review_uid(target);
         record.kind = WorkKind::CodeReviewDisposition;
         record.status = status;
         record.feature_uid = Some(target.feature_uid.clone());
@@ -158,6 +159,13 @@ pub(super) fn prepare(
         work.push(record);
     }
     Ok(work)
+}
+
+fn code_review_uid(target: &FindingTarget) -> String {
+    super::manager_action_uid(&format!(
+        "manager-code-review:{}:{}:{}",
+        target.task_uid, target.subject_hash, target.finding_fingerprint
+    ))
 }
 
 fn is_code_review_action(
