@@ -68,6 +68,63 @@ fn ordinary_code_checkout_connects_without_a_planning_repository() {
     let _ = std::fs::remove_dir_all(code);
 }
 
+/// Production boundary: persist an actual TaskIntent through the connected
+/// project store and prove its sensitive request text stays outside code Git.
+/// Store serialization tests cannot prove the welcome path selected an
+/// external private root. Uses temporary local Git only; setup cost is low.
+#[test]
+fn persisted_task_intent_content_never_enters_code_repository() {
+    let _env = super::helpers::EnvSandbox::enter("private-task-content", false);
+    let code = super::helpers::local_source_repo("private-task-content");
+    let project = attempt_connect(code.to_str().unwrap()).unwrap();
+    let marker = "synthetic-private-task-marker-484";
+    let mut task = crate::core::planning_work::Work::new(
+        String::new(),
+        "Private task request".into(),
+        marker.into(),
+        "Todo".into(),
+    );
+    task.kind = crate::core::planning_work::WorkKind::Feature;
+    task.key = format!("task:{}", task.uid);
+    task.task_intent_uid = Some(task.uid.clone());
+
+    crate::core::planning_work::save(&project.state.planning_store, &[task.clone()]).unwrap();
+
+    let code_root = code.canonicalize().unwrap();
+    let private_root = project
+        .state
+        .planning_store
+        .local_root()
+        .canonicalize()
+        .unwrap();
+    assert!(!private_root.starts_with(&code_root));
+    let task_record = project
+        .state
+        .planning_store
+        .root
+        .join("state/work")
+        .join(format!("{}.json", task.uid));
+    let task_record = task_record.canonicalize().unwrap();
+    assert!(!task_record.starts_with(&code_root));
+    let private_record = std::fs::read_to_string(task_record).unwrap();
+    assert!(private_record.contains(marker));
+    assert_eq!(crate::core::gitops::snapshot(&code).dirty, 0);
+    let tracked_match = std::process::Command::new("git")
+        .args([
+            "-C",
+            code.to_str().unwrap(),
+            "grep",
+            "-F",
+            marker,
+            "HEAD",
+            "--",
+        ])
+        .output()
+        .unwrap();
+    assert!(tracked_match.status.code() == Some(1));
+    let _ = std::fs::remove_dir_all(code);
+}
+
 #[test]
 fn connection_rejects_private_application_data_inside_the_code_git_worktree() {
     let _env = super::helpers::EnvSandbox::enter("private-state-inside-git", false);
