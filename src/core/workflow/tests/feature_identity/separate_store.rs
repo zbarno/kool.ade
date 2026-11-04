@@ -100,14 +100,19 @@ fn published_specs_stay_in_code_while_proposals_and_task_generation_stay_private
 
     let mut task_brief = brief();
     task_brief.feature_name = "Saved searches (CHG-097)".into();
+    let mut task_story = story();
+    task_story.source_sha = Some(published_head.trim().to_owned());
     let batch = TaskBatch {
         brief: task_brief,
         specification: feature.clone(),
         feature_id: Some("CHG-097".into()),
         contract: None,
-        branch_targets: None,
+        repository_git_intents: std::collections::BTreeMap::from([(
+            "root".into(),
+            crate::test_support::approved_git_intent("root", "main", published_head.trim(), "main"),
+        )]),
         task_routing: TaskRoutingSnapshot::default(),
-        stories: vec![story()],
+        stories: vec![task_story],
     };
     let generated =
         crate::artifacts::task_docs::write_batch(&store, &batch, &mut workflow).unwrap();

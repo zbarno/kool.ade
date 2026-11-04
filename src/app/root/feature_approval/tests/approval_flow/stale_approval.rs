@@ -192,6 +192,8 @@ fn stale_approval_at_generation_start_does_not_write_task_artifacts() {
     let _shield = crate::core::gitops::test_support::shield("stale-task-generation-start");
     let (mut app, root, _) = setup();
     approve(&mut app);
+    let key = generation_key(&app);
+    approve_test_git_intent(&mut app, &key, "CHG-004");
     let store_root = private_store_root(&app);
     let task_baseline = task_files(&store_root);
     let Screen::Connected(project) = &app.screen else {
@@ -200,7 +202,7 @@ fn stale_approval_at_generation_start_does_not_write_task_artifacts() {
     mutate_private_specification(&project.state.planning_store).unwrap();
     let (harness, calls) = harness(Vec::new());
     app.task_harness = Some(harness);
-    app.start_task_generation(&generation_key(&app), "CHG-004");
+    app.start_task_generation(&key, "CHG-004");
     assert!(calls.lock().unwrap().is_empty());
     assert!(task_files(&store_root).is_empty());
     assert_eq!(task_files(&store_root), task_baseline);
@@ -227,7 +229,9 @@ fn approval_change_during_decomposition_does_not_publish_task_artifacts() {
     });
     app.task_harness = Some(harness);
     let task_baseline = task_files(&store_root);
-    app.start_task_generation(&generation_key(&app), "CHG-004");
+    let key = generation_key(&app);
+    approve_test_git_intent(&mut app, &key, "CHG-004");
+    app.start_task_generation(&key, "CHG-004");
     assert!(!finish(&mut app));
     assert_eq!(*calls.lock().unwrap(), 1);
     assert_eq!(task_files(&store_root), task_baseline);

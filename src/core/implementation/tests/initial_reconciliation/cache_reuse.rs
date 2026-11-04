@@ -2,18 +2,13 @@ use super::*;
 
 fn create_follow_up_ticket(sandbox: &Sandbox, path: &str) {
     let ticket_text = "# Follow-up implementation\n\nFeature: F1\n\n## Acceptance criteria\n\n- File contains implemented.\n";
-    let ticket = crate::domain::ArtifactIdentity::preserve_markdown(
+    super::super::sandbox::write_lifecycle_task_with_main_intent(
+        sandbox,
+        path,
         ticket_text,
-        None,
         "TASK-002",
         "Follow-up implementation",
-    )
-    .unwrap();
-    sandbox
-        .planning_store
-        .atomic_write(path, ticket.as_bytes())
-        .unwrap();
-    super::super::sandbox::seed_lifecycle_task(&sandbox.planning_store, path, ticket_text);
+    );
 }
 
 #[test]

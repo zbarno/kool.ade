@@ -16,6 +16,7 @@ struct FixtureHarness {
     generation: bool,
     failure_mode: u8,
     planning_root: std::path::PathBuf,
+    source_sha: Option<String>,
 }
 impl AiHarness for FixtureHarness {
     fn label(&self) -> String {
@@ -115,12 +116,29 @@ impl AiHarness for FixtureHarness {
         let mut text = text.to_owned();
         if self.generation
             && let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&text)
-            && let Some(story) = value
+        {
+            if let Some(story) = value
                 .get_mut("task_stories")
                 .and_then(serde_json::Value::as_array_mut)
                 .and_then(|stories| stories.first_mut())
-        {
-            story["definition_of_done"] = serde_json::json!(["Behavior and tests pass."]);
+            {
+                story["definition_of_done"] = serde_json::json!(["Behavior and tests pass."]);
+            }
+            if let Some(source_sha) = &self.source_sha {
+                let field = if value.get("task_stories").is_some() {
+                    "task_stories"
+                } else {
+                    "task_outline"
+                };
+                if let Some(stories) = value
+                    .get_mut(field)
+                    .and_then(serde_json::Value::as_array_mut)
+                {
+                    for story in stories {
+                        story["sourceSha"] = serde_json::json!(source_sha);
+                    }
+                }
+            }
             text = value.to_string();
         }
         if self.generation && (self.failure_mode == 3 && n == 1 || self.failure_mode == 6 && n >= 1)
@@ -145,7 +163,51 @@ impl AiHarness for FixtureHarness {
         })
     }
 }
-pub(super) fn run(state: PlannerState, generation: bool, failure_mode: u8) -> TurnOutcome {
+pub(super) fn run(mut state: PlannerState, generation: bool, failure_mode: u8) -> TurnOutcome {
+    if generation {
+        let git = koolade::core::gitops::snapshot(&state.repo_root);
+        let source_branch = git.branch.clone();
+        let source_sha = std::process::Command::new("git")
+            .args([
+                "rev-parse",
+                "--verify",
+                &format!("refs/heads/{source_branch}^{{commit}}"),
+            ])
+            .current_dir(&state.repo_root)
+            .output()
+            .expect("read the synthetic source branch");
+        assert!(source_sha.status.success());
+        let source_sha = String::from_utf8(source_sha.stdout)
+            .unwrap()
+            .trim()
+            .to_owned();
+        state.workflow.standalone_task_git_intents = std::collections::BTreeMap::from([(
+            "root".into(),
+            koolade::core::git_intent::GitIntentV1::approve(
+                "root".into(),
+                source_branch.clone(),
+                source_sha,
+                source_branch.clone(),
+                koolade::core::git_intent::PublicationModeV1::HoldForReview,
+                None,
+            )
+            .unwrap(),
+        )]);
+        let store = state.planning_store.clone();
+        koolade::artifacts::task_docs::save_workflow(&store, &state.workflow)
+            .expect("persist explicit workflow repository intent");
+        state = PlannerState::load_with_store(&state.repo_root, &store)
+            .expect("reload the approved workflow snapshot");
+    }
+    let source_sha = generation
+        .then(|| {
+            state
+                .workflow
+                .standalone_task_git_intents
+                .get("root")
+                .map(|intent| intent.source_sha.clone())
+        })
+        .flatten();
     let calls = Arc::new(AtomicUsize::new(0));
     let planning_root = state.planning_store.root.clone();
     let ctrl = TurnController::start(
@@ -171,6 +233,7 @@ pub(super) fn run(state: PlannerState, generation: bool, failure_mode: u8) -> Tu
             generation,
             failure_mode,
             planning_root,
+            source_sha,
         }),
     );
     // The workflow advances across worker threads and repository-backed
@@ -190,7 +253,7 @@ pub(super) fn run(state: PlannerState, generation: bool, failure_mode: u8) -> Tu
                 } else {
                     3
                 },
-                "failure mode {failure_mode}"
+                "failure mode {failure_mode}; outcome: {outcome:?}"
             );
             return *outcome;
         }

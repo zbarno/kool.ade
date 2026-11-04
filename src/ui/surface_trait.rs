@@ -5,6 +5,16 @@ use super::{
     task_detail,
 };
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RepositoryGitOptions {
+    pub id: String,
+    pub label: String,
+    pub source_branches: Vec<String>,
+    pub destination_branches: Vec<String>,
+    pub default_branch: String,
+    pub unavailable_reason: Option<String>,
+}
+
 /// Everything the chrome/panes need: read-mostly accessors plus two command
 /// sinks (composer intents, header actions).
 pub trait Surface {
@@ -12,6 +22,9 @@ pub trait Surface {
     fn session_title(&self) -> &str;
     fn is_git_repo(&self) -> bool;
     fn git_branch(&self) -> &str;
+    fn git_checkout_label(&self) -> String {
+        "Primary code repository".into()
+    }
     fn repository_branches(&self) -> Vec<String> {
         Vec::new()
     }
@@ -19,7 +32,26 @@ pub trait Surface {
         self.repository_branches()
     }
     fn default_repository_branch(&self) -> &str {
-        self.git_branch()
+        ""
+    }
+    fn repository_git_options(&self) -> Vec<RepositoryGitOptions> {
+        if !self.is_git_repo() {
+            return Vec::new();
+        }
+        vec![RepositoryGitOptions {
+            id: "root".into(),
+            label: "Primary code repository".into(),
+            source_branches: self.repository_branches(),
+            destination_branches: self.repository_destination_branches(),
+            default_branch: self.default_repository_branch().to_owned(),
+            unavailable_reason: None,
+        }]
+    }
+    fn feature_git_intents(
+        &self,
+        _feature_id: &str,
+    ) -> std::collections::BTreeMap<String, crate::core::git_intent::GitIntentV1> {
+        std::collections::BTreeMap::new()
     }
     fn harness_settings(&self) -> crate::persistence::harness_settings::HarnessSettings {
         crate::persistence::harness_settings::load().0

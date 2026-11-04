@@ -156,6 +156,35 @@ pub(in crate::ui::layout::board::columns) fn task(
             if let Some(item) = needs_input {
                 ui.label(RichText::new(&item.question).strong().color(theme::TEXT));
             }
+            if let Some(intent) = doc
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.git_intent.as_ref())
+            {
+                ui.label(theme::helper_text(format!(
+                    "{} · {} → {} · {}{}",
+                    intent.repository_id,
+                    intent.source_ref,
+                    intent.destination_ref,
+                    match intent.publication_mode {
+                        crate::core::git_intent::PublicationModeV1::HoldForReview => "Review",
+                        crate::core::git_intent::PublicationModeV1::CreatePullRequest => "PR",
+                        crate::core::git_intent::PublicationModeV1::AutoPublish => "Auto publish",
+                    },
+                    if intent.inherited_from_task_uid.is_some() {
+                        " · inherited"
+                    } else {
+                        ""
+                    }
+                )));
+                if let Some(state) = s.implementation_state(&doc.path) {
+                    ui.label(theme::helper_text(format!(
+                        "Work branch {} · {}",
+                        state.branch,
+                        state.status.publication().label()
+                    )));
+                }
+            }
             if ui
                 .add(
                     egui::Button::new(RichText::new(title).strong().size(15.0).color(theme::TEXT))

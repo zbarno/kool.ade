@@ -56,8 +56,6 @@ fn question_task_persists_starts_async_answers_and_finishes_without_a_spec() {
         "Bug",
         "New Project",
         "Question task",
-        "Source Branch",
-        "Destination Branch",
         "Create Task",
         "Plan a capability or improve how the project works.",
     ] {

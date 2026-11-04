@@ -23,6 +23,24 @@ pub(crate) fn current_change_fixture(
     crate::domain::ChangeMetadata::write_markdown(&identified, &identity, status)
 }
 
+#[cfg(test)]
+pub(crate) fn approved_git_intent(
+    repository_id: &str,
+    source_ref: &str,
+    source_sha: &str,
+    destination_ref: &str,
+) -> crate::core::git_intent::GitIntentV1 {
+    crate::core::git_intent::GitIntentV1::approve(
+        repository_id.into(),
+        source_ref.into(),
+        source_sha.into(),
+        destination_ref.into(),
+        crate::core::git_intent::PublicationModeV1::HoldForReview,
+        None,
+    )
+    .expect("test Git intent is valid")
+}
+
 use std::{
     cell::RefCell,
     ffi::{OsStr, OsString},

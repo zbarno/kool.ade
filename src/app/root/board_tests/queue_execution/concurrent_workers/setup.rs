@@ -60,7 +60,7 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
     let task_uids = (1..=4)
         .map(|_| uuid::Uuid::new_v4().hyphenated().to_string())
         .collect::<Vec<_>>();
-    let docs = (1..=4)
+    let mut docs = (1..=4)
         .map(|number| {
             let title = format!("Task {number}");
             let identity = crate::domain::ArtifactIdentity {
@@ -152,6 +152,34 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
         &repo,
         &["commit", "-qm", "code and published specification baseline"],
     );
+    let source_sha = git(&repo, &["rev-parse", "refs/heads/main"]);
+    let task_git_intent = crate::core::git_intent::GitIntentV1::approve(
+        "root".into(),
+        "main".into(),
+        source_sha,
+        "main".into(),
+        crate::core::git_intent::PublicationModeV1::AutoPublish,
+        None,
+    )
+    .unwrap();
+    for doc in &mut docs {
+        let metadata = doc
+            .metadata
+            .as_ref()
+            .unwrap()
+            .clone()
+            .with_git_intent(Some(&task_git_intent))
+            .unwrap();
+        doc.metadata = Some(metadata.clone());
+        let path = local_state_root.join(&doc.path);
+        let embedded = crate::artifacts::task_docs::embed(&doc.text, &metadata).unwrap();
+        let identity = serde_json::to_string(doc.identity.as_ref().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            format!("{embedded}\n<!-- koolade-artifact-id:v1 {identity} -->\n"),
+        )
+        .unwrap();
+    }
     git(&root, &["init", "--bare", "-q", remote.to_str().unwrap()]);
     git(&remote, &["config", "uploadpack.allowFilter", "true"]);
     let ssh = root.join("ssh-fixture");
@@ -189,6 +217,10 @@ pub(super) fn prepare(root: PathBuf) -> Prepared {
             count: docs.len(),
             created_at_ms: 1,
         }],
+        feature_git_intents: std::collections::BTreeMap::from([(
+            "CHG-001".into(),
+            std::collections::BTreeMap::from([("root".into(), task_git_intent)]),
+        )]),
         ..Default::default()
     };
     crate::artifacts::task_docs::save_workflow(&planning_store, &workflow).unwrap();

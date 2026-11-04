@@ -29,6 +29,10 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
         dir,
         runner,
     } = request;
+    let metadata = metadata
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Executable task is missing its approved Git intent"))?;
+    metadata.validate_for_execution()?;
     let state = if dir.join("state.json").exists() {
         let mut state = read_state_file(&dir.join("state.json"))?;
         let ticket_path_matches = state.ticket == ticket
@@ -45,6 +49,9 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             state.task_repository_allocation_key.is_some(),
             "Saved task repository allocation identity is missing"
         );
+        if state.destination_branch.is_none() {
+            state.destination_branch = metadata.destination_branch.clone();
+        }
         state.ticket = ticket.to_owned();
         let cache = task_repository::cache_for_state(repo, planning_store, &state, runner)?;
         anyhow::ensure!(
@@ -52,11 +59,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             "Saved task source commit is missing; the task repository is preserved"
         );
         let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
-        let mapped_checkout = manifest.target(
-            planning_store,
-            repo,
-            state.repository_id.as_deref().unwrap_or("root"),
-        )?;
+        let mapped_checkout = manifest.target(planning_store, repo, &metadata.repository_id)?;
         if state.status != ImplementationStatus::Completed
             && let Some(detail) =
                 source::missing_saved_ref(&mapped_checkout, &state, &cache, runner)?
@@ -68,14 +71,14 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
                 crate::core::implementation::initial_reconciliation::support::user_action(detail),
             );
         }
-        if let Some(metadata) = metadata {
-            anyhow::ensure!(
-                state.source_branch.as_deref() == metadata.source_branch.as_deref()
-                    && state.destination_branch.as_deref()
-                        == metadata.destination_branch.as_deref(),
-                "Task branch intent changed after implementation started. Review the existing task repository before resuming."
-            );
-        }
+        anyhow::ensure!(
+            state.source_branch.as_deref() == metadata.source_branch.as_deref()
+                && state.source_ref.as_deref() == metadata.source_branch.as_deref()
+                && state.source_commit.as_deref() == metadata.source_sha.as_deref()
+                && state.destination_branch.as_deref() == metadata.destination_branch.as_deref()
+                && state.repository_id.as_deref() == Some(metadata.repository_id.as_str()),
+            "Task Git intent changed after implementation started. Review the existing task repository before resuming."
+        );
         save(dir, &state)?;
         state
     } else {
@@ -85,7 +88,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
                 planning_store,
                 repo,
                 ticket,
-                metadata.as_ref(),
+                Some(metadata),
                 plan,
                 runner,
             )?,
@@ -94,8 +97,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
                 repo,
                 dir,
                 ticket,
-                metadata: metadata.as_ref(),
-                publication_mode,
+                metadata: Some(metadata),
                 runner,
             })?,
         };
@@ -103,9 +105,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             task_repository::task_path(state_root, &source.repository_id, ticket)?;
         let destination = source.destination_branch;
         let head = source.base_commit;
-        let explicit_source = metadata
-            .as_ref()
-            .and_then(|metadata| metadata.source_branch.clone());
+        let explicit_source = metadata.source_branch.clone();
         let source_ref = Some(source.source_ref);
         let source_commit = Some(source.source_commit);
         let repository_id = Some(source.repository_id);
@@ -138,9 +138,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             push_repository,
             repository_cache,
             task_repository_allocation_key: Some(key(ticket)),
-            destination_branch: metadata
-                .as_ref()
-                .and_then(|metadata| metadata.destination_branch.clone()),
+            destination_branch: metadata.destination_branch.clone(),
             base: destination,
             base_commit: head,
             task_repository_ready: false,

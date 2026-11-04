@@ -10,10 +10,51 @@ fn identified_story() -> (crate::domain::ArtifactIdentity, String, String) {
     (task, batch.uid, uuid::Uuid::new_v4().to_string())
 }
 
+fn executable_metadata(
+    identity: &crate::domain::ArtifactIdentity,
+    repository_id: &str,
+    dependencies: Vec<String>,
+    source: &str,
+    destination: &str,
+    parent_task_uid: Option<&str>,
+) -> TaskMetadata {
+    let sha = "a".repeat(40);
+    let branches = crate::core::workflow::BranchTargets {
+        source: source.into(),
+        destination: destination.into(),
+    };
+    let git_intent = crate::core::git_intent::GitIntentV1::approve(
+        repository_id.into(),
+        source.into(),
+        sha.clone(),
+        destination.into(),
+        crate::core::git_intent::PublicationModeV1::HoldForReview,
+        parent_task_uid.map(str::to_owned),
+    )
+    .unwrap();
+    TaskMetadata::new(identity, repository_id, dependencies)
+        .unwrap()
+        .with_parent_task_uid(parent_task_uid)
+        .unwrap()
+        .with_branch_targets(Some(&branches))
+        .unwrap()
+        .with_source_sha(Some(&sha))
+        .unwrap()
+        .with_git_intent(Some(&git_intent))
+        .unwrap()
+}
+
 #[test]
 fn execution_metadata_round_trips_and_body_formatting_cannot_change_it() {
     let (identity, batch_uid, dependency) = identified_story();
-    let metadata = TaskMetadata::new(&identity, "api", vec![dependency.clone()]).unwrap();
+    let metadata = executable_metadata(
+        &identity,
+        "api",
+        vec![dependency.clone()],
+        "feature/source",
+        "main",
+        None,
+    );
     let markdown = embed(
         "# Story\n\nRepository: web\n\n## Dependencies\n\nNone.\n",
         &metadata,
@@ -49,6 +90,7 @@ fn invalid_metadata_fails_closed_and_unannotated_dependencies_are_not_imported()
         source_branch: None,
         destination_branch: None,
         source_sha: None,
+        git_intent: None,
         parallelizable: None,
         routing_overrides: Default::default(),
         routing_source_uid: None,
@@ -68,9 +110,23 @@ fn branch_targets_round_trip_and_unsupported_metadata_schema_is_rejected() {
         source: "feature/platform-refactor".into(),
         destination: "integration".into(),
     };
+    let sha = "b".repeat(40);
+    let intent = crate::core::git_intent::GitIntentV1::approve(
+        "root".into(),
+        targets.source.clone(),
+        sha.clone(),
+        targets.destination.clone(),
+        crate::core::git_intent::PublicationModeV1::HoldForReview,
+        None,
+    )
+    .unwrap();
     let metadata = TaskMetadata::new(&identity, "root", vec![])
         .unwrap()
         .with_branch_targets(Some(&targets))
+        .unwrap()
+        .with_source_sha(Some(&sha))
+        .unwrap()
+        .with_git_intent(Some(&intent))
         .unwrap();
     assert_eq!(
         metadata.source_branch.as_deref(),
@@ -113,10 +169,16 @@ fn branch_targets_round_trip_and_unsupported_metadata_schema_is_rejected() {
 fn task_intent_link_is_persisted_separately_from_batch_and_task_parent() {
     let (identity, batch_uid, dependency) = identified_story();
     let intent_uid = uuid::Uuid::new_v4().to_string();
-    let metadata = TaskMetadata::new(&identity, "api", vec![dependency.clone()])
-        .unwrap()
-        .with_task_intent_uid(Some(&intent_uid))
-        .unwrap();
+    let metadata = executable_metadata(
+        &identity,
+        "api",
+        vec![dependency.clone()],
+        "main",
+        "main",
+        None,
+    )
+    .with_task_intent_uid(Some(&intent_uid))
+    .unwrap();
     let persisted = parse(&embed("# Story\n", &metadata).unwrap())
         .unwrap()
         .unwrap();
@@ -168,8 +230,7 @@ fn task_intent_cycle_is_persisted_and_read_from_current_metadata() {
             work_uid: cycle_work.uid.clone(),
             started_at_ms: Some(1),
         });
-    let metadata = TaskMetadata::new(&identity, "root", vec![])
-        .unwrap()
+    let metadata = executable_metadata(&identity, "root", vec![], "main", "main", None)
         .with_task_intent_uid(Some(&root_uid))
         .unwrap()
         .with_task_intent_cycle_uid(Some(&cycle_uid))
@@ -240,8 +301,7 @@ fn generated_task_routing_round_trips_with_parent_attribution_and_rejects_manage
             },
         ),
     ]);
-    let metadata = TaskMetadata::new(&identity, "root", vec![])
-        .unwrap()
+    let metadata = executable_metadata(&identity, "root", vec![], "main", "main", None)
         .with_task_routing(&routes, Some(&source_uid), Some(&parent_uid))
         .unwrap();
     let saved = embed("# Story\n", &metadata).unwrap();
@@ -287,12 +347,21 @@ fn generated_task_stories_copy_the_batch_source_and_destination() {
         specification: "# Branch target feature".into(),
         feature_id: None,
         contract: None,
-        branch_targets: Some(targets),
+        repository_git_intents: std::collections::BTreeMap::from([(
+            "root".into(),
+            crate::test_support::approved_git_intent(
+                "root",
+                &targets.source,
+                &"a".repeat(40),
+                &targets.destination,
+            ),
+        )]),
         task_routing: Default::default(),
         stories: vec![crate::core::workflow::TaskStory {
             source_sha: Some("a".repeat(40)),
             parallelizable: Some(false),
             title: "Implement branch selection".into(),
+            target_repository: "root".into(),
             ..Default::default()
         }],
     };
@@ -327,11 +396,16 @@ fn decomposer_task_uid_survives_progress_replay_and_is_deduplicated() {
         specification: "# Decomposer UID fixture".into(),
         feature_id: None,
         contract: None,
-        branch_targets: None,
+        repository_git_intents: std::collections::BTreeMap::from([(
+            "root".into(),
+            crate::test_support::approved_git_intent("root", "main", &"c".repeat(40), "main"),
+        )]),
         task_routing: Default::default(),
         stories: vec![crate::core::workflow::TaskStory {
+            source_sha: Some("c".repeat(40)),
             graph_uid: Some(graph_uid.clone()),
             title: "Persist graph identity".into(),
+            target_repository: "root".into(),
             ..Default::default()
         }],
     };
@@ -375,14 +449,19 @@ fn generated_task_stories_embed_the_batch_routing_snapshot() {
         specification: "# Task routing metadata".into(),
         feature_id: None,
         contract: None,
-        branch_targets: None,
+        repository_git_intents: std::collections::BTreeMap::from([(
+            "root".into(),
+            crate::test_support::approved_git_intent("root", "main", &"d".repeat(40), "main"),
+        )]),
         task_routing: crate::core::workflow::TaskRoutingSnapshot {
             overrides: routes.clone(),
             source_work_uid: Some(source_uid.clone()),
             inherited_from: Some(inherited_from.clone()),
         },
         stories: vec![crate::core::workflow::TaskStory {
+            source_sha: Some("d".repeat(40)),
             title: "Implement task routing".into(),
+            target_repository: "root".into(),
             ..Default::default()
         }],
     };

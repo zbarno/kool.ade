@@ -19,6 +19,130 @@ pub(super) fn seed_lifecycle_task(
 ) {
     lifecycle::seed_task(planning_store, ticket, ticket_text);
 }
+pub(super) fn write_lifecycle_task_with_main_intent(
+    sandbox: &Sandbox,
+    ticket: &str,
+    ticket_text: &str,
+    display_id: &str,
+    title: &str,
+) {
+    let source_sha = sandbox.git(&sandbox.repo, &["rev-parse", "refs/heads/main"]);
+    let batch_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    let markdown = crate::domain::ArtifactIdentity::preserve_markdown_with_parent(
+        ticket_text,
+        None,
+        display_id,
+        title,
+        Some(&batch_uid),
+    )
+    .unwrap();
+    let identity = crate::domain::ArtifactIdentity::from_markdown(&markdown)
+        .unwrap()
+        .unwrap();
+    let targets = crate::core::workflow::BranchTargets {
+        source: "main".into(),
+        destination: "main".into(),
+    };
+    let intent = crate::core::git_intent::GitIntentV1::approve(
+        "root".into(),
+        "main".into(),
+        source_sha.clone(),
+        "main".into(),
+        crate::core::git_intent::PublicationModeV1::CreatePullRequest,
+        None,
+    )
+    .unwrap();
+    let metadata = crate::artifacts::task_docs::TaskMetadata::new(&identity, "root", Vec::new())
+        .unwrap()
+        .with_branch_targets(Some(&targets))
+        .unwrap()
+        .with_source_sha(Some(&source_sha))
+        .unwrap()
+        .with_git_intent(Some(&intent))
+        .unwrap();
+    let markdown = crate::artifacts::task_docs::embed(&markdown, &metadata).unwrap();
+    sandbox
+        .planning_store
+        .atomic_write(ticket, markdown.as_bytes())
+        .unwrap();
+    seed_lifecycle_task(&sandbox.planning_store, ticket, ticket_text);
+}
+pub(super) fn approve_ticket_source(sandbox: &Sandbox, source: &str, destination: &str) {
+    let source_ref = format!("refs/heads/{source}");
+    let source_sha = sandbox.git(&sandbox.repo, &["rev-parse", &source_ref]);
+    approve_ticket_at_source_sha(sandbox, source, destination, &source_sha);
+}
+pub(super) fn approve_ticket_at_source_sha(
+    sandbox: &Sandbox,
+    source: &str,
+    destination: &str,
+    source_sha: &str,
+) {
+    approve_ticket_git_intent(sandbox, &sandbox.ticket, source, destination, source_sha);
+}
+pub(super) fn approve_ticket_git_intent(
+    sandbox: &Sandbox,
+    ticket: &str,
+    source: &str,
+    destination: &str,
+    source_sha: &str,
+) {
+    let raw = String::from_utf8(sandbox.planning_store.read(ticket).unwrap()).unwrap();
+    let mut metadata = crate::artifacts::task_docs::parse_metadata(&raw)
+        .unwrap()
+        .expect("fixture task Git intent");
+    let intent = crate::core::git_intent::GitIntentV1::approve(
+        metadata.repository_id.clone(),
+        source.into(),
+        source_sha.into(),
+        destination.into(),
+        crate::core::git_intent::PublicationModeV1::CreatePullRequest,
+        None,
+    )
+    .unwrap();
+    metadata.source_branch = Some(source.into());
+    metadata.destination_branch = Some(destination.into());
+    metadata.source_sha = Some(source_sha.into());
+    metadata.git_intent = Some(intent);
+    let updated = crate::artifacts::task_docs::embed(&raw, &metadata).unwrap();
+    sandbox
+        .planning_store
+        .atomic_write(ticket, updated.as_bytes())
+        .unwrap();
+}
+pub(super) fn approve_current_task_source(sandbox: &Sandbox, ticket: &str) {
+    // Reconciliation fixtures explicitly approve the checkout's current
+    // source only before the first execution attempt. A resumed task must keep
+    // the exact previously approved intent.
+    let state_dir = crate::core::implementation::state_dir(&sandbox.planning_store.root, ticket)
+        .expect("fixture task state path");
+    if state_dir.join("state.json").exists() {
+        return;
+    }
+    let raw = String::from_utf8(sandbox.planning_store.read(ticket).unwrap()).unwrap();
+    let Some(metadata) = crate::artifacts::task_docs::parse_metadata(&raw)
+        .unwrap()
+        .filter(|metadata| metadata.git_intent.is_some())
+    else {
+        return;
+    };
+    let (Some(source), Some(destination)) = (
+        metadata.source_branch.as_deref(),
+        metadata.destination_branch.as_deref(),
+    ) else {
+        return;
+    };
+    let source_ref = format!("refs/heads/{source}^{{commit}}");
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--verify", &source_ref])
+        .current_dir(&sandbox.repo)
+        .output()
+        .unwrap();
+    if output.status.success() {
+        let source_sha = String::from_utf8(output.stdout).unwrap().trim().to_owned();
+        approve_ticket_git_intent(sandbox, ticket, source, destination, &source_sha);
+    }
+}
 pub(super) fn refresh_task_spec(
     planning_store: &crate::artifacts::planning_store::PlanningStore,
     ticket: &str,

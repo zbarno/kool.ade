@@ -64,7 +64,20 @@ fn board_approval_adds_a_task_generation_card_that_generates_stories_on_request(
             .contains("Plan confirmation recorded for CHG-004")
     );
     assert!(matches!(&app.screen, Screen::Connected(project) if project.active_turn.is_none()));
+    approve_test_git_intent(&mut app, &generation_key, "CHG-004");
     app.start_task_generation(&generation_key, "CHG-004");
+    assert!(
+        matches!(&app.screen, Screen::Connected(project) if project.active_turn.is_some()),
+        "task generation should start after explicit Git intent approval: {:?}",
+        match &app.screen {
+            Screen::Connected(project) => project
+                .planning_work
+                .iter()
+                .find(|work| work.key == generation_key)
+                .map(|work| work.detail.clone()),
+            Screen::Welcome => None,
+        }
+    );
     let applied = finish(&mut app);
     assert!(applied, "{:?}", app.chat_messages());
     assert!(
@@ -165,6 +178,7 @@ fn resolved_conversation_has_action_and_failed_review_retains_approval_for_retry
             .expect("approval creates a board task-generation card"),
         _ => panic!("project remains connected"),
     };
+    approve_test_git_intent(&mut app, &generation_key, "CHG-004");
     app.start_task_generation(&generation_key, "CHG-004");
     let applied = finish(&mut app);
     assert!(!applied);

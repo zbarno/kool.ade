@@ -17,6 +17,8 @@ impl PartialEq for Work {
             && self.task_intent_cycles == other.task_intent_cycles
             && self.task_intent_cycle_uid == other.task_intent_cycle_uid
             && self.task_intent_archived_at_ms == other.task_intent_archived_at_ms
+            && self.git_intent == other.git_intent
+            && self.git_intents == other.git_intents
             && self.source_branch == other.source_branch
             && self.destination_branch == other.destination_branch
             && self.routing_overrides == other.routing_overrides
@@ -113,6 +115,8 @@ impl Work {
             task_intent_cycles: Vec::new(),
             task_intent_cycle_uid: None,
             task_intent_archived_at_ms: None,
+            git_intent: None,
+            git_intents: std::collections::BTreeMap::new(),
             source_branch: None,
             destination_branch: None,
             routing_overrides: std::collections::BTreeMap::new(),

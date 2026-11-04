@@ -24,6 +24,7 @@ fn changed_contract_stops_authorized_continuation_and_manager_uses_current_state
             .expect("reviewed approval creates a task-generation card"),
         Screen::Welcome => panic!("project remains connected"),
     };
+    approve_test_git_intent(&mut app, &task_generation_key, "CHG-004");
     app.start_task_generation(&task_generation_key, "CHG-004");
     assert!(finish(&mut app));
     assert!(

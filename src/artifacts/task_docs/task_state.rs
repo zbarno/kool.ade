@@ -3,7 +3,7 @@ use crate::core::planning_work::WorkStatus;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 3;
 
 mod linkage;
 pub use linkage::{ExecutionPublicationStatus, PullRequestLinkage, TaskExecutionLinkage};
@@ -37,6 +37,7 @@ pub struct TaskState {
     pub source_sha: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub destination_branch: Option<String>,
+    pub git_intent: Option<crate::core::git_intent::GitIntentV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub implementation_branch: Option<String>,
     #[serde(default)]
@@ -51,6 +52,7 @@ pub struct TaskState {
 pub(crate) fn create(
     metadata: &super::TaskMetadata,
 ) -> anyhow::Result<(String, Vec<u8>, RecordRevisionCheck)> {
+    metadata.validate_for_execution()?;
     anyhow::ensure!(
         uuid::Uuid::parse_str(&metadata.uid).is_ok(),
         "Task state has an invalid UID"
@@ -69,8 +71,9 @@ pub(crate) fn create(
             status: WorkStatus::Todo,
             execution_status: None,
             source_branch: metadata.source_branch.clone(),
-            source_sha: None,
+            source_sha: metadata.source_sha.clone(),
             destination_branch: metadata.destination_branch.clone(),
+            git_intent: metadata.git_intent.clone(),
             implementation_branch: None,
             publication_status: ExecutionPublicationStatus::Planned,
             pull_requests: Vec::new(),
@@ -109,6 +112,7 @@ pub(crate) fn update_execution_status(
     execution_status: &str,
     linkage: &TaskExecutionLinkage,
 ) -> anyhow::Result<TaskState> {
+    metadata.validate_for_execution()?;
     anyhow::ensure!(
         !execution_status.is_empty()
             && execution_status.len() <= 64
@@ -151,6 +155,7 @@ pub(crate) fn update_execution_status(
                     source_branch: linkage.source_branch.clone(),
                     source_sha: linkage.source_sha.clone(),
                     destination_branch: linkage.destination_branch.clone(),
+                    git_intent: metadata.git_intent.clone(),
                     implementation_branch: linkage.implementation_branch.clone(),
                     publication_status: linkage.publication_status,
                     pull_requests: linkage.pull_requests.clone(),
@@ -159,6 +164,17 @@ pub(crate) fn update_execution_status(
             }
         }
     };
+    let intent = metadata
+        .git_intent
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Task execution has no approved Git intent"))?;
+    anyhow::ensure!(
+        record.data.git_intent.as_ref() == Some(intent)
+            && linkage.source_branch.as_deref() == Some(intent.source_ref.as_str())
+            && linkage.source_sha.as_deref() == Some(intent.source_sha.as_str())
+            && linkage.destination_branch.as_deref() == Some(intent.destination_ref.as_str()),
+        "Task execution update does not match the persisted approved Git intent"
+    );
     if record.revision > 0
         && record.data.status == status
         && record.data.execution_status.as_deref() == Some(execution_status)
@@ -249,6 +265,17 @@ fn validate_record(record: &TaskStateRecord, uid: &str, path: &str) -> anyhow::R
             .all(|dependency| uuid::Uuid::parse_str(dependency).is_ok()),
         "Task state {path} has an invalid dependency UID"
     );
+    if let Some(intent) = &record.data.git_intent {
+        intent.validate()?;
+        anyhow::ensure!(
+            intent.repository_id == record.data.repository_id
+                && record.data.source_branch.as_deref() == Some(intent.source_ref.as_str())
+                && record.data.source_sha.as_deref() == Some(intent.source_sha.as_str())
+                && record.data.destination_branch.as_deref()
+                    == Some(intent.destination_ref.as_str()),
+            "Task state {path} disagrees with its approved Git intent"
+        );
+    }
     linkage::validate(
         &record.data.repository_id,
         record.data.source_branch.as_deref(),

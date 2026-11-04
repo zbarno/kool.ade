@@ -57,6 +57,24 @@ pub(in crate::ui::layout::board::columns) fn work(
                 }
             };
             ui.label(theme::helper_text(summary));
+            for intent in work.git_intents.values() {
+                ui.label(theme::helper_text(format!(
+                    "{} · {} → {} · {}{}",
+                    intent.repository_id,
+                    intent.source_ref,
+                    intent.destination_ref,
+                    match intent.publication_mode {
+                        crate::core::git_intent::PublicationModeV1::HoldForReview => "Review",
+                        crate::core::git_intent::PublicationModeV1::CreatePullRequest => "PR",
+                        crate::core::git_intent::PublicationModeV1::AutoPublish => "Auto publish",
+                    },
+                    if intent.inherited_from_task_uid.is_some() {
+                        " · inherited"
+                    } else {
+                        ""
+                    }
+                )));
+            }
             super::super::super::super::activity::paint_card(ui, s, &work.key, false);
             if column == 3
                 && ui

@@ -5,8 +5,41 @@ use crate::domain::ArtifactIdentity;
 fn linkage(repository_id: &str) -> TaskExecutionLinkage {
     TaskExecutionLinkage {
         repository_id: repository_id.into(),
+        source_branch: Some("main".into()),
+        source_sha: Some("a".repeat(40)),
+        destination_branch: Some("main".into()),
         ..Default::default()
     }
+}
+
+fn executable_metadata(
+    identity: &ArtifactIdentity,
+    repository_id: &str,
+    source: &str,
+    destination: &str,
+) -> super::super::metadata::TaskMetadata {
+    let source_sha = "a".repeat(40);
+    let targets = crate::core::workflow::BranchTargets {
+        source: source.into(),
+        destination: destination.into(),
+    };
+    let intent = crate::core::git_intent::GitIntentV1::approve(
+        repository_id.into(),
+        source.into(),
+        source_sha.clone(),
+        destination.into(),
+        crate::core::git_intent::PublicationModeV1::HoldForReview,
+        None,
+    )
+    .unwrap();
+    super::super::metadata::TaskMetadata::new(identity, repository_id, vec![])
+        .unwrap()
+        .with_branch_targets(Some(&targets))
+        .unwrap()
+        .with_source_sha(Some(&source_sha))
+        .unwrap()
+        .with_git_intent(Some(&intent))
+        .unwrap()
 }
 
 #[test]
@@ -20,8 +53,7 @@ fn task_execution_status_is_revised_per_record_and_stale_updates_are_rejected() 
         title: "Implement feature".into(),
         parent_uid: Some(uuid::Uuid::new_v4().to_string()),
     };
-    let metadata =
-        super::super::metadata::TaskMetadata::new(&identity, "repo-main", vec![]).unwrap();
+    let metadata = executable_metadata(&identity, "repo-main", "main", "main");
     let (path, bytes, check) = create(&metadata).unwrap();
     store
         .transaction_with_record_revisions(&[(path, bytes)], &[check])
@@ -73,13 +105,7 @@ fn execution_linkage_round_trips_and_unsupported_schema_is_preserved() {
         title: "Ship the release task".into(),
         parent_uid: Some(uuid::Uuid::new_v4().to_string()),
     };
-    let metadata = super::super::metadata::TaskMetadata::new(&identity, "repo-api", vec![])
-        .unwrap()
-        .with_branch_targets(Some(&crate::core::workflow::BranchTargets {
-            source: "release/1.2".into(),
-            destination: "develop".into(),
-        }))
-        .unwrap();
+    let metadata = executable_metadata(&identity, "repo-api", "release/1.2", "develop");
     let (path, bytes, check) = create(&metadata).unwrap();
     store
         .transaction_with_record_revisions(&[(path.clone(), bytes)], &[check])
@@ -91,7 +117,7 @@ fn execution_linkage_round_trips_and_unsupported_schema_is_preserved() {
     let linked = TaskExecutionLinkage {
         repository_id: "repo-api".into(),
         source_branch: Some("release/1.2".into()),
-        source_sha: Some("a".repeat(40)),
+        source_sha: metadata.source_sha.clone(),
         destination_branch: Some("develop".into()),
         implementation_branch: Some("koolade/task-002".into()),
         publication_status: ExecutionPublicationStatus::Shared,

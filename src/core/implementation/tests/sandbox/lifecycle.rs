@@ -27,10 +27,10 @@ pub(super) fn seed_task(
         identity.parent_uid.as_deref(),
     )
     .unwrap();
-    let metadata = crate::artifacts::task_docs::TaskMetadata::new(&identity, "root", Vec::new())
+    let metadata = crate::artifacts::task_docs::parse_metadata(&original)
         .unwrap()
-        .with_task_intent_uid(Some(&identity.uid))
-        .unwrap();
+        .expect("fixture task Git intent");
+    assert_eq!(metadata.uid, identity.uid, "fixture task UID changed");
     let markdown = crate::artifacts::task_docs::embed(&markdown, &metadata).unwrap();
     store.atomic_write(ticket, markdown.as_bytes()).unwrap();
     let task_uid = identity.uid;

@@ -76,19 +76,45 @@ pub(super) fn write_new_batch<R: PlanningRoot + ?Sized>(
                     })
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
+            anyhow::ensure!(
+                !story.target_repository.is_empty(),
+                "Task generation has no explicit target repository"
+            );
+            let repository_id = &story.target_repository;
+            let source_sha = story
+                .source_sha
+                .as_deref()
+                .ok_or_else(|| anyhow::anyhow!("Task generation has no pinned source commit"))?;
+            let structural_parent_uid = story
+                .parent_task_index
+                .map(|parent| {
+                    parent
+                        .checked_sub(1)
+                        .and_then(|index| task_uids.get(index))
+                        .map(String::as_str)
+                        .ok_or_else(|| anyhow::anyhow!("Task parent index {parent} is invalid"))
+                })
+                .transpose()?;
+            let inherited_git_parent_uid = story
+                .parent_task_index
+                .and_then(|parent| parent.checked_sub(1))
+                .and_then(|index| batch.stories.get(index).zip(task_uids.get(index)))
+                .filter(|(parent, _)| {
+                    parent.target_repository == *repository_id
+                        && parent.source_sha.as_deref() == Some(source_sha)
+                })
+                .map(|(_, uid)| uid.as_str());
+            let git_intent =
+                batch.git_intent_for_story(repository_id, source_sha, inherited_git_parent_uid)?;
             let metadata = super::super::metadata::TaskMetadata::new(
                 &identified[i].1,
-                if story.target_repository.is_empty() {
-                    "root"
-                } else {
-                    &story.target_repository
-                },
+                repository_id,
                 dependency_uids,
             )?
             .with_task_intent_uid(task_intent_uid.as_deref())?
             .with_task_intent_cycle_uid(task_intent_cycle_uid.as_deref())?
-            .with_branch_targets(batch.branch_targets.as_ref())?
-            .with_source_sha(story.source_sha.as_deref())?
+            .with_parent_task_uid(structural_parent_uid)?
+            .with_git_intent(Some(&git_intent))?
             .with_parallelizable(story.parallelizable)?
             .with_task_routing(
                 &batch.task_routing.overrides,

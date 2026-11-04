@@ -103,16 +103,12 @@ pub fn generate(
                 validate_outline(brief, &outline)?;
                 let manifest = &state.repositories;
                 for task in &outline {
-                    if manifest.repositories.len() > 1 && task.target_repository.is_empty() {
+                    if task.target_repository.is_empty() {
                         return Err(vec![
-                            "Each multi-repository outline task needs target_repository".into(),
+                            "Every task outline needs an explicit target_repository".into(),
                         ]);
                     }
-                    let id = if task.target_repository.is_empty() {
-                        "root"
-                    } else {
-                        task.target_repository.as_str()
-                    };
+                    let id = task.target_repository.as_str();
                     if !manifest.repositories.iter().any(|repo| repo.id == id) {
                         return Err(vec![format!("Unknown target_repository {id}")]);
                     }
@@ -177,10 +173,17 @@ pub fn generate(
             specification: state.planning_contract().unwrap_or_default().to_string(),
             feature_id: state.active_feature.as_ref().map(|(id, _)| id.clone()),
             contract: crate::core::contract_snapshot::freeze(state)?,
-            branch_targets: state
+            repository_git_intents: state
                 .active_feature
                 .as_ref()
-                .and_then(|(id, _)| state.workflow.feature_branch_targets.get(id).cloned()),
+                .and_then(|(id, _)| state.workflow.feature_git_intents.get(id).cloned())
+                .or_else(|| {
+                    state
+                        .active_feature
+                        .is_none()
+                        .then(|| state.workflow.standalone_task_git_intents.clone())
+                })
+                .unwrap_or_default(),
             task_routing: task_routing.clone(),
             stories: cp.stories.clone(),
         };

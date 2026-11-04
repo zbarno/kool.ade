@@ -87,6 +87,7 @@ pub(super) struct PublicationPolicyOptions {
     pub(super) auto_publish: bool,
     pub(super) require_independent_checks: bool,
     pub(super) lifecycle_gate_refresh: bool,
+    pub(super) approved_intent_mode: Option<crate::core::git_intent::PublicationModeV1>,
 }
 
 pub(super) fn publication_policy(
@@ -102,6 +103,7 @@ pub(super) fn publication_policy(
         auto_publish,
         require_independent_checks,
         lifecycle_gate_refresh,
+        approved_intent_mode,
     } = options;
     let mode = super::publication_retry::publication_mode(
         lifecycle_gate_refresh,
@@ -112,6 +114,31 @@ pub(super) fn publication_policy(
     );
     let mode = if is_self_improvement && !explicit_publish {
         PublicationMode::HoldForReview
+    } else {
+        mode
+    };
+    let mode = if lifecycle_gate_refresh
+        || requested_changes
+        || (is_self_improvement && !explicit_publish)
+    {
+        PublicationMode::HoldForReview
+    } else if explicit_publish {
+        PublicationMode::CreatePullRequest
+    } else if let Some(approved) = approved_intent_mode {
+        match approved {
+            crate::core::git_intent::PublicationModeV1::HoldForReview => {
+                PublicationMode::HoldForReview
+            }
+            crate::core::git_intent::PublicationModeV1::CreatePullRequest => {
+                PublicationMode::CreatePullRequest
+            }
+            crate::core::git_intent::PublicationModeV1::AutoPublish if auto_publish => {
+                PublicationMode::AutoPublish
+            }
+            crate::core::git_intent::PublicationModeV1::AutoPublish => {
+                PublicationMode::HoldForReview
+            }
+        }
     } else {
         mode
     };
@@ -234,6 +261,56 @@ mod tests {
         );
         assert_eq!(
             publication_policy(PublicationPolicyOptions {
+                auto_publish: true,
+                ..Default::default()
+            }),
+            (PublicationMode::AutoPublish, true)
+        );
+        assert_eq!(
+            publication_policy(PublicationPolicyOptions {
+                approved_intent_mode: Some(
+                    crate::core::git_intent::PublicationModeV1::CreatePullRequest,
+                ),
+                ..Default::default()
+            }),
+            (PublicationMode::CreatePullRequest, false)
+        );
+        assert_eq!(
+            publication_policy(PublicationPolicyOptions {
+                approved_intent_mode: Some(crate::core::git_intent::PublicationModeV1::AutoPublish,),
+                auto_publish: false,
+                ..Default::default()
+            }),
+            (PublicationMode::HoldForReview, false)
+        );
+        assert_eq!(
+            publication_policy(PublicationPolicyOptions {
+                approved_intent_mode: Some(crate::core::git_intent::PublicationModeV1::AutoPublish,),
+                auto_publish: true,
+                ..Default::default()
+            }),
+            (PublicationMode::AutoPublish, true)
+        );
+        assert_eq!(
+            publication_policy(PublicationPolicyOptions {
+                approved_intent_mode: Some(
+                    crate::core::git_intent::PublicationModeV1::CreatePullRequest,
+                ),
+                ..Default::default()
+            }),
+            (PublicationMode::CreatePullRequest, false)
+        );
+        assert_eq!(
+            publication_policy(PublicationPolicyOptions {
+                approved_intent_mode: Some(crate::core::git_intent::PublicationModeV1::AutoPublish,),
+                auto_publish: false,
+                ..Default::default()
+            }),
+            (PublicationMode::HoldForReview, false)
+        );
+        assert_eq!(
+            publication_policy(PublicationPolicyOptions {
+                approved_intent_mode: Some(crate::core::git_intent::PublicationModeV1::AutoPublish,),
                 auto_publish: true,
                 ..Default::default()
             }),

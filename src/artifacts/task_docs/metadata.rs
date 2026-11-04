@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 mod routing;
 
-const VERSION: u32 = 7;
+const VERSION: u32 = 8;
 const MAX_FRONTMATTER_BYTES: usize = 8192;
 const MAX_DEPENDENCIES: usize = 16;
 
@@ -32,6 +32,8 @@ pub struct TaskMetadata {
     pub destination_branch: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_sha: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_intent: Option<crate::core::git_intent::GitIntentV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parallelizable: Option<bool>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
@@ -64,6 +66,7 @@ impl TaskMetadata {
             source_branch: None,
             destination_branch: None,
             source_sha: None,
+            git_intent: None,
             parallelizable: None,
             routing_overrides: Default::default(),
             routing_source_uid: None,
@@ -122,6 +125,21 @@ impl TaskMetadata {
 
     pub fn with_source_sha(mut self, source_sha: Option<&str>) -> anyhow::Result<Self> {
         self.source_sha = source_sha.map(str::to_owned);
+        self.validate(None)?;
+        Ok(self)
+    }
+
+    pub fn with_git_intent(
+        mut self,
+        git_intent: Option<&crate::core::git_intent::GitIntentV1>,
+    ) -> anyhow::Result<Self> {
+        self.git_intent = git_intent.cloned();
+        if let Some(intent) = git_intent {
+            self.repository_id = intent.repository_id.clone();
+            self.source_branch = Some(intent.source_ref.clone());
+            self.destination_branch = Some(intent.destination_ref.clone());
+            self.source_sha = Some(intent.source_sha.clone());
+        }
         self.validate(None)?;
         Ok(self)
     }
@@ -194,15 +212,26 @@ impl TaskMetadata {
         .into_iter()
         .flatten()
         {
-            anyhow::ensure!(
-                valid_branch(branch),
-                "Task metadata has an invalid branch name"
-            );
+            crate::core::git_intent::validate_ref(branch, "task metadata")?;
         }
         if let Some(sha) = self.source_sha.as_deref() {
             anyhow::ensure!(
                 matches!(sha.len(), 40 | 64) && sha.bytes().all(|byte| byte.is_ascii_hexdigit()),
                 "Task metadata has an invalid source SHA"
+            );
+        }
+        if let Some(intent) = &self.git_intent {
+            intent.validate()?;
+            anyhow::ensure!(
+                intent.repository_id == self.repository_id
+                    && self.source_branch.as_deref() == Some(intent.source_ref.as_str())
+                    && self.source_sha.as_deref() == Some(intent.source_sha.as_str())
+                    && self.destination_branch.as_deref() == Some(intent.destination_ref.as_str())
+                    && intent
+                        .inherited_from_task_uid
+                        .as_deref()
+                        .is_none_or(|uid| Some(uid) == self.parent_task_uid.as_deref()),
+                "Task metadata fields disagree with the approved Git intent"
             );
         }
         let mut dependencies = BTreeSet::new();
@@ -229,18 +258,29 @@ impl TaskMetadata {
         }
         Ok(())
     }
-}
 
-fn valid_branch(branch: &str) -> bool {
-    !branch.is_empty()
-        && branch.len() <= 255
-        && !branch.starts_with('-')
-        && !branch.ends_with('/')
-        && !branch.contains("..")
-        && !branch.contains("@{")
-        && !branch
-            .chars()
-            .any(|ch| ch.is_whitespace() || "~^:?*[\\".contains(ch))
+    /// Validate the complete branch and commit intent required before task
+    /// execution can allocate or resume an isolated clone.
+    pub fn validate_for_execution(&self) -> anyhow::Result<()> {
+        self.validate(None)?;
+        anyhow::ensure!(
+            self.source_branch.is_some(),
+            "Executable task has no approved source branch"
+        );
+        anyhow::ensure!(
+            self.destination_branch.is_some(),
+            "Executable task has no approved destination branch"
+        );
+        anyhow::ensure!(
+            self.source_sha.is_some(),
+            "Executable task has no pinned source commit"
+        );
+        anyhow::ensure!(
+            self.git_intent.is_some(),
+            "Executable task has no versioned, approved Git intent"
+        );
+        Ok(())
+    }
 }
 
 pub fn parse(markdown: &str) -> anyhow::Result<Option<TaskMetadata>> {
@@ -266,6 +306,8 @@ pub fn parse(markdown: &str) -> anyhow::Result<Option<TaskMetadata>> {
 }
 
 pub fn embed(markdown: &str, metadata: &TaskMetadata) -> anyhow::Result<String> {
+    // Metadata is also used for planning-only and historical task records.
+    // The execution boundary separately requires a complete approved intent.
     metadata.validate(None)?;
     let body = frontmatter(markdown)?.map_or(markdown, |(_, body)| body);
     let value = serde_json::to_string(metadata)?;

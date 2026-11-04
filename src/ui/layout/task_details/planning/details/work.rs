@@ -1,4 +1,6 @@
 use super::*;
+mod git_intents;
+mod related_task;
 mod task_intent;
 
 pub(super) fn paint(
@@ -18,6 +20,7 @@ pub(super) fn paint(
     ui.add_space(crate::ui::theme::spacing::M);
     ui.label(crate::ui::theme::section_heading("Next step"));
     if work.kind == WorkKind::TaskGeneration {
+        let git_intent_approved = git_intents::paint(ui, surface, work);
         let can_generate = work
             .feature_id
             .as_ref()
@@ -26,7 +29,8 @@ pub(super) fn paint(
                 work.status,
                 crate::core::planning_work::WorkStatus::Todo
                     | crate::core::planning_work::WorkStatus::NeedsAttention
-            );
+            )
+            && git_intent_approved;
         if can_generate {
             ui.label("The independently approved specification is ready for task generation.");
             if ui
@@ -43,7 +47,11 @@ pub(super) fn paint(
                 });
             }
         } else {
-            ui.label(&work.detail);
+            if work.git_intents.is_empty() {
+                ui.label("Approve repository Git intent before generating tasks.");
+            } else {
+                ui.label(&work.detail);
+            }
         }
     } else if work.status == crate::core::planning_work::WorkStatus::InProgress {
         ui.label("Kool.ad/e is working on this task.");
@@ -68,20 +76,33 @@ pub(super) fn paint(
         )));
         ui.label(&work.detail);
     });
-    if let Some(offer) = &work.follow_up_task {
-        ui.collapsing("Related task", |ui| {
-            ui.label(&offer.description);
-            if ui.button("Create related Feature task").clicked() {
-                surface.dispatch(crate::ui::ApplicationCommand::CreatePlanningTask {
-                    kind: WorkKind::Feature,
-                    description: offer.description.clone(),
-                    parent_uid: Some(work.uid.clone()),
-                    source_branch: None,
-                    destination_branch: None,
-                    routing_overrides: Default::default(),
-                });
+    if !work.git_intents.is_empty() {
+        ui.collapsing("Approved Git intent", |ui| {
+            for intent in work.git_intents.values() {
+                ui.separator();
+                ui.label(format!("Repository: {}", intent.repository_id));
+                ui.label(format!("Source branch: {}", intent.source_ref));
+                ui.label(format!("Pinned source commit: {}", intent.source_sha));
+                ui.label(format!("Destination branch: {}", intent.destination_ref));
+                ui.label(format!(
+                    "Publication mode: {}",
+                    match intent.publication_mode {
+                        crate::core::git_intent::PublicationModeV1::HoldForReview =>
+                            "Hold for review",
+                        crate::core::git_intent::PublicationModeV1::CreatePullRequest =>
+                            "Create pull request",
+                        crate::core::git_intent::PublicationModeV1::AutoPublish => "Auto publish",
+                    }
+                ));
+                ui.label(format!("Approval revision: {}", intent.approval_revision));
+                if let Some(parent_uid) = intent.inherited_from_task_uid.as_deref() {
+                    ui.label(format!("Inherited from task: {parent_uid}"));
+                }
             }
         });
+    }
+    if let Some(offer) = &work.follow_up_task {
+        related_task::paint(ui, surface, work, offer);
     }
     paint_controls(ui, surface, work, board);
 }

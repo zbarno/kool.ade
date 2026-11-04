@@ -31,9 +31,10 @@ pub(super) struct Plan {
 }
 
 pub(super) use self::prepare::prepare;
+pub(super) use clone_plan::CloneRepositoryPlan;
+pub(in crate::core::implementation) use clone_plan::save_clone_plan;
 #[cfg(test)]
 pub(super) use clone_plan::save_plan;
-pub(super) use clone_plan::{CloneRepositoryPlan, save_clone_plan};
 pub(super) use integration_state::{integrated_candidate_matches, mark_integrated_candidate};
 
 pub(super) fn load_plan(dir: &Path) -> anyhow::Result<Option<Plan>> {

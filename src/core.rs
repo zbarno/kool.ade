@@ -18,6 +18,7 @@ pub mod context_retrieval;
 pub mod contract_snapshot;
 pub mod fs_publish;
 pub mod git_commands;
+pub mod git_intent;
 pub mod gitops;
 pub mod ids;
 pub mod investigation;

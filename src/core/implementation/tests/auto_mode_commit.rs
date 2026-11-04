@@ -119,6 +119,7 @@ fn resumed_worker_receives_the_submitted_task_decision() {
 fn auto_mode_starts_on_remote_when_local_history_diverged() {
     let s = Sandbox::new();
     let remote = s.advance_remote();
+    super::sandbox::approve_ticket_at_source_sha(&s, "main", "main", &remote);
     fs::write(s.repo.join("local-only.txt"), "local work").unwrap();
     s.git(&s.repo, &["add", "local-only.txt"]);
     s.git(&s.repo, &["commit", "-qm", "local work"]);

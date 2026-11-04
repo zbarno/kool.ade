@@ -4,6 +4,8 @@ use crate::core::{
 };
 
 use super::run::Run;
+mod repository_refs;
+use repository_refs::{approved_source_pin, repository_source_sha, validate_destination_ref};
 
 pub(super) fn run(
     run: &Run,
@@ -53,41 +55,69 @@ pub(super) fn run(
             "Current immutable user-approved plan and independent review are required before decomposition"
         );
     }
-    let branches = state
+    let repository_intents = state
         .active_feature
         .as_ref()
-        .and_then(|(id, _)| state.workflow.feature_branch_targets.get(id))
-        .ok_or_else(|| anyhow::anyhow!("Approved task branch targets are missing"))?;
+        .and_then(|(id, _)| state.workflow.feature_git_intents.get(id))
+        .or_else(|| {
+            state
+                .active_feature
+                .is_none()
+                .then_some(&state.workflow.standalone_task_git_intents)
+        })
+        .ok_or_else(|| anyhow::anyhow!("Approved per-repository Git intents are missing"))?;
+    anyhow::ensure!(
+        !repository_intents.is_empty(),
+        "Approve at least one target repository before generating tasks"
+    );
     let approved_source_pin = approved_source_pin(state, &identity.uid)?;
     let mut allowed_repositories = std::collections::HashMap::new();
     let mut approved_branch_targets = std::collections::HashMap::new();
     let mut repository_source_shas = std::collections::HashMap::new();
     let mut repository_context = Vec::new();
-    for repo in &state.repositories.repositories {
+    for (repository_id, intent) in repository_intents {
+        intent.validate()?;
+        anyhow::ensure!(
+            intent.repository_id == *repository_id,
+            "Approved repository Git intent key does not match repository ID"
+        );
+        let repo = state
+            .repositories
+            .repositories
+            .iter()
+            .find(|repository| repository.id == *repository_id)
+            .ok_or_else(|| anyhow::anyhow!("Approved repository {repository_id} is not mapped"))?;
         let checkout = state
             .repositories
-            .target(&state.planning_store, &state.repo_root, &repo.id)
+            .target(&state.planning_store, &state.repo_root, repository_id)
             .map_err(|error| {
-                anyhow::anyhow!("Repository {} has no trusted checkout: {error}", repo.id)
+                anyhow::anyhow!("Repository {repository_id} has no trusted checkout: {error}")
             })?;
-        let sha = repository_source_sha(
-            &repo.id,
+        let source_sha = repository_source_sha(
+            repository_id,
             &checkout,
-            &branches.source,
+            &intent.source_ref,
             approved_source_pin.as_ref(),
         )?;
-        allowed_repositories.insert(repo.id.clone(), repo.remote.clone());
-        approved_branch_targets.insert(
-            repo.id.clone(),
-            (branches.source.clone(), branches.destination.clone()),
+        anyhow::ensure!(
+            source_sha == intent.source_sha,
+            "Approved source commit for repository {repository_id} changed; review and approve the current branch before task generation"
         );
-        repository_source_shas.insert(repo.id.clone(), sha);
+        validate_destination_ref(&checkout, intent)?;
+        allowed_repositories.insert(repository_id.clone(), repo.remote.clone());
+        approved_branch_targets.insert(
+            repository_id.clone(),
+            (intent.source_ref.clone(), intent.destination_ref.clone()),
+        );
+        repository_source_shas.insert(repository_id.clone(), intent.source_sha.clone());
         repository_context.push(serde_json::json!({
-            "repository_id": repo.id,
+            "repository_id": repository_id,
             "portable_identity": repo.remote,
-            "source_branch": branches.source,
-            "source_sha": repository_source_shas[&repo.id],
-            "destination_branch": branches.destination,
+            "source_branch": intent.source_ref,
+            "source_sha": intent.source_sha,
+            "destination_branch": intent.destination_ref,
+            "publication_mode": intent.publication_mode,
+            "approval_revision": intent.approval_revision,
         }));
     }
     let decision_refs = goal.decision_refs.clone();
@@ -174,10 +204,10 @@ pub(super) fn checkpoint_matches(state: &PlannerState, stories: &[TaskStory]) ->
     let Ok(approved_source_pin) = approved_source_pin(state, &identity.uid) else {
         return false;
     };
-    let Some(branches) = state
+    let Some(intents) = state
         .active_feature
         .as_ref()
-        .and_then(|(id, _)| state.workflow.feature_branch_targets.get(id))
+        .and_then(|(id, _)| state.workflow.feature_git_intents.get(id))
     else {
         return false;
     };
@@ -193,88 +223,18 @@ pub(super) fn checkpoint_matches(state: &PlannerState, stories: &[TaskStory]) ->
         ) else {
             return false;
         };
-        repository_source_sha(
-            &story.target_repository,
-            &checkout,
-            &branches.source,
-            approved_source_pin.as_ref(),
-        )
-        .is_ok_and(|current| current == expected_sha)
-    })
-}
-
-struct ApprovedSourcePin {
-    repository_id: String,
-    source_ref: Option<String>,
-    source_sha: String,
-}
-
-fn approved_source_pin(
-    state: &PlannerState,
-    feature_uid: &str,
-) -> anyhow::Result<Option<ApprovedSourcePin>> {
-    let Some(run) = crate::core::self_improvement::SelfImprovementStore::new(&state.planning_store)
-        .run_for_feature(feature_uid)?
-    else {
-        return Ok(None);
-    };
-    let workspace_uid = state.planning_store.project_id.hyphenated().to_string();
-    let manifest = crate::core::project_repos::ProjectManifest::load(&state.planning_store)?;
-    let repository = manifest
-        .repositories
-        .iter()
-        .find(|repository| {
-            crate::core::project_repos::stable_uid(&workspace_uid, "repository", &repository.id)
-                == run.target_repository_uid
+        intents.get(&story.target_repository).is_some_and(|intent| {
+            intent.validate().is_ok()
+                && intent.source_sha == expected_sha
+                && repository_source_sha(
+                    &story.target_repository,
+                    &checkout,
+                    &intent.source_ref,
+                    approved_source_pin.as_ref(),
+                )
+                .is_ok_and(|current| current == expected_sha)
         })
-        .ok_or_else(|| {
-            anyhow::anyhow!("Approved self-improvement repository is missing from the manifest")
-        })?;
-    Ok(Some(ApprovedSourcePin {
-        repository_id: repository.id.clone(),
-        source_ref: run.source_ref,
-        source_sha: run.source_sha,
-    }))
-}
-
-fn repository_source_sha(
-    repository_id: &str,
-    checkout: &std::path::Path,
-    branch: &str,
-    approved_pin: Option<&ApprovedSourcePin>,
-) -> anyhow::Result<String> {
-    if let Some(pin) = approved_pin.filter(|pin| pin.repository_id == repository_id) {
-        anyhow::ensure!(
-            pin.source_ref
-                .as_deref()
-                .is_none_or(|source_ref| source_ref == branch),
-            "Approved self-improvement source branch changed before task generation"
-        );
-        return Ok(pin.source_sha.clone());
-    }
-    source_sha(checkout, branch)
-}
-
-fn source_sha(checkout: &std::path::Path, branch: &str) -> anyhow::Result<String> {
-    let local_ref = format!("refs/heads/{branch}^{{commit}}");
-    let output = std::process::Command::new("git")
-        .args(["rev-parse", "--verify", &local_ref])
-        .current_dir(checkout)
-        .output()?;
-    let output = if output.status.success() {
-        output
-    } else {
-        let remote_ref = format!("refs/remotes/origin/{branch}^{{commit}}");
-        std::process::Command::new("git")
-            .args(["rev-parse", "--verify", &remote_ref])
-            .current_dir(checkout)
-            .output()?
-    };
-    anyhow::ensure!(
-        output.status.success(),
-        "Source branch {branch} has no resolvable commit"
-    );
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
+    })
 }
 
 pub(super) use flatten::flatten;

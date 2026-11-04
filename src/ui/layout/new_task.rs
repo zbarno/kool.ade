@@ -5,6 +5,7 @@ use crate::{
 use egui::{RichText, Ui};
 use routing::routing_editor;
 
+pub(super) mod git;
 mod routing;
 
 #[derive(Clone, Default)]
@@ -12,8 +13,7 @@ struct Draft {
     open: bool,
     kind: WorkKind,
     description: String,
-    source_branch: String,
-    destination_branch: String,
+    repository_git: std::collections::BTreeMap<String, git::RepositoryDraft>,
     routing_overrides:
         std::collections::BTreeMap<String, crate::persistence::harness_settings::WorkRoute>,
 }
@@ -27,29 +27,57 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
     let mut created = None;
     let mut dismissed = false;
     let mut submit = false;
-    let branches = surface.repository_branches();
-    let destination_branches = surface.repository_destination_branches();
-    let code_repository_selected = surface.is_git_repo();
-    let branch_options_available =
-        code_repository_selected && !branches.is_empty() && !destination_branches.is_empty();
+    let repositories = if open {
+        surface.repository_git_options()
+    } else {
+        Vec::new()
+    };
+    for repository in &repositories {
+        let selected = draft
+            .repository_git
+            .entry(repository.id.clone())
+            .or_insert_with(|| git::RepositoryDraft {
+                enabled: repository.id == "root",
+                source_branch: repository.default_branch.clone(),
+                destination_branch: repository.default_branch.clone(),
+                publication_mode: crate::core::git_intent::PublicationModeV1::HoldForReview,
+            });
+        if !repository.source_branches.contains(&selected.source_branch) {
+            selected.source_branch.clear();
+        }
+        if !repository
+            .destination_branches
+            .contains(&selected.destination_branch)
+        {
+            selected.destination_branch.clear();
+        }
+    }
     let harness_settings = surface.harness_settings();
-    if !branch_options_available {
-        draft.source_branch.clear();
-        draft.destination_branch.clear();
-    }
-    if branch_options_available && draft.source_branch.is_empty() {
-        draft.source_branch = surface.default_repository_branch().to_owned();
-    }
-    if branch_options_available && draft.destination_branch.is_empty() {
-        draft.destination_branch = surface.default_repository_branch().to_owned();
-    }
     if open {
+        let requires_git_intent = matches!(
+            draft.kind,
+            WorkKind::Feature
+                | WorkKind::Bug
+                | WorkKind::NewProject
+                | WorkKind::DocumentationRefresh
+        );
+        let has_selected_repository = repositories
+            .iter()
+            .any(|repository| draft.repository_git[&repository.id].enabled);
+        let selections_valid = repositories.iter().all(|repository| {
+            let selection = &draft.repository_git[&repository.id];
+            !selection.enabled
+                || (repository.unavailable_reason.is_none()
+                    && repository
+                        .source_branches
+                        .contains(&selection.source_branch)
+                    && repository
+                        .destination_branches
+                        .contains(&selection.destination_branch))
+        });
         let valid = !draft.description.trim().is_empty()
-            && (!branch_options_available
-                || (!draft.source_branch.is_empty()
-                    && !draft.destination_branch.is_empty()
-                    && branches.contains(&draft.source_branch)
-                    && destination_branches.contains(&draft.destination_branch)));
+            && selections_valid
+            && (!requires_git_intent || repositories.is_empty() || has_selected_repository);
         let closed = crate::ui::overlays::show_medium_modal(
             ui,
             true,
@@ -101,18 +129,17 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
                         .hint_text("Describe what you want to do…"),
                 );
                 ui.add_space(theme::spacing::S);
-                if branch_options_available {
-                    branch_picker(ui, "Source Branch", &mut draft.source_branch, &branches);
-                    branch_picker(
-                        ui,
-                        "Destination Branch",
-                        &mut draft.destination_branch,
-                        &destination_branches,
-                    );
-                } else {
+                if repositories.is_empty() {
                     ui.label(theme::helper_text(
-                        "You can plan without a code checkout. Open a mapped code repository to choose implementation branches.",
+                        "No code repository checkout is available. Planning can continue; choose and approve repository Git intent before task generation.",
                     ));
+                } else {
+                    git::paint_repository_options(
+                        ui,
+                        &repositories,
+                        &mut draft.repository_git,
+                        &Default::default(),
+                    );
                 }
                 routing_editor(ui, &harness_settings, &mut draft.routing_overrides);
             },
@@ -133,22 +160,20 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
         dismissed |= closed;
     }
     if submit {
+        let git_intents = git::selected_intents(&draft.repository_git);
         created = Some((
             draft.kind,
             draft.description.trim().to_owned(),
-            (!draft.source_branch.is_empty()).then(|| draft.source_branch.clone()),
-            (!draft.destination_branch.is_empty()).then(|| draft.destination_branch.clone()),
+            git_intents,
             draft.routing_overrides.clone(),
         ));
     }
-    if let Some((kind, description, source_branch, destination_branch, routing_overrides)) = created
-    {
+    if let Some((kind, description, git_intents, routing_overrides)) = created {
         surface.dispatch(ApplicationCommand::CreatePlanningTask {
             kind,
             description,
             parent_uid: None,
-            source_branch,
-            destination_branch,
+            git_intents,
             routing_overrides,
         });
         draft.description.clear();
@@ -160,24 +185,6 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
     }
     draft.open = open;
     ui.ctx().data_mut(|data| data.insert_temp(id, draft));
-}
-
-fn branch_picker(ui: &mut Ui, label: &str, selected: &mut String, branches: &[String]) {
-    ui.label(theme::helper_text(label));
-    let selected_text = if selected.is_empty() {
-        "No branch available"
-    } else {
-        selected.as_str()
-    };
-    egui::ComboBox::from_id_salt(label)
-        .selected_text(selected_text)
-        .width(ui.available_width())
-        .wrap_mode(egui::TextWrapMode::Truncate)
-        .show_ui(ui, |ui| {
-            for branch in branches {
-                ui.selectable_value(selected, branch.clone(), branch);
-            }
-        });
 }
 
 fn new_task_kind_label(kind: WorkKind) -> &'static str {

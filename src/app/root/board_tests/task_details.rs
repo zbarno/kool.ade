@@ -20,9 +20,23 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
             source: "release/2.1".into(),
             destination: "integration".into(),
         };
+        let source_sha = "a".repeat(40);
+        let intent = crate::core::git_intent::GitIntentV1::approve(
+            "root".into(),
+            targets.source.clone(),
+            source_sha.clone(),
+            targets.destination.clone(),
+            crate::core::git_intent::PublicationModeV1::HoldForReview,
+            None,
+        )
+        .unwrap();
         let metadata = crate::artifacts::task_docs::TaskMetadata::new(&identity, "root", vec![])
             .unwrap()
             .with_branch_targets(Some(&targets))
+            .unwrap()
+            .with_source_sha(Some(&source_sha))
+            .unwrap()
+            .with_git_intent(Some(&intent))
             .unwrap();
         project.task_documents[0].metadata = Some(metadata.clone());
         project.task_documents[0].task_state = Some(crate::artifacts::task_docs::TaskState {
@@ -31,9 +45,10 @@ fn task_details_show_independent_check_result_separately_from_koolade_verificati
             dependency_uids: Vec::new(),
             status: crate::core::planning_work::WorkStatus::InReview,
             execution_status: Some("awaiting_review".into()),
-            source_branch: None,
-            source_sha: None,
-            destination_branch: None,
+            source_branch: Some(targets.source.clone()),
+            source_sha: Some(source_sha),
+            destination_branch: Some(targets.destination.clone()),
+            git_intent: metadata.git_intent.clone(),
             implementation_branch: None,
             publication_status: crate::artifacts::task_docs::ExecutionPublicationStatus::Planned,
             pull_requests: Vec::new(),

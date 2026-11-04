@@ -23,6 +23,49 @@ fn story() -> TaskStory {
     story
 }
 
+#[test]
+fn each_generated_task_keeps_its_repository_specific_approved_git_intent() {
+    let root_intent =
+        crate::test_support::approved_git_intent("root", "develop", &"a".repeat(40), "develop");
+    let api_intent =
+        crate::test_support::approved_git_intent("api", "release/2.0", &"b".repeat(40), "main");
+    let batch = TaskBatch {
+        brief: brief(),
+        specification: "# Approved spec".into(),
+        feature_id: Some("F42".into()),
+        contract: None,
+        repository_git_intents: std::collections::BTreeMap::from([
+            ("root".into(), root_intent.clone()),
+            ("api".into(), api_intent.clone()),
+        ]),
+        task_routing: Default::default(),
+        stories: Vec::new(),
+    };
+
+    assert_eq!(
+        batch
+            .git_intent_for_story("root", &"a".repeat(40), None)
+            .unwrap(),
+        root_intent
+    );
+    assert_eq!(
+        batch
+            .git_intent_for_story("api", &"b".repeat(40), None)
+            .unwrap(),
+        api_intent
+    );
+    let parent_uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    let inherited = batch
+        .git_intent_for_story("api", &"b".repeat(40), Some(&parent_uid))
+        .unwrap();
+    assert_eq!(
+        inherited.inherited_from_task_uid.as_deref(),
+        Some(parent_uid.as_str())
+    );
+    assert_eq!(inherited.source_ref, "release/2.0");
+    assert_eq!(inherited.destination_ref, "main");
+}
+
 #[path = "tests/brief.rs"]
 mod brief;
 
@@ -32,7 +75,7 @@ fn state(tag: &str) -> PlannerState {
     std::fs::create_dir_all(&root).unwrap();
     assert!(
         std::process::Command::new("git")
-            .args(["init", "-q"])
+            .args(["init", "-q", "-b", "main"])
             .current_dir(&root)
             .status()
             .unwrap()
@@ -51,6 +94,27 @@ fn state(tag: &str) -> PlannerState {
                 .success()
         );
     }
+    std::fs::write(
+        root.join("README.md"),
+        "Synthetic workflow test repository.\n",
+    )
+    .unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .args(["add", "README.md"])
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert!(
+        std::process::Command::new("git")
+            .args(["commit", "-q", "-m", "Seed synthetic source branch"])
+            .current_dir(&root)
+            .status()
+            .unwrap()
+            .success()
+    );
     let mut s = PlannerState::load(&root).unwrap();
     s.bootstrap_missing().unwrap();
     s
@@ -59,6 +123,23 @@ fn state(tag: &str) -> PlannerState {
 fn install_approved_feature(state: &mut PlannerState) {
     let root = state.planning_store.root.clone();
     let id = "CHG-004";
+    let source_sha = std::process::Command::new("git")
+        .args(["rev-parse", "refs/heads/main"])
+        .current_dir(&state.repo_root)
+        .output()
+        .unwrap();
+    assert!(source_sha.status.success());
+    let source_sha = String::from_utf8(source_sha.stdout)
+        .unwrap()
+        .trim()
+        .to_owned();
+    state.workflow.feature_git_intents.insert(
+        id.to_owned(),
+        std::collections::BTreeMap::from([(
+            "root".into(),
+            crate::test_support::approved_git_intent("root", "main", &source_sha, "main"),
+        )]),
+    );
     let path = root.join("fixture-feature-CHG-004.md");
     let markdown = "# CHG-004: Saved searches\n\n**Status:** Ready\n\n## Intent\n\nLet analysts resume a useful query.\n\n## Current Behavior\n\nAnalysts reconstruct query configuration each morning.\n\n## Desired Behavior\n\nAnalysts can restore a saved query.\n\n## Scope\n\nPersist and restore named search filters.\n\n## Affected Product Areas\n\n`product:overview`\n\n## Requirements\n\n- SEARCH-R1 (MUST). Restore a named query after restart.\n\n## Decisions and Assumptions\n\n- **A1 (fixture):** Saved searches remain local.\n\n## Acceptance Criteria\n\n1. A named query restores after restart.\n";
     let markdown =
@@ -116,8 +197,18 @@ fn mark_ready(state: &mut PlannerState) {
 }
 fn generation(
     state: &PlannerState,
-    stories: Vec<TaskStory>,
+    mut stories: Vec<TaskStory>,
 ) -> Result<NormalizedTurn, Vec<String>> {
+    let source_sha = std::process::Command::new("git")
+        .args(["rev-parse", "refs/heads/main^{commit}"])
+        .current_dir(&state.repo_root)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_owned());
+    for story in &mut stories {
+        story.source_sha = source_sha.clone();
+    }
     let mut env = envelope();
     env.task_stories = Some(stories);
     validation::validate_for_turn(

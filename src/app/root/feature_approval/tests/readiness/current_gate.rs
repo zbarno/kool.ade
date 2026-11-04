@@ -55,6 +55,7 @@ fn changed_readiness_blocks_existing_confirmation_and_review() {
             .iter()
             .any(|action| action.id == "CHG-004" && !action.prepare_tasks)
     );
+    approve_test_git_intent(&mut app, &work_key, "CHG-004");
     app.start_task_generation(&work_key, "CHG-004");
     let Screen::Connected(project) = &app.screen else {
         panic!("project remains connected");
@@ -148,6 +149,7 @@ fn pending_manager_contest_blocks_task_generation_actions_and_dispatch() {
             .iter()
             .any(|action| action.id == "CHG-004" && action.prepare_tasks)
     );
+    approve_test_git_intent(&mut app, &work_key, "CHG-004");
     app.start_task_generation(&work_key, "CHG-004");
     let Screen::Connected(project) = &app.screen else {
         panic!("project remains connected");

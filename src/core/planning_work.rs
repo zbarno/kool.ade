@@ -186,6 +186,12 @@ pub struct Work {
     /// Shared archive marker; history remains on the root Work record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_intent_archived_at_ms: Option<u64>,
+    /// Approved Git execution intent, private to this local work item.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_intent: Option<crate::core::git_intent::GitIntentV1>,
+    /// Explicitly approved task Git intent for every selected code repository.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub git_intents: std::collections::BTreeMap<String, crate::core::git_intent::GitIntentV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_branch: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

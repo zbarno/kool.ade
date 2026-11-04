@@ -84,11 +84,16 @@ fn task_batch() -> crate::core::workflow::TaskBatch {
         specification: "# Revision-fenced generation\n".into(),
         feature_id: Some("CHG-004".into()),
         contract: None,
-        branch_targets: None,
+        repository_git_intents: std::collections::BTreeMap::from([(
+            "root".into(),
+            crate::test_support::approved_git_intent("root", "main", &"b".repeat(40), "main"),
+        )]),
         task_routing: Default::default(),
         stories: vec![crate::core::workflow::TaskStory {
+            source_sha: Some("b".repeat(40)),
             title: "Write the generated task".into(),
             purpose: "Show a completed task batch.".into(),
+            target_repository: "root".into(),
             ..Default::default()
         }],
     }

@@ -4,6 +4,7 @@
   "task_stories": [
     {
       "title": "Persist named search filters",
+      "target_repository": "root",
       "purpose": "Retain analysts\u2019 complete named filter configurations across application sessions without changing existing ad hoc query behavior.",
       "scope_items": [
         1

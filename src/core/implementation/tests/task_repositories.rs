@@ -40,6 +40,7 @@ fn dirty_user_checkout_on_another_branch_starts_from_the_exact_local_commit() {
     sandbox.git(&sandbox.repo, &["add", "tracked.txt"]);
     sandbox.git(&sandbox.repo, &["commit", "-qm", "local source commit"]);
     let source_commit = sandbox.git(&sandbox.repo, &["rev-parse", "HEAD"]);
+    super::sandbox::approve_ticket_source(&sandbox, "human/working", "main");
     fs::write(sandbox.repo.join("tracked.txt"), "uncommitted user edit\n").unwrap();
     fs::write(sandbox.repo.join("user-only.txt"), "untracked user file\n").unwrap();
     let user_status = sandbox.git(&sandbox.repo, &["status", "--porcelain"]);
@@ -135,6 +136,8 @@ fn clone_reconciliation_plan_resumes_before_task_state_was_saved() {
     sandbox.git(&sandbox.repo, &["add", "local-only.txt"]);
     sandbox.git(&sandbox.repo, &["commit", "-qm", "local source update"]);
     let local_commit = sandbox.git(&sandbox.repo, &["rev-parse", "HEAD"]);
+    super::sandbox::approve_ticket_source(&sandbox, source, "main");
+    super::sandbox::approve_ticket_source(&sandbox, source, "main");
 
     let peer = sandbox.root.join("peer-source");
     sandbox.git(
@@ -234,18 +237,13 @@ fn repository_caches_are_isolated_by_the_effective_push_endpoint() {
     );
     let second_ticket = "planning/tasks/feature/002-distinct-push-endpoint.md";
     let second_ticket_text = "# Distinct push endpoint\n\nFeature: F1\n\n## Acceptance criteria\n\n- File contains implemented.\n";
-    let second_ticket_document = crate::domain::ArtifactIdentity::preserve_markdown(
+    super::sandbox::write_lifecycle_task_with_main_intent(
+        &sandbox,
+        second_ticket,
         second_ticket_text,
-        None,
         "TASK-003",
         "Distinct push endpoint",
-    )
-    .unwrap();
-    sandbox
-        .planning_store
-        .atomic_write(second_ticket, second_ticket_document.as_bytes())
-        .unwrap();
-    super::sandbox::seed_lifecycle_task(&sandbox.planning_store, second_ticket, second_ticket_text);
+    );
     let second = run_on_worker(&sandbox, second_ticket).unwrap();
 
     let runner = cleanup_runner();

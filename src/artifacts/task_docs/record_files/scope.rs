@@ -24,9 +24,17 @@ pub(super) fn merge(target: &mut Workflow, source: &Workflow, path: &str) -> any
     )?;
     merge_map(
         "branch target",
-        &source.feature_branch_targets,
-        &mut target.feature_branch_targets,
+        &source.feature_git_intents,
+        &mut target.feature_git_intents,
     )?;
+    anyhow::ensure!(
+        target.standalone_task_git_intents.is_empty()
+            || source.standalone_task_git_intents.is_empty(),
+        "More than one workflow record contains standalone task Git intent ({path})"
+    );
+    if !source.standalone_task_git_intents.is_empty() {
+        target.standalone_task_git_intents = source.standalone_task_git_intents.clone();
+    }
     target.task_batches.extend(source.task_batches.clone());
     target.task_batches.sort_by(|left, right| {
         left.created_at_ms.cmp(&right.created_at_ms).then_with(|| {
@@ -60,12 +68,16 @@ fn merge_map<T: Clone>(
 }
 
 pub(super) fn validate_scope(record: &WorkflowRecord, path: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        record.feature_id.is_none() || record.data.standalone_task_git_intents.is_empty(),
+        "Standalone task Git intent must be stored in the workspace workflow record in {path}"
+    );
     for id in record
         .data
         .approved_features
         .keys()
         .chain(record.data.plan_comparisons.keys())
-        .chain(record.data.feature_branch_targets.keys())
+        .chain(record.data.feature_git_intents.keys())
     {
         anyhow::ensure!(
             record.feature_id.as_deref() == Some(id.as_str()),
@@ -90,7 +102,7 @@ pub(super) fn feature_ids(workflow: &Workflow) -> std::collections::BTreeSet<Str
         .approved_features
         .keys()
         .chain(workflow.plan_comparisons.keys())
-        .chain(workflow.feature_branch_targets.keys())
+        .chain(workflow.feature_git_intents.keys())
         .cloned()
         .collect()
 }
@@ -101,7 +113,8 @@ pub(super) fn is_empty(workflow: &Workflow) -> bool {
         && workflow.task_batches.is_empty()
         && workflow.approved_features.is_empty()
         && workflow.plan_comparisons.is_empty()
-        && workflow.feature_branch_targets.is_empty()
+        && workflow.feature_git_intents.is_empty()
+        && workflow.standalone_task_git_intents.is_empty()
 }
 
 pub(super) fn batch_feature_uid(batch: &TaskBatchRef) -> Option<String> {

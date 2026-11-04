@@ -35,6 +35,7 @@ fn approved_task_generation_runs_alongside_an_unrelated_implementation() {
         Screen::Welcome => panic!("project stays connected"),
     };
 
+    approve_test_git_intent(&mut app, &key, "CHG-004");
     app.start_task_generation(&key, "CHG-004");
     assert!(
         matches!(&app.screen, Screen::Connected(project) if project.active_turn.is_some() && !project.active_implementations.is_empty())

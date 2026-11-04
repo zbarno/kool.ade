@@ -185,8 +185,6 @@ fn question_answer_can_offer_a_linked_feature_task_that_starts_only_on_selection
         assert_eq!(parent.kind, crate::core::planning_work::WorkKind::Question);
         assert_eq!(parent.task_intent_uid.as_deref(), Some(parent.uid.as_str()));
         assert_eq!(parent.status, crate::core::planning_work::WorkStatus::Done);
-        parent.source_branch = Some("release/2.1".into());
-        parent.destination_branch = Some("integration".into());
         parent.routing_overrides = std::collections::BTreeMap::from([
             (
                 crate::persistence::harness_settings::IMPLEMENTATION.into(),
@@ -204,7 +202,6 @@ fn question_answer_can_offer_a_linked_feature_task_that_starts_only_on_selection
             ),
         ]);
         let parent_uid = parent.uid.clone();
-        project.git.branches = vec!["main".into(), "release/2.1".into(), "integration".into()];
         project.save_planning_work().unwrap();
         let parent = project
             .planning_work
@@ -222,6 +219,19 @@ fn question_answer_can_offer_a_linked_feature_task_that_starts_only_on_selection
     assert!(text_position(&output, "Next step").is_some());
     let output = click_text(&mut app, &ctx, "Related task");
     assert!(text_position(&output, "Create related Feature task").is_some());
+    let repository_label = crate::ui::Surface::repository_git_options(&app)
+        .into_iter()
+        .find(|repository| repository.id == "root")
+        .unwrap()
+        .label;
+    click_text(&mut app, &ctx, &repository_label);
+    assert!(
+        text_position(
+            &frame(&mut app, &ctx, vec![]),
+            "Create related Feature task"
+        )
+        .is_some()
+    );
     app.task_harness = Some(Box::new(StoppedHarness {
         wait_for_cancel: true,
     }));
@@ -237,6 +247,7 @@ fn question_answer_can_offer_a_linked_feature_task_that_starts_only_on_selection
         project.task_chats.error
     );
     assert_eq!(child.kind, crate::core::planning_work::WorkKind::Feature);
+    assert!(child.git_intents.contains_key("root"));
     assert_eq!(child.parent_uid.as_deref(), Some(parent_uid.as_str()));
     assert_eq!(child.task_intent_uid.as_deref(), Some(parent_uid.as_str()));
     assert_eq!(

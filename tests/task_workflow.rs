@@ -168,7 +168,7 @@ fn interview_approval_multicall_generation_commit_and_failure_recovery() {
                     specification: reloaded.spec_text.clone().unwrap(),
                     feature_id: None,
                     contract: None,
-                    branch_targets: None,
+                    repository_git_intents: Default::default(),
                     task_routing: Default::default(),
                     stories: envelope.task_stories.unwrap(),
                 };

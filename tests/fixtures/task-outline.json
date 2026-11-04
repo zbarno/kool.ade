@@ -5,6 +5,7 @@
     {
       "title": "Persist named search filters",
       "purpose": "Retain analysts’ complete named filter configurations across application sessions without changing existing ad hoc query behavior.",
+      "target_repository": "root",
       "scope_items": [
         1
       ],
@@ -17,6 +18,7 @@
     {
       "title": "Build the saved search picker",
       "purpose": "Let analysts resume named searches through a keyboard-accessible picker with recoverable errors and predictable focus behavior.",
+      "target_repository": "root",
       "scope_items": [
         2
       ],
