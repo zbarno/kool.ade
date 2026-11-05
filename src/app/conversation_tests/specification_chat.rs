@@ -4,6 +4,8 @@ use std::sync::{Condvar, mpsc};
 
 #[path = "specification_chat/continuity.rs"]
 mod continuity;
+#[path = "specification_chat/rejected_history.rs"]
+mod rejected_history;
 #[path = "specification_chat/ui_layout.rs"]
 mod ui_layout;
 
