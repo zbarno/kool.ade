@@ -206,6 +206,7 @@ fn concurrent_process_scan_writers_do_not_lose_generation_updates() {
     let temp = tempfile::tempdir().unwrap();
     let state_root = temp.path().join("state");
     fs::create_dir_all(&state_root).unwrap();
+    let test_home_registration = crate::persistence::register_test_home(&state_root);
     let go = temp.path().join("go");
     let ready_paths = (0..6)
         .map(|worker| temp.path().join(format!("ready-{worker}")))
@@ -217,6 +218,10 @@ fn concurrent_process_scan_writers_do_not_lose_generation_updates() {
                 .arg("persistence::setup_tasks::tests::transactions::process::concurrent_process_scan_writers_do_not_lose_generation_updates")
                 .arg("--nocapture")
                 .env("KOOLADE_HOME", &state_root)
+                .env(
+                    "KOOLADE_TEST_HOME_TOKEN",
+                    test_home_registration.token(),
+                )
                 .env(GO_ENV, &go)
                 .env(READY_ENV, &ready_paths[worker])
                 .stdout(Stdio::piped())
