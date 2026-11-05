@@ -3,6 +3,14 @@ use crate::core::implementation::repository_cache::RepositoryCache;
 
 #[path = "task_repositories/concurrent.rs"]
 mod concurrent;
+#[path = "task_repositories/concurrent_destination.rs"]
+mod concurrent_destination;
+#[path = "task_repositories/detached_resume.rs"]
+mod detached_resume;
+#[path = "task_repositories/mapped_cleanup.rs"]
+mod mapped_cleanup;
+#[path = "task_repositories/midrun_checkout.rs"]
+mod midrun_checkout;
 #[path = "task_repositories/push_safety.rs"]
 mod push_safety;
 #[path = "task_repositories/source_start.rs"]

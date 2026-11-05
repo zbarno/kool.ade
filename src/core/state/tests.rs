@@ -122,6 +122,9 @@ fn concurrent_bootstrap_rejects_the_stale_initializer_without_overwriting() {
 #[path = "tests/managed_store.rs"]
 mod managed_store;
 
+#[path = "tests/cross_installation_remote.rs"]
+mod cross_installation_remote;
+
 #[test]
 fn seeded_config_contains_only_local_user_identity() {
     let repo = mkrepo("seed");
