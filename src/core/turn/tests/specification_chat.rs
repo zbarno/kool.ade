@@ -7,6 +7,8 @@ mod authority;
 mod authority_decision;
 #[path = "specification_chat/feature_scope.rs"]
 mod feature_scope;
+#[path = "specification_chat/malformed_request.rs"]
+mod malformed_request;
 #[path = "specification_chat/stale_revision.rs"]
 mod stale_revision;
 
