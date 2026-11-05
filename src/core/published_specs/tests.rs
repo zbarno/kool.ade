@@ -7,6 +7,9 @@ use super::*;
 use std::{fs, path::Path, process::Command};
 use tempfile::TempDir;
 
+#[path = "published_specs/concurrent_task_branches.rs"]
+mod concurrent_task_branches;
+
 const SPEC_PATH: &str = "docs/koolade/product/overview.md";
 
 fn repository() -> (TempDir, PublishedSpecReader) {
