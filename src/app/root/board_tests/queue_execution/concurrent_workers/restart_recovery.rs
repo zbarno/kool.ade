@@ -14,11 +14,7 @@ fn git(root: &std::path::Path, args: &[&str]) -> String {
         .current_dir(root)
         .output()
         .unwrap();
-    assert!(
-        output.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert!(output.status.success(), "git command failed");
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
 

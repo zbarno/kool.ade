@@ -130,14 +130,12 @@ pub fn publish_tasks(
     assert_eq!(
         root.status,
         ImplementationStatus::AwaitingReview,
-        "{}",
-        root.detail
+        "root mapped task publication failed"
     );
     assert_eq!(
         api.status,
         ImplementationStatus::AwaitingReview,
-        "{}",
-        api.detail
+        "API mapped task publication failed"
     );
     assert_eq!(root.task_repository, active.root.task_repository);
     assert_eq!(api.task_repository, active.api.task_repository);
