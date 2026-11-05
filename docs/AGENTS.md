@@ -5,6 +5,8 @@
 - [bootstrap-release-validation-2026-10-27.md](./bootstrap-release-validation-2026-10-27.md) - Read for Bootstrap release validation record — 2026-10-27.
 - [chg-001-acceptance-evidence.md](./chg-001-acceptance-evidence.md) - Read for CHG-001 acceptance evidence.
 - [coding-tools.md](./coding-tools.md) - Read for Coding tool discovery.
+- [computer-use-architecture-v1.md](./computer-use-architecture-v1.md) - Read for Computer Use v1 architecture and security boundaries.
+- [computer-use-threat-model-v1.md](./computer-use-threat-model-v1.md) - Read for Computer Use v1 threat model and validation gates.
 - [docker-cutover-checklist.md](./docker-cutover-checklist.md) - Read for Docker cutover and release checklist.
 - [docker-engine-prerequisites.md](./docker-engine-prerequisites.md) - Read for Docker Engine prerequisites.
 - [docker-release-evidence.md](./docker-release-evidence.md) - Read for Docker release evidence.
