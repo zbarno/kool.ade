@@ -7,6 +7,8 @@ mod code_review_disposition;
 mod feature_uid;
 #[path = "tests/record_files.rs"]
 mod record_files;
+#[path = "tests/primary_git_recovery.rs"]
+mod primary_git_recovery;
 #[path = "tests/task_intent.rs"]
 mod task_intent;
 
