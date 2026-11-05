@@ -61,6 +61,7 @@ impl EnvClaim {
         std::fs::create_dir_all(&parent).expect("phase parent must be creatable");
         let home = parent.join("claim");
         std::fs::create_dir_all(&home).unwrap();
+        crate::persistence::register_test_home(&home);
         // SAFETY: PERSONA_ENV_LOCK held; the settle gate ruled out an
         // in-flight KOOLADE_HOME transition at claim time.
         unsafe { std::env::set_var("KOOLADE_HOME", &home) };
@@ -94,6 +95,7 @@ impl EnvClaim {
         let dir = self.parent.join(tag);
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
+        crate::persistence::register_test_home(&dir);
         // SAFETY: still under the held PERSONA_ENV_LOCK.
         unsafe { std::env::set_var("KOOLADE_HOME", &dir) };
         self.last_home = dir.clone();

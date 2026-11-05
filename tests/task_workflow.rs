@@ -1,5 +1,7 @@
 #[path = "task_workflow/support.rs"]
 mod support;
+#[path = "common/test_home.rs"]
+mod test_home;
 
 use koolade::{
     artifacts::planning_store::PlanningStore,
@@ -14,6 +16,7 @@ use support::run;
 /// fixture harness only; no Docker, network, or model API is required.
 #[test]
 fn interview_approval_multicall_generation_commit_and_failure_recovery() {
+    let _test_home = test_home::TestHome::new();
     for failure_mode in [0, 1, 2, 3, 4, 6] {
         let tempdir = tempfile::Builder::new()
             .prefix("koolade_full_workflow_")

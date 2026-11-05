@@ -44,3 +44,5 @@ mod home;
 
 pub(crate) use home::is_inside_git_worktree;
 pub use home::{fnv1a64, known_projects_path, project_dir, project_slug, state_root};
+#[cfg(test)]
+pub(crate) use home::{register_test_home, unregister_test_home};

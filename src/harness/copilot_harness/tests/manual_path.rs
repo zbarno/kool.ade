@@ -123,6 +123,11 @@ impl EnvRestore {
             .map(|(name, _)| (*name, std::env::var_os(name)))
             .collect();
         for (name, value) in values {
+            if *name == "KOOLADE_HOME"
+                && let Some(value) = value
+            {
+                crate::persistence::register_test_home(std::path::Path::new(value));
+            }
             match value {
                 Some(value) => unsafe { std::env::set_var(name, value) },
                 None => unsafe { std::env::remove_var(name) },

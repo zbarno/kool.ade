@@ -74,14 +74,17 @@ mod tests {
     fn panic_hook_saves_real_subprocess_backtrace() {
         const CHILD: &str = "KOOLADE_DIAGNOSTIC_TEST_CHILD";
         if std::env::var_os(CHILD).is_some() {
+            let home = std::env::temp_dir().join(format!(
+                "koolade-crash-report-child-{}-{}",
+                std::process::id(),
+                uuid::Uuid::new_v4()
+            ));
+            std::fs::create_dir_all(&home).unwrap();
+            let _home = crate::test_support::KooladeHomeGuard::set(&home);
+            println!("KOOLADE_DIAGNOSTIC_TEST_ROOT={}", home.display());
             super::install();
             panic!("diagnostic fixture panic");
         }
-        let root = std::env::temp_dir().join(format!(
-            "koolade-crash-report-{}-{}",
-            std::process::id(),
-            chrono::Utc::now().timestamp_nanos_opt().unwrap()
-        ));
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
@@ -89,10 +92,16 @@ mod tests {
                 "--nocapture",
             ])
             .env(CHILD, "1")
-            .env("KOOLADE_HOME", &root)
             .output()
             .unwrap();
         assert!(!output.status.success());
+        let root = String::from_utf8(output.stdout)
+            .unwrap()
+            .lines()
+            .find_map(|line| line.strip_prefix("KOOLADE_DIAGNOSTIC_TEST_ROOT="))
+            .map(std::path::PathBuf::from)
+            .expect("child reports its isolated test root");
+        assert!(root.starts_with(std::env::temp_dir()));
         let reports = std::fs::read_dir(root.join("crashes"))
             .unwrap()
             .collect::<Result<Vec<_>, _>>()

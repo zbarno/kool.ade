@@ -6,18 +6,40 @@
 
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
+mod test_support;
+#[cfg(test)]
+pub(crate) use test_support::{register_test_home, unregister_test_home};
+
 /// Root of the per-user state directory. Honors `KOOLADE_HOME` (tests/devs).
 pub fn state_root() -> PathBuf {
-    if let Ok(custom) = std::env::var("KOOLADE_HOME")
-        && !custom.is_empty()
+    #[cfg(test)]
     {
-        return PathBuf::from(custom);
+        // Existing tests may provide their own disposable application home.
+        if let Ok(custom) = std::env::var("KOOLADE_HOME")
+            && !custom.is_empty()
+        {
+            let custom = PathBuf::from(custom);
+            if test_support::is_registered_test_home(&custom) {
+                return custom;
+            }
+        }
+        test_support::test_state_root()
     }
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    home.join(".koolade-packet")
+
+    #[cfg(not(test))]
+    {
+        if let Ok(custom) = std::env::var("KOOLADE_HOME")
+            && !custom.is_empty()
+        {
+            return PathBuf::from(custom);
+        }
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        home.join(".koolade-packet")
+    }
 }
 
 /// Directory holding one project's runtime files.
@@ -130,6 +152,31 @@ pub(crate) fn is_inside_git_worktree(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unit_tests_default_to_a_temporary_application_state_root() {
+        let root = test_support::test_state_root();
+        assert!(root.starts_with(std::env::temp_dir()));
+        assert!(
+            root.file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with("koolade-test-state-"))
+        );
+    }
+
+    #[test]
+    fn unit_tests_ignore_unregistered_koolade_home_overrides() {
+        let _environment = crate::test_support::ProcessEnvironmentGuard::new();
+        let external = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("operator-state-must-not-be-used-by-tests");
+        // SAFETY: this test holds the process environment lock while simulating
+        // an inherited override that was not installed by a test guard.
+        unsafe { std::env::set_var("KOOLADE_HOME", &external) };
+
+        assert!(state_root().starts_with(std::env::temp_dir()));
+    }
 
     #[test]
     fn slug_is_stable_readable_and_path_sensitive() {
