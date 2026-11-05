@@ -259,8 +259,7 @@ fn reconnect_recovers_unmapped_primary_git_fields_without_erasing_task_history()
     );
     crate::core::planning_work::save(&store, std::slice::from_ref(&work)).unwrap();
     let path = format!("state/work/{}.json", work.uid);
-    let mut value: serde_json::Value =
-        serde_json::from_slice(&store.read(&path).unwrap()).unwrap();
+    let mut value: serde_json::Value = serde_json::from_slice(&store.read(&path).unwrap()).unwrap();
     value["data"]["sourceBranch"] = "main".into();
     value["data"]["destinationBranch"] = "release".into();
     let original = serde_json::to_vec_pretty(&value).unwrap();
@@ -278,11 +277,13 @@ fn reconnect_recovers_unmapped_primary_git_fields_without_erasing_task_history()
     assert!(recovered.git_intents.is_empty());
     assert!(recovered.source_branch.is_none());
     assert!(recovered.destination_branch.is_none());
-    assert!(reopened
-        .activity
-        .pending
-        .iter()
-        .any(|message| message.contains("Recovered 1 legacy work record")));
+    assert!(
+        reopened
+            .activity
+            .pending
+            .iter()
+            .any(|message| message.contains("Recovered 1 legacy work record"))
+    );
     let backup = format!(
         "state/recovery/unmapped-primary-git-intent/{}-revision-1.json",
         work.uid
