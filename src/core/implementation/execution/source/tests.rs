@@ -103,7 +103,7 @@ fn task_metadata_source_sha_keeps_the_task_on_its_recorded_commit() {
     std::fs::create_dir_all(&dir).unwrap();
     let source = resolve(Request {
         planning_store: &planning,
-        repo: &repo,
+        code_root: &repo,
         dir: &dir,
         ticket: "planning/tasks/feature/001-pinned.md",
         metadata: Some(&metadata),
@@ -127,7 +127,7 @@ fn task_metadata_source_sha_keeps_the_task_on_its_recorded_commit() {
     assert_ne!(branch_head, source.source_commit);
     let after_move = resolve(Request {
         planning_store: &planning,
-        repo: &repo,
+        code_root: &repo,
         dir: &dir,
         ticket: "planning/tasks/feature/001-pinned.md",
         metadata: Some(&metadata),
@@ -348,7 +348,7 @@ fn secondary_task_source_uses_its_explicit_checkout_and_branch() {
     std::fs::create_dir_all(&dir).unwrap();
     let source = resolve(Request {
         planning_store: &planning,
-        repo: &primary,
+        code_root: &primary,
         dir: &dir,
         ticket: "planning/tasks/feature/001-api.md",
         metadata: Some(&metadata),
