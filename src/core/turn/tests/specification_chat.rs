@@ -1,6 +1,8 @@
 use super::*;
 use std::sync::mpsc::channel;
 
+#[path = "specification_chat/authority.rs"]
+mod authority;
 #[path = "specification_chat/feature_scope.rs"]
 mod feature_scope;
 #[path = "specification_chat/stale_revision.rs"]
