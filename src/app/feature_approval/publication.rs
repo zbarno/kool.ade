@@ -19,7 +19,7 @@ pub(super) use model::{
 pub(super) use navigation::{add_navigation_entry, add_navigation_link};
 pub(crate) use publish::publish;
 #[cfg(test)]
-pub(super) use publish::publish_document_set_with_test_injection;
+pub(crate) use publish::publish_document_set_with_test_injection;
 #[cfg(test)]
 pub(crate) use simulate::simulate_merged_feature;
 pub(crate) use stage::stage;
