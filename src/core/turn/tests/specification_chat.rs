@@ -3,6 +3,8 @@ use std::sync::mpsc::channel;
 
 #[path = "specification_chat/feature_scope.rs"]
 mod feature_scope;
+#[path = "specification_chat/stale_revision.rs"]
+mod stale_revision;
 
 fn target(inputs: &TurnInputs) -> crate::core::specification_chat::Target {
     crate::core::specification_chat::capture_target(
@@ -212,92 +214,6 @@ fn product_proposal_cannot_redirect_to_a_feature_document() {
         crate::core::specification_chat::validate_proposal(&target, &mut normalized, &inputs.state)
             .unwrap_err();
     assert!(error.contains("selected specification scope"));
-    let _ = std::fs::remove_dir_all(&root);
-    let _ = std::fs::remove_dir_all(root.with_extension("private-state"));
-}
-
-struct AdvancePublishedSpec {
-    root: std::path::PathBuf,
-}
-
-impl AiHarness for AdvancePublishedSpec {
-    fn label(&self) -> String {
-        "advance-published-spec-test".into()
-    }
-    fn check_available(&self) -> Result<String, AppError> {
-        Ok("fixture".into())
-    }
-    fn execute(&self, _request: &PlanningRequest) -> Result<HarnessOutcome, AppError> {
-        let path = self.root.join("docs/koolade/product/overview.md");
-        let mut content = std::fs::read_to_string(&path).unwrap();
-        content.push_str("\n<!-- newer published revision -->\n");
-        std::fs::write(&path, content).unwrap();
-        for args in [
-            ["add", "docs/koolade/product/overview.md"].as_slice(),
-            [
-                "-c",
-                "user.name=Kool.ad/e Test",
-                "-c",
-                "user.email=koolade@test.local",
-                "commit",
-                "-m",
-                "advance fixture spec",
-            ]
-            .as_slice(),
-        ] {
-            let output = std::process::Command::new("git")
-                .args(args)
-                .current_dir(&self.root)
-                .output()
-                .unwrap();
-            assert!(
-                output.status.success(),
-                "{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-        Ok(HarnessOutcome {
-            final_text: "A stale answer should be rejected.".into(),
-            envelope: None,
-            stderr_tail: String::new(),
-        })
-    }
-}
-
-#[test]
-fn published_revision_drift_during_question_is_rejected() {
-    let (mut inputs, root) = inputs_for("spec_chat_stale", "Explain this product.");
-    let target = target(&inputs);
-    inputs.purpose = crate::core::workflow::TurnPurpose::Question;
-    inputs.specification_chat = Some(crate::core::specification_chat::Request {
-        text: inputs.user_message.clone(),
-        intent: crate::core::specification_chat::Intent::Ask,
-        target,
-        omitted_history_messages: 0,
-    });
-    let result = execute::run_turn_read_only(
-        &inputs,
-        &AdvancePublishedSpec { root: root.clone() },
-        &Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        channel().0,
-        None,
-        None,
-        Duration::from_secs(30),
-    );
-    let TurnOutcome::Rejected { problems, .. } = result else {
-        panic!("a changed published source must reject the answer: {result:?}")
-    };
-    assert!(
-        problems
-            .iter()
-            .any(|problem| problem.contains("published specifications changed")),
-        "unexpected stale-source rejection: {problems:?}"
-    );
-    assert!(
-        crate::core::apply::load_current(&inputs.state.planning_store)
-            .unwrap()
-            .is_none()
-    );
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(root.with_extension("private-state"));
 }
