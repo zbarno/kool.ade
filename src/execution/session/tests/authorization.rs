@@ -58,10 +58,9 @@ impl AuthorizationGenerationVerifier for RevocableAuthorization {
 }
 
 #[test]
-fn claim_takeover_during_remote_execution_cancels_and_discards_results() {
+fn claim_takeover_during_local_execution_cancels_without_applying_late_results() {
     let backend = backend();
     let revoked = Arc::new(AtomicBool::new(false));
-    backend.events.lock().unwrap().clear();
     *backend.invalidate_authorization_on_events.lock().unwrap() = Some(revoked.clone());
     let verifier = Arc::new(RevocableAuthorization {
         revoked: revoked.clone(),
@@ -77,6 +76,7 @@ fn claim_takeover_during_remote_execution_cancels_and_discards_results() {
     assert_eq!(error.kind, ExecutionErrorKind::PolicyDenied);
     assert!(revoked.load(Ordering::Acquire));
     assert!(backend.cancelled.load(Ordering::Acquire));
+    assert!(!backend.workspace_result_applied.load(Ordering::Acquire));
     assert!(backend.released.load(Ordering::Acquire));
     assert!(backend.workspace_released.load(Ordering::Acquire));
 }
