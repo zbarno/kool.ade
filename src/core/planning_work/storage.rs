@@ -5,11 +5,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const RECORD_SCHEMA_VERSION: u32 = 3;
 
 mod discovered;
+mod primary_git_recovery;
 mod task_intent_events;
 mod task_intent_history;
-mod primary_git_recovery;
-pub use primary_git_recovery::recover_unmapped_primary_git_intents;
 pub use discovered::{append_discovered, find};
+pub use primary_git_recovery::recover_unmapped_primary_git_intents;
 pub(crate) use task_intent_events::linked_executable_task_changes;
 
 pub(super) fn now_ms() -> u64 {
