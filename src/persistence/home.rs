@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]
-pub(crate) use test_support::{register_test_home, unregister_test_home};
+pub(crate) use test_support::{TestHomeRegistration, register_test_home};
 
 /// Root of the per-user state directory. Honors `KOOLADE_HOME` (tests/devs).
 pub fn state_root() -> PathBuf {
@@ -20,7 +20,9 @@ pub fn state_root() -> PathBuf {
             && !custom.is_empty()
         {
             let custom = PathBuf::from(custom);
-            if test_support::is_registered_test_home(&custom) {
+            let inherited_test_home = std::env::var("KOOLADE_TEST_HOME_TOKEN")
+                .is_ok_and(|token| test_support::has_test_home_capability(&custom, &token));
+            if test_support::is_registered_test_home(&custom) || inherited_test_home {
                 return custom;
             }
         }

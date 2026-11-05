@@ -185,7 +185,7 @@ impl Drop for ProcessEnvironmentLock {
 /// environment variables and restores their original values during unwinding.
 pub(crate) struct ProcessEnvironmentGuard {
     previous: Vec<(OsString, Option<OsString>)>,
-    registered_test_homes: Vec<std::path::PathBuf>,
+    registered_test_homes: Vec<crate::persistence::TestHomeRegistration>,
     _environment: ProcessEnvironmentLock,
 }
 
@@ -203,8 +203,8 @@ impl ProcessEnvironmentGuard {
         self.remember(name);
         if name == "KOOLADE_HOME" {
             let path = std::path::PathBuf::from(value.as_ref());
-            crate::persistence::register_test_home(&path);
-            self.registered_test_homes.push(path);
+            self.registered_test_homes
+                .push(crate::persistence::register_test_home(&path));
         }
         // SAFETY: this guard owns the process-wide environment lock until Drop.
         unsafe { std::env::set_var(name, value) };
@@ -228,9 +228,6 @@ impl ProcessEnvironmentGuard {
 
 impl Drop for ProcessEnvironmentGuard {
     fn drop(&mut self) {
-        for path in self.registered_test_homes.drain(..) {
-            crate::persistence::unregister_test_home(&path);
-        }
         // SAFETY: the environment lock remains held until this guard drops.
         unsafe {
             for (name, value) in self.previous.drain(..).rev() {

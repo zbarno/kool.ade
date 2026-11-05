@@ -188,7 +188,7 @@ fn telemetry_write_failure_is_visible_but_does_not_abort_the_harness_result() {
     ));
     let _restore = RestoreHome(env::var_os("KOOLADE_HOME"));
     std::fs::write(&home, "not a directory").unwrap();
-    crate::persistence::register_test_home(&home);
+    let _home_registration = crate::persistence::register_test_home(&home);
     unsafe { env::set_var("KOOLADE_HOME", &home) };
     let root = env::temp_dir().join(format!("koolade_impl_repo_{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
