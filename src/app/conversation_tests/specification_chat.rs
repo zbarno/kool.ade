@@ -2,6 +2,9 @@ use super::*;
 use crate::harness::{AiHarness, HarnessOutcome, PlanningRequest};
 use std::sync::{Condvar, mpsc};
 
+#[path = "specification_chat/continuity.rs"]
+mod continuity;
+
 /// Production command -> session persistence -> TurnController recovery test.
 /// This crosses the dispatch and private chat-store boundaries, which a core
 /// turn unit test cannot prove. It uses only a temporary Git fixture; no
