@@ -15,3 +15,5 @@ mod plan;
 mod support;
 #[path = "lifecycle_acceptance/task_review.rs"]
 mod task_review;
+#[path = "common/test_home.rs"]
+mod test_home;

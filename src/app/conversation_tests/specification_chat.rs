@@ -4,6 +4,8 @@ use std::sync::{Condvar, mpsc};
 
 #[path = "specification_chat/continuity.rs"]
 mod continuity;
+#[path = "specification_chat/ui_layout.rs"]
+mod ui_layout;
 
 /// Production command -> session persistence -> TurnController recovery test.
 /// This crosses the dispatch and private chat-store boundaries, which a core
@@ -63,6 +65,23 @@ fn specification_chat_cancellation_restart_and_retry_keep_target_provenance() {
         Screen::Welcome => panic!("fixture remains connected"),
     };
     let stored = crate::persistence::chat_store::load(&slug).0;
+    let Screen::Connected(project) = &app.screen else {
+        panic!("fixture remains connected")
+    };
+    assert!(
+        !project.chat.iter().any(|message| {
+            message.role == crate::domain::ChatRole::Agent
+                && message.text == "The model tried to edit the document."
+        }),
+        "the answer from the canceled turn must not appear in the live conversation"
+    );
+    assert!(
+        !stored.iter().any(|message| {
+            message.role == crate::domain::ChatRole::Agent
+                && message.text == "The model tried to edit the document."
+        }),
+        "the answer from the canceled turn must not be persisted"
+    );
     assert!(stored.iter().any(|message| {
         message.role == crate::domain::ChatRole::User
             && message.text == text

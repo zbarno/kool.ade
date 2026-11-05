@@ -166,6 +166,7 @@ fn concurrent_three_tasks_keep_repository_scoped_refs_and_isolated_clones() {
     }
     for left in 0..states.len() {
         for right in left + 1..states.len() {
+            assert_ne!(states[left].task_uid, states[right].task_uid);
             assert_ne!(states[left].branch, states[right].branch);
             assert_ne!(states[left].task_repository, states[right].task_repository);
             assert_ne!(

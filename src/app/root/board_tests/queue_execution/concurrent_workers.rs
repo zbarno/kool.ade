@@ -1,5 +1,7 @@
 #[path = "concurrent_workers/fake_pi.rs"]
 mod fake_pi;
+#[path = "concurrent_workers/restart_recovery.rs"]
+mod restart_recovery;
 #[path = "concurrent_workers/run.rs"]
 mod run;
 #[path = "concurrent_workers/setup.rs"]

@@ -4,7 +4,6 @@ use koolade::{
     },
     harness::prompt_catalog::{PromptRole, RoleInputV1, RolePayloadV1, render},
 };
-
 pub(super) fn id() -> String {
     uuid::Uuid::new_v4().hyphenated().to_string()
 }
@@ -94,6 +93,7 @@ pub(super) fn bootstrap_product(store: &mut koolade::artifacts::planning_store::
         );
     }
     store.published_repository_root = Some(code.clone());
+    let _test_home = crate::test_home::TestHome::new();
     store.published_spec_pin = Some(
         koolade::core::published_specs::PublishedSpecReader::for_primary_repository(&code)
             .unwrap()
