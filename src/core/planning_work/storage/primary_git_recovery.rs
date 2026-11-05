@@ -26,12 +26,16 @@ pub fn recover_unmapped_primary_git_intents<R: PlanningRoot + ?Sized>(
             continue;
         }
 
-        let approved = item.git_intent.as_ref().filter(|intent| {
-            intent.repository_id == "root"
-                && intent.validate().is_ok()
-                && item.source_branch.as_deref() == Some(intent.source_ref.as_str())
-                && item.destination_branch.as_deref() == Some(intent.destination_ref.as_str())
-        }).cloned();
+        let approved = item
+            .git_intent
+            .as_ref()
+            .filter(|intent| {
+                intent.repository_id == "root"
+                    && intent.validate().is_ok()
+                    && item.source_branch.as_deref() == Some(intent.source_ref.as_str())
+                    && item.destination_branch.as_deref() == Some(intent.destination_ref.as_str())
+            })
+            .cloned();
 
         // No approval may be reconstructed from branch names. Preserve those
         // untrusted values only in the backup, not in executable work state.
@@ -49,8 +53,8 @@ pub fn recover_unmapped_primary_git_intents<R: PlanningRoot + ?Sized>(
             record.uid, record.revision
         );
         match store.read(&backup) {
-            Err(StoreError::Io { source, .. })
-                if source.kind() == std::io::ErrorKind::NotFound => {}
+            Err(StoreError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+            }
             Ok(_) => anyhow::bail!("Recovery backup already exists: {backup}"),
             Err(error) => return Err(error.into()),
         }
@@ -76,12 +80,11 @@ pub fn recover_unmapped_primary_git_intents<R: PlanningRoot + ?Sized>(
 
     // Refuse to repair only part of a malformed workspace. The transactional
     // write then saves the backups and corrected records together.
-    let work = records.into_iter().map(|record| record.data).collect::<Vec<_>>();
+    let work = records
+        .into_iter()
+        .map(|record| record.data)
+        .collect::<Vec<_>>();
     super::validate(&work)?;
-    store.transaction_with_revision_and_record_revisions(
-        &changes,
-        Some(&revision),
-        &checks,
-    )?;
+    store.transaction_with_revision_and_record_revisions(&changes, Some(&revision), &checks)?;
     Ok(recovered)
 }
