@@ -16,8 +16,18 @@ impl RuntimeCapabilities {
     /// DockerEnvironmentStatus owns the shared TTL cache, so capabilities stay
     /// aligned with explicit Docker refreshes without a second stale cache.
     pub fn detect() -> Self {
+        #[cfg(test)]
+        if let Some(capabilities) = TEST_OVERRIDE.with(std::cell::Cell::get) {
+            return capabilities;
+        }
         let status = crate::execution::docker::environment::DockerEnvironmentStatus::detect();
         Self::from_docker_status(&status)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn override_for_test(capabilities: Self) -> TestOverride {
+        let previous = TEST_OVERRIDE.with(|value| value.replace(Some(capabilities)));
+        TestOverride(previous)
     }
 
     pub fn invalidate() {
@@ -61,6 +71,21 @@ impl RuntimeCapabilities {
 
     pub fn implementation_unavailable_message(&self) -> &'static str {
         "Kool.ad/e could not verify a ready Docker execution environment. Start Docker and ensure the approved runtime image is available, then retry. Your planned artifacts are preserved."
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_OVERRIDE: std::cell::Cell<Option<RuntimeCapabilities>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+pub(crate) struct TestOverride(Option<RuntimeCapabilities>);
+
+#[cfg(test)]
+impl Drop for TestOverride {
+    fn drop(&mut self) {
+        TEST_OVERRIDE.with(|value| value.set(self.0.take()));
     }
 }
 

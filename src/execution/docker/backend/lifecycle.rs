@@ -27,6 +27,8 @@ pub(crate) use qa_network::validate_qa_driver_network;
 pub(in crate::execution::docker::backend::lifecycle) use recovery::reconcile_missing_container_404;
 pub(super) use runtime::RuntimeExecution;
 #[cfg(test)]
+pub(crate) use workspace::acquire_task_execution_lock;
+#[cfg(test)]
 pub(in crate::execution::docker::backend::lifecycle) use workspace::{
     persist_runtime_wait_error, record_start_registration_failure,
 };
