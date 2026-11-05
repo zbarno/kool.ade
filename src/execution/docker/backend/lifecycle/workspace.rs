@@ -16,6 +16,8 @@ mod start;
 pub(super) use archive::extract_archive;
 pub(super) use prepare::prepare;
 pub(super) use probe::probe;
+#[cfg(test)]
+pub(crate) use start::acquire_task_execution_lock;
 pub(super) use start::start;
 #[cfg(test)]
 pub(super) use start::{persist_runtime_wait_error, record_start_registration_failure};

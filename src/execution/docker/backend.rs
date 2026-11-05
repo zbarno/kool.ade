@@ -33,6 +33,8 @@ mod tests;
 mod workspace_resolver;
 use lifecycle::RuntimeExecution;
 #[cfg(test)]
+pub(crate) use lifecycle::acquire_task_execution_lock;
+#[cfg(test)]
 pub(crate) use lifecycle::validate_qa_driver_network;
 pub(super) use prepared_image::PreparedDerivedImage;
 pub use workspace_resolver::{OwnedTaskWorkspaceResolver, ReadOnlyProjectWorkspaceResolver};

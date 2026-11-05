@@ -13,7 +13,7 @@ use crate::execution::{
         },
         sandbox::{create_body_with_private_files, staging},
     },
-    errors::{ExecutionError, ExecutionErrorKind},
+    errors::ExecutionError,
 };
 
 use self::start_helpers::{deadline_error, deadline_instant, engine_operation_error};
@@ -21,12 +21,14 @@ use super::cleanup::{cleanup_created_container, cleanup_named_container};
 use reservation::WorkspaceStartReservation;
 mod cache;
 mod execution;
+mod lock;
 mod reservation;
 mod start_helpers;
 #[cfg(test)]
 pub(in crate::execution::docker::backend::lifecycle) use execution::{
     persist_runtime_wait_error, record_start_registration_failure,
 };
+pub(crate) use lock::acquire_task_execution_lock;
 
 pub(in crate::execution::docker::backend::lifecycle) async fn start(
     backend: &DockerExecutionBackend,
@@ -44,15 +46,7 @@ pub(in crate::execution::docker::backend::lifecycle) async fn start(
         request.resource_budget.cpu_millis,
         request.resource_budget.memory_bytes,
     )?;
-    let task_lock = crate::persistence::execution_records::try_task_lock(&request.task_id)
-        .map_err(|_| internal_error_with_context("acquiring the task execution lock"))?
-        .ok_or_else(|| {
-            ExecutionError::new(
-                ExecutionErrorKind::PolicyDenied,
-                "Another execution already owns this task clone",
-                false,
-            )
-        })?;
+    let task_lock = acquire_task_execution_lock(&request.task_id)?;
     if lease.workspace != request.workspace
         || lease.expires_unix_ms <= now_unix_ms()
         || lease.lease_id.is_empty()
