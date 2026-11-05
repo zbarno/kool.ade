@@ -470,14 +470,19 @@ fn follow_up_cycles_inherit_approved_git_intents_with_parent_provenance() {
     let reopened = load(&repo).unwrap();
     let child = reopened
         .iter()
-        .find(|work| work.task_intent_cycle_uid.as_deref() == Some(cycle.as_str())
-            && work.uid != root_work.uid)
+        .find(|work| {
+            work.task_intent_cycle_uid.as_deref() == Some(cycle.as_str())
+                && work.uid != root_work.uid
+        })
         .unwrap();
     let inherited = child.git_intents.get("root").unwrap();
     assert_eq!(inherited.source_ref, "main");
     assert_eq!(inherited.destination_ref, "release");
     assert_eq!(inherited.source_sha, "c".repeat(40));
-    assert_eq!(inherited.inherited_from_task_uid.as_deref(), Some(root_work.uid.as_str()));
+    assert_eq!(
+        inherited.inherited_from_task_uid.as_deref(),
+        Some(root_work.uid.as_str())
+    );
     assert_ne!(inherited.approval_revision, intent.approval_revision);
     assert_eq!(child.git_intent.as_ref(), Some(inherited));
     assert_eq!(child.source_branch.as_deref(), Some("main"));
