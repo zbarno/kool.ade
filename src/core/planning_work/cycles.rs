@@ -74,7 +74,10 @@ pub fn start_follow_up_cycle(
         .git_intents
         .iter()
         .map(|(repository_id, intent)| {
-            Ok((repository_id.clone(), intent.inherited_by(root_uid.to_owned())?))
+            Ok((
+                repository_id.clone(),
+                intent.inherited_by(root_uid.to_owned())?,
+            ))
         })
         .collect::<anyhow::Result<_>>()?;
     cycle_work.git_intent = cycle_work.git_intents.get("root").cloned();
