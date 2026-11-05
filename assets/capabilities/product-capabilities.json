@@ -1,0 +1,529 @@
+{
+  "schemaVersion": 1,
+  "capabilities": [
+    {
+      "id": "self-improvement-lifecycle",
+      "name": "Self-improvement lifecycle",
+      "summary": "Tracks an adopted product improvement through review, runtime QA, installation, and guarded activation.",
+      "terms": [
+        "self improvement",
+        "product improvement",
+        "review",
+        "runtime qa",
+        "activation"
+      ],
+      "status": "implemented",
+      "invocation": [
+        "Manager product opportunity review",
+        "approved self-improvement workflow"
+      ],
+      "constraints": [
+        "Requires an adopted plan and validated lifecycle evidence."
+      ],
+      "limitations": [
+        "The active readiness probe validates lifecycle invariants, not host-wide readiness."
+      ],
+      "implementationRefs": [
+        "src/core/self_improvement/capability_probe.rs"
+      ],
+      "testRefs": [
+        "src/core/self_improvement/capability_probe/tests.rs"
+      ],
+      "readinessProbeId": "self-improvement-lifecycle-v1",
+      "maturity": "current",
+      "platformPrerequisites": [],
+      "providerPrerequisites": []
+    },
+    {
+      "id": "project-specification-planning",
+      "name": "Project specification planning",
+      "summary": "Maintains a project specification and routes unresolved questions through planning conversations.",
+      "terms": [
+        "specification",
+        "planning",
+        "project goals",
+        "questions",
+        "decisions"
+      ],
+      "status": "implemented",
+      "invocation": [
+        "Project workspace",
+        "Specification and planning views"
+      ],
+      "constraints": [
+        "Changes are persisted to the configured planning repository."
+      ],
+      "limitations": [
+        "This catalog does not inspect a user's planning repository."
+      ],
+      "implementationRefs": [
+        "src/core/specification.rs"
+      ],
+      "testRefs": [
+        "src/core/workflow/tests.rs"
+      ],
+      "readinessProbeId": null,
+      "maturity": "current",
+      "platformPrerequisites": [],
+      "providerPrerequisites": []
+    },
+    {
+      "id": "task-board-and-conversations",
+      "name": "Task board and conversations",
+      "summary": "Organizes TaskIntent-based implementation work and task-specific conversations in a project workspace.",
+      "terms": [
+        "task",
+        "board",
+        "story",
+        "task conversation",
+        "implementation",
+        "TaskIntent"
+      ],
+      "status": "implemented",
+      "invocation": [
+        "Project board",
+        "Task details"
+      ],
+      "constraints": [
+        "Task identity and workspace ownership are validated by the application."
+      ],
+      "limitations": [
+        "Available actions depend on task lifecycle state."
+      ],
+      "implementationRefs": [
+        "src/core/task_intent.rs"
+      ],
+      "testRefs": [
+        "src/core/task_intent/tests.rs",
+        "src/core/task_conversation/tests.rs"
+      ],
+      "readinessProbeId": null,
+      "maturity": "current",
+      "platformPrerequisites": [],
+      "providerPrerequisites": []
+    },
+    {
+      "id": "manager-opportunity-discovery",
+      "name": "Manager opportunity discovery",
+      "summary": "Reviews bounded evidence to suggest project or product improvement opportunities.",
+      "terms": [
+        "manager",
+        "opportunity",
+        "review",
+        "planner",
+        "evidence"
+      ],
+      "status": "implemented",
+      "invocation": [
+        "Manager scheduled review",
+        "Product-only opportunity review"
+      ],
+      "constraints": [
+        "Role and evidence validation constrain the Manager output."
+      ],
+      "limitations": [
+        "Provider availability and supplied evidence affect results."
+      ],
+      "implementationRefs": [
+        "src/app/manager/catalog/product.rs"
+      ],
+      "testRefs": [
+        "src/app/manager/tests/opportunities/product_isolation.rs"
+      ],
+      "readinessProbeId": null,
+      "maturity": "current",
+      "platformPrerequisites": [],
+      "providerPrerequisites": []
+    },
+    {
+      "id": "repository-runtime-qa",
+      "name": "Repository runtime QA",
+      "summary": "Runs configured build, test, or runtime checks for supported repository targets.",
+      "terms": [
+        "qa",
+        "tests",
+        "build",
+        "runtime",
+        "docker"
+      ],
+      "status": "implemented",
+      "invocation": [
+        "Task runtime QA",
+        "Configured QA recipes"
+      ],
+      "constraints": [
+        "Requires a compatible configured driver and its dependencies."
+      ],
+      "limitations": [
+        "A catalog match does not confirm Docker or host readiness."
+      ],
+      "implementationRefs": [
+        "src/runtime_qa.rs"
+      ],
+      "testRefs": [
+        "src/runtime_qa/tests/stack_matrix.rs"
+      ],
+      "readinessProbeId": null,
+      "maturity": "current",
+      "platformPrerequisites": [
+        "Configured QA driver dependencies"
+      ],
+      "providerPrerequisites": []
+    },
+    {
+      "id": "workspace-and-repository-management",
+      "name": "Workspace and repository management",
+      "summary": "Maintains workspace state and references to managed code repositories.",
+      "terms": [
+        "workspace",
+        "repositories",
+        "project setup",
+        "clone",
+        "onboarding"
+      ],
+      "status": "implemented",
+      "invocation": [
+        "Welcome wizard",
+        "Project workspace settings"
+      ],
+      "constraints": [
+        "Repository targets are resolved through the managed workspace state."
+      ],
+      "limitations": [
+        "This catalog does not report the user's configured repositories."
+      ],
+      "implementationRefs": [
+        "src/app/session.rs",
+        "src/app/root/welcome_wizard.rs",
+        "src/app/welcome/github/clone.rs"
+      ],
+      "testRefs": [
+        "src/app/welcome/onboarding/tests.rs",
+        "src/app/welcome/tests/clone_fastpaths.rs",
+        "src/app/welcome/tests/clone_pipeline.rs"
+      ],
+      "readinessProbeId": null,
+      "maturity": "current",
+      "platformPrerequisites": [],
+      "providerPrerequisites": []
+    },
+    {
+      "id": "questions-and-decisions",
+      "name": "Questions and decisions",
+      "summary": "Tracks specification questions and decisions as structured planning state.",
+      "terms": [
+        "questions",
+        "decisions",
+        "clarification",
+        "specification chat"
+      ],
+      "status": "implemented",
+      "invocation": [
+        "Specification chat",
+        "Planning views"
+      ],
+      "constraints": [
+        "Decisions are scoped to the selected workspace and specification."
+      ],
+      "limitations": [
+        "Provider responses require application validation before mutation."
+      ],
+      "implementationRefs": [
+        "src/core/ids.rs",
+        "src/core/specification_chat.rs"
+      ],
+      "testRefs": [
+        "src/core/workflow/tests.rs"
+      ],
+      "readinessProbeId": null,
+      "maturity": "current",
+      "platformPrerequisites": [],
+      "providerPrerequisites": []
+    },
+    {
+      "id": "planner-reviewer-role-workflows",
+      "name": "Planner and reviewer role workflows",
+      "summary": "Runs structured planning and review roles with role-specific evidence and validated outputs.",
+      "terms": [
+        "planner",
+        "reviewer",
+        "plan review",
+        "code review role",
+        "role output"
+      ],
+      "status": "implemented",
+      "invocation": [
+        "Planning turns",
+        "Plan review",
+        "Code review"
+      ],
+      "constraints": [
+        "Role payloads and outputs are validated at application boundaries."
+      ],
+      "limitations": [
+        "Provider availability and task evidence constrain each run."
+      ],
+      "implementationRefs": [
+        "src/harness/prompt_catalog/schemas/planner.rs",
+        "src/harness/prompt_catalog/schemas/review.rs"
+      ],
+      "testRefs": [
+        "src/harness/prompt_catalog/tests/planner.rs",
+        "src/harness/prompt_catalog/tests/reviews.rs"
+      ],
+      "readinessProbeId": null,
+      "maturity": "current",
+      "platformPrerequisites": [],
+      "providerPrerequisites": [
+        "Selected role provider installed, authenticated, and available"
+      ]
+    },
+    {
+      "id": "provider-routing-and-role-isolation",
+      "name": "Provider routing and role isolation",
+      "summary": "Routes application roles through configured providers and constrained execution profiles.",
+      "terms": [
+        "provider",
+        "cli",
+        "routing",
+        "planner role",
+        "reviewer role"
+      ],
+      "status": "implemented",
+      "invocation": [
+        "Provider settings",
+        "Role execution"
+      ],
+      "constraints": [
+        "Provider-specific policy and role boundaries are enforced by the application."
+      ],
+      "limitations": [
+        "Provider presence does not establish authentication or live availability."
+      ],
+      "implementationRefs": [
+        "src/harness/execution_security.rs"
+      ],
+      "testRefs": [
+        "src/harness/provider_mode_matrix.rs"
+      ],
+      "readinessProbeId": null,
+      "maturity": "current",
+      "platformPrerequisites": [],
+      "providerPrerequisites": [
+        "Selected CLI provider installed, authenticated, and available"
+      ]
+    },
+    {
+      "id": "git-branch-and-pull-request-workflows",
+      "name": "Git branch and pull request workflows",
+      "summary": "Supports application Git operations and code change integration workflows.",
+      "terms": [
+        "git",
+        "branch",
+        "pull request",
+        "merge",
+        "commit"
+      ],
+      "status": "implemented",
+      "invocation": [
+        "Task integration",
+        "Repository Git actions"
+      ],
+      "constraints": [
+        "Operations require a readable repository and configured Git environment."
+      ],
+      "limitations": [
+        "Remote authentication and hosting permissions are environment-specific."
+      ],
+      "implementationRefs": [
+        "src/core/gitops.rs",
+        "src/core/implementation/integration/reviewed.rs"
+      ],
+      "testRefs": [
+        "src/core/gitops/tests.rs"
+      ],
+      "readinessProbeId": null,
+      "maturity": "current",
+      "platformPrerequisites": [],
+      "providerPrerequisites": []
+    },
+    {
+      "id": "docker-execution",
+      "name": "Docker execution",
+      "summary": "Runs configured repository work in Docker-backed execution environments.",
+      "terms": [
+        "docker",
+        "container",
+        "sandbox",
+        "execution"
+      ],
+      "status": "implemented",
+      "invocation": [
+        "Configured execution driver",
+        "Runtime QA"
+      ],
+      "constraints": [
+        "Requires a compatible Docker runtime and approved execution configuration."
+      ],
+      "limitations": [
+        "A build does not prove the host has a reachable Docker daemon."
+      ],
+      "implementationRefs": [
+        "src/execution/docker.rs"
+      ],
+      "testRefs": [
+        "src/harness/runtime_capabilities.rs"
+      ],
+      "readinessProbeId": null,
+      "maturity": "current",
+      "platformPrerequisites": [
+        "Docker-compatible host runtime"
+      ],
+      "providerPrerequisites": []
+    },
+    {
+      "id": "code-review-and-repair",
+      "name": "Code review and repair",
+      "summary": "Collects code review findings and routes supported repair dispositions through task workflows.",
+      "terms": [
+        "code review",
+        "reviewer",
+        "repair",
+        "findings",
+        "fix"
+      ],
+      "status": "implemented",
+      "invocation": [
+        "Task review",
+        "Manager review disposition"
+      ],
+      "constraints": [
+        "Review actions are bound to current typed findings and task state."
+      ],
+      "limitations": [
+        "Human review may still be required by repository policy."
+      ],
+      "implementationRefs": [
+        "src/core/implementation/code_review.rs",
+        "src/app/manager/catalog/code_reviews.rs"
+      ],
+      "testRefs": [
+        "src/core/implementation/code_review/tests.rs"
+      ],
+      "readinessProbeId": null,
+      "maturity": "current",
+      "platformPrerequisites": [],
+      "providerPrerequisites": []
+    },
+    {
+      "id": "local-operational-storage",
+      "name": "Local operational storage",
+      "summary": "Persists workspace runtime state and operational metadata through application storage.",
+      "terms": [
+        "local storage",
+        "operational state",
+        "runtime manifest",
+        "cache"
+      ],
+      "status": "implemented",
+      "invocation": [
+        "Application runtime",
+        "Workspace state"
+      ],
+      "constraints": [
+        "Private task and operational data remain local to the workspace."
+      ],
+      "limitations": [
+        "This catalog contains no user-specific storage contents."
+      ],
+      "implementationRefs": [
+        "src/project_runtime.rs",
+        "src/app/session.rs"
+      ],
+      "testRefs": [
+        "src/project_runtime/tests.rs"
+      ],
+      "readinessProbeId": null,
+      "maturity": "current",
+      "platformPrerequisites": [],
+      "providerPrerequisites": []
+    },
+    {
+      "id": "product-documentation-opportunity-scan",
+      "name": "Product documentation and opportunity scan",
+      "summary": "Uses designated public product documentation for isolated Kool.ad/e product opportunity discovery.",
+      "terms": [
+        "product docs",
+        "opportunity scan",
+        "public catalog",
+        "product improvement"
+      ],
+      "status": "implemented",
+      "invocation": [
+        "Manager product-only opportunity review"
+      ],
+      "constraints": [
+        "The product scan receives public evidence and an app-owned empty working directory."
+      ],
+      "limitations": [
+        "It cannot inspect private workspace or target project evidence."
+      ],
+      "implementationRefs": [
+        "src/app/manager/catalog/product.rs",
+        "docs/opportunity-discovery.md"
+      ],
+      "testRefs": [
+        "src/app/manager/tests/opportunities/product_isolation.rs"
+      ],
+      "readinessProbeId": null,
+      "maturity": "current",
+      "platformPrerequisites": [],
+      "providerPrerequisites": []
+    },
+    {
+      "id": "revision-aware-repository-knowledge",
+      "name": "Revision-aware repository knowledge",
+      "summary": "Builds a local revision-pinned architecture profile from repository evidence.",
+      "terms": [
+        "repository architecture",
+        "architecture profile",
+        "AGENTS navigation",
+        "codebase knowledge"
+      ],
+      "status": "planned",
+      "invocation": [],
+      "constraints": [],
+      "limitations": [
+        "This capability is not implemented by the current build."
+      ],
+      "implementationRefs": [],
+      "testRefs": [],
+      "readinessProbeId": null,
+      "maturity": "planned",
+      "platformPrerequisites": [],
+      "providerPrerequisites": []
+    },
+    {
+      "id": "shared-multiuser-task-service",
+      "name": "Shared multiuser task service",
+      "summary": "A hosted shared task service coordinating private task state across users.",
+      "terms": [
+        "shared task service",
+        "multiuser task service",
+        "cloud task store"
+      ],
+      "status": "unsupported",
+      "invocation": [],
+      "constraints": [],
+      "limitations": [
+        "The product does not provide this hosted service or shared private task store."
+      ],
+      "implementationRefs": [],
+      "testRefs": [],
+      "readinessProbeId": null,
+      "maturity": "unsupported",
+      "platformPrerequisites": [],
+      "providerPrerequisites": []
+    }
+  ]
+}
