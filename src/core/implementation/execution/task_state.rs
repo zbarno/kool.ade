@@ -6,6 +6,7 @@ use std::path::Path;
 pub(super) struct Request<'a> {
     pub(super) planning_store: &'a PlanningStore,
     pub(super) state_root: &'a Path,
+    pub(super) code_root: &'a Path,
     pub(super) repo: &'a Path,
     pub(super) ticket: &'a str,
     pub(super) text: &'a str,
@@ -20,6 +21,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
     let Request {
         planning_store,
         state_root,
+        code_root,
         repo,
         ticket,
         text,
@@ -53,13 +55,14 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             state.destination_branch = metadata.destination_branch.clone();
         }
         state.ticket = ticket.to_owned();
-        let cache = task_repository::cache_for_state(repo, planning_store, &state, runner)?;
+        let cache = task_repository::cache_for_state(code_root, planning_store, &state, runner)?;
         anyhow::ensure!(
             state.source_ref.is_some() && state.source_commit.is_some(),
             "Saved task source commit is missing; the task repository is preserved"
         );
         let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
-        let mapped_checkout = manifest.target(planning_store, repo, &metadata.repository_id)?;
+        let mapped_checkout =
+            manifest.target(planning_store, code_root, &metadata.repository_id)?;
         if state.status != ImplementationStatus::Completed
             && let Some(detail) =
                 source::missing_saved_ref(&mapped_checkout, &state, &cache, runner)?
@@ -86,7 +89,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
         let source = match saved_plan.as_ref() {
             Some(plan) => source::resume_from_plan(
                 planning_store,
-                repo,
+                code_root,
                 ticket,
                 Some(metadata),
                 plan,
@@ -94,7 +97,7 @@ pub(super) fn load_or_create(request: Request<'_>) -> anyhow::Result<Implementat
             )?,
             None => source::resolve(source::Request {
                 planning_store,
-                repo,
+                code_root,
                 dir,
                 ticket,
                 metadata: Some(metadata),

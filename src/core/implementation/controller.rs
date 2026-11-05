@@ -4,6 +4,7 @@ use crate::artifacts::planning_store::PlanningStore;
 pub(crate) struct ProjectStartRequest {
     pub(crate) planning_store: PlanningStore,
     pub(crate) state_root: PathBuf,
+    pub(crate) code_root: PathBuf,
     pub(crate) target_repo: PathBuf,
     pub(crate) ticket: String,
     pub(crate) policy: super::StartPolicy,
@@ -64,6 +65,7 @@ impl Controller {
         let ProjectStartRequest {
             planning_store,
             state_root,
+            code_root,
             target_repo,
             ticket,
             policy,
@@ -120,9 +122,10 @@ impl Controller {
                     let _ = fwd.send(Event::Progress(Box::new(p)));
                 }
             });
-            let result = run_with_planning_store_options(
+            let result = run_with_code_root_and_task_repo_options(
                 &planning_store,
                 &state_root,
+                &code_root,
                 &target_repo,
                 &ticket,
                 RunOptions {

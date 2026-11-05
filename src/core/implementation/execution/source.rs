@@ -19,7 +19,7 @@ pub(super) struct TaskSource {
 
 pub(super) struct Request<'a> {
     pub(super) planning_store: &'a PlanningStore,
-    pub(super) repo: &'a Path,
+    pub(super) code_root: &'a Path,
     pub(super) dir: &'a Path,
     pub(super) ticket: &'a str,
     pub(super) metadata: Option<&'a crate::artifacts::task_docs::TaskMetadata>,
@@ -29,7 +29,7 @@ pub(super) struct Request<'a> {
 pub(super) fn resolve(request: Request<'_>) -> anyhow::Result<TaskSource> {
     let Request {
         planning_store,
-        repo,
+        code_root,
         dir,
         ticket,
         metadata,
@@ -40,7 +40,7 @@ pub(super) fn resolve(request: Request<'_>) -> anyhow::Result<TaskSource> {
     metadata.validate_for_execution()?;
     let repository_id = task_repository_id(Some(metadata))?;
     let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
-    let checkout = manifest.target(planning_store, repo, &repository_id)?;
+    let checkout = manifest.target(planning_store, code_root, &repository_id)?;
     let cache = RepositoryCache::open(&checkout, planning_store, &repository_id, runner)?;
     let source_ref = metadata.source_branch.clone().ok_or_else(|| {
         anyhow::anyhow!("Select and approve a source branch before starting this task")
@@ -140,7 +140,7 @@ mod tests;
 
 pub(super) fn resume_from_plan(
     planning_store: &PlanningStore,
-    repo: &Path,
+    code_root: &Path,
     ticket: &str,
     metadata: Option<&crate::artifacts::task_docs::TaskMetadata>,
     plan: &crate::core::implementation::initial_reconciliation::Plan,
@@ -171,7 +171,7 @@ pub(super) fn resume_from_plan(
     let cache_path =
         crate::core::implementation::repository_cache::cache_path(&saved.repository_identity)?;
     let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
-    let checkout = manifest.target(planning_store, repo, &saved.repository_id)?;
+    let checkout = manifest.target(planning_store, code_root, &saved.repository_id)?;
     let cache = RepositoryCache::open_at(
         &checkout,
         planning_store,
