@@ -89,7 +89,13 @@ impl KooladeApp {
     /// over detail) so the submit path and the clone-completion path
     /// cannot drift apart.
     pub(super) fn conn_banner(e: &crate::error::AppError) -> String {
-        format!("{}\n{}", e.headline(), e.detail())
+        let headline = e.headline();
+        let detail = e.detail();
+        if detail == headline {
+            headline
+        } else {
+            format!("{headline}\n{detail}")
+        }
     }
 
     /// Surfaces buffered time-ledger write failures on the connected

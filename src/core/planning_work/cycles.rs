@@ -70,8 +70,25 @@ pub fn start_follow_up_cycle(
     cycle_work.parent_uid = Some(root_uid.to_owned());
     cycle_work.task_intent_uid = Some(root_uid.to_owned());
     cycle_work.task_intent_cycle_uid = Some(cycle_uid.clone());
-    cycle_work.source_branch = root.source_branch.clone();
-    cycle_work.destination_branch = root.destination_branch.clone();
+    cycle_work.git_intents = root
+        .git_intents
+        .iter()
+        .map(|(repository_id, intent)| {
+            Ok((
+                repository_id.clone(),
+                intent.inherited_by(root_uid.to_owned())?,
+            ))
+        })
+        .collect::<anyhow::Result<_>>()?;
+    cycle_work.git_intent = cycle_work.git_intents.get("root").cloned();
+    cycle_work.source_branch = cycle_work
+        .git_intent
+        .as_ref()
+        .map(|intent| intent.source_ref.clone());
+    cycle_work.destination_branch = cycle_work
+        .git_intent
+        .as_ref()
+        .map(|intent| intent.destination_ref.clone());
     cycle_work.routing_overrides = root.routing_overrides.clone();
     cycle_work.routing_inherited_from = Some(root_uid.to_owned());
 

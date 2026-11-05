@@ -39,6 +39,14 @@ pub(super) fn connect_canonical_with_key(
             path: canonical.to_string_lossy().into_owned(),
             detail: format!("cancelled work could not be loaded: {error}"),
         })?;
+    let recovered_git_intents =
+        crate::core::planning_work::recover_unmapped_primary_git_intents(&store)
+            .map_err(|error| AppError::Other(format!("Git intent recovery failed: {error}")))?;
+    if recovered_git_intents > 0 {
+        state.baseline_planning_revision = store
+            .revision()
+            .map_err(|error| AppError::Other(error.to_string()))?;
+    }
     let (mut planning_work, planning_revision) =
         crate::core::planning_work::load_expected(&store, &state.baseline_planning_revision)
             .map_err(|e| crate::error::AppError::Other(e.to_string()))?;
@@ -111,6 +119,11 @@ pub(super) fn connect_canonical_with_key(
         git: gitops::snapshot(&canonical),
     };
     project.refresh_implementations();
+    if recovered_git_intents > 0 {
+        project.activity.pending.push(format!(
+            "Recovered {recovered_git_intents} legacy work record(s). Originals were backed up under state/recovery/unmapped-primary-git-intent/. Review Git intent before starting execution."
+        ));
+    }
     if !reconciled.is_empty() {
         project.activity.pending.push(format!(
             "Kool.ad/e reconciled planning work with no active turn: {}.",
