@@ -1,0 +1,126 @@
+{
+  "identity": {
+    "project_id": "00000000-0000-4000-8000-000000000001",
+    "task_id": "00000000-0000-4000-8000-000000000002",
+    "user_id": "00000000-0000-4000-8000-000000000003",
+    "session_id": "00000000-0000-4000-8000-000000000004"
+  },
+  "lease": {
+    "schema_version": 1,
+    "owner_id": "00000000-0000-4000-8000-000000000003",
+    "lease_id": "00000000-0000-4000-8000-000000000005",
+    "generation": 1,
+    "issued_at_unix_ms": 1000000,
+    "expires_at_unix_ms": 1600000,
+    "cancellation_generation": 1
+  },
+  "policy": {
+    "schema_version": 1,
+    "identity": {
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "task_id": "00000000-0000-4000-8000-000000000002",
+      "user_id": "00000000-0000-4000-8000-000000000003",
+      "session_id": "00000000-0000-4000-8000-000000000004"
+    },
+    "session_class": "disposable",
+    "capability": "approved_gui_task",
+    "network_profile": "disabled",
+    "allowed_apps": ["text-editor"],
+    "authorized_operations": ["observe_screen", "read_accessibility", "mouse_input", "keyboard_input", "launch_allowed_app"],
+    "approval_generation": 1,
+    "resource_budget": {
+      "cpu_millis": 2000,
+      "memory_bytes": 1073741824,
+      "disk_bytes": 2147483648,
+      "time_limit_ms": 600000,
+      "action_limit": 100
+    }
+  },
+  "session": {
+    "schema_version": 1,
+    "identity": {
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "task_id": "00000000-0000-4000-8000-000000000002",
+      "user_id": "00000000-0000-4000-8000-000000000003",
+      "session_id": "00000000-0000-4000-8000-000000000004"
+    },
+    "session_class": "disposable",
+    "target": {"kind": "local_kvm", "machine_id": "00000000-0000-4000-8000-000000000006"},
+    "image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "network_profile": "disabled",
+    "allowed_apps": ["text-editor"],
+    "policy": {
+      "schema_version": 1,
+      "identity": {
+        "project_id": "00000000-0000-4000-8000-000000000001",
+        "task_id": "00000000-0000-4000-8000-000000000002",
+        "user_id": "00000000-0000-4000-8000-000000000003",
+        "session_id": "00000000-0000-4000-8000-000000000004"
+      },
+      "session_class": "disposable",
+      "capability": "approved_gui_task",
+      "network_profile": "disabled",
+      "allowed_apps": ["text-editor"],
+      "authorized_operations": ["observe_screen", "read_accessibility", "mouse_input", "keyboard_input", "launch_allowed_app"],
+      "approval_generation": 1,
+      "resource_budget": {
+        "cpu_millis": 2000,
+        "memory_bytes": 1073741824,
+        "disk_bytes": 2147483648,
+        "time_limit_ms": 600000,
+        "action_limit": 100
+      }
+    },
+    "lease": {
+      "schema_version": 1,
+      "owner_id": "00000000-0000-4000-8000-000000000003",
+      "lease_id": "00000000-0000-4000-8000-000000000005",
+      "generation": 1,
+      "issued_at_unix_ms": 1000000,
+      "expires_at_unix_ms": 1600000,
+      "cancellation_generation": 1
+    },
+    "lifecycle": "ready",
+    "action_sequence": 0,
+    "approval_generation": 1,
+    "cancellation_generation": 1,
+    "evidence_refs": [],
+    "controller_proof": {
+      "signer_key_id": "00000000-0000-4000-8000-000000000011",
+      "signature_hex": "62b6d09ab1eac1f085bdcc4a0374503ed96917555b2817a6135720e578ce93e62db8c17337c305c3575738effafc3a32e528579964e9aff1d047064c48fe5907"
+    }
+  },
+  "action": {
+    "schema_version": 1,
+    "session_id": "00000000-0000-4000-8000-000000000004",
+    "action_sequence": 1,
+    "idempotency_key": "00000000-0000-4000-8000-000000000007",
+    "actor": "agent",
+    "lease_generation": 1,
+    "approval_generation": 1,
+    "cancellation_generation": 1,
+    "operation": "keyboard_input",
+    "payload": {"kind": "type_text", "text": "synthetic text"}
+  },
+  "observation": {
+    "schema_version": 1,
+    "session_id": "00000000-0000-4000-8000-000000000004",
+    "action_sequence": 1,
+    "observed_at_unix_ms": 1001000,
+    "width_px": 1280,
+    "height_px": 720,
+    "screenshot_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "accessibility_snapshot_ref": "00000000-0000-4000-8000-000000000008",
+    "evidence_refs": ["00000000-0000-4000-8000-000000000009"]
+  },
+  "event": {
+    "schema_version": 1,
+    "session_id": "00000000-0000-4000-8000-000000000004",
+    "sequence": 1,
+    "occurred_at_unix_ms": 1001000,
+    "lease_generation": 1,
+    "approval_generation": 1,
+    "cancellation_generation": 1,
+    "kind": {"kind": "state_changed", "from": "preparing", "to": "booting"}
+  }
+}

@@ -12,6 +12,7 @@
 
 pub mod app;
 pub mod artifacts;
+pub mod computer_use;
 pub mod core;
 pub mod domain;
 pub mod error;

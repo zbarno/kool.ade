@@ -2819,6 +2819,7 @@ dependencies = [
  "chrono",
  "core-foundation 0.10.1",
  "core-foundation-sys",
+ "ed25519-dalek",
  "eframe",
  "egui",
  "flate2",
