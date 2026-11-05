@@ -30,7 +30,10 @@ mod tests;
 pub use projection::{cards, context, find_card};
 pub use reconcile::{completed_turn_status, reconcile_inactive, reconcile_inactive_excluding};
 pub(crate) use storage::linked_executable_task_changes;
-pub use storage::{append_discovered, find, load, load_expected, record_changes};
+pub use storage::{
+    append_discovered, find, load, load_expected, record_changes,
+    recover_unmapped_primary_git_intents,
+};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
