@@ -42,7 +42,7 @@ fn require_allocation_key(value: Option<&str>) -> anyhow::Result<&str> {
 }
 
 pub(super) fn cache_for_state(
-    repo: &Path,
+    code_root: &Path,
     planning_store: &PlanningStore,
     state: &Implementation,
     runner: &Runner,
@@ -62,7 +62,7 @@ pub(super) fn cache_for_state(
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("Saved repository cache path is missing"))?;
     let manifest = crate::core::project_repos::ProjectManifest::load(planning_store)?;
-    let checkout = manifest.target(planning_store, repo, repository_id)?;
+    let checkout = manifest.target(planning_store, code_root, repository_id)?;
     let cache = RepositoryCache::open_at(
         &checkout,
         planning_store,

@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "concurrent/three_repositories.rs"]
+mod three_repositories;
+
 #[test]
 fn concurrent_tasks_get_independent_clones_and_branches() {
     let sandbox = Sandbox::new();

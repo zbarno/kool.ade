@@ -53,6 +53,24 @@ pub(super) fn run_with_planning_store_options(
     ticket: &str,
     options: RunOptions<'_>,
 ) -> anyhow::Result<Implementation> {
+    run_with_code_root_and_task_repo_options(
+        planning_store,
+        state_root,
+        repo,
+        repo,
+        ticket,
+        options,
+    )
+}
+
+pub(crate) fn run_with_code_root_and_task_repo_options(
+    planning_store: &PlanningStore,
+    state_root: &Path,
+    code_root: &Path,
+    repo: &Path,
+    ticket: &str,
+    options: RunOptions<'_>,
+) -> anyhow::Result<Implementation> {
     let RunOptions {
         harness,
         cancel,
@@ -67,7 +85,7 @@ pub(super) fn run_with_planning_store_options(
     let active_progress = progress.clone();
     let migration_gate = crate::artifacts::locks::acquire_project_state_gate(state_root)?;
     anyhow::ensure!(
-        target_repository_with_store(planning_store, repo, ticket)?.canonicalize()?
+        target_repository_with_store(planning_store, code_root, ticket)?.canonicalize()?
             == repo.canonicalize()?,
         "Implementation checkout does not match the task repository manifest"
     );
@@ -121,6 +139,7 @@ pub(super) fn run_with_planning_store_options(
     let mut state = task_state::load_or_create(task_state::Request {
         planning_store,
         state_root,
+        code_root,
         repo,
         ticket,
         text: &text,
@@ -315,7 +334,7 @@ pub(super) fn persist_source_plan_before_task_state(
     fs::create_dir_all(&dir)?;
     source::resolve(source::Request {
         planning_store: &planning_store,
-        repo,
+        code_root: repo,
         dir: &dir,
         ticket,
         metadata: metadata.as_ref(),
@@ -342,6 +361,7 @@ pub(super) fn prepare_task_repository_before_reconciliation(
     let mut state = task_state::load_or_create(task_state::Request {
         planning_store: &planning_store,
         state_root: planning_root,
+        code_root: repo,
         repo,
         ticket,
         text: &text,

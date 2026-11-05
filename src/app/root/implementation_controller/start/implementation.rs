@@ -275,6 +275,7 @@ impl KooladeApp {
                     crate::core::implementation::ProjectStartRequest {
                         planning_store: p.state.planning_store.clone(),
                         state_root: p.state.planning_store.root.clone(),
+                        code_root: p.state.repo_root.clone(),
                         target_repo,
                         ticket,
                         policy: crate::core::implementation::StartPolicy {

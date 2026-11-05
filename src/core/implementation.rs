@@ -45,6 +45,8 @@ pub(crate) use execution::mark_resume_started;
 pub(crate) use execution::mark_resume_started_for_action;
 pub(crate) use execution::record_failed_attempt;
 pub use execution::run;
+pub(crate) use execution::run_with_code_root_and_task_repo_options;
+#[cfg(test)]
 use execution::run_with_planning_store_options;
 pub use pr_refresh::PrRefresh;
 #[cfg(test)]
@@ -248,7 +250,7 @@ pub(crate) struct StartPolicy {
     pub require_independent_checks: bool,
 }
 
-struct RunOptions<'a> {
+pub(crate) struct RunOptions<'a> {
     harness: &'a dyn AiHarness,
     cancel: Arc<AtomicBool>,
     progress: Sender<LiveProgress>,

@@ -10,10 +10,16 @@ mod source_start;
 
 fn run_on_worker(sandbox: &Sandbox, ticket: &str) -> anyhow::Result<Implementation> {
     let (progress, _updates) = mpsc::channel();
-    run_with_planning_store_options(
+    let repository = crate::core::implementation::target_repository_with_store(
+        &sandbox.planning_store,
+        &sandbox.repo,
+        ticket,
+    )?;
+    run_with_code_root_and_task_repo_options(
         &sandbox.planning_store,
         &sandbox.planning_store.root,
         &sandbox.repo,
+        &repository,
         ticket,
         RunOptions {
             harness: &Fixture {
