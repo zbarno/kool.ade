@@ -223,7 +223,10 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     let running_session = session.clone();
     let mut controller = Some(std::thread::spawn(move || {
         running_session.run_tool_command(
-            "printf 'first-worker-started\\n'; sleep 3; printf 'alternate-worker-recovered\\n' > retry-result.txt",
+            // Keep the old request in flight long enough for the test to kill
+            // the worker under a loaded parallel CI suite. The delayed write
+            // makes a completed result distinguishable from confirmed loss.
+            "printf 'first-worker-started\\n'; sleep 30; printf 'alternate-worker-recovered\\n' > retry-result.txt",
             Duration::from_secs(90),
         )
     }));
