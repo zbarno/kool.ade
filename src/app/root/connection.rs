@@ -94,7 +94,7 @@ impl KooladeApp {
         if detail == headline {
             headline
         } else {
-            format!("{headline}\\n{detail}")
+            format!("{headline}\n{detail}")
         }
     }
 
