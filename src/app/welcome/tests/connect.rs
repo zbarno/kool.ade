@@ -244,3 +244,52 @@ fn connecting_from_a_code_subfolder_uses_its_root() {
     assert!(!root.join(".koolade-packet").exists());
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn reconnect_recovers_unmapped_primary_git_fields_without_erasing_task_history() {
+    let _env = super::helpers::EnvSandbox::enter("reconnect-legacy-git-intent", false);
+    let code = super::helpers::local_source_repo("reconnect-legacy-git-intent");
+    let project = attempt_connect(code.to_str().unwrap()).unwrap();
+    let store = project.state.planning_store.clone();
+    let mut work = crate::core::planning_work::Work::new(
+        "task:legacy-reconnect".into(),
+        "Existing task".into(),
+        "Do not lose this task request".into(),
+        "Saved conversation context".into(),
+    );
+    work.status = crate::core::planning_work::WorkStatus::Todo;
+    crate::core::planning_work::save(&store, std::slice::from_ref(&work)).unwrap();
+    let path = format!("state/work/{}.json", work.uid);
+    let mut value: serde_json::Value = serde_json::from_slice(&store.read(&path).unwrap()).unwrap();
+    value["data"]["sourceBranch"] = "main".into();
+    value["data"]["destinationBranch"] = "release".into();
+    let original = serde_json::to_vec_pretty(&value).unwrap();
+    store.atomic_write(&path, &original).unwrap();
+
+    let reopened = attempt_connect(code.to_str().unwrap()).unwrap();
+    let recovered = reopened
+        .planning_work
+        .iter()
+        .find(|item| item.uid == work.uid)
+        .unwrap();
+    assert_eq!(recovered.request, work.request);
+    assert_eq!(recovered.detail, work.detail);
+    assert!(recovered.git_intent.is_none());
+    assert!(recovered.git_intents.is_empty());
+    assert!(recovered.source_branch.is_none());
+    assert!(recovered.destination_branch.is_none());
+    assert!(
+        reopened
+            .activity
+            .pending
+            .iter()
+            .any(|message| message.contains("Recovered 1 legacy work record"))
+    );
+    let backup = format!(
+        "state/recovery/unmapped-primary-git-intent/{}-revision-1.json",
+        work.uid
+    );
+    assert_eq!(store.read(backup).unwrap(), original);
+    assert_eq!(crate::core::gitops::snapshot(&code).dirty, 0);
+    let _ = std::fs::remove_dir_all(code);
+}

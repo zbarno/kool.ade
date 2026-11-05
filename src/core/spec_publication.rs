@@ -66,5 +66,17 @@ pub struct PullRequest {
 }
 
 #[cfg(test)]
+pub(crate) fn publish_with_test_gh(
+    repository_root: &std::path::Path,
+    repository_id: &str,
+    pin: &PublishedSpecPin,
+    changes: &[DocumentationChange],
+    consent: &PublicationConsent,
+    gh: &std::ffi::OsStr,
+) -> anyhow::Result<PullRequest> {
+    publish_with_gh(repository_root, repository_id, pin, changes, consent, gh)
+}
+
+#[cfg(test)]
 #[path = "spec_publication/tests.rs"]
 mod tests;

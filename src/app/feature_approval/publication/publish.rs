@@ -122,7 +122,7 @@ fn publish_using(
 }
 
 #[cfg(test)]
-pub(in crate::app::root::feature_approval) fn publish_document_set_with_test_injection(
+pub(crate) fn publish_document_set_with_test_injection(
     repository_root: &std::path::Path,
     repository_id: &str,
     pin: &crate::core::published_specs::PublishedSpecPin,

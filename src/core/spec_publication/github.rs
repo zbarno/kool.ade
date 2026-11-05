@@ -1,6 +1,8 @@
 use super::git::*;
-use anyhow::Context;
 use std::path::Path;
+
+mod pull_request;
+pub(super) use pull_request::{PullRequestTarget, create_pull_request};
 
 pub(super) fn branch_from_reference(reference: &str) -> anyhow::Result<String> {
     let branch = reference
@@ -188,90 +190,4 @@ pub(super) fn public_commit_identity(
         name: login.to_owned(),
         email: format!("{id}+{login}@users.noreply.github.com"),
     })
-}
-
-pub(super) struct PullRequestTarget<'a> {
-    pub(super) base: &'a str,
-    pub(super) head: &'a str,
-    pub(super) head_sha: &'a str,
-    pub(super) base_ref: &'a str,
-    pub(super) base_sha: &'a str,
-}
-
-pub(super) fn create_pull_request(
-    repository_root: &Path,
-    gh: &std::ffi::OsStr,
-    repository: &str,
-    target: PullRequestTarget<'_>,
-    body_path: &Path,
-) -> anyhow::Result<String> {
-    if let Ok(existing) = gh_output(
-        gh,
-        repository_root,
-        &[
-            "pr",
-            "view",
-            target.head,
-            "--repo",
-            repository,
-            "--json",
-            "url,baseRefName,baseRefOid,headRefName,headRefOid,headRepository",
-        ],
-    ) {
-        let existing: serde_json::Value = serde_json::from_str(&existing)
-            .context("existing publication pull request response is malformed")?;
-        let url = existing["url"]
-            .as_str()
-            .ok_or_else(|| anyhow::anyhow!("existing publication pull request has no URL"))?;
-        let expected = format!("https://github.com/{repository}/pull/");
-        anyhow::ensure!(
-            url.starts_with(&expected) && url[expected.len()..].parse::<u64>().is_ok(),
-            "existing publication pull request URL does not match the target repository"
-        );
-        anyhow::ensure!(
-            existing["baseRefName"].as_str() == Some(target.base)
-                && existing["baseRefOid"].as_str() == Some(target.base_sha)
-                && existing["headRefName"].as_str() == Some(target.head)
-                && existing["headRefOid"].as_str() == Some(target.head_sha)
-                && existing["headRepository"]["nameWithOwner"].as_str() == Some(repository),
-            "existing publication pull request no longer matches the approved base and head"
-        );
-        anyhow::ensure!(
-            remote_branch_sha(repository_root, target.base_ref)? == target.base_sha,
-            "published documentation advanced before pull request reuse; review the new baseline before publishing"
-        );
-        return Ok(url.to_owned());
-    }
-    anyhow::ensure!(
-        remote_branch_sha(repository_root, target.base_ref)? == target.base_sha,
-        "published documentation advanced before pull request creation; review the new baseline before publishing"
-    );
-    let body_path = body_path
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("pull request body path is not UTF-8"))?;
-    let output = gh_output(
-        gh,
-        repository_root,
-        &[
-            "pr",
-            "create",
-            "--repo",
-            repository,
-            "--base",
-            target.base,
-            "--head",
-            target.head,
-            "--title",
-            "docs: publish approved Kool.ad/e specification",
-            "--body-file",
-            body_path,
-        ],
-    )?;
-    let url = output.trim();
-    let expected = format!("https://github.com/{repository}/pull/");
-    anyhow::ensure!(
-        url.starts_with(&expected) && url[expected.len()..].parse::<u64>().is_ok(),
-        "GitHub CLI did not return a valid pull request URL"
-    );
-    Ok(url.to_owned())
 }

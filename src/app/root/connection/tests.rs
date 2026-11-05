@@ -186,3 +186,14 @@ fn pending_conflict_reply_restarts_once_in_its_task_conversation() {
     project.task_turns.remove(key);
     std::fs::remove_dir_all(slug).unwrap();
 }
+
+#[test]
+fn connect_banner_does_not_repeat_a_generic_validation_error() {
+    let error = crate::error::AppError::Other(
+        "Unmapped primary repository Git intent fields are not allowed".into(),
+    );
+    assert_eq!(
+        super::KooladeApp::conn_banner(&error),
+        "Unmapped primary repository Git intent fields are not allowed"
+    );
+}
