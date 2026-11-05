@@ -111,6 +111,7 @@ fn invalid_saved_manual_path_does_not_silently_select_environment_cli() {
 #[cfg(unix)]
 struct EnvRestore {
     previous: Vec<(&'static str, Option<std::ffi::OsString>)>,
+    _registrations: Vec<crate::persistence::TestHomeRegistration>,
     _lock: crate::test_support::ProcessEnvironmentLock,
 }
 
@@ -122,7 +123,15 @@ impl EnvRestore {
             .iter()
             .map(|(name, _)| (*name, std::env::var_os(name)))
             .collect();
+        let mut registrations = Vec::new();
         for (name, value) in values {
+            if *name == "KOOLADE_HOME"
+                && let Some(value) = value
+            {
+                registrations.push(crate::persistence::register_test_home(
+                    std::path::Path::new(value),
+                ));
+            }
             match value {
                 Some(value) => unsafe { std::env::set_var(name, value) },
                 None => unsafe { std::env::remove_var(name) },
@@ -130,6 +139,7 @@ impl EnvRestore {
         }
         Self {
             previous,
+            _registrations: registrations,
             _lock: lock,
         }
     }

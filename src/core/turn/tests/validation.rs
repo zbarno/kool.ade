@@ -139,9 +139,13 @@ fn live_previews_precede_completion_and_never_write_unvalidated_content() {
             }),
         );
         let mut previews = Vec::new();
-        for _ in 0..2 {
+        while previews.len() < 2 {
             match c.poll(Duration::from_secs(30)) {
-                Some(TurnEvt::Progress(p)) => previews.push(p.specification.unwrap()),
+                Some(TurnEvt::Progress(p)) => {
+                    if let Some(specification) = p.specification {
+                        previews.push(specification);
+                    }
+                }
                 _ => {
                     gate.wait();
                     panic!("expected live preview before completion");
