@@ -1,6 +1,9 @@
 use super::support::change;
 use super::*;
 #[cfg(unix)]
+#[path = "publish/race.rs"]
+mod race;
+#[cfg(unix)]
 use std::{fs, os::unix::fs::PermissionsExt, path::Path, process::Command};
 
 /// Production boundary: prove the publication coordinator fetches the pinned
