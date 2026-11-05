@@ -1,5 +1,38 @@
 use super::*;
 
+struct RoleAwareClarificationHarness {
+    manager_output: String,
+    planner_output: String,
+}
+
+impl crate::harness::AiHarness for RoleAwareClarificationHarness {
+    fn label(&self) -> String {
+        "clarification lifecycle fixture".into()
+    }
+
+    fn check_available(&self) -> Result<String, crate::error::AppError> {
+        Ok(self.label())
+    }
+
+    fn execute(
+        &self,
+        request: &crate::harness::PlanningRequest,
+    ) -> Result<crate::harness::HarnessOutcome, crate::error::AppError> {
+        let response = if request.prompt_manifest.as_ref().is_some_and(|manifest| {
+            manifest.role_version == crate::harness::prompt_catalog::PromptRole::Planner.id()
+        }) {
+            &self.planner_output
+        } else {
+            &self.manager_output
+        };
+        Ok(crate::harness::HarnessOutcome {
+            final_text: response.clone(),
+            envelope: None,
+            stderr_tail: String::new(),
+        })
+    }
+}
+
 #[test]
 // Production boundary: a successful Manager answer-reconciliation turn must
 // trigger the configured follow-up Planner, whose result is durably saved as a
@@ -80,7 +113,13 @@ fn successful_manager_update_runs_planner_and_persists_follow_up_readiness() {
     assert_eq!(question_store.load(&original.uid).unwrap().0, original);
     super::super::fence::current_question_planning_revision(project, &question_store, &original)
         .unwrap();
-    app.task_harness = Some(Box::new(FixedClarificationHarness(manager_output)));
+    let fixture_harness = || {
+        Box::new(RoleAwareClarificationHarness {
+            manager_output: manager_output.clone(),
+            planner_output: planner_output.clone(),
+        }) as Box<dyn crate::harness::AiHarness>
+    };
+    app.task_harness = Some(fixture_harness());
     app.dispatch_ui_command(crate::ui::ApplicationCommand::AnswerClarification {
         uid: original.uid.clone(),
         expected_revision: original.revision,
@@ -108,18 +147,18 @@ fn successful_manager_update_runs_planner_and_persists_follow_up_readiness() {
         project.state.planning_store.revision().unwrap(),
         "Manager reconciliation starts from the revision that includes the saved answer"
     );
-    // The Manager override is consumed by the answer turn; install a distinct
-    // override before its completion dispatches the follow-up Planner.
+    // A delayed follow-up can begin after any tick. Reinstall a role-aware
+    // fixture so background Manager turns and the Planner pass receive their
+    // own response even when scheduler timing shifts under parallel tests.
     let context = egui::Context::default();
     // This handoff runs two real async turns; allow scheduler contention from
     // parallel tests without treating a still-running Planner as a lost result.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     loop {
         // Background activity may request a harness during the Manager turn.
-        // Reinstall the scripted Planner route immediately before each tick so
-        // the completion handoff always receives it.
+        // Keep the deterministic harness available for the completion handoff.
         super::suppress_background_manager(&mut app);
-        app.task_harness = Some(Box::new(FixedClarificationHarness(planner_output.clone())));
+        app.task_harness = Some(fixture_harness());
         app.tick(0.016, &context);
         let completed = match &app.screen {
             Screen::Connected(project) => {
