@@ -41,6 +41,7 @@ pub mod implementation;
 pub mod lifecycle;
 pub mod planning;
 pub mod planning_work;
+pub mod product_capabilities;
 pub mod published_specs;
 pub mod spec_publication;
 pub mod specification_chat;

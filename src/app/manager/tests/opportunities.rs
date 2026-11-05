@@ -2,6 +2,8 @@ use super::*;
 use crate::harness::{AiHarness, HarnessOutcome};
 use std::{path::Path, process::Command, thread, time::Instant};
 
+#[path = "opportunities/capability_lookup.rs"]
+mod capability_lookup;
 #[path = "opportunities/product_isolation.rs"]
 mod product_isolation;
 

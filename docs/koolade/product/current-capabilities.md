@@ -11,3 +11,6 @@ after an application restart.
 Capability claims describe the current application. Provider integrations,
 native-host behavior, release readiness, and live remote behavior require their
 own validation evidence.
+
+The build-owned capability catalog and Manager lookup states are documented in
+[the product capability catalog](./capability-catalog.md).
