@@ -470,7 +470,7 @@ fn follow_up_cycles_inherit_approved_git_intents_with_parent_provenance() {
     let reopened = load(&repo).unwrap();
     let child = reopened
         .iter()
-        .find(|work| work.task_intent_cycle_uid.as_deref() == Some(&cycle)
+        .find(|work| work.task_intent_cycle_uid.as_deref() == Some(cycle.as_str())
             && work.uid != root_work.uid)
         .unwrap();
     let inherited = child.git_intents.get("root").unwrap();
