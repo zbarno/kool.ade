@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 mod capability_probe;
 mod github_auth;
+mod readiness;
 mod run_validation;
 mod store;
 mod transition;

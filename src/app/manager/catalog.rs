@@ -83,7 +83,7 @@ pub(super) fn render(
         .find(|repository| is_koolade_product_remote(&repository.remote))
         .map(|repository| repository.id.clone());
     let summary = super::Manager::prompt_body(project, events);
-    let trusted_evidence = opportunities::trusted_opportunity_evidence(project);
+    let trusted_evidence = opportunities::trusted_opportunity_evidence(project, &original_goal);
     let plan_review_evidence = reviews::current_review_evidence(project);
     let code_review_evidence = code_reviews::current_findings(project)?;
     let mut evidence_manifest = vec![EvidenceItem {

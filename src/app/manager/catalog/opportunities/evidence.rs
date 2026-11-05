@@ -17,6 +17,7 @@ use broker::dependency_request_evidence;
 /// but cannot create or alter their contents.
 pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
     project: &Project,
+    goal: &str,
 ) -> Vec<EvidenceItem> {
     let workspace_uid = project
         .state
@@ -24,14 +25,17 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
         .project_id
         .hyphenated()
         .to_string();
-    let mut items = vec![EvidenceItem {
-        id: "generic-capability-inventory".into(),
-        workspace_uid: workspace_uid.clone(),
-        origin: EvidenceOrigin::Application,
-        confidentiality: EvidenceConfidentiality::WorkspacePrivate,
-        source: "validated project capability inventory".into(),
-        content: capability_inventory(project),
-    }];
+    let mut items = vec![
+        EvidenceItem {
+            id: "generic-capability-inventory".into(),
+            workspace_uid: workspace_uid.clone(),
+            origin: EvidenceOrigin::Application,
+            confidentiality: EvidenceConfidentiality::WorkspacePrivate,
+            source: "validated project capability inventory".into(),
+            content: capability_inventory(project),
+        },
+        capability_lookup_evidence(&workspace_uid, goal),
+    ];
     items.extend(telemetry::regression_evidence(project, &workspace_uid));
     items.extend(dependency_request_evidence(project, &workspace_uid));
     let feature_uids = project
@@ -133,6 +137,55 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
     items
 }
 
+fn capability_lookup_evidence(workspace_uid: &str, goal: &str) -> EvidenceItem {
+    let content = match crate::core::product_capabilities::ProductCapabilityCatalogV1::compiled() {
+        Ok(catalog) => {
+            let answer = catalog.lookup(goal);
+            if answer.matches.is_empty() {
+                format!(
+                    "Build version={:?} commit={:?}; catalog_sha256={}. Capability lookup is unknown: no matching catalog entry was found. This is not evidence that the capability is absent.",
+                    answer.build_version, answer.build_commit, answer.catalog_sha256
+                )
+            } else {
+                let matches = answer.matches.iter().map(|matched| {
+                    format!(
+                        "id={} name={} maturity={} state={:?} summary={} invocation={:?} constraints={:?} platform_prerequisites={:?} provider_prerequisites={:?} limitations={:?}",
+                        matched.capability.id,
+                        matched.capability.name,
+                        matched.capability.maturity,
+                        matched.state,
+                        matched.capability.summary,
+                        matched.capability.invocation,
+                        matched.capability.constraints,
+                        matched.capability.platform_prerequisites,
+                        matched.capability.provider_prerequisites,
+                        matched.capability.limitations
+                    )
+                }).collect::<Vec<_>>().join("; ");
+                crate::core::context_build::clip(
+                    &format!(
+                        "Build version={:?} commit={:?}; catalog_sha256={}. These are bounded capability lookup candidates, not proof of host readiness. Prefer an existing listed workflow when it addresses the goal. Unknown or absent evidence must not be described as confirmed absence. {matches}",
+                        answer.build_version, answer.build_commit, answer.catalog_sha256
+                    ),
+                    8_000,
+                )
+            }
+        }
+        Err(error) => format!(
+            "Capability catalog validation failed; capability status is unknown and no absence claim is supported: {}",
+            crate::core::context_build::clip(&error, 500)
+        ),
+    };
+    EvidenceItem {
+        id: "product-capability-lookup".into(),
+        workspace_uid: workspace_uid.to_owned(),
+        origin: EvidenceOrigin::Application,
+        confidentiality: EvidenceConfidentiality::WorkspacePrivate,
+        source: "bounded lookup in compiled public product capabilities".into(),
+        content,
+    }
+}
+
 /// Designated model-shareable product documentation, compiled into the app.
 /// These files must contain only public product information even when edited
 /// locally, because uncommitted build-tree contents are included here.
@@ -160,8 +213,8 @@ pub(in crate::app::manager::catalog) fn koolade_product_capability_evidence(
         workspace_uid: workspace_uid.to_owned(),
         origin: EvidenceOrigin::Application,
         confidentiality: EvidenceConfidentiality::Public,
-        source: "designated model-shareable Kool.ad/e capability inventory".into(),
-        content: include_str!("../../../../../assets/capabilities/active-capabilities.json").into(),
+        source: "designated model-shareable build-pinned Kool.ad/e capability catalog".into(),
+        content: crate::core::product_capabilities::ProductCapabilityCatalogV1::public_snapshot(),
     }
 }
 
