@@ -170,6 +170,7 @@ fn concurrent_processes_do_not_lose_project_grants() {
                 .arg("persistence::dependency_authorization::tests::grant_writer_child_process")
                 .arg("--nocapture")
                 .env("KOOLADE_HOME", &state_root)
+                .env("KOOLADE_TEST_HOME_TOKEN", _override.token())
                 .env("KOOLADE_TEST_AUTH_CHILD_PROJECT", &project)
                 .env("KOOLADE_TEST_AUTH_CHILD_WORKER", worker.to_string())
                 .stdout(std::process::Stdio::piped())
@@ -276,6 +277,7 @@ fn request(task_id: &str, package: &str) -> DependencyRequest {
 
 struct StateRootOverride {
     previous: Option<std::ffi::OsString>,
+    registration: crate::persistence::TestHomeRegistration,
     _environment_lock: crate::test_support::ProcessEnvironmentLock,
 }
 
@@ -283,11 +285,17 @@ impl StateRootOverride {
     fn set(path: &Path) -> Self {
         let environment_lock = crate::test_support::lock_process_environment();
         let previous = std::env::var_os("KOOLADE_HOME");
+        let registration = crate::persistence::register_test_home(path);
         unsafe { std::env::set_var("KOOLADE_HOME", path) };
         Self {
             previous,
+            registration,
             _environment_lock: environment_lock,
         }
+    }
+
+    fn token(&self) -> &str {
+        self.registration.token()
     }
 }
 
