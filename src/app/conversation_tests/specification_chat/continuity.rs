@@ -88,7 +88,9 @@ fn specification_follow_up_uses_same_scope_history_and_excludes_other_streams() 
     assert!(!follow_up_prompt.contains("OTHER_FEATURE_CHAT_MARKER"));
     assert!(!follow_up_prompt.contains(&"a".repeat(40)));
     assert!(!follow_up_prompt.contains(&"b".repeat(64)));
-    assert!(!follow_up_prompt.contains("docs/koolade/features/synthetic-other-feature.md"));
+    assert!(
+        !follow_up_prompt.contains("docs/koolade/features/synthetic-other-feature.md")
+    );
     assert!(!follow_up_prompt.contains("MANAGER_PATROL_CHAT_MARKER"));
     assert!(!follow_up_prompt.contains("UNATTRIBUTED_MAIN_CHAT_MARKER"));
     assert!(!follow_up_prompt.contains("PRIVATE_TASK_CHAT_MARKER"));
