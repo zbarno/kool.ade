@@ -251,12 +251,13 @@ fn reconnect_recovers_unmapped_primary_git_fields_without_erasing_task_history()
     let code = super::helpers::local_source_repo("reconnect-legacy-git-intent");
     let project = attempt_connect(code.to_str().unwrap()).unwrap();
     let store = project.state.planning_store.clone();
-    let work = crate::core::planning_work::Work::new(
+    let mut work = crate::core::planning_work::Work::new(
         "task:legacy-reconnect".into(),
         "Existing task".into(),
         "Do not lose this task request".into(),
         "Saved conversation context".into(),
     );
+    work.status = crate::core::planning_work::WorkStatus::Todo;
     crate::core::planning_work::save(&store, std::slice::from_ref(&work)).unwrap();
     let path = format!("state/work/{}.json", work.uid);
     let mut value: serde_json::Value = serde_json::from_slice(&store.read(&path).unwrap()).unwrap();
