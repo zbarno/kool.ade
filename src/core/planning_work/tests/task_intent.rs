@@ -430,3 +430,62 @@ fn decision_and_approval_history_is_cycle_scoped_and_idempotent() {
     );
     std::fs::remove_dir_all(repo).unwrap();
 }
+
+#[test]
+fn follow_up_cycles_inherit_approved_git_intents_with_parent_provenance() {
+    use crate::core::git_intent::{GitIntentV1, PublicationModeV1};
+
+    let repo = super::root();
+    let mut root_work = Work::new(
+        "task:root-git".into(),
+        "Feature with approved Git intent".into(),
+        "Implement the first cycle".into(),
+        String::new(),
+    );
+    root_work.task_intent_uid = Some(root_work.uid.clone());
+    let intent = GitIntentV1::approve(
+        "root".into(),
+        "main".into(),
+        "c".repeat(40),
+        "release".into(),
+        PublicationModeV1::HoldForReview,
+        None,
+    )
+    .unwrap();
+    root_work.git_intent = Some(intent.clone());
+    root_work.git_intents.insert("root".into(), intent.clone());
+    root_work.source_branch = Some(intent.source_ref.clone());
+    root_work.destination_branch = Some(intent.destination_ref.clone());
+    save(&repo, std::slice::from_ref(&root_work)).unwrap();
+
+    let mut work = load(&repo).unwrap();
+    let cycle = start_follow_up_cycle(
+        &mut work,
+        &root_work.uid,
+        "An additional approved follow-up",
+    )
+    .unwrap();
+    save(&repo, &work).unwrap();
+
+    let reopened = load(&repo).unwrap();
+    let child = reopened
+        .iter()
+        .find(|work| {
+            work.task_intent_cycle_uid.as_deref() == Some(cycle.as_str())
+                && work.uid != root_work.uid
+        })
+        .unwrap();
+    let inherited = child.git_intents.get("root").unwrap();
+    assert_eq!(inherited.source_ref, "main");
+    assert_eq!(inherited.destination_ref, "release");
+    assert_eq!(inherited.source_sha, "c".repeat(40));
+    assert_eq!(
+        inherited.inherited_from_task_uid.as_deref(),
+        Some(root_work.uid.as_str())
+    );
+    assert_ne!(inherited.approval_revision, intent.approval_revision);
+    assert_eq!(child.git_intent.as_ref(), Some(inherited));
+    assert_eq!(child.source_branch.as_deref(), Some("main"));
+    assert_eq!(child.destination_branch.as_deref(), Some("release"));
+    std::fs::remove_dir_all(repo).unwrap();
+}
