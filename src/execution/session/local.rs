@@ -8,7 +8,7 @@ use crate::execution::{
             DockerExecutionBackend, OwnedTaskWorkspaceResolver, ReadOnlyProjectWorkspaceResolver,
         },
         engine::DockerEndpoint,
-        images::{ImageLock, RuntimeProfile},
+        images::{ImageLock, ProjectRuntimeImagePlan, RuntimeProfile},
     },
     errors::{ExecutionError, ExecutionErrorKind},
 };
@@ -180,10 +180,23 @@ fn connect_local_with_image_selection(
     let image = lock
         .select_with_tools(profiles, &architecture, required_tools)
         .map_err(|error| {
+            // A recipe requiring several toolchains may be fully understood
+            // without any single approved image being able to run it. Keep
+            // the runtime blocked until a verified composite is provisioned.
+            let message = match lock.plan_project_runtime(&architecture, required_tools) {
+                Ok(ProjectRuntimeImagePlan::Composition(candidate)) => format!(
+                    "This project needs a verified {} runtime combining {} approved toolchain images (recipe {}). Composite execution is not yet enabled; provision and verify the project runtime before retrying.",
+                    candidate.platform,
+                    candidate.components.len(),
+                    candidate.recipe_sha256,
+                ),
+                Err(plan_error) => plan_error.message,
+                Ok(ProjectRuntimeImagePlan::Existing(_)) => error.message,
+            };
             ExecutionError::new(
                 ExecutionErrorKind::ImageUnavailable,
-                error.message,
-                error.retryable,
+                message,
+                false,
             )
         })?;
     ExecutionSession::new_with_destination_authorization(
