@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# App-owned candidate builder. Inputs are this recipe and Debian snapshot packages;
+# task repositories and their build scripts are never inputs.
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+output_dir="${1:?usage: build-image.sh OUTPUT_DIR}"
+work_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/computer-use-image.XXXXXX")"
+snapshot="20261101T000000Z"
+base_name="koolade-computer-use-guest-x86_64"
+image_size="4G"
+
+for tool in debootstrap qemu-img mkfs.ext4 mount umount grub-install chroot sha256sum parted losetup; do
+  command -v "$tool" >/dev/null || { echo "missing required builder: $tool" >&2; exit 2; }
+done
+mkdir -p "$output_dir" "$work_dir/rootfs" "$work_dir/mnt"
+loopdev=""
+cleanup() {
+  sudo umount "$work_dir/mnt" 2>/dev/null || true
+  if [[ -n "$loopdev" ]]; then sudo losetup -d "$loopdev" 2>/dev/null || true; fi
+  rm -rf "$work_dir"
+}
+trap cleanup EXIT
+
+sudo debootstrap --arch=amd64 --variant=minbase bookworm "$work_dir/rootfs" \
+  "https://snapshot.debian.org/archive/debian/${snapshot}/"
+sudo tee "$work_dir/rootfs/etc/apt/sources.list" >/dev/null <<APT
+deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/${snapshot}/ bookworm main
+deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/${snapshot}/ bookworm-updates main
+deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/${snapshot}/ bookworm-security main
+APT
+sudo chroot "$work_dir/rootfs" apt-get update
+sudo chroot "$work_dir/rootfs" env DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y
+sudo chroot "$work_dir/rootfs" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+  systemd-sysv linux-image-amd64 grub-pc-bin grub2-common \
+  xorg openbox lightdm chromium dbus-x11 fonts-liberation \
+  ca-certificates sudo locales
+sudo chroot "$work_dir/rootfs" apt-get clean
+sudo chroot "$work_dir/rootfs" useradd --create-home --shell /bin/bash --groups audio,video koolade
+sudo chroot "$work_dir/rootfs" passwd --lock koolade
+sudo chroot "$work_dir/rootfs" usermod --lock root
+sudo install -d -m 0755 "$work_dir/rootfs/etc/lightdm/lightdm.conf.d"
+sudo tee "$work_dir/rootfs/etc/lightdm/lightdm.conf.d/50-koolade-guest.conf" >/dev/null <<'LIGHTDM'
+[Seat:*]
+autologin-user=koolade
+autologin-user-timeout=0
+user-session=openbox
+LIGHTDM
+sudo install -d -m 0755 "$work_dir/rootfs/home/koolade/.config/openbox"
+sudo tee "$work_dir/rootfs/home/koolade/.config/openbox/autostart" >/dev/null <<'AUTO'
+xset -dpms
+xset s off
+AUTO
+sudo chroot "$work_dir/rootfs" chown -R koolade:koolade /home/koolade
+sudo truncate -s 0 "$work_dir/rootfs/etc/machine-id"
+sudo ln -sfn /etc/machine-id "$work_dir/rootfs/var/lib/dbus/machine-id"
+sudo rm -f "$work_dir/rootfs/var/lib/systemd/random-seed"
+sudo chroot "$work_dir/rootfs" ln -sf /usr/share/zoneinfo/UTC /etc/localtime
+sudo chroot "$work_dir/rootfs" sed -i 's/^# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+sudo chroot "$work_dir/rootfs" locale-gen en_US.UTF-8
+sudo chroot "$work_dir/rootfs" update-locale LANG=en_US.UTF-8
+sudo chroot "$work_dir/rootfs" systemctl enable lightdm
+sudo chroot "$work_dir/rootfs" systemctl disable NetworkManager systemd-networkd 2>/dev/null || true
+
+# CU-05 owns the authenticated agent. Until that artifact is reviewed, this
+# service fails closed and cannot report guest readiness.
+sudo tee "$work_dir/rootfs/etc/systemd/system/koolade-computer-use-agent.service" >/dev/null <<'UNIT'
+[Unit]
+Description=Kool.ad/e Computer Use guest companion (CU-05 required)
+After=multi-user.target
+
+[Service]
+Type=notify
+ExecStart=/usr/lib/koolade/computer-use-agent
+Restart=no
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+sudo chroot "$work_dir/rootfs" systemctl enable koolade-computer-use-agent.service
+sudo tee "$work_dir/rootfs/etc/fstab" >/dev/null <<'FSTAB'
+LABEL=rootfs / ext4 errors=remount-ro 0 1
+FSTAB
+sudo tee "$work_dir/rootfs/etc/hostname" >/dev/null <<'HOST'
+koolade-computer-use-guest
+HOST
+sudo chroot "$work_dir/rootfs" update-initramfs -u -k all
+sudo chroot "$work_dir/rootfs" dpkg-query -W -f='${Package}\t${Version}\n' | sort \
+  > "$output_dir/${base_name}.packages.tsv"
+python3 "$root_dir/containers/computer-use/make-sbom.py" \
+  "$output_dir/${base_name}.packages.tsv" "$output_dir/${base_name}.sbom.cdx.json"
+
+image="$work_dir/${base_name}.raw"
+sudo truncate -s "$image_size" "$image"
+sudo parted -s "$image" mklabel msdos mkpart primary ext4 1MiB 100% set 1 boot on
+loopdev="$(sudo losetup --find --show --partscan "$image")"
+partition="${loopdev}p1"
+for _ in $(seq 1 20); do [[ -b "$partition" ]] && break; sleep 0.25; done
+[[ -b "$partition" ]] || { echo "partition device unavailable" >&2; exit 1; }
+sudo mkfs.ext4 -F -U 00000000-0000-4000-8000-000000000379 -L rootfs "$partition"
+sudo mount "$partition" "$work_dir/mnt"
+sudo cp -a "$work_dir/rootfs/." "$work_dir/mnt/"
+sudo grub-install --target=i386-pc --boot-directory="$work_dir/mnt/boot" "$loopdev"
+sudo mkdir -p "$work_dir/mnt/boot/grub"
+sudo tee "$work_dir/mnt/boot/grub/grub.cfg" >/dev/null <<'GRUB'
+set timeout=0
+set default=0
+menuentry 'Kool.ad/e Computer Use guest' {
+  search --label rootfs --set=root
+  linux /vmlinuz root=LABEL=rootfs ro quiet
+  initrd /initrd.img
+}
+GRUB
+sudo umount "$work_dir/mnt"
+sudo losetup -d "$loopdev"
+loopdev=""
+qemu-img convert -f raw -O qcow2 -c "$image" "$output_dir/${base_name}.qcow2"
+qemu-img info --output=json "$output_dir/${base_name}.qcow2" > "$output_dir/${base_name}.qemu-info.json"
+sha256sum "$output_dir/${base_name}.qcow2" > "$output_dir/${base_name}.sha256"
+(cd "$root_dir" && sha256sum \
+  containers/computer-use/build-image.sh \
+  containers/computer-use/make-sbom.py \
+  .github/workflows/computer-use-images.yml) \
+  > "$output_dir/${base_name}.recipe-components.sha256"
+recipe_digest="$(sha256sum "$output_dir/${base_name}.recipe-components.sha256" | cut -d ' ' -f 1)"
+printf 'sha256:%s\n' "$recipe_digest" > "$output_dir/${base_name}.recipe.sha256"
+printf 'debootstrap: %s\nqemu-img: %s\ngrub-install: %s\n' \
+  "$(debootstrap --version 2>&1 | head -1)" \
+  "$(qemu-img --version | head -1)" \
+  "$(grub-install --version | head -1)" \
+  > "$output_dir/${base_name}.builder-versions.txt"
+sha256sum "$output_dir/${base_name}.sbom.cdx.json" \
+  > "$output_dir/${base_name}.sbom.sha256"
+source_revision="${GITHUB_SHA:-$(git -C "$root_dir" rev-parse HEAD)}"
+printf '%s\n' "$source_revision" > "$output_dir/${base_name}.source-revision"
+printf 'candidate image only; no CU-05 readiness or signed promotion\n' \
+  > "$output_dir/${base_name}.promotion-status.txt"

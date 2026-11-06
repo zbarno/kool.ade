@@ -4,5 +4,6 @@
 //! They describe data exchanged with a future VM controller and guest companion.
 
 mod contract;
+pub mod guest_image;
 
 pub use contract::*;

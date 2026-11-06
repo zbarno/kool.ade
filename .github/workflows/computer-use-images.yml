@@ -1,0 +1,70 @@
+name: Computer Use guest image candidate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "containers/computer-use/**"
+      - "docs/computer-use-guest-images-v1.md"
+      - ".github/workflows/computer-use-images.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install image builder tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes debootstrap qemu-utils grub-pc-bin grub2-common \
+            parted e2fsprogs
+      - name: Build unsigned candidate
+        run: containers/computer-use/build-image.sh "$RUNNER_TEMP/computer-use-image"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: computer-use-guest-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/computer-use-image/
+          if-no-files-found: error
+          retention-days: 14
+
+  attest-main-candidate:
+    needs: candidate
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: computer-use-guest-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/computer-use-image
+      - id: image
+        name: Read candidate subject digest
+        env:
+          IMAGE_RECORD: ${{ runner.temp }}/computer-use-image/koolade-computer-use-guest-x86_64.sha256
+        run: echo "digest=sha256:$(cut -d ' ' -f 1 "$IMAGE_RECORD")" >> "$GITHUB_OUTPUT"
+      - name: Attest candidate image provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: koolade-computer-use-guest-x86_64.qcow2
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: false
+          github-token: ${{ github.token }}
+      - name: Attest candidate package inventory
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: koolade-computer-use-guest-x86_64.qcow2
+          subject-digest: ${{ steps.image.outputs.digest }}
+          sbom-path: ${{ runner.temp }}/computer-use-image/koolade-computer-use-guest-x86_64.sbom.cdx.json
+          push-to-registry: false
+          github-token: ${{ github.token }}
