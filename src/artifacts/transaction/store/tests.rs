@@ -158,6 +158,24 @@ fn transaction_removals_are_atomic_and_recoverable() {
 }
 
 #[test]
+fn local_repository_knowledge_cache_does_not_advance_planning_revision() {
+    let temp = TempDir::new();
+    let root = temp.root.join("planning");
+    std::fs::create_dir_all(&root).unwrap();
+    let store = PlanningStore::new(uuid::Uuid::new_v4(), &root, StoreMode::ManagedLocal);
+    store
+        .atomic_write("planning/spec.md", b"published state")
+        .unwrap();
+    let revision = store.revision().unwrap();
+
+    store
+        .atomic_write("knowledge/repository-profiles.json", b"derived cache")
+        .unwrap();
+
+    assert_eq!(store.revision().unwrap(), revision);
+}
+
+#[test]
 fn linked_worktrees_keep_recovery_journals_scoped_to_each_store_root() {
     let temp = TempDir::new();
     let code = temp.root.join("code");

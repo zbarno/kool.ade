@@ -186,6 +186,11 @@ pub trait AiHarness: Send + Sync {
         self.execute(request)
     }
 
+    /// Whether this provider runs the optional model-directed context pass.
+    fn supports_context_retrieval(&self) -> bool {
+        false
+    }
+
     /// Select from Koolade's bounded source catalog before a main planning turn.
     /// Backends without a dedicated retrieval pass use Koolade's safe core context.
     fn plan_retrieval(
@@ -193,5 +198,14 @@ pub trait AiHarness: Send + Sync {
         _request: &PlanningRequest,
     ) -> Result<Option<RetrievalPlan>, AppError> {
         Ok(None)
+    }
+
+    /// Select context using the same request-scoped model as the main turn.
+    fn plan_retrieval_with_model(
+        &self,
+        request: &PlanningRequest,
+        _model: Option<&str>,
+    ) -> Result<Option<RetrievalPlan>, AppError> {
+        self.plan_retrieval(request)
     }
 }

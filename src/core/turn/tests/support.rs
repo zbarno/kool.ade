@@ -69,6 +69,10 @@ impl AiHarness for RetrievalPipelineHarness {
         Ok(self.label())
     }
 
+    fn supports_context_retrieval(&self) -> bool {
+        true
+    }
+
     fn plan_retrieval(&self, request: &PlanningRequest) -> Result<Option<RetrievalPlan>, AppError> {
         assert_eq!(
             request.mode,

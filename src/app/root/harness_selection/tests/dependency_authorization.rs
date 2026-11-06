@@ -1,4 +1,66 @@
 use super::*;
+
+#[test]
+fn routed_retrieval_uses_the_selected_model() {
+    use std::sync::Mutex;
+
+    struct CaptureModel(Arc<Mutex<Option<String>>>);
+    impl AiHarness for CaptureModel {
+        fn label(&self) -> String {
+            "capture".into()
+        }
+        fn check_available(&self) -> Result<String, crate::error::AppError> {
+            Ok("supported".into())
+        }
+        fn execute(
+            &self,
+            _: &crate::harness::PlanningRequest,
+        ) -> Result<crate::harness::HarnessOutcome, crate::error::AppError> {
+            unreachable!("retrieval should use its model-aware API")
+        }
+        fn supports_context_retrieval(&self) -> bool {
+            true
+        }
+        fn plan_retrieval_with_model(
+            &self,
+            _: &crate::harness::PlanningRequest,
+            model: Option<&str>,
+        ) -> Result<Option<crate::harness::RetrievalPlan>, crate::error::AppError> {
+            *self.0.lock().unwrap() = model.map(str::to_owned);
+            Ok(None)
+        }
+    }
+
+    let observed = Arc::new(Mutex::new(None));
+    let harness = RoutedHarness {
+        inner: Box::new(CaptureModel(observed.clone())),
+        harness_id: "pi".into(),
+        model: Some("selected-model".into()),
+        provenance: test_route_provenance("pi"),
+    };
+    let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
+    let request = crate::harness::PlanningRequest {
+        prompt_manifest: None,
+        mode: crate::harness::ExecutionMode::Implementation,
+        task_id: None,
+        reasoning_level: "medium".into(),
+        telemetry_phase: None,
+        repo_root: std::path::PathBuf::from("/synthetic/project"),
+        runtime_config_source: None,
+        prompt_body: String::new(),
+        system_instructions: String::new(),
+        timeout: std::time::Duration::from_secs(1),
+        progress_tx,
+        cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        execution_workspace: None,
+        destination_sha: None,
+        authorization_verifier: None,
+        review_identity: None,
+    };
+    harness.plan_retrieval(&request).unwrap();
+    assert_eq!(observed.lock().unwrap().as_deref(), Some("selected-model"));
+}
+
 #[test]
 fn alternate_qa_harness_runs_read_only_when_verifying_implementation() {
     use std::sync::Mutex;

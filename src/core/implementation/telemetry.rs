@@ -229,6 +229,10 @@ impl Drop for ActiveSpan {
 mod tests;
 
 impl AiHarness for CaptureHarness<'_> {
+    fn supports_context_retrieval(&self) -> bool {
+        self.inner.supports_context_retrieval()
+    }
+
     fn route_provenance(
         &self,
         request: &PlanningRequest,
@@ -255,6 +259,14 @@ impl AiHarness for CaptureHarness<'_> {
         request: &PlanningRequest,
     ) -> Result<Option<RetrievalPlan>, crate::error::AppError> {
         self.inner.plan_retrieval(request)
+    }
+
+    fn plan_retrieval_with_model(
+        &self,
+        request: &PlanningRequest,
+        model: Option<&str>,
+    ) -> Result<Option<RetrievalPlan>, crate::error::AppError> {
+        self.inner.plan_retrieval_with_model(request, model)
     }
 
     fn execute(&self, request: &PlanningRequest) -> Result<HarnessOutcome, crate::error::AppError> {

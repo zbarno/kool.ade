@@ -41,6 +41,19 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
             &provider_readiness::manager_route_evidence(project),
         ),
     ];
+    if requests_repository_profile(goal)
+        && let Some(content) =
+            crate::core::context_retrieval::manager_profile_summary(&project.state)
+    {
+        items.push(EvidenceItem {
+            id: "repository-architecture-profile".into(),
+            workspace_uid: workspace_uid.clone(),
+            origin: EvidenceOrigin::Application,
+            confidentiality: EvidenceConfidentiality::WorkspacePrivate,
+            source: "revision-pinned local repository architecture profile".into(),
+            content,
+        });
+    }
     items.extend(telemetry::regression_evidence(project, &workspace_uid));
     items.extend(dependency_request_evidence(project, &workspace_uid));
     let feature_uids = project
@@ -158,6 +171,24 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
         });
     }
     items
+}
+
+fn requests_repository_profile(goal: &str) -> bool {
+    let goal = goal.to_ascii_lowercase();
+    [
+        "architecture",
+        "repository",
+        "codebase",
+        "entry point",
+        "subsystem",
+        "implemented",
+        "source code",
+        "project structure",
+        "dependencies",
+        "build system",
+    ]
+    .iter()
+    .any(|term| goal.contains(term))
 }
 
 fn capability_lookup_evidence(

@@ -26,6 +26,7 @@ pub mod opportunity;
 pub mod prompt;
 pub mod reconciliation;
 pub mod repo_overview;
+pub mod repository_knowledge;
 pub mod routing;
 pub mod self_improvement;
 pub mod state;
