@@ -49,9 +49,30 @@ identity. Protected host paths include the user home, SSH material, Docker
 socket, application configuration and secret state, planning data, and code
 repositories. No host home, Docker socket, SSH agent, device passthrough,
 arbitrary host path, shell string, hypervisor argv, provider credential, or
-cloud token crosses the guest contract. Image trust, guest-channel
-authentication, lifecycle cleanup, and network enforcement are backend
-obligations, not claims made by this schema.
+cloud token crosses the guest contract. Guest-channel authentication,
+lifecycle cleanup, and network enforcement remain backend obligations.
+
+## Image provenance decision
+
+Only an app-owned trusted image catalog may select a guest image. A model,
+task, or user supplied digest is never an image selection. CU-03 owns a
+versioned signed manifest containing each immutable image digest, target
+architecture, guest release, source/recipe revision, and build-attestation
+reference. The manifest signer is a release key pinned by the signed Kool.ad/e
+application distribution; key rotation requires a signed application update.
+The build must publish provenance tied to the exact resulting digest.
+
+Before launching, the host verifier checks the manifest signature against the
+pinned release key, its schema and architecture, and that the requested image
+digest is an exact catalog entry. The controller issues a session only for
+that verified entry. `ComputerSessionV1` binds the image digest, manifest
+digest, and manifest signer key ID into its controller signature; the host
+also rechecks the manifest before launch. A valid controller signature alone
+does not establish image provenance. Missing, revoked, mismatched, or
+unverifiable manifest evidence fails closed. Session evidence may reference
+the verification receipt, but the receipt cannot substitute for manifest
+verification. CU-03 defines the concrete manifest/build-attestation format;
+CU-04 consumes it without network discovery or unsigned-image fallback.
 
 ## Contract summary
 
@@ -59,7 +80,8 @@ obligations, not claims made by this schema.
 fields; enum variants are closed; each top-level contract has an explicit
 version. `ComputerIdentityV1` binds project, task, user, and session UUIDs.
 `ComputerTargetV1` currently describes only local KVM. `ComputerSessionV1`
-binds the immutable image digest, class, network profile, app allowlist,
+binds the immutable image digest and approved manifest identity, class,
+network profile, app allowlist,
 controller-issued policy and lease, lifecycle, action/cancellation/approval
 generations, and evidence references. No host path or arbitrary launch command
 is representable.
@@ -70,8 +92,9 @@ guest, repository, or worker. A host accepts a session only after
 `validate_for_host` succeeds with a public key selected by signer key ID from
 its trusted registry. The signature uses the domain prefix
 `koolade.computer-session.v1\0` followed by compact UTF-8 JSON with object keys
-lexicographically sorted. It covers identity, target, image, policy, lease,
-generations, lifecycle, and evidence references. The test fixture signature is
+lexicographically sorted. It covers identity, target, image digest, approved
+manifest digest and signer identity, policy, lease, generations, lifecycle,
+and evidence references. The test fixture signature is
 synthetic; it is not a trusted release key.
 
 `ComputerPolicyV1` models the ordered capability ceiling:
@@ -191,7 +214,8 @@ stateDiagram-v2
 fixture. The `computer_use_wire_contract` integration test crosses the public
 Rust API/serde boundary, checks canonical re-encoding, and rejects unknown
 security fields. It also signs a session with a deterministic test-only key,
-then confirms that changing the image invalidates the attestation. Unit tests
+then confirms that changing the image or approved manifest identity invalidates
+the attestation. Unit tests
 exercise policy narrowing, bounds, and lifecycle edges. These tests need no Docker, KVM, SSH, or network service and have low
 setup cost. They prove data contract behavior only; a real VM trust-boundary
 test belongs to the integrated release suite and remains deferred.

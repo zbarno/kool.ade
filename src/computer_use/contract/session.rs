@@ -42,6 +42,10 @@ pub struct ComputerSessionV1 {
     pub session_class: ComputerSessionClassV1,
     pub target: ComputerTargetV1,
     pub image_digest: String,
+    /// Digest of the approved, signed image manifest from which this image was selected.
+    pub image_manifest_digest: String,
+    /// Release-key identity recorded by that manifest and checked against the host trust store.
+    pub image_signer_key_id: String,
     pub network_profile: super::ComputerNetworkProfileV1,
     pub allowed_apps: std::collections::BTreeSet<String>,
     pub policy: ComputerPolicyV1,
@@ -85,8 +89,12 @@ impl ComputerSessionV1 {
         let machine_id = match &self.target {
             ComputerTargetV1::LocalKvm { machine_id } => machine_id,
         };
-        if !is_uuid(machine_id) || !valid_digest(&self.image_digest) {
-            return Err("invalid target or pinned image digest");
+        if !is_uuid(machine_id)
+            || !valid_digest(&self.image_digest)
+            || !valid_digest(&self.image_manifest_digest)
+            || !is_uuid(&self.image_signer_key_id)
+        {
+            return Err("invalid target or pinned image provenance");
         }
         if self.evidence_refs.len() > 128 || self.evidence_refs.iter().any(|id| !is_uuid(id)) {
             return Err("invalid evidence references");
@@ -158,6 +166,8 @@ struct UnsignedComputerSessionV1<'a> {
     session_class: ComputerSessionClassV1,
     target: &'a ComputerTargetV1,
     image_digest: &'a str,
+    image_manifest_digest: &'a str,
+    image_signer_key_id: &'a str,
     network_profile: super::ComputerNetworkProfileV1,
     allowed_apps: &'a std::collections::BTreeSet<String>,
     policy: &'a ComputerPolicyV1,
@@ -177,6 +187,8 @@ impl<'a> From<&'a ComputerSessionV1> for UnsignedComputerSessionV1<'a> {
             session_class: session.session_class,
             target: &session.target,
             image_digest: &session.image_digest,
+            image_manifest_digest: &session.image_manifest_digest,
+            image_signer_key_id: &session.image_signer_key_id,
             network_profile: session.network_profile,
             allowed_apps: &session.allowed_apps,
             policy: &session.policy,

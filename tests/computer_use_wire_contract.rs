@@ -22,6 +22,12 @@ fn golden_wire_contracts_validate_and_round_trip_without_shape_drift() {
     assert_eq!(lease.validate(1_050_000), Ok(()));
     assert_eq!(policy.validate(), Ok(()));
     assert_eq!(session.validate(1_050_000), Ok(()));
+    let mut unpinned_manifest = session.clone();
+    unpinned_manifest.image_manifest_digest = "unverified".into();
+    assert!(unpinned_manifest.validate(1_050_000).is_err());
+    let mut malformed_image_signer_id = session.clone();
+    malformed_image_signer_id.image_signer_key_id = "untrusted-key".into();
+    assert!(malformed_image_signer_id.validate(1_050_000).is_err());
     assert_eq!(action.validate(&session, 1_050_000), Ok(()));
     assert_eq!(
         action.validate_as(ComputerActionActorV1::Agent, &session, 1_050_000),
@@ -386,6 +392,19 @@ fn controller_attestation_binds_identity_policy_lease_target_and_image() {
     session
         .validate_for_host(1_050_000, key_id, &verifying_key)
         .unwrap();
+
+    let mut changed_manifest = session.clone();
+    changed_manifest.image_manifest_digest = format!("sha256:{}", "d".repeat(64));
+    assert_eq!(
+        changed_manifest.verify_attestation(key_id, &verifying_key),
+        Err("controller session attestation is invalid")
+    );
+    let mut changed_signer = session.clone();
+    changed_signer.image_signer_key_id = "00000000-0000-4000-8000-000000000013".into();
+    assert_eq!(
+        changed_signer.verify_attestation(key_id, &verifying_key),
+        Err("controller session attestation is invalid")
+    );
 
     session.image_digest = format!("sha256:{}", "c".repeat(64));
     assert_eq!(

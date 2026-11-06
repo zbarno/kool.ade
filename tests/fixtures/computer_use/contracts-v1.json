@@ -47,6 +47,8 @@
     "session_class": "disposable",
     "target": {"kind": "local_kvm", "machine_id": "00000000-0000-4000-8000-000000000006"},
     "image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "image_manifest_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "image_signer_key_id": "00000000-0000-4000-8000-000000000012",
     "network_profile": "disabled",
     "allowed_apps": ["text-editor"],
     "policy": {
@@ -87,7 +89,7 @@
     "evidence_refs": [],
     "controller_proof": {
       "signer_key_id": "00000000-0000-4000-8000-000000000011",
-      "signature_hex": "62b6d09ab1eac1f085bdcc4a0374503ed96917555b2817a6135720e578ce93e62db8c17337c305c3575738effafc3a32e528579964e9aff1d047064c48fe5907"
+      "signature_hex": "dd64341621c413dade2462f6b5e6a430b2c70866f1007e9ad45e7e17605b1934c67f38e85894b7f861f5c1d98c7294a05989adee8dfc817301baf3bb35578d0a"
     }
   },
   "action": {
