@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+output=""
+url=""
+while (($#)); do
+  case "$1" in
+    -O)
+      (($# >= 2)) || { echo "wget adapter requires an output path" >&2; exit 2; }
+      output="$2"
+      shift 2
+      ;;
+    -q|-nv|--verbose)
+      shift
+      ;;
+    -*)
+      echo "unsupported wget adapter option: $1" >&2
+      exit 2
+      ;;
+    *)
+      [[ -z "$url" ]] || { echo "wget adapter accepts one URL" >&2; exit 2; }
+      url="$1"
+      shift
+      ;;
+  esac
+done
+
+[[ -n "$output" && "$url" == https://snapshot.debian.org/* ]] || {
+  echo "wget adapter only accepts a destination and pinned Debian snapshot URL" >&2
+  exit 2
+}
+
+curl_download() {
+  curl --fail --location --silent --show-error --retry 3 --retry-all-errors \
+    --retry-delay 2 --connect-timeout 15 --max-time 180 \
+    --output "$output" "$1"
+}
+
+if curl_download "$url"; then
+  exit 0
+fi
+rm -f -- "$output"
+
+# Keep signed snapshot metadata authoritative. A pool mirror may supply package
+# bytes only; debootstrap checks each payload against the signed Packages hash.
+snapshot_prefix="https://snapshot.debian.org/archive/debian/"
+if [[ "$url" == "$snapshot_prefix"* ]]; then
+  snapshot_path="${url#"$snapshot_prefix"}"
+  snapshot_id="${snapshot_path%%/*}"
+  package_path="${snapshot_path#*/}"
+  if [[ "$snapshot_id" =~ ^[0-9]{8}T[0-9]{6}Z$ && "$package_path" == pool/* ]]; then
+    fallback_url="https://deb.debian.org/debian/$package_path"
+    echo "snapshot package request failed; trying hash-checked Debian pool mirror" >&2
+    curl_download "$fallback_url" && exit 0
+  fi
+fi
+exit 1

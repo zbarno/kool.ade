@@ -6,6 +6,7 @@
 - [chg-001-acceptance-evidence.md](./chg-001-acceptance-evidence.md) - Read for CHG-001 acceptance evidence.
 - [coding-tools.md](./coding-tools.md) - Read for Coding tool discovery.
 - [computer-use-architecture-v1.md](./computer-use-architecture-v1.md) - Read for Computer Use v1 architecture and security boundaries.
+- [computer-use-guest-images-v1.md](./computer-use-guest-images-v1.md) - Read for Computer Use signed guest image catalogs, cache, and overlays.
 - [computer-use-readiness-v1.md](./computer-use-readiness-v1.md) - Read for Computer Use machine readiness probe boundaries and current limitations.
 - [computer-use-threat-model-v1.md](./computer-use-threat-model-v1.md) - Read for Computer Use v1 threat model and validation gates.
 - [docker-cutover-checklist.md](./docker-cutover-checklist.md) - Read for Docker cutover and release checklist.
