@@ -7,20 +7,25 @@ use std::{
 
 use ed25519_dalek::VerifyingKey;
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::computer_use::ComputerSessionV1;
 
 use super::{
     ComputerGuestArchitectureV1, GuestImageManifestTrustV1, ImageCacheErrorV1,
-    cache::{CachedGuestImageV1, GuestImageCacheV1},
+    cache::GuestImageCacheV1,
     manifest::verify_guest_image_manifest,
     process::{QemuImageToolV1, QemuProcessError, run_qemu},
 };
 
 mod types;
+mod verification;
 pub use types::{GuestImageOverlayErrorV1, GuestImageOverlayRequestV1, GuestImageOverlayV1};
+use verification::validate_base_image;
+pub use verification::verify_guest_image_overlay_before_boot;
+pub(super) use verification::verify_overlay_before_boot;
+#[cfg(test)]
+pub(crate) use verification::verify_overlay_before_boot_with_tool;
 
 struct OverlayCreationCleanup {
     path: PathBuf,
@@ -36,7 +41,7 @@ impl Drop for OverlayCreationCleanup {
 }
 
 #[derive(Deserialize)]
-struct QemuImageInfo {
+pub(super) struct QemuImageInfo {
     format: String,
     #[serde(rename = "virtual-size")]
     virtual_size: u64,
@@ -117,7 +122,7 @@ fn create_guest_image_overlay_at(
     set_read_only(image.path())?;
     let canonical_base =
         fs::canonicalize(image.path()).map_err(|_| GuestImageOverlayErrorV1::UnsafePath)?;
-    let overlay_path = overlay_root.join(format!("{}.qcow2", Uuid::new_v4()));
+    let overlay_path = overlay_root.join(format!("{}-{}.qcow2", session_id, Uuid::new_v4()));
     if fs::symlink_metadata(&overlay_path).is_ok() {
         return Err(GuestImageOverlayErrorV1::UnsafePath);
     }
@@ -180,6 +185,13 @@ fn create_guest_image_overlay_at(
         session_id: session_id.to_owned(),
         path: overlay_path,
         directory: overlay_root.to_path_buf(),
+        base_image_path: canonical_base,
+        base_artifact_size_bytes: image.entry().artifact_size_bytes,
+        image_digest: verified.entry().image_digest.clone(),
+        manifest_digest: verified.manifest_digest().to_owned(),
+        signer_key_id: verified.manifest_signer_key_id().to_owned(),
+        catalog_generation: verified.catalog_generation(),
+        virtual_size_bytes: decoded.virtual_size,
     })
 }
 
@@ -221,31 +233,6 @@ fn map_qemu_error(error: QemuProcessError) -> GuestImageOverlayErrorV1 {
         }
         QemuProcessError::Failed => GuestImageOverlayErrorV1::QemuImageFailed,
     }
-}
-
-fn validate_base_image(image: &CachedGuestImageV1) -> Result<(), GuestImageOverlayErrorV1> {
-    let metadata =
-        fs::symlink_metadata(image.path()).map_err(|_| GuestImageOverlayErrorV1::UnsafePath)?;
-    if !metadata.file_type().is_file() || metadata.len() != image.entry().artifact_size_bytes {
-        return Err(GuestImageOverlayErrorV1::BaseImageChanged);
-    }
-    let mut file = File::open(image.path()).map_err(|_| GuestImageOverlayErrorV1::Io)?;
-    let mut digest = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        use std::io::Read;
-        let count = file
-            .read(&mut buffer)
-            .map_err(|_| GuestImageOverlayErrorV1::Io)?;
-        if count == 0 {
-            break;
-        }
-        digest.update(&buffer[..count]);
-    }
-    if format!("sha256:{:x}", digest.finalize()) != image.entry().image_digest {
-        return Err(GuestImageOverlayErrorV1::BaseImageChanged);
-    }
-    Ok(())
 }
 
 fn validate_private_directory(path: &Path) -> Result<(), GuestImageOverlayErrorV1> {

@@ -103,7 +103,6 @@ if [ "$1" = create ]; then
 fi
 if [ "$1" = info ]; then
   printf '{"format":"qcow2","virtual-size":2147483648,"backing-filename-format":"qcow2","backing-filename":"%s"}' "$(cat "$3.backing")"
-  rm -f "$3.backing"
   exit 0
 fi
 exit 2
@@ -180,6 +179,18 @@ fn launch_reverifies_fresh_manifest_and_creates_independent_overlays() {
     assert_ne!(first.path(), second.path());
     assert!(first.path().is_file() && second.path().is_file());
     assert_eq!(fs::read(cached.path()).unwrap(), artifact);
+    super::super::super::guest_image::overlay::verify_overlay_before_boot_with_tool(&first, &qemu)
+        .unwrap();
+    super::super::super::guest_image::overlay::verify_overlay_before_boot_with_tool(&second, &qemu)
+        .unwrap();
+    fs::set_permissions(cached.path(), fs::Permissions::from_mode(0o600)).unwrap();
+    fs::write(cached.path(), b"changed image bytes").unwrap();
+    assert_eq!(
+        super::super::super::guest_image::overlay::verify_overlay_before_boot_with_tool(
+            &first, &qemu,
+        ),
+        Err(crate::computer_use::guest_image::GuestImageOverlayErrorV1::BaseImageChanged)
+    );
     assert_eq!(
         fs::metadata(first.path()).unwrap().permissions().mode() & 0o777,
         0o600
