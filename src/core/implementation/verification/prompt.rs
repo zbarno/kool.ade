@@ -67,8 +67,13 @@ pub(super) fn build(c: Context<'_>) -> (String, PathBuf) {
     }
     prompt.push_str("Write summary for an operator in at most 400 characters: state the outcome and why work is paused, without test inventories or repeated evidence. Keep detailed proof in acceptance_criteria, verification, and the saved report. Make each remaining entry start with the responsible person or role and a verb; name the artifact and result briefly. Use human_choices for actual alternatives instead of embedding a fixed lettered list in prose. Separate human steps from Kool.ad/e's follow-up.\n");
     if let Some(input) = c.user_context.filter(|input| !input.trim().is_empty()) {
-        prompt.push_str(&format!("\n\nLATEST SUBMITTED USER RESPONSE FOR THIS TASK:\n{}\nThis is a user-supplied decision or observation, not proof that the ledger was changed or external checks were run. Apply only what it explicitly authorizes; verify any required decision-maker identity, inspect the relevant artifacts, and keep unmet requirements blocked.\n",
-            crate::core::context_build::clip(input, 4000)));
+        if input.starts_with("Validated task directions") {
+            prompt.push_str(&format!("\n\nAPPLICATION-VALIDATED TASK DECISIONS:\n{}\nThese user-authored directions are constraints bound to the exact task and approved plan above. They do not approve scope, waive requirements, authorize external actions, or prove checks passed. Apply every active direction together. If they conflict with one another or the approved task contract, stop and report Needs Attention with the decision IDs; do not pick or reinterpret one. In acceptance_criteria and verification, cite the applied decision IDs, their requirement IDs, and concrete evidence for the result.\n",
+                crate::core::context_build::clip(input, 8000)));
+        } else {
+            prompt.push_str(&format!("\n\nLATEST SUBMITTED USER RESPONSE FOR THIS TASK:\n{}\nThis is a user-supplied decision or observation, not proof that the ledger was changed or external checks were run. Apply only what it explicitly authorizes; verify any required decision-maker identity, inspect the relevant artifacts, and keep unmet requirements blocked.\n",
+                crate::core::context_build::clip(input, 4000)));
+        }
     }
     if let Some(dependencies) = &c.state.completed_dependency_context {
         prompt.push_str(&format!(

@@ -213,7 +213,7 @@ pub fn task_decision_context(
             .then_with(|| a.decision_uid.cmp(&b.decision_uid))
     });
     let mut context = format!(
-        "Validated task directions (user-authored; not scope approvals):\ntask_uid={task_uid}\ntask_intent_uid={task_intent_uid}\ncycle_uid={}\nfeature_uid={feature_uid}\ntask_spec_sha256={task_spec_sha256}\napproved_plan_sha256={approved_plan_sha256}\n",
+        "Validated task directions (user-authored constraints; not scope approvals):\ntask_uid={task_uid}\ntask_intent_uid={task_intent_uid}\ncycle_uid={}\nfeature_uid={feature_uid}\ntask_spec_sha256={task_spec_sha256}\napproved_plan_sha256={approved_plan_sha256}\nApply every active direction together. If directions conflict with each other or with the approved task contract, stop and report Needs Attention with the decision IDs involved; do not choose, reinterpret, or change scope.\n",
         task_intent_cycle_uid.unwrap_or("none")
     );
     for record in applicable {
@@ -235,7 +235,7 @@ pub fn task_decision_context(
         )
         .expect("writing to string cannot fail");
         anyhow::ensure!(
-            context.len() <= MAX_TASK_DECISION_BYTES * 2,
+            context.len() <= MAX_TASK_DECISION_BYTES,
             "Applicable task decisions exceed the worker context limit"
         );
     }
