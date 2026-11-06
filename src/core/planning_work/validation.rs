@@ -19,6 +19,33 @@ pub(super) fn validate(work: &[Work]) -> anyhow::Result<()> {
         if let Some(recovery) = &item.operational_recovery {
             super::operational_recovery::validate(item, recovery)?;
         }
+        if !item.task_decisions.is_empty() {
+            anyhow::ensure!(
+                item.task_intent_root_uid() == Some(item.uid.as_str()),
+                "Only a TaskIntent root may store task decisions"
+            );
+            anyhow::ensure!(
+                item.task_decisions.len() <= 256,
+                "TaskIntent has too many task decisions"
+            );
+            let mut decisions = std::collections::BTreeSet::new();
+            for decision in &item.task_decisions {
+                decision.validate()?;
+                anyhow::ensure!(
+                    decision.task_intent_uid == item.uid
+                        && decisions.insert(decision.decision_uid.as_str()),
+                    "Task decision identity or ownership is invalid"
+                );
+                if let Some(cycle_uid) = &decision.task_intent_cycle_uid {
+                    anyhow::ensure!(
+                        item.task_intent_cycles
+                            .iter()
+                            .any(|cycle| &cycle.uid == cycle_uid),
+                        "Task decision references an unknown TaskIntent cycle"
+                    );
+                }
+            }
+        }
         match (&item.kind, &item.code_review_disposition) {
             (WorkKind::CodeReviewDisposition, Some(disposition)) => {
                 anyhow::ensure!(

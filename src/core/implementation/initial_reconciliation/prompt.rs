@@ -23,10 +23,17 @@ pub(super) fn build(
         clipped(diff, 12000)
     );
     if let Some(input) = user_context.filter(|text| !text.trim().is_empty()) {
-        prompt.push_str(&format!(
-            "\nLATEST USER RESPONSE FOR THIS TASK:\n{}\nApply only the decision it explicitly authorizes; it is not proof that reconciliation or checks have succeeded.\n",
-            clipped(input, 4000)
-        ));
+        if input.starts_with("Validated task directions") {
+            prompt.push_str(&format!(
+                "\nAPPLICATION-VALIDATED TASK DECISIONS:\n{}\nThese directions are constraints bound to the exact task and approved plan. They do not authorize scope changes or prove reconciliation succeeded. Apply them together; if they conflict with one another or the approved task contract, report blocked for human action and do not choose one. Cite decision IDs, requirement IDs, and preservation evidence in the report.\n",
+                clipped(input, 8000)
+            ));
+        } else {
+            prompt.push_str(&format!(
+                "\nLATEST USER RESPONSE FOR THIS TASK:\n{}\nApply only the decision it explicitly authorizes; it is not proof that reconciliation or checks have succeeded.\n",
+                clipped(input, 4000)
+            ));
+        }
     }
     if !feedback.is_empty() {
         prompt.push_str(&format!(

@@ -1,6 +1,50 @@
 //! Save an explicit implementation decision without launching a planner turn.
 use super::{ChatMessage, ChatRole, KooladeApp, Screen};
+use sha2::Digest as _;
 
+pub(super) fn task_context(
+    planning: &crate::artifacts::planning_store::PlanningStore,
+    document: &crate::artifacts::task_docs::TaskDocument,
+) -> anyhow::Result<Option<String>> {
+    let Some(metadata) = document.metadata.as_ref() else {
+        return Ok(None);
+    };
+    let Some(task_intent_uid) = metadata.task_intent_uid.as_deref() else {
+        return Ok(None);
+    };
+    let task = crate::core::lifecycle::LifecycleStore::new(planning).load_task(&metadata.uid)?;
+    let work = crate::core::planning_work::load(planning)?;
+    let root = work
+        .iter()
+        .find(|item| item.uid == task_intent_uid)
+        .ok_or_else(|| anyhow::anyhow!("TaskIntent decision owner is missing"))?;
+    anyhow::ensure!(
+        root.feature_uid
+            .as_deref()
+            .is_none_or(|uid| uid == task.feature_uid),
+        "Task decision feature identity does not match its TaskIntent"
+    );
+    if root.task_decisions.iter().any(|decision| {
+        decision.task_uid == task.task_uid
+            && decision.status == crate::core::planning_work::TaskDecisionStatusV1::Active
+    }) {
+        anyhow::ensure!(
+            root.task_intent_cycle_uid.as_deref() == metadata.task_intent_cycle_uid.as_deref(),
+            "Task decisions are stale for the current TaskIntent cycle"
+        );
+    }
+    crate::core::planning_work::task_decision_context(
+        &root.task_decisions,
+        &task.task_uid,
+        task_intent_uid,
+        metadata.task_intent_cycle_uid.as_deref(),
+        &task.feature_uid,
+        task.task_spec_sha256.as_deref().unwrap_or_default(),
+        &task.approved_plan_sha256,
+    )
+}
+
+#[cfg(test)]
 pub(super) fn latest_context(messages: &[ChatMessage], user_name: &str) -> Option<String> {
     let epoch = messages
         .iter()
@@ -32,6 +76,7 @@ pub(super) fn latest_context(messages: &[ChatMessage], user_name: &str) -> Optio
         .map(|message| format_answer(message, user_name))
 }
 
+#[cfg(test)]
 fn format_answer(message: &ChatMessage, user_name: &str) -> String {
     format!(
         "Submitted at {} by {}:\n{}",
@@ -45,6 +90,7 @@ fn format_answer(message: &ChatMessage, user_name: &str) -> String {
     )
 }
 
+#[cfg(test)]
 pub(super) fn latest_context_for(
     messages: &[ChatMessage],
     user_name: &str,
@@ -126,11 +172,111 @@ impl KooladeApp {
         message.answer_context = detail.map(|detail| {
             crate::core::attention::answer_context(&project.state.repo_root, key, detail)
         });
+        let Some(metadata) = project
+            .task_documents
+            .iter()
+            .find(|document| document.path == key)
+            .and_then(|document| document.metadata.as_ref())
+        else {
+            if let Err(error) = project
+                .task_chats
+                .append(&project.chat_slug, key, vec![message])
+            {
+                self.toasts.warning(error);
+                return false;
+            }
+            self.toasts.warning(
+                "Saved this direction to task chat, but it will not guide a worker until task identity is repaired.",
+            );
+            return false;
+        };
+        let (Some(task_intent_uid), Some(source_context)) = (
+            metadata.task_intent_uid.as_deref(),
+            message.answer_context.as_deref(),
+        ) else {
+            if let Err(error) = project
+                .task_chats
+                .append(&project.chat_slug, key, vec![message])
+            {
+                self.toasts.warning(error);
+                return false;
+            }
+            self.toasts.warning(
+                "Saved this direction to task chat, but it will not guide a worker without a current TaskIntent and blocker scope.",
+            );
+            return false;
+        };
+        if text.len() > crate::core::planning_work::MAX_TASK_DECISION_BYTES {
+            self.toasts
+                .warning("This implementation direction is too large to save safely.");
+            return false;
+        }
+        let lifecycle = crate::core::lifecycle::LifecycleStore::new(&project.state.planning_store);
+        let task = match lifecycle.load_task(&metadata.uid) {
+            Ok(task) => task,
+            Err(error) => {
+                self.toasts
+                    .warning(format!("Cannot validate this task direction: {error}"));
+                return false;
+            }
+        };
+        let Some(task_spec_sha256) = task.task_spec_sha256.as_deref() else {
+            self.toasts
+                .warning("Cannot save a task direction before the task contract is validated.");
+            return false;
+        };
+        let created_at_unix_ms = chrono::Utc::now().timestamp_millis().max(1) as u64;
+        let decision = crate::core::planning_work::TaskDecisionRecordV1 {
+            schema_version: 1,
+            decision_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
+            task_uid: task.task_uid.clone(),
+            task_intent_uid: task_intent_uid.to_owned(),
+            task_intent_cycle_uid: metadata.task_intent_cycle_uid.clone(),
+            feature_uid: task.feature_uid.clone(),
+            task_spec_sha256: task_spec_sha256.to_owned(),
+            approved_plan_sha256: task.approved_plan_sha256.clone(),
+            source_message_id: message.id.clone(),
+            source_context_sha256: format!("{:x}", sha2::Sha256::digest(source_context.as_bytes())),
+            source:
+                crate::core::planning_work::TaskDecisionSourceV1::ExplicitImplementationDirection,
+            authority: crate::core::lifecycle::GateActor::User,
+            authorization_receipt: crate::core::planning_work::TaskDecisionAuthorityReceiptV1 {
+                schema_version: 1,
+                receipt_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
+                task_uid: task.task_uid.clone(),
+                task_intent_uid: task_intent_uid.to_owned(),
+                feature_uid: task.feature_uid.clone(),
+                task_spec_sha256: task_spec_sha256.to_owned(),
+                approved_plan_sha256: task.approved_plan_sha256.clone(),
+                source_context_sha256: format!(
+                    "{:x}",
+                    sha2::Sha256::digest(source_context.as_bytes())
+                ),
+                source_message_id: message.id.clone(),
+                subject_sha256: format!("{:x}", sha2::Sha256::digest(text.as_bytes())),
+                recorded_at_unix_ms: created_at_unix_ms,
+            },
+            affected_requirement_ids: task.approved_requirement_ids.clone(),
+            created_at_unix_ms,
+            created_revision: 0,
+            status: crate::core::planning_work::TaskDecisionStatusV1::Active,
+            text: text.clone(),
+        };
         if let Err(error) = project
             .task_chats
             .append(&project.chat_slug, key, vec![message])
         {
             self.toasts.warning(error);
+            return false;
+        }
+        if let Err(error) = crate::core::planning_work::save_task_decision(
+            &project.state.planning_store,
+            task_intent_uid,
+            decision,
+        ) {
+            self.toasts.warning(format!(
+                "Cannot persist this implementation direction: {error:#}"
+            ));
             return false;
         }
         project.task_chats.drafts.remove(key);
@@ -143,112 +289,4 @@ impl KooladeApp {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn newest_typed_free_text_answer_supersedes_an_older_option() {
-        let mut option = ChatMessage::new(ChatRole::User, "I choose option (old): Old plan.", None);
-        option.answer_context = Some("current".into());
-        let mut correction =
-            ChatMessage::new(ChatRole::User, "My answer: Use the label Why?", None);
-        correction.answer_context = Some("current".into());
-        let context = latest_context_for(&[option, correction], "Morgan", Some("current")).unwrap();
-        assert!(context.contains("Use the label Why?"));
-        assert!(!context.contains("Old plan"));
-    }
-
-    #[test]
-    fn legacy_answers_are_reused_only_for_their_matching_attention_event() {
-        let mut event =
-            ChatMessage::new(ChatRole::Agent, "A saved question needs an answer.", None);
-        event.id = "needs-attention:legacy".into();
-        let answer = ChatMessage::new(
-            ChatRole::User,
-            "I choose option (keep): Keep the plan.",
-            None,
-        );
-        let mut messages = vec![event, answer];
-        assert!(latest_context_for(&messages, "Morgan", Some("needs-attention:legacy")).is_some());
-        assert!(latest_context_for(&messages, "Morgan", Some("needs-attention:other")).is_none());
-        let mut question =
-            ChatMessage::new(ChatRole::User, "Please explain the consequences", None);
-        question.clarification = true;
-        messages.push(question);
-        assert!(
-            latest_context_for(&messages, "Morgan", Some("needs-attention:legacy"))
-                .unwrap()
-                .contains("Keep the plan")
-        );
-    }
-
-    #[test]
-    fn a_clarification_statement_is_never_an_answer() {
-        let mut question = ChatMessage::new(
-            ChatRole::User,
-            "I choose option (keep): explain that option",
-            None,
-        );
-        question.clarification = true;
-        question.answer_context = Some("current".into());
-        assert!(latest_context_for(&[question], "Morgan", Some("current")).is_none());
-    }
-
-    #[test]
-    fn typed_answers_are_scoped_even_without_a_new_attention_message() {
-        let mut answer = ChatMessage::new(ChatRole::User, "I choose option (keep): Keep it.", None);
-        answer.answer_context = Some("old-blocker".into());
-        let mut messages = vec![answer];
-        assert!(latest_context_for(&messages, "Morgan", Some("new-blocker")).is_none());
-        assert!(latest_context_for(&messages, "Morgan", Some("old-blocker")).is_some());
-        messages.push(ChatMessage::new(ChatRole::User, "What happens next?", None));
-        assert!(
-            latest_context_for(&messages, "Morgan", Some("old-blocker"))
-                .unwrap()
-                .contains("Keep it")
-        );
-        let restored: Vec<ChatMessage> =
-            serde_json::from_str(&serde_json::to_string(&messages).unwrap()).unwrap();
-        assert_eq!(
-            latest_context_for(&restored, "Morgan", Some("old-blocker")),
-            latest_context_for(&messages, "Morgan", Some("old-blocker"))
-        );
-    }
-
-    #[test]
-    fn a_new_blocker_does_not_reuse_a_previous_answer() {
-        let messages = [
-            ChatMessage::new(ChatRole::User, "I choose option (keep): Keep it.", None),
-            ChatMessage::new(
-                ChatRole::Agent,
-                "## What Happened\nA different question needs an answer.",
-                None,
-            ),
-        ];
-        assert!(latest_context(&messages, "Morgan").is_none());
-    }
-
-    #[test]
-    fn clarification_does_not_replace_an_explicit_answer() {
-        let messages = [
-            ChatMessage::new(ChatRole::User, "I choose option (keep): Keep it.", None),
-            ChatMessage::new(ChatRole::User, "What happens next?", None),
-        ];
-        let context = latest_context(&messages, "Morgan").unwrap();
-        assert!(context.contains("I choose option (keep)"));
-        assert!(!context.contains("What happens next?"));
-    }
-
-    #[test]
-    fn implementation_context_uses_only_the_latest_user_reply() {
-        let messages = [
-            ChatMessage::new(ChatRole::User, "old answer", None),
-            ChatMessage::new(ChatRole::Agent, "clarification", None),
-            ChatMessage::new(ChatRole::User, "I choose option (b)", None),
-        ];
-        let context = latest_context(&messages, "Morgan").unwrap();
-        assert!(context.contains("Morgan"));
-        assert!(context.contains("I choose option (b)"));
-        assert!(!context.contains("old answer"));
-    }
-}
+mod tests;

@@ -18,27 +18,6 @@ impl KooladeApp {
             return;
         }
         if let Screen::Connected(p) = &mut self.screen {
-            let detail = p
-                .queue
-                .blocked
-                .get(&ticket)
-                .map(|failure| failure.message.as_str())
-                .or_else(|| {
-                    p.implementation_states
-                        .get(&ticket)
-                        .filter(|state| {
-                            state.status
-                                == crate::core::implementation::ImplementationStatus::Blocked
-                        })
-                        .map(|state| state.detail.as_str())
-                });
-            let context = detail.map(|detail| {
-                crate::core::attention::answer_context(
-                    &p.state.planning_store.root,
-                    &ticket,
-                    detail,
-                )
-            });
             if p.task_cancelled(&ticket) {
                 return;
             }
@@ -187,6 +166,22 @@ impl KooladeApp {
                     lifecycle_gate_refresh,
                     approved_intent_mode,
                 });
+            let user_context = p
+                .task_documents
+                .iter()
+                .find(|document| document.path == ticket)
+                .map(|document| {
+                    implementation_decision::task_context(&p.state.planning_store, document)
+                })
+                .transpose();
+            let user_context = match user_context {
+                Ok(context) => context.flatten(),
+                Err(error) => {
+                    p.queue.last_error =
+                        format!("Cannot build the validated task decision context: {error:#}");
+                    return;
+                }
+            };
             let Some(queue_start) = queue_state::begin(p, &ticket, manual) else {
                 return;
             };
@@ -243,15 +238,6 @@ impl KooladeApp {
             };
             p.activity.mark_ticket_dirty(&ticket);
             p.bind_task_conversation_identities();
-            p.task_chats.ensure_loaded(&p.chat_slug);
-            let user_name = p.state.effective_user().name;
-            let user_context = p.task_chats.messages.get(&ticket).and_then(|messages| {
-                implementation_decision::latest_context_for(
-                    messages,
-                    &user_name,
-                    context.as_deref(),
-                )
-            });
             let task_routes = p
                 .task_documents
                 .iter()
