@@ -298,15 +298,17 @@
         "Provider-specific policy and role boundaries are enforced by the application."
       ],
       "limitations": [
-        "Provider presence does not establish authentication or live availability."
+        "Lookup readiness covers only the selected Manager route; other role routes and live model-service availability remain unverified."
       ],
       "implementationRefs": [
-        "src/harness/execution_security.rs"
+        "src/harness/execution_security.rs",
+        "src/app/manager/catalog/opportunities/evidence/provider_readiness.rs"
       ],
       "testRefs": [
-        "src/harness/provider_mode_matrix.rs"
+        "src/harness/provider_mode_matrix.rs",
+        "src/app/manager/tests/opportunities/provider_readiness.rs"
       ],
-      "readinessProbeId": null,
+      "readinessProbeId": "manager-provider-route-v1",
       "maturity": "current",
       "platformPrerequisites": [],
       "providerPrerequisites": [

@@ -113,6 +113,24 @@ pub(crate) fn configured_harness_for_project_task(
     }
 }
 
+/// Resolve a project's selected provider route using the same precedence as
+/// provider construction. Manager uses this for a read-only readiness snapshot
+/// and never starts an additional provider probe.
+pub(crate) fn selected_harness_route<'a>(
+    settings: &'a crate::persistence::harness_settings::HarnessSettings,
+    project_routes: &'a std::collections::BTreeMap<
+        String,
+        crate::persistence::harness_settings::WorkRoute,
+    >,
+    work_type: &'a str,
+) -> Option<(&'a str, Option<&'a str>)> {
+    let legacy = (std::env::var(crate::harness::CODEX_HARNESS_ENV).as_deref() == Ok("codex"))
+        .then_some("codex");
+    let (selected, route) =
+        route_selection(settings, project_routes, Some(work_type), legacy, None);
+    selected.map(|id| (id, route.and_then(|route| route.model.as_deref())))
+}
+
 pub(super) fn routed_harness<'a>(
     settings: &'a crate::persistence::harness_settings::HarnessSettings,
     project_routes: &'a std::collections::BTreeMap<

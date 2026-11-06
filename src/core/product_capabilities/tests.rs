@@ -145,13 +145,68 @@ fn all_code_and_test_refs_exist_and_registered_probe_ids_stay_stable() {
         capability.id == "self-improvement-lifecycle"
             && capability.status == CapabilityStatus::Implemented
     }));
+    assert_eq!(
+        catalog
+            .capabilities
+            .iter()
+            .find(|capability| capability.id == "provider-routing-and-role-isolation")
+            .and_then(|capability| capability.readiness_probe_id.as_deref()),
+        Some("manager-provider-route-v1")
+    );
     for capability in &catalog.capabilities {
         if let Some(probe) = capability.readiness_probe_id.as_deref() {
-            assert!(entries.iter().any(|entry| {
-                entry["capabilityId"] == capability.id && entry["readinessProbeId"] == probe
-            }));
+            assert!(super::registered_probes::contains(&capability.id, probe));
+            if capability.id == "self-improvement-lifecycle" {
+                assert!(entries.iter().any(|entry| {
+                    entry["capabilityId"] == capability.id && entry["readinessProbeId"] == probe
+                }));
+            }
         }
     }
+}
+
+#[test]
+fn readiness_evidence_rejects_unregistered_provider_probe_pairs() {
+    const COMMIT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    assert!(
+        ReadinessEvidence::from_registered_probe_state(
+            "provider-routing-and-role-isolation".into(),
+            "invented-provider-probe".into(),
+            COMMIT.into(),
+            "b".repeat(64),
+            ReadinessState::NotReady,
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn provider_route_evidence_distinguishes_unavailable_and_unverified_states() {
+    const COMMIT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let _identity = crate::build_identity::override_for_test("0.1.0", COMMIT);
+    let catalog = ProductCapabilityCatalogV1::compiled().unwrap();
+    let unavailable = ReadinessEvidence::from_registered_probe_state(
+        "provider-routing-and-role-isolation".into(),
+        "manager-provider-route-v1".into(),
+        COMMIT.into(),
+        "d".repeat(64),
+        ReadinessState::NotReady,
+    )
+    .unwrap();
+    assert_eq!(
+        catalog
+            .lookup_with_readiness("provider routing and role isolation", &[unavailable])
+            .matches[0]
+            .state,
+        CapabilityState::ImplementedButNotReady
+    );
+    assert_eq!(
+        catalog
+            .lookup("provider routing and role isolation")
+            .matches[0]
+            .state,
+        CapabilityState::ImplementedInBuild
+    );
 }
 
 #[test]
