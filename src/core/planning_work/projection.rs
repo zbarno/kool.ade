@@ -89,6 +89,7 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
                 routing_inherited_from: None,
                 follow_up_task: None,
                 code_review_disposition: None,
+                operational_recovery: None,
                 detail: "Feature planning".into(),
                 record_revision: 0,
                 record_baseline: None,

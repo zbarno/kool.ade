@@ -3,7 +3,8 @@ use super::*;
 const PREFIX: &str = "internal-task-reply-recoverable:";
 
 pub(super) fn is_recoverable(message: &ChatMessage) -> bool {
-    message.role == ChatRole::System && message.id.starts_with(PREFIX)
+    message.role == ChatRole::System
+        && (message.id.starts_with(PREFIX) || message.id.starts_with(super::manager::PREFIX))
 }
 pub(super) fn attempts(messages: &[ChatMessage]) -> usize {
     messages

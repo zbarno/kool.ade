@@ -16,6 +16,9 @@ pub(super) fn validate(work: &[Work]) -> anyhow::Result<()> {
             uids.insert(item.uid.as_str()),
             "Duplicate planning work UID"
         );
+        if let Some(recovery) = &item.operational_recovery {
+            super::operational_recovery::validate(item, recovery)?;
+        }
         match (&item.kind, &item.code_review_disposition) {
             (WorkKind::CodeReviewDisposition, Some(disposition)) => {
                 anyhow::ensure!(

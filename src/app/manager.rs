@@ -3,6 +3,7 @@ mod catalog;
 mod dependency;
 mod dispositions;
 mod execute;
+pub(crate) mod operational_recovery;
 mod prompt;
 mod telemetry;
 pub(crate) const MAX_PLAN_ARBITRATION_ATTEMPTS: usize = 2;

@@ -90,6 +90,24 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
             content,
         });
     }
+    for work in project
+        .planning_work
+        .iter()
+        .filter(|work| work.operational_recovery.is_some())
+        .rev()
+        .take(12)
+    {
+        let recovery = work.operational_recovery.as_ref().unwrap();
+        items.push(EvidenceItem {
+            id: format!("operational-recovery:{}", work.uid),
+            workspace_uid: workspace_uid.clone(), origin: EvidenceOrigin::Application,
+            confidentiality: EvidenceConfidentiality::WorkspacePrivate,
+            source: "application-owned operational triage task".into(),
+            content: format!("source_uid={} source_key={} failure={:?} status={:?} replay_attempts={} native_repair_attempts={} diagnostic={} next_action={}",
+                recovery.source_uid, recovery.source_key, recovery.failure, work.status, recovery.attempts, recovery.repair_attempts,
+                crate::core::context_build::clip_bytes(&recovery.evidence, 1024), crate::core::context_build::clip_bytes(&work.detail, 1024)),
+        });
+    }
     for (task, failure) in project.queue.blocked.iter().take(16) {
         let task_uid = project
             .task_documents

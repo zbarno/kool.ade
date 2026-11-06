@@ -56,9 +56,11 @@ pub(crate) fn reconcile_inactive_planning_work(project: &mut crate::app::session
     let mut excluded: std::collections::BTreeSet<_> = updated
         .iter()
         .filter(|work| {
-            work.key.starts_with("task:manager-plan-contest:")
+            (work.operational_recovery.is_some()
+                || work.key.starts_with("task:manager-plan-contest:"))
                 && work.status == crate::core::planning_work::WorkStatus::InProgress
-                && active_arbitration_feature == work.feature_id.as_deref()
+                && (work.operational_recovery.is_some()
+                    || active_arbitration_feature == work.feature_id.as_deref())
         })
         .map(|work| work.uid.clone())
         .collect();

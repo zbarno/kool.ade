@@ -24,6 +24,33 @@ pub(super) fn create_session(temp_root: &Path) -> anyhow::Result<PrivateDirector
     result
 }
 
+/// Drop shares creation/recovery's coordinator, keeping its active lease until
+/// cleanup is admitted. If admission fails, leave the directory for recovery.
+pub(super) fn release_session(path: &Path, active_lock: fs::File) {
+    let Some(root) = path.parent() else {
+        return;
+    };
+    let coordinator_path = root.join(COORDINATOR_LOCK);
+    let Ok(coordinator) = open_existing_lock(&coordinator_path) else {
+        return;
+    };
+    if verify_lock_file(&coordinator_path, &coordinator).is_err()
+        || FileExt::lock_exclusive(&coordinator).is_err()
+    {
+        return;
+    }
+    drop(active_lock);
+    let _ = fs::remove_dir_all(path);
+    let _ = FileExt::unlock(&coordinator);
+}
+
+fn remove_if_present(path: &Path) -> io::Result<()> {
+    match fs::remove_dir_all(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        result => result,
+    }
+}
+
 fn create_session_locked(
     temp_root: &Path,
     session_root: &Path,
@@ -79,7 +106,7 @@ fn reclaim_crashed_sessions(temp_root: &Path, session_root: &Path) -> anyhow::Re
                 Ok(()) => {
                     FileExt::unlock(&lock)?;
                     drop(lock);
-                    fs::remove_dir_all(path)?;
+                    remove_if_present(&path)?;
                 }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
                 Err(error) => return Err(error.into()),
@@ -87,7 +114,7 @@ fn reclaim_crashed_sessions(temp_root: &Path, session_root: &Path) -> anyhow::Re
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 // Creation and recovery share the coordinator lock, so no live
                 // session can be between directory creation and lock creation.
-                fs::remove_dir_all(path)?;
+                remove_if_present(&path)?;
             }
             Err(error) => return Err(error.into()),
         }
@@ -108,7 +135,7 @@ fn reclaim_legacy_sessions(temp_root: &Path) -> anyhow::Result<()> {
         if !is_private_directory(&path)? || process_is_alive(pid) {
             continue;
         }
-        fs::remove_dir_all(path)?;
+        remove_if_present(&path)?;
     }
     Ok(())
 }
@@ -121,3 +148,6 @@ fn parse_run_name(name: &str, prefix: &str) -> Option<(u32, uuid::Uuid)> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod drop_tests;

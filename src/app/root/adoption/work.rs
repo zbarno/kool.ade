@@ -16,6 +16,10 @@ pub(super) fn update(
         return;
     };
 
+    if work.operational_recovery.is_some() {
+        return; // Only the recovery coordinator may complete or retarget triage.
+    }
+
     match outcome {
         TurnOutcome::Applied {
             state, normalized, ..
@@ -110,7 +114,10 @@ pub(super) fn update(
                 .any(|problem| problem.starts_with("Planning task feature identity mismatch:")) =>
         {
             work.status = crate::core::planning_work::WorkStatus::NeedsAttention;
-            work.detail = "This task's linked feature was replaced or removed. Kool.ad/e did not retarget this conversation by display ID. To continue against the current feature, create a new planning task from that feature; this task remains available for reference.".into();
+            work.detail = format!(
+                "Manager owns recovery of this feature identity failure. The original answer remains saved. {}",
+                problems.join("; ")
+            );
         }
         _ => {
             work.status = crate::core::planning_work::WorkStatus::NeedsAttention;

@@ -78,6 +78,8 @@ use super::*;
 
 #[path = "tests/exhausted_retry.rs"]
 mod exhausted_retry;
+#[path = "tests/operational_triage.rs"]
+mod operational_triage;
 
 struct WaitingHarness;
 
