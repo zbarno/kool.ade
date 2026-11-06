@@ -149,6 +149,56 @@ fn builder_cleanup_uses_privileged_removal_only_for_its_mktemp_directory() {
     assert_eq!(fs::read_dir(&runner_temp).unwrap().count(), 1);
 }
 
+#[test]
+fn debootstrap_download_adapter_limits_urls_and_retries_tls_downloads() {
+    // Production boundary: debootstrap package requests pass through this adapter;
+    // only pinned Debian snapshot URLs may be fetched, with TLS verification and
+    // bounded retries. A fake curl records argv; no network or privileged setup.
+    let temp = tempfile::tempdir().unwrap();
+    let fake_bin = temp.path().join("bin");
+    fs::create_dir(&fake_bin).unwrap();
+    let argument_log = temp.path().join("curl-arguments");
+    write_executable(
+        &fake_bin.join("curl"),
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CURL_ARGUMENT_LOG\"\n",
+    );
+    let adapter =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("containers/computer-use/debootstrap-wget");
+    let output_path = temp.path().join("package.deb");
+    let real_path = std::env::var("PATH").unwrap();
+    let result = Command::new(&adapter)
+        .args([
+            "-q",
+            "-O",
+            output_path.to_str().unwrap(),
+            "https://snapshot.debian.org/archive/debian/20261101T000000Z/package.deb",
+        ])
+        .env("PATH", format!("{}:{real_path}", fake_bin.display()))
+        .env("CURL_ARGUMENT_LOG", &argument_log)
+        .output()
+        .unwrap();
+    assert!(result.status.success());
+    let arguments = fs::read_to_string(argument_log).unwrap();
+    assert!(arguments.lines().any(|arg| arg == "--retry-all-errors"));
+    assert!(arguments.lines().any(|arg| arg == "--retry"));
+    assert!(arguments.lines().any(|arg| arg == "--output"));
+    assert!(
+        arguments
+            .lines()
+            .any(|arg| arg == output_path.to_string_lossy())
+    );
+
+    let rejected = Command::new(&adapter)
+        .args([
+            "-O",
+            output_path.to_str().unwrap(),
+            "https://example.com/package.deb",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(rejected.status.code(), Some(2));
+}
+
 fn write_executable(path: &Path, content: &str) {
     fs::write(path, content).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o700)).unwrap();

@@ -5,7 +5,7 @@ set -euo pipefail
 # task repositories and their build scripts are never inputs.
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 output_dir="${1:?usage: build-image.sh OUTPUT_DIR}"
-for tool in debootstrap qemu-img mkfs.ext4 mount umount mountpoint realpath grub-install chroot sha256sum parted losetup sudo; do
+for tool in debootstrap qemu-img mkfs.ext4 mount umount mountpoint realpath grub-install chroot sha256sum parted losetup sudo curl; do
   command -v "$tool" >/dev/null || { echo "missing required builder: $tool" >&2; exit 2; }
 done
 work_parent="${RUNNER_TEMP:-/tmp}"
@@ -49,13 +49,16 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$output_dir" "$work_dir/rootfs" "$work_dir/debootstrap-cache" "$work_dir/mnt"
+mkdir -p "$work_dir/download-tools"
+ln -s "$root_dir/containers/computer-use/debootstrap-wget" "$work_dir/download-tools/wget"
 
 # debootstrap does not retry individual failed package downloads. Keep its .deb
 # cache across bounded attempts so transient snapshot failures only refetch the
 # packages that are still missing; the immutable snapshot keeps inputs pinned.
 bootstrap_attempt=1
 while true; do
-  if sudo debootstrap --verbose --cache-dir="$work_dir/debootstrap-cache" \
+  if sudo env PATH="$work_dir/download-tools:$PATH" debootstrap --verbose \
+    --cache-dir="$work_dir/debootstrap-cache" \
     --arch=amd64 --variant=minbase bookworm "$work_dir/rootfs" \
     "https://snapshot.debian.org/archive/debian/${snapshot}/"; then
     break

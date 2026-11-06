@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+output=""
+url=""
+while (($#)); do
+  case "$1" in
+    -O)
+      (($# >= 2)) || { echo "wget adapter requires an output path" >&2; exit 2; }
+      output="$2"
+      shift 2
+      ;;
+    -q|-nv|--verbose)
+      shift
+      ;;
+    -*)
+      echo "unsupported wget adapter option: $1" >&2
+      exit 2
+      ;;
+    *)
+      [[ -z "$url" ]] || { echo "wget adapter accepts one URL" >&2; exit 2; }
+      url="$1"
+      shift
+      ;;
+  esac
+done
+
+[[ -n "$output" && "$url" == https://snapshot.debian.org/* ]] || {
+  echo "wget adapter only accepts a destination and pinned Debian snapshot URL" >&2
+  exit 2
+}
+
+exec curl --fail --location --retry 3 --retry-all-errors --retry-delay 2 \
+  --connect-timeout 15 --max-time 180 --output "$output" "$url"
