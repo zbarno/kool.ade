@@ -48,6 +48,17 @@ fn main_turn_receives_the_model_selected_authoritative_context() {
         "// session restore implementation\n",
     )
     .unwrap();
+    for args in [
+        ["add", "--", "src/session.rs"].as_slice(),
+        ["commit", "-m", "Add source profile fixture"].as_slice(),
+    ] {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "git command failed: {args:?}");
+    }
     inputs.state.published_spec_pin = None;
     inputs.state.planning_store.published_spec_pin = None;
     inputs.state.resync().unwrap();
@@ -70,6 +81,10 @@ impl AiHarness for PinnedPublishedDocHarness {
         Ok(self.label())
     }
 
+    fn supports_context_retrieval(&self) -> bool {
+        true
+    }
+
     fn plan_retrieval(&self, request: &PlanningRequest) -> Result<Option<RetrievalPlan>, AppError> {
         assert_eq!(
             request.mode,
@@ -85,12 +100,21 @@ impl AiHarness for PinnedPublishedDocHarness {
                 .prompt_body
                 .contains("published:docs/koolade/architecture/architecture-and-constraints.md")
         );
+        let repository_profile = request
+            .prompt_body
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix("- repo-profile:")
+                    .and_then(|value| value.split_once(" |"))
+                    .map(|(id, _)| format!("repo-profile:{id}"))
+            })
+            .expect("the catalog has a checked-out repository profile");
         Ok(Some(RetrievalPlan {
             documents: vec![
                 "published:docs/koolade/architecture/architecture-and-constraints.md".into(),
             ],
             open_items: vec![],
-            repository_areas: vec!["src".into()],
+            repository_areas: vec![repository_profile],
         }))
     }
 
@@ -130,7 +154,8 @@ impl AiHarness for PinnedPublishedDocHarness {
             .expect("published source attribution includes the pinned commit");
         assert_eq!(commit.len(), 40, "the source revision is a full Git SHA");
         assert!(commit.bytes().all(|byte| byte.is_ascii_hexdigit()));
-        assert!(request.prompt_body.contains("repo:src/session.rs"));
+        assert!(request.prompt_body.contains("src/session.rs:1-1@"));
+        assert!(request.prompt_body.contains("profile://architecture"));
         Ok(HarnessOutcome {
             final_text: serde_json::json!({
                 "schema_version": 2,

@@ -133,8 +133,20 @@ impl AiHarness for PiHarness {
         )
     }
 
+    fn supports_context_retrieval(&self) -> bool {
+        true
+    }
+
     fn plan_retrieval(&self, request: &PlanningRequest) -> Result<Option<RetrievalPlan>, AppError> {
-        let outcome = self.execute(request)?;
+        self.plan_retrieval_with_model(request, None)
+    }
+
+    fn plan_retrieval_with_model(
+        &self,
+        request: &PlanningRequest,
+        model: Option<&str>,
+    ) -> Result<Option<RetrievalPlan>, AppError> {
+        let outcome = self.execute_with_model(request, model)?;
         let object = extract_json_object(&outcome.final_text)
             .ok_or_else(|| AppError::Other("Retrieval planner returned no JSON object".into()))?;
         serde_json::from_str(&object)

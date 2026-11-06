@@ -19,6 +19,10 @@ impl AiHarness for DecisionAuthorityHarness {
         Ok(self.label())
     }
 
+    fn supports_context_retrieval(&self) -> bool {
+        true
+    }
+
     fn plan_retrieval(
         &self,
         _request: &PlanningRequest,
@@ -124,7 +128,7 @@ fn published_decision_is_labeled_authoritative_alongside_conflicting_context() {
     let prompt = captured.lock().unwrap().clone().unwrap();
     let published_section = prompt
         .split_once(
-            "=== RETRIEVED AUTHORITATIVE DOCUMENT published:docs/koolade/product/decisions.md ===",
+            "=== RETRIEVED PUBLISHED SPECIFICATION published:docs/koolade/product/decisions.md ===",
         )
         .expect("selected published decision is labeled authoritative")
         .1

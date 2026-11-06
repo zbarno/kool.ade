@@ -174,6 +174,12 @@ fn product_opportunity_isolated_and_persists_public_evidence_only() {
             .user
             .contains("PRIVATE-SAMPLE-CUSTOMER-DATA")
     );
+    assert!(
+        !product_prompt
+            .validation
+            .evidence_content
+            .contains_key("repository-architecture-profile")
+    );
     assert!(persist_output(&project, &output).contains("New improvement proposal"));
 
     let store = crate::core::opportunity::OpportunityStore::new(&project.state.planning_store);
