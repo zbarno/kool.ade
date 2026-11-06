@@ -156,6 +156,14 @@ impl RequestJournal {
             FileExt::unlock(&lock)?;
             FileExt::unlock(&index_lock)?;
             return match entry.state {
+                // Event subscriptions only read the worker's durable event
+                // stream. Re-dispatching one after a worker restart cannot
+                // repeat an execution side effect; mutating RPCs stay fenced.
+                EntryState::Pending
+                    if request.kind == super::super::protocol::EnvelopeKindV1::Subscribe =>
+                {
+                    Ok(Lookup::New)
+                }
                 EntryState::Pending => Ok(Lookup::Pending),
                 EntryState::Completed { response } => Ok(Lookup::Replay(response)),
             };

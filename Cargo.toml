@@ -32,6 +32,7 @@ base64 = "0.22.1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde"] }
 egui = "0.36.1"
 eframe = "0.36.1"
+ed25519-dalek = "2.1.1"
 focaccia = "2.5.0"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 libc = "0.2.189"

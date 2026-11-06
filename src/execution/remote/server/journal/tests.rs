@@ -32,6 +32,31 @@ fn exact_completed_request_replays_saved_response_without_dispatch() {
     assert_eq!(journal.reserve(&request).unwrap(), Lookup::Replay(response));
 }
 
+/// Filesystem-backed recovery test for the RPC journal boundary: a pending
+/// read-only event subscription may be re-dispatched after worker restart,
+/// while a pending command remains fenced. No external services; low setup.
+#[test]
+fn pending_event_subscription_replays_but_execution_request_stays_fenced() {
+    let root = tempfile::tempdir().unwrap();
+    let journal = RequestJournal::new(root.path().to_owned());
+    let mut subscription = request("00000000-0000-4000-8000-000000000011");
+    subscription.kind = EnvelopeKindV1::Subscribe;
+    subscription.payload = serde_json::json!({"page": {"after_sequence": 0}});
+    assert_eq!(journal.reserve(&subscription).unwrap(), Lookup::New);
+    assert_eq!(journal.reserve(&subscription).unwrap(), Lookup::New);
+    let response = response(&subscription);
+    journal.complete(&subscription, &response).unwrap();
+    assert_eq!(
+        journal.reserve(&subscription).unwrap(),
+        Lookup::Replay(response)
+    );
+
+    let mut execution = request("00000000-0000-4000-8000-000000000012");
+    execution.kind = EnvelopeKindV1::Exec;
+    assert_eq!(journal.reserve(&execution).unwrap(), Lookup::New);
+    assert_eq!(journal.reserve(&execution).unwrap(), Lookup::Pending);
+}
+
 #[test]
 fn conflicting_request_id_and_corrupt_journal_fail_closed() {
     let root = tempfile::tempdir().unwrap();
