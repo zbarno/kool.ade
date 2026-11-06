@@ -48,10 +48,30 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$output_dir" "$work_dir/rootfs" "$work_dir/mnt"
+mkdir -p "$output_dir" "$work_dir/rootfs" "$work_dir/debootstrap-cache" "$work_dir/mnt"
 
-sudo debootstrap --arch=amd64 --variant=minbase bookworm "$work_dir/rootfs" \
-  "https://snapshot.debian.org/archive/debian/${snapshot}/"
+# debootstrap does not retry individual failed package downloads. Keep its .deb
+# cache across bounded attempts so transient snapshot failures only refetch the
+# packages that are still missing; the immutable snapshot keeps inputs pinned.
+bootstrap_attempt=1
+while true; do
+  if sudo debootstrap --verbose --cache-dir="$work_dir/debootstrap-cache" \
+    --arch=amd64 --variant=minbase bookworm "$work_dir/rootfs" \
+    "https://snapshot.debian.org/archive/debian/${snapshot}/"; then
+    break
+  else
+    bootstrap_status=$?
+  fi
+  if (( bootstrap_attempt >= 3 )); then
+    echo "Debian bootstrap failed after ${bootstrap_attempt} attempts" >&2
+    exit "$bootstrap_status"
+  fi
+  echo "Debian bootstrap attempt ${bootstrap_attempt} failed; retrying with cached packages" >&2
+  work_dir_is_safe || { echo "refusing to reset an unsafe image work directory" >&2; exit 1; }
+  sudo rm -rf --one-file-system -- "$work_dir/rootfs"
+  mkdir -p "$work_dir/rootfs"
+  ((bootstrap_attempt += 1))
+done
 sudo tee "$work_dir/rootfs/etc/apt/sources.list" >/dev/null <<APT
 deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/${snapshot}/ bookworm main
 deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/${snapshot}/ bookworm-updates main

@@ -144,6 +144,7 @@ fn builder_cleanup_uses_privileged_removal_only_for_its_mktemp_directory() {
         .output()
         .unwrap();
     assert_eq!(result.status.code(), Some(17));
+    assert!(String::from_utf8_lossy(&result.stderr).contains("failed after 3 attempts"));
     assert_eq!(fs::read(&sibling).unwrap(), b"keep");
     assert_eq!(fs::read_dir(&runner_temp).unwrap().count(), 1);
 }
