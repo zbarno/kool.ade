@@ -25,6 +25,7 @@ impl PartialEq for Work {
             && self.routing_inherited_from == other.routing_inherited_from
             && self.follow_up_task == other.follow_up_task
             && self.code_review_disposition == other.code_review_disposition
+            && self.operational_recovery == other.operational_recovery
             && self.detail == other.detail
     }
 }
@@ -123,6 +124,7 @@ impl Work {
             routing_inherited_from: None,
             follow_up_task: None,
             code_review_disposition: None,
+            operational_recovery: None,
             detail,
             record_revision: 0,
             record_baseline: None,

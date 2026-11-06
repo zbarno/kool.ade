@@ -17,6 +17,7 @@ impl KooladeApp {
         let mut code_review_repair = None;
         let mut planner_generation_readiness = None;
         if let Screen::Connected(project) = &mut self.screen {
+            crate::app::manager::operational_recovery::advance(project);
             reconcile_inactive_planning_work(project);
             planner_generation_readiness = advance_clarification_planner(project);
             advance_plan_review(project);

@@ -96,8 +96,11 @@ impl PrivateDirectory {
 
 impl Drop for PrivateDirectory {
     fn drop(&mut self) {
-        drop(self.active_lock.take());
-        let _ = fs::remove_dir_all(&self.path);
+        if let Some(lock) = self.active_lock.take() {
+            recovery::release_session(&self.path, lock);
+        } else {
+            let _ = fs::remove_dir_all(&self.path);
+        }
     }
 }
 

@@ -1,5 +1,7 @@
 //! Persist document proposals as private drafts until explicit publication.
 mod model;
+mod recovery;
+pub(crate) use recovery::restore_missing_feature;
 #[cfg(test)]
 #[path = "product_documents/tests.rs"]
 mod tests;

@@ -29,7 +29,7 @@ impl TaskChats {
         if messages[latest_user].id != user_id {
             return Ok(false);
         }
-        let after = &messages[latest_user + 1..];
+        let after = super::manager::after_authorization(&messages[latest_user + 1..]);
         let current_retries = after
             .iter()
             .filter(|message| is_conflict_retry(message))
@@ -136,7 +136,7 @@ impl TaskChats {
         if messages[latest_user].id != user_id {
             return Ok(None);
         }
-        let after = &messages[latest_user + 1..];
+        let after = super::manager::after_authorization(&messages[latest_user + 1..]);
         let current_retries = after
             .iter()
             .filter(|message| {
@@ -199,7 +199,7 @@ impl TaskChats {
 }
 
 fn retry_claim_state(messages: &[ChatMessage], latest_user: usize) -> Option<(usize, usize, bool)> {
-    let after = &messages[latest_user + 1..];
+    let after = super::manager::after_authorization(&messages[latest_user + 1..]);
     if after.iter().any(is_substantive_agent_reply) || super::has_task_reply_outcome(after) {
         return None;
     }

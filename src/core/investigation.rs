@@ -10,7 +10,7 @@ use crate::{
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
-    mpsc::{self, Receiver},
+    mpsc,
 };
 
 fn decode(text: &str) -> anyhow::Result<crate::harness::responses::InvestigationResponse> {
@@ -245,76 +245,10 @@ fn run_with_settle_window(
     )
 }
 
-pub enum Event {
-    Progress(Box<LiveProgress>),
-    Done(Box<anyhow::Result<(PlannerState, String)>>),
-}
-pub struct Controller {
-    rx: Receiver<Event>,
-    cancel: Arc<AtomicBool>,
-    pub item_id: String,
-    #[cfg(test)]
-    _keepalive: Option<mpsc::Sender<Event>>,
-}
-impl Controller {
-    pub fn start(state: PlannerState, item_id: String, harness: Box<dyn AiHarness>) -> Self {
-        let (tx, rx) = mpsc::channel();
-        let cancel = Arc::new(AtomicBool::new(false));
-        let worker_cancel = cancel.clone();
-        let worker_id = item_id.clone();
-        std::thread::spawn(move || {
-            let (progress, updates) = mpsc::channel();
-            let forward = tx.clone();
-            let forwarder = std::thread::spawn(move || {
-                for update in updates {
-                    let _ = forward.send(Event::Progress(Box::new(update)));
-                }
-            });
-            let result = run(
-                &state,
-                &worker_id,
-                harness.as_ref(),
-                progress,
-                worker_cancel,
-            );
-            let _ = forwarder.join();
-            let _ = tx.send(Event::Done(Box::new(result)));
-        });
-        Self {
-            rx,
-            cancel,
-            item_id,
-            #[cfg(test)]
-            _keepalive: None,
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn idle_fixture(item_id: impl Into<String>) -> Self {
-        let (keepalive, rx) = mpsc::channel();
-        Self {
-            rx,
-            cancel: Arc::new(AtomicBool::new(false)),
-            item_id: item_id.into(),
-            _keepalive: Some(keepalive),
-        }
-    }
-    pub fn poll(&self) -> Option<Event> {
-        self.rx.try_recv().ok()
-    }
-    pub fn cancel(&self) {
-        self.cancel.store(true, Ordering::SeqCst);
-    }
-
-    pub fn cancellation_requested(&self) -> bool {
-        self.cancel.load(Ordering::SeqCst)
-    }
-}
-impl Drop for Controller {
-    fn drop(&mut self) {
-        self.cancel();
-    }
-}
+mod claim;
+mod controller;
+pub(crate) use claim::try_claim;
+pub use controller::{Controller, Event};
 
 #[cfg(test)]
 mod tests;

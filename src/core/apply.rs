@@ -270,3 +270,5 @@ pub fn apply(state: &mut PlannerState, nt: &NormalizedTurn) -> anyhow::Result<Ap
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) use product_documents::restore_missing_feature;

@@ -119,6 +119,7 @@ impl KooladeApp {
                 }
                 continue;
             }
+            project.activity.saved_reply_dispatch_blockers.remove(&key);
             let conflict_retries = match recovery {
                 ReplyRecovery::PlanningRetry(retries) => Some(retries),
                 ReplyRecovery::Initial => None,
@@ -127,6 +128,7 @@ impl KooladeApp {
             if let Err(error) =
                 crate::core::task_conversation::prompt(&project.state, &key, &text, &[])
             {
+                project.activity.saved_reply_dispatch_blockers.insert(key.clone(), format!("Prompt preparation failed: {error}. Repair the task context before dispatch."));
                 project.queue.last_error = format!("Saved task reply retry paused: {error}");
                 continue;
             }
@@ -143,7 +145,18 @@ impl KooladeApp {
                 &task_routes,
             );
             if let Some(blocker) = harness.route_blocker() {
+                project.activity.saved_reply_dispatch_blockers.insert(key.clone(), format!("Provider routing is unavailable: {blocker}. Repair or refresh the selected route before dispatch."));
                 project.queue.last_error = format!("Saved task reply retry paused: {blocker}");
+                continue;
+            }
+            if let Err(error) = crate::app::manager::operational_recovery::prepare_reply_dispatch(
+                project, &key, &user_id,
+            ) {
+                project
+                    .activity
+                    .saved_reply_dispatch_blockers
+                    .insert(key.clone(), error.clone());
+                project.queue.last_error = format!("Manager recovery dispatch paused: {error}");
                 continue;
             }
             let claim = if let Some(retries) = conflict_retries {
@@ -162,6 +175,7 @@ impl KooladeApp {
                 Ok(Some(claim_id)) => claim_id,
                 Ok(None) => continue,
                 Err(error) => {
+                    project.activity.saved_reply_dispatch_blockers.insert(key.clone(), format!("Saved-answer ownership could not be claimed: {error}. Restore access to private conversation storage before dispatch."));
                     project.queue.last_error =
                         format!("Saved task reply retry could not be claimed: {error}");
                     continue;

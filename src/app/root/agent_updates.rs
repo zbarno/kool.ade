@@ -84,6 +84,20 @@ impl KooladeApp {
         let mut cancelled = false;
         if let Some(controller) = &project.investigation {
             let item_id = controller.item_id.clone();
+            let recovery_claim = controller.recovery_claim();
+            let source_uid = controller.source_uid().map(str::to_owned);
+            if source_uid.as_ref().is_some_and(|uid| {
+                !project
+                    .state
+                    .items
+                    .iter()
+                    .chain(&project.state.resolved_items)
+                    .any(|item| item.id == item_id && item.uid.as_ref() == Some(uid))
+            }) {
+                controller.cancel();
+                project.investigation = None;
+                return;
+            }
             let mut finished = None;
             for _ in 0..64 {
                 match controller.poll() {
@@ -112,18 +126,32 @@ impl KooladeApp {
             }
             if let Some(result) = finished {
                 project.investigation = None;
+                match crate::app::manager::operational_recovery::investigation_callback_state(
+                    project,
+                    &item_id,
+                    source_uid.as_deref(),
+                    recovery_claim,
+                ) {
+                    Ok(Some((state, work))) => {
+                        project.state = state;
+                        project.planning_work = work;
+                    }
+                    Ok(None) => return,
+                    Err(error) => {
+                        project.queue.last_error = format!(
+                            "Investigation result deferred because its current owner could not be verified: {error}"
+                        );
+                        project.investigation_cooldown_until =
+                            Some(Instant::now() + Duration::from_secs(300));
+                        return;
+                    }
+                }
                 if let Some(progress) = project.activity.tasks.get_mut(&item_id) {
                     progress.telemetry.finished_ms = Some(chrono::Utc::now().timestamp_millis());
                 }
                 project.save_task_activity(&item_id);
                 project.activity.dirty_tickets.remove(&item_id);
                 if cancelled {
-                    if let Ok(current) = crate::core::state::PlannerState::load_with_store(
-                        &project.state.repo_root,
-                        &project.state.planning_store,
-                    ) {
-                        project.state = current;
-                    }
                     if let Some(progress) = project.activity.tasks.get_mut(&item_id) {
                         progress.activity = Some("Paused because Auto Plan is off".into());
                     }
@@ -131,8 +159,7 @@ impl KooladeApp {
                     project.save_task_activity(&item_id);
                 } else {
                     match result {
-                        Ok((state, message)) => {
-                            project.state = state;
+                        Ok((_state, message)) => {
                             project.investigation_cooldown_until = None;
                             project
                                 .activity
@@ -140,12 +167,6 @@ impl KooladeApp {
                                 .push(format!("Agent item {item_id}: {message}"));
                         }
                         Err(error) => {
-                            if let Ok(current) = crate::core::state::PlannerState::load_with_store(
-                                &project.state.repo_root,
-                                &project.state.planning_store,
-                            ) {
-                                project.state = current;
-                            }
                             let error = error.to_string();
                             if error.starts_with(crate::core::reconciliation::DEFER_PREFIX) {
                                 // Benign contention: keep the item open and let
@@ -157,6 +178,13 @@ impl KooladeApp {
                             ));
                             } else {
                                 project.investigation_attempted.insert(item_id.clone());
+                                crate::app::manager::operational_recovery::enqueue_investigation(
+                                    project,
+                                    &item_id,
+                                    source_uid.as_deref().unwrap_or_default(),
+                                    &error,
+                                    recovery_claim,
+                                );
                                 project
                                     .activity
                                     .tasks
@@ -191,10 +219,26 @@ impl KooladeApp {
                     && item.status == crate::domain::ItemStatus::Open
                     && !project.task_turns.contains_key(item.conversation_key())
                     && !project.investigation_attempted.contains(&item.id)
+                    && !crate::app::manager::operational_recovery::investigation_blocked(
+                        project,
+                        item.uid.as_deref(),
+                    )
             })
             .min_by_key(|item| (item.priority.rank(), &item.id));
         if let Some(item) = next {
             let item_id = item.id.clone();
+            let claim = match crate::core::investigation::try_claim(&project.state, &item_id) {
+                Ok(Some(claim)) => claim,
+                Ok(None) => return,
+                Err(error) => {
+                    project.queue.last_error =
+                        format!("Investigation ownership could not be acquired: {error}");
+                    return;
+                }
+            };
+            if !crate::app::manager::operational_recovery::claim_investigation(project, &item_id) {
+                return;
+            }
             project
                 .activity
                 .tasks
@@ -214,11 +258,26 @@ impl KooladeApp {
                 Some(crate::persistence::harness_settings::INVESTIGATION),
                 &project.state.harness_routes.routes,
             );
-            project.investigation = Some(crate::core::investigation::Controller::start(
-                project.state.clone(),
-                item_id,
-                harness,
-            ));
+            let recovery_generation = project
+                .planning_work
+                .iter()
+                .filter_map(|work| work.operational_recovery.as_ref())
+                .find(|r| {
+                    r.autonomous_investigation
+                        && project.state.items.iter().any(|item| {
+                            item.id == item_id && item.uid.as_deref() == Some(r.source_uid.as_str())
+                        })
+                })
+                .map(|r| r.investigation_claims);
+            project.investigation = Some(
+                crate::core::investigation::Controller::start_claimed(
+                    project.state.clone(),
+                    item_id,
+                    harness,
+                    claim,
+                )
+                .with_recovery_claim(recovery_generation),
+            );
         }
     }
 }

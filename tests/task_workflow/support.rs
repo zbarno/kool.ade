@@ -239,9 +239,16 @@ pub(super) fn run(mut state: PlannerState, generation: bool, failure_mode: u8) -
     // The workflow advances across worker threads and repository-backed
     // persistence; retain a bounded three-minute window under parallel nextest.
     let deadline = Instant::now() + Duration::from_secs(180);
+    let mut activities = Vec::new();
     loop {
         assert!(Instant::now() < deadline, "workflow timed out");
-        if let Some(TurnEvt::Done(outcome)) = ctrl.poll(Duration::from_millis(50)) {
+        let event = ctrl.poll(Duration::from_millis(50));
+        if let Some(TurnEvt::Progress(progress)) = &event
+            && let Some(activity) = &progress.activity
+        {
+            activities.push(activity.chars().take(240).collect::<String>());
+        }
+        if let Some(TurnEvt::Done(outcome)) = event {
             assert_eq!(
                 calls.load(Ordering::SeqCst),
                 if !generation || failure_mode == 5 {
@@ -253,7 +260,7 @@ pub(super) fn run(mut state: PlannerState, generation: bool, failure_mode: u8) -
                 } else {
                     3
                 },
-                "failure mode {failure_mode}; outcome: {outcome:?}"
+                "failure mode {failure_mode}; activities: {activities:?}; outcome: {outcome:?}"
             );
             return *outcome;
         }
