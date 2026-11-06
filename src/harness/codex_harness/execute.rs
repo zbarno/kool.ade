@@ -199,6 +199,8 @@ impl AiHarness for CodexHarness {
                                     id: (0, index),
                                     kind: "activity".into(),
                                     text: text.clone(),
+                                    recorded_at_ms: None,
+                                    run_id: None,
                                 })
                                 .collect(),
                             activity: activity.last().cloned(),
@@ -258,6 +260,8 @@ impl AiHarness for CodexHarness {
                     id: (0, index),
                     kind: "activity".into(),
                     text: text.clone(),
+                    recorded_at_ms: None,
+                    run_id: None,
                 })
                 .collect(),
             activity: activity.last().cloned(),

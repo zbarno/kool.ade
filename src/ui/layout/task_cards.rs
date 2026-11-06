@@ -137,22 +137,6 @@ pub(crate) fn board_card(
     .clicked()
 }
 
-pub(crate) fn task_key(path: &str) -> String {
-    let name = path
-        .rsplit('/')
-        .next()
-        .unwrap_or(path)
-        .trim_end_matches(".md");
-    if name
-        .split_once("-TASK-")
-        .is_some_and(|(id, _)| crate::artifacts::product_docs::valid_feature_id(id))
-    {
-        return name.to_owned();
-    }
-    let prefix = name.split('-').next().unwrap_or(name);
-    format!("TASK-{}", prefix.to_uppercase())
-}
-
 pub(crate) fn card_summary(text: &str) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() <= 56 {

@@ -9,16 +9,22 @@ fn live_stream_keeps_diagnostic_regimes_and_formats_prose_chunks() {
                 id: (1, 0),
                 kind: "thinking".to_string(),
                 text: "reasoning **still plain**".to_string(),
+                recorded_at_ms: None,
+                run_id: None,
             },
             LivePost {
                 id: (2, 0),
                 kind: "tool".to_string(),
                 text: "cargo build\nCompiling koolade v0.1.0".to_string(),
+                recorded_at_ms: None,
+                run_id: None,
             },
             LivePost {
                 id: (3, 0),
                 kind: "text".to_string(),
                 text: streaming_md.to_string(),
+                recorded_at_ms: None,
+                run_id: None,
             },
         ],
         ..Default::default()

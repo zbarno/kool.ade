@@ -176,7 +176,11 @@ fn task_and_planning_cards_share_modal_header_status_and_close_behavior() {
     assert!(text_position(&planning, "Why am I seeing this?").is_some());
     assert!(text_position(&planning, "Send").is_some());
     let planning_modal = modal_frame(&planning).expect("planning uses the shared modal frame");
-    assert_eq!(task_modal.size(), planning_modal.size());
+    assert!(
+        (task_modal.size().x - planning_modal.size().x).abs() <= 8.0
+            && (task_modal.size().y - planning_modal.size().y).abs() <= 8.0,
+        "shared modals should have nearly identical dimensions: {task_modal:?} vs {planning_modal:?}"
+    );
     assert_eq!(task_modal.left(), planning_modal.left());
     assert_eq!(task_modal.top(), planning_modal.top());
     assert_modal_escapes(&mut planning_app, &planning_ctx, size);

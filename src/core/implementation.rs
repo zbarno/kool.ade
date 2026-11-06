@@ -29,7 +29,9 @@ mod task;
 mod task_repository;
 mod telemetry;
 mod verification;
-pub use activity::{finalize_terminal_activity_if_stale, load_activity, save_activity};
+pub use activity::{
+    finalize_terminal_activity_if_stale, load_activity, load_activity_for_task, save_activity,
+};
 pub use board_states::{
     BOARD_COLUMNS, board_column, load_board_states, load_board_states_with_store,
 };

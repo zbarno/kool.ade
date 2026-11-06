@@ -10,7 +10,18 @@ fn opening_a_task_shows_its_greeting_in_details_without_starting_a_model_turn() 
     frame(&mut app, &ctx, vec![]);
     let output = click_text(&mut app, &ctx, "First task");
     assert!(text_position(&output, "Ask a question").is_some());
-    assert!(text_position(&output, "You can ask me about First task.").is_some());
+    assert!(
+        output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => Some(text.galley.text().to_string()),
+                _ => None,
+            })
+            .collect::<String>()
+            .contains("You can ask me about First task."),
+        "task greeting should remain in the timeline"
+    );
     assert!(
         app.task_messages(key)[0]
             .text

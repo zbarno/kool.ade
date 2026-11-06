@@ -57,7 +57,6 @@ pub(super) fn paint(
     s: &mut dyn Surface,
     doc: &crate::artifacts::task_docs::TaskDocument,
     height: f32,
-    activity_path: &mut Option<String>,
 ) {
     planning::paint_relationship_back(ui);
     if ui.available_width() < 500.0 {
@@ -198,7 +197,6 @@ pub(super) fn paint(
                                 presentation,
                                 brief.as_ref(),
                                 checks_unavailable,
-                                activity_path,
                             );
                         });
                 },
@@ -214,15 +212,7 @@ pub(super) fn paint(
             );
         });
     } else {
-        action::paint(
-            ui,
-            s,
-            doc,
-            presentation,
-            brief.as_ref(),
-            checks_unavailable,
-            activity_path,
-        );
+        action::paint(ui, s, doc, presentation, brief.as_ref(), checks_unavailable);
         ui.add_space(20.0);
         ui.separator();
         conversation::paint(ui, s, ticket, &mut conversation_view, None, height);

@@ -9,6 +9,8 @@ fn post(id: u64, text: String) -> LivePost {
         id: (id, 0),
         kind: "assistant_message".into(),
         text,
+        recorded_at_ms: None,
+        run_id: None,
     }
 }
 
@@ -55,8 +57,11 @@ fn trim_bounds_posts_and_fields_without_touching_input() {
             .ends_with(&"x".repeat(ACTIVITY_MAX_POST_CHARS.min(10)))
     );
     // Long fields bounded to tail-with-marker.
+    assert!(
+        trimmed.thoughts.is_empty(),
+        "private reasoning is not retained"
+    );
     for field in [
-        &trimmed.thoughts,
         &trimmed.response,
         trimmed.specification.as_deref().unwrap(),
         trimmed.activity.as_deref().unwrap(),

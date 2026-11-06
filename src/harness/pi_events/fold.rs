@@ -83,6 +83,8 @@ pub fn fold_line(line: &str, sink: &mut EventFold) {
                     "{tool}\n{}",
                     v.get("args").map(|v| v.to_string()).unwrap_or_default()
                 ),
+                recorded_at_ms: None,
+                run_id: None,
             });
             sink.last_activity = Some(if args.is_empty() {
                 tool.to_string()

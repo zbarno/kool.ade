@@ -43,10 +43,14 @@ impl KooladeApp {
                     &planning_store,
                 );
                 let activity = implementations
-                    .keys()
-                    .filter_map(|ticket| {
-                        crate::core::implementation::load_activity(&local_state_root, ticket)
-                            .map(|p| (ticket.clone(), p))
+                    .iter()
+                    .filter_map(|(ticket, implementation)| {
+                        crate::core::implementation::load_activity_for_task(
+                            &local_state_root,
+                            ticket,
+                            implementation.task_uid.as_deref(),
+                        )
+                        .map(|p| (ticket.clone(), p))
                     })
                     .collect();
                 ctx.request_repaint();

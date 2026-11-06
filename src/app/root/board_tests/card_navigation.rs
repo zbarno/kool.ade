@@ -124,7 +124,11 @@ fn board_cards_select_story_details_and_open_the_correct_pr() {
     );
 }
 #[test]
-fn live_card_opens_full_activity_and_returns_to_item_details() {
+fn task_details_shows_worker_activity_in_its_conversation_timeline() {
+    // Production boundary: the board card opens the real Task Details shell,
+    // which receives this task's activity and paints it beside conversation.
+    // A unit test cannot prove routing plus egui visibility through both views.
+    // No Docker, SSH, or provider is required; setup is a local synthetic fixture.
     let mut app = fixture();
     let ticket = "planning/tasks/fixture/001-task.md".to_owned();
     if let Screen::Connected(p) = &mut app.screen {
@@ -132,20 +136,25 @@ fn live_card_opens_full_activity_and_returns_to_item_details() {
             ticket.clone(),
             crate::core::implementation::Controller::idle_fixture(),
         );
-        p.activity.tasks.insert(
-            ticket.clone(),
-            crate::harness::LiveProgress {
-                thoughts: "Checking the permissions test results".into(),
-                activity: Some("Running tests".into()),
-                ..Default::default()
-            },
-        );
+        let mut progress = crate::harness::LiveProgress::default();
+        progress.begin_task_run("fixture-task-1");
+        progress.update(crate::harness::LiveProgress {
+            posts: vec![crate::harness::LivePost {
+                id: (1, 0),
+                kind: "tool".into(),
+                text: "Checking the permissions test results".into(),
+                recorded_at_ms: None,
+                run_id: None,
+            }],
+            ..Default::default()
+        });
+        p.activity.tasks.insert(ticket.clone(), progress);
     }
     let ctx = egui::Context::default();
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&output, "LIVE ACTIVITY").is_some());
-    assert!(text_position(&output, "Checking the permissions test results").is_none());
+    assert!(canvas_text(&output).contains("Checking the permissions test results"));
     let click = |app: &mut KooladeApp, pos: egui::Pos2| {
         for pressed in [true, false] {
             frame(
@@ -166,42 +175,13 @@ fn live_card_opens_full_activity_and_returns_to_item_details() {
     click(&mut app, text_position(&output, "First task").unwrap());
     frame(&mut app, &ctx, vec![]);
     let output = frame(&mut app, &ctx, vec![]);
-    click(
-        &mut app,
-        text_position(&output, "Why am I seeing this?").unwrap(),
-    );
-    let mut output = frame(&mut app, &ctx, vec![]);
-    for _ in 0..12 {
-        if text_position(&output, "Checking the permissions test results").is_some() {
-            break;
-        }
-        output = frame(
-            &mut app,
-            &ctx,
-            vec![
-                egui::Event::PointerMoved(egui::pos2(900.0, 450.0)),
-                egui::Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Point,
-                    delta: egui::vec2(0.0, -900.0),
-                    phase: egui::TouchPhase::Move,
-                    modifiers: Default::default(),
-                },
-            ],
-        );
-    }
-    assert!(text_position(&output, "Activity").is_some());
     assert!(
-        text_position(&output, "Checking the permissions test results").is_some(),
-        "task detail should show the current activity; rendered text: {}",
+        canvas_text(&output).contains("Checking the permissions test results"),
+        "Task Details should show the worker event in its conversation timeline; rendered text: {}",
         canvas_text(&output)
     );
-    click(
-        &mut app,
-        text_position(&output, "View all activity").unwrap(),
-    );
-    frame(&mut app, &ctx, vec![]);
-    let output = frame(&mut app, &ctx, vec![]);
-    assert!(text_position(&output, "TASK-001 / All activity").is_some());
+    assert!(text_position(&output, "Task timeline").is_some());
+    assert!(text_position(&output, "View all activity").is_none());
     assert!(
         app.live_progress().is_none(),
         "Task activity must not leak to main chat"
@@ -218,9 +198,5 @@ fn live_card_opens_full_activity_and_returns_to_item_details() {
         }],
     );
     let output = frame(&mut app, &ctx, vec![]);
-    assert!(
-        ctx.data_mut(|d| d.get_temp::<String>(egui::Id::new("koolade_task_activity")))
-            .is_none()
-    );
     assert!(text_position(&output, "Task details").is_none());
 }

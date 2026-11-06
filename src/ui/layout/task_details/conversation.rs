@@ -1,5 +1,6 @@
 use super::*;
 mod avatar;
+mod timeline;
 
 pub(super) fn paint(
     ui: &mut egui::Ui,
@@ -17,7 +18,14 @@ pub(super) fn paint(
     ui.allocate_ui(egui::vec2(ui.available_width(), history_height), |ui| {
         ui.set_min_height(history_height);
         ui.push_id(("task_modal_conversation", ticket), |ui| {
-            paint_history(ui, &view.messages, view.conversation_active, history_height);
+            timeline::paint(
+                ui,
+                &view.messages,
+                view.progress.as_ref(),
+                view.conversation_active,
+                ticket,
+                history_height,
+            );
         });
     });
     ui.add_space(12.0);

@@ -35,6 +35,31 @@ pub(super) fn paint_card(
         surface.task_progress(key),
         chrono::Utc::now().timestamp_millis(),
     );
+    if let Some(progress) = surface.task_progress(key) {
+        let latest = crate::ui::task_activity::preview(progress);
+        let age = progress
+            .telemetry
+            .updated_ms
+            .map(|updated| age_label(chrono::Utc::now().timestamp_millis() - updated))
+            .unwrap_or_else(|| "time unavailable".into());
+        ui.add(
+            egui::Label::new(theme::metadata_text(format!("{age} · {latest}")))
+                .truncate()
+                .wrap(),
+        )
+        .on_hover_text(format!("Latest task update: {latest}"));
+    }
+}
+
+fn age_label(age_ms: i64) -> String {
+    let seconds = age_ms.max(0) / 1000;
+    if seconds < 60 {
+        format!("{seconds}s ago")
+    } else if seconds < 3600 {
+        format!("{}m ago", seconds / 60)
+    } else {
+        format!("{}h ago", seconds / 3600)
+    }
 }
 
 /// Height (pixels) of the task card's Kool Blue activity-line band, chosen inside
