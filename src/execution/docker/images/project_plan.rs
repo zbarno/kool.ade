@@ -87,9 +87,9 @@ impl ImageLock {
             let candidate = candidates
                 .iter()
                 .filter(|candidate| {
-                    !components.iter().any(|selected: &SelectedImage| {
-                        selected.profile == candidate.profile
-                    })
+                    !components
+                        .iter()
+                        .any(|selected: &SelectedImage| selected.profile == candidate.profile)
                 })
                 .max_by_key(|candidate| {
                     uncovered
@@ -164,7 +164,10 @@ mod tests {
     fn plan(arch: &str, tools: &[&str]) -> Result<ProjectRuntimeImagePlan, PrerequisiteFailure> {
         ImageLock::bundled()?.plan_project_runtime(
             arch,
-            &tools.iter().map(|tool| (*tool).to_owned()).collect::<Vec<_>>(),
+            &tools
+                .iter()
+                .map(|tool| (*tool).to_owned())
+                .collect::<Vec<_>>(),
         )
     }
 
@@ -192,7 +195,11 @@ mod tests {
         assert_eq!(candidate.platform, "linux/amd64");
         assert_eq!(candidate.foundation.profile, RuntimeProfile::General);
         assert_eq!(
-            candidate.components.iter().map(|c| c.profile).collect::<Vec<_>>(),
+            candidate
+                .components
+                .iter()
+                .map(|c| c.profile)
+                .collect::<Vec<_>>(),
             vec![RuntimeProfile::Rust, RuntimeProfile::Node]
         );
         assert_eq!(candidate.required_tools, ["cargo", "node", "rustc"]);
@@ -204,7 +211,10 @@ mod tests {
         let one = composite("amd64", &["node", "cargo", "node"]);
         let two = composite("amd64", &["cargo", "node"]);
         assert_eq!(one, two);
-        assert_ne!(one.recipe_sha256, composite("arm64", &["cargo", "node"]).recipe_sha256);
+        assert_ne!(
+            one.recipe_sha256,
+            composite("arm64", &["cargo", "node"]).recipe_sha256
+        );
         assert_ne!(
             one.recipe_sha256,
             composite("amd64", &["cargo", "python"]).recipe_sha256
