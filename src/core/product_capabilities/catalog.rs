@@ -4,6 +4,7 @@ const CATALOG: &str = include_str!("../../../assets/capabilities/product-capabil
 const MAX_CATALOG_BYTES: usize = 128 * 1024;
 const MAX_ENTRIES: usize = 128;
 const MAX_RESULTS: usize = 5;
+mod registered_probes;
 mod validation;
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -88,15 +89,34 @@ impl ReadinessEvidence {
         build_commit: String,
         probe_evidence_sha256: String,
     ) -> Result<Self, String> {
+        Self::from_registered_probe_state(
+            capability_id,
+            readiness_probe_id,
+            build_commit,
+            probe_evidence_sha256,
+            ReadinessState::Ready,
+        )
+    }
+
+    pub(crate) fn from_registered_probe_state(
+        capability_id: String,
+        readiness_probe_id: String,
+        build_commit: String,
+        probe_evidence_sha256: String,
+        state: ReadinessState,
+    ) -> Result<Self, String> {
         if !valid_full_sha(&build_commit) || !valid_full_sha(&probe_evidence_sha256) {
             return Err("readiness evidence is missing a valid build or probe digest".into());
+        }
+        if !registered_probes::contains(&capability_id, &readiness_probe_id) {
+            return Err("readiness evidence references an unregistered capability probe".into());
         }
         Ok(Self {
             capability_id,
             readiness_probe_id,
             build_commit,
             probe_evidence_sha256,
-            state: ReadinessState::Ready,
+            state,
         })
     }
 }

@@ -11,6 +11,7 @@ mod telemetry;
 
 mod broker;
 use broker::dependency_request_evidence;
+mod provider_readiness;
 
 /// Application-generated, workspace-private evidence for the generic support
 /// check and recent typed lifecycle events. Model output can cite these IDs,
@@ -34,7 +35,11 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
             source: "validated project capability inventory".into(),
             content: capability_inventory(project),
         },
-        capability_lookup_evidence(&workspace_uid, goal),
+        capability_lookup_evidence(
+            &workspace_uid,
+            goal,
+            &provider_readiness::manager_route_evidence(project),
+        ),
     ];
     items.extend(telemetry::regression_evidence(project, &workspace_uid));
     items.extend(dependency_request_evidence(project, &workspace_uid));
@@ -137,10 +142,14 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
     items
 }
 
-fn capability_lookup_evidence(workspace_uid: &str, goal: &str) -> EvidenceItem {
+fn capability_lookup_evidence(
+    workspace_uid: &str,
+    goal: &str,
+    readiness: &[crate::core::product_capabilities::ReadinessEvidence],
+) -> EvidenceItem {
     let content = match crate::core::product_capabilities::ProductCapabilityCatalogV1::compiled() {
         Ok(catalog) => {
-            let answer = catalog.lookup(goal);
+            let answer = catalog.lookup_with_readiness(goal, readiness);
             if answer.matches.is_empty() {
                 format!(
                     "Build version={:?} commit={:?}; catalog_sha256={}. Capability lookup is unknown: no matching catalog entry was found. This is not evidence that the capability is absent.",
@@ -164,7 +173,7 @@ fn capability_lookup_evidence(workspace_uid: &str, goal: &str) -> EvidenceItem {
                 }).collect::<Vec<_>>().join("; ");
                 crate::core::context_build::clip(
                     &format!(
-                        "Build version={:?} commit={:?}; catalog_sha256={}. These are bounded capability lookup candidates, not proof of host readiness. Prefer an existing listed workflow when it addresses the goal. Unknown or absent evidence must not be described as confirmed absence. {matches}",
+                        "Build version={:?} commit={:?}; catalog_sha256={}. These are bounded capability lookup candidates, not proof of host readiness. Provider readiness, when present, reflects the selected Manager route's local discovery snapshot; stale or missing data stays Unknown and is not a live service check. Prefer an existing listed workflow when it addresses the goal. Unknown or absent evidence must not be described as confirmed absence. {matches}",
                         answer.build_version, answer.build_commit, answer.catalog_sha256
                     ),
                     8_000,
