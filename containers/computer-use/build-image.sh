@@ -81,9 +81,13 @@ deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/${snapshot
 deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/${snapshot}/ bookworm-updates main
 deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/${snapshot}/ bookworm-security main
 APT
-sudo chroot "$work_dir/rootfs" apt-get update
-sudo chroot "$work_dir/rootfs" env DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y
-sudo chroot "$work_dir/rootfs" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+apt_get() {
+  sudo chroot "$work_dir/rootfs" env DEBIAN_FRONTEND=noninteractive \
+    apt-get -o Acquire::Retries=5 "$@"
+}
+apt_get update
+apt_get full-upgrade -y
+apt_get install -y --no-install-recommends \
   systemd-sysv linux-image-amd64 grub-pc-bin grub2-common \
   xorg openbox lightdm chromium dbus-x11 fonts-liberation \
   ca-certificates sudo locales
