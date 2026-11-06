@@ -5,6 +5,7 @@ mod errors;
 mod qemu;
 #[cfg(not(target_os = "linux"))]
 mod qemu_unsupported;
+#[cfg(target_os = "linux")]
 mod registry;
 mod types;
 

@@ -1,4 +1,6 @@
-use std::{path::Path, time::Duration};
+#[cfg(target_os = "linux")]
+use std::path::Path;
+use std::time::Duration;
 
 use crate::computer_use::{ComputerSessionV1, guest_image::GuestImageOverlayV1};
 
@@ -113,7 +115,9 @@ pub enum ComputerBackendEventKindV1 {
 /// Host-side byte stream to one app-owned guest serial port. Its I/O methods
 /// stay crate-private so task/provider code cannot bypass the typed protocol.
 pub struct ComputerGuestChannelV1 {
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub(crate) session_id: String,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub(crate) lease_generation: u64,
     #[cfg(unix)]
     _stream: std::os::unix::net::UnixStream,
@@ -122,9 +126,13 @@ pub struct ComputerGuestChannelV1 {
 /// Token minted only by the trusted guest protocol verifier after it has
 /// authenticated a fresh per-boot transcript and matched the active lease.
 pub struct ComputerGuestReadinessV1 {
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub(crate) session_id: String,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub(crate) lease_generation: u64,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub(crate) guest_boot_id: String,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub(crate) transcript_sha256: String,
 }
 
@@ -147,6 +155,7 @@ impl ComputerGuestReadinessV1 {
 
 impl ComputerGuestChannelV1 {
     #[cfg(unix)]
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub(crate) fn new(
         session_id: String,
         lease_generation: u64,
@@ -165,12 +174,10 @@ impl ComputerGuestChannelV1 {
         &mut self._stream
     }
 
-    #[cfg(unix)]
     pub fn session_id(&self) -> &str {
         &self.session_id
     }
 
-    #[cfg(unix)]
     pub fn lease_generation(&self) -> u64 {
         self.lease_generation
     }
@@ -256,6 +263,7 @@ pub trait ComputerBackend: Send + Sync {
     ) -> Result<ComputerBackendEventV1, ComputerBackendErrorV1>;
 }
 
+#[cfg(target_os = "linux")]
 pub(super) fn validate_runtime_root(path: &Path) -> Result<(), ComputerBackendErrorV1> {
     std::fs::create_dir_all(path).map_err(|_| ComputerBackendErrorV1::Io)?;
     let metadata = std::fs::symlink_metadata(path)
