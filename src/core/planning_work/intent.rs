@@ -14,6 +14,7 @@ impl PartialEq for Work {
             && self.parent_uid == other.parent_uid
             && self.task_intent_uid == other.task_intent_uid
             && self.task_intent_history == other.task_intent_history
+            && self.task_decisions == other.task_decisions
             && self.task_intent_cycles == other.task_intent_cycles
             && self.task_intent_cycle_uid == other.task_intent_cycle_uid
             && self.task_intent_archived_at_ms == other.task_intent_archived_at_ms
@@ -113,6 +114,7 @@ impl Work {
             parent_uid: None,
             task_intent_uid: None,
             task_intent_history: Vec::new(),
+            task_decisions: Vec::new(),
             task_intent_cycles: Vec::new(),
             task_intent_cycle_uid: None,
             task_intent_archived_at_ms: None,

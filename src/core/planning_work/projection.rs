@@ -78,6 +78,7 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
                 parent_uid: None,
                 task_intent_uid: None,
                 task_intent_history: Vec::new(),
+                task_decisions: Vec::new(),
                 task_intent_cycles: Vec::new(),
                 task_intent_cycle_uid: None,
                 task_intent_archived_at_ms: None,

@@ -138,6 +138,7 @@ fn clarification_command_keeps_the_planning_decision_open() {
 #[test]
 fn human_steps_without_choices_expose_an_explicit_answer() {
     let mut app = fixture();
+    app.task_harness = Some(Box::new(AnswerFixtureHarness));
     let key = "planning/tasks/fixture/001-task.md";
     app.attention_fixture.insert(
         key.into(),
@@ -185,4 +186,23 @@ fn human_steps_without_choices_expose_an_explicit_answer() {
             && message.answer_context.is_some()
             && !message.clarification
     }));
+}
+
+struct AnswerFixtureHarness;
+
+impl crate::harness::AiHarness for AnswerFixtureHarness {
+    fn label(&self) -> String {
+        "task answer fixture".into()
+    }
+
+    fn check_available(&self) -> Result<String, crate::AppError> {
+        Ok("ready".into())
+    }
+
+    fn execute(
+        &self,
+        _: &crate::harness::PlanningRequest,
+    ) -> Result<crate::harness::HarnessOutcome, crate::AppError> {
+        Err(crate::AppError::Other("fixture reply stopped".into()))
+    }
 }

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 mod code_review_disposition;
 mod cycles;
+mod decisions;
 mod history;
 mod intent;
 mod projection;
@@ -14,6 +15,10 @@ pub use code_review_disposition::{
     MAX_CODE_REVIEW_ARBITRATION_ATTEMPTS,
 };
 pub use cycles::{MAX_TASK_INTENT_CYCLE_GOAL_BYTES, TaskIntentCycleV1, start_follow_up_cycle};
+pub use decisions::{
+    MAX_TASK_DECISION_BYTES, TaskDecisionAuthorityReceiptV1, TaskDecisionRecordV1,
+    TaskDecisionSourceV1, TaskDecisionStatusV1, save_task_decision, task_decision_context,
+};
 pub use history::{
     TaskIntentEventEvidenceV1, TaskIntentEventKindV1, TaskIntentEventV1, TaskIntentGateKindV1,
     capture_authoritative_events,
@@ -181,6 +186,9 @@ pub struct Work {
     /// Append-only shared history for the TaskIntent root.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub task_intent_history: Vec<TaskIntentEventV1>,
+    /// Validated, task-scoped user directions retained in private local state.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub task_decisions: Vec<TaskDecisionRecordV1>,
     /// Explicit work cycles preserve earlier approved or released outcomes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub task_intent_cycles: Vec<TaskIntentCycleV1>,
