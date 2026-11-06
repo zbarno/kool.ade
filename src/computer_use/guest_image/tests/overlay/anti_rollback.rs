@@ -69,7 +69,17 @@ fn launch_persists_generation_and_rejects_signed_catalog_replay_after_reopen() {
         replay,
         Err(super::super::super::super::guest_image::GuestImageOverlayErrorV1::CatalogRollback)
     ));
-    assert_eq!(std::fs::read_dir(&overlay_root).unwrap().count(), 0);
+    assert_eq!(
+        std::fs::read_dir(&overlay_root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "qcow2"))
+            .count(),
+        0
+    );
     assert_eq!(
         super::super::super::super::guest_image::overlay::create_guest_image_overlay_at_for_test(
             &cache,

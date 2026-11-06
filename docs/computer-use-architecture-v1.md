@@ -1,17 +1,19 @@
 # Computer Use architecture decision and contracts (v1)
 
-Status: proposed interface for CU-01. No VM worker or guest transport is wired
-to this contract yet. A later backend must enforce these checks before each
-operation; merely deserializing a contract does not authorize a session.
+Status: the v1 contracts and bounded Linux QEMU/KVM lifecycle are implemented.
+The backend verifies signed sessions and overlays, runs offline disposable
+guests under delegated cgroup limits, and recovers only recorded owned
+processes. The authenticated guest transport remains a separate CU-05 task;
+guest readiness fails closed until that verifier is wired in.
 
 ## Decision
 
 Computer Use will use a distinct, typed VM session authority. It will not extend
 Docker `ExecutionSession`, Runtime QA driver sessions, or the existing provider
 MCP bridge. Docker coding remains rootless and network-disabled by default;
-Runtime QA keeps its restricted preview origins; Computer Use will target
-QEMU/KVM Linux guests through a future app-owned controller and authenticated
-guest companion. The controller owns user grants, task binding, approvals,
+Runtime QA keeps its restricted preview origins; Computer Use targets QEMU/KVM
+Linux guests through an app-owned controller and authenticated guest companion.
+The controller owns user grants, task binding, approvals,
 lease issuance, network policy, evidence retention, host resource limits, and
 repository/workspace changes. Guests return observations and action results;
 they cannot commit, push, publish Git, or alter authoritative workspace state.
@@ -49,8 +51,9 @@ identity. Protected host paths include the user home, SSH material, Docker
 socket, application configuration and secret state, planning data, and code
 repositories. No host home, Docker socket, SSH agent, device passthrough,
 arbitrary host path, shell string, hypervisor argv, provider credential, or
-cloud token crosses the guest contract. Guest-channel authentication,
-lifecycle cleanup, and network enforcement remain backend obligations.
+cloud token crosses the guest contract. Guest-channel authentication remains
+the CU-05 verifier's responsibility; the backend treats a connected socket as
+untrusted until it receives a session- and lease-bound readiness result.
 
 ## Image provenance decision
 
@@ -79,7 +82,10 @@ CU-04 consumes it without network discovery or unsigned-image fallback.
 `src/computer_use/contract` defines the v1 wire values. All records deny unknown
 fields; enum variants are closed; each top-level contract has an explicit
 version. `ComputerIdentityV1` binds project, task, user, and session UUIDs.
-`ComputerTargetV1` currently describes only local KVM. `ComputerSessionV1`
+`ComputerTargetV1` currently describes only local KVM. The Linux backend accepts
+only disposable, offline sessions, fixed QEMU arguments, app-owned overlays,
+and a delegated cgroup v2 subtree. It rejects root execution and hosts without
+the required KVM, QEMU, or resource controls. `ComputerSessionV1`
 binds the immutable image digest and approved manifest identity, class,
 network profile, app allowlist,
 controller-issued policy and lease, lifecycle, action/cancellation/approval
@@ -193,13 +199,35 @@ stateDiagram-v2
   recovering --> destroyed
 ```
 
+### Local QEMU backend
+
+`computer_use::ComputerBackend` exposes typed probe, prepare, recover, boot,
+readiness, connect, suspend, resume, snapshot, cancel, stop, collect, and release
+operations. `LocalKvmComputerBackend` accepts only a signed disposable session
+with networking disabled and a verified overlay under the configured private
+root. It uses a fixed `/usr/bin/qemu-system-x86_64` executable and app-built
+arguments; it supplies no guest NIC, host mount, monitor, serial console,
+clipboard, or shell. The guest control stream uses one private virtio-serial
+socket and remains untrusted until CU-05 authenticates it.
+
+The host must be an unprivileged Linux user with accessible `/dev/kvm`, a
+root-owned QEMU binary, and a delegated cgroup v2 subtree with CPU, memory, and
+process controllers enabled. The process enters that cgroup before QEMU execs;
+memory, CPU, swap, process count, overlay file size, boot time, and signed
+session lifetime are bounded. Runtime owner records bind the process start
+time, session, lease, image provenance, and overlay path. Restart recovery
+stops only matching recorded QEMU processes and removes their owned disposable
+overlays. This host backend does not authenticate the guest protocol or verify
+VM escape resistance; real KVM security evidence remains a separate release
+validation task.
+
 ## Greenfield implementation plan
 
 1. CU-01 freezes contracts, authority boundaries, lifecycle and threats.
 2. CU-02 probes Linux/KVM and reports typed readiness without mutating host
    state; CU-03 builds and verifies the pinned guest image.
-3. CU-04 implements only local QEMU/KVM lifecycle, bounded overlays and cleanup
-   against these contracts.
+3. CU-04 implements the local QEMU/KVM lifecycle, bounded overlays and cleanup
+   against these contracts; real-host validation remains separate.
 4. CU-05 authenticates a minimal guest companion; CU-06 adds generic GUI
    actions/observations; CU-07 adds the app-owned provider-neutral grant path.
 5. Viewer/takeover, safe artifact bridge, controlled internet and personal
@@ -218,4 +246,8 @@ then confirms that changing the image or approved manifest identity invalidates
 the attestation. Unit tests
 exercise policy narrowing, bounds, and lifecycle edges. These tests need no Docker, KVM, SSH, or network service and have low
 setup cost. They prove data contract behavior only; a real VM trust-boundary
-test belongs to the integrated release suite and remains deferred.
+test belongs to the integrated release suite and remains deferred. Backend
+unit tests also inspect the fixed QEMU argument and environment boundary; the
+overlay launch test uses a fake qemu-img tool to detect changed base images and
+backing chains without starting a VM. Neither substitutes for disposable guest
+testing on a non-root Linux host with KVM and delegated cgroups.
