@@ -160,7 +160,7 @@ fn debootstrap_download_adapter_limits_urls_and_retries_tls_downloads() {
     let argument_log = temp.path().join("curl-arguments");
     write_executable(
         &fake_bin.join("curl"),
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CURL_ARGUMENT_LOG\"\n",
+        "#!/bin/bash\nprintf '%s\\n' \"$@\" >> \"$CURL_ARGUMENT_LOG\"\noutput=\nurl=\nwhile (($#)); do case \"$1\" in --output) output=$2; shift 2;; https://*) url=$1; shift;; *) shift;; esac; done\nif [[ \"$url\" == https://snapshot.debian.org/* ]]; then exit 22; fi\n[[ \"$url\" == https://deb.debian.org/debian/pool/* ]] || exit 2\n: > \"$output\"\n",
     );
     let adapter =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("containers/computer-use/debootstrap-wget");
@@ -171,7 +171,7 @@ fn debootstrap_download_adapter_limits_urls_and_retries_tls_downloads() {
             "-q",
             "-O",
             output_path.to_str().unwrap(),
-            "https://snapshot.debian.org/archive/debian/20261101T000000Z/package.deb",
+            "https://snapshot.debian.org/archive/debian/20261101T000000Z/pool/main/package.deb",
         ])
         .env("PATH", format!("{}:{real_path}", fake_bin.display()))
         .env("CURL_ARGUMENT_LOG", &argument_log)
@@ -182,6 +182,13 @@ fn debootstrap_download_adapter_limits_urls_and_retries_tls_downloads() {
     assert!(arguments.lines().any(|arg| arg == "--retry-all-errors"));
     assert!(arguments.lines().any(|arg| arg == "--retry"));
     assert!(arguments.lines().any(|arg| arg == "--output"));
+    assert!(arguments.lines().any(|arg| arg
+        == "https://snapshot.debian.org/archive/debian/20261101T000000Z/pool/main/package.deb"));
+    assert!(
+        arguments
+            .lines()
+            .any(|arg| arg == "https://deb.debian.org/debian/pool/main/package.deb")
+    );
     assert!(
         arguments
             .lines()

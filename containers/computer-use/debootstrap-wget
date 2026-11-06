@@ -30,5 +30,28 @@ done
   exit 2
 }
 
-exec curl --fail --location --retry 3 --retry-all-errors --retry-delay 2 \
-  --connect-timeout 15 --max-time 180 --output "$output" "$url"
+curl_download() {
+  curl --fail --location --silent --show-error --retry 3 --retry-all-errors \
+    --retry-delay 2 --connect-timeout 15 --max-time 180 \
+    --output "$output" "$1"
+}
+
+if curl_download "$url"; then
+  exit 0
+fi
+rm -f -- "$output"
+
+# Keep signed snapshot metadata authoritative. A pool mirror may supply package
+# bytes only; debootstrap checks each payload against the signed Packages hash.
+snapshot_prefix="https://snapshot.debian.org/archive/debian/"
+if [[ "$url" == "$snapshot_prefix"* ]]; then
+  snapshot_path="${url#"$snapshot_prefix"}"
+  snapshot_id="${snapshot_path%%/*}"
+  package_path="${snapshot_path#*/}"
+  if [[ "$snapshot_id" =~ ^[0-9]{8}T[0-9]{6}Z$ && "$package_path" == pool/* ]]; then
+    fallback_url="https://deb.debian.org/debian/$package_path"
+    echo "snapshot package request failed; trying hash-checked Debian pool mirror" >&2
+    curl_download "$fallback_url" && exit 0
+  fi
+fi
+exit 1

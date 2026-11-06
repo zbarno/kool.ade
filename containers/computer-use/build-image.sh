@@ -58,6 +58,7 @@ ln -s "$root_dir/containers/computer-use/debootstrap-wget" "$work_dir/download-t
 bootstrap_attempt=1
 while true; do
   if sudo env PATH="$work_dir/download-tools:$PATH" debootstrap --verbose \
+    --force-check-gpg --keyring=/usr/share/keyrings/debian-archive-keyring.gpg \
     --cache-dir="$work_dir/debootstrap-cache" \
     --arch=amd64 --variant=minbase bookworm "$work_dir/rootfs" \
     "https://snapshot.debian.org/archive/debian/${snapshot}/"; then
