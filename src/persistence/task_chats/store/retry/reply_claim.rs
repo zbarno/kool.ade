@@ -146,7 +146,7 @@ impl TaskChats {
         if messages[latest_user].id != user_id {
             return Ok(None);
         }
-        let after = &messages[latest_user + 1..];
+        let after = super::manager::after_authorization(&messages[latest_user + 1..]);
         if after.iter().any(is_substantive_agent_reply)
             || after.iter().any(is_conflict_retry)
             || has_task_reply_outcome(after)

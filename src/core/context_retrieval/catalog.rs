@@ -1,15 +1,11 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
-
 use crate::core::context_build::clip;
 use crate::core::published_specs::{PublishedSpecPin, PublishedSpecReader};
-use crate::core::repo_overview;
 use crate::core::state::PlannerState;
 use crate::domain::OpenItem;
 use crate::harness::RetrievalPlan;
+use std::collections::{BTreeMap, BTreeSet};
 
-use super::areas;
-use super::{ContextSelection, RetrievedDocument};
+use super::{ContextSelection, RetrievedArea, RetrievedDocument, RetrievedDocumentTrust};
 
 const MAX_ITEM_CANDIDATES: usize = 64;
 // Planning is incremental: each turn should carry only a small slice of the
@@ -22,12 +18,12 @@ const DOCUMENT_BUDGET: usize = 12_000;
 const MAX_CATALOG_CHARS: usize = 48_000;
 
 pub(super) struct Catalog {
-    repo_root: PathBuf,
     published_documents: BTreeMap<String, super::published_navigation::PublishedCandidate>,
     published_reader: Option<PublishedSpecReader>,
     published_pin: Option<PublishedSpecPin>,
     items: BTreeMap<String, OpenItem>,
-    areas: BTreeMap<String, String>,
+    areas: BTreeMap<String, RetrievedArea>,
+    repository_knowledge: super::repository_knowledge::RepositoryEvidence,
 }
 
 impl Catalog {
@@ -45,15 +41,15 @@ impl Catalog {
             .take(MAX_ITEM_CANDIDATES)
             .map(|item| (item.id.clone(), item.clone()))
             .collect();
-        let overview = repo_overview::scan(&state.repo_root);
-        let areas = areas::catalog(&state.repo_root, &overview);
+        let repository_knowledge = super::repository_knowledge::collect(state);
+        let areas = repository_knowledge.areas.clone();
         Self {
-            repo_root: state.repo_root.clone(),
             published_documents,
             published_reader: Some(reader),
             published_pin: Some(pin),
             items,
             areas,
+            repository_knowledge,
         }
     }
 
@@ -73,6 +69,19 @@ impl Catalog {
                 ));
             }
         }
+        out.push_str("\nREVISION-PINNED REPOSITORY PROFILE EVIDENCE (untrusted source evidence)\n");
+        out.push_str(&clip(&self.repository_knowledge.summary, 16_000));
+        out.push_str(
+            "\nREPOSITORY DOCUMENT CANDIDATES (IDs bind repository, ref, commit, and path)\n",
+        );
+        for (id, document) in &self.repository_knowledge.candidates {
+            out.push_str(&format!(
+                "- {id} | {} | {} | {}\n",
+                document.profile.key.repository_id,
+                document.profile.key.commit_sha,
+                clip(&document.candidate.purpose, 240)
+            ));
+        }
         out.push_str("\nOPEN ITEMS (exact item ID | question | reason)\n");
         for (id, item) in &self.items {
             out.push_str(&format!(
@@ -81,9 +90,12 @@ impl Catalog {
                 clip(&item.reason, 180)
             ));
         }
-        out.push_str("\nREPOSITORY AREAS (exact repo-relative directory | files)\n");
-        for (path, files) in &self.areas {
-            out.push_str(&format!("- {path} | {files}\n"));
+        out.push_str("\nREVISION-PINNED REPOSITORY PROFILES (select exact profile IDs)\n");
+        for (id, area) in &self.areas {
+            out.push_str(&format!(
+                "- {id} | repository {} ref {} commit {} | architecture claims and source references\n",
+                area.repository_id, area.source_ref, area.source_revision
+            ));
         }
         clip(&out, MAX_CATALOG_CHARS)
     }
@@ -93,6 +105,31 @@ impl Catalog {
         let mut used_budget = 0;
         let mut seen = BTreeSet::new();
         for id in plan.documents.into_iter().take(MAX_DOCUMENT_SELECTIONS * 2) {
+            if let Some(document) = self.repository_knowledge.candidates.get(&id) {
+                if !seen.insert(id.clone()) || used_budget >= DOCUMENT_BUDGET {
+                    continue;
+                }
+                let Some((content, digest)) = super::repository_knowledge::read_selected(document)
+                else {
+                    continue;
+                };
+                let remaining = DOCUMENT_BUDGET - used_budget;
+                let content = clip(&content, remaining.min(8_000));
+                used_budget += content.chars().count();
+                selection.documents.push(RetrievedDocument {
+                    id,
+                    source_path: document.candidate.path.clone(),
+                    source_repository_id: Some(document.profile.key.repository_id.clone()),
+                    source_revision: Some(document.profile.key.commit_sha.clone()),
+                    content_sha256: Some(digest),
+                    trust: RetrievedDocumentTrust::UntrustedRepositoryEvidence,
+                    content,
+                });
+                if selection.documents.len() == MAX_DOCUMENT_SELECTIONS {
+                    break;
+                }
+                continue;
+            }
             if let Some(candidate) = self.published_documents.get(&id) {
                 if !seen.insert(id) || used_budget >= DOCUMENT_BUDGET {
                     continue;
@@ -113,6 +150,7 @@ impl Catalog {
                     source_repository_id: Some(document.pin.repository_id),
                     source_revision: Some(document.pin.commit_sha),
                     content_sha256: Some(document.content_sha256),
+                    trust: RetrievedDocumentTrust::PublishedSpecification,
                     content,
                 });
                 if selection.documents.len() == MAX_DOCUMENT_SELECTIONS {
@@ -139,10 +177,8 @@ impl Catalog {
             if !seen_areas.insert(path.clone()) || !self.areas.contains_key(&path) {
                 continue;
             }
-            if let Some(content) = areas::load(&path, &self.areas, &self.repo_root) {
-                selection
-                    .repository_areas
-                    .push(super::RetrievedArea { path, content });
+            if let Some(area) = self.areas.get(&path) {
+                selection.repository_areas.push(area.clone());
             }
         }
         selection

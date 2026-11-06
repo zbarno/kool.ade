@@ -24,6 +24,8 @@ pub struct WorkspaceActivity {
     pub conversations: BTreeMap<String, LiveProgress>,
     pub tasks: BTreeMap<String, LiveProgress>,
     pub manager: Option<Manager>,
+    pub(crate) operational_recovery_worker: Option<super::operational_recovery::NativeWorker>,
+    pub(crate) saved_reply_dispatch_blockers: BTreeMap<String, String>,
     pub(crate) last_manager_error: Option<String>,
     /// One queued Planner v4 pass, armed only by a saved clarification answer.
     pub(crate) pending_clarification_planner: Option<(String, u64)>,

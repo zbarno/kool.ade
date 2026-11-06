@@ -99,5 +99,7 @@ fn is_independent_record_path(relative: &Path) -> bool {
 }
 
 fn is_local_only(relative: &Path) -> bool {
-    crate::artifacts::planning_store::is_local_only(relative)
+    relative == Path::new("knowledge")
+        || relative.starts_with("knowledge")
+        || crate::artifacts::planning_store::is_local_only(relative)
 }

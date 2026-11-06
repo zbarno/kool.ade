@@ -22,6 +22,7 @@ pub(super) use intent::normalize_task_intents;
 use validation::validate;
 pub use validation::{routing_for_feature, save, save_expected};
 mod answered;
+pub mod operational_recovery;
 mod reconcile;
 pub use answered::reconcile_answered_child;
 #[cfg(test)]
@@ -210,6 +211,8 @@ pub struct Work {
     pub follow_up_task: Option<FollowUpTaskOffer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_review_disposition: Option<CodeReviewFindingDispositionV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operational_recovery: Option<operational_recovery::RecoveryV1>,
     pub detail: String,
     /// Revision captured when this record was loaded; not part of legacy
     /// aggregate serialization.

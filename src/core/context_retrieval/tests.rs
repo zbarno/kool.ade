@@ -23,6 +23,10 @@ impl AiHarness for RetrievalModel {
         panic!("retrieval planning must use the dedicated harness method")
     }
 
+    fn supports_context_retrieval(&self) -> bool {
+        true
+    }
+
     fn plan_retrieval(&self, request: &PlanningRequest) -> Result<Option<RetrievalPlan>, AppError> {
         *self.request.lock().unwrap() = Some(request.prompt_body.clone());
         Ok(Some(self.plan.clone()))
@@ -80,6 +84,23 @@ fn fixture() -> (PlannerState, std::path::PathBuf) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, content).unwrap();
     }
+    std::fs::write(
+        root.join("docs/AGENTS.md"),
+        "# Navigation\n\n- [Koolade architecture](./koolade/AGENTS.md) - Read project architecture.\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src/persistence")).unwrap();
+    std::fs::write(
+        root.join("src/persistence/session.rs"),
+        "pub fn restore_session() { /* SESSION_RESTORE_IMPLEMENTATION */ }\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src/notifications")).unwrap();
+    std::fs::write(
+        root.join("src/notifications/push.rs"),
+        "// UNSELECTED_PUSH_IMPLEMENTATION\n",
+    )
+    .unwrap();
     for (key, value) in [
         ("user.name", "Fixture User"),
         ("user.email", "fixture@example.test"),
@@ -95,7 +116,7 @@ fn fixture() -> (PlannerState, std::path::PathBuf) {
     }
     assert!(
         std::process::Command::new("git")
-            .args(["add", "docs/koolade"])
+            .args(["add", "docs", "src"])
             .current_dir(&root)
             .status()
             .unwrap()
@@ -114,18 +135,6 @@ fn fixture() -> (PlannerState, std::path::PathBuf) {
     // uncommitted document changes.
     let mut state = PlannerState::load(&root).unwrap();
     state.bootstrap_missing().unwrap();
-    std::fs::create_dir_all(root.join("src/persistence")).unwrap();
-    std::fs::write(
-        root.join("src/persistence/session.rs"),
-        "pub fn restore_session() { /* SESSION_RESTORE_IMPLEMENTATION */ }\n",
-    )
-    .unwrap();
-    std::fs::create_dir_all(root.join("src/notifications")).unwrap();
-    std::fs::write(
-        root.join("src/notifications/push.rs"),
-        "// UNSELECTED_PUSH_IMPLEMENTATION\n",
-    )
-    .unwrap();
     state.items = vec![
         crate::domain::OpenItem::new(
             "CLR-021".into(),
@@ -171,7 +180,11 @@ fn model_selected_sources_follow_the_issue_without_literal_names_in_the_request(
                 "published:docs/koolade/architecture/architecture-and-constraints.md".into(),
             ],
             open_items: vec!["CLR-021".into()],
-            repository_areas: vec!["src/persistence".into()],
+            repository_areas: super::repository_knowledge::collect(&state)
+                .areas
+                .keys()
+                .cloned()
+                .collect(),
         },
         request: Mutex::new(None),
     };
@@ -198,8 +211,9 @@ fn model_selected_sources_follow_the_issue_without_literal_names_in_the_request(
     assert!(prompt.contains("Source: docs/koolade/architecture/architecture-and-constraints.md"));
     assert!(prompt.contains("CLR-021"));
     assert!(prompt.contains("This determines safe retry behavior after restart."));
-    assert!(prompt.contains("repo:src/persistence/session.rs"));
-    assert!(prompt.contains("SESSION_RESTORE_IMPLEMENTATION"));
+    assert!(prompt.contains("src/notifications/push.rs:1-1@"));
+    assert!(prompt.contains("ref refs/heads/main commit"));
+    assert!(!prompt.contains("SESSION_RESTORE_IMPLEMENTATION"));
     assert!(!prompt.contains("UNSELECTED_RISK_SOURCE"));
     assert!(!prompt.contains("UNSELECTED_PUSH_IMPLEMENTATION"));
     assert!(!prompt.contains("CLR-022"));
@@ -244,6 +258,12 @@ fn model_can_retrieve_a_project_specific_optional_product_module() {
 #[test]
 fn invalid_references_are_ignored_and_retrieval_limits_are_deterministic() {
     let (state, root) = fixture();
+    let profile_id = super::repository_knowledge::collect(&state)
+        .areas
+        .keys()
+        .next()
+        .cloned()
+        .expect("the committed fixture has one local repository profile");
     let plan = RetrievalPlan {
         documents: vec![
             "../../outside/secret.md".into(),
@@ -254,7 +274,7 @@ fn invalid_references_are_ignored_and_retrieval_limits_are_deterministic() {
             "published:docs/koolade/architecture/quality-and-acceptance.md".into(),
         ],
         open_items: vec!["../../outside".into(), "CLR-022".into(), "CLR-021".into()],
-        repository_areas: vec!["../outside".into(), "src/persistence".into()],
+        repository_areas: vec!["../outside".into(), profile_id],
     };
     let model = RetrievalModel {
         plan,
@@ -275,7 +295,7 @@ fn invalid_references_are_ignored_and_retrieval_limits_are_deterministic() {
         selected
             .repository_areas
             .iter()
-            .all(|area| area.path == "src/persistence")
+            .all(|area| area.path == "profile://architecture")
     );
     assert!(selected.repository_areas[0].content.chars().count() <= 16_100);
     let _ = std::fs::remove_dir_all(root);

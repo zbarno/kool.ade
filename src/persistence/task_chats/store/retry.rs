@@ -13,6 +13,7 @@ pub const MAX_PLANNING_CONFLICT_RETRIES: usize = 1;
 const MAX_PLANNING_CONFLICT_CLAIMS_PER_RETRY: usize = 2;
 
 mod helpers;
+mod manager;
 mod planning_conflict;
 mod reply_claim;
 mod safe_recovery;
@@ -47,7 +48,7 @@ impl TaskChats {
         let Some(latest_user) = latest_user.filter(|index| messages[*index].id == user_id) else {
             return Ok(None);
         };
-        let after = &messages[latest_user + 1..];
+        let after = manager::after_authorization(&messages[latest_user + 1..]);
         if reply_claim_id.is_some() {
             if current_reply_claim_id(messages, user_id) != reply_claim_id {
                 return Ok(None);
@@ -78,6 +79,7 @@ impl TaskChats {
 }
 
 pub(super) fn has_task_reply_outcome(messages: &[ChatMessage]) -> bool {
+    let messages = manager::after_authorization(messages);
     safe_recovery::attempts(messages) >= 2
         || messages.iter().any(|message| {
             message.role == ChatRole::System
@@ -94,7 +96,7 @@ pub(super) fn has_failed_task_reply(messages: &[ChatMessage]) -> bool {
     else {
         return false;
     };
-    let after = &messages[latest_user + 1..];
+    let after = manager::after_authorization(&messages[latest_user + 1..]);
     if after.iter().any(is_substantive_agent_reply)
         || after.iter().any(|message| {
             message.role == ChatRole::System
@@ -160,7 +162,7 @@ fn current_retry_claim_id<'a>(messages: &'a [ChatMessage], user_id: &str) -> Opt
     if messages[latest_user].id != user_id {
         return None;
     }
-    let after = &messages[latest_user + 1..];
+    let after = manager::after_authorization(&messages[latest_user + 1..]);
     if after.iter().any(is_substantive_agent_reply) {
         return None;
     }
@@ -192,7 +194,7 @@ pub(super) fn has_active_retry_claim(messages: &[ChatMessage]) -> bool {
     else {
         return false;
     };
-    let after = &messages[latest_user + 1..];
+    let after = manager::after_authorization(&messages[latest_user + 1..]);
     if after.iter().any(is_substantive_agent_reply) {
         return false;
     }

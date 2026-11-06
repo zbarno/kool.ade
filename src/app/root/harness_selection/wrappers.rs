@@ -8,6 +8,10 @@ pub(super) struct RoutedHarness {
 }
 
 impl AiHarness for RoutedHarness {
+    fn supports_context_retrieval(&self) -> bool {
+        self.inner.supports_context_retrieval()
+    }
+
     fn route_provenance(
         &self,
         _request: &PlanningRequest,
@@ -61,7 +65,7 @@ impl AiHarness for RoutedHarness {
         }
         self.validate_capability_evidence()?;
         self.inner
-            .plan_retrieval(request)
+            .plan_retrieval_with_model(request, self.model.as_deref())
             .map_err(|error| self.normalize_failure(request, error))
     }
 }
@@ -156,6 +160,10 @@ pub(super) struct ImplementationQaHarness {
 }
 
 impl AiHarness for ImplementationQaHarness {
+    fn supports_context_retrieval(&self) -> bool {
+        self.implementation.supports_context_retrieval()
+    }
+
     fn route_provenance(
         &self,
         request: &PlanningRequest,
@@ -229,6 +237,15 @@ impl AiHarness for ImplementationQaHarness {
         request: &PlanningRequest,
     ) -> Result<Option<crate::harness::RetrievalPlan>, crate::error::AppError> {
         self.implementation.plan_retrieval(request)
+    }
+
+    fn plan_retrieval_with_model(
+        &self,
+        request: &PlanningRequest,
+        model: Option<&str>,
+    ) -> Result<Option<crate::harness::RetrievalPlan>, crate::error::AppError> {
+        self.implementation
+            .plan_retrieval_with_model(request, model)
     }
 }
 

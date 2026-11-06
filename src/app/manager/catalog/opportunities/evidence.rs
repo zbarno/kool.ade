@@ -41,6 +41,19 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
             &provider_readiness::manager_route_evidence(project),
         ),
     ];
+    if requests_repository_profile(goal)
+        && let Some(content) =
+            crate::core::context_retrieval::manager_profile_summary(&project.state)
+    {
+        items.push(EvidenceItem {
+            id: "repository-architecture-profile".into(),
+            workspace_uid: workspace_uid.clone(),
+            origin: EvidenceOrigin::Application,
+            confidentiality: EvidenceConfidentiality::WorkspacePrivate,
+            source: "revision-pinned local repository architecture profile".into(),
+            content,
+        });
+    }
     items.extend(telemetry::regression_evidence(project, &workspace_uid));
     items.extend(dependency_request_evidence(project, &workspace_uid));
     let feature_uids = project
@@ -88,6 +101,24 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
             confidentiality: EvidenceConfidentiality::WorkspacePrivate,
             source: "validated typed lifecycle event".into(),
             content,
+        });
+    }
+    for work in project
+        .planning_work
+        .iter()
+        .filter(|work| work.operational_recovery.is_some())
+        .rev()
+        .take(12)
+    {
+        let recovery = work.operational_recovery.as_ref().unwrap();
+        items.push(EvidenceItem {
+            id: format!("operational-recovery:{}", work.uid),
+            workspace_uid: workspace_uid.clone(), origin: EvidenceOrigin::Application,
+            confidentiality: EvidenceConfidentiality::WorkspacePrivate,
+            source: "application-owned operational triage task".into(),
+            content: format!("source_uid={} source_key={} failure={:?} status={:?} replay_attempts={} native_repair_attempts={} diagnostic={} next_action={}",
+                recovery.source_uid, recovery.source_key, recovery.failure, work.status, recovery.attempts, recovery.repair_attempts,
+                crate::core::context_build::clip_bytes(&recovery.evidence, 1024), crate::core::context_build::clip_bytes(&work.detail, 1024)),
         });
     }
     for (task, failure) in project.queue.blocked.iter().take(16) {
@@ -140,6 +171,24 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
         });
     }
     items
+}
+
+fn requests_repository_profile(goal: &str) -> bool {
+    let goal = goal.to_ascii_lowercase();
+    [
+        "architecture",
+        "repository",
+        "codebase",
+        "entry point",
+        "subsystem",
+        "implemented",
+        "source code",
+        "project structure",
+        "dependencies",
+        "build system",
+    ]
+    .iter()
+    .any(|term| goal.contains(term))
 }
 
 fn capability_lookup_evidence(
