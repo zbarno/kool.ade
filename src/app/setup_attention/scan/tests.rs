@@ -71,6 +71,26 @@ fn missing_general_image_or_git_cannot_produce_a_ready_result() {
     );
 }
 
+#[test]
+fn unsupported_computer_use_does_not_block_ready_docker_work() {
+    let mut ready = snapshot(
+        catalog::EvidenceState::Ready,
+        catalog::EvidenceCode::GitAvailable,
+    );
+    ready.findings.retain(|finding| {
+        !finding.id.starts_with("setup:images:") && !finding.id.starts_with("setup:git:")
+    });
+    ready.findings.push(catalog::Finding {
+        id: "setup:computer:image:amd64".into(),
+        title: "Unsupported computer image".into(),
+        explanation: "synthetic unsupported host".into(),
+        next_step: "Use a supported host".into(),
+        status: catalog::FindingStatus::Unsupported,
+        prerequisites: Vec::new(),
+    });
+    assert!(issue_for_readiness(None, true, &ready).is_none());
+}
+
 /// Production boundary: the final worker check compares the daemon identity and
 /// selected provider before committing the local task snapshot. This pure test
 /// exercises the identity predicate without Docker, a network request, or disk
