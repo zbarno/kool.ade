@@ -4,6 +4,7 @@ mod commit;
 mod image_receipts;
 #[cfg(test)]
 mod tests;
+mod vm_readiness;
 
 pub use commit::SetupScanVerification;
 #[cfg(test)]
@@ -124,6 +125,12 @@ pub fn scan(
         },
     );
     snapshot.scan_started_at_unix_ms = started_at;
+    let kvm_ready = vm_readiness::append_findings(
+        &mut snapshot.findings,
+        host,
+        snapshot.capability_matrix.observed_host_architecture,
+    );
+    vm_readiness::append_checked_domains(&mut snapshot.checked_domains, kvm_ready);
     if snapshot.validate().is_err() {
         return SetupScanResult {
             generation,
@@ -160,7 +167,8 @@ fn issue_for_readiness(
     snapshot: &catalog::MachineSnapshotV1,
 ) -> Option<SetupIssue> {
     let pending_required_task = snapshot.findings.iter().any(|finding| {
-        finding.status == catalog::FindingStatus::Unsupported
+        (finding.status == catalog::FindingStatus::Unsupported
+            && !finding.id.starts_with("setup:computer:"))
             || finding.id.starts_with("setup:images:")
             || finding.id.starts_with("setup:git:")
     });
