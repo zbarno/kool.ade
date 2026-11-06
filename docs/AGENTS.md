@@ -25,6 +25,7 @@
 - [opportunity-discovery.md](./opportunity-discovery.md) - Read for Opportunity discovery and user authority.
 - [parallel-implementation.md](./parallel-implementation.md) - Read for Parallel implementation and integration.
 - [planner-policy.md](./planner-policy.md) - Read for Planner policy.
+- [project-runtime-composition.md](./project-runtime-composition.md) - Read for Project-specific Docker runtime composition plan and safety boundary.
 - [project-runtime-contract.md](./project-runtime-contract.md) - Read for Project runtime capability contract.
 - [remote-private-file-grant-protocol-v1.md](./remote-private-file-grant-protocol-v1.md) - Read for Remote private-file grant protocol v1.
 - [runtime-configuration.md](./runtime-configuration.md) - Read for Local configuration for verification.
