@@ -283,6 +283,8 @@ fn set_private_file(path: &Path) -> Result<(), GuestImageOverlayErrorV1> {
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))
             .map_err(|_| GuestImageOverlayErrorV1::Io)?;
     }
+    #[cfg(not(unix))]
+    let _ = path;
     Ok(())
 }
 

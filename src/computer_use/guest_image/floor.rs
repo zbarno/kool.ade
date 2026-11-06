@@ -212,9 +212,9 @@ fn validate_root(root: &Path) -> Result<(), ImageCacheErrorV1> {
         }
     }
     #[cfg(not(unix))]
-    {
-        return Err(ImageCacheErrorV1::CatalogFloorUnavailable);
-    }
+    return Err(ImageCacheErrorV1::CatalogFloorUnavailable);
+
+    #[cfg(unix)]
     Ok(())
 }
 

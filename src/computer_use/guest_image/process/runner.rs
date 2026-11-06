@@ -7,7 +7,10 @@ use std::{
     time::Instant,
 };
 
-use super::{BoundedOutput, MAX_CAPTURE_BYTES, QemuProcessError};
+use super::{BoundedOutput, QemuProcessError};
+
+#[cfg(unix)]
+use super::MAX_CAPTURE_BYTES;
 
 pub(super) fn run_bounded(
     path: &Path,

@@ -4,15 +4,14 @@ mod runner;
 #[path = "process/tests.rs"]
 mod tests;
 
-use std::{
-    ffi::OsStr,
-    path::{Path, PathBuf},
-    process::ExitStatus,
-    time::Duration,
-};
+use std::{ffi::OsStr, path::PathBuf, process::ExitStatus, time::Duration};
+
+#[cfg(target_os = "linux")]
+use std::path::Path;
 
 use self::runner::run_bounded;
 
+#[cfg(unix)]
 const MAX_CAPTURE_BYTES: usize = 64 * 1024;
 const QEMU_TIMEOUT: Duration = Duration::from_secs(20);
 
