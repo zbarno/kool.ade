@@ -46,8 +46,16 @@ impl ComputerEventValidator {
         })
     }
 
-    pub fn accept(&mut self, event: &ComputerEventV1) -> Result<(), &'static str> {
+    pub fn accept(
+        &mut self,
+        event: &ComputerEventV1,
+        now_unix_ms: u64,
+    ) -> Result<(), &'static str> {
+        self.session.lease.validate(now_unix_ms)?;
         event.validate()?;
+        if event.occurred_at_unix_ms > now_unix_ms {
+            return Err("event timestamp is in the future");
+        }
         if event.session_id != self.session_id {
             return Err("event session identity changed");
         }
@@ -81,7 +89,7 @@ impl ComputerEventValidator {
                 self.lifecycle = *to;
             }
             ComputerEventKindV1::ActionAccepted { action } => {
-                action.validate(&self.session)?;
+                action.validate(&self.session, now_unix_ms)?;
                 if action.session_id != self.session_id
                     || action.lease_generation != event.lease_generation
                     || action.approval_generation != event.approval_generation
@@ -125,8 +133,9 @@ impl ComputerEventValidator {
                         ComputerStatusV1::Denied
                         | ComputerStatusV1::Failed
                         | ComputerStatusV1::Interrupted,
-                        Some(_),
-                    ) => {}
+                        Some(code),
+                    ) if *code
+                        != crate::computer_use::ComputerFailureCodeV1::UncertainSideEffect => {}
                     (
                         ComputerStatusV1::Uncertain,
                         Some(crate::computer_use::ComputerFailureCodeV1::UncertainSideEffect),

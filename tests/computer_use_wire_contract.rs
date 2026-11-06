@@ -22,15 +22,15 @@ fn golden_wire_contracts_validate_and_round_trip_without_shape_drift() {
     assert_eq!(lease.validate(1_050_000), Ok(()));
     assert_eq!(policy.validate(), Ok(()));
     assert_eq!(session.validate(1_050_000), Ok(()));
-    assert_eq!(action.validate(&session), Ok(()));
+    assert_eq!(action.validate(&session, 1_050_000), Ok(()));
     assert_eq!(
-        action.validate_as(ComputerActionActorV1::Agent, &session),
+        action.validate_as(ComputerActionActorV1::Agent, &session, 1_050_000),
         Ok(())
     );
     let mut forged_actor = action.clone();
     forged_actor.actor = ComputerActionActorV1::Human;
     assert_eq!(
-        forged_actor.validate_as(ComputerActionActorV1::Agent, &session),
+        forged_actor.validate_as(ComputerActionActorV1::Agent, &session, 1_050_000),
         Err("action actor does not match authenticated caller")
     );
     assert_eq!(observation.validate(), Ok(()));
@@ -75,14 +75,17 @@ fn wire_decoder_rejects_unknown_permissions_credentials_paths_and_versions() {
 
     let mut action: ComputerActionV1 = decode(&serde_json::from_str(GOLDEN).unwrap(), "action");
     action.schema_version = 99;
-    assert_eq!(action.validate(&session), Err("unsupported action version"));
+    assert_eq!(
+        action.validate(&session, 1_050_000),
+        Err("unsupported action version")
+    );
 
     let mut payload = serde_json::from_str::<serde_json::Value>(GOLDEN).unwrap()["action"].clone();
     payload["operation"] = serde_json::json!("observe_screen");
     assert!(
         serde_json::from_value::<ComputerActionV1>(payload)
             .unwrap()
-            .validate(&session)
+            .validate(&session, 1_050_000)
             .is_err()
     );
 
@@ -92,7 +95,7 @@ fn wire_decoder_rejects_unknown_permissions_credentials_paths_and_versions() {
         app_id: "browser".into(),
     };
     assert_eq!(
-        launch.validate(&session),
+        launch.validate(&session, 1_050_000),
         Err("app is not in the session allowlist")
     );
 }
@@ -102,6 +105,10 @@ fn event_stream_fences_sequences_actors_and_uncertain_external_effects() {
     let fixtures: serde_json::Value = serde_json::from_str(GOLDEN).unwrap();
     let action: ComputerActionV1 = decode(&fixtures, "action");
     let session: ComputerSessionV1 = decode(&fixtures, "session");
+    assert_eq!(
+        action.validate(&session, session.lease.expires_at_unix_ms),
+        Err("lease is not currently valid")
+    );
     let signing_key = ed25519_dalek::SigningKey::from_bytes(&[42; 32]);
     let verifying_key = ed25519_dalek::VerifyingKey::from(&signing_key);
     let mut validator = ComputerEventValidator::new(
@@ -111,35 +118,67 @@ fn event_stream_fences_sequences_actors_and_uncertain_external_effects() {
         &verifying_key,
     )
     .unwrap();
-    validator
-        .accept(&ComputerEventV1 {
-            schema_version: 1,
-            session_id: action.session_id.clone(),
-            sequence: 1,
-            occurred_at_unix_ms: 1000500,
-            lease_generation: 1,
-            approval_generation: 1,
-            cancellation_generation: 1,
-            kind: ComputerEventKindV1::StateChanged {
-                from: ComputerLifecycleV1::Ready,
-                to: ComputerLifecycleV1::Delegated,
+    let mut expired_validator = ComputerEventValidator::new(
+        &session,
+        1_050_000,
+        "00000000-0000-4000-8000-000000000011",
+        &verifying_key,
+    )
+    .unwrap();
+    assert_eq!(
+        expired_validator.accept(
+            &ComputerEventV1 {
+                schema_version: 1,
+                session_id: action.session_id.clone(),
+                sequence: 1,
+                occurred_at_unix_ms: session.lease.expires_at_unix_ms,
+                lease_generation: 1,
+                approval_generation: 1,
+                cancellation_generation: 1,
+                kind: ComputerEventKindV1::StateChanged {
+                    from: ComputerLifecycleV1::Ready,
+                    to: ComputerLifecycleV1::Delegated,
+                },
             },
-        })
+            session.lease.expires_at_unix_ms,
+        ),
+        Err("lease is not currently valid")
+    );
+    validator
+        .accept(
+            &ComputerEventV1 {
+                schema_version: 1,
+                session_id: action.session_id.clone(),
+                sequence: 1,
+                occurred_at_unix_ms: 1000500,
+                lease_generation: 1,
+                approval_generation: 1,
+                cancellation_generation: 1,
+                kind: ComputerEventKindV1::StateChanged {
+                    from: ComputerLifecycleV1::Ready,
+                    to: ComputerLifecycleV1::Delegated,
+                },
+            },
+            1_050_000,
+        )
         .unwrap();
 
     assert_eq!(
-        validator.accept(&ComputerEventV1 {
-            schema_version: 1,
-            session_id: action.session_id.clone(),
-            sequence: 2,
-            occurred_at_unix_ms: 1000600,
-            lease_generation: 1,
-            approval_generation: 1,
-            cancellation_generation: 1,
-            kind: ComputerEventKindV1::LeaseRevoked {
+        validator.accept(
+            &ComputerEventV1 {
+                schema_version: 1,
+                session_id: action.session_id.clone(),
+                sequence: 2,
+                occurred_at_unix_ms: 1000600,
+                lease_generation: 1,
+                approval_generation: 1,
                 cancellation_generation: 1,
+                kind: ComputerEventKindV1::LeaseRevoked {
+                    cancellation_generation: 1,
+                },
             },
-        }),
+            1_050_000
+        ),
         Err("lease revocation does not match cancellation fence")
     );
     let accepted = ComputerEventV1 {
@@ -154,59 +193,100 @@ fn event_stream_fences_sequences_actors_and_uncertain_external_effects() {
             action: action.clone(),
         },
     };
-    validator.accept(&accepted).unwrap();
+    validator.accept(&accepted, 1_050_000).unwrap();
     assert_eq!(
-        validator.accept(&accepted),
+        validator.accept(&accepted, 1_050_000),
         Err("event sequence is replayed or discontinuous")
     );
 
     assert_eq!(
-        validator.accept(&ComputerEventV1 {
-            schema_version: 1,
-            session_id: action.session_id.clone(),
-            sequence: 3,
-            occurred_at_unix_ms: 1001500,
-            lease_generation: 1,
-            approval_generation: 1,
-            cancellation_generation: 1,
-            kind: ComputerEventKindV1::StateChanged {
-                from: ComputerLifecycleV1::Delegated,
-                to: ComputerLifecycleV1::HumanControl,
+        validator.accept(
+            &ComputerEventV1 {
+                schema_version: 1,
+                session_id: action.session_id.clone(),
+                sequence: 3,
+                occurred_at_unix_ms: 1001500,
+                lease_generation: 1,
+                approval_generation: 1,
+                cancellation_generation: 1,
+                kind: ComputerEventKindV1::StateChanged {
+                    from: ComputerLifecycleV1::Delegated,
+                    to: ComputerLifecycleV1::HumanControl,
+                },
             },
-        }),
+            1_050_000
+        ),
         Err("cannot change lifecycle while an action is unresolved")
     );
 
+    for (status, failure) in [
+        (
+            ComputerStatusV1::Failed,
+            ComputerFailureCodeV1::UncertainSideEffect,
+        ),
+        (
+            ComputerStatusV1::Uncertain,
+            ComputerFailureCodeV1::GuestLost,
+        ),
+    ] {
+        assert_eq!(
+            validator.accept(
+                &ComputerEventV1 {
+                    schema_version: 1,
+                    session_id: action.session_id.clone(),
+                    sequence: 3,
+                    occurred_at_unix_ms: 1002000,
+                    lease_generation: 1,
+                    approval_generation: 1,
+                    cancellation_generation: 1,
+                    kind: ComputerEventKindV1::ActionCompleted {
+                        action_sequence: 1,
+                        status,
+                        failure: Some(failure),
+                    },
+                },
+                1_050_000,
+            ),
+            Err("action completion status and failure disagree")
+        );
+    }
+
     validator
-        .accept(&ComputerEventV1 {
-            schema_version: 1,
-            session_id: action.session_id.clone(),
-            sequence: 3,
-            occurred_at_unix_ms: 1002000,
-            lease_generation: 1,
-            approval_generation: 1,
-            cancellation_generation: 1,
-            kind: ComputerEventKindV1::ActionCompleted {
-                action_sequence: 1,
-                status: ComputerStatusV1::Uncertain,
-                failure: Some(ComputerFailureCodeV1::UncertainSideEffect),
+        .accept(
+            &ComputerEventV1 {
+                schema_version: 1,
+                session_id: action.session_id.clone(),
+                sequence: 3,
+                occurred_at_unix_ms: 1002000,
+                lease_generation: 1,
+                approval_generation: 1,
+                cancellation_generation: 1,
+                kind: ComputerEventKindV1::ActionCompleted {
+                    action_sequence: 1,
+                    status: ComputerStatusV1::Uncertain,
+                    failure: Some(ComputerFailureCodeV1::UncertainSideEffect),
+                },
             },
-        })
+            1_050_000,
+        )
         .unwrap();
 
     let mut retry = action.clone();
     retry.action_sequence = 2;
     retry.idempotency_key = "00000000-0000-4000-8000-000000000010".into();
-    let result = validator.accept(&ComputerEventV1 {
-        schema_version: 1,
-        session_id: retry.session_id.clone(),
-        sequence: 4,
-        occurred_at_unix_ms: 1003000,
-        lease_generation: 1,
-        approval_generation: 1,
-        cancellation_generation: 1,
-        kind: ComputerEventKindV1::ActionAccepted { action: retry },
-    });
+    let result = validator.accept(
+        &ComputerEventV1 {
+            schema_version: 1,
+            session_id: retry.session_id.clone(),
+            sequence: 4,
+            occurred_at_unix_ms: 1003000,
+            lease_generation: 1,
+            approval_generation: 1,
+            cancellation_generation: 1,
+            kind: ComputerEventKindV1::ActionAccepted { action: retry },
+        },
+        1_050_000,
+    );
     assert_eq!(result, Err("action actor does not own computer control"));
 
     let mut renewed = session;
@@ -244,18 +324,21 @@ fn event_stream_fences_sequences_actors_and_uncertain_external_effects() {
         )
         .unwrap();
     validator
-        .accept(&ComputerEventV1 {
-            schema_version: 1,
-            session_id: action.session_id.clone(),
-            sequence: 4,
-            occurred_at_unix_ms: 1003500,
-            lease_generation: 2,
-            approval_generation: 2,
-            cancellation_generation: 2,
-            kind: ComputerEventKindV1::LeaseRevoked {
+        .accept(
+            &ComputerEventV1 {
+                schema_version: 1,
+                session_id: action.session_id.clone(),
+                sequence: 4,
+                occurred_at_unix_ms: 1003500,
+                lease_generation: 2,
+                approval_generation: 2,
                 cancellation_generation: 2,
+                kind: ComputerEventKindV1::LeaseRevoked {
+                    cancellation_generation: 2,
+                },
             },
-        })
+            1_050_000,
+        )
         .unwrap();
     let stale_lease = ComputerEventV1 {
         schema_version: 1,
@@ -271,7 +354,7 @@ fn event_stream_fences_sequences_actors_and_uncertain_external_effects() {
         },
     };
     assert_eq!(
-        validator.accept(&stale_lease),
+        validator.accept(&stale_lease, 1_050_000),
         Err("event lease generation does not match controller state")
     );
     let stale_approval = ComputerEventV1 {
@@ -284,7 +367,7 @@ fn event_stream_fences_sequences_actors_and_uncertain_external_effects() {
         ..stale_lease
     };
     assert_eq!(
-        validator.accept(&stale_approval),
+        validator.accept(&stale_approval, 1_050_000),
         Err("event authority generation does not match controller state")
     );
 }

@@ -93,17 +93,23 @@ impl ComputerActionV1 {
         &self,
         authenticated_actor: ComputerActionActorV1,
         session: &super::ComputerSessionV1,
+        now_unix_ms: u64,
     ) -> Result<(), &'static str> {
         if self.actor != authenticated_actor {
             return Err("action actor does not match authenticated caller");
         }
-        self.validate(session)
+        self.validate(session, now_unix_ms)
     }
 
-    pub fn validate(&self, session: &super::ComputerSessionV1) -> Result<(), &'static str> {
+    pub fn validate(
+        &self,
+        session: &super::ComputerSessionV1,
+        now_unix_ms: u64,
+    ) -> Result<(), &'static str> {
         if self.schema_version != 1 {
             return Err("unsupported action version");
         }
+        session.lease.validate(now_unix_ms)?;
         let policy = &session.policy;
         policy.validate()?;
         if !is_uuid(&self.session_id) || !is_uuid(&self.idempotency_key) {
