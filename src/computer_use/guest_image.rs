@@ -20,6 +20,6 @@ pub use manifest::{
 };
 pub use overlay::{
     GuestImageOverlayErrorV1, GuestImageOverlayRequestV1, GuestImageOverlayV1,
-    create_guest_image_overlay,
+    create_guest_image_overlay, verify_guest_image_overlay_before_boot,
 };
 pub use process::{QemuImageToolV1, QemuProcessError, probe_host_qemu_image_tool};
