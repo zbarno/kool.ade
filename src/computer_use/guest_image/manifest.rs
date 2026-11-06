@@ -182,7 +182,7 @@ pub fn verify_guest_image_manifest(
             "catalog issued in future",
         ));
     }
-    if now_unix_ms > manifest.expires_at_unix_ms {
+    if now_unix_ms >= manifest.expires_at_unix_ms {
         return Err(ImageCacheErrorV1::CatalogExpired);
     }
     if manifest.catalog_generation < trust.minimum_catalog_generation {

@@ -5,22 +5,50 @@ set -euo pipefail
 # task repositories and their build scripts are never inputs.
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 output_dir="${1:?usage: build-image.sh OUTPUT_DIR}"
-work_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/computer-use-image.XXXXXX")"
+for tool in debootstrap qemu-img mkfs.ext4 mount umount mountpoint realpath grub-install chroot sha256sum parted losetup sudo; do
+  command -v "$tool" >/dev/null || { echo "missing required builder: $tool" >&2; exit 2; }
+done
+work_parent="${RUNNER_TEMP:-/tmp}"
+mkdir -p "$work_parent"
+work_parent="$(cd "$work_parent" && pwd -P)"
+work_dir="$(mktemp -d "$work_parent/computer-use-image.XXXXXX")"
 snapshot="20261101T000000Z"
 base_name="koolade-computer-use-guest-x86_64"
 image_size="4G"
 
-for tool in debootstrap qemu-img mkfs.ext4 mount umount grub-install chroot sha256sum parted losetup; do
-  command -v "$tool" >/dev/null || { echo "missing required builder: $tool" >&2; exit 2; }
-done
-mkdir -p "$output_dir" "$work_dir/rootfs" "$work_dir/mnt"
+work_dir_is_safe() {
+  [[ -d "$work_dir" && ! -L "$work_dir" ]] || return 1
+  [[ "$(dirname -- "$work_dir")" == "$work_parent" ]] || return 1
+  [[ "${work_dir##*/}" =~ ^computer-use-image\.[A-Za-z0-9]+$ ]] || return 1
+  [[ "$(realpath -e -- "$work_dir")" == "$work_dir" ]]
+}
+
 loopdev=""
 cleanup() {
-  sudo umount "$work_dir/mnt" 2>/dev/null || true
-  if [[ -n "$loopdev" ]]; then sudo losetup -d "$loopdev" 2>/dev/null || true; fi
-  rm -rf "$work_dir"
+  local original_status=$?
+  local cleanup_failed=0
+  trap - EXIT
+  if mountpoint -q "$work_dir/mnt"; then
+    sudo umount "$work_dir/mnt" || cleanup_failed=1
+  fi
+  if [[ -n "$loopdev" ]]; then
+    sudo losetup -d "$loopdev" || cleanup_failed=1
+  fi
+  if mountpoint -q "$work_dir/mnt"; then
+    echo "refusing to remove image work directory while mount remains" >&2
+    cleanup_failed=1
+  elif work_dir_is_safe; then
+    sudo rm -rf --one-file-system -- "$work_dir" || cleanup_failed=1
+  else
+    echo "refusing to remove unvalidated image work directory" >&2
+    cleanup_failed=1
+  fi
+  if (( original_status != 0 )); then exit "$original_status"; fi
+  if (( cleanup_failed != 0 )); then exit 1; fi
 }
 trap cleanup EXIT
+
+mkdir -p "$output_dir" "$work_dir/rootfs" "$work_dir/mnt"
 
 sudo debootstrap --arch=amd64 --variant=minbase bookworm "$work_dir/rootfs" \
   "https://snapshot.debian.org/archive/debian/${snapshot}/"

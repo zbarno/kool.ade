@@ -28,6 +28,8 @@ pub enum ImageCacheErrorV1 {
     ManifestTooLarge,
     StaleCatalog,
     CatalogExpired,
+    CatalogRollback,
+    CatalogFloorUnavailable,
     UntrustedManifestSigner,
     SessionManifestMismatch,
     SessionAttestationInvalid,

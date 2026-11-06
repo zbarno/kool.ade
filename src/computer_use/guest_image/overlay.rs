@@ -1,40 +1,26 @@
 use std::{
+    ffi::OsStr,
     fs::{self, File},
     path::{Path, PathBuf},
-    process::Command,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
+use ed25519_dalek::VerifyingKey;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use super::cache::CachedGuestImageV1;
+use crate::computer_use::ComputerSessionV1;
 
-#[derive(Debug, Eq, PartialEq)]
-pub enum GuestImageOverlayErrorV1 {
-    InvalidSessionId,
-    UnsafePath,
-    BaseImageChanged,
-    QemuImageUnavailable,
-    QemuImageFailed,
-    InvalidOverlay,
-    Io,
-}
+use super::{
+    ComputerGuestArchitectureV1, GuestImageManifestTrustV1, ImageCacheErrorV1,
+    cache::{CachedGuestImageV1, GuestImageCacheV1},
+    manifest::verify_guest_image_manifest,
+    process::{QemuImageToolV1, QemuProcessError, run_qemu},
+};
 
-impl std::fmt::Display for GuestImageOverlayErrorV1 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "computer-use overlay error: {self:?}")
-    }
-}
-
-impl std::error::Error for GuestImageOverlayErrorV1 {}
-
-#[derive(Debug)]
-pub struct GuestImageOverlayV1 {
-    session_id: String,
-    path: PathBuf,
-    directory: PathBuf,
-}
+mod types;
+pub use types::{GuestImageOverlayErrorV1, GuestImageOverlayRequestV1, GuestImageOverlayV1};
 
 struct OverlayCreationCleanup {
     path: PathBuf,
@@ -49,27 +35,6 @@ impl Drop for OverlayCreationCleanup {
     }
 }
 
-impl GuestImageOverlayV1 {
-    pub fn session_id(&self) -> &str {
-        &self.session_id
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
-    /// The VM backend must stop the VM before releasing its disposable overlay.
-    pub fn release_after_vm_stopped(self) -> Result<(), GuestImageOverlayErrorV1> {
-        validate_private_directory(&self.directory)?;
-        let metadata =
-            fs::symlink_metadata(&self.path).map_err(|_| GuestImageOverlayErrorV1::Io)?;
-        if !metadata.file_type().is_file() || self.path.parent() != Some(self.directory.as_path()) {
-            return Err(GuestImageOverlayErrorV1::UnsafePath);
-        }
-        fs::remove_file(&self.path).map_err(|_| GuestImageOverlayErrorV1::Io)
-    }
-}
-
 #[derive(Deserialize)]
 struct QemuImageInfo {
     format: String,
@@ -81,20 +46,74 @@ struct QemuImageInfo {
     backing_format: Option<String>,
 }
 
-/// Build one qcow2 overlay from a previously verified, immutable image.
-/// `qemu_img` must come from the host's trusted QEMU probe; no session or task
-/// data is used as an executable path or command argument.
+/// Re-verify signed catalog, current session lease, revocation, and architecture
+/// immediately before creating a disposable overlay from the approved cache.
 pub fn create_guest_image_overlay(
-    image: &CachedGuestImageV1,
-    session_id: &str,
-    overlay_root: &Path,
-    qemu_img: &Path,
+    cache: &GuestImageCacheV1,
+    request: GuestImageOverlayRequestV1<'_>,
 ) -> Result<GuestImageOverlayV1, GuestImageOverlayErrorV1> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| GuestImageOverlayErrorV1::ManifestRejected(ImageCacheErrorV1::CatalogExpired))?
+        .as_millis()
+        .try_into()
+        .map_err(|_| {
+            GuestImageOverlayErrorV1::ManifestRejected(ImageCacheErrorV1::CatalogExpired)
+        })?;
+    create_guest_image_overlay_at(
+        cache,
+        request.manifest_bytes,
+        request.trust,
+        request.session,
+        now,
+        request.expected_architecture,
+        request.controller_key_id,
+        request.controller_key,
+        request.generation_floor,
+        request.overlay_root,
+        request.qemu_tool,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn create_guest_image_overlay_at(
+    cache: &GuestImageCacheV1,
+    manifest_bytes: &[u8],
+    trust: &GuestImageManifestTrustV1,
+    session: &ComputerSessionV1,
+    now_unix_ms: u64,
+    expected_architecture: ComputerGuestArchitectureV1,
+    controller_key_id: &str,
+    controller_key: &VerifyingKey,
+    generation_floor: &super::GuestImageCatalogGenerationFloorV1,
+    overlay_root: &Path,
+    qemu_tool: &QemuImageToolV1,
+) -> Result<GuestImageOverlayV1, GuestImageOverlayErrorV1> {
+    let verified = verify_guest_image_manifest(
+        manifest_bytes,
+        trust,
+        session,
+        now_unix_ms,
+        expected_architecture,
+        controller_key_id,
+        controller_key,
+    )
+    .map_err(GuestImageOverlayErrorV1::ManifestRejected)?;
+    generation_floor
+        .accept_generation(verified.catalog_generation())
+        .map_err(|error| match error {
+            ImageCacheErrorV1::CatalogRollback => GuestImageOverlayErrorV1::CatalogRollback,
+            _ => GuestImageOverlayErrorV1::CatalogFloorUnavailable,
+        })?;
+    let image = cache
+        .verify_cached(&verified)
+        .map_err(|_| GuestImageOverlayErrorV1::BaseImageChanged)?;
+    let session_id = session.identity.session_id.as_str();
     if !is_canonical_uuid(session_id) {
         return Err(GuestImageOverlayErrorV1::InvalidSessionId);
     }
     validate_private_directory(overlay_root)?;
-    validate_base_image(image)?;
+    validate_base_image(&image)?;
     set_read_only(image.path())?;
     let canonical_base =
         fs::canonicalize(image.path()).map_err(|_| GuestImageOverlayErrorV1::UnsafePath)?;
@@ -106,12 +125,20 @@ pub fn create_guest_image_overlay(
         path: overlay_path.clone(),
         keep: false,
     };
-    let created = Command::new(qemu_img)
-        .args(["create", "-f", "qcow2", "-F", "qcow2", "-b"])
-        .arg(&canonical_base)
-        .arg(&overlay_path)
-        .output()
-        .map_err(|_| GuestImageOverlayErrorV1::QemuImageUnavailable)?;
+    let created = run_qemu(
+        qemu_tool,
+        &[
+            OsStr::new("create"),
+            OsStr::new("-f"),
+            OsStr::new("qcow2"),
+            OsStr::new("-F"),
+            OsStr::new("qcow2"),
+            OsStr::new("-b"),
+            canonical_base.as_os_str(),
+            overlay_path.as_os_str(),
+        ],
+    )
+    .map_err(map_qemu_error)?;
     if !created.status.success() {
         return Err(GuestImageOverlayErrorV1::QemuImageFailed);
     }
@@ -121,11 +148,15 @@ pub fn create_guest_image_overlay(
         return Err(GuestImageOverlayErrorV1::InvalidOverlay);
     }
     set_private_file(&overlay_path)?;
-    let info = Command::new(qemu_img)
-        .args(["info", "--output=json"])
-        .arg(&overlay_path)
-        .output()
-        .map_err(|_| GuestImageOverlayErrorV1::QemuImageUnavailable)?;
+    let info = run_qemu(
+        qemu_tool,
+        &[
+            OsStr::new("info"),
+            OsStr::new("--output=json"),
+            overlay_path.as_os_str(),
+        ],
+    )
+    .map_err(map_qemu_error)?;
     if !info.status.success() {
         return Err(GuestImageOverlayErrorV1::QemuImageFailed);
     }
@@ -134,7 +165,10 @@ pub fn create_guest_image_overlay(
     if decoded.format != "qcow2"
         || decoded.virtual_size != image.entry().image_size_bytes
         || decoded.backing_format.as_deref() != Some("qcow2")
-        || decoded.backing_filename.as_deref() != Some(canonical_base.to_string_lossy().as_ref())
+        || decoded
+            .backing_filename
+            .as_deref()
+            .is_none_or(|backing| Path::new(backing) != canonical_base)
     {
         return Err(GuestImageOverlayErrorV1::InvalidOverlay);
     }
@@ -147,6 +181,46 @@ pub fn create_guest_image_overlay(
         path: overlay_path,
         directory: overlay_root.to_path_buf(),
     })
+}
+
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn create_guest_image_overlay_at_for_test(
+    cache: &GuestImageCacheV1,
+    manifest_bytes: &[u8],
+    trust: &GuestImageManifestTrustV1,
+    session: &ComputerSessionV1,
+    now_unix_ms: u64,
+    expected_architecture: ComputerGuestArchitectureV1,
+    controller_key_id: &str,
+    controller_key: &VerifyingKey,
+    generation_floor: &super::GuestImageCatalogGenerationFloorV1,
+    overlay_root: &Path,
+    qemu_tool: &QemuImageToolV1,
+) -> Result<GuestImageOverlayV1, GuestImageOverlayErrorV1> {
+    create_guest_image_overlay_at(
+        cache,
+        manifest_bytes,
+        trust,
+        session,
+        now_unix_ms,
+        expected_architecture,
+        controller_key_id,
+        controller_key,
+        generation_floor,
+        overlay_root,
+        qemu_tool,
+    )
+}
+
+fn map_qemu_error(error: QemuProcessError) -> GuestImageOverlayErrorV1 {
+    match error {
+        QemuProcessError::Unavailable => GuestImageOverlayErrorV1::QemuImageUnavailable,
+        QemuProcessError::TimedOut | QemuProcessError::OutputTooLarge => {
+            GuestImageOverlayErrorV1::QemuImageFailed
+        }
+        QemuProcessError::Failed => GuestImageOverlayErrorV1::QemuImageFailed,
+    }
 }
 
 fn validate_base_image(image: &CachedGuestImageV1) -> Result<(), GuestImageOverlayErrorV1> {

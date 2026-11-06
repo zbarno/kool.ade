@@ -48,12 +48,18 @@ keys) prefixed by `koolade.computer-image-catalog.v1\0`; the manifest digest is
 SHA-256 over canonical JSON including the signature. `GuestImageManifestTrustV1`
 can only be constructed with explicit application-pinned verifying keys and a
 minimum accepted catalog generation. Key rotation therefore requires an
-application trust update. The host integration must durably raise its accepted
-generation floor to `VerifiedGuestImageV1::catalog_generation()` after
-verification and before making the catalog available, then pass that floor
-back when reconstructing the trust policy. This prevents an older, still-valid
-signed catalog from rolling the host backward. No key is embedded in this
-feature branch.
+application trust update. `GuestImageCatalogGenerationFloorV1` stores the
+accepted generation under a stable, app-owned durable state directory, separate
+from the disposable image cache. The signed first-install flow calls
+`initialize_for_first_install` once with the app-release minimum; normal startup
+must call `open` and treat missing, malformed, unsafe, or unwritable state as a
+hard failure. It must never recreate a missing floor from cache, task input, or
+an older catalog. Overlay launch takes this opened store and atomically advances
+the floor after fresh manifest verification and before cache/QEMU use. The
+directory and state files are owner-restricted, updates are locked and fsynced,
+and a lower generation is rejected across process restart. The app must keep
+this path stable in durable application data and provision it only from an
+authenticated application release. No key is embedded in this feature branch.
 
 The outer catalog uses camel-case JSON keys (`schemaVersion`,
 `catalogGeneration`, `issuedAtUnixMs`, `expiresAtUnixMs`, `signerKeyId`,
@@ -68,8 +74,9 @@ tree or in the image build job.
 The session binding is exact: session `image_digest` must equal an approved
 catalog entry; `image_manifest_digest` is the canonical signed-manifest digest;
 `image_signer_key_id` is the UUID catalog signer. The verifier also validates
-the controller signature, expiry/policy, and disposable session class before
-returning `VerifiedGuestImageV1`. Missing key, stale generation, invalid
+the controller signature, current expiry/lease, and disposable session class
+before returning `VerifiedGuestImageV1`. Expiry is exclusive:
+`now >= expiresAtUnixMs` is expired. Missing key, stale generation, invalid
 signature, revoked entry, changed digest, or mismatched session fails closed.
 
 The only release download URL is derived from the verified release tag and the
@@ -93,12 +100,20 @@ host home/repository mount, clipboard channel, device passthrough, or inherited
 credential unless that capability is separately reviewed and authorized. The
 v1 default is no network or host-shared resources.
 
-`create_guest_image_overlay` rehashes the cached base before use, makes it
-read-only, and invokes the trusted host `qemu-img` executable with a fixed
-argument vector to create an isolated qcow2 overlay. The overlay path is a
-random UUID under a private directory. The VM backend must stop the VM before
-calling `release_after_vm_stopped`. These APIs are not yet connected to a
-production VM backend; #380 consumes the verifier/cache interface.
+`create_guest_image_overlay` requires fresh manifest bytes, current trust,
+session attestation, and the opened durable generation floor. It rechecks
+signature, expiry, revocation, session lease, architecture, session provenance,
+and cached artifact digest at the overlay boundary. The caller cannot choose
+the clock or an executable path: `probe_host_qemu_image_tool` resolves only the
+fixed root-owned `/usr/bin/qemu-img`, and each invocation has a 20-second
+timeout, bounded output capture, and process-group kill. It makes the base
+read-only and creates an isolated qcow2 overlay. The overlay path is a random
+UUID under a private directory. The VM backend must stop the VM before calling
+`release_after_vm_stopped`. These APIs are not yet connected to a production VM
+backend; #380 consumes the verifier/cache/floor interface. The application
+must supply a stable durable state path and perform authenticated first-install
+initialization before launch; this component does not select or create that
+application path.
 
 ## Trust and readiness dependencies
 

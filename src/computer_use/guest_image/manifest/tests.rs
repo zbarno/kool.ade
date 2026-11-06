@@ -91,6 +91,19 @@ fn revoked_and_expired_catalog_entries_fail_closed() {
             &bytes,
             &trust,
             &session,
+            2_000_000,
+            ComputerGuestArchitectureV1::X86_64,
+            controller_id,
+            &controller.verifying_key(),
+        )
+        .unwrap_err(),
+        ImageCacheErrorV1::CatalogExpired
+    );
+    assert_eq!(
+        verify_guest_image_manifest(
+            &bytes,
+            &trust,
+            &session,
             2_000_001,
             ComputerGuestArchitectureV1::X86_64,
             controller_id,
