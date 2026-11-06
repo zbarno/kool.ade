@@ -1,16 +1,85 @@
 use super::*;
 
+mod persist;
+#[cfg(not(test))]
+use persist::trim_for_persist;
+#[cfg(test)]
+pub(super) use persist::{
+    ACTIVITY_MAX_FIELD_CHARS, ACTIVITY_MAX_POST_CHARS, ACTIVITY_MAX_POSTS, retain_suffix,
+    trim_for_persist,
+};
+#[cfg(test)]
+#[path = "activity/tests.rs"]
+mod tests;
+
 /// Task-only activity survives reconnects without becoming a tracked artifact.
 pub fn load_activity(repo: &Path, ticket: &str) -> Option<crate::harness::LiveProgress> {
-    serde_json::from_slice(&fs::read(state_dir(repo, ticket).ok()?.join("activity.json")).ok()?)
-        .ok()
+    load_activity_for_task(repo, ticket, None)
+}
+
+pub fn load_activity_for_task(
+    repo: &Path,
+    ticket: &str,
+    task_uid: Option<&str>,
+) -> Option<crate::harness::LiveProgress> {
+    let path = activity_path_for_task(repo, ticket, task_uid).ok()?;
+    let (mut stored, legacy_path) = match fs::read(&path) {
+        Ok(bytes) => (serde_json::from_slice(&bytes).ok()?, None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let legacy_path = legacy_activity_path(repo, ticket, task_uid).ok()?;
+            let legacy: crate::harness::LiveProgress =
+                serde_json::from_slice(&fs::read(&legacy_path).ok()?).ok()?;
+            if let Some(uid) = task_uid {
+                let state_proves_identity = super::state_paths::state_dir_by_task_uid(repo, uid)
+                    .ok()?
+                    .is_some();
+                if legacy.task_uid.as_deref() != Some(uid) && !state_proves_identity {
+                    return None;
+                }
+                if legacy
+                    .task_uid
+                    .as_deref()
+                    .is_some_and(|stored| stored != uid)
+                {
+                    return None;
+                }
+                let mut legacy = legacy;
+                legacy.task_uid = Some(uid.to_owned());
+                (legacy, Some(legacy_path))
+            } else {
+                (legacy, None)
+            }
+        }
+        Err(_) => return None,
+    };
+    if let Some(uid) = task_uid
+        && stored
+            .task_uid
+            .as_deref()
+            .is_some_and(|stored| stored != uid)
+    {
+        return None;
+    }
+    if let Some(uid) = task_uid {
+        stored.task_uid = Some(uid.to_owned());
+    }
+    let safe = trim_for_persist(&stored);
+    if let Some(legacy_path) = legacy_path {
+        save_activity(repo, ticket, &safe).ok()?;
+        let safe_bytes = serde_json::to_vec(&safe).ok()?;
+        crate::artifacts::atomic_write_bytes(&legacy_path, &safe_bytes).ok()?;
+        fs::remove_file(legacy_path).ok()?;
+    } else if safe != stored {
+        save_activity(repo, ticket, &safe).ok()?;
+    }
+    Some(safe)
 }
 pub fn save_activity(
     repo: &Path,
     ticket: &str,
     activity: &crate::harness::LiveProgress,
 ) -> anyhow::Result<()> {
-    let dir = state_dir(repo, ticket)?;
+    let dir = activity_dir_for_task(repo, ticket, activity.task_uid.as_deref())?;
     fs::create_dir_all(&dir)?;
     // Persist a bounded view: in-memory snapshots keep the full history, but
     // the on-disk snapshot keeps only trailing windows so a long turn cannot
@@ -20,6 +89,46 @@ pub fn save_activity(
         &dir.join("activity.json"),
         &serde_json::to_vec(&trim_for_persist(activity))?,
     )
+}
+
+fn activity_dir_for_task(
+    repo: &Path,
+    ticket: &str,
+    task_uid: Option<&str>,
+) -> anyhow::Result<PathBuf> {
+    let Some(uid) = task_uid else {
+        return state_dir_for_task(repo, ticket, None);
+    };
+    let base =
+        super::state_paths::state_dir_by_task_uid(repo, uid)?.unwrap_or(state_dir(repo, ticket)?);
+    use sha2::Digest;
+    let uid_hash = sha2::Sha256::digest(uid.as_bytes());
+    let uid_key = uid_hash
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    Ok(base.join("activity-history").join(uid_key))
+}
+
+fn activity_path_for_task(
+    repo: &Path,
+    ticket: &str,
+    task_uid: Option<&str>,
+) -> anyhow::Result<PathBuf> {
+    Ok(activity_dir_for_task(repo, ticket, task_uid)?.join("activity.json"))
+}
+
+fn legacy_activity_path(
+    repo: &Path,
+    ticket: &str,
+    task_uid: Option<&str>,
+) -> anyhow::Result<PathBuf> {
+    let dir = if let Some(uid) = task_uid {
+        super::state_paths::state_dir_by_task_uid(repo, uid)?.unwrap_or(state_dir(repo, ticket)?)
+    } else {
+        state_dir_for_task(repo, ticket, None)?
+    };
+    Ok(dir.join("activity.json"))
 }
 
 /// Close a persisted activity snapshot after its implementation record has
@@ -84,262 +193,4 @@ fn worker_holds_lock(repo: &Path, ticket: &str, task_uid: Option<&str>) -> bool 
     }
     let _ = file.unlock();
     false
-}
-
-/// Bounds for the persisted activity snapshot (see [`save_activity`]).
-pub(super) const ACTIVITY_MAX_POSTS: usize = 200;
-pub(super) const ACTIVITY_MAX_POST_CHARS: usize = 2_000;
-pub(super) const ACTIVITY_MAX_FIELD_CHARS: usize = 32_000;
-
-/// Build the bounded, persistence-shaped copy of a live snapshot.
-/// Pure: the caller's in-memory state is never mutated.
-pub(super) fn trim_for_persist(
-    progress: &crate::harness::LiveProgress,
-) -> crate::harness::LiveProgress {
-    let mut out = progress.clone();
-    if out.posts.len() > ACTIVITY_MAX_POSTS {
-        let drop = out.posts.len() - ACTIVITY_MAX_POSTS;
-        out.posts.drain(..drop);
-    }
-    for post in &mut out.posts {
-        post.text = retain_suffix(&post.text, ACTIVITY_MAX_POST_CHARS);
-    }
-    out.thoughts = retain_suffix(&out.thoughts, ACTIVITY_MAX_FIELD_CHARS);
-    out.response = retain_suffix(&out.response, ACTIVITY_MAX_FIELD_CHARS);
-    out.specification = out
-        .specification
-        .as_deref()
-        .map(|s| retain_suffix(s, ACTIVITY_MAX_FIELD_CHARS));
-    out.activity = out
-        .activity
-        .as_deref()
-        .map(|s| retain_suffix(s, ACTIVITY_MAX_FIELD_CHARS));
-    out
-}
-
-/// Keep the LAST `max_chars` characters of `s` (the tail carries the newest
-/// content), prefixing an elision marker when anything was dropped.
-/// Character-boundary safe.
-pub(super) fn retain_suffix(s: &str, max_chars: usize) -> String {
-    let total = s.chars().count();
-    if total <= max_chars {
-        return s.to_owned();
-    }
-    let drop = total - max_chars;
-    let cut = s.char_indices().nth(drop).map(|(idx, _)| idx).unwrap_or(0);
-    format!("\u{2026}{}", &s[cut..])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::implementation::ImplementationStatus;
-
-    fn temp_repo() -> std::path::PathBuf {
-        let repo = std::env::temp_dir().join(format!(
-            "koolade-activity-recovery-{}",
-            uuid::Uuid::new_v4()
-        ));
-        fs::create_dir_all(&repo).unwrap();
-        repo
-    }
-
-    fn unfinished_activity() -> crate::harness::LiveProgress {
-        crate::harness::LiveProgress {
-            telemetry: crate::harness::ActivityTelemetry {
-                started_ms: Some(10),
-                updated_ms: Some(20),
-                updates: 1,
-                ..Default::default()
-            },
-            activity: Some("Implementation cancelled".into()),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn terminal_interruption_finishes_stale_activity() {
-        let repo = temp_repo();
-        let mut activity = unfinished_activity();
-        assert!(finalize_terminal_activity_if_stale(
-            &repo,
-            "planning/tasks/001-task.md",
-            None,
-            ImplementationStatus::Interrupted,
-            &mut activity,
-            30,
-        ));
-        assert_eq!(activity.telemetry.finished_ms, Some(30));
-        assert_eq!(activity.telemetry.updated_ms, Some(30));
-        assert_eq!(activity.activity.as_deref(), Some("Interrupted"));
-        fs::remove_dir_all(repo).unwrap();
-    }
-
-    #[test]
-    fn nonterminal_status_does_not_finish_activity() {
-        let repo = temp_repo();
-        let mut activity = unfinished_activity();
-        assert!(!finalize_terminal_activity_if_stale(
-            &repo,
-            "planning/tasks/001-task.md",
-            None,
-            ImplementationStatus::Implementing,
-            &mut activity,
-            30,
-        ));
-        assert_eq!(activity.telemetry.finished_ms, None);
-        fs::remove_dir_all(repo).unwrap();
-    }
-
-    #[test]
-    fn checklist_progress_survives_activity_reload_and_terminal_states() {
-        let repo = temp_repo();
-        let ticket = "planning/tasks/001-task.md";
-        let mut progress = unfinished_activity();
-        progress.checklist = vec![0, 2];
-        progress.checklist_revision = 42;
-        save_activity(&repo, ticket, &progress).unwrap();
-
-        let loaded = load_activity(&repo, ticket).unwrap();
-        assert_eq!(loaded.checklist, [0, 2]);
-        assert_eq!(loaded.checklist_revision, 42);
-        let mut resumed = loaded;
-        resumed.update(crate::harness::LiveProgress {
-            checklist: vec![0, 2, 3],
-            checklist_revision: 43,
-            ..Default::default()
-        });
-        resumed.update(crate::harness::LiveProgress {
-            checklist: vec![0],
-            checklist_revision: 42,
-            ..Default::default()
-        });
-        assert_eq!(resumed.checklist, [0, 2, 3]);
-        save_activity(&repo, ticket, &resumed).unwrap();
-        for status in [
-            ImplementationStatus::Blocked,
-            ImplementationStatus::Interrupted,
-            ImplementationStatus::AwaitingReview,
-            ImplementationStatus::Completed,
-        ] {
-            let mut resumed = load_activity(&repo, ticket).unwrap();
-            finalize_terminal_activity_if_stale(&repo, ticket, None, status, &mut resumed, 30);
-            assert_eq!(resumed.checklist, [0, 2, 3]);
-            save_activity(&repo, ticket, &resumed).unwrap();
-            assert_eq!(load_activity(&repo, ticket).unwrap().checklist, [0, 2, 3]);
-        }
-        fs::remove_dir_all(repo).unwrap();
-    }
-
-    #[test]
-    fn live_worker_lock_prevents_premature_activity_finish() {
-        let repo = temp_repo();
-        let ticket = "planning/tasks/001-task.md";
-        let dir = super::super::state_dir(&repo, ticket).unwrap();
-        fs::create_dir_all(&dir).unwrap();
-        let lock = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(dir.join("run.lock"))
-            .unwrap();
-        lock.try_lock().unwrap();
-        let mut activity = unfinished_activity();
-        assert!(!finalize_terminal_activity_if_stale(
-            &repo,
-            ticket,
-            None,
-            ImplementationStatus::Interrupted,
-            &mut activity,
-            30,
-        ));
-        assert_eq!(activity.telemetry.finished_ms, None);
-        drop(lock);
-        assert!(finalize_terminal_activity_if_stale(
-            &repo,
-            ticket,
-            None,
-            ImplementationStatus::Interrupted,
-            &mut activity,
-            40,
-        ));
-        fs::remove_dir_all(repo).unwrap();
-    }
-
-    #[test]
-    fn stable_task_identity_finds_a_live_lock_after_path_change() {
-        let repo = temp_repo();
-        let old_ticket = "planning/tasks/old/001-task.md";
-        let new_ticket = "planning/tasks/renamed/001-task.md";
-        let task_uid = uuid::Uuid::new_v4().to_string();
-        let dir = super::super::state_dir(&repo, old_ticket).unwrap();
-        fs::create_dir_all(&dir).unwrap();
-        let state = crate::core::implementation::Implementation {
-            ticket: old_ticket.into(),
-            task_uid: Some(task_uid.clone()),
-            ticket_text: String::new(),
-            approved_specification: None,
-            approved_product_context: None,
-            completed_dependency_context: None,
-            manager_repair_context: None,
-            branch: "koolade/task".into(),
-            source_branch: None,
-            destination_branch: None,
-            source_ref: None,
-            source_commit: None,
-            repository_id: None,
-            project_id: None,
-            workspace_uid: None,
-            repository_identity: None,
-            push_repository: None,
-            repository_cache: None,
-            task_repository_allocation_key: None,
-            base: "main".into(),
-            base_commit: "base".into(),
-            task_repository: repo.join("worktree"),
-            task_repository_kind: TaskRepositoryKind::Clone,
-            task_repository_ready: false,
-            task_repositories: vec![repo.join("worktree")],
-            task_repository_commits: std::collections::BTreeMap::new(),
-            status: ImplementationStatus::Interrupted,
-            detail: String::new(),
-            pr_url: None,
-            verified_head: None,
-            auto_merge: false,
-            merged_commit: None,
-            pr_state: None,
-            pr_details: None,
-            pr_checked_at: None,
-            pr_check_attempted_at: None,
-            pr_check_error: None,
-            independent_check: None,
-            cleanup: Default::default(),
-        };
-        fs::write(
-            dir.join("state.json"),
-            crate::core::implementation::serialize_state(&state).unwrap(),
-        )
-        .unwrap();
-        let lock = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(dir.join("run.lock"))
-            .unwrap();
-        lock.try_lock().unwrap();
-        let mut activity = unfinished_activity();
-        assert!(!finalize_terminal_activity_if_stale(
-            &repo,
-            new_ticket,
-            Some(&task_uid),
-            ImplementationStatus::Interrupted,
-            &mut activity,
-            30,
-        ));
-        assert_eq!(activity.telemetry.finished_ms, None);
-        drop(lock);
-        fs::remove_dir_all(repo).unwrap();
-    }
 }

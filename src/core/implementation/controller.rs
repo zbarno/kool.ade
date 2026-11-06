@@ -80,9 +80,10 @@ impl Controller {
             policy.publication_mode == PublicationMode::AutoPublish,
         ));
         let worker_publish_gate = auto_publish_gate.clone();
-        let previous_revision = super::load_activity(&state_root, &ticket)
-            .map(|progress| progress.checklist_revision)
-            .unwrap_or_default();
+        let previous_revision =
+            super::load_activity_for_task(&state_root, &ticket, Some(claim_request.task_uid()))
+                .map(|progress| progress.checklist_revision)
+                .unwrap_or_default();
         let checklist_epoch =
             checklist_revision_epoch(chrono::Utc::now().timestamp_millis(), previous_revision);
         std::thread::spawn(move || {

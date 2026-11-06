@@ -27,9 +27,6 @@ pub(super) fn paint(
             viewport.height(),
         ),
     );
-    let activity_id = egui::Id::new("koolade_task_activity");
-    let mut activity_path = ui.ctx().data_mut(|d| d.get_temp::<String>(activity_id));
-    let show_activity = activity_path.is_some();
     let id = egui::Id::new("koolade_selected_task");
     let mut selected_path = ui.ctx().data_mut(|d| d.get_temp::<String>(id));
     let docs = &board.task_documents;
@@ -163,71 +160,68 @@ pub(super) fn paint(
         });
     }
     super::task_cards::motion::departures(ui);
-    if activity_path.is_none() {
-        if let Some(selected) = selected_path
-            .as_ref()
-            .and_then(|path| docs.iter().position(|doc| &doc.path == path))
-        {
-            let closed = crate::ui::overlays::show_task_details_modal(
-                ui,
-                &docs[selected].path,
-                panel_bounds,
-                |ui| {
-                    task_details::paint(
-                        ui,
-                        s,
-                        &docs[selected],
-                        (panel_bounds.height() - 160.0).max(160.0),
-                        &mut activity_path,
-                    );
-                },
-            );
-            let navigation = ui.ctx().data_mut(|data| {
-                data.remove_temp::<String>(egui::Id::new("koolade_task_relationship_navigation"))
-            });
-            if let Some(path) = navigation {
-                selected_path = Some(path);
-            } else if closed {
-                selected_path = None;
-                ui.ctx().data_mut(|data| {
-                    data.remove::<Vec<String>>(egui::Id::new("koolade_task_relationship_history"));
-                    data.remove::<Vec<Option<String>>>(egui::Id::new(
-                        "koolade_task_relationship_history_uids",
-                    ));
-                });
-            }
-        } else {
-            selected_path = None;
-        }
-        let planning_navigation = ui.ctx().data_mut(|data| {
-            data.remove_temp::<String>(egui::Id::new(
-                "koolade_task_relationship_planning_navigation",
-            ))
+    if let Some(selected) = selected_path
+        .as_ref()
+        .and_then(|path| docs.iter().position(|doc| &doc.path == path))
+    {
+        let closed = crate::ui::overlays::show_task_details_modal(
+            ui,
+            &docs[selected].path,
+            panel_bounds,
+            |ui| {
+                task_details::paint(
+                    ui,
+                    s,
+                    &docs[selected],
+                    (panel_bounds.height() - 160.0).max(160.0),
+                );
+            },
+        );
+        let navigation = ui.ctx().data_mut(|data| {
+            data.remove_temp::<String>(egui::Id::new("koolade_task_relationship_navigation"))
         });
-        let navigated_to_planning = planning_navigation.is_some();
-        if let Some(key) = planning_navigation {
-            selected_path = None;
-            planning_selection = Some(key);
-            ui.ctx().request_repaint();
-        }
-        let work_navigation = ui.ctx().data_mut(|data| {
-            data.remove_temp::<String>(egui::Id::new("koolade_task_relationship_work_navigation"))
-        });
-        if let Some(key) = work_navigation {
-            selected_path = None;
-            planning_selection = Some(key);
-            ui.ctx().request_repaint();
-        }
-        if !navigated_to_planning {
-            planning_modal::paint(ui, s, board, &mut planning_selection, panel_bounds);
-        }
-        let task_navigation = ui.ctx().data_mut(|data| {
-            data.remove_temp::<String>(egui::Id::new("koolade_task_relationship_task_navigation"))
-        });
-        if let Some(path) = task_navigation {
-            planning_selection = None;
+        if let Some(path) = navigation {
             selected_path = Some(path);
+        } else if closed {
+            selected_path = None;
+            ui.ctx().data_mut(|data| {
+                data.remove::<Vec<String>>(egui::Id::new("koolade_task_relationship_history"));
+                data.remove::<Vec<Option<String>>>(egui::Id::new(
+                    "koolade_task_relationship_history_uids",
+                ));
+            });
         }
+    } else {
+        selected_path = None;
+    }
+    let planning_navigation = ui.ctx().data_mut(|data| {
+        data.remove_temp::<String>(egui::Id::new(
+            "koolade_task_relationship_planning_navigation",
+        ))
+    });
+    let navigated_to_planning = planning_navigation.is_some();
+    if let Some(key) = planning_navigation {
+        selected_path = None;
+        planning_selection = Some(key);
+        ui.ctx().request_repaint();
+    }
+    let work_navigation = ui.ctx().data_mut(|data| {
+        data.remove_temp::<String>(egui::Id::new("koolade_task_relationship_work_navigation"))
+    });
+    if let Some(key) = work_navigation {
+        selected_path = None;
+        planning_selection = Some(key);
+        ui.ctx().request_repaint();
+    }
+    if !navigated_to_planning {
+        planning_modal::paint(ui, s, board, &mut planning_selection, panel_bounds);
+    }
+    let task_navigation = ui.ctx().data_mut(|data| {
+        data.remove_temp::<String>(egui::Id::new("koolade_task_relationship_task_navigation"))
+    });
+    if let Some(path) = task_navigation {
+        planning_selection = None;
+        selected_path = Some(path);
     }
     if ui.ctx().input(|input| input.key_pressed(egui::Key::Escape)) {
         selected_path = None;
@@ -239,28 +233,6 @@ pub(super) fn paint(
             data.remove::<String>(egui::Id::new("koolade_task_relationship_work_return"));
         });
         planning_selection = None;
-        activity_path = None;
-    }
-    if let Some(ticket) = activity_path.clone().filter(|_| show_activity) {
-        let bounds = ui.ctx().content_rect();
-        let closed = crate::ui::overlays::show_panel_modal(
-            ui,
-            &format!("{} / All activity", task_key(&ticket)),
-            bounds,
-            |ui| {
-                if let Some(doc) = docs.iter().find(|doc| doc.path == ticket) {
-                    ui.heading(&doc.title);
-                }
-                if let Some(progress) = s.task_progress(&ticket) {
-                    crate::ui::task_activity::full(ui, progress, s.implementation_active(&ticket));
-                } else {
-                    ui.label("No activity has been recorded yet.");
-                }
-            },
-        );
-        if closed {
-            activity_path = None;
-        }
     }
     if ui
         .ctx()
@@ -276,7 +248,6 @@ pub(super) fn paint(
         ui.ctx().data_mut(|data| {
             data.remove::<String>(egui::Id::new("koolade_task_relationship_work_return"));
         });
-        activity_path = None;
     }
     if ui.ctx().data_mut(|data| {
         data.remove_temp::<bool>(egui::Id::new("koolade_task_details_close"))
@@ -285,13 +256,6 @@ pub(super) fn paint(
         selected_path = None;
         planning_selection = None;
     }
-    ui.ctx().data_mut(|d| {
-        if let Some(path) = activity_path {
-            d.insert_temp(activity_id, path);
-        } else {
-            d.remove::<String>(activity_id);
-        }
-    });
     ui.ctx().data_mut(|d| {
         let id = egui::Id::new("koolade_selected_planning");
         if let Some(item) = planning_selection {

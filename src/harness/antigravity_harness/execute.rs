@@ -295,6 +295,8 @@ fn progress(
                 id: (0, i),
                 kind: "tool".into(),
                 text: text.clone(),
+                recorded_at_ms: None,
+                run_id: None,
             })
             .collect(),
         response: response.into(),

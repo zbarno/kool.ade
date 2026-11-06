@@ -135,7 +135,6 @@ fn paint_progress(ui: &mut egui::Ui, view: &crate::ui::task_detail::ViewModel) {
             .as_deref()
             .filter(|text| !text.is_empty())
             .or_else(|| (!progress.response.is_empty()).then_some(progress.response.as_str()))
-            .or_else(|| (!progress.thoughts.is_empty()).then_some(progress.thoughts.as_str()))
             .unwrap_or("Worker is starting.");
         ui.collapsing("Worker detail", |ui| {
             reply::full_message(ui, message, "worker_progress")

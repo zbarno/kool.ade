@@ -136,7 +136,11 @@ fn thought_posts_stay_after_preceding_messages_across_calls() {
     );
     delta(&mut fold, "thinking", 0, "Next thought.");
     let mut display = fold.preview();
-    assert_eq!(&display.posts[..2], &original);
+    for (actual, expected) in display.posts[..2].iter().zip(&original) {
+        assert_eq!(actual.id, expected.id);
+        assert_eq!(actual.kind, expected.kind);
+        assert_eq!(actual.text, expected.text);
+    }
     assert_eq!(
         display
             .posts
@@ -150,17 +154,22 @@ fn thought_posts_stay_after_preceding_messages_across_calls() {
     display.update(fold.preview());
     assert_eq!(display.posts.len(), 3);
     assert_eq!(display.posts[2].id, next_id);
-    assert_eq!(&display.posts[..2], &original);
+    for (actual, expected) in display.posts[..2].iter().zip(&original) {
+        assert_eq!(actual.id, expected.id);
+        assert_eq!(actual.kind, expected.kind);
+        assert_eq!(actual.text, expected.text);
+    }
     let mut second_call = EventFold::default();
     delta(&mut second_call, "thinking", 0, "New task.");
     display.update(second_call.preview());
     display.update(second_call.preview());
     assert_eq!(
         display.posts.len(),
-        4,
-        "snapshots update existing blocks without duplicating or replacing earlier calls"
+        3,
+        "task activity drops thinking-only updates without duplicating visible history"
     );
-    assert_ne!(display.posts[3].id, original[0].id);
+    assert_eq!(display.posts[0].id, original[0].id);
+    assert_eq!(display.posts[1].id, original[1].id);
 }
 
 #[test]

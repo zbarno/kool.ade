@@ -31,7 +31,6 @@ pub(super) fn paint(
     presentation: state::Presentation<'_>,
     _checks_unavailable: bool,
     _failure: Option<&str>,
-    activity_path: &mut Option<String>,
 ) {
     ui.heading("Supporting details");
     let view = presentation.view;
@@ -48,7 +47,7 @@ pub(super) fn paint(
     runtime_capability::paint(ui, s, presentation.ticket, presentation.view);
     lifecycle_qa::paint(ui, presentation.view.lifecycle.as_ref());
     linkage::paint(ui, doc);
-    activity::paint(ui, view, ticket, active, activity_path);
+    activity::paint(ui, view, active);
     if let Some(progress) = view.progress.as_ref() {
         super::dependency::paint_history(ui, &progress.dependency_requests);
     }

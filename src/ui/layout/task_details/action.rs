@@ -11,7 +11,6 @@ pub(super) fn paint(
     state: state::Presentation<'_>,
     brief: Option<&crate::core::attention::Brief>,
     checks_unavailable: bool,
-    activity_path: &mut Option<String>,
 ) {
     let needs_answer = !state.active
         && state.column != 4
@@ -221,15 +220,7 @@ pub(super) fn paint(
                             ui.label(format!("{}: {}", step.owner, step.action));
                         }
                     }
-                    details::paint(
-                        ui,
-                        surface,
-                        doc,
-                        state,
-                        checks_unavailable,
-                        state.failure,
-                        activity_path,
-                    );
+                    details::paint(ui, surface, doc, state, checks_unavailable, state.failure);
                 });
         });
 }

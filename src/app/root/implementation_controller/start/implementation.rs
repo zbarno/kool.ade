@@ -226,17 +226,23 @@ impl KooladeApp {
                 ),
                 None,
             )]);
-            p.activity.tasks.entry(ticket.clone()).or_default().activity =
-                Some("Starting implementation…".into());
-            p.activity
-                .tasks
-                .entry(ticket.clone())
-                .or_default()
-                .telemetry = crate::harness::ActivityTelemetry {
+            let task_uid = p
+                .task_documents
+                .iter()
+                .find(|doc| doc.path == ticket)
+                .and_then(|doc| doc.metadata.as_ref())
+                .map(|metadata| metadata.uid.clone());
+            let progress = p.activity.tasks.entry(ticket.clone()).or_default();
+            if let Some(task_uid) = task_uid {
+                progress.begin_task_run(task_uid);
+            }
+            progress.activity = Some("Starting implementation…".into());
+            progress.telemetry = crate::harness::ActivityTelemetry {
                 started_ms: Some(chrono::Utc::now().timestamp_millis()),
                 ..Default::default()
             };
             p.activity.mark_ticket_dirty(&ticket);
+            p.save_task_activity(&ticket);
             p.bind_task_conversation_identities();
             let task_routes = p
                 .task_documents

@@ -7,10 +7,13 @@ impl Project {
             &self.state.planning_store,
         );
         self.adopt_implementations(latest);
-        for ticket in self.implementation_states.keys() {
+        for (ticket, implementation) in &self.implementation_states {
             if !self.activity.tasks.contains_key(ticket)
-                && let Some(activity) =
-                    crate::core::implementation::load_activity(&self.state.repo_root, ticket)
+                && let Some(activity) = crate::core::implementation::load_activity_for_task(
+                    &self.state.repo_root,
+                    ticket,
+                    implementation.task_uid.as_deref(),
+                )
             {
                 self.activity.tasks.insert(ticket.clone(), activity);
             }

@@ -1,6 +1,10 @@
 use super::{ClaimError, ClaimLease, ClaimRequest};
 
 impl ClaimRequest {
+    pub(crate) fn task_uid(&self) -> &str {
+        &self.task_uid
+    }
+
     pub(crate) fn new(project_uid: uuid::Uuid, task_uid: String) -> Self {
         Self {
             state_root: crate::persistence::state_root(),

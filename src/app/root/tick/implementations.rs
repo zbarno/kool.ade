@@ -97,6 +97,8 @@ impl KooladeApp {
                             Ok(record) => record.status.label().to_owned(),
                             Err(_) => "Needs attention".into(),
                         });
+                        let status = progress.activity.clone().unwrap_or_default();
+                        progress.append_activity_status("run", "finished", &status);
                     }
                     project.save_task_activity(&ticket);
                     project.activity.dirty_tickets.remove(&ticket);

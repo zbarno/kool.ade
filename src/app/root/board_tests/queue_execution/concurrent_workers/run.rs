@@ -233,7 +233,17 @@ pub(super) fn exercise(prepared: Prepared) -> PathBuf {
             .any(|m| m.text == "Planning fixture: I can discuss this while the worker runs.")
     );
     for doc in &docs[..2] {
-        let progress = crate::core::implementation::load_activity(&repo_root, &doc.path).unwrap();
+        let progress = match &app.screen {
+            Screen::Connected(project) => {
+                let task_uid = project
+                    .implementation_states
+                    .get(&doc.path)
+                    .and_then(|state| state.task_uid.as_deref());
+                crate::core::implementation::load_activity_for_task(&repo_root, &doc.path, task_uid)
+                    .unwrap()
+            }
+            _ => panic!("the project should remain connected after worker completion"),
+        };
         assert!(
             progress.activity.is_some()
                 || !progress.posts.is_empty()

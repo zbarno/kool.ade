@@ -247,8 +247,9 @@ pub use api::{
     HarnessExecutionFailure, HarnessFailureCategory, HarnessOutcome, HarnessRouteProvenance,
     LivePost, LiveProgress, ModelCallUsage, PackageEcosystem, PlanningRequest, PlanningTaskDraft,
     PlanningTaskOffer, ProviderAuthStrategy, RequestedAction, RetrievalPlan,
-    ReviewExecutionIdentity, RuntimeQaReviewScreenshot, RuntimeQaScreenshotReview, ToolAccess,
-    TurnEnvelope, TurnItem, TurnItemUpdate,
+    ReviewExecutionIdentity, RuntimeQaReviewScreenshot, RuntimeQaScreenshotReview,
+    TaskActivityActor, TaskActivityEventV1, TaskActivityOrigin, TaskActivityVisibility, ToolAccess,
+    TurnEnvelope, TurnItem, TurnItemUpdate, safe_activity_text,
 };
 pub use claude_harness::ClaudeHarness;
 pub use codex_harness::CodexHarness;

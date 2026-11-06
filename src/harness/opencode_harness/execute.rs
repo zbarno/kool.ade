@@ -270,6 +270,8 @@ fn snapshot(
                 id: (0, index),
                 kind: "tool".into(),
                 text: name.clone(),
+                recorded_at_ms: None,
+                run_id: None,
             })
             .collect(),
         activity: names.last().cloned(),

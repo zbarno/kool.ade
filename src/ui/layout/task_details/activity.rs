@@ -1,13 +1,7 @@
 //! Measured worker activity and a compact output preview.
 use super::*;
 
-pub(super) fn paint(
-    ui: &mut egui::Ui,
-    view: &crate::ui::task_detail::ViewModel,
-    ticket: &str,
-    active: bool,
-    activity_path: &mut Option<String>,
-) {
+pub(super) fn paint(ui: &mut egui::Ui, view: &crate::ui::task_detail::ViewModel, active: bool) {
     ui.add_space(10.0);
     egui::Frame::NONE
         .fill(theme::BG)
@@ -23,13 +17,6 @@ pub(super) fn paint(
                         .size(16.0)
                         .color(theme::BLUE_BRIGHT),
                 );
-                if view.progress.is_some() {
-                    ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("View all activity").clicked() {
-                            *activity_path = Some(ticket.to_owned());
-                        }
-                    });
-                }
             });
             crate::ui::task_activity::graph(ui, &view.activity_samples, view.activity_active, 48.0);
             if let Some(progress) = view.progress.as_ref() {

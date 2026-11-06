@@ -43,6 +43,11 @@ impl EventFold {
         let current_text = strip_checklist_marker(&self.block_text("text"));
         let (response, specification) = super::live_preview::project(&current_text);
         LiveProgress {
+            task_uid: None,
+            run_id: None,
+            run_attempt: 0,
+            activity_events: Vec::new(),
+            activity_events_truncated_before_ms: None,
             prompt_manifest: None,
             telemetry: Default::default(),
             selected_route: None,
@@ -79,6 +84,8 @@ impl EventFold {
                     id: (self.message_id, *index),
                     kind: kind.clone(),
                     text,
+                    recorded_at_ms: None,
+                    run_id: None,
                 })
             })
             .collect()
