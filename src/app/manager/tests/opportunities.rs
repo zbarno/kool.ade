@@ -6,6 +6,8 @@ use std::{path::Path, process::Command, thread, time::Instant};
 mod capability_lookup;
 #[path = "opportunities/product_isolation.rs"]
 mod product_isolation;
+#[path = "opportunities/provider_readiness.rs"]
+mod provider_readiness;
 
 struct OpportunityHarness(String);
 

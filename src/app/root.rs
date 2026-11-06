@@ -22,10 +22,7 @@ mod feature_approval;
 pub(crate) use feature_approval::publication::publish_document_set_with_test_injection as publish_feature_document_set_for_test;
 #[cfg(test)]
 pub(crate) use feature_approval::tests as feature_approval_test_support;
-#[cfg(test)]
 pub(crate) mod harness_selection;
-#[cfg(not(test))]
-mod harness_selection;
 
 mod adoption;
 mod agent_updates;
