@@ -199,6 +199,24 @@ fn run_with_settle_window(
                     drop(guard);
                     match attempt {
                         Ok(done) => return Ok(done),
+                        Err(error)
+                            if matches!(
+                                error
+                                    .downcast_ref::<crate::artifacts::planning_store::StoreError>(),
+                                Some(
+                                    crate::artifacts::planning_store::StoreError::StaleRevision { .. }
+                                        | crate::artifacts::planning_store::StoreError::StaleRecordRevision { .. }
+                                )
+                            ) =>
+                        {
+                            // A writer may commit after the fresh read and
+                            // drift check above. Treat the store's final
+                            // revision fence the same as detected drift: the
+                            // UI reloads current state and retries this item.
+                            anyhow::bail!(
+                                "{DEFER_PREFIX}: the planning store changed while the investigation was being saved"
+                            )
+                        }
                         Err(error) if error.to_string().starts_with(DEFER_PREFIX) => {
                             if std::time::Instant::now() >= deadline {
                                 anyhow::bail!(
