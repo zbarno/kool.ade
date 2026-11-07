@@ -126,6 +126,7 @@ fn storage_capacity_on_parent(path: &Path) -> io::Result<StorageCapacity> {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn storage_filesystem_family(
     filesystem_magic: u64,
 ) -> crate::app::setup_attention::catalog::LinuxVmStorageFilesystemV1 {

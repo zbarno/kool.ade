@@ -5,7 +5,7 @@ use std::{
 
 mod process;
 use process::bounded_command_output;
-#[cfg(any(not(target_os = "linux"), test))]
+#[cfg(test)]
 use process::retain_bounded;
 
 pub(super) const MAX_RETAINED_OUTPUT: usize = 4096;

@@ -127,6 +127,7 @@ fn probe_bundle_with_trust(
     }
     #[cfg(not(target_arch = "x86_64"))]
     {
+        let _ = trust;
         let _ = storage_root;
         let _ = catalog_bytes;
         unverified()

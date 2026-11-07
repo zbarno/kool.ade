@@ -67,6 +67,7 @@ fn probe_host_qemu_image_tool_with_timeout(
     }
 }
 
+#[cfg(target_os = "linux")]
 fn qemu_img_version_is_valid(output: &[u8]) -> bool {
     let Ok(output) = std::str::from_utf8(output) else {
         return false;
