@@ -2,6 +2,9 @@
 use std::path::Path;
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
+use crate::computer_use::guest_protocol::AuthenticatedGuestChannelV1;
+use crate::computer_use::guest_protocol::GuestActionJournalV1;
 use crate::computer_use::{ComputerSessionV1, guest_image::GuestImageOverlayV1};
 
 use super::ComputerBackendErrorV1;
@@ -212,6 +215,19 @@ pub trait ComputerBackend: Send + Sync {
         handle: &ComputerMachineHandleV1,
         now_unix_ms: u64,
     ) -> Result<ComputerGuestChannelV1, ComputerBackendErrorV1>;
+    #[cfg(target_os = "linux")]
+    fn authenticate_guest(
+        &self,
+        session: &ComputerSessionV1,
+        handle: &ComputerMachineHandleV1,
+        now_unix_ms: u64,
+    ) -> Result<AuthenticatedGuestChannelV1, ComputerBackendErrorV1>;
+    fn open_guest_action_journal(
+        &self,
+        session: &ComputerSessionV1,
+        handle: &ComputerMachineHandleV1,
+        now_unix_ms: u64,
+    ) -> Result<GuestActionJournalV1, ComputerBackendErrorV1>;
     fn mark_guest_ready(
         &self,
         session: &ComputerSessionV1,

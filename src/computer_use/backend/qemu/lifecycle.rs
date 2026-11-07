@@ -50,6 +50,22 @@ impl ComputerBackend for LocalKvmComputerBackend {
     ) -> Result<ComputerGuestChannelV1, Error> {
         self.connect_impl(session, handle, now_unix_ms)
     }
+    fn authenticate_guest(
+        &self,
+        session: &ComputerSessionV1,
+        handle: &Handle,
+        now_unix_ms: u64,
+    ) -> Result<crate::computer_use::guest_protocol::AuthenticatedGuestChannelV1, Error> {
+        LocalKvmComputerBackend::authenticate_guest(self, session, handle, now_unix_ms)
+    }
+    fn open_guest_action_journal(
+        &self,
+        session: &ComputerSessionV1,
+        handle: &Handle,
+        now_unix_ms: u64,
+    ) -> Result<crate::computer_use::guest_protocol::GuestActionJournalV1, Error> {
+        LocalKvmComputerBackend::open_guest_action_journal(self, session, handle, now_unix_ms)
+    }
     fn mark_guest_ready(
         &self,
         session: &ComputerSessionV1,

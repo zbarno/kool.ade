@@ -2826,6 +2826,8 @@ dependencies = [
  "focaccia",
  "fs2",
  "futures-util",
+ "hkdf",
+ "hmac",
  "hyper",
  "hyper-util",
  "image",

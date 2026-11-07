@@ -8,11 +8,11 @@ they do not claim real VM isolation.
 | Threat | Severity | Required gate | Regression evidence |
 | --- | --- | --- | --- |
 | Malicious webpage/DOM injects instructions | High | Treat page, DOM, and accessibility text as data; policy authority stays in controller | `capability_restriction_only_intersects_and_lowers_authority_and_quotas`; CU16 adversarial prompt-injection E2E |
-| Malicious GUI app or compromised guest companion forges state | Critical | Authenticate companion; host trusts only controller-fenced events | `controller_attestation_binds_identity_policy_lease_target_and_image`; `event_stream_fences_sequences_actors_and_uncertain_external_effects`; CU05 guest-auth integration |
+| Malicious GUI app or compromised guest companion forges state | Critical | Per-boot nonce challenge and HMAC channel; host trusts only controller-fenced events | guest protocol handshake, identity-binding, and replay tests; real virtio-serial/KVM boundary remains #392 |
 | Web credential exfiltration | Critical | Offline default; isolated egress gateway; no inherited credentials; human-only secret path | `read_only_capability_cannot_include_input_and_restriction_can_revoke_all_operations`; CU10 egress/secret-canary E2E |
 | Virtual network SSRF or metadata access | Critical | No guest NIC by default; separately enforced destination policy for research | `capability_restriction_only_intersects_and_lowers_authority_and_quotas`; CU10 private-address/metadata denial E2E |
 | Screenshot, clipboard, or accessibility leak | High | Bounded opaque evidence refs, redaction/retention policy, no implicit clipboard bridge | `golden_wire_contracts_validate_and_round_trip_without_shape_drift`; CU09 content redaction tests |
-| Replayed/replaced action or result | Critical | Session identity, idempotency key, contiguous sequence, immutable generations | `event_stream_fences_sequences_actors_and_uncertain_external_effects`; CU05/15 replay and recovery E2E |
+| Replayed/replaced action or result | Critical | Session identity, idempotency key, contiguous sequence, durable host journal, immutable generations | guest journal and authenticated transport tests; real KVM boundary remains #392 |
 | VNC/display stream hijack | High | Authenticated private transport; viewer attaches through controller | CU08 viewer-auth E2E |
 | VM escape or malicious device exposure | Critical | Dedicated unprivileged host process, no passthrough/shared host paths, maintained QEMU boundary | CU16 real-KVM adversarial release gate; contract tests are insufficient |
 | Guest-to-host clipboard path traversal | Critical | No host-mounted clipboard/file bridge; later bridge uses typed bounded artifacts | `wire_decoder_rejects_unknown_permissions_credentials_paths_and_versions`; CU09 traversal tests |
@@ -26,9 +26,9 @@ they do not claim real VM isolation.
 
 ## Explicit limitations
 
-The v1 Rust schema validates values but does not provide cryptographic guest
-authentication, safe QEMU invocation, disk encryption, network filtering,
-viewer authentication, secure secret entry, redaction, or durable replay
-protection. Those require owning components and end-to-end tests in the linked
-CU issues. Logged-in accounts remain exposed to whatever a guest application
+The guest companion authenticates the local channel and the host journal
+prevents automatic replay after uncertain outcomes. This does not prove real
+VM isolation, disk encryption, viewer authentication, secure secret entry,
+or content redaction. Those require owning components and end-to-end tests in
+the linked issues. Logged-in accounts remain exposed to whatever a guest application
 can do inside that account, even when the VM boundary works as designed.
