@@ -1,10 +1,11 @@
 # Computer Use architecture decision and contracts (v1)
 
-Status: the v1 contracts and bounded Linux QEMU/KVM lifecycle are implemented.
-The backend verifies signed sessions and overlays, runs offline disposable
-guests under delegated cgroup limits, and recovers only recorded owned
-processes. The authenticated guest transport remains a separate CU-05 task;
-guest readiness fails closed until that verifier is wired in.
+Status: the v1 contracts, bounded Linux QEMU/KVM lifecycle, and authenticated
+guest transport are implemented. The backend verifies signed sessions and
+overlays, runs offline disposable guests under delegated cgroup limits,
+authenticates the guest companion before readiness, and recovers only recorded
+owned processes. The candidate image remains unpromoted pending separate real
+host and catalog acceptance.
 
 ## Decision
 
@@ -45,15 +46,17 @@ flowchart LR
 The guest, all applications, accessibility trees, screenshots, web pages,
 downloads, and guest-reported status are untrusted. The local worker and its
 VM handles are owned by the app controller. QEMU runs as the same logged-in,
-unprivileged OS account that runs Kool.ad/e; v1 adds no system account, root
-service, or host-admin grant. The guest uses a separate non-root application
-identity. Protected host paths include the user home, SSH material, Docker
+unprivileged OS account that runs Kool.ad/e. The guest uses a separate
+non-root application identity; a narrowly scoped root one-shot imports the
+per-boot fw_cfg into a guest runtime directory before the companion starts.
+Protected host paths include the user home, SSH material, Docker
 socket, application configuration and secret state, planning data, and code
 repositories. No host home, Docker socket, SSH agent, device passthrough,
 arbitrary host path, shell string, hypervisor argv, provider credential, or
-cloud token crosses the guest contract. Guest-channel authentication remains
-the CU-05 verifier's responsibility; the backend treats a connected socket as
-untrusted until it receives a session- and lease-bound readiness result.
+cloud token crosses the guest contract. Guest-channel authentication uses a
+fresh per-boot secret, nonce challenge, transcript-bound HKDF key, and
+HMAC-authenticated typed envelopes. The backend marks readiness only after
+the host verifier completes that handshake.
 
 ## Image provenance decision
 
@@ -147,8 +150,8 @@ and interrupts the session. Every action and event carries the active lease
 generation so a delayed message from a superseded lease is rejected.
 `action_accepted` is a controller-authored journal event, never a guest
 assertion. Guest completion, observation, and heartbeat messages remain
-untrusted until the authenticated companion transport in CU-05 binds them to
-the session and the controller validates their sequence. The caller must
+untrusted until the authenticated companion transport binds them to the
+session and the controller validates their sequence. The caller must
 append accepted events durably before acknowledging them and replay that
 trusted journal after restart; this contract does not define a serialized
 validator checkpoint or a durable store.
@@ -208,7 +211,8 @@ with networking disabled and a verified overlay under the configured private
 root. It uses a fixed `/usr/bin/qemu-system-x86_64` executable and app-built
 arguments; it supplies no guest NIC, host mount, monitor, serial console,
 clipboard, or shell. The guest control stream uses one private virtio-serial
-socket and remains untrusted until CU-05 authenticates it.
+socket and remains untrusted until `LocalKvmComputerBackend::authenticate_guest`
+completes the challenge-response handshake.
 
 The host must be an unprivileged Linux user with accessible `/dev/kvm`, a
 root-owned QEMU binary, and a delegated cgroup v2 subtree with CPU, memory, and
@@ -228,8 +232,9 @@ validation task.
    state; CU-03 builds and verifies the pinned guest image.
 3. CU-04 implements the local QEMU/KVM lifecycle, bounded overlays and cleanup
    against these contracts; real-host validation remains separate.
-4. CU-05 authenticates a minimal guest companion; CU-06 adds generic GUI
-   actions/observations; CU-07 adds the app-owned provider-neutral grant path.
+4. The authenticated guest protocol and companion bind typed actions,
+   observations, replay protection, and readiness to a per-boot identity;
+   UI product actions and provider grant paths remain separate work.
 5. Viewer/takeover, safe artifact bridge, controlled internet and personal
    sessions remain separately gated issues. High-impact approvals require exact
    action binding and must not be inferred from this v1 grant.

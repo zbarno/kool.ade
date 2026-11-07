@@ -9,6 +9,7 @@ pub(super) fn command_args(
     overlay: &Path,
     control_socket: &Path,
     display_socket: &Path,
+    boot_config: &Path,
 ) -> Result<Vec<OsString>, ComputerBackendErrorV1> {
     let machine_id = match &session.target {
         ComputerTargetV1::LocalKvm { machine_id } => machine_id,
@@ -34,8 +35,12 @@ pub(super) fn command_args(
         control_socket.display()
     );
     let vnc = format!("unix:{},share=deny,clipboard=off", display_socket.display());
+    let fw_cfg = format!(
+        "name=opt/org.koolade.computer-use/boot-config,file={}",
+        boot_config.display()
+    );
     let name = format!("{identity},process={identity}");
-    for path in [overlay, control_socket, display_socket] {
+    for path in [overlay, control_socket, display_socket, boot_config] {
         let text = path
             .to_str()
             .ok_or(ComputerBackendErrorV1::InvalidOverlay)?;
@@ -86,6 +91,8 @@ pub(super) fn command_args(
         "virtio-serial-pci",
         "-device",
         "virtserialport,chardev=guestcontrol,name=org.koolade.computer-control.v1",
+        "-fw_cfg",
+        &fw_cfg,
         "-sandbox",
         "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
         "-overcommit",
