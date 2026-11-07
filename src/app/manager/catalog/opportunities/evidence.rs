@@ -1,5 +1,3 @@
-use sha2::Digest;
-
 use crate::{
     app::session::Project,
     harness::prompt_catalog::{EvidenceConfidentiality, EvidenceItem, EvidenceOrigin},
@@ -11,11 +9,9 @@ mod telemetry;
 
 mod broker;
 use broker::dependency_request_evidence;
+mod failures;
+use failures::task_failure_evidence;
 mod provider_readiness;
-
-#[cfg(test)]
-#[path = "evidence/tests.rs"]
-mod tests;
 
 /// Application-generated, workspace-private evidence for the generic support
 /// check and recent typed lifecycle events. Model output can cite these IDs,
@@ -125,60 +121,8 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
                 crate::core::context_build::clip_bytes(&recovery.evidence, 1024), crate::core::context_build::clip_bytes(&work.detail, 1024)),
         });
     }
-    for (task, failure) in project.queue.blocked.iter().take(16) {
-        let task_uid = project
-            .task_documents
-            .iter()
-            .find(|document| &document.path == task)
-            .and_then(|document| document.identity.as_ref())
-            .map(|identity| identity.uid.as_str())
-            .unwrap_or("unlinked-task");
-        let digest = task_failure_evidence_digest(&workspace_uid, task_uid, task);
-        let mismatch =
-            failure.kind == crate::core::implementation::FailureKind::ProviderCapabilityMismatch;
-        items.push(EvidenceItem {
-            id: format!(
-                "{}:{}",
-                if mismatch {
-                    "provider-capability-mismatch"
-                } else {
-                    "implementation-failure"
-                },
-                &digest[..24]
-            ),
-            workspace_uid: workspace_uid.clone(),
-            origin: EvidenceOrigin::Application,
-            confidentiality: EvidenceConfidentiality::WorkspacePrivate,
-            source: if mismatch {
-                "typed provider capability mismatch"
-            } else {
-                "typed implementation queue failure"
-            }
-            .into(),
-            content: if mismatch {
-                format!(
-                    "task_uid={task_uid} recovery={:?} observed_capability_mismatch={}",
-                    failure.recovery,
-                    crate::core::context_build::clip(&failure.message, 512)
-                )
-            } else {
-                format!(
-                    "task_uid={task_uid} failure_kind={:?} recovery={:?} observed_failure={}",
-                    failure.kind,
-                    failure.recovery,
-                    crate::core::context_build::clip(&failure.message, 1200)
-                )
-            },
-        });
-    }
+    items.extend(task_failure_evidence(project, &workspace_uid));
     items
-}
-
-fn task_failure_evidence_digest(workspace_uid: &str, task_uid: &str, task_path: &str) -> String {
-    format!(
-        "{:x}",
-        sha2::Sha256::digest(format!("{workspace_uid}\0{task_uid}\0{task_path}").as_bytes())
-    )
 }
 
 fn requests_repository_profile(goal: &str) -> bool {
