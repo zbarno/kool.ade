@@ -177,7 +177,9 @@ fn approved_polyglot_composite_is_cached_and_isolated_across_tasks() {
     if std::env::var(OPT_IN).ok().as_deref() != Some("1") {
         return;
     }
-    assert!(cfg!(target_os = "linux"));
+    if !cfg!(target_os = "linux") {
+        panic!("composite Docker integration currently requires native Linux");
+    }
 
     let fixture = Fixture::new();
     let tools = ["cargo", "rustc", "node", "npm"]
