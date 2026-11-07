@@ -243,7 +243,7 @@ jobs:
       - name: Install isolated rootless-daemon prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install --yes uidmap slirp4netns
+          sudo apt-get install --yes uidmap slirp4netns socat
       - name: Prepare rootless Docker systemd session
         run: bash scripts/prepare-rootless-docker-session.sh
       - name: Start an isolated rootless Docker Engine
@@ -292,7 +292,32 @@ jobs:
           KOOLADE_DOCKER_BACKEND_INTEGRATION: "1"
           KOOLADE_TEST_APPROVE_LOCKED_IMAGES: "1"
         run: |
+          set -euo pipefail
           unset DOCKER_CONTEXT
+          case "$DOCKER_HOST" in
+            unix:///*) rootless_socket="${DOCKER_HOST#unix://}" ;;
+            *) echo "Rootless Docker must use its per-job Unix socket" >&2; exit 1 ;;
+          esac
+          approved_socket="$XDG_RUNTIME_DIR/docker.sock"
+          if [ "$rootless_socket" != "$approved_socket" ]; then
+            test ! -e "$approved_socket"
+            socat "UNIX-LISTEN:$approved_socket,fork,mode=0600" \
+              "UNIX-CONNECT:$rootless_socket" \
+              >"$RUNNER_TEMP/docker-socket-proxy.log" 2>&1 &
+            proxy_pid=$!
+            trap 'kill "$proxy_pid" 2>/dev/null || true; wait "$proxy_pid" 2>/dev/null || true' EXIT
+            for attempt in $(seq 1 50); do
+              if [ -S "$approved_socket" ]; then break; fi
+              if ! kill -0 "$proxy_pid" 2>/dev/null; then
+                cat "$RUNNER_TEMP/docker-socket-proxy.log" >&2
+                exit 1
+              fi
+              sleep 0.1
+            done
+            test -S "$approved_socket"
+          fi
+          export DOCKER_HOST="unix://$approved_socket"
+          docker info --format '{{.ServerVersion}}' | grep --fixed-strings --line-regexp 29.9.0
           cargo +1.98.1 nextest run --locked --lib --no-fail-fast --test-threads 1 \
             -E 'test(cancelled_task_clone_resumes_through_docker_verification_and_waits_for_pr_authorization)'
   queue-concurrency:
