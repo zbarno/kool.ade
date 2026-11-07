@@ -33,7 +33,7 @@ fn set_implementation_state(
 /// and persisted run; setup uses a fake reviewer and needs no Docker/provider.
 #[test]
 fn cancelling_feature_revokes_evolve_when_every_child_is_complete() {
-    let temp = tempfile::tempdir_in("/tmp").unwrap();
+    let temp = tempfile::tempdir().unwrap();
     let test_tmp = temp.path().join("tmp");
     std::fs::create_dir_all(&test_tmp).unwrap();
     let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
@@ -137,7 +137,7 @@ fn cancelling_feature_revokes_evolve_when_every_child_is_complete() {
 
 #[test]
 fn successful_child_fallback_clears_feature_revocation_warning() {
-    let temp = tempfile::tempdir_in("/tmp").unwrap();
+    let temp = tempfile::tempdir().unwrap();
     let test_tmp = temp.path().join("tmp");
     std::fs::create_dir_all(&test_tmp).unwrap();
     let mut environment = crate::test_support::ProcessEnvironmentGuard::new();

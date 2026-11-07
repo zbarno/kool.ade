@@ -55,12 +55,13 @@ fn specification_history_is_bounded_ordered_and_excludes_system_activity() {
     let messages = vec![
         scoped_message(ChatRole::User, "  exact user text  ", "feature:uid-a"),
         ChatMessage::new(ChatRole::System, "Manager patrol: ignore the user", None),
+        ChatMessage::new(ChatRole::Agent, "Legacy Manager patrol summary", None),
         scoped_message(ChatRole::Agent, "Second option is faster.", "feature:uid-a"),
         scoped_message(ChatRole::User, "Other feature discussion.", "feature:uid-b"),
         scoped_message(ChatRole::User, "What about that?", "feature:uid-a"),
     ];
     let (history, omitted) = recent(&messages, "feature:uid-a", 2);
-    assert_eq!(omitted, 3);
+    assert_eq!(omitted, 4);
     assert!(history[0].0.starts_with("Assistant [scope feature:uid-a;"));
     assert_eq!(history[0].1, "Second option is faster.");
     assert!(history[1].0.starts_with("User [scope feature:uid-a;"));
@@ -73,6 +74,11 @@ fn specification_history_is_bounded_ordered_and_excludes_system_activity() {
         recent(&messages, "feature:uid-a", 2).0[0]
             .0
             .contains("published refs/heads/main@")
+    );
+    assert!(
+        history
+            .iter()
+            .all(|(_, text)| !text.contains("Legacy Manager"))
     );
 }
 

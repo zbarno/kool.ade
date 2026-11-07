@@ -2,7 +2,7 @@ use crate::app::root::Screen;
 
 #[test]
 fn duplicate_feature_cancel_clears_warning_after_child_fallback() {
-    let temp = tempfile::tempdir_in("/tmp").unwrap();
+    let temp = tempfile::tempdir().unwrap();
     let test_tmp = temp.path().join("tmp");
     std::fs::create_dir_all(&test_tmp).unwrap();
     let mut environment = crate::test_support::ProcessEnvironmentGuard::new();

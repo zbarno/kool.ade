@@ -151,11 +151,9 @@ mod tests {
 
     #[test]
     fn narrow_host_directories_reject_sensitive_components_anywhere_in_the_path() {
-        let root = env::temp_dir().join(format!(
-            "koolade-path-safety-{}-{}",
-            std::process::id(),
-            uuid::Uuid::new_v4()
-        ));
+        let executable_dir = env::current_exe().unwrap().parent().unwrap().to_path_buf();
+        let temp = tempfile::tempdir_in(executable_dir).unwrap();
+        let root = temp.path().join("toolchain");
         for component in [".ssh", ".AWS", ".config", "credentials", "keyrings"] {
             let path = root.join(component).join("toolchain");
             std::fs::create_dir_all(&path).unwrap();

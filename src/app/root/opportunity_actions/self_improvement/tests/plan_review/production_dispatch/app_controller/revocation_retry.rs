@@ -7,7 +7,7 @@ mod feature_cancel;
 /// before a stale worker authorization can be reused.
 #[test]
 fn duplicate_cancel_retries_failed_self_improvement_revocation() {
-    let temp = tempfile::tempdir_in("/tmp").unwrap();
+    let temp = tempfile::tempdir().unwrap();
     let test_tmp = temp.path().join("tmp");
     std::fs::create_dir_all(&test_tmp).unwrap();
     let mut environment = crate::test_support::ProcessEnvironmentGuard::new();

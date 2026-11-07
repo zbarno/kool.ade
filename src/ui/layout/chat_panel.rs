@@ -7,10 +7,7 @@ pub(super) fn paint(
     compact: bool,
 ) {
     let _ = board;
-    let specification_open = !ui.ctx().data_mut(|data| {
-        data.get_temp::<bool>(egui::Id::new("koolade_document_tab"))
-            .unwrap_or(true)
-    });
+    let specification_open = super::workspace_tabs::selected_tab(ui.ctx()) == 0;
     let collapsed_id = egui::Id::new("koolade_spec_chat_collapsed");
     let collapsed = ui
         .ctx()
@@ -47,9 +44,9 @@ pub(super) fn paint(
                         if ui.selectable_label(mode == 1, "Propose change").clicked() { mode = 1; }
                     });
                     ui.ctx().data_mut(|data| data.insert_temp(mode_id, mode));
-                    let messages = s.chat_messages().to_vec();
-                    let busy = s.conversation_busy();
-                    let progress = s.live_progress().cloned();
+                    let messages = s.specification_chat_messages();
+                    let busy = s.specification_chat_busy();
+                    let progress = s.specification_chat_progress().cloned();
                     let mut intent = crate::ui::chat_pane::paint_specification(
                         ui, &messages, s.chat_draft(), busy, progress.as_ref());
                     if intent.send {

@@ -41,122 +41,7 @@ impl KooladeApp {
                 }
                 project.activity.last_save = Some(Instant::now());
             }
-            let mut result = None;
-            if let Some(manager) = &project.activity.manager {
-                for _ in 0..64 {
-                    let Some(progress) = manager.progress() else {
-                        break;
-                    };
-                    project.live_progress.update(progress);
-                    project
-                        .activity
-                        .overall
-                        .as_mut()
-                        .unwrap()
-                        .update(Default::default());
-                    project
-                        .activity
-                        .conversations
-                        .entry("__main".into())
-                        .or_default()
-                        .update(Default::default());
-                }
-                result = manager.result();
-            }
-            if let Some(result) = result {
-                project.activity.manager = None;
-                project.live_progress = Default::default();
-                match result {
-                    Ok(output) => {
-                        project.activity.last_manager_error = None;
-                        let dispositions = crate::app::manager::persist_dispositions(
-                            project,
-                            &output.proposed_actions,
-                            &output.evidence_hashes,
-                            &output.planning_revision,
-                            &output.code_review_targets,
-                        );
-                        let mut text = crate::app::manager::persist_output(project, &output);
-                        match dispositions {
-                            Ok(messages) => {
-                                if !messages.is_empty() {
-                                    text.push_str("\n\n");
-                                    text.push_str(&messages.join("\n"));
-                                }
-                            }
-                            Err(error) => text.push_str(&format!(
-                                "\n\nManager decisions could not be saved to the Board: {error}"
-                            )),
-                        }
-                        project.remember_chat(vec![ChatMessage::new(ChatRole::Agent, text, None)]);
-                    }
-                    Err(error) => {
-                        let detail = crate::core::context_build::clip(
-                            &crate::error::redact_secrets(&error),
-                            1200,
-                        );
-                        if project.activity.last_manager_error.as_deref() != Some(&detail) {
-                            project.activity.last_manager_error = Some(detail.clone());
-                            project.remember_chat(vec![ChatMessage::new(
-                            ChatRole::System,
-                            format!(
-                                "Project-manager update unavailable: {detail} Task work continues; you can still send a message."
-                            ),
-                            None,
-                        )]);
-                        }
-                    }
-                }
-            }
-            // Stalled-worker patrol: surfaced and acted upon at most once per
-            // cooldown period, so a queue stuck on hung workers cannot drive
-            // an endless stream of background manager LLM turns.
-            if crate::app::manager::patrol_note_due(
-                project.active_implementations.len(),
-                project.activity.pending.len(),
-                project.activity.last_update,
-                project.activity.last_patrol_note,
-                Instant::now(),
-            ) {
-                project.activity.pending.push("The worker is still running. No completion is confirmed; review the current task states and help the user with the next eligible planning decision without inventing progress.".into());
-                project.activity.last_patrol_note = Some(Instant::now());
-            }
-            if crate::app::manager::patrol_manager_due(
-                project.active_turn.is_some(),
-                project.activity.manager.is_some(),
-                project.activity.pending.len(),
-                project.activity.last_update,
-                Instant::now(),
-            ) {
-                // A normal poll may be throttled to avoid rereading the chat
-                // store every frame. Manager decisions must see a peer-window
-                // answer saved since that poll before it decides who owes a
-                // response.
-                project.bind_task_conversation_identities();
-                project.task_chats.refresh_now(&project.chat_slug);
-                project
-                    .activity
-                    .pending
-                    .extend(project.task_chats.take_updates());
-                let events = std::mem::take(&mut project.activity.pending);
-                let harness = crate::app::root::configured_harness_for_project(
-                    &mut self.task_harness,
-                    Some(crate::persistence::harness_settings::MANAGER),
-                    &project.state.harness_routes.routes,
-                );
-                let route_label = harness.label();
-                project.activity.manager = Some(crate::app::manager::Manager::start(
-                    project, &events, harness,
-                ));
-                project.activity.last_update = Some(Instant::now());
-                project.live_progress = crate::harness::LiveProgress {
-                    activity: Some(format!(
-                        "Kool.ad/e Manager is checking the board with {route_label}…"
-                    )),
-                    selected_route: Some(route_label),
-                    ..Default::default()
-                };
-            }
+            manager::advance(project, &mut self.task_harness);
             plan_repair = crate::app::manager::next_plan_repair(project);
             if plan_repair.is_none() {
                 code_review_repair = crate::app::manager::next_code_review_repair(project);
@@ -286,6 +171,7 @@ impl KooladeApp {
 mod clarification;
 mod code_review_arbitration;
 mod dependency_review;
+mod manager;
 mod opportunities;
 pub(crate) mod plan_review;
 mod reconcile;

@@ -30,7 +30,7 @@ use std::{
 /// Docker commands, with no real model service or public task data.
 #[test]
 fn app_controller_dispatches_approved_task_to_isolated_docker_and_revokes_it_on_cancel() {
-    let temp = tempfile::tempdir_in("/tmp").unwrap();
+    let temp = tempfile::tempdir().unwrap();
     let test_tmp = temp.path().join("tmp");
     std::fs::create_dir_all(&test_tmp).unwrap();
     let mut environment = crate::test_support::ProcessEnvironmentGuard::new();

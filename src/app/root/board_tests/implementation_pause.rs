@@ -36,7 +36,7 @@ impl crate::harness::AiHarness for ResumeHarness {
 /// short application flow.
 #[test]
 fn failed_paused_task_persists_resume_marker_and_restarts_from_task_details() {
-    let temp = tempfile::tempdir_in("/tmp").unwrap();
+    let temp = tempfile::tempdir().unwrap();
     let mut environment = crate::test_support::ProcessEnvironmentGuard::new();
     environment.set("KOOLADE_HOME", temp.path().join("koolade-home"));
     let root = temp.path().join("repo");

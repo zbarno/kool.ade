@@ -30,24 +30,25 @@ fn live_stream_keeps_diagnostic_regimes_and_formats_prose_chunks() {
         ..Default::default()
     };
     let ctx = paint_ctx();
-    // Frame 1: the thinking diagnostic is open by default and stays
-    // plainly labeled; the streamed prose renders through the painter.
+    // Provider-private thinking is withheld; only emitted response and tool
+    // activity are rendered by the progress pane.
     let mut first = ctx.run_ui(egui::RawInput::default(), |ui| {
         paint_progress(ui, &progress);
     });
     let texts = galley_texts(&first);
+    assert!(!texts.iter().any(|text| text.contains("Thinking")));
+    assert!(
+        texts
+            .iter()
+            .any(|text| text.contains("Provider tool update"))
+    );
     assert!(
         texts
             .iter()
             .any(|t| t.contains("boldchunk") && !t.contains('*')),
         "streamed prose must be marker-free: {texts:?}"
     );
-    assert!(
-        texts
-            .iter()
-            .any(|t| t.contains("reasoning **still plain**")),
-        "plain thinking body must show its literal markers: {texts:?}"
-    );
+    assert!(!texts.iter().any(|text| text.contains("reasoning")));
     // Locate the tool diagnostics header and click it open.
     let header_center = first
         .shapes
@@ -56,7 +57,7 @@ fn live_stream_keeps_diagnostic_regimes_and_formats_prose_chunks() {
             egui::Shape::Text(shape) => Some(shape),
             _ => None,
         })
-        .find(|shape| (*shape.galley).text().starts_with("Tool output"))
+        .find(|shape| (*shape.galley).text().starts_with("Provider tool update"))
         .map(|shape| shape.pos + (*shape.galley).size() * 0.5)
         .expect("tool diagnostics header");
     let click = egui::RawInput {
