@@ -106,7 +106,7 @@ pub(super) fn connect(
     publish_session(&session_slot, &session)?;
     let _ = progress.send(crate::harness::LiveProgress {
         activity: Some(if missing_tools.is_empty() {
-            format!("Verified isolated runtime is ready for {target_id}")
+            format!("Approved isolated runtime selected for {target_id}")
         } else {
             format!("Preparing approved dependencies for {target_id}")
         }),
