@@ -6,10 +6,7 @@
 
 use std::{collections::BTreeMap, io::Cursor};
 
-use super::{
-    ImageLock, RuntimeProfile, SelectedImage,
-    project_plan::CompositionCandidate,
-};
+use super::{ImageLock, RuntimeProfile, SelectedImage, project_plan::CompositionCandidate};
 use crate::execution::docker::image_extension::builder::GeneratedImageContext;
 
 pub(super) fn verified_context(
@@ -20,8 +17,7 @@ pub(super) fn verified_context(
         .platform
         .strip_prefix("linux/")
         .ok_or_else(|| anyhow::anyhow!("Composite platform is not Linux"))?;
-    let sources = std::iter::once(&plan.foundation)
-        .chain(plan.components.iter());
+    let sources = std::iter::once(&plan.foundation).chain(plan.components.iter());
     for source in sources {
         let approved = lock.select(source.profile, architecture)?;
         anyhow::ensure!(
@@ -46,7 +42,9 @@ pub(super) fn verified_context(
         for (tool, version) in &source.tool_versions {
             if !matches!(tool.as_str(), "base" | "shell") {
                 anyhow::ensure!(
-                    version.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'.'),
+                    version
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.'),
                     "Approved tool version cannot appear in a bounded runtime probe"
                 );
                 versions.insert(tool.clone(), version.clone());
@@ -55,8 +53,7 @@ pub(super) fn verified_context(
     }
     anyhow::ensure!(
         plan.required_tools.iter().all(|tool| {
-            versions.contains_key(tool)
-                || (tool == "python3" && versions.contains_key("python"))
+            versions.contains_key(tool) || (tool == "python3" && versions.contains_key("python"))
         }),
         "Composite runtime cannot satisfy all requested logical tools"
     );
