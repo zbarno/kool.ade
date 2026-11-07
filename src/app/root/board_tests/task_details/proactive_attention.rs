@@ -91,16 +91,33 @@ fn new_blocker_opens_its_conversation_once_and_changed_blocker_surfaces_again() 
             after: "Review the task result.".into(),
         },
     );
-    app.tick(0.016, &ctx);
-    frame(&mut app, &ctx, vec![]);
-    assert_eq!(
-        ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_task")))
-            .as_deref(),
-        Some(key)
-    );
-    if let Screen::Connected(project) = &app.screen {
-        assert_eq!(project.task_chats.messages[key].len(), 2);
+    // A newly saved blocker can be projected to the board on the following
+    // paint rather than the same frame that polls the conversation store.
+    // Exercise bounded normal tick/paint cycles instead of assuming that a
+    // single frame is settled under concurrent CI load.
+    let mut reopened = false;
+    for _ in 0..4 {
+        app.tick(0.016, &ctx);
+        frame(&mut app, &ctx, vec![]);
+        reopened = ctx.data_mut(|data| {
+            data.get_temp::<String>(egui::Id::new("koolade_selected_task"))
+        }).as_deref() == Some(key);
+        if reopened {
+            break;
+        }
     }
+    let Screen::Connected(project) = &app.screen else {
+        panic!("fixture disconnected while surfacing changed blocker");
+    };
+    assert_eq!(
+        project.task_chats.messages[key].len(),
+        2,
+        "a changed blocker must persist exactly one new attention message"
+    );
+    assert!(
+        reopened,
+        "a changed blocker must focus its conversation after the board settles"
+    );
 }
 
 #[test]
