@@ -6,7 +6,8 @@
 
 use super::{EngineDiscovery, PrerequisiteCode, PrerequisiteFailure, failure, operation_timeout};
 use crate::execution::docker::images::{
-    CompositionCandidate, CompositionReceipt, ImageLock, SelectedImage, acquire_composition_lock,
+    CompositionCandidate, CompositionReceipt, ImageLock, SelectedImage,
+    try_acquire_composition_lock,
     verified_composition_context,
 };
 use tokio::sync::Mutex;
