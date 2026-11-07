@@ -1,4 +1,4 @@
-use std::{process::Command, sync::Arc};
+use std::{process::Command, sync::Arc, time::Duration};
 
 use crate::{
     artifacts::planning_store::PlanningStore,
@@ -83,15 +83,47 @@ fn approved_stack_recipes_execute_across_runtime_profiles() {
             .select(profile, native_docker_arch())
             .expect("profile image for host architecture");
         assert!(image.tool_versions.contains_key(tool));
-        let session = ExecutionSession::new(
-            Arc::new(docker),
-            workspace,
-            ExecutionTarget::local(),
-            ExecutionModeV1::Verification,
-            image.digest,
-            ResourceBudgetV1::default(),
-        )
-        .expect("bounded recipe session");
+        // Exercise approved Build/Test/Start through a composed image for
+        // two independent language combinations. Rust and Go retain the
+        // existing single-profile compatibility path.
+        let session = match profile {
+            RuntimeProfile::Node | RuntimeProfile::Python => {
+                let tools = if profile == RuntimeProfile::Node {
+                    vec!["cargo".to_owned(), "node".to_owned()]
+                } else {
+                    vec!["python".to_owned(), "go".to_owned()]
+                };
+                ExecutionSession::connect_local_with_tools(
+                    workspace,
+                    &clone,
+                    ExecutionModeV1::Verification,
+                    &tools,
+                    ResourceBudgetV1::default(),
+                )
+                .expect("reviewed polyglot recipe must use a verified composite")
+            }
+            _ => ExecutionSession::new(
+                Arc::new(docker),
+                workspace,
+                ExecutionTarget::local(),
+                ExecutionModeV1::Verification,
+                image.digest,
+                ResourceBudgetV1::default(),
+            )
+            .expect("bounded recipe session"),
+        };
+        if matches!(profile, RuntimeProfile::Node | RuntimeProfile::Python) {
+            let isolation = session
+                .run_tool_command(
+                    r#"set -eu
+test ! -S /var/run/docker.sock
+test "$(wc -l < /proc/net/route)" -eq 1
+"#,
+                    Duration::from_secs(30),
+                )
+                .expect("approved composite must enforce runtime isolation");
+            assert_eq!(isolation.result.exit_code, Some(0));
+        }
         for (operation, mut recipe) in [
             (RuntimeOperation::Build, build),
             (RuntimeOperation::Test, test),

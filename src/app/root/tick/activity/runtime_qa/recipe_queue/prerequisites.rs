@@ -52,6 +52,12 @@ pub(super) fn connect(
         progress,
         session_slot,
     } = request;
+    let _ = progress.send(crate::harness::LiveProgress {
+        activity: Some(format!(
+            "Checking the approved isolated runtime for {target_id}…"
+        )),
+        ..Default::default()
+    });
     let mut missing_tools = Vec::new();
     let session = match ExecutionSession::connect_local_with_tools(
         workspace.clone(),
@@ -98,6 +104,14 @@ pub(super) fn connect(
         }
     };
     publish_session(&session_slot, &session)?;
+    let _ = progress.send(crate::harness::LiveProgress {
+        activity: Some(if missing_tools.is_empty() {
+            format!("Approved isolated runtime selected for {target_id}")
+        } else {
+            format!("Preparing approved dependencies for {target_id}")
+        }),
+        ..Default::default()
+    });
     let session_arch = session
         .cache_target_arch()
         .ok_or_else(|| "selected recipe image architecture is unavailable".to_owned())?;

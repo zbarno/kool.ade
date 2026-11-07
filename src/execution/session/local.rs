@@ -157,11 +157,11 @@ fn connect_local_with_image_selection(
         owner_instance_id,
         authorization_verifier.clone(),
     )?);
-    let probe = tokio::runtime::Builder::new_current_thread()
+    let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .map_err(|_| prerequisite_message())?
-        .block_on(backend.probe(&ExecutionTarget::local()))?;
+        .map_err(|_| prerequisite_message())?;
+    let probe = runtime.block_on(backend.probe(&ExecutionTarget::local()))?;
     if !probe.available || !probe.compatible {
         return Err(ExecutionError::new(
             ExecutionErrorKind::EnvironmentUnavailable,
@@ -177,28 +177,47 @@ fn connect_local_with_image_selection(
             error.retryable,
         )
     })?;
-    let image = lock
-        .select_with_tools(profiles, &architecture, required_tools)
-        .map_err(|error| {
-            // A recipe requiring several toolchains may be fully understood
-            // without any single approved image being able to run it. Keep
-            // the runtime blocked until a verified composite is provisioned.
-            let message = match lock.plan_project_runtime(&architecture, required_tools) {
-                Ok(ProjectRuntimeImagePlan::Composition(candidate)) => format!(
-                    "This project needs a verified {} runtime combining {} approved toolchain images (recipe {}). Composite execution is not yet enabled; provision and verify the project runtime before retrying.",
-                    candidate.platform,
-                    candidate.components.len(),
-                    candidate.recipe_sha256,
-                ),
-                Err(plan_error) => plan_error.message,
-                Ok(ProjectRuntimeImagePlan::Existing(_)) => error.message,
-            };
-            ExecutionError::new(
-                ExecutionErrorKind::ImageUnavailable,
-                message,
-                false,
-            )
-        })?;
+    let image = match lock.select_with_tools(profiles, &architecture, required_tools) {
+        Ok(image) => image,
+        Err(original) => match lock.plan_project_runtime(&architecture, required_tools) {
+            Ok(ProjectRuntimeImagePlan::Composition(candidate)) => {
+                // All inputs are from the reviewed image lock, but the
+                // builder must independently verify their local identity,
+                // execute the fixed offline build and smoke-test its tools.
+                // No host fallback or synthetic image digest is allowed.
+                runtime
+                    .block_on(backend.compose_project_runtime(&candidate))
+                    .map_err(|error| {
+                        // The recipe queue can recover missing system tools
+                        // through a separately authorized broker. A failed
+                        // composite build or verification must NOT take that
+                        // fallback, which could mask a trusted-image failure.
+                        ExecutionError::new(
+                            ExecutionErrorKind::PolicyDenied,
+                            format!(
+                                "Trusted composite preparation was blocked: {}",
+                                error.message
+                            ),
+                            error.retryable,
+                        )
+                    })?
+            }
+            Ok(ProjectRuntimeImagePlan::Existing(_)) => {
+                return Err(ExecutionError::new(
+                    ExecutionErrorKind::ImageUnavailable,
+                    original.message,
+                    original.retryable,
+                ));
+            }
+            Err(error) => {
+                return Err(ExecutionError::new(
+                    ExecutionErrorKind::ImageUnavailable,
+                    error.message,
+                    error.retryable,
+                ));
+            }
+        },
+    };
     ExecutionSession::new_with_destination_authorization(
         backend,
         workspace,

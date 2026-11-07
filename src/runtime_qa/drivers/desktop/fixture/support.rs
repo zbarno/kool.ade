@@ -98,6 +98,48 @@ pub fn wait_for_click_observation(
     }
 }
 
+/// Wait for the synthetic fixture's state-independent title text to
+/// actually render before taking the baseline screenshot or testing control
+/// visibility. WM_NAME may be updated before an X11 Expose event is painted.
+pub fn wait_for_fixture_paint(display: &DesktopDisplay, window: u32) -> Result<(), String> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        // The fixture draws its fixed heading at x=24,y=32, irrespective of
+        // the click, keyboard or intentionally hidden control state.
+        if display.region_has_visible_content(window, 20, 0, 220, 36)? {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err("desktop fixture never painted its baseline heading".into());
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// A window title can update before the X server has processed the drawing
+/// requests. Require the screenshot to reflect a real pixel change rather
+/// than weakening the click and keyboard assertions on busy CI runners.
+pub fn wait_for_screenshot_change(
+    display: &DesktopDisplay,
+    previous: &[u8],
+    stage: &str,
+) -> Result<Vec<u8>, String> {
+    let previous_hash = sha256(previous);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let current = display.screenshot_png()?;
+        if sha256(&current) != previous_hash {
+            return Ok(current);
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "desktop fixture {stage} changed its window title but not the rendered pixels"
+            ));
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
 pub fn screenshot(name: &str, bytes: &[u8]) -> serde_json::Value {
     serde_json::json!({
         "name": name,

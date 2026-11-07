@@ -4,7 +4,7 @@ mod encoding;
 mod support;
 pub(super) use support::{
     FixtureProcess, screenshot, sha256, step, visible_region_state, wait_for_click_observation,
-    wait_for_title,
+    wait_for_fixture_paint, wait_for_screenshot_change, wait_for_title,
 };
 pub(super) mod window;
 
@@ -34,7 +34,17 @@ pub(super) fn exercise() -> Result<serde_json::Value, String> {
         || !visible_region_state(&visible_control, true)
         || !visible_region_state(&absent_control, false)
     {
-        return Err("desktop fixture did not prove interactions and defect detection".into());
+        return Err(format!(
+            "desktop fixture did not prove interactions and defect detection:              clicked={}, typed={}, pixels_changed={}, distinct_screenshots={},              seeded_click={}, seeded_defect={}, visible={:?}, hidden={:?}",
+            interaction["click_assertion"],
+            interaction["keyboard_assertion"],
+            interaction["screenshot_changed"],
+            interaction["screenshot_hashes_distinct"],
+            seeded_defect["click_assertion"],
+            seeded_defect["defect_detected"],
+            visible_control,
+            absent_control,
+        ));
     }
     Ok(serde_json::json!({
         "schema_version": 1,
@@ -82,6 +92,7 @@ fn run_case(ignore_click: bool) -> Result<serde_json::Value, String> {
     // the XTEST click is routed by pointer position.
     foreign.stop();
     let window_id = window.id.to_string();
+    wait_for_fixture_paint(&display, window.id)?;
     let before = display.screenshot_png()?;
     let focus = step(QaDriverActionV1::FocusWindow {
         window_id: window_id.clone(),
@@ -96,7 +107,11 @@ fn run_case(ignore_click: bool) -> Result<serde_json::Value, String> {
     let after_click_window = wait_for_click_observation(&display, ignore_click, &owner_pids)?;
     let observed = actions::window::describe(std::slice::from_ref(&after_click_window));
     let click_passed = super::run::expected_state_met("Clicked", &observed);
-    let after_click = display.screenshot_png()?;
+    let after_click = if ignore_click {
+        display.screenshot_png()?
+    } else {
+        wait_for_screenshot_change(&display, &before, "mouse click")?
+    };
     let mut action_evidence = vec![serde_json::json!({
         "action": "mouse_click",
         "target_window": window_id,
@@ -122,7 +137,7 @@ fn run_case(ignore_click: bool) -> Result<serde_json::Value, String> {
             "observed_state": typed_state,
             "status": if keyboard_passed { "passed" } else { "failed" },
         }));
-        after_keyboard = display.screenshot_png()?;
+        after_keyboard = wait_for_screenshot_change(&display, &after_click, "keyboard input")?;
     }
     fixture.stop();
     let before_sha = sha256(&before);
@@ -150,6 +165,7 @@ fn visibility_case(hide_control: bool) -> Result<String, String> {
     let mut fixture = FixtureProcess::start(false, "Visibility", hide_control)?;
     let owner_pids = super::process::descendants(fixture.0.id());
     let window = wait_for_title(&display, "Ready", Duration::from_secs(5), &owner_pids)?;
+    wait_for_fixture_paint(&display, window.id)?;
     let action = step(QaDriverActionV1::AssertRegionVisible {
         window_id: window.id.to_string(),
         x: 20,

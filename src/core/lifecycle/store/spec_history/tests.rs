@@ -44,7 +44,12 @@ impl Fixture {
     fn store(&self) -> PlanningStore {
         let mut store = PlanningStore::for_code_repository(
             crate::core::state::test_support::project_id_for_code_root(&self.0),
-            self.0.with_extension("private-state"),
+            // The per-operator approval receipt is stored beside the local
+            // operational-state directory. Keep its parent unique for each
+            // fixture, or parallel tests overwrite /tmp/feature-approvals.json.
+            self.0
+                .with_extension("private-state")
+                .join("operational-state"),
             &self.0,
         );
         let reader =
@@ -126,6 +131,36 @@ impl Drop for Fixture {
         let _ = std::fs::remove_dir_all(&self.0);
         let _ = std::fs::remove_dir_all(self.0.with_extension("private-state"));
     }
+}
+
+#[test]
+// Production boundary: feature approvals are local to each isolated project.
+// Their store location is intentionally a sibling of operational-state; tests
+// must never share /tmp/feature-approvals.json between unrelated fixtures.
+fn separate_fixtures_do_not_share_operator_approval_receipts() {
+    let first = Fixture::new();
+    let second = Fixture::new();
+    let first_store = first.store();
+    let second_store = second.store();
+    std::fs::create_dir_all(first_store.local_root()).unwrap();
+    std::fs::create_dir_all(second_store.local_root()).unwrap();
+    let feature_id = "CHG-999";
+    let contract = "approved first fixture contract";
+    crate::persistence::feature_approvals::record(&first_store.local_root(), feature_id, contract)
+        .unwrap();
+    assert!(crate::persistence::feature_approvals::contains(
+        &first_store.local_root(),
+        feature_id,
+        contract,
+    ));
+    assert!(
+        !crate::persistence::feature_approvals::contains(
+            &second_store.local_root(),
+            feature_id,
+            contract,
+        ),
+        "two independent Git fixture repositories must not share approval authority",
+    );
 }
 
 #[test]

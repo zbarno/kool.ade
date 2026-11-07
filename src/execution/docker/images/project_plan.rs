@@ -60,10 +60,11 @@ impl ImageLock {
             return Ok(ProjectRuntimeImagePlan::Existing(image));
         }
 
-        // An exact, architecture-matched general image is always the trusted
-        // foundation. A missing foundation is a hard error, not a fallback to
-        // a task-provided or mutable base.
-        let foundation = self.select(RuntimeProfile::General, daemon_arch)?;
+        // Require the exact locked general base as a trust anchor, then use
+        // the strongest required toolchain as the foundation. Starting from
+        // a pinned compiler/runtime image preserves its distro libraries and
+        // build dependencies, which a bare Debian root cannot provide.
+        let _trusted_general = self.select(RuntimeProfile::General, daemon_arch)?;
         let mut uncovered = required_tools
             .iter()
             .map(String::as_str)
@@ -107,6 +108,11 @@ impl ImageLock {
             components.push(candidate.clone());
         }
         components.sort_by_key(|component| component.profile);
+        let foundation = components
+            .first()
+            .cloned()
+            .ok_or_else(|| missing_tool_failure(&uncovered))?;
+        components.retain(|component| component.profile != foundation.profile);
 
         let canonical_tools = required_tools
             .iter()
@@ -114,11 +120,20 @@ impl ImageLock {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect::<Vec<_>>();
-        // Include exact source digests AND advertised tool versions. The
-        // builder's future recipe/security policy version must change this
-        // schema marker when those semantics change.
+        // Include exact source digests, tool versions, and a fingerprint of
+        // the trusted builder and runtime verifier. Any change to these
+        // security-sensitive sources invalidates old cached images.
+        let builder_policy = format!(
+            "{:x}:{:x}:{:x}",
+            Sha256::digest(include_bytes!("composition.rs")),
+            Sha256::digest(include_bytes!("../engine/composition.rs")),
+            Sha256::digest(include_bytes!(
+                "../engine/bollard_api/composite_verification.rs"
+            )),
+        );
         let identity = serde_json::to_vec(&(
-            "koolade-runtime-composition-recipe-v1",
+            "koolade-runtime-composition-recipe-v2",
+            &builder_policy,
             &foundation.platform,
             &foundation.digest,
             &foundation.tool_versions,
@@ -193,17 +208,31 @@ mod tests {
     fn polyglot_recipe_proposes_only_required_locked_sources() {
         let candidate = composite("amd64", &["cargo", "node", "rustc"]);
         assert_eq!(candidate.platform, "linux/amd64");
-        assert_eq!(candidate.foundation.profile, RuntimeProfile::General);
+        assert_eq!(candidate.foundation.profile, RuntimeProfile::Rust);
         assert_eq!(
             candidate
                 .components
                 .iter()
                 .map(|c| c.profile)
                 .collect::<Vec<_>>(),
-            vec![RuntimeProfile::Rust, RuntimeProfile::Node]
+            vec![RuntimeProfile::Node]
         );
         assert_eq!(candidate.required_tools, ["cargo", "node", "rustc"]);
         assert!(candidate.recipe_sha256.starts_with("sha256:"));
+    }
+
+    #[test]
+    fn composition_contains_a_real_locked_compiler_base() {
+        let candidate = composite("amd64", &["go", "python"]);
+        assert_eq!(candidate.foundation.profile, RuntimeProfile::Python);
+        assert_eq!(
+            candidate
+                .components
+                .iter()
+                .map(|image| image.profile)
+                .collect::<Vec<_>>(),
+            vec![RuntimeProfile::Go]
+        );
     }
 
     #[test]
