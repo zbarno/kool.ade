@@ -2,6 +2,8 @@
 //! before rendering so the board does not query unrelated project state.
 
 use std::collections::BTreeSet;
+mod visibility;
+pub(crate) use visibility::question_column;
 
 #[derive(Clone, Default)]
 pub struct ViewModel {

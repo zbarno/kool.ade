@@ -19,6 +19,9 @@ pub(super) fn paint_required_actions(
     ticket: &str,
     view: &crate::ui::task_detail::ViewModel,
 ) {
+    if view.cancelled {
+        return;
+    }
     runtime_qa_scenarios::paint(ui, s, ticket, view);
     runtime_qa_applicability::paint(ui, s, ticket, view);
     lifecycle_spec::paint(ui, s, ticket, view);
@@ -34,6 +37,10 @@ pub(super) fn paint(
 ) {
     ui.heading("Supporting details");
     let view = presentation.view;
+    if view.cancelled {
+        ui.label("Cancelled · This work will not resume automatically.");
+        return;
+    }
     let ticket = presentation.ticket;
     let active = presentation.active;
     let column = presentation.column;
@@ -89,6 +96,10 @@ pub(super) fn paint_primary(
     checks_unavailable: bool,
 ) {
     let view = presentation.view;
+    if view.cancelled {
+        ui.label("Cancelled · This work will not resume automatically.");
+        return;
+    }
     let record = presentation.record;
     let ticket = presentation.ticket;
     let active = presentation.active;
@@ -202,7 +213,10 @@ pub(super) fn paint_primary(
                 });
             }
         });
-    if column == 4 && ui.button("Archive").clicked() {
+    if column == 4 && view.task_intent_uid.is_some() {
+        ui.label(theme::helper_text("This card stays with its TaskIntent. Archive the parent request when its work is complete."));
+    }
+    if column == 4 && view.task_intent_uid.is_none() && ui.button("Archive").clicked() {
         s.dispatch(crate::ui::ApplicationCommand::ArchiveTask {
             ticket: ticket.to_owned(),
         });

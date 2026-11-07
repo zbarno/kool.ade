@@ -82,7 +82,7 @@ fn root_lane_uses_group_header_once_children_exist_and_keeps_empty_root_visible(
     add_root_lane_groups(&board, &[&root], &mut groups, &[]);
     assert_eq!(groups.len(), 1);
     assert_eq!(groups[&root.uid].root.unwrap().uid, root.uid);
-    assert!(groups[&root.uid].planning.is_empty());
+    assert_eq!(groups[&root.uid].planning.len(), 1);
     assert_eq!(child_count(&board, &root.uid), 2);
 
     let empty_board = crate::ui::planning_board::ViewModel {
@@ -91,7 +91,7 @@ fn root_lane_uses_group_header_once_children_exist_and_keeps_empty_root_visible(
     };
     let mut empty_groups = collect_groups(&empty_board, &[&root], &[], &[]);
     add_root_lane_groups(&empty_board, &[&root], &mut empty_groups, &[]);
-    assert!(empty_groups.is_empty());
+    assert_eq!(empty_groups[&root.uid].planning.len(), 1);
     assert_eq!(child_count(&empty_board, &root.uid), 0);
 
     let child_lane = collect_groups(&board, &[&child], &[], &[]);

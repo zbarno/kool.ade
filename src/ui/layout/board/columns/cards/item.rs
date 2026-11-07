@@ -28,10 +28,13 @@ pub(in crate::ui::layout::board::columns) fn item(
                     item.kind.badge_colors().0,
                     item.kind.badge_colors().1,
                 );
+                if super::ownership::item_is_agent(item, saved) {
+                    super::ownership::agent_pill(ui);
+                }
                 if column == 3 {
                     super::super::attention::badge(
                         ui,
-                        if saved {
+                        if super::ownership::item_is_agent(item, saved) {
                             super::super::attention::Kind::Blocked
                         } else {
                             super::super::attention::Kind::WaitingOnUser

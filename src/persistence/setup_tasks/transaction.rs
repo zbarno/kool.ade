@@ -10,6 +10,7 @@ use fs2::FileExt;
 
 use super::{MAX_STATE_BYTES, SetupTaskStoreV1};
 
+mod legacy;
 mod owner;
 #[cfg(test)]
 mod tests;
@@ -235,8 +236,7 @@ pub(super) fn load_from(path: &Path) -> anyhow::Result<SetupTaskStoreV1> {
         metadata.len() <= MAX_STATE_BYTES,
         "setup task state is oversized"
     );
-    let store: SetupTaskStoreV1 = serde_json::from_slice(&fs::read(path)?)?;
-    store.validate()?;
+    let store = legacy::decode(&fs::read(path)?)?;
     Ok(store)
 }
 
