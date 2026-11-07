@@ -242,6 +242,47 @@ printf '{}\\n'
     );
 }
 
+/// Independent runtime proof that the same trusted builder can combine
+/// Python and Go rather than assuming all polyglot projects look like Rust+Node.
+#[test]
+fn approved_python_go_composite_runs_without_host_access_or_network() {
+    if std::env::var(OPT_IN).ok().as_deref() != Some("1") {
+        return;
+    }
+    if !cfg!(target_os = "linux") {
+        panic!("composite Docker integration currently requires native Linux");
+    }
+
+    let fixture = Fixture::new();
+    let task = workspace();
+    let clone = fixture.task_clone(&task);
+    let tools = vec!["python".to_owned(), "go".to_owned()];
+    let resources = request(task.clone(), "").resource_budget;
+    let session = ExecutionSession::connect_local_with_tools(
+        task,
+        &clone,
+        ExecutionModeV1::Verification,
+        &tools,
+        resources,
+    )
+    .expect("approved Python+Go runtime should be built and verified");
+
+    let result = session
+        .run_tool_command(
+            r#"set -eu
+test ! -S /var/run/docker.sock
+test "$(wc -l < /proc/net/route)" -eq 1
+go version
+python --version
+printf 'go-python-composite-ready\n'
+"#,
+            Duration::from_secs(50),
+        )
+        .expect("run Python and Go inside the verified composite");
+    assert_eq!(result.result.exit_code, Some(0), "{result:?}");
+    assert!(result.stdout.contains("go-python-composite-ready"));
+}
+
 fn build_synthetic_deb(root: &std::path::Path) -> Vec<u8> {
     let package = root.join("synthetic-deb");
     let control = package.join("DEBIAN/control");
