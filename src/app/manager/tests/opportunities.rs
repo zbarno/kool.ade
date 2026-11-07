@@ -92,7 +92,7 @@ fn product_proposal_json() -> serde_json::Value {
     proposal
 }
 
-pub(super) fn initialized_repository() -> (tempfile::TempDir, crate::app::session::Project, String)
+pub(crate) fn initialized_repository() -> (tempfile::TempDir, crate::app::session::Project, String)
 {
     let temp = tempfile::tempdir().expect("temporary project directory");
     let root = temp.path().join("code");

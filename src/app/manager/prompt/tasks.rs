@@ -4,11 +4,11 @@ pub(super) fn conversation_reply_pending(project: &Project, key: &str) -> bool {
     project.task_turns.contains_key(key) || project.task_chats.has_pending_user_reply(key)
 }
 
+#[cfg(test)]
 pub(super) fn active_worker_progress(project: &Project) -> Vec<String> {
     project
         .active_implementations
         .keys()
-        .take(8)
         .map(|ticket| {
             let title = project
                 .task_documents
@@ -26,6 +26,7 @@ pub(super) fn active_worker_progress(project: &Project) -> Vec<String> {
         .collect()
 }
 
+#[cfg(test)]
 pub(super) fn progress_label(activity: Option<&str>) -> &'static str {
     let Some(activity) = activity else {
         return "active; no current progress signal";

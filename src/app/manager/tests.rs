@@ -2,7 +2,7 @@ use super::*;
 use std::time::{Duration, Instant};
 
 #[path = "tests/opportunities.rs"]
-mod opportunities;
+pub(super) mod opportunities;
 #[path = "tests/routing_and_retry.rs"]
 mod routing_and_retry;
 #[path = "tests/schema_repair.rs"]
