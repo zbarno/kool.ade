@@ -1,103 +1,139 @@
 use std::{
     io::{self, Read},
-    process::{Child, Command, Stdio},
-    thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
-const MAX_RETAINED_OUTPUT: usize = 4096;
+mod process;
+use process::bounded_command_output;
+#[cfg(any(not(target_os = "linux"), test))]
+use process::retain_bounded;
+
+pub(super) const MAX_RETAINED_OUTPUT: usize = 4096;
+const MAX_CPUINFO_BYTES: usize = 64 * 1024;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub(super) fn qemu_output(arguments: &[&str]) -> io::Result<Option<Vec<u8>>> {
-    let mut command = Command::new("/usr/bin/qemu-system-x86_64");
-    #[cfg(target_os = "linux")]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
+pub(super) struct SystemProbe;
+
+impl super::VmHostProbe for SystemProbe {
+    fn cpu_virtualization_flags(&self) -> io::Result<Option<bool>> {
+        cpu_virtualization_flags()
     }
-    let mut child = command
-        .args(arguments)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()?;
-    let Some(stdout) = child.stdout.take() else {
-        kill_probe(&mut child);
-        let _ = child.wait();
-        return Err(io::Error::new(
-            io::ErrorKind::BrokenPipe,
-            "QEMU stdout pipe was unavailable",
-        ));
-    };
-    let reader = match thread::Builder::new()
-        .name("qemu-readiness-output".into())
-        .spawn(move || retain_bounded(stdout))
-    {
-        Ok(reader) => reader,
-        Err(error) => {
-            kill_probe(&mut child);
-            let _ = child.wait();
-            return Err(error);
-        }
-    };
-    let deadline = Instant::now() + COMMAND_TIMEOUT;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => {}
-            Err(error) => {
-                kill_probe(&mut child);
-                let _ = child.wait();
-                let _ = reader.join();
-                return Err(error);
+
+    fn virtualization_present(&self) -> io::Result<Option<bool>> {
+        virtualization_present()
+    }
+
+    fn open_kvm(&self) -> io::Result<()> {
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/kvm")
+            .map(drop)
+    }
+
+    fn qemu_output(&self, arguments: &[&str]) -> io::Result<Option<Vec<u8>>> {
+        qemu_output(arguments)
+    }
+
+    fn qemu_image_tool(&self) -> io::Result<()> {
+        let path = "/usr/bin/qemu-img";
+        std::fs::symlink_metadata(path)?;
+        crate::computer_use::guest_image::probe_host_qemu_image_tool_for_readiness().map_err(
+            |error| match error {
+                crate::computer_use::guest_image::QemuProcessError::Unavailable => {
+                    io::Error::new(io::ErrorKind::PermissionDenied, "untrusted qemu-img")
+                }
+                crate::computer_use::guest_image::QemuProcessError::TimedOut => io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "qemu-img readiness probe timed out",
+                ),
+                crate::computer_use::guest_image::QemuProcessError::OutputTooLarge
+                | crate::computer_use::guest_image::QemuProcessError::Failed => {
+                    io::Error::new(io::ErrorKind::InvalidData, "invalid qemu-img probe result")
+                }
+            },
+        )
+    }
+
+    fn launcher_containment(&self) -> io::Result<()> {
+        crate::computer_use::verify_qemu_launcher_containment_v1().map_err(|error| {
+            use crate::computer_use::ComputerBackendErrorV1;
+            match error {
+                ComputerBackendErrorV1::QemuUnavailable => {
+                    io::Error::new(io::ErrorKind::PermissionDenied, "untrusted QEMU launcher")
+                }
+                ComputerBackendErrorV1::UnsupportedHost => {
+                    io::Error::new(io::ErrorKind::Unsupported, "unsupported QEMU launcher host")
+                }
+                _ => io::Error::other("QEMU launcher containment is unknown"),
             }
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = reader.join();
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "QEMU readiness probe timed out",
-            ));
-        }
-        thread::sleep(Duration::from_millis(10));
+        })
+    }
+}
+
+pub(super) fn cpu_virtualization_flags() -> io::Result<Option<bool>> {
+    let mut file = std::fs::File::open("/proc/cpuinfo")?;
+    let mut bytes = Vec::with_capacity(MAX_CPUINFO_BYTES);
+    file.by_ref()
+        .take((MAX_CPUINFO_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_CPUINFO_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "CPU information exceeded the readiness probe bound",
+        ));
+    }
+    let contents = std::str::from_utf8(&bytes)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "CPU information was not UTF-8"))?;
+    Ok(cpu_virtualization_flags_from_info(contents))
+}
+
+pub(super) fn virtualization_present() -> io::Result<Option<bool>> {
+    let Some((status, output)) =
+        bounded_command_output("/usr/bin/systemd-detect-virt", &["--vm"], COMMAND_TIMEOUT)?
+    else {
+        return Ok(None);
     };
-    let (output, overflowed) = reader
-        .join()
-        .map_err(|_| io::Error::other("QEMU output reader failed"))??;
-    Ok((status.success() && !overflowed).then_some(output))
+    Ok(virtualization_from_status_and_output(
+        status.code(),
+        &output,
+    ))
 }
 
-fn kill_probe(child: &mut Child) {
-    #[cfg(target_os = "linux")]
-    {
-        // SAFETY: the child is placed in a dedicated process group immediately
-        // before spawn, so this signal cannot target the parent process group.
-        unsafe {
-            libc::kill(-(child.id() as i32), libc::SIGKILL);
-        }
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = child.kill();
+fn virtualization_from_status_and_output(code: Option<i32>, output: &[u8]) -> Option<bool> {
+    let output = std::str::from_utf8(output).ok()?.trim();
+    match (code, output) {
+        (Some(0), value) if !value.is_empty() && value != "none" => Some(true),
+        (Some(1), "none") => Some(false),
+        _ => None,
     }
 }
 
-fn retain_bounded(mut reader: impl Read) -> io::Result<(Vec<u8>, bool)> {
-    let mut retained = Vec::with_capacity(MAX_RETAINED_OUTPUT);
-    let mut overflowed = false;
-    let mut buffer = [0u8; 1024];
-    loop {
-        let read = reader.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        let remaining = MAX_RETAINED_OUTPUT.saturating_sub(retained.len());
-        retained.extend_from_slice(&buffer[..read.min(remaining)]);
-        overflowed |= read > remaining;
-    }
-    Ok((retained, overflowed))
+fn cpu_virtualization_flags_from_info(contents: &str) -> Option<bool> {
+    let flags = contents.lines().find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        (name.trim() == "flags").then_some(value)
+    })?;
+    Some(
+        flags
+            .split_ascii_whitespace()
+            .any(|flag| matches!(flag, "vmx" | "svm")),
+    )
+}
+
+pub(super) fn qemu_output(arguments: &[&str]) -> io::Result<Option<Vec<u8>>> {
+    qemu_output_from("/usr/bin/qemu-system-x86_64", arguments, COMMAND_TIMEOUT)
+}
+
+fn qemu_output_from(
+    program: &str,
+    arguments: &[&str],
+    timeout: Duration,
+) -> io::Result<Option<Vec<u8>>> {
+    let Some((status, output)) = bounded_command_output(program, arguments, timeout)? else {
+        return Ok(None);
+    };
+    Ok(status.success().then_some(output))
 }
 
 #[cfg(test)]

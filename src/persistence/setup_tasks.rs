@@ -53,6 +53,12 @@ pub(crate) fn machine_setup_state_dir() -> anyhow::Result<std::path::PathBuf> {
     }
 }
 
+/// Planned private destination for Computer Use images and disposable overlays.
+/// This resolves a path only; readiness probing never creates or writes it.
+pub(crate) fn computer_use_storage_dir() -> anyhow::Result<std::path::PathBuf> {
+    Ok(machine_setup_state_dir()?.join("computer-use"))
+}
+
 /// Persist a locked runtime profile selected for an actual workload. The next
 /// machine setup scan binds the requirement to the currently verified engine
 /// identity and architecture before publishing a preparation task.

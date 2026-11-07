@@ -1,6 +1,6 @@
 use super::super::evidence::EvidenceState;
 use super::super::identifiers::{
-    PrerequisiteCapability as Capability, PrerequisiteDomain as Domain,
+    ImageArchitectureV1, PrerequisiteCapability as Capability, PrerequisiteDomain as Domain,
     PrerequisiteSubject as Subject, ProviderIdV1,
 };
 use super::MachineSnapshotV1;
@@ -81,6 +81,18 @@ fn desktop_docker_ready(snapshot: &MachineSnapshotV1) -> bool {
         .all(|capability| current_ready(snapshot, Domain::Docker, capability, Subject::None, false))
 }
 
+fn guest_image_ready(snapshot: &MachineSnapshotV1) -> bool {
+    snapshot.host == super::super::identifiers::HostKind::Linux
+        && snapshot.capability_matrix.observed_host_architecture == ImageArchitectureV1::Amd64
+        && current_ready(
+            snapshot,
+            Domain::Host,
+            Capability::ComputerGuestImage,
+            Subject::None,
+            false,
+        )
+}
+
 pub(super) fn validate(snapshot: &MachineSnapshotV1) -> anyhow::Result<()> {
     support::validate_capability_matrix(snapshot)?;
     if let Some(provider) = snapshot.setup_provider {
@@ -155,6 +167,44 @@ pub(super) fn validate(snapshot: &MachineSnapshotV1) -> anyhow::Result<()> {
             "docker:rootless-smoke" => anyhow::ensure!(
                 rootless_smoke::ready_for_any_architecture(snapshot),
                 "rootless smoke domain lacks a current approved-image smoke receipt"
+            ),
+            "computer:kvm" => anyhow::ensure!(
+                snapshot.host == super::super::identifiers::HostKind::Linux
+                    && snapshot.capability_matrix.observed_host_architecture
+                        == ImageArchitectureV1::Amd64
+                    && current_ready(
+                        snapshot,
+                        Domain::Host,
+                        Capability::LinuxKvmDevice,
+                        Subject::None,
+                        false,
+                    )
+                    && current_ready(
+                        snapshot,
+                        Domain::Host,
+                        Capability::LinuxKernel,
+                        Subject::None,
+                        false,
+                    )
+                    && current_ready(
+                        snapshot,
+                        Domain::Host,
+                        Capability::LinuxUserNamespaces,
+                        Subject::None,
+                        false,
+                    )
+                    && current_ready(
+                        snapshot,
+                        Domain::Host,
+                        Capability::LinuxVirtualization,
+                        Subject::None,
+                        false,
+                    ),
+                "computer KVM domain lacks current positive host prerequisite evidence"
+            ),
+            "computer:guest-image" => anyhow::ensure!(
+                guest_image_ready(snapshot),
+                "computer guest-image domain lacks current verified catalog and cache evidence"
             ),
             _ if domain.starts_with("cli:") => {
                 let provider_id = domain.strip_prefix("cli:").unwrap_or_default();

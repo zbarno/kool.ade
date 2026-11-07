@@ -28,7 +28,9 @@ impl LocalKvmComputerBackend {
         let args =
             commands::command_args(session, overlay.path(), &control_socket, &display_socket)
                 .map_err(|_| Error::ResourceLimit)?;
-        let mut command = Command::new(self.qemu_path());
+        let qemu_path = self.qemu_path();
+        process::validate_qemu_program(&qemu_path)?;
+        let mut command = Command::new(qemu_path);
         commands::configure_command(&mut command, &args, &machine.directory);
         let cgroup = CgroupV2::new(&self.cgroup_root)?;
         process::set_child_limits(

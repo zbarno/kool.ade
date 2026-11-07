@@ -109,6 +109,50 @@ fn rootless_operations_reject_kernels_below_the_supported_floor() {
 }
 
 #[test]
+fn qemu_request_binds_only_the_canonical_supported_apt_recipe() {
+    let proposal = Proposal {
+        schema_version: 1,
+        operation: Operation::InstallLinuxQemu,
+        host: Host::Linux,
+        prerequisite_id: "setup:computer:qemu".into(),
+        image_profile: None,
+    };
+    for os_version in [
+        "debian-13-amd64-kernel-6.12.1",
+        "ubuntu-24.04-amd64-kernel-6.8.0",
+        "pop-24.04-amd64-kernel-6.17.9",
+    ] {
+        let identity =
+            HostIdentity::from_facts(Host::Linux, os_version, "test-machine", "test-user").unwrap();
+        let request = RemediationRequest::from_proposal_for_test(&proposal, &identity).unwrap();
+        assert!(matches!(
+            request.parameters,
+            OperationParameters::InstallLinuxQemu { .. }
+        ));
+    }
+
+    let fedora = HostIdentity::from_facts(
+        Host::Linux,
+        "fedora-45-amd64-kernel-6.17.9",
+        "test-machine",
+        "test-user",
+    )
+    .unwrap();
+    assert!(RemediationRequest::from_proposal_for_test(&proposal, &fedora).is_err());
+
+    let mut wrong_task = proposal;
+    wrong_task.prerequisite_id = "setup:linux:rootless:packages".into();
+    let ubuntu = HostIdentity::from_facts(
+        Host::Linux,
+        "ubuntu-24.04-amd64-kernel-6.8.0",
+        "test-machine",
+        "test-user",
+    )
+    .unwrap();
+    assert!(RemediationRequest::from_proposal_for_test(&wrong_task, &ubuntu).is_err());
+}
+
+#[test]
 fn rootless_requests_bind_each_exact_distro_recipe_and_reject_lookalikes() {
     let proposal = Proposal {
         schema_version: 1,

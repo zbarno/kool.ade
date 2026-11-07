@@ -41,7 +41,12 @@ pub(in crate::app::bootstrap_remediation::supervisor::production::readiness) fn 
             S::Ready,
             C::LinuxRootlessRecipeCandidate,
             Some(V::LinuxRootlessRecipe {
-                candidate: Some(setup::LinuxRootlessRecipeV1::Ubuntu2404Amd64),
+                candidate:
+                    Some(
+                        setup::LinuxRootlessRecipeV1::Debian13Amd64
+                        | setup::LinuxRootlessRecipeV1::Ubuntu2404Amd64
+                        | setup::LinuxRootlessRecipeV1::PopOs2404Amd64,
+                    ),
                 distribution_state: S::Ready,
             }),
         ) => true,
@@ -51,6 +56,17 @@ pub(in crate::app::bootstrap_remediation::supervisor::production::readiness) fn 
             C::LinuxHostCheckReady,
             Some(V::LinuxKernel { version }),
         ) => version.major > 4 || (version.major == 4 && version.minor >= 15),
+        (
+            "host:linux:qemu",
+            S::Ready,
+            C::LinuxQemuDetected,
+            Some(V::LinuxQemu {
+                version: Some(version),
+                kvm_acceleration: Some(true),
+                qemu_image_tool_available: Some(true),
+                qemu_launcher_contained: Some(true),
+            }),
+        ) => !version.is_empty() && version.len() <= 160 && !version.chars().any(char::is_control),
         (
             "host:linux:user_namespaces",
             S::Ready,

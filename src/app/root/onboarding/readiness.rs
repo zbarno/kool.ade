@@ -129,6 +129,13 @@ impl KooladeApp {
             ));
         }
         ui.label("You can explore project setup while coding is unavailable. Each project and action is checked again.");
+        super::ability_matrix::paint(
+            ui,
+            &self.machine_setup_tasks,
+            &self.machine_setup_checked_domains,
+            self.machine_docker_local_execution_ready,
+            self.machine_setup_scan_current && !checking,
+        );
         let task = self
             .onboarding
             .active_setup_task_id

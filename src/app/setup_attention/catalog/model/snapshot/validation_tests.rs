@@ -1,11 +1,12 @@
 use super::{
-    ImageArchitectureV1, ImageProfileV1, PrerequisiteSubject, ProbeEvidenceV1,
-    claims::windows_observation_is_consistent, requires_macos_release,
-    rootless_smoke_subject_matches, valid_macos_version,
+    claims::windows_observation_is_consistent,
+    validation::{requires_macos_release, rootless_smoke_subject_matches, valid_macos_version},
 };
 use crate::app::setup_attention::catalog::{
-    EvidenceCode, EvidenceOrigin, EvidenceState, PrerequisiteCapability, PrerequisiteDomain,
-    PrerequisiteId, ProbeObservationV1, WindowsEditionV1, WindowsKernelVersionV1, WindowsProductV1,
+    EvidenceCode, EvidenceOrigin, EvidenceState, HostKind, ImageArchitectureV1, ImageProfileV1,
+    PrerequisiteCapability, PrerequisiteDomain, PrerequisiteId, PrerequisiteSubject,
+    ProbeEvidenceV1, ProbeObservationV1, WindowsEditionV1, WindowsKernelVersionV1,
+    WindowsProductV1,
 };
 
 #[test]
@@ -54,7 +55,7 @@ fn windows_probe_observations_must_match_state_and_code() {
     let mut item = ProbeEvidenceV1 {
         prerequisite: PrerequisiteId {
             domain: PrerequisiteDomain::Host,
-            platform: super::HostKind::Windows,
+            platform: HostKind::Windows,
             capability: PrerequisiteCapability::WindowsWslKernel,
             subject: PrerequisiteSubject::None,
         },
@@ -83,7 +84,7 @@ fn windows_host_observation_rejects_unsupported_claims_marked_ready() {
     let item = ProbeEvidenceV1 {
         prerequisite: PrerequisiteId {
             domain: PrerequisiteDomain::Host,
-            platform: super::HostKind::Windows,
+            platform: HostKind::Windows,
             capability: PrerequisiteCapability::HostEdition,
             subject: PrerequisiteSubject::None,
         },
@@ -108,7 +109,7 @@ fn ready_windows_host_edition_does_not_require_macos_release_evidence() {
     let item = ProbeEvidenceV1 {
         prerequisite: PrerequisiteId {
             domain: PrerequisiteDomain::Host,
-            platform: super::HostKind::Windows,
+            platform: HostKind::Windows,
             capability: PrerequisiteCapability::HostEdition,
             subject: PrerequisiteSubject::None,
         },
@@ -133,7 +134,7 @@ fn windows_arm64_observation_cannot_claim_the_x64_support_baseline() {
     let item = ProbeEvidenceV1 {
         prerequisite: PrerequisiteId {
             domain: PrerequisiteDomain::Host,
-            platform: super::HostKind::Windows,
+            platform: HostKind::Windows,
             capability: PrerequisiteCapability::HostEdition,
             subject: PrerequisiteSubject::None,
         },

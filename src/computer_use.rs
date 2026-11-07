@@ -6,7 +6,15 @@
 mod backend;
 mod contract;
 pub mod guest_image;
+#[cfg(target_os = "linux")]
+mod host_executable;
+#[cfg(target_os = "linux")]
+pub(crate) mod process_security;
 
+#[cfg(target_os = "linux")]
+pub(crate) use host_executable::validate_trusted_system_executable;
+
+pub(crate) use backend::verify_qemu_launcher_containment_v1;
 pub use backend::{
     ComputerBackend, ComputerBackendErrorV1, ComputerBackendEventKindV1, ComputerBackendEventV1,
     ComputerBackendProbeV1, ComputerGuestChannelV1, ComputerGuestReadinessV1,

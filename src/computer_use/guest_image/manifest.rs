@@ -5,15 +5,19 @@ mod encoding;
 #[cfg(test)]
 mod tests;
 
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use ed25519_dalek::VerifyingKey;
 use serde::{Deserialize, Serialize};
 
 use self::encoding::{
-    canonical_manifest_bytes, decode_hex, is_git_revision, is_release_tag, is_sha256, is_uuid,
-    sha256,
+    canonical_manifest_bytes, is_git_revision, is_release_tag, is_sha256, is_uuid, sha256,
 };
 use super::ImageCacheErrorV1;
-use crate::computer_use::{ComputerSessionClassV1, ComputerSessionV1};
+
+mod verification;
+pub use verification::{
+    VerifiedCatalogGuestImageV1, VerifiedGuestImageCatalogV1, VerifiedGuestImageV1,
+    verify_guest_image_catalog, verify_guest_image_manifest,
+};
 
 pub const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 pub const MAX_IMAGE_ARTIFACT_BYTES: u64 = 16 * 1024 * 1024 * 1024;
@@ -129,103 +133,9 @@ impl GuestImageManifestTrustV1 {
         })
     }
 
-    fn key(&self, id: &str) -> Option<&VerifyingKey> {
+    pub(super) fn key(&self, id: &str) -> Option<&VerifyingKey> {
         self.keys.get(id)
     }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct VerifiedGuestImageV1 {
-    pub(crate) entry: GuestImageEntryV1,
-    pub(crate) manifest_digest: String,
-    pub(crate) manifest_signer_key_id: String,
-    pub(crate) catalog_version: String,
-    pub(crate) catalog_generation: u64,
-}
-
-impl VerifiedGuestImageV1 {
-    pub fn entry(&self) -> &GuestImageEntryV1 {
-        &self.entry
-    }
-
-    pub fn manifest_digest(&self) -> &str {
-        &self.manifest_digest
-    }
-
-    pub fn manifest_signer_key_id(&self) -> &str {
-        &self.manifest_signer_key_id
-    }
-
-    pub fn catalog_generation(&self) -> u64 {
-        self.catalog_generation
-    }
-}
-
-pub fn verify_guest_image_manifest(
-    bytes: &[u8],
-    trust: &GuestImageManifestTrustV1,
-    session: &ComputerSessionV1,
-    now_unix_ms: u64,
-    // Architecture detected by the trusted host probe before this call.
-    expected_architecture: ComputerGuestArchitectureV1,
-    controller_key_id: &str,
-    controller_key: &VerifyingKey,
-) -> Result<VerifiedGuestImageV1, ImageCacheErrorV1> {
-    if bytes.len() > MAX_MANIFEST_BYTES {
-        return Err(ImageCacheErrorV1::ManifestTooLarge);
-    }
-    let manifest: GuestImageManifestV1 = serde_json::from_slice(bytes)
-        .map_err(|_| ImageCacheErrorV1::InvalidManifest("invalid JSON"))?;
-    manifest.validate()?;
-    if manifest.issued_at_unix_ms > now_unix_ms {
-        return Err(ImageCacheErrorV1::InvalidManifest(
-            "catalog issued in future",
-        ));
-    }
-    if now_unix_ms >= manifest.expires_at_unix_ms {
-        return Err(ImageCacheErrorV1::CatalogExpired);
-    }
-    if manifest.catalog_generation < trust.minimum_catalog_generation {
-        return Err(ImageCacheErrorV1::StaleCatalog);
-    }
-    session
-        .validate_for_host(now_unix_ms, controller_key_id, controller_key)
-        .map_err(|_| ImageCacheErrorV1::SessionAttestationInvalid)?;
-    let key = trust
-        .key(&manifest.signer_key_id)
-        .ok_or(ImageCacheErrorV1::UntrustedManifestSigner)?;
-    let signature_bytes = decode_hex(&manifest.signature_hex)?;
-    let signature = Signature::from_slice(&signature_bytes)
-        .map_err(|_| ImageCacheErrorV1::InvalidManifest("invalid signature"))?;
-    key.verify(&manifest.signing_payload_bytes()?, &signature)
-        .map_err(|_| ImageCacheErrorV1::UntrustedManifestSigner)?;
-    let manifest_digest = sha256(&canonical_manifest_bytes(&manifest)?);
-    if session.image_manifest_digest != manifest_digest
-        || session.image_signer_key_id != manifest.signer_key_id
-    {
-        return Err(ImageCacheErrorV1::SessionManifestMismatch);
-    }
-    let entry = manifest
-        .images
-        .iter()
-        .find(|entry| entry.image_digest == session.image_digest)
-        .ok_or(ImageCacheErrorV1::ImageNotCatalogued)?;
-    if entry.architecture != expected_architecture {
-        return Err(ImageCacheErrorV1::ImageNotCatalogued);
-    }
-    if entry.status != GuestImageStatusV1::Approved {
-        return Err(ImageCacheErrorV1::ImageRevoked);
-    }
-    if session.session_class != ComputerSessionClassV1::Disposable {
-        return Err(ImageCacheErrorV1::UnsupportedSessionClass);
-    }
-    Ok(VerifiedGuestImageV1 {
-        entry: entry.clone(),
-        manifest_digest,
-        manifest_signer_key_id: manifest.signer_key_id,
-        catalog_version: manifest.catalog_version,
-        catalog_generation: manifest.catalog_generation,
-    })
 }
 
 impl GuestImageManifestV1 {

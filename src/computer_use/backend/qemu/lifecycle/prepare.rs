@@ -9,6 +9,8 @@ impl LocalKvmComputerBackend {
         if unsafe { libc::geteuid() } == 0 {
             return Err(Error::UnsupportedHost);
         }
+        crate::computer_use::process_security::verify_child_restrictions()
+            .map_err(|_| Error::UnsupportedHost)?;
         let kvm_accessible = OpenOptions::new()
             .read(true)
             .write(true)

@@ -1,4 +1,5 @@
 use super::*;
+mod ability_matrix;
 mod help;
 mod presentation;
 mod progress;

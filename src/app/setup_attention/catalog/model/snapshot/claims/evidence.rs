@@ -12,6 +12,31 @@ pub(super) fn ready_claim(
     matches!(
         (domain, capability, origin, code),
         (
+            Domain::Host,
+            Capability::LinuxKvmDevice,
+            Origin::HostRuntime,
+            Code::LinuxKvmDeviceAccessible,
+        ) | (
+            Domain::Host,
+            Capability::LinuxVmResources,
+            Origin::HostRuntime,
+            Code::LinuxVmResourcesAvailable,
+        ) | (
+            Domain::Host,
+            Capability::LinuxQemu,
+            Origin::HostRuntime,
+            Code::LinuxQemuDetected,
+        ) | (
+            Domain::Host,
+            Capability::LinuxVirtualization,
+            Origin::HostRuntime,
+            Code::LinuxVirtualizationAvailable,
+        ) | (
+            Domain::Host,
+            Capability::ComputerGuestImage,
+            Origin::ApplicationInventory,
+            Code::ComputerGuestImageCatalogVerified,
+        ) | (
             Domain::Provider,
             Capability::ProviderExecutable,
             Origin::ProviderCli,

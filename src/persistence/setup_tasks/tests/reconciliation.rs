@@ -5,6 +5,10 @@ use super::support::{rootless_smoke_fact, scan, snapshot};
 
 #[path = "reconciliation/attempt_verification.rs"]
 mod attempt_verification;
+#[path = "reconciliation/computer_readiness.rs"]
+mod computer_readiness;
+#[path = "reconciliation/docker_regression.rs"]
+mod docker_regression;
 #[path = "reconciliation/git.rs"]
 mod git;
 #[path = "reconciliation/image_superseding.rs"]
@@ -110,33 +114,6 @@ fn only_current_exact_positive_evidence_verifies_and_regression_reopens() {
         store.tasks["setup:docker:rootless"]
             .verified_result
             .is_none()
-    );
-}
-
-#[test]
-fn changed_docker_failure_does_not_verify_an_unrelated_task() {
-    let mut store = SetupTaskStoreV1::default();
-    scan(
-        &mut store,
-        &snapshot(
-            &[("setup:docker:rootless", FindingStatus::NeedsAttention, &[])],
-            &[],
-            1,
-        ),
-    )
-    .unwrap();
-    scan(
-        &mut store,
-        &snapshot(
-            &[("setup:docker:start", FindingStatus::NeedsAttention, &[])],
-            &[],
-            2,
-        ),
-    )
-    .unwrap();
-    assert_eq!(
-        store.tasks["setup:docker:rootless"].state,
-        SetupTaskStateV1::ReadyToFix
     );
 }
 

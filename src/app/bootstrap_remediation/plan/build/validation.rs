@@ -117,6 +117,9 @@ pub(super) fn parameters_from_plan(plan: &RemediationPlan) -> anyhow::Result<Ope
                 recipe: rootless_recipe()?,
             })
         }
+        Operation::InstallLinuxQemu => Ok(OperationParameters::InstallLinuxQemu {
+            recipe: rootless_recipe()?,
+        }),
         Operation::ConfigureLinuxSubordinateIds => {
             Ok(OperationParameters::ConfigureLinuxSubordinateIds {
                 recipe: rootless_recipe()?,

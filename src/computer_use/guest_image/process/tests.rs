@@ -1,7 +1,25 @@
-use super::{QemuProcessError, runner::run_bounded};
+use super::{QemuProcessError, qemu_img_version_is_valid, runner::run_bounded};
 use std::{
     ffi::OsStr, fs, os::unix::fs::PermissionsExt, path::Path, process::Command, time::Duration,
 };
+
+#[test]
+fn qemu_img_version_probe_requires_strict_bounded_utf8_version_output() {
+    // Production boundary: readiness must not treat lossy/malformed version
+    // output as a valid QEMU image utility. Direct parser test; no VM or tools.
+    assert!(qemu_img_version_is_valid(
+        b"qemu-img version 9.2.0 (Debian 1:9.2+ds-1)\n"
+    ));
+    assert!(qemu_img_version_is_valid(b"qemu-img version 2.0.0\n"));
+    for output in [
+        b"qemu-img version nightly\n".as_slice(),
+        b"qemu-img version 9.2.0 \xff\n".as_slice(),
+        b"other tool version 9.2.0\n".as_slice(),
+        b"qemu-img version 9.2.0\x1b\n".as_slice(),
+    ] {
+        assert!(!qemu_img_version_is_valid(output));
+    }
+}
 
 #[test]
 fn timeout_kills_the_child_process_group_and_bounds_captured_output() {
@@ -65,6 +83,47 @@ fn leader_exit_kills_helpers_that_closed_both_pipes() {
     assert!(output.status.success());
     std::thread::sleep(Duration::from_millis(500));
     assert!(!marker.exists());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn qemu_image_helper_cannot_escape_its_process_group_with_setsid() {
+    // Production boundary: QEMU image utility descendants cannot escape timeout
+    // cleanup via setsid. Requires /bin/sh, util-linux setsid, and sleep; no VM,
+    // Docker, network, or SSH; temporary marker and low setup cost.
+    let temp = tempfile::tempdir().unwrap();
+    let fake = temp.path().join("fake-qemu-img");
+    write_executable(
+        &fake,
+        "#!/bin/sh\n/usr/bin/setsid /bin/sh -c 'sleep 0.3; touch \"$1\"' child \"$2\" >/dev/null 2>&1 &\nexit 0\n",
+    );
+    let marker = temp.path().join("escaped-helper");
+    let output = run_bounded(
+        &fake,
+        &[OsStr::new("--version"), marker.as_os_str()],
+        Duration::from_secs(2),
+    )
+    .unwrap();
+    assert!(output.status.success());
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(
+        !marker.exists(),
+        "setsid helper escaped QEMU tool confinement"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn qemu_image_process_runs_with_no_new_privileges() {
+    // Production boundary: QEMU image tools cannot gain privilege through
+    // setuid bits or file capabilities at exec. A shell reads kernel status;
+    // no VM, Docker, network, or SSH; temporary setup is negligible.
+    let temp = tempfile::tempdir().unwrap();
+    let fake = temp.path().join("fake-qemu-img");
+    write_executable(&fake, "#!/bin/sh\ngrep '^NoNewPrivs:' /proc/self/status\n");
+    let output = run_bounded(&fake, &[OsStr::new("--version")], Duration::from_secs(2)).unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"NoNewPrivs:\t1\n");
 }
 
 #[test]
