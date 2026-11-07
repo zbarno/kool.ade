@@ -86,7 +86,7 @@ impl DockerExecutionBackend {
 
     /// Derive a verified project runtime only from locked source images.
     /// An existing daemon cache is always re-inspected and smoke-verified.
-    pub(super) async fn compose_project_runtime(
+    pub(crate) async fn compose_project_runtime(
         &self,
         plan: &crate::execution::docker::images::CompositionCandidate,
     ) -> Result<SelectedImage, ExecutionError> {
