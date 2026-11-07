@@ -14,7 +14,7 @@ permissions:
 jobs:
   candidate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -24,8 +24,92 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes debootstrap debian-archive-keyring qemu-utils \
             grub-pc-bin grub2-common parted e2fsprogs
-      - name: Build unsigned candidate
-        run: containers/computer-use/build-image.sh "$RUNNER_TEMP/computer-use-image"
+      - name: Build twice and verify reproducibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          first="$RUNNER_TEMP/computer-use-image-first"
+          second="$RUNNER_TEMP/computer-use-image-second"
+          containers/computer-use/build-image.sh "$first"
+          containers/computer-use/build-image.sh "$second"
+          image="koolade-computer-use-guest-x86_64.qcow2"
+          verify_image_digest() {
+            local directory="$1"
+            local actual declared
+            actual="$(sha256sum "$directory/$image" | cut -d ' ' -f 1)"
+            declared="$(cut -d ' ' -f 1 "$directory/koolade-computer-use-guest-x86_64.sha256")"
+            if [[ ! "$declared" =~ ^[[:xdigit:]]{64}$ || "$actual" != "$declared" ]]; then
+              echo "candidate qcow2 digest sidecar does not match image in $directory: actual=$actual declared=$declared" >&2
+              exit 1
+            fi
+            printf '%s\n' "$actual"
+          }
+          first_digest="$(verify_image_digest "$first")"
+          second_digest="$(verify_image_digest "$second")"
+          if [[ "$first_digest" != "$second_digest" ]]; then
+            echo "candidate qcow2 digests differ: first=$first_digest second=$second_digest" >&2
+            if ! qemu-img compare -f qcow2 \
+              "$first/$image" "$second/$image"; then
+              echo "candidate virtual disk contents differ" >&2
+              first_raw="$RUNNER_TEMP/computer-use-image-first.raw"
+              second_raw="$RUNNER_TEMP/computer-use-image-second.raw"
+              qemu-img convert -f qcow2 -O raw -S 4k "$first/$image" "$first_raw"
+              qemu-img convert -f qcow2 -O raw -S 4k "$second/$image" "$second_raw"
+              disk_offset="$(python3 - "$first_raw" "$second_raw" <<'PY'
+          import sys
+
+          first_path, second_path = sys.argv[1:]
+          chunk_size = 1024 * 1024
+          offset = 0
+          with open(first_path, "rb") as first, open(second_path, "rb") as second:
+              while first_chunk := first.read(chunk_size):
+                  second_chunk = second.read(chunk_size)
+                  if first_chunk != second_chunk:
+                      for index, (left, right) in enumerate(zip(first_chunk, second_chunk)):
+                          if left != right:
+                              offset += index
+                              print(offset)
+                              raise SystemExit(0)
+                  offset += len(first_chunk)
+          raise SystemExit("virtual images differ but no byte difference was found")
+          PY
+          )"
+              partition_offset=1048576
+              if (( disk_offset >= partition_offset )); then
+                filesystem_block=$(((disk_offset - partition_offset) / 4096))
+                echo "first differing virtual byte: $disk_offset; ext4 block: $filesystem_block" >&2
+                diagnostic_loop="$(sudo losetup --find --show --offset "$partition_offset" "$first_raw")"
+                block_inodes="$(sudo debugfs -R "icheck $filesystem_block" "$diagnostic_loop" 2>&1 || true)"
+                printf '%s\n' "$block_inodes" >&2
+                inode_numbers="$(printf '%s\n' "$block_inodes" \
+                  | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { print $2 }' \
+                  | sort -u)"
+                while IFS= read -r inode_number; do
+                  [[ -n "$inode_number" ]] || continue
+                  sudo debugfs -R "ncheck <$inode_number>" "$diagnostic_loop" || true
+                done <<< "$inode_numbers"
+                sudo losetup -d "$diagnostic_loop"
+              else
+                echo "first differing virtual byte: $disk_offset (before root partition)" >&2
+              fi
+            else
+              echo "candidate qcow2 containers differ but virtual disk contents match" >&2
+            fi
+            exit 1
+          fi
+          for suffix in \
+            packages.tsv sbom.cdx.json qemu-info.json recipe-components.sha256 \
+            recipe.sha256 builder-versions.txt source-revision promotion-status.txt; do
+            first_file="$first/koolade-computer-use-guest-x86_64.$suffix"
+            second_file="$second/koolade-computer-use-guest-x86_64.$suffix"
+            if ! cmp -s "$first_file" "$second_file"; then
+              echo "candidate sidecar differs: $suffix" >&2
+              diff -u "$first_file" "$second_file" || true
+              exit 1
+            fi
+          done
+          mkdir -p "$RUNNER_TEMP/computer-use-image"
+          cp -a "$first/." "$RUNNER_TEMP/computer-use-image/"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: computer-use-guest-candidate-${{ github.sha }}
