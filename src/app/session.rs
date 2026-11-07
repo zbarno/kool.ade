@@ -11,6 +11,7 @@ use crate::persistence::chat_store;
 
 mod cancellation;
 mod implementations;
+mod manager_activity;
 mod specification_chat_history;
 pub(crate) mod task_intent_history;
 mod task_status;

@@ -151,8 +151,19 @@ async fn prepare_approved_image_unlocked(
         at_unix_ms: requested_at,
     })
     .map_err(|error| {
+        let task_state = crate::persistence::setup_tasks::load()
+            .ok()
+            .and_then(|store| store.tasks.get(&task_id).cloned())
+            .map(|task| {
+                format!(
+                    "state {:?}, {} unresolved prerequisites",
+                    task.state,
+                    task.blocked_by.len()
+                )
+            })
+            .unwrap_or_else(|| "task state unavailable".to_owned());
         image_error(format!(
-            "the image preparation attempt could not be recorded: {error:#}"
+            "the image preparation attempt could not be recorded ({task_state}): {error:#}"
         ))
     })?;
 

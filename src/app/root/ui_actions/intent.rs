@@ -35,12 +35,11 @@ impl KooladeApp {
         }
         if intent.cancel {
             self.pending_feature_generation = None;
-            if let Screen::Connected(project) = &mut self.screen {
-                project.activity.manager = None;
-                if let Some(controller) = &project.active_turn {
-                    controller.request_cancel();
-                    self.toasts.warning("Cancellation requested…");
-                }
+            if let Screen::Connected(project) = &mut self.screen
+                && let Some(controller) = &project.active_turn
+            {
+                controller.request_cancel();
+                self.toasts.warning("Cancellation requested…");
             }
             return;
         }
@@ -82,5 +81,40 @@ impl KooladeApp {
             HeaderAction::OpenWorkspace => self.open_workspace(),
             HeaderAction::Disconnect => self.disconnect(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn specification_cancel_cannot_cancel_a_manager_patrol() {
+        let mut app = crate::app::root::board_tests::fixture();
+        if let Screen::Connected(project) = &mut app.screen {
+            project.activity.manager = Some(crate::app::manager::Manager::completed_for_test(Err(
+                "test result is intentionally not polled".into(),
+            )));
+            project.activity.manager_progress.activity = Some("Manager is checking".into());
+        } else {
+            unreachable!();
+        }
+        let intent = Intent {
+            cancel: true,
+            ..Default::default()
+        };
+        app.apply_user_intent(intent);
+        let Screen::Connected(project) = &app.screen else {
+            unreachable!();
+        };
+        assert!(project.activity.manager.is_some());
+        assert_eq!(
+            project.activity.manager_progress.activity.as_deref(),
+            Some("Manager is checking")
+        );
+        assert!(!app.specification_chat_busy());
+        assert!(app.specification_chat_progress().is_none());
+        assert!(app.manager_running());
+        assert!(app.manager_progress().is_some());
     }
 }

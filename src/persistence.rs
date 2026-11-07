@@ -21,6 +21,7 @@ pub mod execution_records;
 pub mod experimental_features;
 pub(crate) mod feature_approvals;
 pub mod harness_settings;
+pub mod manager_activity;
 // These schemas are used by Linux rootless Docker paths and remain declared
 // for shared call sites that return early on other operating systems.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]

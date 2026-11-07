@@ -1,11 +1,13 @@
 use super::*;
 
 mod details;
+mod manager_activity;
 mod plan_review;
 mod runtime_qa;
 mod setup_repair;
 
 impl Surface for KooladeApp {
+    manager_activity::manager_activity_surface_methods!();
     runtime_qa::runtime_qa_surface_methods!();
     plan_review::plan_review_surface_methods!();
 
@@ -439,10 +441,7 @@ impl Surface for KooladeApp {
     }
     fn live_progress(&self) -> Option<&crate::harness::LiveProgress> {
         match &self.screen {
-            Screen::Connected(p)
-                if p.task_chats.active.is_none()
-                    && (p.active_turn.is_some() || p.activity.manager.is_some()) =>
-            {
+            Screen::Connected(p) if p.task_chats.active.is_none() && p.active_turn.is_some() => {
                 Some(&p.live_progress)
             }
             _ => None,
