@@ -206,7 +206,13 @@ fn approved_polyglot_composite_is_cached_and_isolated_across_tasks() {
         let result = session
             .run_tool_command(
                 &format!(
-                    "set -eu\\nrustc --version\\nnode --version\\ntest ! -S /var/run/docker.sock\\ntest \\"$(wc -l < /proc/net/route)\\" -eq 1\\nprintf '{}\\n'\\n",
+                    r#"set -eu
+rustc --version
+node --version
+test ! -S /var/run/docker.sock
+test "$(wc -l < /proc/net/route)" -eq 1
+printf '{}\\n'
+"#,
                     label
                 ),
                 Duration::from_secs(50),
