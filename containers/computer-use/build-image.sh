@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'status=$?; printf "build-image.sh failed at line %s: %s (status %s)\\n" "$LINENO" "$BASH_COMMAND" "$status" >&2' ERR
 
 # App-owned candidate builder. Inputs are this recipe and Debian snapshot packages;
 # task repositories and their build scripts are never inputs.
