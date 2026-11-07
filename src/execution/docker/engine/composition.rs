@@ -6,7 +6,8 @@
 
 use super::{EngineDiscovery, PrerequisiteCode, PrerequisiteFailure, failure, operation_timeout};
 use crate::execution::docker::images::{
-    CompositionCandidate, ImageLock, SelectedImage, verified_composition_context,
+    CompositionCandidate, CompositionReceipt, ImageLock, SelectedImage,
+    acquire_composition_lock, verified_composition_context,
 };
 use tokio::sync::Mutex;
 
@@ -20,6 +21,13 @@ impl EngineDiscovery {
         plan: &CompositionCandidate,
     ) -> Result<SelectedImage, PrerequisiteFailure> {
         let _guard = COMPOSITE_BUILD.lock().await;
+        let _process_lock = acquire_composition_lock().map_err(|_| {
+            failure(
+                PrerequisiteCode::ImageUnavailable,
+                "Could not acquire the private cross-process composite builder lock",
+                false,
+            )
+        })?;
         // Recheck the canonical plan and platform before any Docker operation.
         let (context, mut selected) = verified_composition_context(plan).map_err(|_| {
             failure(
@@ -79,6 +87,30 @@ impl EngineDiscovery {
         )
         .await
         .map_err(|_| operation_timeout("offline composite toolchain smoke verification"))??;
+        let final_snapshot = self.inspect_snapshot().await?;
+        if final_snapshot.daemon_id != snapshot.daemon_id {
+            return Err(failure(
+                PrerequisiteCode::UntrustedEndpoint,
+                "Docker daemon identity changed during composite verification",
+                false,
+            ));
+        }
+        let receipt = CompositionReceipt::verified(
+            plan,
+            &selected,
+            &self.endpoint().fingerprint(),
+            &final_snapshot.daemon_id,
+        )
+        .map_err(|_| failure(
+            PrerequisiteCode::ImageUnavailable,
+            "Verified composite receipt could not be constructed",
+            false,
+        ))?;
+        receipt.record().map_err(|_| failure(
+            PrerequisiteCode::ImageUnavailable,
+            "Verified composite provenance could not be saved privately",
+            false,
+        ))?;
         Ok(selected)
     }
 }
