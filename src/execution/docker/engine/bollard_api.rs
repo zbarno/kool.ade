@@ -14,6 +14,7 @@ pub(super) struct BollardApi {
 }
 
 mod capacity;
+mod composite_cache;
 mod composite_verification;
 mod image_derivation;
 mod image_inspection;
