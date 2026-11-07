@@ -40,6 +40,39 @@ jobs:
             if ! qemu-img compare -f qcow2 \
               "$first/$image" "$second/$image"; then
               echo "candidate virtual disk contents differ" >&2
+              first_raw="$RUNNER_TEMP/computer-use-image-first.raw"
+              second_raw="$RUNNER_TEMP/computer-use-image-second.raw"
+              qemu-img convert -f qcow2 -O raw -S 4k "$first/$image" "$first_raw"
+              qemu-img convert -f qcow2 -O raw -S 4k "$second/$image" "$second_raw"
+              disk_offset="$(python3 - "$first_raw" "$second_raw" <<'PY'
+          import sys
+
+          first_path, second_path = sys.argv[1:]
+          chunk_size = 1024 * 1024
+          offset = 0
+          with open(first_path, "rb") as first, open(second_path, "rb") as second:
+              while first_chunk := first.read(chunk_size):
+                  second_chunk = second.read(chunk_size)
+                  if first_chunk != second_chunk:
+                      for index, (left, right) in enumerate(zip(first_chunk, second_chunk)):
+                          if left != right:
+                              offset += index
+                              print(offset)
+                              raise SystemExit(0)
+                  offset += len(first_chunk)
+          raise SystemExit("virtual images differ but no byte difference was found")
+          PY
+          )"
+              partition_offset=1048576
+              if (( disk_offset >= partition_offset )); then
+                filesystem_block=$(((disk_offset - partition_offset) / 4096))
+                echo "first differing virtual byte: $disk_offset; ext4 block: $filesystem_block" >&2
+                diagnostic_loop="$(sudo losetup --find --show --offset "$partition_offset" "$first_raw")"
+                sudo debugfs -R "icheck <$filesystem_block>" "$diagnostic_loop" || true
+                sudo losetup -d "$diagnostic_loop"
+              else
+                echo "first differing virtual byte: $disk_offset (before root partition)" >&2
+              fi
             else
               echo "candidate qcow2 containers differ but virtual disk contents match" >&2
             fi
