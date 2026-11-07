@@ -185,7 +185,19 @@ fn connect_local_with_image_selection(
                 // builder must independently verify their local identity,
                 // execute the fixed offline build and smoke-test its tools.
                 // No host fallback or synthetic image digest is allowed.
-                runtime.block_on(backend.compose_project_runtime(&candidate))?
+                runtime
+                    .block_on(backend.compose_project_runtime(&candidate))
+                    .map_err(|error| {
+                        // The recipe queue can recover missing system tools
+                        // through a separately authorized broker. A failed
+                        // composite build or verification must NOT take that
+                        // fallback, which could mask a trusted-image failure.
+                        ExecutionError::new(
+                            ExecutionErrorKind::PolicyDenied,
+                            format!("Trusted composite preparation was blocked: {}", error.message),
+                            error.retryable,
+                        )
+                    })?
             }
             Ok(ProjectRuntimeImagePlan::Existing(_)) => {
                 return Err(ExecutionError::new(
