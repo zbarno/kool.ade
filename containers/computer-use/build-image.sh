@@ -190,6 +190,7 @@ if sudo grep -R -aF -e "$work_dir" -e "$loopdev" "$work_dir/rootfs/boot/grub"; t
   echo "refusing to package builder paths in the guest GRUB files" >&2
   exit 1
 fi
+sudo find "$work_dir/rootfs/var/log" -xdev -type f -delete
 sudo find "$work_dir/rootfs" -xdev -exec touch -h -d "@$source_date_epoch" {} +
 sudo umount "$work_dir/mnt"
 
