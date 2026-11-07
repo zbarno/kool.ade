@@ -200,6 +200,20 @@ impl Manager {
         }
     }
 }
+
+/// Query a deterministic, bounded page of the complete local task index.
+/// Other Manager context builders can retrieve selected board rows without
+/// copying the whole board into a provider prompt. focus_ids may contain task
+/// identifiers or trigger-event text with exact identifier tokens.
+pub(crate) fn task_index_page(
+    project: &super::session::Project,
+    expected_revision: Option<&str>,
+    offset: usize,
+    limit: usize,
+    focus_ids: &[String],
+) -> Result<prompt::index::TaskIndexPage, prompt::index::TaskIndexError> {
+    prompt::index::query(project, expected_revision, offset, limit, focus_ids)
+}
 impl Drop for Manager {
     fn drop(&mut self) {
         self.cancel.store(true, Ordering::Relaxed);
