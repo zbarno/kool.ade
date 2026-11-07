@@ -185,8 +185,9 @@ fn approved_polyglot_composite_is_cached_and_isolated_across_tasks() {
         .map(str::to_owned)
         .collect::<Vec<_>>();
     let lock = ImageLock::bundled().unwrap();
-    let crate::execution::docker::images::ProjectRuntimeImagePlan::Composition(plan) =
-        lock.plan_project_runtime(native_docker_arch(), &tools).unwrap()
+    let crate::execution::docker::images::ProjectRuntimeImagePlan::Composition(plan) = lock
+        .plan_project_runtime(native_docker_arch(), &tools)
+        .unwrap()
     else {
         panic!("Rust+Node must require a composite image");
     };
@@ -225,12 +226,18 @@ printf '{}\\n'
             .output()
             .expect("Docker should inspect the cached composite tag");
         assert!(image_id.status.success());
-        String::from_utf8(image_id.stdout).unwrap().trim().to_owned()
+        String::from_utf8(image_id.stdout)
+            .unwrap()
+            .trim()
+            .to_owned()
     };
     let first_id = run_task("first-polyglot-task");
     let second_id = run_task("second-polyglot-task");
     assert!(first_id.starts_with("sha256:"));
-    assert_eq!(first_id, second_id, "cache identity must be stable across tasks");
+    assert_eq!(
+        first_id, second_id,
+        "cache identity must be stable across tasks"
+    );
 }
 
 fn build_synthetic_deb(root: &std::path::Path) -> Vec<u8> {
