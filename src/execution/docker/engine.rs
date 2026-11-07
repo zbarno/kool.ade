@@ -6,6 +6,7 @@ use std::{
 };
 
 mod approval;
+mod composition;
 mod derived_image;
 mod docker_api;
 mod errors;
