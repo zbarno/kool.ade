@@ -6,7 +6,7 @@ trap 'status=$?; printf "build-image.sh failed at line %s: %s (status %s)\\n" "$
 # task repositories and their build scripts are never inputs.
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 output_dir="${1:?usage: build-image.sh OUTPUT_DIR}"
-for tool in debootstrap qemu-img mkfs.ext4 debugfs mount umount mountpoint realpath grub-install chroot sha256sum parted losetup sudo curl grep find sort touch; do
+for tool in debootstrap qemu-img mkfs.ext4 debugfs mount umount mountpoint realpath grub-install chroot sha256sum parted sfdisk losetup sudo curl grep find sort touch; do
   command -v "$tool" >/dev/null || { echo "missing required builder: $tool" >&2; exit 2; }
 done
 work_parent="${RUNNER_TEMP:-/tmp}"
@@ -160,6 +160,7 @@ python3 "$root_dir/containers/computer-use/make-sbom.py" \
 image="$work_dir/${base_name}.raw"
 sudo truncate -s "$image_size" "$image"
 sudo parted -s "$image" mklabel msdos mkpart primary ext4 1MiB 100% set 1 boot on
+sudo sfdisk --disk-id "$image" 0x4b4f4f4c
 loopdev="$(sudo losetup --find --show --partscan "$image")"
 partition="${loopdev}p1"
 for _ in $(seq 1 20); do [[ -b "$partition" ]] && break; sleep 0.25; done

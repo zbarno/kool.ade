@@ -4,11 +4,12 @@
 candidate from the fixed snapshot in the script. CI runs it twice and requires
 identical image bytes, SBOM, package list, QEMU metadata and recipe records
 before keeping a candidate. The final ext4 filesystem is assembled offline
-after GRUB setup; inode and superblock times are normalized, and the stored
-mount path is replaced with a fixed marker. Builder utility versions are
-recorded, but cross-toolchain reproducibility is not claimed. The recipe never
-consumes task source. It requires Linux, sudo, `debootstrap`, QEMU tools, GRUB,
-filesystem utilities, and network access to the pinned Debian snapshot.
+after GRUB setup; inode and superblock times are normalized, the MBR disk ID is
+fixed, and the stored mount path is replaced with a fixed marker. Builder
+utility versions are recorded, but cross-toolchain reproducibility is not
+claimed. The recipe never consumes task source. It requires Linux, sudo,
+`debootstrap`, QEMU tools, GRUB, filesystem utilities, and network access to
+the pinned Debian snapshot.
 
 The two-build workflow check covers the production recipe's repeatability
 boundary: separate image builds from one revision and snapshot must produce
