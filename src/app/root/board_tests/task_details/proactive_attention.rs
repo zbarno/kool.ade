@@ -95,17 +95,13 @@ fn new_blocker_opens_its_conversation_once_and_changed_blocker_surfaces_again() 
     // paint rather than the same frame that polls the conversation store.
     // Exercise bounded normal tick/paint cycles instead of assuming that a
     // single frame is settled under concurrent CI load.
-    let mut reopened = false;
-    for _ in 0..4 {
+    let reopened = (0..4).any(|_| {
         app.tick(0.016, &ctx);
         frame(&mut app, &ctx, vec![]);
-        reopened = ctx.data_mut(|data| {
-            data.get_temp::<String>(egui::Id::new("koolade_selected_task"))
-        }).as_deref() == Some(key);
-        if reopened {
-            break;
-        }
-    }
+        ctx.data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_selected_task")))
+            .as_deref()
+            == Some(key)
+    });
     let Screen::Connected(project) = &app.screen else {
         panic!("fixture disconnected while surfacing changed blocker");
     };
