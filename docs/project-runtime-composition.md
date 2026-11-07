@@ -63,10 +63,32 @@ to host tools or user-provided images. Toolchain source updates change the
 recipe hash, so the old cache entry is no longer selected. Future changes to
 the builder and security policy must also invalidate recipe identity.
 
-The new path serializes composite builds within an app process. Existing
-Docker cache storage is reused, but **automatic size-based eviction and
-cross-process cache locking remain necessary** before calling the cache
-fully managed.
+Composite builds are serialized within an application process and across
+processes that share the same private state root. Waiting for the cross-process
+lock is nonblocking and bounded, so cancelling a preparation does not hold up
+the executor indefinitely. The private cache receipt records the exact recipe,
+OCI image ID, architecture, source digests, tool versions, daemon fingerprint,
+and last successful verification timestamp.
+
+After each verified preparation, the app enforces a conservative cache budget:
+at most **8 unused/retained composite images** or **8 GiB of estimated image
+size**, whichever limit is reached first. Eviction prioritizes the oldest
+verified receipts, retains the image currently being prepared, and only targets
+images with the exact app-owned composition label, matching digest-derived
+single tag, and no attached containers. Deletion uses Docker without
+`force`. If a container still uses an image, cleanup skips it rather than
+breaking the active task, so pressure can temporarily exceed the target
+budget. Accounting uses full image sizes and deliberately overestimates
+storage when layers are shared. Neither locked base images, system package
+extensions, arbitrary user images, nor browser/desktop QA images are eligible
+for this cleanup.
+
+An obsolete image never becomes executable because a stale receipt exists:
+every lookup revalidates exact image labels, architecture, binary versions,
+and the approved image lock. Source or builder/security policy changes
+invalidate the content identity and therefore bypass obsolete cached images.
+Dependency snapshots remain in the existing separate, broker-verified cache;
+they are not copied into the composite image on each source revision.
 
 ### Limitations and rollout
 
