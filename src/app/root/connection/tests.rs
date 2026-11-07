@@ -199,3 +199,6 @@ fn connect_banner_does_not_repeat_a_generic_validation_error() {
         "Unmapped primary repository Git intent fields are not allowed"
     );
 }
+
+#[path = "tests/restored_investigation.rs"]
+mod restored_investigation;

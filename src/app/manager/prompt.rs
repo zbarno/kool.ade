@@ -1,6 +1,8 @@
 use super::super::session::Project;
 mod tasks;
-use tasks::{active_worker_progress, planning_context, summarize_task};
+use tasks::{planning_context, summarize_task};
+
+pub(crate) mod index;
 
 pub(super) fn build(project: &Project, events: &[String]) -> String {
     let user = project.state.effective_user();
@@ -51,49 +53,67 @@ pub(super) fn build(project: &Project, events: &[String]) -> String {
             waiting_on_user.push(summary);
         }
     }
-    let mut tasks = project
+    for doc in project
         .task_documents
         .iter()
         .filter(|doc| !doc.path.ends_with("/README.md"))
-        .map(|doc| {
-            summarize_task(
-                project,
-                doc,
-                &mut waiting_on_user,
-                &mut saved_replies_pending,
-                &mut internal_recovery,
-                &mut blocked_elsewhere,
-            )
-        })
+    {
+        summarize_task(
+            project,
+            doc,
+            &mut waiting_on_user,
+            &mut saved_replies_pending,
+            &mut internal_recovery,
+            &mut blocked_elsewhere,
+        );
+    }
+    let waiting_on_user = waiting_on_user
+        .into_iter()
+        .take(8)
+        .map(|entry| crate::core::context_build::clip(&entry, 100))
         .collect::<Vec<_>>();
-    tasks.reverse();
-    tasks.truncate(8);
+    let saved_replies_pending = saved_replies_pending
+        .into_iter()
+        .take(8)
+        .collect::<Vec<_>>();
+    let blocked_elsewhere = blocked_elsewhere
+        .into_iter()
+        .take(8)
+        .map(|entry| crate::core::context_build::clip(&entry, 100))
+        .collect::<Vec<_>>();
+    let internal_recovery = internal_recovery
+        .into_iter()
+        .take(8)
+        .map(|entry| crate::core::context_build::clip(&entry, 100))
+        .collect::<Vec<_>>();
+    let (board_index_summary, board_index_rows) = index::render(project, events);
     let active_planning_turn = project
         .active_turn
         .as_ref()
         .and(project.active_planning_work.as_deref());
     let planning_work = planning_context(&project.planning_work, active_planning_turn);
-    let waiting_on_user = waiting_on_user.into_iter().take(12).collect::<Vec<_>>();
-    let blocked_elsewhere = blocked_elsewhere.into_iter().take(12).collect::<Vec<_>>();
-    let internal_recovery = internal_recovery.into_iter().take(12).collect::<Vec<_>>();
-    let active_progress = active_worker_progress(project);
+    let event_summaries = events
+        .iter()
+        .rev()
+        .take(8)
+        .map(|event| crate::core::context_build::clip(event, 120))
+        .collect::<Vec<_>>();
     let update = crate::core::context_build::clip_bytes(
         &format!(
-            "PROJECT MANAGER UPDATE\nProject: {}\nEvents: {:?}\nTask count: {}\nBoard tasks: {:?}\n{}\nActive worker progress: {:?}\nActive worker: {:?}\nQueue running: {}\nWaiting on user: {:?}\nSaved user replies awaiting internal processing: {:?}\nInternal recovery required: {:?}\nBlocked on external work or dependencies: {:?}",
-            project.state.title,
-            events.iter().rev().take(8).collect::<Vec<_>>(),
-            project.task_documents.len(),
-            tasks,
-            planning_work,
-            active_progress,
-            project.active_implementations.keys().collect::<Vec<_>>(),
+            "PROJECT MANAGER UPDATE\nProject: {}\nEvents: {:?}\n{}\n{}\nInternal planning work (status alone does not mean the operator owes an answer): {}\nQueue running: {}; active workers: {}\nWaiting on user: {:?}\nSaved user replies awaiting internal processing: {:?}\nInternal recovery required: user answers are saved and must be recovered internally without asking the user to repeat it. Details: {:?}\nBlocked on external work or dependencies: {:?}",
+            crate::core::context_build::clip(&project.state.title, 120),
+            event_summaries,
+            board_index_summary,
+            board_index_rows,
+            crate::core::context_build::clip_bytes(&planning_work, 1400),
             project.queue.running,
+            project.active_implementations.len(),
             waiting_on_user,
             saved_replies_pending,
             internal_recovery,
             blocked_elsewhere
         ),
-        3 * 1024,
+        8 * 1024,
     );
     let features = project
         .state
@@ -123,12 +143,12 @@ pub(super) fn build(project: &Project, events: &[String]) -> String {
                 &project.state,
                 crate::core::workflow::TurnPurpose::Interview
             ),
-            4 * 1024
+            3 * 1024
         ),
-        crate::core::context_build::clip_bytes(&features, 5 * 1024),
+        crate::core::context_build::clip_bytes(&features, 3 * 1024),
         crate::core::context_build::clip_bytes(
             &project.task_interaction_context(&events.join("\n")),
-            3 * 1024
+            2 * 1024
         )
     );
     crate::core::context_build::clip_bytes(&summary, 16 * 1024)
@@ -136,8 +156,7 @@ pub(super) fn build(project: &Project, events: &[String]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::tasks::progress_label;
-    use super::*;
+    use super::tasks::{planning_context, progress_label};
     use crate::core::planning_work::{Work, WorkStatus};
 
     #[test]

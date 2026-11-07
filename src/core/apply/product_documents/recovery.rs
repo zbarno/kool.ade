@@ -12,6 +12,24 @@ pub(crate) fn restore_missing_feature(
         revision == state.baseline_planning_revision,
         "Planning state changed before native triage; refresh before recovery"
     );
+    if rebase::recover_current(state, uid)? {
+        let refreshed = PlannerState::load_with_store(&state.repo_root, store)?;
+        anyhow::ensure!(
+            refreshed
+                .active_features
+                .iter()
+                .filter(|(_, body)| {
+                    crate::domain::ArtifactIdentity::from_markdown(body)
+                        .ok()
+                        .flatten()
+                        .is_some_and(|identity| identity.uid == uid)
+                })
+                .count()
+                == 1,
+            "Rebased draft is not active at the current published revision; refresh before recovery"
+        );
+        return Ok(refreshed);
+    }
     let files = store.list_files("state/spec_drafts")?;
     anyhow::ensure!(
         files.len() <= 256,

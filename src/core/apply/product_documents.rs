@@ -1,5 +1,6 @@
 //! Persist document proposals as private drafts until explicit publication.
 mod model;
+mod rebase;
 mod recovery;
 pub(crate) use recovery::restore_missing_feature;
 #[cfg(test)]
@@ -48,8 +49,14 @@ pub(super) fn changes<R: PlanningRoot + ?Sized>(
             content,
         })
         .collect::<Vec<_>>();
-    validate_changes(&changes)?;
+    snapshot_files(&store, changes)
+}
 
+fn snapshot_files(
+    store: &crate::artifacts::planning_store::PlanningStore,
+    changes: Vec<LocalSpecDraftChange>,
+) -> anyhow::Result<Vec<(String, String)>> {
+    validate_changes(&changes)?;
     let snapshot = StoredSpecDraftV1 {
         schema_version: 1,
         base_published_spec_pin: store.published_spec_pin.clone(),

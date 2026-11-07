@@ -42,14 +42,21 @@ pub(in crate::ui::layout::board::columns) fn machine_setup(
     let open_details = task_cards::board_card(ui, key, None, false, true, false, |ui| {
         let blocked = !task.blocked_by.is_empty()
             || task.state == crate::persistence::setup_tasks::State::Unsupported;
-        super::super::attention::badge(
-            ui,
-            if blocked {
-                super::super::attention::Kind::Blocked
-            } else {
-                super::super::attention::Kind::WaitingOnUser
-            },
+        let agent = matches!(
+            task.state,
+            crate::persistence::setup_tasks::State::InProgress
+                | crate::persistence::setup_tasks::State::AwaitingVerification
         );
+        ui.horizontal_wrapped(|ui| {
+            if agent {
+                super::ownership::agent_pill(ui);
+            }
+            if blocked {
+                super::super::attention::badge(ui, super::super::attention::Kind::Blocked);
+            } else if !agent {
+                super::super::attention::badge(ui, super::super::attention::Kind::WaitingOnUser);
+            }
+        });
         if ui
             .add(
                 egui::Button::new(
@@ -90,7 +97,10 @@ pub(in crate::ui::layout::board::columns) fn machine_setup(
                     task_id: task.id.clone(),
                 });
             }
-            if ui.button("Guide me").clicked() {
+            if ui
+                .button(if agent { "View progress" } else { "Guide me" })
+                .clicked()
+            {
                 *selected = Some(task.id.clone());
             }
             let label = if board.setup_checking {

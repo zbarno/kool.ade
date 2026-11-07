@@ -1,4 +1,6 @@
 use super::*;
+mod approval;
+use approval::paint_approval;
 mod git_intents;
 mod related_task;
 mod task_intent;
@@ -11,6 +13,19 @@ pub(super) fn paint(
     board: &crate::ui::planning_board::ViewModel,
 ) {
     use crate::core::planning_work::WorkKind;
+    if board
+        .cancelled
+        .contains(&crate::persistence::cancelled_work::planning_id(&work.uid))
+    {
+        task_intent::paint(ui, None, board, work);
+        ui.heading(&work.title);
+        ui.label("Cancelled · This work will not resume automatically.");
+        ui.label(&work.detail);
+        let mut terminal = work.clone();
+        terminal.status = crate::core::planning_work::WorkStatus::Done;
+        paint_controls(ui, surface, &terminal, board);
+        return;
+    }
     // Put a pending approval before the TaskIntent history/map so the action
     // remains visible in the bounded details viewport.
     paint_approval(ui, surface, work);
@@ -60,7 +75,12 @@ pub(super) fn paint(
         crate::core::planning_work::WorkStatus::NeedsAttention
             | crate::core::planning_work::WorkStatus::InReview
     ) {
-        super::decision::free_text(ui, surface, &work.key);
+        if work.operational_recovery.is_some() {
+            ui.label("AGENT · Managed by Kool.ad/e. Your saved answer is preserved.");
+            ui.label(&work.detail);
+        } else {
+            super::decision::free_text(ui, surface, &work.key);
+        }
     }
     if let Some(parent) = crate::ui::layout::planning_parent_label(
         work,
@@ -107,128 +127,6 @@ pub(super) fn paint(
     paint_controls(ui, surface, work, board);
 }
 
-fn paint_approval(
-    ui: &mut egui::Ui,
-    surface: &mut dyn Surface,
-    work: &crate::core::planning_work::Work,
-) {
-    let Some(feature_id) = work.feature_id.as_deref() else {
-        return;
-    };
-    let Some(action) = surface.feature_actions(None).into_iter().find(|action| {
-        action.id == feature_id
-            && action.plan_snapshot.as_ref().is_some_and(|snapshot| {
-                crate::ui::feature_approval::belongs_to_root(work, &snapshot.feature_uid)
-            })
-            && (!action.approved || action.retry_review)
-    }) else {
-        return;
-    };
-    egui::CollapsingHeader::new("Plan confirmation")
-        .default_open(
-            !action.user_confirmed
-                || action.retry_review
-                || action.review_verdict.as_ref().is_some_and(|verdict| !verdict.pass),
-        )
-        .show(ui, |ui| {
-            crate::ui::feature_approval::paint_candidate(ui, &action);
-            if let Some(verdict) = &action.review_verdict {
-                crate::ui::feature_approval::paint_review(ui, verdict);
-            }
-            if !action.ready {
-                ui.label("This plan cannot be confirmed yet. Resolve the readiness blockers in planning.");
-            } else if action.review_verdict.as_ref().is_some_and(|v| !v.pass)
-                && !action.retry_review
-            {
-                ui.label("Independent review found issues. Revise the plan before reconfirming.");
-            }
-            let needs_choice = action
-                .plan_comparison
-                .as_ref()
-                .is_some_and(|comparison| comparison.selected_plan.is_none());
-            if needs_choice {
-                match crate::ui::feature_approval::paint_comparison(ui, &action) {
-                    Some(crate::ui::feature_approval::ComparisonIntent::Adopt(plan_id)) => {
-                        surface.dispatch(crate::ui::ApplicationCommand::ChooseFeaturePlan {
-                            id: feature_id.to_owned(),
-                            plan_id,
-                        });
-                    }
-                    Some(crate::ui::feature_approval::ComparisonIntent::Discard) => {
-                        surface.dispatch(crate::ui::ApplicationCommand::DiscardFeaturePlans {
-                            id: feature_id.to_owned(),
-                        });
-                    }
-                    None => {}
-                }
-            } else if action.compare_plans {
-                if ui
-                    .add_enabled(
-                        !surface.conversation_busy(),
-                        egui::Button::new("Compare plans").fill(crate::ui::theme::ACTION),
-                    )
-                    .clicked()
-                {
-                    surface.dispatch(crate::ui::ApplicationCommand::ApproveFeatureForBoard {
-                        id: feature_id.to_owned(),
-                    });
-                }
-            } else {
-                ui.horizontal_wrapped(|ui| {
-                    if !action.user_confirmed
-                        && ui
-                            .add_enabled(
-                                !surface.conversation_busy(),
-                                egui::Button::new("Confirm this plan")
-                                    .fill(crate::ui::theme::ACTION),
-                            )
-                            .clicked()
-                    {
-                        surface.dispatch(crate::ui::ApplicationCommand::ApproveFeatureForBoard {
-                            id: feature_id.to_owned(),
-                        });
-                        ui.ctx().data_mut(|data| {
-                            data.insert_temp(egui::Id::new("koolade_task_details_close"), true);
-                        });
-                    }
-                    if action.user_confirmed
-                        && ui
-                            .add_enabled(
-                                !surface.conversation_busy()
-                                    && action.ready
-                                    && (action.retry_review
-                                        || !action.review_verdict.as_ref().is_some_and(|v| !v.pass)),
-                                egui::Button::new(action.label()).fill(crate::ui::theme::ACTION),
-                            )
-                            .clicked()
-                    {
-                        surface.dispatch(crate::ui::ApplicationCommand::ApproveFeatureForBoard {
-                            id: feature_id.to_owned(),
-                        });
-                        ui.ctx().data_mut(|data| {
-                            data.insert_temp(egui::Id::new("koolade_task_details_close"), true);
-                        });
-                    }
-                    if !action.user_confirmed
-                        && !surface.conversation_busy()
-                        && let Some(crate::ui::feature_approval::ApprovalIntent::RequestChanges(
-                            id,
-                            candidate_hash,
-                        )) = crate::ui::feature_approval::paint_request_changes(ui, &action)
-                    {
-                        surface.dispatch(crate::ui::ApplicationCommand::RequestFeatureChanges {
-                            id,
-                            candidate_hash,
-                        });
-                        ui.ctx().data_mut(|data| {
-                            data.insert_temp(egui::Id::new("koolade_task_details_close"), true);
-                        });
-                    }
-                });
-            }
-        });
-}
-
 fn paint_controls(
     ui: &mut egui::Ui,
     surface: &mut dyn Surface,
@@ -254,6 +152,7 @@ fn paint_controls(
                 });
             }
         } else if work.status == crate::core::planning_work::WorkStatus::Done
+            && work.task_intent_uid.as_deref().is_none_or(|uid| uid == work.uid)
             && (!is_intent_root || board.can_archive_task_intent(work))
             && ui.button("Archive").clicked()
         {
@@ -272,6 +171,14 @@ fn paint_controls(
             ));
         }
     });
+    if work.status == crate::core::planning_work::WorkStatus::Done
+        && work
+            .task_intent_uid
+            .as_deref()
+            .is_some_and(|uid| uid != work.uid)
+    {
+        ui.label(crate::ui::theme::helper_text("This card stays with its TaskIntent. Archive the parent request when its work is complete."));
+    }
     let cancel_id = egui::Id::new("koolade_cancel_pending");
     let confirming = ui
         .ctx()

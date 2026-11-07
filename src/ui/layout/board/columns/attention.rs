@@ -50,12 +50,14 @@ pub(super) fn badge(ui: &mut egui::Ui, kind: Kind) {
 pub(super) fn linked_user_action<'a>(
     board: &'a crate::ui::planning_board::ViewModel,
     task_path: &str,
+    is_agent: impl Fn(&crate::domain::item::OpenItem) -> bool,
 ) -> Option<&'a crate::domain::item::OpenItem> {
     let feature_id = feature_id_in_task_path(task_path)?;
     board.planning_items.iter().find(|item| {
         item.status == crate::domain::ItemStatus::Open
             && item.feature_id.as_deref() == Some(feature_id.as_str())
             && board.eligible_item_ids.contains(&item.id)
+            && !is_agent(item)
     })
 }
 
@@ -70,13 +72,7 @@ fn feature_id_in_task_path(path: &str) -> Option<String> {
 }
 
 pub(super) fn clarification_is_visible(status: crate::core::planning::QuestionStatus) -> bool {
-    matches!(
-        status,
-        crate::core::planning::QuestionStatus::Draft
-            | crate::core::planning::QuestionStatus::Open
-            | crate::core::planning::QuestionStatus::Declined
-            | crate::core::planning::QuestionStatus::Deferred
-    )
+    crate::ui::planning_board::question_column(status) == 3
 }
 
 fn recovery_kind(recovery: crate::core::implementation::RecoveryDisposition) -> Kind {
@@ -163,7 +159,10 @@ pub(super) fn paint(
         fallback_order += 1;
     }
     for question in lane.clarifications {
-        if clarification_is_visible(question.status) {
+        if clarification_is_visible(question.status)
+            && board.question_visible(question)
+            && !super::task_intents::clarification_owned(board, question)
+        {
             entries.push((Entry::Clarification(question), None, fallback_order));
             fallback_order += 1;
         }
@@ -171,9 +170,7 @@ pub(super) fn paint(
     sort_recency(&mut entries);
     for (entry, _, _) in entries {
         match entry {
-            Entry::Work(work) => {
-                super::cards::work(ui, s, work, lane.planning, 3, planning_selection)
-            }
+            Entry::Work(work) => super::cards::work(ui, s, work, board, 3, planning_selection),
             Entry::Setup(issue) => super::cards::setup(ui, s, board, issue, planning_selection),
             Entry::MachineSetup(task) => {
                 super::cards::machine_setup(ui, s, board, task, planning_selection)
@@ -181,7 +178,7 @@ pub(super) fn paint(
             Entry::Item(item) => super::cards::item(ui, s, board, item, 3, planning_selection),
             Entry::Task(task) => super::cards::task(ui, s, board, task, 3, selected_path),
             Entry::Clarification(question) => {
-                super::cards::clarification(ui, question, planning_selection)
+                super::cards::clarification(ui, question, 3, planning_selection)
             }
         }
     }

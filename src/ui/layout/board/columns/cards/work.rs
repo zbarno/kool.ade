@@ -5,7 +5,7 @@ pub(in crate::ui::layout::board::columns) fn work(
     ui: &mut egui::Ui,
     s: &mut dyn Surface,
     work: &crate::core::planning_work::Work,
-    planning: &[&crate::core::planning_work::Work],
+    board: &crate::ui::planning_board::ViewModel,
     column: usize,
     selected: &mut Option<String>,
 ) {
@@ -22,6 +22,11 @@ pub(in crate::ui::layout::board::columns) fn work(
         |ui| {
             ui.horizontal(|ui| {
                 theme::badge(ui, work.kind.label(), theme::PANEL, theme::TEXT_DIM);
+                if super::ownership::work_is_agent(work)
+                    || crate::ui::saved_reply::label(s.task_messages(&work.key)).is_some()
+                {
+                    super::ownership::agent_pill(ui);
+                }
                 if column == 3 {
                     super::super::attention::badge(ui, super::super::attention::Kind::Blocked);
                 }
@@ -40,23 +45,51 @@ pub(in crate::ui::layout::board::columns) fn work(
             {
                 *selected = Some(work.key.clone());
             }
-            let summary = if active {
-                "Kool.ad/e is working on this task"
-            } else if crate::ui::layout::planning_parent_label(work, planning).is_some() {
-                "Waiting for prerequisite"
-            } else {
-                match work.status {
-                    crate::core::planning_work::WorkStatus::Todo => "Ready for the next step",
-                    crate::core::planning_work::WorkStatus::InProgress => "In progress",
-                    crate::core::planning_work::WorkStatus::InReview => "Ready for review",
-                    crate::core::planning_work::WorkStatus::NeedsAttention => {
-                        crate::ui::saved_reply::label(s.task_messages(&work.key))
-                            .unwrap_or("Planning needs review or internal recovery")
+            let summary =
+                if column == 4 && work.status != crate::core::planning_work::WorkStatus::Done {
+                    "Cancelled"
+                } else if active {
+                    "Kool.ad/e is working on this task"
+                } else {
+                    match work.status {
+                        crate::core::planning_work::WorkStatus::Todo => "Ready for the next step",
+                        crate::core::planning_work::WorkStatus::InProgress => "In progress",
+                        crate::core::planning_work::WorkStatus::InReview => "Ready for review",
+                        crate::core::planning_work::WorkStatus::NeedsAttention => {
+                            crate::ui::saved_reply::label(s.task_messages(&work.key))
+                                .unwrap_or("Planning needs review or internal recovery")
+                        }
+                        crate::core::planning_work::WorkStatus::Done => "Completed",
                     }
-                    crate::core::planning_work::WorkStatus::Done => "Completed",
-                }
-            };
+                };
             ui.label(theme::helper_text(summary));
+            if work.task_intent_root_uid().is_some_and(|uid| {
+                uid != work.uid
+                    && board
+                        .planning_work
+                        .iter()
+                        .filter(|root| root.uid == uid && root.task_intent_root_uid() == Some(uid))
+                        .count()
+                        != 1
+            }) {
+                ui.label(theme::helper_text("Request link needs agent recovery"));
+            }
+            if work.operational_recovery.is_some()
+                || work.status == crate::core::planning_work::WorkStatus::NeedsAttention
+            {
+                let blocker = (work.status
+                    == crate::core::planning_work::WorkStatus::NeedsAttention)
+                    .then(|| {
+                        work.operational_recovery
+                            .as_ref()
+                            .and_then(|recovery| recovery.repair_error.as_deref())
+                    })
+                    .flatten()
+                    .unwrap_or(&work.detail);
+                ui.label(theme::helper_text(
+                    blocker.chars().take(220).collect::<String>(),
+                ));
+            }
             for intent in work.git_intents.values() {
                 ui.label(theme::helper_text(format!(
                     "{} · {} → {} · {}{}",

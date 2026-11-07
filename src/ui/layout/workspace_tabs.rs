@@ -43,28 +43,7 @@ pub(super) fn paint(
                         .add(tab_button(
                             format!(
                                 "Board  {}",
-                                board
-                                    .task_documents
-                                    .iter()
-                                    .filter(|d| !d.path.ends_with("/README.md")
-                                        && !board.is_archived(&d.path))
-                                    .count()
-                                    + board
-                                        .planning_items
-                                        .iter()
-                                        .filter(|i| !board.is_archived(i.conversation_key()))
-                                        .count()
-                                    + board
-                                        .planning_work
-                                        .iter()
-                                        .filter(|w| !board.is_archived(&w.key))
-                                        .count()
-                                    + board
-                                        .setup_tasks
-                                        .iter()
-                                        .filter(|task| task.is_active())
-                                        .count()
-                                    + board.setup_attention.len()
+                                board.visible_card_count(&s.feature_actions(None))
                             ),
                             tasks_tab,
                         ))

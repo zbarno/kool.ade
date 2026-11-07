@@ -22,6 +22,8 @@ pub struct ViewModel {
     pub task_status: Option<crate::core::planning_work::WorkStatus>,
     pub board_column: usize,
     pub can_start: bool,
+    pub cancelled: bool,
+    pub task_intent_uid: Option<String>,
     pub auto_build: bool,
     pub draft: String,
     pub activity_samples: Vec<(i64, u64)>,

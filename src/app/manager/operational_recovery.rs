@@ -131,7 +131,11 @@ pub(crate) fn advance(project: &mut Project) {
                 })
             })
             && recovery.repair_attempts < 2
-            && recovery.repair_error.is_none()
+            && (recovery.repair_error.is_none()
+                || recovery.repair_error.as_deref()
+                    == Some(
+                        "No verified snapshot of the exact missing feature UID exists at the current published revision",
+                    ))
             && chrono::Utc::now().timestamp_millis() >= recovery.next_attempt_ms
         {
             native::start(project, index);

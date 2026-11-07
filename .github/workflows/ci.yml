@@ -37,6 +37,8 @@ jobs:
         run: cargo +1.98.1 fmt --manifest-path tests/windows-process-tree/Cargo.toml -- --check
 
   tests:
+    # Do not provision expensive runtimes if the fast Rust checks fail.
+    needs: [format, clippy, core-implementation, docs]
     name: tests and Docker runtime
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -194,6 +196,7 @@ jobs:
           retention-days: 14
 
   core-implementation:
+    needs: format
     name: Git and implementation tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -230,6 +233,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
   daemon-recovery:
+    # Do not provision expensive runtimes if the fast Rust checks fail.
+    needs: [format, clippy, core-implementation, docs]
     name: isolated Docker daemon recovery
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -282,6 +287,8 @@ jobs:
           cargo +1.98.1 nextest run --locked --lib --no-fail-fast --test-threads 1 \
             -E 'test(restarted_rootless_daemon_preserves_dirty_clone_without_command_replay)'
   queue-concurrency:
+    # Do not provision expensive runtimes if the fast Rust checks fail.
+    needs: [format, clippy, core-implementation, docs]
     name: isolated queue concurrency E2E
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -395,6 +402,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
   docs:
+    needs: format
     name: documentation tests
     runs-on: ubuntu-latest
     steps:
@@ -412,6 +420,7 @@ jobs:
         run: time -p cargo +1.98.1 test --locked --doc
 
   clippy:
+    needs: format
     name: clippy
     runs-on: ubuntu-latest
     steps:
@@ -429,6 +438,8 @@ jobs:
         run: time -p cargo +1.98.1 clippy --locked --all-targets -- -D warnings
 
   windows-process-tree:
+    # Do not provision expensive runtimes if the fast Rust checks fail.
+    needs: [format, clippy, core-implementation, docs]
     name: Windows discovery process tree
     runs-on: windows-latest
     steps:

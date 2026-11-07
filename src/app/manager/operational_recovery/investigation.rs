@@ -1,5 +1,6 @@
 //! Own failed Agent investigations even when no submitted user reply exists.
 use super::*;
+mod context;
 const ACTIVE_DETAIL: &str = "Manager is monitoring the retrying investigation; a durable result is required before completion.";
 
 pub(crate) fn enqueue(
@@ -123,6 +124,9 @@ pub(crate) fn claim(project: &mut Project, item_id: &str) -> bool {
 }
 
 pub(super) fn advance(project: &mut Project, index: usize) -> bool {
+    if context::rearm(project, index) {
+        return true;
+    }
     let recovery = project.planning_work[index]
         .operational_recovery
         .clone()

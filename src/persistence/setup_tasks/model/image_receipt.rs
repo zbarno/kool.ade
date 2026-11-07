@@ -26,6 +26,13 @@ impl SetupTaskStoreV1 {
         let Some(task) = self.tasks.get(task_id) else {
             return false;
         };
+        if !matches!(
+            task.state,
+            super::SetupTaskStateV1::Verified | super::SetupTaskStateV1::AwaitingVerification
+        ) || !task.blocked_by.is_empty()
+        {
+            return false;
+        }
         has_valid_image_preparation_receipt_for_task(task_id, &task.attempts)
     }
 

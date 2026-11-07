@@ -76,7 +76,15 @@ pub(in crate::ui::layout::board::columns) fn task(
         lifecycle_record,
         board.lifecycle_pr_statuses.get(&doc.path).copied(),
     );
-    let needs_input = super::super::attention::linked_user_action(board, &doc.path);
+    let needs_input = super::super::attention::linked_user_action(board, &doc.path, |item| {
+        super::ownership::item_is_agent(
+            item,
+            crate::core::task_conversation::answer_receipt::is_saved(
+                item,
+                s.task_messages(item.conversation_key()),
+            ),
+        )
+    });
     let pr_needs_user_action = matches!(
         pr_status,
         Some(
@@ -85,7 +93,12 @@ pub(in crate::ui::layout::board::columns) fn task(
                 | crate::core::lifecycle::PullRequestPreparationStatus::ClosedUnmerged
         )
     );
-    let status = if active {
+    let status = if board
+        .cancelled
+        .contains(&crate::persistence::cancelled_work::task_id(doc))
+    {
+        "Cancelled".to_owned()
+    } else if active {
         "Kool.ad/e is working on this task".to_owned()
     } else if let Some(prerequisite) = prerequisite.as_deref() {
         prerequisite.to_owned()
@@ -112,6 +125,9 @@ pub(in crate::ui::layout::board::columns) fn task(
                     theme::PANEL,
                     theme::TEXT_DIM,
                 );
+                if needs_input.is_none() && !pr_needs_user_action {
+                    super::ownership::agent_pill(ui);
+                }
                 if needs_input.is_some() || pr_needs_user_action {
                     super::super::attention::badge(
                         ui,

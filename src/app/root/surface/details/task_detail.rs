@@ -1,4 +1,5 @@
 use super::*;
+mod ownership;
 
 impl KooladeApp {
     pub(in crate::app::root::surface) fn task_detail_for_surface(
@@ -234,7 +235,10 @@ impl KooladeApp {
         } else {
             crate::core::implementation::board_column(implementation.as_ref(), false)
         };
-        let board_column = if implementation_active {
+        let cancelled = ownership::cancelled(self, ticket);
+        let board_column = if cancelled {
+            4
+        } else if implementation_active {
             base
         } else {
             crate::ui::task_chat::board_column(base, &messages, conversation_active)
@@ -258,7 +262,9 @@ impl KooladeApp {
             conversation_error,
             task_status,
             board_column,
-            can_start,
+            can_start: can_start && !cancelled,
+            cancelled,
+            task_intent_uid: ownership::intent(self, ticket),
             auto_build,
             draft,
             activity_samples: self.activity_samples(Some(ticket)),

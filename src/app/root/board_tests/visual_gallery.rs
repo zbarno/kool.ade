@@ -5,6 +5,8 @@ use super::*;
 mod fixtures;
 #[path = "visual_gallery/onboarding.rs"]
 mod onboarding;
+#[path = "visual_gallery/owned_board.rs"]
+mod owned_board;
 #[path = "visual_gallery/renderer.rs"]
 mod renderer;
 #[path = "visual_gallery/task_details.rs"]

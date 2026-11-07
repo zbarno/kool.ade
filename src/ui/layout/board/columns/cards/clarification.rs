@@ -4,6 +4,7 @@ use super::super::super::super::*;
 pub(in crate::ui::layout::board::columns) fn clarification(
     ui: &mut egui::Ui,
     question: &crate::core::planning::QuestionV1,
+    column: usize,
     selected: &mut Option<String>,
 ) {
     let key = format!("clarification:{}", question.uid);
@@ -12,26 +13,39 @@ pub(in crate::ui::layout::board::columns) fn clarification(
         &key,
         Some(crate::domain::ItemKind::Question),
         false,
-        true,
-        false,
+        column == 3,
+        column == 4,
         |ui| {
             ui.horizontal(|ui| {
                 theme::badge(ui, "Question", theme::PANEL, theme::TEXT_DIM);
                 if question.status == crate::core::planning::QuestionStatus::Deferred {
                     theme::badge(ui, "Deferred", theme::PANEL, theme::TEXT_DIM);
                 }
-                let (label, color) = match question.priority {
-                    crate::core::planning::QuestionPriority::Blocking => {
-                        ("Blocking", theme::WARNING)
-                    }
-                    crate::core::planning::QuestionPriority::Important => {
-                        ("Important", theme::ACTION)
-                    }
-                    crate::core::planning::QuestionPriority::Optional => {
-                        ("Optional", theme::TEXT_DIM)
-                    }
-                };
-                theme::badge(ui, label, color.gamma_multiply(0.14), color);
+                if column == 4 {
+                    let label = match question.status {
+                        crate::core::planning::QuestionStatus::Answered => "Answered",
+                        crate::core::planning::QuestionStatus::EvidenceResolved => {
+                            "Evidence recorded"
+                        }
+                        crate::core::planning::QuestionStatus::Superseded => "Superseded",
+                        crate::core::planning::QuestionStatus::Cancelled => "Cancelled",
+                        _ => "Completed",
+                    };
+                    theme::badge(ui, label, theme::PANEL, theme::TEXT_DIM);
+                } else {
+                    let (label, color) = match question.priority {
+                        crate::core::planning::QuestionPriority::Blocking => {
+                            ("Blocking", theme::WARNING)
+                        }
+                        crate::core::planning::QuestionPriority::Important => {
+                            ("Important", theme::ACTION)
+                        }
+                        crate::core::planning::QuestionPriority::Optional => {
+                            ("Optional", theme::TEXT_DIM)
+                        }
+                    };
+                    theme::badge(ui, label, color.gamma_multiply(0.14), color);
+                }
             });
             if ui
                 .button(egui::RichText::new(&question.question).strong())
@@ -59,7 +73,9 @@ pub(in crate::ui::layout::board::columns) fn clarification(
                     deferred.follow_up_task, deferred.owner
                 )));
             }
-            let button = if question.status == crate::core::planning::QuestionStatus::Deferred {
+            let button = if column == 4 {
+                "View decision"
+            } else if question.status == crate::core::planning::QuestionStatus::Deferred {
                 "View deferral"
             } else {
                 "Answer"

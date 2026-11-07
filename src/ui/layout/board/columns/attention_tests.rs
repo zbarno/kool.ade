@@ -77,13 +77,16 @@ fn linked_task_attention_requires_an_open_actionable_item_for_same_feature() {
     board.planning_items.push(item);
 
     let path = "planning/tasks/CHG-012-release/CHG-012-TASK-001-release.md";
-    assert_eq!(linked_user_action(&board, path).unwrap().id, "CLR-012");
+    assert_eq!(
+        linked_user_action(&board, path, |_| false).unwrap().id,
+        "CLR-012"
+    );
 
     board.planning_items[0].status = crate::domain::ItemStatus::Resolved;
-    assert!(linked_user_action(&board, path).is_none());
+    assert!(linked_user_action(&board, path, |_| false).is_none());
     board.planning_items[0].status = crate::domain::ItemStatus::Open;
     board.eligible_item_ids.clear();
-    assert!(linked_user_action(&board, path).is_none());
+    assert!(linked_user_action(&board, path, |_| false).is_none());
 }
 
 #[test]
@@ -102,7 +105,12 @@ fn linked_task_attention_does_not_cross_feature_boundaries() {
     board.planning_items.push(item);
 
     assert!(
-        linked_user_action(&board, "planning/tasks/CHG-012-release/CHG-012-TASK-001.md").is_none()
+        linked_user_action(
+            &board,
+            "planning/tasks/CHG-012-release/CHG-012-TASK-001.md",
+            |_| false
+        )
+        .is_none()
     );
 }
 
@@ -176,4 +184,48 @@ fn implementation(
         independent_check: None,
         cleanup: Default::default(),
     }
+}
+
+#[test]
+fn linked_saved_answers_yield_to_remaining_human_questions() {
+    use crate::core::task_conversation::answer_receipt;
+    use crate::domain::{Authority, ChatMessage, ChatRole, ItemKind, OpenItem, Priority};
+    let mut answered = OpenItem::new(
+        "CLR-012".into(),
+        Priority::Blocking,
+        ItemKind::Question,
+        "Product".into(),
+        "Choose the release behavior".into(),
+        "Needs a decision".into(),
+    );
+    answered.authority = Authority::Human;
+    answered.feature_id = Some("CHG-012".into());
+    let mut saved = ChatMessage::new(ChatRole::User, "Keep the current behavior", None);
+    saved.answer_context = Some(answer_receipt::context(&answered));
+    let is_agent = |item: &OpenItem| answer_receipt::is_saved(item, std::slice::from_ref(&saved));
+    let mut board = crate::ui::planning_board::ViewModel::default();
+    board.eligible_item_ids.insert(answered.id.clone());
+    board.planning_items.push(answered);
+    let path = "planning/tasks/CHG-012-release/CHG-012-TASK-001.md";
+    assert!(
+        linked_user_action(&board, path, is_agent).is_none(),
+        "saved answers are agent-owned handoffs"
+    );
+    let mut unanswered = OpenItem::new(
+        "CLR-013".into(),
+        Priority::Blocking,
+        ItemKind::Question,
+        "Product".into(),
+        "Choose the rollout order".into(),
+        "Another decision remains".into(),
+    );
+    unanswered.authority = Authority::Human;
+    unanswered.feature_id = Some("CHG-012".into());
+    board.eligible_item_ids.insert(unanswered.id.clone());
+    board.planning_items.push(unanswered);
+    assert_eq!(
+        linked_user_action(&board, path, is_agent).unwrap().id,
+        "CLR-013",
+        "a saved first item cannot hide another unanswered decision"
+    );
 }

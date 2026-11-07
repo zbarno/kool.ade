@@ -52,7 +52,7 @@ pub(crate) fn planning_parent_label(
     let parent_uid = work.parent_uid.as_ref()?;
     let parent = items.iter().find(|candidate| &candidate.uid == parent_uid);
     Some(format!(
-        "Blocked by {}",
+        "Part of {}",
         parent
             .map(|item| item.title.as_str())
             .unwrap_or("parent work")
