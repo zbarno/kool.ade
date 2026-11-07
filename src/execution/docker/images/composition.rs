@@ -162,5 +162,16 @@ mod tests {
         };
         plan.recipe_sha256 = format!("sha256:{}", "a".repeat(64));
         assert!(verified_context(&plan).is_err());
+        plan = match lock.plan_project_runtime("amd64", &tools).unwrap() {
+            super::super::ProjectRuntimeImagePlan::Composition(plan) => plan,
+            _ => unreachable!(),
+        };
+        plan.components[0]
+            .tool_versions
+            .insert("node".into(), "0.0.0".into());
+        assert!(
+            verified_context(&plan).is_err(),
+            "source metadata cannot spoof a reviewed toolchain version"
+        );
     }
 }
