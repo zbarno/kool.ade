@@ -120,11 +120,18 @@ impl ImageLock {
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect::<Vec<_>>();
-        // Include exact source digests AND advertised tool versions. The
-        // builder's future recipe/security policy version must change this
-        // schema marker when those semantics change.
+        // Include exact source digests, tool versions, and a fingerprint of
+        // the trusted builder and runtime verifier. Any change to these
+        // security-sensitive sources invalidates old cached images.
+        let builder_policy = format!(
+            "{:x}:{:x}:{:x}",
+            Sha256::digest(include_bytes!("composition.rs")),
+            Sha256::digest(include_bytes!("../engine/composition.rs")),
+            Sha256::digest(include_bytes!("../engine/bollard_api/composite_verification.rs")),
+        );
         let identity = serde_json::to_vec(&(
-            "koolade-runtime-composition-recipe-v1",
+            "koolade-runtime-composition-recipe-v2",
+            &builder_policy,
             &foundation.platform,
             &foundation.digest,
             &foundation.tool_versions,
