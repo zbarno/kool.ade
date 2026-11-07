@@ -1,25 +1,24 @@
+mod download;
 mod storage;
+#[cfg(test)]
+mod tests;
 mod transport;
 
 use std::{
-    fs::{self, OpenOptions},
-    io::{Read, Write},
+    fs,
     path::{Path, PathBuf},
 };
 
-use reqwest::StatusCode;
-use uuid::Uuid;
-
-use self::{
-    storage::{
-        copy_bounded, path_is_occupied, prepare_private_directory, set_read_only, sync_directory,
-        verify_file,
-    },
-    transport::{release_client, release_tag},
+use self::storage::{
+    path_is_occupied, prepare_private_directory, sync_directory, validate_private_directory,
+    verify_file,
 };
 
-const RELEASE_BASE: &str = "https://github.com/zbarno/kool.ade/releases/download";
-use super::manifest::{GuestImageEntryV1, VerifiedGuestImageV1};
+use super::floor::GuestImageCatalogGenerationFloorV1;
+use super::manifest::{
+    ComputerGuestArchitectureV1, GuestImageEntryV1, GuestImageManifestTrustV1,
+    VerifiedGuestImageV1, verify_guest_image_catalog,
+};
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum ImageCacheErrorV1 {
@@ -99,22 +98,15 @@ pub struct GuestImageCacheV1 {
     root: PathBuf,
 }
 
-struct TemporaryCacheFile {
-    path: PathBuf,
-    installed: bool,
-}
-
-impl Drop for TemporaryCacheFile {
-    fn drop(&mut self) {
-        if !self.installed {
-            let _ = fs::remove_file(&self.path);
-        }
-    }
-}
-
 impl GuestImageCacheV1 {
     pub fn new(root: PathBuf) -> Result<Self, ImageCacheErrorV1> {
         prepare_private_directory(&root)?;
+        Ok(Self { root })
+    }
+
+    /// Open an already provisioned cache without creating or changing it.
+    pub fn open_existing(root: PathBuf) -> Result<Self, ImageCacheErrorV1> {
+        validate_private_directory(&root)?;
         Ok(Self { root })
     }
 
@@ -129,6 +121,68 @@ impl GuestImageCacheV1 {
             manifest_digest: verified.manifest_digest.clone(),
             manifest_signer_key_id: verified.manifest_signer_key_id.clone(),
             catalog_generation: verified.catalog_generation,
+            path,
+        })
+    }
+
+    /// Verify a previously cached approved artifact using only signed catalog
+    /// metadata. This is readiness evidence only: it does not advance the
+    /// durable generation floor or authorize a session. The launch path must
+    /// accept the generation again immediately before creating an overlay.
+    pub fn verify_cached_catalog_image(
+        &self,
+        catalog_bytes: &[u8],
+        trust: &GuestImageManifestTrustV1,
+        generation_floor: &GuestImageCatalogGenerationFloorV1,
+        architecture: ComputerGuestArchitectureV1,
+    ) -> Result<CachedGuestImageV1, ImageCacheErrorV1> {
+        self.verify_cached_catalog_image_with_time(
+            catalog_bytes,
+            trust,
+            generation_floor,
+            architecture,
+            download::current_time_unix_ms()?,
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn verify_cached_catalog_image_at(
+        &self,
+        catalog_bytes: &[u8],
+        trust: &GuestImageManifestTrustV1,
+        generation_floor: &GuestImageCatalogGenerationFloorV1,
+        architecture: ComputerGuestArchitectureV1,
+        now_unix_ms: u64,
+    ) -> Result<CachedGuestImageV1, ImageCacheErrorV1> {
+        self.verify_cached_catalog_image_with_time(
+            catalog_bytes,
+            trust,
+            generation_floor,
+            architecture,
+            now_unix_ms,
+        )
+    }
+
+    fn verify_cached_catalog_image_with_time(
+        &self,
+        catalog_bytes: &[u8],
+        trust: &GuestImageManifestTrustV1,
+        generation_floor: &GuestImageCatalogGenerationFloorV1,
+        architecture: ComputerGuestArchitectureV1,
+        now_unix_ms: u64,
+    ) -> Result<CachedGuestImageV1, ImageCacheErrorV1> {
+        let catalog = verify_guest_image_catalog(catalog_bytes, trust, now_unix_ms)?;
+        generation_floor.require_not_rolled_back(catalog.catalog_generation())?;
+        let entry = catalog
+            .approved_image(architecture)
+            .ok_or(ImageCacheErrorV1::ImageNotCatalogued)?;
+        let path = self.image_path(entry)?;
+        verify_file(&path, entry)?;
+        Ok(CachedGuestImageV1 {
+            entry: entry.clone(),
+            manifest_digest: catalog.digest().to_owned(),
+            manifest_signer_key_id: catalog.signer_key_id().to_owned(),
+            catalog_generation: catalog.catalog_generation(),
             path,
         })
     }
@@ -151,106 +205,6 @@ impl GuestImageCacheV1 {
         }
         fs::remove_file(&path).map_err(|_| ImageCacheErrorV1::Io)?;
         sync_directory(&self.root)
-    }
-
-    /// Download is started only after the approval adapter authorizes this
-    /// manifest and image digest. The URL is derived from the signed release
-    /// tag and fixed public repository, never from task or model input.
-    pub fn download_approved_release(
-        &self,
-        verified: &VerifiedGuestImageV1,
-        approval: &dyn ComputerImageDownloadApprovalV1,
-    ) -> Result<CachedGuestImageV1, ImageCacheErrorV1> {
-        approval.authorize_download(&verified.manifest_digest, &verified.entry.image_digest)?;
-        let path = self.image_path(&verified.entry)?;
-        if path.exists() {
-            return self.verify_cached(verified);
-        }
-        let release_tag = release_tag(&verified.catalog_version)?;
-        let url = format!(
-            "{RELEASE_BASE}/{release_tag}/{}",
-            verified.entry.artifact_name
-        );
-        let client = release_client()?;
-        let mut response = client
-            .get(url)
-            .send()
-            .map_err(|_| ImageCacheErrorV1::DownloadFailed)?;
-        if response.status() != StatusCode::OK {
-            return Err(ImageCacheErrorV1::DownloadFailed);
-        }
-        if response
-            .content_length()
-            .is_some_and(|length| length != verified.entry.artifact_size_bytes)
-        {
-            return Err(ImageCacheErrorV1::DownloadLengthMismatch);
-        }
-        let path = self.install_reader_authorized(verified, &mut response)?;
-        Ok(CachedGuestImageV1 {
-            entry: verified.entry.clone(),
-            manifest_digest: verified.manifest_digest.clone(),
-            manifest_signer_key_id: verified.manifest_signer_key_id.clone(),
-            catalog_generation: verified.catalog_generation,
-            path,
-        })
-    }
-
-    /// Streaming seam for deterministic tests and the bounded HTTP client.
-    pub fn install_approved_reader<R: Read>(
-        &self,
-        verified: &VerifiedGuestImageV1,
-        approval: &dyn ComputerImageDownloadApprovalV1,
-        reader: &mut R,
-    ) -> Result<CachedGuestImageV1, ImageCacheErrorV1> {
-        approval.authorize_download(&verified.manifest_digest, &verified.entry.image_digest)?;
-        let destination = self.image_path(&verified.entry)?;
-        if destination.exists() {
-            return self.verify_cached(verified);
-        }
-        self.install_reader_authorized(verified, reader)
-            .map(|path| CachedGuestImageV1 {
-                entry: verified.entry.clone(),
-                manifest_digest: verified.manifest_digest.clone(),
-                manifest_signer_key_id: verified.manifest_signer_key_id.clone(),
-                catalog_generation: verified.catalog_generation,
-                path,
-            })
-    }
-
-    fn install_reader_authorized<R: Read>(
-        &self,
-        verified: &VerifiedGuestImageV1,
-        reader: &mut R,
-    ) -> Result<PathBuf, ImageCacheErrorV1> {
-        let destination = self.image_path(&verified.entry)?;
-        if path_is_occupied(&destination)? {
-            return self.verify_cached(verified).map(|image| image.path);
-        }
-        let mut temporary = TemporaryCacheFile {
-            path: self.root.join(format!(".{}.part", Uuid::new_v4())),
-            installed: false,
-        };
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options
-            .open(&temporary.path)
-            .map_err(|_| ImageCacheErrorV1::Io)?;
-        copy_bounded(reader, &mut file, &verified.entry)?;
-        file.flush().map_err(|_| ImageCacheErrorV1::Io)?;
-        file.sync_all().map_err(|_| ImageCacheErrorV1::Io)?;
-        set_read_only(&temporary.path)?;
-        if path_is_occupied(&destination)? {
-            return self.verify_cached(verified).map(|image| image.path);
-        }
-        fs::rename(&temporary.path, &destination).map_err(|_| ImageCacheErrorV1::Io)?;
-        temporary.installed = true;
-        sync_directory(&self.root)?;
-        Ok(destination)
     }
 
     fn image_path(&self, entry: &GuestImageEntryV1) -> Result<PathBuf, ImageCacheErrorV1> {

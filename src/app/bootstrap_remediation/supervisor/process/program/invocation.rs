@@ -132,6 +132,31 @@ impl TrustedInvocation {
         Ok(recipe)
     }
 
+    pub(crate) fn qemu_package_recipe(&self) -> anyhow::Result<LinuxRootlessRecipeV1> {
+        anyhow::ensure!(
+            self.program == TrustedProgram::LinuxQemuPackageSetup,
+            "QEMU recipe binding is only valid for QEMU package setup"
+        );
+        let mut recipes = self.arguments.iter().filter_map(|argument| match argument {
+            TrustedArgument::LinuxRootlessRecipe(recipe) => Some(*recipe),
+            _ => None,
+        });
+        let recipe = recipes
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("QEMU package setup lacks a recipe binding"))?;
+        anyhow::ensure!(
+            recipes.next().is_none()
+                && matches!(
+                    recipe,
+                    LinuxRootlessRecipeV1::Debian13Amd64
+                        | LinuxRootlessRecipeV1::Ubuntu2404Amd64
+                        | LinuxRootlessRecipeV1::PopOs2404Amd64
+                ),
+            "QEMU package setup has an unsupported or duplicate recipe binding"
+        );
+        Ok(recipe)
+    }
+
     #[cfg(unix)]
     pub(in crate::app::bootstrap_remediation::supervisor::process) fn artifact_fds(
         &self,
@@ -178,6 +203,7 @@ impl TrustedInvocation {
                 TrustedProgram::ClaudeCodeInstall
                     | TrustedProgram::ClaudeCodeDownload
                     | TrustedProgram::WindowsWslFeatures
+                    | TrustedProgram::LinuxQemuPackageSetup
             ),
             "internal remediation programs require a typed constructor"
         );
@@ -251,6 +277,28 @@ impl TrustedInvocation {
             );
             arguments[0].validate()?;
         }
+        if program == TrustedProgram::LinuxQemuPackageSetup {
+            anyhow::ensure!(
+                matches!(
+                    arguments.as_slice(),
+                    [TrustedArgument::LinuxRootlessRecipe(_)]
+                ),
+                "QEMU package setup requires one typed recipe binding"
+            );
+            let recipe = match &arguments[0] {
+                TrustedArgument::LinuxRootlessRecipe(recipe) => *recipe,
+                _ => unreachable!("typed recipe binding was checked above"),
+            };
+            anyhow::ensure!(
+                matches!(
+                    recipe,
+                    LinuxRootlessRecipeV1::Debian13Amd64
+                        | LinuxRootlessRecipeV1::Ubuntu2404Amd64
+                        | LinuxRootlessRecipeV1::PopOs2404Amd64
+                ),
+                "QEMU package setup requires an exact supported APT recipe"
+            );
+        }
         Ok(Self {
             host,
             program,
@@ -273,6 +321,31 @@ impl TrustedInvocation {
             internal: Some(InternalInvocation::WindowsWslFeatures),
             progress: None,
             environment: TrustedEnvironment::Isolated,
+            #[cfg(test)]
+            test_mode: None,
+        })
+    }
+
+    pub(in crate::app::bootstrap_remediation) fn qemu_package_setup(
+        recipe: LinuxRootlessRecipeV1,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            matches!(
+                recipe,
+                LinuxRootlessRecipeV1::Debian13Amd64
+                    | LinuxRootlessRecipeV1::Ubuntu2404Amd64
+                    | LinuxRootlessRecipeV1::PopOs2404Amd64
+            ),
+            "QEMU package setup requires one supported exact APT recipe"
+        );
+        Ok(Self {
+            host: Host::Linux,
+            program: TrustedProgram::LinuxQemuPackageSetup,
+            arguments: vec![TrustedArgument::LinuxRootlessRecipe(recipe)],
+            timeout: Duration::from_secs(300),
+            internal: None,
+            progress: None,
+            environment: TrustedEnvironment::CurrentUserSystemd,
             #[cfg(test)]
             test_mode: None,
         })
@@ -365,6 +438,10 @@ impl TrustedInvocation {
                     (TrustedProgram::Dnf, TrustedArgument::DnfVersion)
                 }
             },
+            TrustedProgram::LinuxQemuPackageSetup => {
+                self.qemu_package_recipe()?;
+                (TrustedProgram::AptGet, TrustedArgument::AptGetVersion)
+            }
             TrustedProgram::Usermod => (TrustedProgram::Usermod, TrustedArgument::UsermodVersion),
             _ => anyhow::bail!("native elevation preflight is unsupported for this program"),
         };

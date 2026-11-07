@@ -2,6 +2,16 @@ use super::{ComputerIdentityV1, ComputerOperationV1, ComputerSessionClassV1};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
+/// Minimum disposable guest resource budget used by v1 host readiness checks.
+/// Launchers must recheck the exact task policy budget before starting a VM.
+pub const MINIMUM_DISPOSABLE_VM_BUDGET_V1: ComputerResourceBudgetV1 = ComputerResourceBudgetV1 {
+    cpu_millis: 2_000,
+    memory_bytes: 1_073_741_824,
+    disk_bytes: 2_147_483_648,
+    time_limit_ms: 600_000,
+    action_limit: 100,
+};
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum ComputerCapabilityV1 {

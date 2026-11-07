@@ -265,3 +265,7 @@ impl LocalKvmComputerBackend {
         Ok(())
     }
 }
+
+pub(super) fn verify_qemu_launcher_containment() -> Result<(), Error> {
+    validate_qemu_program(&qemu_program())
+}

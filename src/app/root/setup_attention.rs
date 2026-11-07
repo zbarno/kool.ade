@@ -144,6 +144,7 @@ impl KooladeApp {
         self.setup_probe_cancel = None;
         let retry = self.setup_refresh_pending.take();
         if result.cancelled || retry.is_some() {
+            self.machine_setup_scan_current = false;
             self.clear_setup_attention_notices();
             if let Some(retry) = retry {
                 self.setup_retry_requested = retry;
@@ -153,6 +154,9 @@ impl KooladeApp {
             return None;
         }
         if result.snapshot.is_none() {
+            self.machine_setup_scan_current = false;
+            self.machine_docker_local_execution_ready = None;
+            self.machine_setup_checked_domains.clear();
             self.setup_attention = vec![result.issue.unwrap_or_else(|| {
                 super::super::setup_attention::SetupIssue::provider(
                     "The machine setup check did not finish. Retry the check.",
@@ -162,13 +166,27 @@ impl KooladeApp {
         }
 
         self.setup_attention = result.issue.into_iter().collect();
+        let checked_domains = result
+            .snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.checked_domains.clone())
+            .unwrap_or_default();
         if verification.persistence_failed {
+            self.machine_setup_scan_current = false;
+            self.machine_docker_local_execution_ready = None;
+            self.machine_setup_checked_domains.clear();
             self.setup_attention = vec![super::super::setup_attention::SetupIssue::provider(
                 "Could not safely save local machine setup diagnostics. Retry the check.",
             )];
         } else if let Some(tasks) = verification.machine_setup_tasks {
+            self.machine_setup_scan_current = true;
             self.machine_setup_tasks = tasks;
+            self.machine_docker_local_execution_ready = Some(result.docker_local_execution_ready);
+            self.machine_setup_checked_domains = checked_domains;
         } else {
+            self.machine_setup_scan_current = false;
+            self.machine_docker_local_execution_ready = None;
+            self.machine_setup_checked_domains.clear();
             self.setup_attention = vec![super::super::setup_attention::SetupIssue::provider(
                 "The machine setup result was not persisted. Retry the check.",
             )];
@@ -213,6 +231,7 @@ impl KooladeApp {
                     endpoint_fingerprint: None,
                     daemon_identity_fingerprint: None,
                     docker_readiness_fingerprint: None,
+                    docker_local_execution_ready: false,
                     setup_provider: None,
                     selected_provider: None,
                     cancelled: false,

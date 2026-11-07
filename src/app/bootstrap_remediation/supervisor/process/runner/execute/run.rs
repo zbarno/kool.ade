@@ -32,6 +32,9 @@ impl NativeCommandRunner for SystemCommandRunner {
                 program::TrustedProgram::LinuxRootlessPackageSetup => {
                     Err(ProcessRunError::not_started(ProcessRunFailure::Unavailable))
                 }
+                program::TrustedProgram::LinuxQemuPackageSetup => {
+                    Err(ProcessRunError::not_started(ProcessRunFailure::Unavailable))
+                }
                 _ => Err(ProcessRunError::not_started(ProcessRunFailure::Unavailable)),
             };
             #[cfg(not(target_os = "linux"))]
@@ -81,6 +84,10 @@ impl NativeCommandRunner for SystemCommandRunner {
         #[cfg(target_os = "linux")]
         if invocation.program() == program::TrustedProgram::LinuxRootlessPackageSetup {
             return super::super::rootless_packages::execute(self, invocation, cancellation);
+        }
+        #[cfg(target_os = "linux")]
+        if invocation.program() == program::TrustedProgram::LinuxQemuPackageSetup {
+            return super::super::qemu_packages::execute(self, invocation, cancellation);
         }
         self.execute(invocation, cancellation, true)
     }

@@ -18,7 +18,9 @@ impl NativeElevation for LinuxNativeElevation {
         anyhow::ensure!(
             matches!(
                 plan.operation,
-                Operation::InstallLinuxRootlessPackages | Operation::ConfigureLinuxSubordinateIds
+                Operation::InstallLinuxRootlessPackages
+                    | Operation::InstallLinuxQemu
+                    | Operation::ConfigureLinuxSubordinateIds
             ) && plan.host == crate::app::bootstrap_repair_policy::Host::Linux,
             "native elevation is not available for this remediation operation"
         );

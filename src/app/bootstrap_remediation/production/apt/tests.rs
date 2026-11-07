@@ -209,6 +209,56 @@ fn trusted_apt_directories_and_key_files_remain_accessible_to_apt_sandbox() {
 }
 
 #[test]
+fn qemu_candidates_reject_foreign_or_unverified_origins() {
+    let official = "qemu-system-x86:\n  Installed: (none)\n  Candidate: 1:9.2+ds-1\n  Version table:\n     1:9.2+ds-1 500\n        500 https://deb.debian.org/debian trixie/main amd64 Packages\n";
+    assert!(candidate::candidate_is_from_base_distribution(
+        official,
+        Recipe::Debian13Amd64
+    ));
+    for foreign in [
+        official.replace(
+            "https://deb.debian.org/debian",
+            "https://packages.example.invalid/debian",
+        ),
+        official.replace("trixie/main", "trixie/foreign"),
+        official.replace("amd64 Packages", "arm64 Packages"),
+    ] {
+        assert!(!candidate::candidate_is_from_base_distribution(
+            &foreign,
+            Recipe::Debian13Amd64
+        ));
+    }
+}
+
+#[test]
+fn qemu_dependency_versions_must_match_the_candidate_and_official_archive() {
+    let policy = "libfoo:\n  Installed: (none)\n  Candidate: 1.2-3\n  Version table:\n     1.2-3 500\n        500 https://deb.debian.org/debian trixie/main amd64 Packages\n";
+    assert!(candidate::candidate_version_is_from_base_distribution(
+        policy,
+        "1.2-3",
+        Recipe::Debian13Amd64
+    ));
+    assert!(candidate::candidate_version_is_from_base_distribution(
+        &policy.replace("     1.2-3 500", " *** 1.2-3 500"),
+        "1.2-3",
+        Recipe::Debian13Amd64
+    ));
+    assert!(!candidate::candidate_version_is_from_base_distribution(
+        policy,
+        "1.1-2",
+        Recipe::Debian13Amd64
+    ));
+    assert!(!candidate::candidate_version_is_from_base_distribution(
+        &policy.replace(
+            "https://deb.debian.org/debian",
+            "https://packages.example.invalid"
+        ),
+        "1.2-3",
+        Recipe::Debian13Amd64
+    ));
+}
+
+#[test]
 fn apt_cache_and_install_options_pin_sources_architecture_and_signature_checks() {
     let expected = [
         "--option=RootDir=/",

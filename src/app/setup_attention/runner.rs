@@ -44,6 +44,7 @@ pub(crate) fn run_scan(
             endpoint_fingerprint: None,
             daemon_identity_fingerprint: None,
             docker_readiness_fingerprint: None,
+            docker_local_execution_ready: false,
             setup_provider: None,
             selected_provider: None,
             cancelled: false,

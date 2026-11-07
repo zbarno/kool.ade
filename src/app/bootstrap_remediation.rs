@@ -33,8 +33,9 @@ pub(crate) use plan::{ArtifactTrust, PrivilegeLevel, RemediationPlan, RollbackGu
 #[allow(unused_imports)]
 pub(crate) use production::{
     PackageSourceArtifacts, ProductionOperationRegistry, package_install_arguments,
-    package_source_artifacts, production_package_source_ready, validate_before_elevated_launch,
-    validate_current_mappings_for_uid,
+    package_source_artifacts, production_package_source_ready, qemu_package_arguments,
+    validate_before_elevated_launch, validate_current_mappings_for_uid,
+    verify_qemu_package_candidates,
 };
 pub(crate) use redaction::redact_keyed_values;
 #[allow(unused_imports)]

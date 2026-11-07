@@ -27,6 +27,9 @@ impl PlanEffect {
             Self::InstallLinuxRootlessPackages => {
                 "Configure only the exact recipe's missing signed Docker repository files, refresh package metadata, then install Docker Engine and rootless prerequisites. APT-family package scripts may activate the system rootful service and require separate consent; Fedora package installation does not start it. Do not upgrade or remove packages."
             }
+            Self::InstallLinuxQemu => {
+                "Install only `qemu-system-x86` and `qemu-utils` from the detected Debian, Ubuntu, or Pop!_OS signed base archive. Verify official archive candidates before and after refreshing APT metadata; do not add repositories, upgrade or remove packages, or change groups, permissions, services, or Docker configuration."
+            }
             Self::ConfigureLinuxSubordinateIds => {
                 "Add a 65,536-ID subordinate UID/GID range for the current user only when needed; preserve existing and other users' entries."
             }
@@ -108,6 +111,9 @@ impl ManagedPackageChange {
             Self::Fedora => {
                 "Fedora 45 x86_64: Docker Engine, CLI, containerd, and rootless extras candidates must come from Docker's signed Fedora `45/x86_64/stable` repository; `shadow-utils` and `slirp4netns` must come from signed Fedora 45 archives."
             }
+            Self::Qemu => {
+                "Debian 13, Ubuntu 24.04, and Pop!_OS 24.04 amd64: install only `qemu-system-x86` and `qemu-utils`; both candidates must come from that recipe's official signed distro archive."
+            }
         }
     }
 }
@@ -120,6 +126,9 @@ impl PlanConsent {
             }
             Self::RootfulDockerCoexistence => {
                 "Allow rootless Docker to coexist with an existing system rootful Docker daemon. The rootful service, socket, and configuration remain untouched."
+            }
+            Self::QemuPackageInstallation => {
+                "Allow Kool.ad/e to install the fixed QEMU system emulator and image utility packages from your signed distribution archive using the operating system administrator prompt."
             }
         }
     }

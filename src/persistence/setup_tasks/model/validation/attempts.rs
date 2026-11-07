@@ -202,6 +202,7 @@ pub(crate) fn expected_evidence_domain(id: &str) -> Option<String> {
     }
     match id.split(':').collect::<Vec<_>>().as_slice() {
         ["setup", "computer", "kvm"] => Some("computer:kvm".to_owned()),
+        ["setup", "computer", "image", "amd64"] => Some("computer:guest-image".to_owned()),
         ["setup", "cli", "install"] => Some("cli:install".to_owned()),
         ["setup", "cli", "scan"] => Some("cli:scan".to_owned()),
         ["setup", "cli", "select"] => Some("cli:select".to_owned()),

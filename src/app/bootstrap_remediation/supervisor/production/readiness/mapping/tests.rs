@@ -190,6 +190,7 @@ fn source(with_smoke: bool) -> Source {
             endpoint_fingerprint: Some(ENDPOINT.into()),
             daemon_identity_fingerprint: Some(DAEMON.into()),
             docker_readiness_fingerprint: Some(READINESS.into()),
+            docker_local_execution_ready: false,
             setup_provider: None,
             selected_provider: None,
             cancelled: false,
@@ -218,4 +219,130 @@ fn service_operation_can_await_smoke_but_cannot_verify_from_engine_readiness_alo
     let smoked = verify_service(&source(true));
     assert!(smoked.ready);
     assert!(!smoked.service_ready_awaiting_smoke);
+}
+
+#[test]
+fn qemu_install_preconditions_and_postcondition_require_current_supported_evidence() {
+    use setup::{
+        EvidenceCode as Code, EvidenceOrigin as Origin, LinuxPackageManagerV1 as Manager,
+        PrerequisiteCapability as Capability, PrerequisiteDomain as Domain,
+        PrerequisiteSubject as Subject, ProbeObservationV1 as Observation,
+    };
+
+    let mut fixture = source(false);
+    fixture
+        .scan
+        .snapshot
+        .as_mut()
+        .unwrap()
+        .probe_evidence
+        .push(evidence(
+            Domain::Host,
+            Capability::LinuxPackageManager,
+            Subject::None,
+            Code::LinuxPackageManagerDetected,
+            Origin::HostRuntime,
+            Some(Observation::LinuxPackageManager {
+                expected: Some(Manager::AptGet),
+                found: Some(Manager::AptGet),
+            }),
+        ));
+    let preconditions = [
+        "host:linux:package_manager".to_owned(),
+        "host:linux:rootless_recipe".to_owned(),
+    ];
+    assert!(
+        collect(&fixture, &preconditions, Phase::Before)
+            .unwrap()
+            .ready
+    );
+
+    fixture
+        .scan
+        .snapshot
+        .as_mut()
+        .unwrap()
+        .probe_evidence
+        .push(evidence(
+            Domain::Host,
+            Capability::LinuxQemu,
+            Subject::None,
+            Code::LinuxQemuDetected,
+            Origin::HostRuntime,
+            Some(Observation::LinuxQemu {
+                version: Some("QEMU emulator version 9.2.0".into()),
+                kvm_acceleration: Some(true),
+                qemu_image_tool_available: Some(true),
+                qemu_launcher_contained: Some(true),
+            }),
+        ));
+    assert!(
+        collect(&fixture, &["host:linux:qemu".to_owned()], Phase::After)
+            .unwrap()
+            .ready
+    );
+
+    if let Some(Observation::LinuxQemu {
+        qemu_image_tool_available,
+        ..
+    }) = fixture
+        .scan
+        .snapshot
+        .as_mut()
+        .unwrap()
+        .probe_evidence
+        .last_mut()
+        .unwrap()
+        .observation
+        .as_mut()
+    {
+        *qemu_image_tool_available = Some(false);
+    }
+    assert!(
+        !collect(&fixture, &["host:linux:qemu".to_owned()], Phase::After)
+            .unwrap()
+            .ready
+    );
+
+    if let Some(Observation::LinuxQemu {
+        qemu_launcher_contained,
+        ..
+    }) = fixture
+        .scan
+        .snapshot
+        .as_mut()
+        .unwrap()
+        .probe_evidence
+        .last_mut()
+        .unwrap()
+        .observation
+        .as_mut()
+    {
+        *qemu_launcher_contained = Some(false);
+    }
+    assert!(
+        !collect(&fixture, &["host:linux:qemu".to_owned()], Phase::After)
+            .unwrap()
+            .ready
+    );
+
+    fixture
+        .scan
+        .snapshot
+        .as_mut()
+        .unwrap()
+        .probe_evidence
+        .last_mut()
+        .unwrap()
+        .observation = Some(Observation::LinuxQemu {
+        version: Some("QEMU emulator version 9.2.0".into()),
+        kvm_acceleration: Some(false),
+        qemu_image_tool_available: Some(true),
+        qemu_launcher_contained: Some(true),
+    });
+    assert!(
+        !collect(&fixture, &["host:linux:qemu".to_owned()], Phase::After)
+            .unwrap()
+            .ready
+    );
 }

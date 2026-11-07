@@ -10,6 +10,8 @@ pub(super) fn finding_conflicts(domain: &str, finding_id: &str) -> bool {
         ),
         "docker" => docker_engine_finding(finding_id),
         "docker:desktop" => finding_id == "setup:docker:desktop",
+        "computer:kvm" => finding_id == "setup:computer:kvm",
+        "computer:guest-image" => finding_id == "setup:computer:image:amd64",
         _ if domain.starts_with("cli:") => {
             let provider = domain.strip_prefix("cli:").unwrap_or_default();
             super::super::ProviderIdV1::from_probe_id(provider).is_some()

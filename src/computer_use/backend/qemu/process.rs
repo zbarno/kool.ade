@@ -21,27 +21,8 @@ pub(super) fn qemu_program() -> PathBuf {
 }
 
 pub(super) fn validate_qemu_program(path: &Path) -> Result<(), Error> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    let canonical = path.canonicalize().map_err(|_| Error::QemuUnavailable)?;
-    let metadata = fs::symlink_metadata(path).map_err(|_| Error::QemuUnavailable)?;
-    if canonical != path
-        || !metadata.file_type().is_file()
-        || metadata.uid() != 0
-        || metadata.permissions().mode() & 0o022 != 0
-        || metadata.permissions().mode() & 0o111 == 0
-    {
-        return Err(Error::QemuUnavailable);
-    }
-    for ancestor in [Path::new("/"), Path::new("/usr"), Path::new("/usr/bin")] {
-        let metadata = fs::symlink_metadata(ancestor).map_err(|_| Error::QemuUnavailable)?;
-        if !metadata.file_type().is_dir()
-            || metadata.uid() != 0
-            || metadata.permissions().mode() & 0o022 != 0
-        {
-            return Err(Error::QemuUnavailable);
-        }
-    }
-    Ok(())
+    crate::computer_use::validate_trusted_system_executable(path)
+        .map_err(|_| Error::QemuUnavailable)
 }
 
 pub(super) fn set_child_limits(
@@ -84,7 +65,7 @@ pub(super) fn set_child_limits(
             if written != count as isize {
                 return Err(std::io::Error::last_os_error());
             }
-            Ok(())
+            crate::computer_use::process_security::install_child_restrictions()
         });
     }
     Ok(())

@@ -23,6 +23,7 @@ const PACKAGE: &[&str] = &[
     "host:linux:cgroups",
     "host:linux:package_manager",
 ];
+const QEMU: &[&str] = &["host:linux:package_manager", "host:linux:rootless_recipe"];
 const SUBIDS: &[&str] = &[
     "host:linux:rootless_recipe",
     "host:linux:kernel",
@@ -57,8 +58,14 @@ const SERVICE_VERIFY: &[&str] = &[
     "docker:rootless-smoke",
 ];
 const EMPTY: &[&str] = &[];
-const PRECONDITIONS: &[&[&str]] = &[EMPTY, PACKAGE, SUBIDS, SERVICE];
-const VERIFICATIONS: &[&[&str]] = &[&["docker:rootless"], HELPERS, UID_MAPPINGS, SERVICE_VERIFY];
+const PRECONDITIONS: &[&[&str]] = &[EMPTY, PACKAGE, QEMU, SUBIDS, SERVICE];
+const VERIFICATIONS: &[&[&str]] = &[
+    &["docker:rootless"],
+    &["host:linux:qemu"],
+    HELPERS,
+    UID_MAPPINGS,
+    SERVICE_VERIFY,
+];
 static GENERATION: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) struct LinuxReadinessVerifier;

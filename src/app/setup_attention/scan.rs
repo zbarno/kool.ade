@@ -22,6 +22,7 @@ pub struct SetupScanResult {
     pub endpoint_fingerprint: Option<String>,
     pub daemon_identity_fingerprint: Option<String>,
     pub docker_readiness_fingerprint: Option<String>,
+    pub docker_local_execution_ready: bool,
     pub setup_provider: Option<catalog::ProviderIdV1>,
     pub selected_provider: Option<catalog::ProviderIdV1>,
     pub cancelled: bool,
@@ -36,6 +37,7 @@ impl SetupScanResult {
             endpoint_fingerprint: None,
             daemon_identity_fingerprint: None,
             docker_readiness_fingerprint: None,
+            docker_local_execution_ready: false,
             setup_provider: None,
             selected_provider: None,
             cancelled: true,
@@ -101,6 +103,7 @@ pub fn scan(
                 endpoint_fingerprint: None,
                 daemon_identity_fingerprint: None,
                 docker_readiness_fingerprint: None,
+                docker_local_execution_ready: false,
                 setup_provider: None,
                 selected_provider: None,
                 cancelled: false,
@@ -125,12 +128,21 @@ pub fn scan(
         },
     );
     snapshot.scan_started_at_unix_ms = started_at;
-    let kvm_ready = vm_readiness::append_findings(
-        &mut snapshot.findings,
+    let host_evidence = snapshot.probe_evidence.clone();
+    let observed_host_architecture = snapshot.capability_matrix.observed_host_architecture;
+    let scan_generation = snapshot.scan_generation;
+    let (kvm_ready, guest_image_ready) = vm_readiness::append_findings(
+        &mut snapshot,
         host,
-        snapshot.capability_matrix.observed_host_architecture,
+        observed_host_architecture,
+        &host_evidence,
+        scan_generation,
     );
-    vm_readiness::append_checked_domains(&mut snapshot.checked_domains, kvm_ready);
+    vm_readiness::append_checked_domains(
+        &mut snapshot.checked_domains,
+        kvm_ready,
+        guest_image_ready,
+    );
     if snapshot.validate().is_err() {
         return SetupScanResult {
             generation,
@@ -141,12 +153,14 @@ pub fn scan(
             endpoint_fingerprint: None,
             daemon_identity_fingerprint: None,
             docker_readiness_fingerprint: None,
+            docker_local_execution_ready: false,
             setup_provider: None,
             selected_provider: None,
             cancelled: false,
         };
     }
-    let issue = issue_for_readiness(cli_issue, docker.local_execution_ready(), &snapshot);
+    let docker_local_execution_ready = docker.local_execution_ready();
+    let issue = issue_for_readiness(cli_issue, docker_local_execution_ready, &snapshot);
     let docker_readiness_fingerprint = docker.readiness_fingerprint();
     SetupScanResult {
         generation,
@@ -155,6 +169,7 @@ pub fn scan(
         endpoint_fingerprint: docker.endpoint_fingerprint,
         daemon_identity_fingerprint: docker.daemon_identity_fingerprint,
         docker_readiness_fingerprint: Some(docker_readiness_fingerprint),
+        docker_local_execution_ready,
         setup_provider: setup_provider.and_then(catalog::ProviderIdV1::from_probe_id),
         selected_provider: selected.and_then(catalog::ProviderIdV1::from_probe_id),
         cancelled: false,

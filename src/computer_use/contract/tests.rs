@@ -188,12 +188,6 @@ fn test_policy() -> ComputerPolicyV1 {
             ComputerOperationV1::KeyboardInput,
         ]),
         approval_generation: 1,
-        resource_budget: ComputerResourceBudgetV1 {
-            cpu_millis: 2000,
-            memory_bytes: 1_073_741_824,
-            disk_bytes: 2_147_483_648,
-            time_limit_ms: 600_000,
-            action_limit: 100,
-        },
+        resource_budget: MINIMUM_DISPOSABLE_VM_BUDGET_V1,
     }
 }

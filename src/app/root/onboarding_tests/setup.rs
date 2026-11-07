@@ -44,10 +44,11 @@ fn contains(output: &egui::FullOutput, needle: &str) -> bool {
         .any(|text| text.contains(needle))
 }
 
-/// Exercises the pre-workspace boundary from Welcome card selection through
-/// the shared setup details modal. A helper-only test cannot prove that the
-/// root screen routes and retains the selection. Uses synthetic tasks only;
-/// it needs no CLI, Docker, workspace clone, or network and has low setup cost.
+/// Exercises the pre-workspace boundary from Welcome ability-matrix rendering
+/// and setup card selection through the shared details modal. A helper-only
+/// test cannot prove the root screen shows capabilities and routes selection.
+/// Uses synthetic tasks only; no CLI, Docker, workspace, network, or external
+/// service is required, and setup cost is low.
 #[test]
 fn welcome_setup_board_opens_guidance_before_any_workspace_is_connected() {
     let home = std::env::temp_dir().join(format!(
@@ -73,6 +74,8 @@ fn welcome_setup_board_opens_guidance_before_any_workspace_is_connected() {
         ],
         ..KooladeApp::default()
     };
+    app.onboarding
+        .go(crate::app::welcome::onboarding::Step::Readiness);
     let mut legacy_docker_notice =
         crate::app::setup_attention::SetupIssue::docker("Docker needs attention on this machine.");
     legacy_docker_notice.related_task_prefix = Some("setup:docker:".into());
@@ -87,6 +90,29 @@ fn welcome_setup_board_opens_guidance_before_any_workspace_is_connected() {
     assert!(contains(&board, "Allow coding tasks to run safely"));
     assert!(contains(&board, "Setup progress · 0 of 2 checks verified"));
     assert!(!contains(&board, "Kool.ad/e needs Docker"));
+
+    app.onboarding.step = crate::app::welcome::onboarding::Step::Readiness;
+    let mut matrix = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1800.0, 900.0),
+            )),
+            ..Default::default()
+        },
+        |ui| app.paint_screen(ui),
+    );
+    matrix.textures_delta.clear();
+    for label in [
+        "What can this computer do?",
+        "Docker coding",
+        "Disposable computer",
+        "Internet computer",
+        "Personal encrypted computer",
+        "Interactive viewer",
+    ] {
+        assert!(contains(&matrix, label), "missing ability row: {label}");
+    }
     let output = click(&mut app, &ctx, "Guide me");
 
     assert!(matches!(&app.screen, Screen::Welcome));
@@ -169,6 +195,7 @@ fn a_slow_setup_probe_keeps_the_welcome_board_renderable() {
             endpoint_fingerprint: None,
             daemon_identity_fingerprint: None,
             docker_readiness_fingerprint: None,
+            docker_local_execution_ready: false,
             setup_provider: None,
             selected_provider: None,
             cancelled: true,

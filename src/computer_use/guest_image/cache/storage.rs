@@ -93,6 +93,32 @@ pub(super) fn prepare_private_directory(path: &Path) -> Result<(), ImageCacheErr
     }
 }
 
+pub(super) fn validate_private_directory(path: &Path) -> Result<(), ImageCacheErrorV1> {
+    let metadata = fs::symlink_metadata(path).map_err(|_| ImageCacheErrorV1::CachePathUnsafe)?;
+    if !metadata.file_type().is_dir()
+        || fs::canonicalize(path).map_err(|_| ImageCacheErrorV1::CachePathUnsafe)? != path
+    {
+        return Err(ImageCacheErrorV1::CachePathUnsafe);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let mode = metadata.permissions().mode();
+        if metadata.uid() != unsafe { libc::geteuid() }
+            || mode & 0o077 != 0
+            || mode & 0o700 != 0o700
+        {
+            return Err(ImageCacheErrorV1::CachePathUnsafe);
+        }
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Err(ImageCacheErrorV1::CachePathUnsafe)
+    }
+}
+
 pub(super) fn set_read_only(path: &Path) -> Result<(), ImageCacheErrorV1> {
     let mut permissions = fs::metadata(path)
         .map_err(|_| ImageCacheErrorV1::Io)?

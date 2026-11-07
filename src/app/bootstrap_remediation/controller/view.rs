@@ -9,9 +9,7 @@ impl Controller {
         }
         let completed = self.poll(ui.ctx());
         ui.add_space(crate::ui::theme::spacing::M);
-        ui.label(crate::ui::theme::section_heading(
-            "Guided rootless Docker repair",
-        ));
+        ui.label(crate::ui::theme::section_heading(heading(prerequisite_id)));
         ui.label(
             "Review the exact Linux distribution operation and its effects. Nothing changes until you approve it, and the operation runs only after fresh host checks pass.",
         );
@@ -55,5 +53,27 @@ impl Controller {
         }
         ui.label("Choose Fix for me to review the approved operation. Nothing runs until you approve it.");
         (completed, None)
+    }
+}
+
+fn heading(prerequisite_id: &str) -> &'static str {
+    if prerequisite_id == "setup:computer:qemu" {
+        "Guided QEMU setup"
+    } else {
+        "Guided rootless Docker repair"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::heading;
+
+    #[test]
+    fn repair_heading_matches_the_selected_operation() {
+        assert_eq!(heading("setup:computer:qemu"), "Guided QEMU setup");
+        assert_eq!(
+            heading("setup:linux:rootless:packages"),
+            "Guided rootless Docker repair"
+        );
     }
 }
