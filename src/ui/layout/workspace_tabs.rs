@@ -4,6 +4,17 @@ mod initial_specification;
 mod lifecycle;
 mod proposal;
 
+pub(super) fn selected_tab(ctx: &egui::Context) -> u8 {
+    ctx.data_mut(|data| {
+        data.get_temp::<u8>(egui::Id::new("koolade_document_tab"))
+            .or_else(|| {
+                data.get_temp::<bool>(egui::Id::new("koolade_document_tab"))
+                    .map(u8::from)
+            })
+            .unwrap_or(1)
+    })
+}
+
 pub(super) fn paint(
     ui: &mut egui::Ui,
     s: &mut dyn Surface,
@@ -21,11 +32,9 @@ pub(super) fn paint(
         )
         .show(ui, |ui| {
             let tab_id = egui::Id::new("koolade_document_tab");
-            let mut tasks_tab = ui
-                .ctx()
-                .data_mut(|d| d.get_temp::<bool>(tab_id).unwrap_or(true));
+            let mut selected_tab = selected_tab(ui.ctx());
             let chat_collapsed = egui::Id::new("koolade_spec_chat_collapsed");
-            if !tasks_tab
+            if selected_tab != 0
                 && ui
                     .ctx()
                     .data_mut(|data| data.get_temp::<bool>(chat_collapsed).unwrap_or(compact))
@@ -36,8 +45,11 @@ pub(super) fn paint(
             }
             {
                 ui.horizontal(|ui| {
-                    if ui.add(tab_button("Specification", !tasks_tab)).clicked() {
-                        tasks_tab = false;
+                    if ui
+                        .add(tab_button("Specification", selected_tab == 0))
+                        .clicked()
+                    {
+                        selected_tab = 0;
                     }
                     if ui
                         .add(tab_button(
@@ -45,7 +57,7 @@ pub(super) fn paint(
                                 "Board  {}",
                                 board.visible_card_count(&s.feature_actions(None))
                             ),
-                            tasks_tab,
+                            selected_tab == 1,
                         ))
                         .on_hover_ui(|ui| {
                             ui.set_max_width(320.0);
@@ -53,17 +65,23 @@ pub(super) fn paint(
                         })
                         .clicked()
                     {
-                        tasks_tab = true;
+                        selected_tab = 1;
+                    }
+                    if ui
+                        .add(tab_button("Project activity", selected_tab == 2))
+                        .clicked()
+                    {
+                        selected_tab = 2;
                     }
                     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
                         new_task::trigger(ui);
-                        if tasks_tab && ui.available_width() >= 440.0 {
+                        if selected_tab == 1 && ui.available_width() >= 440.0 {
                             ui.allocate_ui_with_layout(
                                 egui::vec2(ui.available_width(), 24.0),
                                 Layout::left_to_right(egui::Align::Center),
                                 super::board::presentation::legend,
                             );
-                        } else if tasks_tab && ui.available_width() >= 65.0 {
+                        } else if selected_tab == 1 && ui.available_width() >= 65.0 {
                             ui.menu_button("Types", |ui| {
                                 ui.set_min_width(300.0);
                                 super::board::presentation::legend(ui);
@@ -75,9 +93,15 @@ pub(super) fn paint(
                 ui.separator();
                 ui.add_space(4.0);
             }
-            ui.ctx().data_mut(|d| d.insert_temp(tab_id, tasks_tab));
-            new_task::paint(ui, s);
-            if tasks_tab {
+            ui.ctx().data_mut(|d| d.insert_temp(tab_id, selected_tab));
+            if selected_tab != 2 {
+                new_task::paint(ui, s);
+            }
+            if selected_tab == 2 {
+                super::project_activity::paint(ui, s);
+                return;
+            }
+            if selected_tab == 1 {
                 super::board::paint(ui, s, board);
                 return;
             }

@@ -2,6 +2,32 @@ use super::*;
 use crate::domain::OpenItem;
 
 #[test]
+fn manager_provider_progress_is_rendered_in_project_activity() {
+    let mut app = fixture();
+    let Screen::Connected(project) = &mut app.screen else {
+        unreachable!()
+    };
+    project.activity.manager = Some(crate::app::manager::Manager::completed_for_test(Err(
+        "test result is intentionally not polled".into(),
+    )));
+    project.activity.manager_progress = crate::harness::LiveProgress {
+        activity: Some("Provider is inspecting the task index".into()),
+        selected_route: Some("Fixture manager route".into()),
+        ..Default::default()
+    };
+    let ctx = egui::Context::default();
+    ctx.data_mut(|data| {
+        data.insert_temp(egui::Id::new("koolade_document_tab"), 2_u8);
+    });
+    let output = frame(&mut app, &ctx, vec![]);
+    assert!(text_position(&output, "Project activity").is_some());
+    assert!(text_position(&output, "Live provider progress").is_some());
+    assert!(text_position(&output, "Provider is inspecting the task index").is_some());
+    assert!(text_position(&output, "Route: Fixture manager route").is_some());
+    assert!(text_position(&output, "Thinking").is_none());
+}
+
+#[test]
 fn board_restores_blue_activity_on_cards_and_sums_all_sources() {
     let mut app = fixture();
     if let Screen::Connected(p) = &mut app.screen {

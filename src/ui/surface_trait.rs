@@ -78,6 +78,42 @@ pub trait Surface {
     fn git_dirty(&self) -> bool;
     // ------- chat pane -------
     fn chat_messages(&self) -> &[ChatMessage];
+    fn specification_chat_messages(&self) -> Vec<ChatMessage> {
+        self.chat_messages()
+            .iter()
+            .filter(|message| message.specification_context.is_some())
+            .cloned()
+            .collect()
+    }
+    fn legacy_chat_messages(&self) -> Vec<ChatMessage> {
+        self.chat_messages()
+            .iter()
+            .filter(|message| message.specification_context.is_none())
+            .cloned()
+            .collect()
+    }
+    fn manager_activity(&self) -> &[ChatMessage] {
+        &[]
+    }
+    fn manager_running(&self) -> bool {
+        false
+    }
+    fn manager_progress(&self) -> Option<&crate::harness::LiveProgress> {
+        None
+    }
+    fn manager_history_error(&self) -> Option<&str> {
+        None
+    }
+    fn manager_last_error(&self) -> Option<&str> {
+        None
+    }
+    fn retry_manager_check(&mut self) {}
+    fn specification_chat_busy(&self) -> bool {
+        self.conversation_busy()
+    }
+    fn specification_chat_progress(&self) -> Option<&crate::harness::LiveProgress> {
+        self.live_progress()
+    }
     fn task_messages(&self, _key: &str) -> &[ChatMessage] {
         &[]
     }
