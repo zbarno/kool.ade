@@ -6,8 +6,8 @@
 
 use super::{EngineDiscovery, PrerequisiteCode, PrerequisiteFailure, failure, operation_timeout};
 use crate::execution::docker::images::{
-    CompositionCandidate, CompositionReceipt, ImageLock, SelectedImage,
-    acquire_composition_lock, verified_composition_context,
+    CompositionCandidate, CompositionReceipt, ImageLock, SelectedImage, acquire_composition_lock,
+    verified_composition_context,
 };
 use tokio::sync::Mutex;
 
@@ -101,16 +101,20 @@ impl EngineDiscovery {
             &self.endpoint().fingerprint(),
             &final_snapshot.daemon_id,
         )
-        .map_err(|_| failure(
-            PrerequisiteCode::ImageUnavailable,
-            "Verified composite receipt could not be constructed",
-            false,
-        ))?;
-        receipt.record().map_err(|_| failure(
-            PrerequisiteCode::ImageUnavailable,
-            "Verified composite provenance could not be saved privately",
-            false,
-        ))?;
+        .map_err(|_| {
+            failure(
+                PrerequisiteCode::ImageUnavailable,
+                "Verified composite receipt could not be constructed",
+                false,
+            )
+        })?;
+        receipt.record().map_err(|_| {
+            failure(
+                PrerequisiteCode::ImageUnavailable,
+                "Verified composite provenance could not be saved privately",
+                false,
+            )
+        })?;
         Ok(selected)
     }
 }
