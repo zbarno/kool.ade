@@ -194,7 +194,10 @@ fn connect_local_with_image_selection(
                         // fallback, which could mask a trusted-image failure.
                         ExecutionError::new(
                             ExecutionErrorKind::PolicyDenied,
-                            format!("Trusted composite preparation was blocked: {}", error.message),
+                            format!(
+                                "Trusted composite preparation was blocked: {}",
+                                error.message
+                            ),
                             error.retryable,
                         )
                     })?
