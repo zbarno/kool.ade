@@ -7,8 +7,7 @@
 use super::{EngineDiscovery, PrerequisiteCode, PrerequisiteFailure, failure, operation_timeout};
 use crate::execution::docker::images::{
     CompositionCandidate, CompositionReceipt, ImageLock, SelectedImage,
-    try_acquire_composition_lock,
-    verified_composition_context,
+    try_acquire_composition_lock, verified_composition_context,
 };
 use tokio::sync::Mutex;
 
@@ -22,24 +21,21 @@ impl EngineDiscovery {
         plan: &CompositionCandidate,
     ) -> Result<SelectedImage, PrerequisiteFailure> {
         let _guard = COMPOSITE_BUILD.lock().await;
-        let _process_lock = tokio::time::timeout(
-            std::time::Duration::from_secs(90),
-            async {
-                loop {
-                    match try_acquire_composition_lock() {
-                        Ok(Some(lock)) => break Ok(lock),
-                        Ok(None) => tokio::time::sleep(
-                            std::time::Duration::from_millis(100),
-                        ).await,
-                        Err(_) => break Err(failure(
+        let _process_lock = tokio::time::timeout(std::time::Duration::from_secs(90), async {
+            loop {
+                match try_acquire_composition_lock() {
+                    Ok(Some(lock)) => break Ok(lock),
+                    Ok(None) => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
+                    Err(_) => {
+                        break Err(failure(
                             PrerequisiteCode::ImageUnavailable,
                             "Could not acquire the private composite builder lock",
                             false,
-                        )),
+                        ));
                     }
                 }
-            },
-        )
+            }
+        })
         .await
         .map_err(|_| operation_timeout("waiting for another runtime image build"))??;
         // Recheck the canonical plan and platform before any Docker operation.
