@@ -33,8 +33,19 @@ jobs:
           containers/computer-use/build-image.sh "$first"
           containers/computer-use/build-image.sh "$second"
           image="koolade-computer-use-guest-x86_64.qcow2"
-          first_digest="$(cut -d ' ' -f 1 "$first/koolade-computer-use-guest-x86_64.sha256")"
-          second_digest="$(cut -d ' ' -f 1 "$second/koolade-computer-use-guest-x86_64.sha256")"
+          verify_image_digest() {
+            local directory="$1"
+            local actual declared
+            actual="$(sha256sum "$directory/$image" | cut -d ' ' -f 1)"
+            declared="$(cut -d ' ' -f 1 "$directory/koolade-computer-use-guest-x86_64.sha256")"
+            if [[ ! "$declared" =~ ^[[:xdigit:]]{64}$ || "$actual" != "$declared" ]]; then
+              echo "candidate qcow2 digest sidecar does not match image in $directory: actual=$actual declared=$declared" >&2
+              exit 1
+            fi
+            printf '%s\n' "$actual"
+          }
+          first_digest="$(verify_image_digest "$first")"
+          second_digest="$(verify_image_digest "$second")"
           if [[ "$first_digest" != "$second_digest" ]]; then
             echo "candidate qcow2 digests differ: first=$first_digest second=$second_digest" >&2
             if ! qemu-img compare -f qcow2 \
