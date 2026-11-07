@@ -53,6 +53,10 @@ fn private_root() -> io::Result<PathBuf> {
 
 pub(crate) fn try_acquire_process_lock() -> io::Result<Option<fs::File>> {
     let root = private_root()?;
+    try_acquire_process_lock_in(&root)
+}
+
+fn try_acquire_process_lock_in(root: &Path) -> io::Result<Option<fs::File>> {
     let path = root.join("cache.lock");
     let mut opts = fs::OpenOptions::new();
     opts.create(true).read(true).write(true);
@@ -223,6 +227,22 @@ impl CompositionReceipt {
 mod tests {
     use super::*;
     use crate::execution::docker::images::{ImageLock, ProjectRuntimeImagePlan};
+
+    #[test]
+    fn cache_lock_is_nonblocking_exclusive_and_released_on_drop() {
+        let temp = tempfile::tempdir().unwrap();
+        let first = try_acquire_process_lock_in(temp.path())
+            .unwrap()
+            .expect("first process acquires cache lock");
+        assert!(
+            try_acquire_process_lock_in(temp.path())
+                .unwrap()
+                .is_none(),
+            "second build must defer without blocking the async executor"
+        );
+        drop(first);
+        assert!(try_acquire_process_lock_in(temp.path()).unwrap().is_some());
+    }
 
     #[test]
     fn receipt_evidence_is_read_only_and_wrong_identity_never_evicts_it() {
