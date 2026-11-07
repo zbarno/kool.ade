@@ -32,9 +32,7 @@ struct CacheEntry {
 }
 
 fn classified_entry(image: &ImageSummary) -> Option<CacheEntry> {
-    if image.labels.get(COMPOSITION_LABEL).map(String::as_str)
-        != Some(COMPOSITION_POLICY)
-    {
+    if image.labels.get(COMPOSITION_LABEL).map(String::as_str) != Some(COMPOSITION_POLICY) {
         return None;
     }
     let content_identity = image.labels.get("io.koolade.content")?.clone();
@@ -72,13 +70,11 @@ fn eviction_plan(
     max_bytes: u64,
 ) -> Vec<CacheEntry> {
     let mut count = entries.len();
-    let mut used = entries
-        .iter()
-        .fold(0_u64, |total, entry| total.saturating_add(entry.estimated_bytes));
-    let mut sorted = entries.to_vec();
-    sorted.sort_by(|a, b| {
-        (a.last_used, a.created, &a.tag).cmp(&(b.last_used, b.created, &b.tag))
+    let mut used = entries.iter().fold(0_u64, |total, entry| {
+        total.saturating_add(entry.estimated_bytes)
     });
+    let mut sorted = entries.to_vec();
+    sorted.sort_by(|a, b| (a.last_used, a.created, &a.tag).cmp(&(b.last_used, b.created, &b.tag)));
     let mut evictions = Vec::new();
     for entry in sorted {
         if count <= max_images && used <= max_bytes {
@@ -131,10 +127,17 @@ pub(super) async fn prune(
             .await
             .map_err(|error| map_api_error(&error))?;
         if inspected.id.as_deref() != Some(entry.image_id.as_str())
-            || inspected.config.as_ref().and_then(|config| config.labels.as_ref())
+            || inspected
+                .config
+                .as_ref()
+                .and_then(|config| config.labels.as_ref())
                 .and_then(|labels| labels.get(COMPOSITION_LABEL))
-                .map(String::as_str) != Some(COMPOSITION_POLICY)
-            || inspected.config.as_ref().and_then(|config| config.labels.as_ref())
+                .map(String::as_str)
+                != Some(COMPOSITION_POLICY)
+            || inspected
+                .config
+                .as_ref()
+                .and_then(|config| config.labels.as_ref())
                 .and_then(|labels| labels.get("io.koolade.content"))
                 != Some(&entry.content_identity)
         {
@@ -207,8 +210,14 @@ mod tests {
         summary.size = 100;
         summary.labels = HashMap::from([
             (COMPOSITION_LABEL.to_owned(), COMPOSITION_POLICY.to_owned()),
-            ("io.koolade.content".into(), format!("sha256:{}", "b".repeat(64))),
-            ("io.koolade.base-digest".into(), format!("sha256:{}", "c".repeat(64))),
+            (
+                "io.koolade.content".into(),
+                format!("sha256:{}", "b".repeat(64)),
+            ),
+            (
+                "io.koolade.base-digest".into(),
+                format!("sha256:{}", "c".repeat(64)),
+            ),
         ]);
         summary.repo_tags = vec![format!("koolade-derived:{}", "b".repeat(64))];
         assert!(classified_entry(&summary).is_some());
@@ -230,16 +239,27 @@ mod tests {
         let expected_retained = &objects[3].content_identity;
         let to_evict = eviction_plan(&objects, expected_retained, 2, 200);
         assert_eq!(
-            to_evict.iter().map(|item| item.tag.as_str()).collect::<Vec<_>>(),
+            to_evict
+                .iter()
+                .map(|item| item.tag.as_str())
+                .collect::<Vec<_>>(),
             vec![objects[0].tag.as_str(), objects[2].tag.as_str()],
         );
         assert!(!to_evict.iter().any(|item| item.containers != 0));
-        assert!(!to_evict.iter().any(|item| item.content_identity == *expected_retained));
+        assert!(
+            !to_evict
+                .iter()
+                .any(|item| item.content_identity == *expected_retained)
+        );
     }
 
     #[test]
     fn budget_counts_full_images_conservatively_and_breaks_ties() {
-        let candidates = vec![entry('b', 1, false), entry('a', 1, false), entry('c', 2, false)];
+        let candidates = vec![
+            entry('b', 1, false),
+            entry('a', 1, false),
+            entry('c', 2, false),
+        ];
         let evicted = eviction_plan(&candidates, &candidates[2].content_identity, 10, 120);
         assert_eq!(evicted.len(), 2);
         assert_eq!(evicted[0].tag, candidates[1].tag);
