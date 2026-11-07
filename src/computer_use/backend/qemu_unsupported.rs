@@ -74,6 +74,15 @@ impl ComputerBackend for LocalKvmComputerBackend {
         Err(Error::UnsupportedHost)
     }
 
+    fn open_guest_action_journal(
+        &self,
+        _session: &ComputerSessionV1,
+        _handle: &Handle,
+        _now: u64,
+    ) -> Result<crate::computer_use::guest_protocol::GuestActionJournalV1, Error> {
+        Err(Error::UnsupportedHost)
+    }
+
     fn mark_guest_ready(
         &self,
         _session: &ComputerSessionV1,
