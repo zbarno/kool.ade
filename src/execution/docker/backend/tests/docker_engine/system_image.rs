@@ -168,6 +168,65 @@ fn signed_bookworm_closure_builds_through_offline_docker_control_plane() {
     assert!(output.stdout.contains("signed-offline-image-ready"));
 }
 
+/// Rootless production path: project tool discovery -> exact approved
+/// source images -> generated offline composite -> version verification ->
+/// task-scoped Docker session. A second task must reuse the same immutable
+/// cache image without importing another task's workspace or authorization.
+#[test]
+fn approved_polyglot_composite_is_cached_and_isolated_across_tasks() {
+    if std::env::var(OPT_IN).ok().as_deref() != Some("1") {
+        return;
+    }
+    assert!(cfg!(target_os = "linux"));
+
+    let fixture = Fixture::new();
+    let tools = ["cargo", "rustc", "node", "npm"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let lock = ImageLock::bundled().unwrap();
+    let crate::execution::docker::images::ProjectRuntimeImagePlan::Composition(plan) =
+        lock.plan_project_runtime(native_docker_arch(), &tools).unwrap()
+    else {
+        panic!("Rust+Node must require a composite image");
+    };
+    let tag = format!("koolade-derived:{}", &plan.recipe_sha256[7..]);
+    let run_task = |label: &str| {
+        let task = workspace();
+        let clone = fixture.task_clone(&task);
+        let resources = request(task.clone(), "").resource_budget;
+        let session = ExecutionSession::connect_local_with_tools(
+            task,
+            &clone,
+            ExecutionModeV1::Implementation,
+            &tools,
+            resources,
+        )
+        .expect("approved Rust+Node runtime must build and verify");
+        let result = session
+            .run_tool_command(
+                &format!(
+                    "set -eu\\nrustc --version\\nnode --version\\ntest ! -S /var/run/docker.sock\\ntest \\"$(wc -l < /proc/net/route)\\" -eq 1\\nprintf '{}\\n'\\n",
+                    label
+                ),
+                Duration::from_secs(50),
+            )
+            .expect("task must run inside the verified composite");
+        assert_eq!(result.result.exit_code, Some(0), "{result:?}");
+        assert!(result.stdout.contains(label));
+        let image_id = Command::new("docker")
+            .args(["image", "inspect", "--format", "{{.Id}}", &tag])
+            .output()
+            .expect("Docker should inspect the cached composite tag");
+        assert!(image_id.status.success());
+        String::from_utf8(image_id.stdout).unwrap().trim().to_owned()
+    };
+    let first_id = run_task("first-polyglot-task");
+    let second_id = run_task("second-polyglot-task");
+    assert!(first_id.starts_with("sha256:"));
+    assert_eq!(first_id, second_id, "cache identity must be stable across tasks");
+}
+
 fn build_synthetic_deb(root: &std::path::Path) -> Vec<u8> {
     let package = root.join("synthetic-deb");
     let control = package.join("DEBIAN/control");
