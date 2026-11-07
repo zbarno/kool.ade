@@ -71,12 +71,8 @@ impl EngineDiscovery {
         }
         selected.reference = image_id.clone();
         selected.digest = image_id;
-        self.prepare_derived_image(
-            &selected,
-            &context.content_identity,
-            &context.base_digest,
-        )
-        .await?;
+        self.prepare_derived_image(&selected, &context.content_identity, &context.base_digest)
+            .await?;
         tokio::time::timeout(
             self.timeouts.image_preparation,
             self.api.verify_composite_image(&selected),
