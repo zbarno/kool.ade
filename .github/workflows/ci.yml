@@ -154,7 +154,7 @@ jobs:
           set +e
           /usr/bin/time -p -o "$RUNNER_TEMP/nextest-time.txt" \
             cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast --test-threads 16 \
-              -E 'not (test(/^core::implementation::tests::/) and not test(/docker_lifecycle/)) and not test(/^app::root::board_tests::queue_execution::concurrent_workers::auto_queue_runs_independent_tasks_past_review_and_during_planning$/)'
+              -E 'not (test(/^core::implementation::tests::/) and not test(/docker_lifecycle/)) and not test(/^core::implementation::tests::docker_lifecycle::cancelled_task_clone_resumes_through_docker_verification_and_waits_for_pr_authorization$/) and not test(/^app::root::board_tests::queue_execution::concurrent_workers::auto_queue_runs_independent_tasks_past_review_and_during_planning$/)'
           test_status=$?
           set -e
 
@@ -286,6 +286,15 @@ jobs:
           unset DOCKER_CONTEXT
           cargo +1.98.1 nextest run --locked --lib --no-fail-fast --test-threads 1 \
             -E 'test(restarted_rootless_daemon_preserves_dirty_clone_without_command_replay)'
+
+      - name: Run isolated Docker-backed task resume E2E
+        env:
+          KOOLADE_DOCKER_BACKEND_INTEGRATION: "1"
+          KOOLADE_TEST_APPROVE_LOCKED_IMAGES: "1"
+        run: |
+          unset DOCKER_CONTEXT
+          cargo +1.98.1 nextest run --locked --lib --no-fail-fast --test-threads 1 \
+            -E 'test(cancelled_task_clone_resumes_through_docker_verification_and_waits_for_pr_authorization)'
   queue-concurrency:
     # Do not provision expensive runtimes if the fast Rust checks fail.
     needs: [format, clippy, core-implementation, docs]
