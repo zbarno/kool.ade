@@ -84,6 +84,38 @@ impl DockerExecutionBackend {
         Ok(derived)
     }
 
+    /// Derive a verified project runtime only from locked source images.
+    /// An existing daemon cache is always re-inspected and smoke-verified.
+    pub(crate) async fn compose_project_runtime(
+        &self,
+        plan: &crate::execution::docker::images::CompositionCandidate,
+    ) -> Result<SelectedImage, ExecutionError> {
+        for source in std::iter::once(&plan.foundation).chain(plan.components.iter()) {
+            // Uses the existing operator-approved image preparation flow and
+            // smoke receipts. Never silently pull an unapproved source.
+            if self.prepare_selected_image(source).await?.is_some() {
+                return Err(disconnected());
+            }
+        }
+        let selected = self
+            .engine
+            .compose_verified_runtime(plan)
+            .await
+            .map_err(super::prerequisite_error)?;
+        self.derived_images
+            .lock()
+            .map_err(|_| disconnected())?
+            .insert(
+                selected.digest.clone(),
+                RegisteredDerivedImage {
+                    image: selected.clone(),
+                    content_identity: plan.recipe_sha256.clone(),
+                    base_digest: plan.foundation.digest.clone(),
+                },
+            );
+        Ok(selected)
+    }
+
     pub(super) async fn prepare_selected_image(
         &self,
         image: &SelectedImage,
