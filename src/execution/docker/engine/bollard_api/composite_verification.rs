@@ -50,7 +50,11 @@ pub(super) async fn verify(
     {
         return Err(invalid());
     }
-    let inspected = api.docker.inspect_image(&image.reference).await.map_err(|_| invalid())?;
+    let inspected = api
+        .docker
+        .inspect_image(&image.reference)
+        .await
+        .map_err(|_| invalid())?;
     if inspected.id.as_deref() != Some(image.digest.as_str())
         || inspected.os.as_deref() != Some("linux")
         || inspected.architecture.as_deref() != image.platform.strip_prefix("linux/")
@@ -69,10 +73,7 @@ pub(super) async fn verify(
         image: Some(image.digest.clone()),
         user: Some("10001:10001".into()),
         entrypoint: Some(vec!["/bin/sh".into(), "-c".into(), checks.join("; ")]),
-        env: Some(vec![
-            "HOME=/tmp".into(),
-            "RUSTUP_NO_UPDATE_CHECK=1".into(),
-        ]),
+        env: Some(vec!["HOME=/tmp".into(), "RUSTUP_NO_UPDATE_CHECK=1".into()]),
         attach_stdout: Some(false),
         attach_stderr: Some(false),
         network_disabled: Some(true),
@@ -100,17 +101,32 @@ pub(super) async fn verify(
         }),
         ..Default::default()
     };
-    let created = api.docker.create_container(None, body).await.map_err(|_| invalid())?;
+    let created = api
+        .docker
+        .create_container(None, body)
+        .await
+        .map_err(|_| invalid())?;
     if created.id.is_empty() {
         return Err(invalid());
     }
     let completed = tokio::time::timeout(Duration::from_secs(45), async {
-        api.docker.start_container(&created.id, None).await.map_err(|_| invalid())?;
+        api.docker
+            .start_container(&created.id, None)
+            .await
+            .map_err(|_| invalid())?;
         let mut wait = api.docker.wait_container(
             &created.id,
-            Some(WaitContainerOptionsBuilder::default().condition("not-running").build()),
+            Some(
+                WaitContainerOptionsBuilder::default()
+                    .condition("not-running")
+                    .build(),
+            ),
         );
-        let result = wait.next().await.ok_or_else(invalid)?.map_err(|_| invalid())?;
+        let result = wait
+            .next()
+            .await
+            .ok_or_else(invalid)?
+            .map_err(|_| invalid())?;
         if result.status_code != 0 {
             return Err(failure(
                 PrerequisiteCode::ImageUnavailable,
@@ -125,7 +141,12 @@ pub(super) async fn verify(
         .docker
         .remove_container(
             &created.id,
-            Some(RemoveContainerOptionsBuilder::default().force(true).v(false).build()),
+            Some(
+                RemoveContainerOptionsBuilder::default()
+                    .force(true)
+                    .v(false)
+                    .build(),
+            ),
         )
         .await;
     if cleanup.is_err() {
@@ -135,11 +156,13 @@ pub(super) async fn verify(
             false,
         ));
     }
-    completed.map_err(|_| failure(
-        PrerequisiteCode::ImageUnavailable,
-        "Derived runtime toolchain verification timed out",
-        false,
-    ))?
+    completed.map_err(|_| {
+        failure(
+            PrerequisiteCode::ImageUnavailable,
+            "Derived runtime toolchain verification timed out",
+            false,
+        )
+    })?
 }
 
 fn invalid() -> PrerequisiteFailure {
