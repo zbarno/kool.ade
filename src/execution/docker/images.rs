@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use super::discovery::{PrerequisiteCode, PrerequisiteFailure, parse_architecture};
 
+mod composition;
 mod observation;
 mod project_plan;
 mod validation;
@@ -12,6 +13,7 @@ pub use observation::{
     verify_qa_image_observation,
 };
 pub(crate) use project_plan::ProjectRuntimeImagePlan;
+pub(crate) use composition::verified_context as verified_composition_context;
 
 #[cfg(not(feature = "qa-desktop-driver-image"))]
 pub const IMAGE_LOCK: &str = include_str!("../../../containers/images.lock.json");
