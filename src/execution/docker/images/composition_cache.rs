@@ -169,11 +169,7 @@ impl CompositionReceipt {
         Self::forget_if_matches_in(&root, recipe, image_id)
     }
 
-    fn forget_if_matches_in(
-        root: &Path,
-        recipe: &str,
-        image_id: &str,
-    ) -> anyhow::Result<()> {
+    fn forget_if_matches_in(root: &Path, recipe: &str, image_id: &str) -> anyhow::Result<()> {
         let Some(file) = receipt_path(root, recipe) else {
             anyhow::bail!("Invalid composite recipe identity");
         };
@@ -247,9 +243,7 @@ mod tests {
             .unwrap()
             .expect("first process acquires cache lock");
         assert!(
-            try_acquire_process_lock_in(temp.path())
-                .unwrap()
-                .is_none(),
+            try_acquire_process_lock_in(temp.path()).unwrap().is_none(),
             "second build must defer without blocking the async executor"
         );
         drop(first);
@@ -297,11 +291,15 @@ mod tests {
         assert!(file.exists(), "wrong image ID must not delete the receipt");
 
         fs::write(&file, b"corrupt-not-json").unwrap();
-        assert!(CompositionReceipt::forget_if_matches_in(
-            root,
-            &receipt.recipe_digest,
-            &receipt.image_id,
-        ).is_err(), "corrupt receipts must fail closed");
+        assert!(
+            CompositionReceipt::forget_if_matches_in(
+                root,
+                &receipt.recipe_digest,
+                &receipt.image_id,
+            )
+            .is_err(),
+            "corrupt receipts must fail closed"
+        );
         assert_eq!(
             CompositionReceipt::last_verified_at_in(
                 root,
@@ -311,12 +309,12 @@ mod tests {
             None
         );
         receipt.record_in(root).unwrap();
-        CompositionReceipt::forget_if_matches_in(
-            root,
-            &receipt.recipe_digest,
-            &receipt.image_id,
-        ).unwrap();
-        assert!(!file.exists(), "matching, verified receipt may be forgotten");
+        CompositionReceipt::forget_if_matches_in(root, &receipt.recipe_digest, &receipt.image_id)
+            .unwrap();
+        assert!(
+            !file.exists(),
+            "matching, verified receipt may be forgotten"
+        );
     }
 
     #[test]
