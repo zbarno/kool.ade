@@ -232,9 +232,18 @@ qemu-img convert -f raw -O qcow2 -c "$image" "$output_dir/${base_name}.qcow2"
 qemu-img info --output=json "$output_dir/${base_name}.qcow2" \
   | python3 -c '
 import json, sys
-info = json.load(sys.stdin)
-info.pop("filename", None)
-print(json.dumps(info, sort_keys=True, separators=(",", ":")))
+def without_filenames(value):
+    if isinstance(value, dict):
+        return {
+            key: without_filenames(child)
+            for key, child in value.items()
+            if key != "filename"
+        }
+    if isinstance(value, list):
+        return [without_filenames(child) for child in value]
+    return value
+
+print(json.dumps(without_filenames(json.load(sys.stdin)), sort_keys=True, separators=(",", ":")))
 ' \
   > "$output_dir/${base_name}.qemu-info.json"
 sha256sum "$output_dir/${base_name}.qcow2" > "$output_dir/${base_name}.sha256"
