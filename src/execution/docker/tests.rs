@@ -178,6 +178,7 @@ fn disconnected_engine_returns_structured_failure_and_does_not_claim_ready() {
 fn engine_probe_cache_is_short_lived_and_explicitly_invalidatable() {
     let mut engine_snapshot = snapshot();
     engine_snapshot.minimum_disk_bytes = 1;
+    let staging = tempfile::tempdir().unwrap();
     let api = Arc::new(FakeApi {
         inspect_count: AtomicUsize::new(0),
         image_count: AtomicUsize::new(0),
@@ -191,13 +192,12 @@ fn engine_probe_cache_is_short_lived_and_explicitly_invalidatable() {
         },
         api.clone(),
     );
-    let staging = std::env::temp_dir();
-    let first: EngineReadiness = block_on(discovery.probe(&staging)).unwrap();
-    let second = block_on(discovery.probe(&staging)).unwrap();
+    let first: EngineReadiness = block_on(discovery.probe(staging.path())).unwrap();
+    let second = block_on(discovery.probe(staging.path())).unwrap();
     assert!(first.ready && second.ready);
     assert_eq!(api.inspect_count.load(Ordering::SeqCst), 1);
     discovery.invalidate();
-    block_on(discovery.probe(&staging)).unwrap();
+    block_on(discovery.probe(staging.path())).unwrap();
     assert_eq!(api.inspect_count.load(Ordering::SeqCst), 2);
 }
 
@@ -205,6 +205,7 @@ fn engine_probe_cache_is_short_lived_and_explicitly_invalidatable() {
 fn engine_health_probe_is_read_only_and_never_prepares_an_image() {
     let mut engine_snapshot = snapshot();
     engine_snapshot.minimum_disk_bytes = 1;
+    let staging = tempfile::tempdir().unwrap();
     let api = Arc::new(FakeApi {
         inspect_count: AtomicUsize::new(0),
         image_count: AtomicUsize::new(0),
@@ -219,8 +220,7 @@ fn engine_health_probe_is_read_only_and_never_prepares_an_image() {
         api.clone(),
     );
 
-    let staging = std::env::temp_dir();
-    let readiness = block_on(discovery.probe(&staging)).unwrap();
+    let readiness = block_on(discovery.probe(staging.path())).unwrap();
 
     assert!(readiness.ready);
     assert_eq!(api.inspect_count.load(Ordering::SeqCst), 1);
