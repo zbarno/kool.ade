@@ -41,7 +41,8 @@ const PROVIDERS: [CliProvider; 6] = [
 #[test]
 fn every_provider_role_calls_only_its_application_owned_mcp_authority() {
     let app_binary = current_application_binary();
-    let root = std::env::temp_dir().join(format!("koolade-provider-mcp-{}", uuid::Uuid::new_v4()));
+    // Keep nested Unix socket paths within SUN_LEN when the system temp root is long.
+    let root = std::env::temp_dir().join(format!("k-{}", uuid::Uuid::new_v4()));
     fs::create_dir(&root).unwrap();
     let fake_cli = root.join("fake provider cli");
     fs::write(
