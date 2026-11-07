@@ -68,7 +68,15 @@ jobs:
                 filesystem_block=$(((disk_offset - partition_offset) / 4096))
                 echo "first differing virtual byte: $disk_offset; ext4 block: $filesystem_block" >&2
                 diagnostic_loop="$(sudo losetup --find --show --offset "$partition_offset" "$first_raw")"
-                sudo debugfs -R "icheck <$filesystem_block>" "$diagnostic_loop" || true
+                block_inodes="$(sudo debugfs -R "icheck $filesystem_block" "$diagnostic_loop" 2>&1 || true)"
+                printf '%s\n' "$block_inodes" >&2
+                inode_numbers="$(printf '%s\n' "$block_inodes" \
+                  | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ { print $2 }' \
+                  | sort -u)"
+                while IFS= read -r inode_number; do
+                  [[ -n "$inode_number" ]] || continue
+                  sudo debugfs -R "ncheck <$inode_number>" "$diagnostic_loop" || true
+                done <<< "$inode_numbers"
                 sudo losetup -d "$diagnostic_loop"
               else
                 echo "first differing virtual byte: $disk_offset (before root partition)" >&2
