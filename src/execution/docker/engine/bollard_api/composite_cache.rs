@@ -205,21 +205,23 @@ mod tests {
 
     #[test]
     fn only_exact_single_tag_with_composition_labels_is_eligible() {
-        let mut summary = ImageSummary::default();
-        summary.id = format!("sha256:{}", "a".repeat(64));
-        summary.size = 100;
-        summary.labels = HashMap::from([
-            (COMPOSITION_LABEL.to_owned(), COMPOSITION_POLICY.to_owned()),
-            (
-                "io.koolade.content".into(),
-                format!("sha256:{}", "b".repeat(64)),
-            ),
-            (
-                "io.koolade.base-digest".into(),
-                format!("sha256:{}", "c".repeat(64)),
-            ),
-        ]);
-        summary.repo_tags = vec![format!("koolade-derived:{}", "b".repeat(64))];
+        let mut summary = ImageSummary {
+            id: format!("sha256:{}", "a".repeat(64)),
+            size: 100,
+            labels: HashMap::from([
+                (COMPOSITION_LABEL.to_owned(), COMPOSITION_POLICY.to_owned()),
+                (
+                    "io.koolade.content".into(),
+                    format!("sha256:{}", "b".repeat(64)),
+                ),
+                (
+                    "io.koolade.base-digest".into(),
+                    format!("sha256:{}", "c".repeat(64)),
+                ),
+            ]),
+            repo_tags: vec![format!("koolade-derived:{}", "b".repeat(64))],
+            ..Default::default()
+        };
         assert!(classified_entry(&summary).is_some());
         summary.repo_tags.push("another-user:latest".into());
         assert!(classified_entry(&summary).is_none());
