@@ -9,7 +9,7 @@ use std::{collections::BTreeMap, io::Cursor};
 use super::{ImageLock, RuntimeProfile, SelectedImage, project_plan::CompositionCandidate};
 use crate::execution::docker::image_extension::builder::GeneratedImageContext;
 
-pub(super) fn verified_context(
+pub(crate) fn verified_context(
     plan: &CompositionCandidate,
 ) -> anyhow::Result<(GeneratedImageContext, SelectedImage)> {
     let lock = ImageLock::bundled()?;
