@@ -41,6 +41,9 @@ pub(in crate::ui::layout::board::columns) fn pr_task(
         |ui| {
             ui.horizontal_wrapped(|ui| {
                 theme::badge(ui, "PR preparation", theme::PANEL, theme::TEXT_DIM);
+                if work.status == Status::Publishing {
+                    super::ownership::agent_pill(ui);
+                }
                 theme::badge(ui, status, theme::PANEL, theme::TEXT_DIM);
             });
             if ui

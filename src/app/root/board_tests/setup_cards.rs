@@ -159,3 +159,66 @@ fn kanban_setup_details_name_each_blocking_prerequisite() {
     assert!(text_contains(&output, "Check coding task requirements"));
     assert!(!text_contains(&output, "setup:docker:rootless"));
 }
+
+/// Production connected-board presentation boundary: automatic setup execution
+/// and verification must not ask the operator to do the agent's work. A state
+/// classifier alone cannot prove the visible badge or action copy. Synthetic
+/// local Git/UI fixtures only; no Docker/provider/network, low setup cost.
+#[test]
+fn setup_cards_assign_execution_and_verification_to_the_agent() {
+    use crate::persistence::setup_tasks::SetupTaskStateV1 as State;
+    for (state, agent, blocked) in [
+        (State::InProgress, true, false),
+        (State::AwaitingVerification, true, false),
+        (State::NeedsApproval, false, false),
+        (State::NeedsVerification, false, false),
+        (State::BlockedByPrerequisite, false, true),
+    ] {
+        let mut app = fixture();
+        let Screen::Connected(project) = &mut app.screen else {
+            unreachable!()
+        };
+        project.planning_work.clear();
+        project.task_documents.clear();
+        project.state.items.clear();
+        project.state.resolved_items.clear();
+        project.state.active_features.clear();
+        app.setup_attention.clear();
+        let mut task =
+            machine_setup_task("setup:docker:rootless", "Prepare secure execution", state);
+        if blocked {
+            task.blocked_by.push("setup:docker:capabilities".into());
+        }
+        app.machine_setup_tasks = vec![task];
+        let ctx = super::mockup_layout::styled_context();
+        for _ in 0..4 {
+            frame(&mut app, &ctx, vec![]);
+        }
+        let output = frame(&mut app, &ctx, vec![]);
+        assert_eq!(
+            text_position(&output, "AGENT").is_some(),
+            agent,
+            "{state:?}"
+        );
+        assert_eq!(
+            text_position(&output, "Waiting on user").is_some(),
+            !agent && !blocked,
+            "{state:?}"
+        );
+        assert_eq!(
+            text_position(&output, "Blocked").is_some(),
+            blocked,
+            "{state:?}"
+        );
+        assert_eq!(
+            text_position(&output, "View progress").is_some(),
+            agent,
+            "{state:?}"
+        );
+        assert_eq!(
+            text_position(&output, "Guide me").is_some(),
+            !agent,
+            "{state:?}"
+        );
+    }
+}

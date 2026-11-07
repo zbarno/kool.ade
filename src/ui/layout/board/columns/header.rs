@@ -22,7 +22,7 @@ pub(super) fn paint(ui: &mut egui::Ui, column: usize, label: &str, count: usize)
             0 => "Ready for the next step",
             1 => "Ideas becoming reality",
             2 => "A fresh pair of eyes",
-            3 => "Your input moves things forward",
+            3 => "Blockers, decisions, and recovery",
             _ => "Look what you made happen",
         })
         .size(11.0)
@@ -37,4 +37,20 @@ pub(super) fn paint(ui: &mut egui::Ui, column: usize, label: &str, count: usize)
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 2.0), egui::Sense::hover());
     ui.painter()
         .rect_filled(line, 1, theme::BORDER.gamma_multiply(0.65));
+}
+
+pub(super) fn empty_message(column: usize) -> (&'static str, &'static str) {
+    match column {
+        0 => ("Nothing queued", "New planning work will appear here."),
+        1 => (
+            "No active work",
+            "Workers and active conversations appear here.",
+        ),
+        2 => (
+            "Nothing in review",
+            "Completed checks await their next review step here.",
+        ),
+        3 => ("All clear", "Items needing a person will appear here."),
+        _ => ("Nothing completed yet", "Finished work appears here."),
+    }
 }

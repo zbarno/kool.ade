@@ -119,7 +119,13 @@ fn paint_item_details(
     } else {
         ui.label("Continue this task in the conversation pane.");
     }
-    if item.status == crate::domain::item::ItemStatus::Resolved && ui.button("Archive").clicked() {
+    if item.status == crate::domain::item::ItemStatus::Resolved && item.task_intent_uid.is_some() {
+        ui.label(theme::helper_text("This card stays with its TaskIntent. Archive the parent request when its work is complete."));
+    }
+    if item.status == crate::domain::item::ItemStatus::Resolved
+        && item.task_intent_uid.is_none()
+        && ui.button("Archive").clicked()
+    {
         surface.dispatch(crate::ui::ApplicationCommand::ArchiveTask {
             ticket: item.id.clone(),
         });

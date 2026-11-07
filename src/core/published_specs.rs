@@ -117,6 +117,29 @@ impl PublishedSpecReader {
         Ok(())
     }
 
+    /// Prove ancestry using the same immutable object policy as document reads.
+    pub(crate) fn ensure_descendant(
+        &self,
+        base: &PublishedSpecPin,
+        current: &PublishedSpecPin,
+    ) -> anyhow::Result<()> {
+        self.validate_pin(base)?;
+        self.validate_pin(current)?;
+        anyhow::ensure!(
+            base.repository_id == current.repository_id && base.reference == current.reference,
+            "Published revisions belong to different repository/ref identities"
+        );
+        let ancestor = git(
+            &self.repository_root,
+            &["merge-base", &base.commit_sha, &current.commit_sha],
+        )?;
+        anyhow::ensure!(
+            ancestor.trim() == base.commit_sha,
+            "The private draft base is not an ancestor of the published revision"
+        );
+        Ok(())
+    }
+
     /// Read a regular Markdown blob by immutable commit and repository path.
     /// The Git index and working tree are not read or modified.
     pub fn read(

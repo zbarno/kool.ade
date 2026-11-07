@@ -32,7 +32,10 @@ impl KooladeApp {
                     .messages
                     .iter()
                     .filter_map(|(key, messages)| {
-                        if key.starts_with("@legacy:")
+                        // QuestionStore answers have their own reconciliation and
+                        // Planner lifecycle; a generic task reply cannot apply them.
+                        if key.starts_with("clarification:")
+                            || key.starts_with("@legacy:")
                             || key.starts_with("@unlinked:")
                             || key.starts_with("@ambiguous:")
                             || project.task_turns.contains_key(key)

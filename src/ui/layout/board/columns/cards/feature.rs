@@ -53,6 +53,7 @@ pub(in crate::ui::layout::board::columns) fn plan_review(
 fn plan_review_content(ui: &mut egui::Ui, title: &str, key: &str, selected: &mut Option<String>) {
     ui.horizontal(|ui| {
         theme::badge(ui, "Plan Review", theme::PANEL, theme::TEXT_DIM);
+        super::ownership::agent_pill(ui);
         theme::badge(ui, "Independent", theme::PANEL, theme::ACTION);
     });
     if ui.button(egui::RichText::new(title).strong()).clicked() {

@@ -3,6 +3,7 @@ use super::super::super::*;
 mod clarification;
 mod feature;
 mod item;
+mod ownership;
 mod pr_task;
 mod setup;
 mod task;
@@ -23,6 +24,12 @@ pub(super) fn task_card_column(
     board: &crate::ui::planning_board::ViewModel,
     document: &crate::artifacts::task_docs::TaskDocument,
 ) -> usize {
+    if board
+        .cancelled
+        .contains(&crate::persistence::cancelled_work::task_id(document))
+    {
+        return 4;
+    }
     let fallback = task_document_board_column(surface, document);
     task_semantics::task_board_column(
         board.lifecycle_tasks.get(&document.path).copied(),

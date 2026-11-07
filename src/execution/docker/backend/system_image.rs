@@ -206,8 +206,11 @@ impl DockerExecutionBackend {
             .strip_prefix("linux/")
             .ok_or_else(super::invalid_request)?;
         let task_id = format!("setup:images:{profile}:{architecture}:{engine_identity}");
-        let store = crate::persistence::setup_tasks::load().map_err(|_| {
-            super::internal_error_with_context("checking the runtime image smoke receipt")
+        let store = crate::persistence::setup_tasks::load().map_err(|error| {
+            super::internal_error_with_detail(
+                "checking the runtime image smoke receipt",
+                &error.to_string(),
+            )
         })?;
         if store.has_valid_image_preparation_receipt(&task_id) {
             return Ok(());

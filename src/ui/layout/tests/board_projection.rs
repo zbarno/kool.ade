@@ -56,7 +56,7 @@ fn dependent_decision_waits_until_its_prerequisite_is_resolved() {
 }
 
 #[test]
-fn child_work_names_the_blocking_parent() {
+fn parent_relationship_does_not_claim_a_dependency() {
     let mut parent = crate::core::planning_work::Work::new(
         "task:parent".into(),
         "Plan access behavior".into(),
@@ -73,6 +73,6 @@ fn child_work_names_the_blocking_parent() {
     child.parent_uid = Some(parent.uid.clone());
     assert_eq!(
         planning_parent_label(&child, &[&parent]),
-        Some("Blocked by Plan access behavior".into())
+        Some("Part of Plan access behavior".into())
     );
 }
