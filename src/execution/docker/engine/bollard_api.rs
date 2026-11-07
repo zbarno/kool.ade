@@ -14,6 +14,7 @@ pub(super) struct BollardApi {
 }
 
 mod capacity;
+mod composite_verification;
 mod image_derivation;
 mod image_inspection;
 mod image_pull;
@@ -255,6 +256,13 @@ impl DockerApi for BollardApi {
         packages: &'a [crate::execution::docker::image_extension::builder::PackageArtifactIdentity],
     ) -> EngineFuture<'a, Result<(), PrerequisiteFailure>> {
         image_derivation::verify(self, image_id, packages)
+    }
+
+    fn verify_composite_image<'a>(
+        &'a self,
+        image: &'a SelectedImage,
+    ) -> EngineFuture<'a, Result<(), PrerequisiteFailure>> {
+        Box::pin(composite_verification::verify(self, image))
     }
 
     fn smoke_test<'a>(
