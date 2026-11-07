@@ -1,0 +1,177 @@
+name: Computer Use guest image promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful computer-use-images.yml workflow_dispatch run on current main
+        required: true
+        type: string
+      generation:
+        description: Monotonically increasing signed catalog generation
+        required: true
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - "containers/computer-use/catalog-v1.json"
+      - "containers/computer-use/images.lock.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: computer-use-image-promotion-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      attestations: read
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Validate and download candidate run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_RUN_ID" =~ ^[0-9]+$ ]]
+          workflow_id="$(gh api repos/${GITHUB_REPOSITORY}/actions/workflows/computer-use-images.yml --jq .id)"
+          run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CANDIDATE_RUN_ID}")"
+          jq -e --arg sha "$GITHUB_SHA" --argjson workflow "$workflow_id" \
+            '.workflow_id == $workflow and .event == "workflow_dispatch" and .head_branch == "main" and .head_sha == $sha and .status == "completed" and .conclusion == "success"' \
+            <<< "$run" >/dev/null
+          gh run download "$CANDIDATE_RUN_ID" --name "computer-use-guest-candidate-${GITHUB_SHA}" --dir "$RUNNER_TEMP/candidate"
+      - name: Verify candidate provenance and SBOM attestations
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          image="$RUNNER_TEMP/candidate/koolade-computer-use-guest-x86_64.qcow2"
+          gh attestation verify "$image" --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/computer-use-images.yml" \
+            --source-ref refs/heads/main --source-digest "$GITHUB_SHA" \
+            --deny-self-hosted-runners --format json \
+            > "$RUNNER_TEMP/image-attestation.json"
+          gh attestation verify "$image" --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/computer-use-images.yml" \
+            --source-ref refs/heads/main --source-digest "$GITHUB_SHA" \
+            --deny-self-hosted-runners --predicate-type https://cyclonedx.org/bom --format json \
+            > "$RUNNER_TEMP/sbom-attestation.json"
+          jq -s 'add' "$RUNNER_TEMP/image-attestation.json" "$RUNNER_TEMP/sbom-attestation.json" \
+            > "$RUNNER_TEMP/verified-attestations.json"
+      - name: Build companion from promoted source
+        run: |
+          set -euo pipefail
+          cargo +1.98.1 build --locked --release --bin koolade-computer-use-agent
+          cargo +1.98.1 build --locked --release --bin computer-use-image-promotion
+      - name: Sign catalog with application-pinned key
+        env:
+          COMPUTER_USE_CATALOG_SIGNING_KEY: ${{ secrets.COMPUTER_USE_CATALOG_SIGNING_KEY }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CATALOG_GENERATION: ${{ inputs.generation }}
+        run: |
+          set -euo pipefail
+          [[ "$CATALOG_GENERATION" =~ ^[1-9][0-9]*$ ]]
+          mkdir -p "$RUNNER_TEMP/promotion"
+          printf '%s' "$COMPUTER_USE_CATALOG_SIGNING_KEY" | target/release/computer-use-image-promotion sign \
+            "$RUNNER_TEMP/candidate" target/release/koolade-computer-use-agent \
+            "$RUNNER_TEMP/promotion" containers/computer-use/catalog-v1.json \
+            containers/computer-use/images.lock.json "$GITHUB_SHA" "$CATALOG_GENERATION" \
+            "$RUNNER_TEMP/verified-attestations.json"
+          target/release/computer-use-image-promotion verify \
+            "$RUNNER_TEMP/promotion/catalog-v1.json" "$RUNNER_TEMP/promotion/images.lock.json"
+          cp "$RUNNER_TEMP/candidate/koolade-computer-use-guest-x86_64.qcow2" "$RUNNER_TEMP/promotion/"
+          cp "$RUNNER_TEMP/candidate/koolade-computer-use-guest-x86_64.sbom.cdx.json" "$RUNNER_TEMP/promotion/"
+          cp "$RUNNER_TEMP/verified-attestations.json" "$RUNNER_TEMP/promotion/attestations.json"
+      - name: Create draft release and catalog review branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          CATALOG_GENERATION: ${{ inputs.generation }}
+        run: |
+          set -euo pipefail
+          tag="$(jq -r .release_tag "$RUNNER_TEMP/promotion/promotion-record.json")"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "release tag already exists; refusing to replace a prior promotion" >&2
+            exit 1
+          fi
+          gh release create "$tag" --target "$GITHUB_SHA" --draft \
+            --title "Computer Use guest image ${CATALOG_GENERATION}" \
+            --notes "Draft promotion for reviewed application catalog update. The release remains a draft until the catalog and lock PR merges." \
+            "$RUNNER_TEMP/promotion/koolade-computer-use-guest-x86_64.qcow2" \
+            "$RUNNER_TEMP/promotion/koolade-computer-use-guest-x86_64.sbom.cdx.json" \
+            "$RUNNER_TEMP/verified-attestations.json" \
+            "$RUNNER_TEMP/promotion/catalog-v1.json" "$RUNNER_TEMP/promotion/images.lock.json" \
+            "$RUNNER_TEMP/promotion/promotion-record.json"
+          branch="build/computer-use-image-catalog-${CATALOG_GENERATION}"
+          git switch -c "$branch"
+          cp "$RUNNER_TEMP/promotion/catalog-v1.json" containers/computer-use/catalog-v1.json
+          cp "$RUNNER_TEMP/promotion/images.lock.json" containers/computer-use/images.lock.json
+          git add containers/computer-use/catalog-v1.json containers/computer-use/images.lock.json
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "build: promote computer-use guest image catalog"
+          git push --set-upstream origin "$branch"
+          compare_url="https://github.com/${GITHUB_REPOSITORY}/compare/main...${branch}?expand=1"
+          {
+            echo "## Signed guest image promotion"
+            echo
+            echo "Draft release: [${tag}](https://github.com/${GITHUB_REPOSITORY}/releases/tag/${tag})"
+            echo "Candidate run: ${CANDIDATE_RUN_ID}"
+            echo "Source revision: ${GITHUB_SHA}"
+            echo "Review branch: \`${branch}\`"
+            echo
+            echo "Open the catalog and lock change as a pull request: ${compare_url}"
+            echo "The PR must merge through the normal required checks and independent review. The draft release is published by the merge-triggered job."
+            echo "Real KVM and GUI readiness remains tracked in #392."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Verify and publish reviewed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cargo +1.98.1 build --locked --release --bin computer-use-image-promotion
+          catalog=containers/computer-use/catalog-v1.json
+          lock=containers/computer-use/images.lock.json
+          target/release/computer-use-image-promotion verify "$catalog" "$lock"
+          tag="$(jq -r .catalogVersion "$catalog")"
+          gh release download "$tag" --dir "$RUNNER_TEMP/release"
+          cmp "$catalog" "$RUNNER_TEMP/release/catalog-v1.json"
+          cmp "$lock" "$RUNNER_TEMP/release/images.lock.json"
+          target/release/computer-use-image-promotion verify-image "$catalog" "$lock" \
+            "$RUNNER_TEMP/release/koolade-computer-use-guest-x86_64.qcow2"
+          expected_sbom="$(jq -r '.images[] | select(.status == "approved") | .sbom_sha256' "$catalog")"
+          actual_sbom="sha256:$(sha256sum "$RUNNER_TEMP/release/koolade-computer-use-guest-x86_64.sbom.cdx.json" | cut -d ' ' -f 1)"
+          expected_attestations="$(jq -r '.images[] | select(.status == "approved") | .build_attestation_sha256' "$catalog")"
+          actual_attestations="sha256:$(sha256sum "$RUNNER_TEMP/release/attestations.json" | cut -d ' ' -f 1)"
+          [[ "$actual_sbom" == "$expected_sbom" ]]
+          [[ "$actual_attestations" == "$expected_attestations" ]]
+          release_json="$(gh release view "$tag" --json isDraft)"
+          if [[ "$(jq -r .isDraft <<< "$release_json")" == true ]]; then
+            gh release edit "$tag" --draft=false
+          fi

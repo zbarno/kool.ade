@@ -16,8 +16,8 @@ pub use frame::{MAX_CONTROL_FRAME_BYTES, MAX_SCREENSHOT_PNG_BYTES};
 pub use host::{AuthenticatedGuestChannelV1, GuestHostTransportV1};
 pub use journal::{GuestActionJournalV1, GuestJournalErrorV1, GuestReplayDecisionV1};
 pub use types::{
-    GuestActionOutcomeV1, GuestActionReplyV1, GuestCapabilitySetV1, GuestEnvelopeV1,
-    GuestExitReasonV1, GuestMessageV1, GuestObservationV1, GuestOperationResultV1,
+    GUEST_PROTOCOL_VERSION_V1, GuestActionOutcomeV1, GuestActionReplyV1, GuestCapabilitySetV1,
+    GuestEnvelopeV1, GuestExitReasonV1, GuestMessageV1, GuestObservationV1, GuestOperationResultV1,
     GuestProtocolErrorV1, GuestSenderV1,
 };
 

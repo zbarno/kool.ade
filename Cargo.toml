@@ -23,6 +23,10 @@ required-features = ["qa-desktop-driver-image"]
 name = "koolade-computer-use-agent"
 path = "src/bin/koolade_computer_use_agent.rs"
 
+[[bin]]
+name = "computer-use-image-promotion"
+path = "src/bin/computer_use_image_promotion.rs"
+
 [lib]
 name = "koolade"
 path = "src/lib.rs"
