@@ -33,11 +33,18 @@ fn private_root() -> io::Result<PathBuf> {
     fs::create_dir_all(&root)?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
         let metadata = fs::symlink_metadata(&root)?;
-        if !metadata.file_type().is_dir() || metadata.permissions().mode() & 0o077 != 0 {
-            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "Composite cache directory is not private"));
+        if !metadata.file_type().is_dir()
+            || metadata.uid() != unsafe { libc::geteuid() }
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Composite cache directory is not owned by the current user",
+            ));
         }
+        // Newly created directories may inherit an unrestrictive umask.
+        fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
     }
     Ok(root)
 }
