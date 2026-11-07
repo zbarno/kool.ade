@@ -35,6 +35,8 @@ jobs:
             grub-pc-bin grub2-common parted e2fsprogs dpkg-dev libasound2-dev \
             libfontconfig1-dev libfreetype6-dev libgl1-mesa-dev libwayland-dev \
             libx11-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libxrandr-dev
+      - name: Verify real qcow2 copy-on-write isolation
+        run: bash containers/computer-use/test-overlay-isolation.sh
       - name: Build twice and verify reproducibility
         shell: bash
         run: |
@@ -110,7 +112,7 @@ jobs:
             exit 1
           fi
           for suffix in \
-            packages.tsv sbom.cdx.json qemu-info.json recipe-components.sha256 \
+            packages.tsv sbom.cdx.json agent.sha256 qemu-info.json recipe-components.sha256 \
             recipe.sha256 builder-versions.txt source-revision promotion-status.txt; do
             first_file="$first/koolade-computer-use-guest-x86_64.$suffix"
             second_file="$second/koolade-computer-use-guest-x86_64.$suffix"

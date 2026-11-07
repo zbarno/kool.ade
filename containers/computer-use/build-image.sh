@@ -108,6 +108,18 @@ sudo rm -f "$work_dir/rootfs/var/cache/ldconfig/aux-cache"
 chroot_guest useradd --create-home --shell /bin/bash --groups audio,video koolade
 chroot_guest passwd --lock koolade
 chroot_guest usermod --lock root
+root_password_state="$(chroot_guest passwd -S root | awk '{print $2}')"
+guest_password_state="$(chroot_guest passwd -S koolade | awk '{print $2}')"
+guest_uid="$(chroot_guest id -u koolade)"
+guest_groups="$(chroot_guest id -Gn koolade)"
+if [[ "$root_password_state" != L || "$guest_password_state" != L || "$guest_uid" == 0 ]]; then
+  echo "refusing to build an image with an unlocked root or interactive guest password" >&2
+  exit 1
+fi
+if tr ' ' '\n' <<<"$guest_groups" | grep -Fxq sudo; then
+  echo "refusing to build an image whose desktop user belongs to sudo" >&2
+  exit 1
+fi
 sudo install -d -m 0755 "$work_dir/rootfs/usr/lib/koolade"
 sudo install -o root -g root -m 0755 "$agent_binary" \
   "$work_dir/rootfs/usr/lib/koolade/computer-use-agent"
@@ -134,8 +146,8 @@ chroot_guest update-locale LANG=en_US.UTF-8
 chroot_guest systemctl enable lightdm
 chroot_guest systemctl disable NetworkManager systemd-networkd 2>/dev/null || true
 
-# CU-05 owns the authenticated agent. Until that artifact is reviewed, this
-# service fails closed and cannot report guest readiness.
+# Runtime readiness still requires app-side image promotion and a real guest
+# handshake; packaging the companion alone does not promote the image.
 sudo tee "$work_dir/rootfs/etc/udev/rules.d/70-koolade-computer-use.rules" >/dev/null <<'UDEV'
 SUBSYSTEM=="virtio-ports", ATTR{name}=="org.koolade.computer-control.v1", OWNER="koolade", GROUP="koolade", MODE="0600"
 UDEV
@@ -292,12 +304,18 @@ print(json.dumps(without_filenames(json.load(sys.stdin)), sort_keys=True, separa
 ' \
   > "$output_dir/${base_name}.qemu-info.json"
 sha256sum "$output_dir/${base_name}.qcow2" > "$output_dir/${base_name}.sha256"
+agent_digest="$(sha256sum "$agent_binary" | cut -d ' ' -f 1)"
+printf '%s  %s\n' "$agent_digest" "${base_name}.agent" \
+  > "$output_dir/${base_name}.agent.sha256"
 (cd "$root_dir" && sha256sum \
   containers/computer-use/build-image.sh \
+  containers/computer-use/test-overlay-isolation.sh \
   containers/computer-use/make-sbom.py \
   containers/computer-use/debootstrap-wget \
   .github/workflows/computer-use-images.yml) \
   > "$output_dir/${base_name}.recipe-components.sha256"
+printf '%s  %s\n' "$agent_digest" "companion-binary" \
+  >> "$output_dir/${base_name}.recipe-components.sha256"
 recipe_digest="$(sha256sum "$output_dir/${base_name}.recipe-components.sha256" | cut -d ' ' -f 1)"
 printf 'sha256:%s\n' "$recipe_digest" > "$output_dir/${base_name}.recipe.sha256"
 printf 'debootstrap: %s\nqemu-img: %s\ngrub-install: %s\ndebugfs: %s\n' \
@@ -310,5 +328,5 @@ sha256sum "$output_dir/${base_name}.sbom.cdx.json" \
   > "$output_dir/${base_name}.sbom.sha256"
 source_revision="${GITHUB_SHA:-$(git -C "$root_dir" rev-parse HEAD)}"
 printf '%s\n' "$source_revision" > "$output_dir/${base_name}.source-revision"
-printf 'candidate image only; no CU-05 readiness or signed promotion\n' \
+printf 'candidate image only; no signed promotion or real-KVM readiness\n' \
   > "$output_dir/${base_name}.promotion-status.txt"
