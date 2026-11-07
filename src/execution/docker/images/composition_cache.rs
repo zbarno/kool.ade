@@ -3,7 +3,11 @@
 //! Receipts are durable diagnostics, never authorization. A cache hit still
 //! requires locked-image inspection and an isolated toolchain smoke run.
 
-use std::{fs, io, path::{Path, PathBuf}, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
@@ -35,9 +39,7 @@ fn private_root() -> io::Result<PathBuf> {
     {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
         let metadata = fs::symlink_metadata(&root)?;
-        if !metadata.file_type().is_dir()
-            || metadata.uid() != unsafe { libc::geteuid() }
-        {
+        if !metadata.file_type().is_dir() || metadata.uid() != unsafe { libc::geteuid() } {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 "Composite cache directory is not owned by the current user",
@@ -62,13 +64,19 @@ pub(crate) fn acquire_process_lock() -> io::Result<fs::File> {
     let file = opts.open(&path)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() {
-        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "Composite cache lock is not a regular file"));
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Composite cache lock is not a regular file",
+        ));
     }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         if metadata.permissions().mode() & 0o077 != 0 {
-            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "Composite cache lock has unsafe permissions"));
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Composite cache lock has unsafe permissions",
+            ));
         }
     }
     file.lock_exclusive()?;
@@ -130,13 +138,18 @@ impl CompositionReceipt {
         let target = root.join(name);
         // Never replace a symlink or an unexpected object in app-owned state.
         if let Ok(metadata) = fs::symlink_metadata(&target) {
-            anyhow::ensure!(metadata.file_type().is_file(), "Composite cache receipt is not a regular file");
+            anyhow::ensure!(
+                metadata.file_type().is_file(),
+                "Composite cache receipt is not a regular file"
+            );
         }
         let mut temporary = tempfile::NamedTempFile::new_in(root)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            temporary.as_file().set_permissions(fs::Permissions::from_mode(0o600))?;
+            temporary
+                .as_file()
+                .set_permissions(fs::Permissions::from_mode(0o600))?;
         }
         use std::io::Write;
         temporary.write_all(&serde_json::to_vec_pretty(self)?)?;
@@ -158,7 +171,9 @@ mod tests {
         let ProjectRuntimeImagePlan::Composition(plan) = lock
             .plan_project_runtime("amd64", &["cargo".into(), "node".into()])
             .unwrap()
-        else { panic!("expected composite") };
+        else {
+            panic!("expected composite")
+        };
         let image = SelectedImage {
             reference: format!("sha256:{}", "a".repeat(64)),
             digest: format!("sha256:{}", "a".repeat(64)),
@@ -169,9 +184,10 @@ mod tests {
         };
         let receipt = CompositionReceipt::verified(&plan, &image, "endpoint", "daemon").unwrap();
         receipt.record_in(temp.path()).unwrap();
-        let path = temp.path().join(format!("{}.json", &plan.recipe_sha256[7..]));
-        let stored: CompositionReceipt =
-            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        let path = temp
+            .path()
+            .join(format!("{}.json", &plan.recipe_sha256[7..]));
+        let stored: CompositionReceipt = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
         assert_eq!(receipt, stored);
         assert!(!fs::read_to_string(&path).unwrap().contains("endpoint"));
         assert!(!fs::read_to_string(&path).unwrap().contains("daemon\""));
