@@ -189,6 +189,8 @@ fn builder_cleanup_uses_privileged_removal_only_for_its_mktemp_directory() {
         write_executable(&fake_bin.join(name), "#!/bin/sh\nexit 0\n");
     }
     write_executable(&fake_bin.join("sudo"), "#!/bin/sh\nexec \"$@\"\n");
+    let agent_binary = temp.path().join("agent");
+    write_executable(&agent_binary, "#!/bin/sh\nexit 0\n");
     write_executable(
         &fake_bin.join("debootstrap"),
         "#!/bin/sh\nfor arg do case \"$arg\" in */rootfs) mkdir -p \"$arg\"; echo root-owned > \"$arg/root-owned-file\";; esac; done\nexit 17\n",
@@ -198,6 +200,7 @@ fn builder_cleanup_uses_privileged_removal_only_for_its_mktemp_directory() {
     let result = Command::new("bash")
         .arg(script)
         .arg(temp.path().join("output"))
+        .arg(&agent_binary)
         .env("PATH", format!("{}:{real_path}", fake_bin.display()))
         .env("RUNNER_TEMP", &runner_temp)
         .output()

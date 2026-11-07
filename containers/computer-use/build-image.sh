@@ -6,6 +6,11 @@ trap 'status=$?; printf "build-image.sh failed at line %s: %s (status %s)\\n" "$
 # task repositories and their build scripts are never inputs.
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 output_dir="${1:?usage: build-image.sh OUTPUT_DIR}"
+agent_binary="${2:?usage: build-image.sh OUTPUT_DIR AGENT_BINARY}"
+[[ -f "$agent_binary" && -x "$agent_binary" && ! -L "$agent_binary" ]] || {
+  echo "companion binary must be a regular executable file" >&2
+  exit 2
+}
 for tool in debootstrap qemu-img mkfs.ext4 debugfs mount umount mountpoint realpath grub-install chroot sha256sum parted sfdisk losetup sudo curl grep find sort touch; do
   command -v "$tool" >/dev/null || { echo "missing required builder: $tool" >&2; exit 2; }
 done
@@ -115,6 +120,9 @@ if tr ' ' '\n' <<<"$guest_groups" | grep -Fxq sudo; then
   echo "refusing to build an image whose desktop user belongs to sudo" >&2
   exit 1
 fi
+sudo install -d -m 0755 "$work_dir/rootfs/usr/lib/koolade"
+sudo install -o root -g root -m 0755 "$agent_binary" \
+  "$work_dir/rootfs/usr/lib/koolade/computer-use-agent"
 sudo install -d -m 0755 "$work_dir/rootfs/etc/lightdm/lightdm.conf.d"
 sudo tee "$work_dir/rootfs/etc/lightdm/lightdm.conf.d/50-koolade-guest.conf" >/dev/null <<'LIGHTDM'
 [Seat:*]
@@ -138,17 +146,23 @@ chroot_guest update-locale LANG=en_US.UTF-8
 chroot_guest systemctl enable lightdm
 chroot_guest systemctl disable NetworkManager systemd-networkd 2>/dev/null || true
 
-# CU-05 owns the authenticated agent. Until that artifact is reviewed, this
-# service fails closed and cannot report guest readiness.
-sudo tee "$work_dir/rootfs/etc/systemd/system/koolade-computer-use-agent.service" >/dev/null <<'UNIT'
+# Runtime readiness still requires app-side image promotion and a real guest
+# handshake; packaging the companion alone does not promote the image.
+sudo tee "$work_dir/rootfs/etc/udev/rules.d/70-koolade-computer-use.rules" >/dev/null <<'UDEV'
+SUBSYSTEM=="virtio-ports", ATTR{name}=="org.koolade.computer-control.v1", OWNER="koolade", GROUP="koolade", MODE="0600"
+UDEV
+sudo tee "$work_dir/rootfs/etc/systemd/system/koolade-computer-use-bootstrap.service" >/dev/null <<'UNIT'
 [Unit]
-Description=Kool.ad/e Computer Use guest companion (CU-05 required)
-After=multi-user.target
+Description=Install the authenticated Computer Use boot context
+After=systemd-udevd.service
+Before=koolade-computer-use-agent.service
 
 [Service]
-Type=notify
-ExecStart=/usr/lib/koolade/computer-use-agent
-Restart=no
+Type=oneshot
+ExecStart=/usr/lib/koolade/computer-use-agent --bootstrap-fw-cfg
+RemainAfterExit=yes
+RuntimeDirectory=koolade-computer-use
+RuntimeDirectoryMode=0755
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
@@ -157,6 +171,37 @@ PrivateTmp=yes
 [Install]
 WantedBy=multi-user.target
 UNIT
+sudo tee "$work_dir/rootfs/etc/systemd/system/koolade-computer-use-agent.service" >/dev/null <<'UNIT'
+[Unit]
+Description=Kool.ad/e authenticated Computer Use guest companion
+Requires=koolade-computer-use-bootstrap.service
+After=koolade-computer-use-bootstrap.service graphical.target
+
+[Service]
+Type=simple
+User=koolade
+Group=koolade
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/koolade/.Xauthority
+Environment=HOME=/run/koolade-computer-use-agent
+ExecStart=/usr/lib/koolade/computer-use-agent
+Restart=on-failure
+RestartSec=1
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+RuntimeDirectory=koolade-computer-use-agent
+RuntimeDirectoryMode=0700
+PrivateTmp=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+chroot_guest systemctl enable koolade-computer-use-bootstrap.service
 chroot_guest systemctl enable koolade-computer-use-agent.service
 sudo tee "$work_dir/rootfs/etc/fstab" >/dev/null <<'FSTAB'
 LABEL=rootfs / ext4 errors=remount-ro 0 1
@@ -259,13 +304,18 @@ print(json.dumps(without_filenames(json.load(sys.stdin)), sort_keys=True, separa
 ' \
   > "$output_dir/${base_name}.qemu-info.json"
 sha256sum "$output_dir/${base_name}.qcow2" > "$output_dir/${base_name}.sha256"
+agent_digest="$(sha256sum "$agent_binary" | cut -d ' ' -f 1)"
+printf '%s  %s\n' "$agent_digest" "${base_name}.agent" \
+  > "$output_dir/${base_name}.agent.sha256"
 (cd "$root_dir" && sha256sum \
   containers/computer-use/build-image.sh \
+  containers/computer-use/test-overlay-isolation.sh \
   containers/computer-use/make-sbom.py \
   containers/computer-use/debootstrap-wget \
-  containers/computer-use/test-overlay-isolation.sh \
   .github/workflows/computer-use-images.yml) \
   > "$output_dir/${base_name}.recipe-components.sha256"
+printf '%s  %s\n' "$agent_digest" "companion-binary" \
+  >> "$output_dir/${base_name}.recipe-components.sha256"
 recipe_digest="$(sha256sum "$output_dir/${base_name}.recipe-components.sha256" | cut -d ' ' -f 1)"
 printf 'sha256:%s\n' "$recipe_digest" > "$output_dir/${base_name}.recipe.sha256"
 printf 'debootstrap: %s\nqemu-img: %s\ngrub-install: %s\ndebugfs: %s\n' \
@@ -278,5 +328,5 @@ sha256sum "$output_dir/${base_name}.sbom.cdx.json" \
   > "$output_dir/${base_name}.sbom.sha256"
 source_revision="${GITHUB_SHA:-$(git -C "$root_dir" rev-parse HEAD)}"
 printf '%s\n' "$source_revision" > "$output_dir/${base_name}.source-revision"
-printf 'candidate image only; no CU-05 readiness or signed promotion\n' \
+printf 'candidate image only; no signed promotion or real-KVM readiness\n' \
   > "$output_dir/${base_name}.promotion-status.txt"
