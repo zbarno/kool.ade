@@ -13,6 +13,10 @@ mod broker;
 use broker::dependency_request_evidence;
 mod provider_readiness;
 
+#[cfg(test)]
+#[path = "evidence/tests.rs"]
+mod tests;
+
 /// Application-generated, workspace-private evidence for the generic support
 /// check and recent typed lifecycle events. Model output can cite these IDs,
 /// but cannot create or alter their contents.
@@ -129,10 +133,7 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
             .and_then(|document| document.identity.as_ref())
             .map(|identity| identity.uid.as_str())
             .unwrap_or("unlinked-task");
-        let digest = format!(
-            "{:x}",
-            sha2::Sha256::digest(format!("{workspace_uid}\0{task_uid}").as_bytes())
-        );
+        let digest = task_failure_evidence_digest(&workspace_uid, task_uid, task);
         let mismatch =
             failure.kind == crate::core::implementation::FailureKind::ProviderCapabilityMismatch;
         items.push(EvidenceItem {
@@ -171,6 +172,13 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
         });
     }
     items
+}
+
+fn task_failure_evidence_digest(workspace_uid: &str, task_uid: &str, task_path: &str) -> String {
+    format!(
+        "{:x}",
+        sha2::Sha256::digest(format!("{workspace_uid}\0{task_uid}\0{task_path}").as_bytes())
+    )
 }
 
 fn requests_repository_profile(goal: &str) -> bool {

@@ -99,6 +99,7 @@ apt_get install -y --no-install-recommends \
   xorg openbox lightdm chromium dbus-x11 fonts-liberation \
   ca-certificates sudo locales
 chroot_guest apt-get clean
+sudo rm -f "$work_dir/rootfs/var/cache/ldconfig/aux-cache"
 chroot_guest useradd --create-home --shell /bin/bash --groups audio,video koolade
 chroot_guest passwd --lock koolade
 chroot_guest usermod --lock root
