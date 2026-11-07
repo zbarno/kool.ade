@@ -24,6 +24,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes debootstrap debian-archive-keyring qemu-utils \
             grub-pc-bin grub2-common parted e2fsprogs
+      - name: Verify real qcow2 copy-on-write isolation
+        run: bash containers/computer-use/test-overlay-isolation.sh
       - name: Build twice and verify reproducibility
         shell: bash
         run: |

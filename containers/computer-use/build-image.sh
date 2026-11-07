@@ -103,6 +103,18 @@ sudo rm -f "$work_dir/rootfs/var/cache/ldconfig/aux-cache"
 chroot_guest useradd --create-home --shell /bin/bash --groups audio,video koolade
 chroot_guest passwd --lock koolade
 chroot_guest usermod --lock root
+root_password_state="$(chroot_guest passwd -S root | awk '{print $2}')"
+guest_password_state="$(chroot_guest passwd -S koolade | awk '{print $2}')"
+guest_uid="$(chroot_guest id -u koolade)"
+guest_groups="$(chroot_guest id -Gn koolade)"
+if [[ "$root_password_state" != L || "$guest_password_state" != L || "$guest_uid" == 0 ]]; then
+  echo "refusing to build an image with an unlocked root or interactive guest password" >&2
+  exit 1
+fi
+if tr ' ' '\n' <<<"$guest_groups" | grep -Fxq sudo; then
+  echo "refusing to build an image whose desktop user belongs to sudo" >&2
+  exit 1
+fi
 sudo install -d -m 0755 "$work_dir/rootfs/etc/lightdm/lightdm.conf.d"
 sudo tee "$work_dir/rootfs/etc/lightdm/lightdm.conf.d/50-koolade-guest.conf" >/dev/null <<'LIGHTDM'
 [Seat:*]
@@ -251,6 +263,7 @@ sha256sum "$output_dir/${base_name}.qcow2" > "$output_dir/${base_name}.sha256"
   containers/computer-use/build-image.sh \
   containers/computer-use/make-sbom.py \
   containers/computer-use/debootstrap-wget \
+  containers/computer-use/test-overlay-isolation.sh \
   .github/workflows/computer-use-images.yml) \
   > "$output_dir/${base_name}.recipe-components.sha256"
 recipe_digest="$(sha256sum "$output_dir/${base_name}.recipe-components.sha256" | cut -d ' ' -f 1)"

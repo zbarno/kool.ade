@@ -12,6 +12,10 @@ claimed. The recipe never consumes task source. It requires Linux, sudo,
 `debootstrap`, QEMU tools, GRUB, filesystem utilities, and network access to
 the pinned Debian snapshot.
 
+The builder verifies that both root and the desktop user's password are
+locked, that the desktop account is non-root, and that it has no `sudo`
+membership before packaging the disk.
+
 The two-build workflow check covers the production recipe's repeatability
 boundary: separate image builds from one revision and snapshot must produce
 identical qcow2 bytes and supporting metadata. Unit tests cannot prove this
@@ -21,11 +25,20 @@ devices, sudo, and network access to the pinned Debian snapshot; setup cost is
 high because it builds the guest twice. This same-run check does not establish
 reproducibility across different builder toolchain versions.
 
-The output is not deployable. The app-pinned catalog key, companion executable,
-signed image manifest, promotion lock digest, and real-KVM evidence remain
-missing until #378, #381 and #392 land. `images.lock.json` deliberately stays
-empty with `not_promoted`; this VM catalog and workflow are separate from
-Docker's image lock and release path. A manual build on `main` receives GitHub
-OIDC provenance and package-inventory attestations, but those do not replace the
-app-trusted catalog signature. Promote only through a later reviewed change
-that provides the app-trusted signed catalog and all readiness evidence.
+The workflow also runs `test-overlay-isolation.sh` against real `qemu-img` and
+`qemu-io`. It creates a small qcow2 base and two overlays, writes through one
+overlay, then verifies the sibling overlay and base still read as zero and the
+base hash is unchanged. This tests QEMU's actual copy-on-write behavior, which
+the API's fake-process unit tests cannot establish. It needs `qemu-utils` but
+no KVM, Docker, network, or SSH; setup cost is low.
+
+The output is not deployable. The application pins a catalog verification key,
+but this candidate has no signed manifest or promoted lock entry. The companion
+executable and real-KVM evidence also remain outstanding through #381 and #392;
+#378 consumes the promoted catalog for readiness. `images.lock.json`
+deliberately stays empty with `not_promoted`; this VM catalog and workflow are
+separate from Docker's image lock and release path. A manual build on `main`
+receives GitHub OIDC provenance and package-inventory attestations, but those do
+not replace the app-trusted catalog signature. Promote only through a later
+reviewed change that provides a signed catalog bound to the exact companion
+payload and all required readiness evidence.

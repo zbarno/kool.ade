@@ -176,6 +176,7 @@ fn disconnected_engine_returns_structured_failure_and_does_not_claim_ready() {
 
 #[test]
 fn engine_probe_cache_is_short_lived_and_explicitly_invalidatable() {
+    let workspace = tempfile::tempdir().unwrap();
     let mut engine_snapshot = snapshot();
     engine_snapshot.minimum_disk_bytes = 1;
     let api = Arc::new(FakeApi {
@@ -191,17 +192,18 @@ fn engine_probe_cache_is_short_lived_and_explicitly_invalidatable() {
         },
         api.clone(),
     );
-    let first: EngineReadiness = block_on(discovery.probe(Path::new("/tmp"))).unwrap();
-    let second = block_on(discovery.probe(Path::new("/tmp"))).unwrap();
+    let first: EngineReadiness = block_on(discovery.probe(workspace.path())).unwrap();
+    let second = block_on(discovery.probe(workspace.path())).unwrap();
     assert!(first.ready && second.ready);
     assert_eq!(api.inspect_count.load(Ordering::SeqCst), 1);
     discovery.invalidate();
-    block_on(discovery.probe(Path::new("/tmp"))).unwrap();
+    block_on(discovery.probe(workspace.path())).unwrap();
     assert_eq!(api.inspect_count.load(Ordering::SeqCst), 2);
 }
 
 #[test]
 fn engine_health_probe_is_read_only_and_never_prepares_an_image() {
+    let workspace = tempfile::tempdir().unwrap();
     let mut engine_snapshot = snapshot();
     engine_snapshot.minimum_disk_bytes = 1;
     let api = Arc::new(FakeApi {
@@ -218,7 +220,7 @@ fn engine_health_probe_is_read_only_and_never_prepares_an_image() {
         api.clone(),
     );
 
-    let readiness = block_on(discovery.probe(Path::new("/tmp"))).unwrap();
+    let readiness = block_on(discovery.probe(workspace.path())).unwrap();
 
     assert!(readiness.ready);
     assert_eq!(api.inspect_count.load(Ordering::SeqCst), 1);
