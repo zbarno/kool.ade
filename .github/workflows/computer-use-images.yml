@@ -35,12 +35,26 @@ jobs:
           image="koolade-computer-use-guest-x86_64.qcow2"
           first_digest="$(cut -d ' ' -f 1 "$first/koolade-computer-use-guest-x86_64.sha256")"
           second_digest="$(cut -d ' ' -f 1 "$second/koolade-computer-use-guest-x86_64.sha256")"
-          test "$first_digest" = "$second_digest"
+          if [[ "$first_digest" != "$second_digest" ]]; then
+            echo "candidate qcow2 digests differ: first=$first_digest second=$second_digest" >&2
+            if ! qemu-img compare -f qcow2 \
+              "$first/$image" "$second/$image"; then
+              echo "candidate virtual disk contents differ" >&2
+            else
+              echo "candidate qcow2 containers differ but virtual disk contents match" >&2
+            fi
+            exit 1
+          fi
           for suffix in \
             packages.tsv sbom.cdx.json qemu-info.json recipe-components.sha256 \
             recipe.sha256 builder-versions.txt source-revision promotion-status.txt; do
-            cmp "$first/koolade-computer-use-guest-x86_64.$suffix" \
-              "$second/koolade-computer-use-guest-x86_64.$suffix"
+            first_file="$first/koolade-computer-use-guest-x86_64.$suffix"
+            second_file="$second/koolade-computer-use-guest-x86_64.$suffix"
+            if ! cmp -s "$first_file" "$second_file"; then
+              echo "candidate sidecar differs: $suffix" >&2
+              diff -u "$first_file" "$second_file" || true
+              exit 1
+            fi
           done
           mkdir -p "$RUNNER_TEMP/computer-use-image"
           cp -a "$first/." "$RUNNER_TEMP/computer-use-image/"
