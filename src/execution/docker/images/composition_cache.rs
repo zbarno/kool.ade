@@ -51,7 +51,7 @@ fn private_root() -> io::Result<PathBuf> {
     Ok(root)
 }
 
-pub(crate) fn acquire_process_lock() -> io::Result<fs::File> {
+pub(crate) fn try_acquire_process_lock() -> io::Result<Option<fs::File>> {
     let root = private_root()?;
     let path = root.join("cache.lock");
     let mut opts = fs::OpenOptions::new();
@@ -79,8 +79,18 @@ pub(crate) fn acquire_process_lock() -> io::Result<fs::File> {
             ));
         }
     }
-    file.lock_exclusive()?;
-    Ok(file)
+    match FileExt::try_lock_exclusive(&file) {
+        Ok(()) => Ok(Some(file)),
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+fn receipt_path(root: &Path, recipe: &str) -> Option<PathBuf> {
+    if !is_digest(recipe) {
+        return None;
+    }
+    Some(root.join(format!("{}.json", &recipe[7..])))
 }
 
 impl CompositionReceipt {
@@ -120,6 +130,56 @@ impl CompositionReceipt {
         })
     }
 
+    /// A persisted receipt is an LRU hint, not proof that an image may be
+    /// executed. The caller must still inspect the daemon and smoke-test tools.
+    pub(crate) fn last_verified_at(recipe: &str, image_id: &str) -> Option<u64> {
+        let root = private_root().ok()?;
+        let file = receipt_path(&root, recipe)?;
+        let metadata = fs::symlink_metadata(&file).ok()?;
+        if !metadata.file_type().is_file() || metadata.len() > 16 * 1024 {
+            return None;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if metadata.permissions().mode() & 0o077 != 0 {
+                return None;
+            }
+        }
+        let receipt: Self = serde_json::from_slice(&fs::read(file).ok()?).ok()?;
+        (receipt.schema_version == CACHE_VERSION
+            && receipt.recipe_digest == recipe
+            && receipt.image_id == image_id)
+            .then_some(receipt.verified_at_unix_ms)
+    }
+
+    /// Forget a receipt only after Docker confirms that the precisely
+    /// identified app-owned cache tag was removed. A concurrent or corrupted
+    /// receipt must never be used to authorize deletion.
+    pub(crate) fn forget_if_matches(recipe: &str, image_id: &str) -> anyhow::Result<()> {
+        let root = private_root()?;
+        let Some(file) = receipt_path(&root, recipe) else {
+            anyhow::bail!("Invalid composite recipe identity");
+        };
+        let metadata = match fs::symlink_metadata(&file) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        anyhow::ensure!(
+            metadata.file_type().is_file() && metadata.len() <= 16 * 1024,
+            "Composite cache receipt has an unsafe type or size"
+        );
+        let parsed: Self = serde_json::from_slice(&fs::read(&file)?)?;
+        if parsed.schema_version == CACHE_VERSION
+            && parsed.recipe_digest == recipe
+            && parsed.image_id == image_id
+        {
+            fs::remove_file(file)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn record(&self) -> anyhow::Result<()> {
         let root = private_root()?;
         self.record_in(&root)
@@ -134,8 +194,8 @@ impl CompositionReceipt {
                 && is_digest(&self.daemon_fingerprint),
             "Invalid composite cache receipt"
         );
-        let name = format!("{}.json", &self.recipe_digest[7..]);
-        let target = root.join(name);
+        let target = receipt_path(root, &self.recipe_digest)
+            .ok_or_else(|| anyhow::anyhow!("Invalid composite receipt cache key"))?;
         // Never replace a symlink or an unexpected object in app-owned state.
         if let Ok(metadata) = fs::symlink_metadata(&target) {
             anyhow::ensure!(
@@ -163,6 +223,36 @@ impl CompositionReceipt {
 mod tests {
     use super::*;
     use crate::execution::docker::images::{ImageLock, ProjectRuntimeImagePlan};
+
+    #[test]
+    fn receipt_evidence_is_read_only_and_wrong_identity_never_evicts_it() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path();
+        let receipt = CompositionReceipt {
+            schema_version: CACHE_VERSION,
+            recipe_digest: format!("sha256:{}", "a".repeat(64)),
+            image_id: format!("sha256:{}", "b".repeat(64)),
+            base_digest: format!("sha256:{}", "c".repeat(64)),
+            platform: "linux/amd64".into(),
+            component_digests: Vec::new(),
+            tool_versions: Default::default(),
+            daemon_fingerprint: format!("sha256:{}", "d".repeat(64)),
+            verified_at_unix_ms: 42,
+        };
+        receipt.record_in(root).unwrap();
+        let file = receipt_path(root, &receipt.recipe_digest).unwrap();
+        assert!(file.exists());
+        // The optional lookup only ever returns an LRU hint.
+        assert_eq!(
+            serde_json::from_slice::<CompositionReceipt>(&fs::read(&file).unwrap())
+                .unwrap()
+                .verified_at_unix_ms,
+            42
+        );
+        assert!(receipt_path(root, "../../other").is_none());
+        let mismatched = format!("sha256:{}", "e".repeat(64));
+        assert_ne!(mismatched, receipt.image_id);
+    }
 
     #[test]
     fn cache_receipts_are_content_addressed_and_private() {
