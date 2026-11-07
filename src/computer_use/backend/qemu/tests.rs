@@ -77,6 +77,7 @@ fn launch_arguments_have_no_network_monitor_host_mount_or_guest_shell() {
         Path::new("/private/overlay.qcow2"),
         Path::new("/private/guest-control.sock"),
         Path::new("/private/display.sock"),
+        Path::new("/private/boot.json"),
     )
     .unwrap();
     let args = args
@@ -97,6 +98,10 @@ fn launch_arguments_have_no_network_monitor_host_mount_or_guest_shell() {
     assert!(!args.iter().any(|arg| arg.contains("-kernel")));
     assert!(!args.iter().any(|arg| arg.contains("-append")));
     assert!(args.iter().any(|arg| arg.contains("clipboard=off")));
+    assert!(args.windows(2).any(|pair| {
+        pair[0] == "-fw_cfg"
+            && pair[1].starts_with("name=opt/org.koolade.computer-use/boot-config,file=")
+    }));
     assert!(args.iter().any(|arg| arg.contains("koolade:")));
 }
 
@@ -108,6 +113,7 @@ fn launch_argument_paths_reject_qemu_option_delimiters() {
         Path::new("/private/overlay.qcow2,readonly=off"),
         Path::new("/private/guest-control.sock"),
         Path::new("/private/display.sock"),
+        Path::new("/private/boot.json"),
     );
     assert_eq!(result, Err(ComputerBackendErrorV1::InvalidOverlay));
 }

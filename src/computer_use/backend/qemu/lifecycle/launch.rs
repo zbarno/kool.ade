@@ -2,6 +2,9 @@ use super::super::*;
 use crate::computer_use::ComputerGuestChannelV1;
 use std::{process::Command, thread, time::Instant};
 
+#[path = "launch/boot_config.rs"]
+mod boot_config;
+
 impl LocalKvmComputerBackend {
     pub(super) fn boot_impl(
         &self,
@@ -22,12 +25,19 @@ impl LocalKvmComputerBackend {
             .map_err(|_| Error::InvalidOverlay)?;
         let control_socket = machine.directory.join("guest-control.sock");
         let display_socket = machine.directory.join("display.sock");
+        let boot_config = machine.directory.join("guest-boot-config.json");
         if control_socket.exists() || display_socket.exists() {
             return Err(Error::OwnershipMismatch);
         }
-        let args =
-            commands::command_args(session, overlay.path(), &control_socket, &display_socket)
-                .map_err(|_| Error::ResourceLimit)?;
+        boot_config::write_boot_config(session, &boot_config)?;
+        let args = commands::command_args(
+            session,
+            overlay.path(),
+            &control_socket,
+            &display_socket,
+            &boot_config,
+        )
+        .map_err(|_| Error::ResourceLimit)?;
         let qemu_path = self.qemu_path();
         process::validate_qemu_program(&qemu_path)?;
         let mut command = Command::new(qemu_path);
@@ -214,5 +224,74 @@ impl LocalKvmComputerBackend {
         }
         #[cfg(not(unix))]
         Err(Error::UnsupportedHost)
+    }
+
+    pub fn authenticate_guest(
+        &self,
+        session: &ComputerSessionV1,
+        handle: &Handle,
+        now_unix_ms: u64,
+    ) -> Result<crate::computer_use::guest_protocol::AuthenticatedGuestChannelV1, Error> {
+        let (config, state, ready_boot_id) = {
+            let machines = self.owned_machine(session, handle, now_unix_ms)?;
+            let machine = machines
+                .get(&handle.session_id)
+                .ok_or(Error::OwnershipMismatch)?;
+            let config =
+                crate::computer_use::guest_protocol::GuestBootConfigV1::read_private_host_file(
+                    &machine.directory.join("guest-boot-config.json"),
+                )
+                .map_err(|_| Error::GuestReadinessUnverified)?;
+            (
+                config,
+                machine.owner.state.clone(),
+                machine.owner.guest_boot_id.clone(),
+            )
+        };
+        let channel = self.connect_impl(session, handle, now_unix_ms)?;
+        let (authenticated, readiness) =
+            crate::computer_use::guest_protocol::GuestHostTransportV1::authenticate(
+                channel,
+                config,
+                session,
+                now_unix_ms,
+            )
+            .map_err(|_| Error::GuestReadinessUnverified)?;
+        match state.as_str() {
+            "booting" => {
+                self.mark_guest_ready_impl(session, handle, readiness, now_unix_ms)?;
+            }
+            "connected" if ready_boot_id.as_deref() == Some(readiness.guest_boot_id.as_str()) => {}
+            _ => return Err(Error::GuestReadinessUnverified),
+        }
+        Ok(authenticated)
+    }
+
+    pub fn open_guest_action_journal(
+        &self,
+        session: &ComputerSessionV1,
+        handle: &Handle,
+        now_unix_ms: u64,
+    ) -> Result<crate::computer_use::guest_protocol::GuestActionJournalV1, Error> {
+        let machines = self.owned_machine(session, handle, now_unix_ms)?;
+        let machine = machines
+            .get(&handle.session_id)
+            .ok_or(Error::OwnershipMismatch)?;
+        if machine.owner.state != "connected"
+            || machine
+                .supervision
+                .load(std::sync::atomic::Ordering::Acquire)
+                != 1
+        {
+            return Err(Error::GuestReadinessUnverified);
+        }
+        crate::computer_use::guest_protocol::GuestActionJournalV1::open(
+            &machine.directory,
+            session.identity.session_id.clone(),
+            session.lease.generation,
+            session.action_sequence,
+            session.policy.resource_budget.action_limit,
+        )
+        .map_err(|_| Error::Io)
     }
 }

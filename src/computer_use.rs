@@ -6,6 +6,7 @@
 mod backend;
 mod contract;
 pub mod guest_image;
+pub mod guest_protocol;
 #[cfg(target_os = "linux")]
 mod host_executable;
 #[cfg(target_os = "linux")]
