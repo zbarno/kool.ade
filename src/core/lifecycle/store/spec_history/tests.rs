@@ -47,7 +47,9 @@ impl Fixture {
             // The per-operator approval receipt is stored beside the local
             // operational-state directory. Keep its parent unique for each
             // fixture, or parallel tests overwrite /tmp/feature-approvals.json.
-            self.0.with_extension("private-state").join("operational-state"),
+            self.0
+                .with_extension("private-state")
+                .join("operational-state"),
             &self.0,
         );
         let reader =
@@ -144,12 +146,8 @@ fn separate_fixtures_do_not_share_operator_approval_receipts() {
     std::fs::create_dir_all(second_store.local_root()).unwrap();
     let feature_id = "CHG-999";
     let contract = "approved first fixture contract";
-    crate::persistence::feature_approvals::record(
-        &first_store.local_root(),
-        feature_id,
-        contract,
-    )
-    .unwrap();
+    crate::persistence::feature_approvals::record(&first_store.local_root(), feature_id, contract)
+        .unwrap();
     assert!(crate::persistence::feature_approvals::contains(
         &first_store.local_root(),
         feature_id,
