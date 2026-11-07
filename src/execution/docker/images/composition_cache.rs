@@ -138,7 +138,11 @@ impl CompositionReceipt {
     /// executed. The caller must still inspect the daemon and smoke-test tools.
     pub(crate) fn last_verified_at(recipe: &str, image_id: &str) -> Option<u64> {
         let root = private_root().ok()?;
-        let file = receipt_path(&root, recipe)?;
+        Self::last_verified_at_in(&root, recipe, image_id)
+    }
+
+    fn last_verified_at_in(root: &Path, recipe: &str, image_id: &str) -> Option<u64> {
+        let file = receipt_path(root, recipe)?;
         let metadata = fs::symlink_metadata(&file).ok()?;
         if !metadata.file_type().is_file() || metadata.len() > 16 * 1024 {
             return None;
@@ -162,7 +166,15 @@ impl CompositionReceipt {
     /// receipt must never be used to authorize deletion.
     pub(crate) fn forget_if_matches(recipe: &str, image_id: &str) -> anyhow::Result<()> {
         let root = private_root()?;
-        let Some(file) = receipt_path(&root, recipe) else {
+        Self::forget_if_matches_in(&root, recipe, image_id)
+    }
+
+    fn forget_if_matches_in(
+        root: &Path,
+        recipe: &str,
+        image_id: &str,
+    ) -> anyhow::Result<()> {
+        let Some(file) = receipt_path(root, recipe) else {
             anyhow::bail!("Invalid composite recipe identity");
         };
         let metadata = match fs::symlink_metadata(&file) {
@@ -272,6 +284,39 @@ mod tests {
         assert!(receipt_path(root, "../../other").is_none());
         let mismatched = format!("sha256:{}", "e".repeat(64));
         assert_ne!(mismatched, receipt.image_id);
+        assert_eq!(
+            CompositionReceipt::last_verified_at_in(
+                root,
+                &receipt.recipe_digest,
+                &receipt.image_id,
+            ),
+            Some(42)
+        );
+        CompositionReceipt::forget_if_matches_in(root, &receipt.recipe_digest, &mismatched)
+            .unwrap();
+        assert!(file.exists(), "wrong image ID must not delete the receipt");
+
+        fs::write(&file, b"corrupt-not-json").unwrap();
+        assert!(CompositionReceipt::forget_if_matches_in(
+            root,
+            &receipt.recipe_digest,
+            &receipt.image_id,
+        ).is_err(), "corrupt receipts must fail closed");
+        assert_eq!(
+            CompositionReceipt::last_verified_at_in(
+                root,
+                &receipt.recipe_digest,
+                &receipt.image_id,
+            ),
+            None
+        );
+        receipt.record_in(root).unwrap();
+        CompositionReceipt::forget_if_matches_in(
+            root,
+            &receipt.recipe_digest,
+            &receipt.image_id,
+        ).unwrap();
+        assert!(!file.exists(), "matching, verified receipt may be forgotten");
     }
 
     #[test]
