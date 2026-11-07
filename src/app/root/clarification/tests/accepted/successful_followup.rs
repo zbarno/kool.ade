@@ -147,6 +147,22 @@ fn successful_manager_update_runs_planner_and_persists_follow_up_readiness() {
         project.state.planning_store.revision().unwrap(),
         "Manager reconciliation starts from the revision that includes the saved answer"
     );
+    // Exercise generic recovery before polling the dedicated Manager, even if
+    // its worker has already finished. Scheduler timing must never decide
+    // whether a QuestionStore answer is replayed through the ordinary task path.
+    app.task_harness = Some(fixture_harness());
+    app.retry_pending_task_reply();
+    assert!(
+        app.task_harness.is_some(),
+        "generic reply recovery consumed the dedicated clarification handoff harness"
+    );
+    assert!(
+        matches!(&app.screen, Screen::Connected(project)
+        if !project.task_turns.contains_key(&format!("clarification:{}", original.uid))
+            && project.active_turn.is_some()),
+        "the clarification answer must retain its dedicated reconciliation owner"
+    );
+
     // A delayed follow-up can begin after any tick. Reinstall a role-aware
     // fixture so background Manager turns and the Planner pass receive their
     // own response even when scheduler timing shifts under parallel tests.

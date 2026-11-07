@@ -50,12 +50,14 @@ pub(super) fn badge(ui: &mut egui::Ui, kind: Kind) {
 pub(super) fn linked_user_action<'a>(
     board: &'a crate::ui::planning_board::ViewModel,
     task_path: &str,
+    is_agent: impl Fn(&crate::domain::item::OpenItem) -> bool,
 ) -> Option<&'a crate::domain::item::OpenItem> {
     let feature_id = feature_id_in_task_path(task_path)?;
     board.planning_items.iter().find(|item| {
         item.status == crate::domain::ItemStatus::Open
             && item.feature_id.as_deref() == Some(feature_id.as_str())
             && board.eligible_item_ids.contains(&item.id)
+            && !is_agent(item)
     })
 }
 

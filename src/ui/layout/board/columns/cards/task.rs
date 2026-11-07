@@ -76,7 +76,15 @@ pub(in crate::ui::layout::board::columns) fn task(
         lifecycle_record,
         board.lifecycle_pr_statuses.get(&doc.path).copied(),
     );
-    let needs_input = super::super::attention::linked_user_action(board, &doc.path);
+    let needs_input = super::super::attention::linked_user_action(board, &doc.path, |item| {
+        super::ownership::item_is_agent(
+            item,
+            crate::core::task_conversation::answer_receipt::is_saved(
+                item,
+                s.task_messages(item.conversation_key()),
+            ),
+        )
+    });
     let pr_needs_user_action = matches!(
         pr_status,
         Some(
