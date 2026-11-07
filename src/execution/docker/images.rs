@@ -10,7 +10,9 @@ mod observation;
 mod project_plan;
 mod validation;
 pub(crate) use composition::verified_context as verified_composition_context;
-pub(crate) use composition_cache::{CompositionReceipt, acquire_process_lock as acquire_composition_lock};
+pub(crate) use composition_cache::{
+    CompositionReceipt, acquire_process_lock as acquire_composition_lock,
+};
 pub use observation::{
     approved_available_images, verify_derived_image_observation, verify_image_observation,
     verify_qa_image_observation,
