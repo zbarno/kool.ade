@@ -8,12 +8,12 @@ mod composition;
 mod observation;
 mod project_plan;
 mod validation;
+pub(crate) use composition::verified_context as verified_composition_context;
 pub use observation::{
     approved_available_images, verify_derived_image_observation, verify_image_observation,
     verify_qa_image_observation,
 };
 pub(crate) use project_plan::{CompositionCandidate, ProjectRuntimeImagePlan};
-pub(crate) use composition::verified_context as verified_composition_context;
 
 #[cfg(not(feature = "qa-desktop-driver-image"))]
 pub const IMAGE_LOCK: &str = include_str!("../../../containers/images.lock.json");
