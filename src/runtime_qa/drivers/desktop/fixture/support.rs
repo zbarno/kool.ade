@@ -101,10 +101,7 @@ pub fn wait_for_click_observation(
 /// Wait for the synthetic fixture's state-independent title text to
 /// actually render before taking the baseline screenshot or testing control
 /// visibility. WM_NAME may be updated before an X11 Expose event is painted.
-pub fn wait_for_fixture_paint(
-    display: &DesktopDisplay,
-    window: u32,
-) -> Result<(), String> {
+pub fn wait_for_fixture_paint(display: &DesktopDisplay, window: u32) -> Result<(), String> {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         // The fixture draws its fixed heading at x=24,y=32, irrespective of
