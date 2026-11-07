@@ -217,7 +217,11 @@ mod tests {
         let candidate = composite("amd64", &["go", "python"]);
         assert_eq!(candidate.foundation.profile, RuntimeProfile::Python);
         assert_eq!(
-            candidate.components.iter().map(|image| image.profile).collect::<Vec<_>>(),
+            candidate
+                .components
+                .iter()
+                .map(|image| image.profile)
+                .collect::<Vec<_>>(),
             vec![RuntimeProfile::Go]
         );
     }
