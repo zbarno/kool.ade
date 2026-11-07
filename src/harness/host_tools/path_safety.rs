@@ -151,7 +151,7 @@ mod tests {
 
     #[test]
     fn narrow_host_directories_reject_sensitive_components_anywhere_in_the_path() {
-        let temp = tempfile::tempdir_in("/var/tmp").unwrap();
+        let temp = tempfile::tempdir_in(std::env::current_dir().unwrap()).unwrap();
         let root = temp.path().join("koolade-path-safety");
         for component in [".ssh", ".AWS", ".config", "credentials", "keyrings"] {
             let path = root.join(component).join("toolchain");
