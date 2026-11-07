@@ -6,6 +6,11 @@
 mod backend;
 mod contract;
 pub mod guest_image;
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(dead_code, unused_imports, unused_variables)
+)]
+pub mod guest_protocol;
 #[cfg(target_os = "linux")]
 mod host_executable;
 #[cfg(target_os = "linux")]

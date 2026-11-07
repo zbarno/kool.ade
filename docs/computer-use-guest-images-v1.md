@@ -1,18 +1,22 @@
 # Computer Use guest image catalog and cache (CU-03)
 
-Status: host-side verifier/cache/overlay APIs and a candidate build recipe are
-implemented. There is no promoted image or CU-05 companion binary yet. The
+Status: host-side verifier/cache/overlay APIs, authenticated guest companion,
+and candidate image build are implemented. There is no promoted image. The
 application pins an Ed25519 catalog verification key, but the bundled catalog
-and image lock remain unpromoted. Images are not operationally ready: the guest unit
-fails closed until the authenticated companion reports readiness. Real KVM GUI,
-companion, and overlay validation belongs to #392.
+and image lock remain unpromoted. Images are not operationally ready until a
+reviewed signed catalog is promoted. Real KVM GUI and overlay validation is
+tracked separately in #392.
 
 ## Image build boundary
 
 `containers/computer-use/build-image.sh` is an app-owned build recipe. It uses a
 fixed Debian Bookworm snapshot and installs a graphical Openbox/LightDM/Chromium
-guest, UTC locale/time settings, and a locked non-root `koolade` account. It
-accepts only an output directory; it does not inspect task repositories,
+guest, UTC locale/time settings, a locked non-root `koolade` account, and the
+authenticated companion binary. QEMU passes a fresh session-bound boot config
+through a private fw_cfg entry; a root one-shot imports it into a protected
+runtime directory, then the unprivileged companion authenticates over the
+dedicated virtio-serial port. It accepts only an output directory and the
+release-built companion binary; it does not inspect task repositories,
 Dockerfiles, or model input. The builder emits a qcow2 candidate, deterministic CycloneDX package-component inventory, qemu-img metadata, recipe hash, and candidate-only status. The inventory does not claim OS-file coverage or license compliance. The
 snapshot is deliberately a build input: update it on the security maintenance
 cadence, inspect the resulting package inventory, and rerun the isolated image
@@ -26,20 +30,20 @@ attestations do not substitute for the app-pinned Ed25519 catalog signer. The
 candidate is not a runtime catalog and does not change the Docker lock, Docker
 promotion workflow, or Docker images. The private catalog signing key is held
 as a repository secret and is not available to the image build job. The workflow
-must not publish a signed catalog or label the candidate trusted without a real
-CU-05 companion payload. The component inventory does
+must not publish a signed catalog or label the candidate trusted. The component inventory does
 not claim OS-file coverage or license compliance.
 `containers/computer-use/images.lock.json` is an explicit empty VM lock with
 `status: not_promoted`; the bundled `catalog-v1.json` is a non-catalog sentinel.
 Both files are separate from `containers/images.lock.json` and must remain
 unpromoted until a real, signed catalog can be pinned.
 
-The service unit `/etc/systemd/system/koolade-computer-use-agent.service` is
-installed but its executable is intentionally absent. The service is
-`Type=notify`; no heartbeat can be emitted until #381 supplies the authenticated
-guest companion. A future manifest can carry companion protocol version and
-binary SHA-256, but those values must describe the exact reviewed package; the
-synthetic unit-test value is not a release value.
+The bootstrap and companion units are installed. The companion runs as the
+unprivileged `koolade` account and reconnects after channel loss. The unsigned
+candidate remains unpromoted; a future signed manifest must carry the reviewed
+companion protocol version and binary SHA-256. The typed channel carries
+authenticated heartbeats and structured guest failure reasons; a failed action
+leaves its durable host journal entry pending so callers cannot infer that a
+side effect did not occur.
 
 ## Signed catalog interface
 
