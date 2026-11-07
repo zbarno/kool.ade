@@ -115,6 +115,21 @@ pub(crate) trait DockerApi: Send + Sync {
         )
     }
 
+    /// Verify all binary versions in an isolated, non-root, no-network
+    /// container. The adapter must not infer success from image metadata.
+    fn verify_composite_image<'a>(
+        &'a self,
+        _image: &'a SelectedImage,
+    ) -> EngineFuture<'a, Result<(), PrerequisiteFailure>> {
+        Box::pin(async {
+            Err(failure(
+                PrerequisiteCode::CapabilitiesIncompatible,
+                "Docker adapter cannot independently verify composite toolchains",
+                false,
+            ))
+        })
+    }
+
     fn smoke_test<'a>(
         &'a self,
         _image: &'a SelectedImage,
