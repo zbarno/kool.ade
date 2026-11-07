@@ -127,7 +127,9 @@ impl ImageLock {
             "{:x}:{:x}:{:x}",
             Sha256::digest(include_bytes!("composition.rs")),
             Sha256::digest(include_bytes!("../engine/composition.rs")),
-            Sha256::digest(include_bytes!("../engine/bollard_api/composite_verification.rs")),
+            Sha256::digest(include_bytes!(
+                "../engine/bollard_api/composite_verification.rs"
+            )),
         );
         let identity = serde_json::to_vec(&(
             "koolade-runtime-composition-recipe-v2",
