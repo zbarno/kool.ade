@@ -118,6 +118,8 @@ pub(super) fn connect_canonical_with_key(
         next_question_id: None,
         git: gitops::snapshot(&canonical),
     };
+    project.activity.manager_history =
+        crate::persistence::manager_activity::load(&project.chat_slug);
     project.refresh_implementations();
     if recovered_git_intents > 0 {
         project.activity.pending.push(format!(

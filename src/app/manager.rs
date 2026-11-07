@@ -60,6 +60,20 @@ pub(super) fn persist_output(project: &super::session::Project, output: &Manager
     format!("{}\n\n{}", output.summary, messages.join("\n"))
 }
 impl Manager {
+    #[cfg(test)]
+    pub(super) fn completed_for_test(result: Result<ManagerOutput, String>) -> Self {
+        let (progress_tx, progress) = mpsc::channel();
+        drop(progress_tx);
+        let (done, result_receiver) = mpsc::channel();
+        let _ = done.send(result);
+        Self {
+            progress,
+            result: result_receiver,
+            cancel: Arc::new(AtomicBool::new(false)),
+            prompt_manifest: None,
+        }
+    }
+
     pub(super) fn prompt_body(project: &super::session::Project, events: &[String]) -> String {
         prompt::build(project, events)
     }

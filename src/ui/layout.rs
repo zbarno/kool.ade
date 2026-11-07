@@ -9,6 +9,7 @@ pub(crate) mod brand;
 mod chat_panel;
 mod header;
 mod new_task;
+mod project_activity;
 mod settings;
 mod setup_welcome;
 mod task_cards;
