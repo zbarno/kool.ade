@@ -129,6 +129,14 @@ impl EngineDiscovery {
                 false,
             )
         })?;
+        // The lock spans build, verification, and cleanup. Only this
+        // app-owned label namespace is eligible for non-forced eviction.
+        tokio::time::timeout(
+            self.timeouts.image_preparation,
+            self.api.prune_composite_cache(&plan.recipe_sha256),
+        )
+        .await
+        .map_err(|_| operation_timeout("app-owned composite cache cleanup"))??;
         Ok(selected)
     }
 }
