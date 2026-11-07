@@ -1,11 +1,10 @@
 # Computer Use guest image catalog and cache (CU-03)
 
 Status: host-side verifier/cache/overlay APIs, authenticated guest companion,
-and candidate image build are implemented. There is no promoted image. The
-application pins an Ed25519 catalog verification key, but the bundled catalog
-and image lock remain unpromoted. Images are not operationally ready until a
-reviewed signed catalog is promoted. Real KVM GUI and overlay validation is
-tracked separately in #392.
+candidate image build, and protected signed-catalog promotion workflow are
+implemented. The bundled catalog and image lock remain unpromoted until a
+successful manual promotion and reviewed catalog PR. Real KVM GUI and overlay
+validation is tracked separately in #392.
 
 ## Image build boundary
 
@@ -28,10 +27,22 @@ deterministic CycloneDX package-component inventory for review. A manual run
 from `main` adds GitHub OIDC build-provenance and SBOM attestations. Those
 attestations do not substitute for the app-pinned Ed25519 catalog signer. The
 candidate is not a runtime catalog and does not change the Docker lock, Docker
-promotion workflow, or Docker images. The private catalog signing key is held
-as a repository secret and is not available to the image build job. The workflow
-must not publish a signed catalog or label the candidate trusted. The component inventory does
-not claim OS-file coverage or license compliance.
+promotion workflow, or Docker images. The separate
+`.github/workflows/computer-use-image-promotion.yml` workflow accepts only a
+successful candidate run from the current `main` revision. It verifies image
+provenance and the CycloneDX SBOM attestation, rebuilds the companion from that
+revision, and checks its digest against the candidate sidecar. It signs with
+`COMPUTER_USE_CATALOG_SIGNING_KEY`, then verifies the signature with the
+application-pinned public key before creating a draft release and a review
+branch that changes only the catalog and guest image lock. Open that branch as
+a PR through GitHub so normal required checks run; the promotion job does not
+create a PR with `GITHUB_TOKEN`, which would suppress those checks. A wrong or
+missing secret fails before the branch is pushed. The secret is never written
+to the repository or release assets. The merge-triggered job verifies the merged
+catalog and lock against the draft release contents and guest image digest
+before publishing that release. A collision with an existing release tag
+fails closed. The component inventory does not claim OS-file coverage or
+license compliance.
 `containers/computer-use/images.lock.json` is an explicit empty VM lock with
 `status: not_promoted`; the bundled `catalog-v1.json` is a non-catalog sentinel.
 Both files are separate from `containers/images.lock.json` and must remain
@@ -77,10 +88,13 @@ The outer catalog uses camel-case JSON keys (`schemaVersion`,
 `signatureHex`); image-entry keys use snake case (`image_digest`,
 `artifact_size_bytes`, `source_revision`, `companion_protocol_version`).
 Unknown fields are rejected. The x86_64 entry also fixes the artifact basename,
-so the release fetch path cannot be supplied by a task or model. Offline
-promotion tooling signs `GuestImageManifestV1::signing_payload_bytes()` with
-the release key held outside the repository; no signing key belongs in this
-tree or in the image build job.
+so the release fetch path cannot be supplied by a task or model. The
+`computer-use-image-promotion` binary validates candidate sidecars, attestation
+evidence, the source-built companion digest, and prior catalog state, then
+signs `GuestImageManifestV1::signing_payload_bytes()`. Its output is verified
+against the key embedded in this application before release. The private
+signing key is only read from the protected promotion job's secret and is not
+included in this tree or in the candidate build job.
 
 The session binding is exact: session `image_digest` must equal an approved
 catalog entry; `image_manifest_digest` is the canonical signed-manifest digest;
