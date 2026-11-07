@@ -259,6 +259,13 @@ impl DockerApi for BollardApi {
         image_derivation::verify(self, image_id, packages)
     }
 
+    fn prune_composite_cache<'a>(
+        &'a self,
+        retained_identity: &'a str,
+    ) -> EngineFuture<'a, Result<(), PrerequisiteFailure>> {
+        Box::pin(composite_cache::prune(self, retained_identity))
+    }
+
     fn verify_composite_image<'a>(
         &'a self,
         image: &'a SelectedImage,
