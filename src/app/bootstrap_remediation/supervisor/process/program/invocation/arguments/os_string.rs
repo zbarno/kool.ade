@@ -25,6 +25,7 @@ impl TrustedArgument {
                 LinuxRootlessRecipeV1::Fedora45Amd64 => "recipe:fedora-45-amd64".into(),
             },
             Self::AptAssumeYes => "--assume-yes".into(),
+            Self::AptSimulate => "--simulate".into(),
             Self::AptInstall => "install".into(),
             Self::AptGetVersion | Self::UsermodVersion => "--version".into(),
             Self::AptUpdate => "update".into(),
@@ -57,6 +58,8 @@ impl TrustedArgument {
             Self::AptDockerRootlessExtras => "docker-ce-rootless-extras".into(),
             Self::AptUidmap => "uidmap".into(),
             Self::AptDbusUserSession => "dbus-user-session".into(),
+            Self::AptQemuSystemX86 => "qemu-system-x86".into(),
+            Self::AptQemuUtils => "qemu-utils".into(),
             Self::DdDockerAptKeyOutput => "of=/etc/apt/keyrings/docker.asc".into(),
             Self::DdDockerAptSourcesOutput => {
                 "of=/etc/apt/sources.list.d/koolade-docker.sources".into()

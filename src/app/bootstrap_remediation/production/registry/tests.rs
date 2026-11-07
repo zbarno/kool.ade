@@ -4,6 +4,9 @@ use crate::app::bootstrap_remediation::{HostIdentity, RemediationRequest, Truste
 use crate::app::bootstrap_repair_policy::Proposal;
 use crate::app::setup_attention::catalog::LinuxRootlessRecipeV1 as Recipe;
 
+#[path = "tests/qemu.rs"]
+mod qemu;
+
 fn rootless_plan(operation: Operation) -> RemediationPlan {
     rootless_plan_for_os(operation, "ubuntu-24.04-amd64-kernel-6.8.0")
 }

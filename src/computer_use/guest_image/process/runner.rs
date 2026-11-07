@@ -31,7 +31,14 @@ pub(super) fn run_bounded(
                 if libc::setpgid(0, 0) == -1 {
                     return Err(io::Error::last_os_error());
                 }
-                Ok(())
+                #[cfg(target_os = "linux")]
+                {
+                    crate::computer_use::process_security::install_child_restrictions()
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    Ok(())
+                }
             });
         }
         let mut child = command.spawn().map_err(|_| QemuProcessError::Unavailable)?;

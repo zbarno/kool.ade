@@ -26,6 +26,8 @@ pub(crate) enum TrustedProgram {
     LinuxRootlessService,
     /// Internal, app-owned signed Docker repository and package bootstrap.
     LinuxRootlessPackageSetup,
+    /// Internal, app-owned fixed QEMU APT package operation.
+    LinuxQemuPackageSetup,
     /// Internal, one-operation Windows WSL feature helper.
     WindowsWslFeatures,
     Dnf,
@@ -86,6 +88,7 @@ impl TrustedProgram {
             | Self::Sha256sum
             | Self::LinuxRootlessService
             | Self::LinuxRootlessPackageSetup
+            | Self::LinuxQemuPackageSetup
             | Self::Dnf
             | Self::Zypper => host == Host::Linux,
             Self::MacInstaller => host == Host::MacOs,
@@ -100,7 +103,10 @@ impl TrustedProgram {
     pub(in crate::app::bootstrap_remediation::supervisor::process) fn is_internal(self) -> bool {
         matches!(
             self,
-            Self::LinuxRootlessService | Self::LinuxRootlessPackageSetup | Self::WindowsWslFeatures
+            Self::LinuxRootlessService
+                | Self::LinuxRootlessPackageSetup
+                | Self::LinuxQemuPackageSetup
+                | Self::WindowsWslFeatures
         )
     }
 
@@ -132,6 +138,9 @@ impl TrustedProgram {
                 anyhow::bail!("internal remediation programs must use the trusted app dispatcher")
             }
             Self::LinuxRootlessPackageSetup => {
+                anyhow::bail!("internal remediation programs must use the trusted app dispatcher")
+            }
+            Self::LinuxQemuPackageSetup => {
                 anyhow::bail!("internal remediation programs must use the trusted app dispatcher")
             }
             Self::WindowsWslFeatures => {
@@ -185,6 +194,18 @@ mod tests {
                 .is_err()
         );
         assert!(!TrustedProgram::Systemctl.is_internal());
+    }
+
+    #[test]
+    fn linux_qemu_package_setup_is_internal_and_has_no_external_path() {
+        assert!(TrustedProgram::LinuxQemuPackageSetup.is_internal());
+        assert!(TrustedProgram::LinuxQemuPackageSetup.matches(Host::Linux));
+        assert!(!TrustedProgram::LinuxQemuPackageSetup.matches(Host::Windows));
+        assert!(
+            TrustedProgram::LinuxQemuPackageSetup
+                .resolve(Host::Linux)
+                .is_err()
+        );
     }
 
     #[test]

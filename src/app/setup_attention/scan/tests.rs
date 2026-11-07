@@ -1,6 +1,9 @@
 use super::*;
 use crate::execution::docker::environment::{DockerEnvironmentState, DockerEnvironmentStatus};
 
+#[path = "tests/vm_evidence.rs"]
+mod vm_evidence;
+
 fn ready_engine() -> crate::execution::docker::environment::DockerEnvironmentStatus {
     DockerEnvironmentStatus {
         state: DockerEnvironmentState::MissingApprovedImage,
@@ -42,6 +45,144 @@ fn snapshot(
             identity_code: catalog::EvidenceCode::ParentPrerequisiteUnavailable,
         },
     )
+}
+
+#[test]
+fn kvm_checked_domain_requires_all_current_host_prerequisites() {
+    let mut ready = snapshot(
+        catalog::EvidenceState::Ready,
+        catalog::EvidenceCode::GitAvailable,
+    );
+    ready.checked_domains.push("computer:kvm".into());
+    ready.probe_evidence.push(catalog::ProbeEvidenceV1 {
+        prerequisite: catalog::PrerequisiteId {
+            domain: catalog::PrerequisiteDomain::Host,
+            platform: catalog::HostKind::Linux,
+            capability: catalog::PrerequisiteCapability::LinuxKvmDevice,
+            subject: catalog::PrerequisiteSubject::None,
+        },
+        state: catalog::EvidenceState::Ready,
+        code: catalog::EvidenceCode::LinuxKvmDeviceAccessible,
+        origin: catalog::EvidenceOrigin::HostRuntime,
+        scan_generation: ready.scan_generation,
+        source_generation: None,
+        observed_at_unix_ms: ready.checked_at_unix_ms,
+        observation: Some(catalog::ProbeObservationV1::LinuxKvmDevice { accessible: true }),
+    });
+    let kvm_id = ready.probe_evidence.last().unwrap().prerequisite.clone();
+    ready.prerequisite_graph.push(catalog::PrerequisiteNodeV1 {
+        id: kvm_id,
+        state: catalog::EvidenceState::Ready,
+        depends_on: Vec::new(),
+        remediation: catalog::RemediationEligibility::Unverified,
+    });
+    let kvm_evidence_index = ready
+        .probe_evidence
+        .iter()
+        .position(|item| {
+            item.prerequisite.capability == catalog::PrerequisiteCapability::LinuxKvmDevice
+        })
+        .unwrap();
+    // Device-open proof alone is insufficient to claim the host is ready; the
+    // checked domain also needs architecture, kernel, namespace, and CPU evidence.
+    assert!(ready.validate().is_err());
+
+    let mut missing_proof = ready.clone();
+    missing_proof.probe_evidence.retain(|item| {
+        item.prerequisite.capability != catalog::PrerequisiteCapability::LinuxKvmDevice
+    });
+    missing_proof
+        .prerequisite_graph
+        .retain(|node| node.id.capability != catalog::PrerequisiteCapability::LinuxKvmDevice);
+    assert!(missing_proof.validate().is_err());
+
+    let mut false_proof = ready.clone();
+    false_proof.probe_evidence[kvm_evidence_index].observation =
+        Some(catalog::ProbeObservationV1::LinuxKvmDevice { accessible: false });
+    assert!(false_proof.validate().is_err());
+
+    let mut stale_proof = ready;
+    stale_proof.probe_evidence[kvm_evidence_index].scan_generation -= 1;
+    assert!(stale_proof.validate().is_err());
+}
+
+#[test]
+fn vm_resource_evidence_must_match_the_current_host_and_fixed_guest_budget() {
+    let mut machine = snapshot(
+        catalog::EvidenceState::Ready,
+        catalog::EvidenceCode::GitAvailable,
+    );
+    let budget = crate::computer_use::MINIMUM_DISPOSABLE_VM_BUDGET_V1;
+    let evidence = catalog::ProbeEvidenceV1 {
+        prerequisite: catalog::PrerequisiteId {
+            domain: catalog::PrerequisiteDomain::Host,
+            platform: catalog::HostKind::Linux,
+            capability: catalog::PrerequisiteCapability::LinuxVmResources,
+            subject: catalog::PrerequisiteSubject::None,
+        },
+        state: catalog::EvidenceState::Ready,
+        code: catalog::EvidenceCode::LinuxVmResourcesAvailable,
+        origin: catalog::EvidenceOrigin::HostRuntime,
+        scan_generation: machine.scan_generation,
+        source_generation: None,
+        observed_at_unix_ms: machine.checked_at_unix_ms,
+        observation: Some(catalog::ProbeObservationV1::LinuxVmResources {
+            available_memory_bytes: Some(budget.memory_bytes),
+            available_storage_bytes: Some(budget.disk_bytes),
+            required_memory_bytes: budget.memory_bytes,
+            required_storage_bytes: budget.disk_bytes,
+            filesystem_family: Some(catalog::LinuxVmStorageFilesystemV1::Ext),
+        }),
+    };
+    machine
+        .prerequisite_graph
+        .push(catalog::PrerequisiteNodeV1 {
+            id: evidence.prerequisite.clone(),
+            state: evidence.state,
+            depends_on: Vec::new(),
+            remediation: catalog::RemediationEligibility::Unverified,
+        });
+    machine.probe_evidence.push(evidence);
+    assert!(machine.validate().is_ok());
+
+    let mut forged_budget = machine.clone();
+    let Some(catalog::ProbeObservationV1::LinuxVmResources {
+        required_memory_bytes,
+        ..
+    }) = forged_budget
+        .probe_evidence
+        .last_mut()
+        .unwrap()
+        .observation
+        .as_mut()
+    else {
+        unreachable!();
+    };
+    *required_memory_bytes += 1;
+    assert!(forged_budget.validate().is_err());
+
+    let mut filesystem_without_storage = machine;
+    let resource = filesystem_without_storage
+        .probe_evidence
+        .last_mut()
+        .unwrap();
+    if let Some(catalog::ProbeObservationV1::LinuxVmResources {
+        available_storage_bytes,
+        ..
+    }) = resource.observation.as_mut()
+    {
+        *available_storage_bytes = None;
+    }
+    resource.state = catalog::EvidenceState::Unknown;
+    resource.code = catalog::EvidenceCode::LinuxVmResourcesUnknown;
+    let resource_id = resource.prerequisite.clone();
+    filesystem_without_storage
+        .prerequisite_graph
+        .iter_mut()
+        .find(|node| node.id == resource_id)
+        .unwrap()
+        .state = catalog::EvidenceState::Unknown;
+    assert!(filesystem_without_storage.validate().is_err());
 }
 
 #[test]
@@ -105,6 +246,7 @@ fn daemon_or_provider_switch_rejects_the_scan_identity() {
         endpoint_fingerprint: Some("synthetic-endpoint".into()),
         daemon_identity_fingerprint: docker.daemon_identity_fingerprint.clone(),
         docker_readiness_fingerprint: Some(docker.readiness_fingerprint()),
+        docker_local_execution_ready: false,
         setup_provider: None,
         selected_provider: None,
         cancelled: false,

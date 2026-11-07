@@ -2,6 +2,12 @@ use super::source::{read_bounded_file, verify_root_file_metadata};
 use crate::app::bootstrap_remediation::TrustedArgument;
 use crate::app::setup_attention::catalog::LinuxRootlessRecipeV1;
 
+mod qemu;
+
+#[cfg(test)]
+pub(super) use qemu::candidate_version_is_from_base_distribution;
+pub(super) use qemu::check_qemu_candidates;
+
 #[cfg(target_os = "linux")]
 const APT_CACHE: &str = "/usr/bin/apt-cache";
 #[cfg(target_os = "linux")]
@@ -43,8 +49,29 @@ pub(super) fn check_docker_candidates(recipe: LinuxRootlessRecipeV1) -> anyhow::
     }
 }
 
+pub(super) fn validate_apt_cache_binary() -> anyhow::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        let (_binary, metadata) = read_bounded_file(std::path::Path::new(APT_CACHE))?;
+        verify_root_file_metadata(&metadata)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        anyhow::bail!("Linux QEMU package validation is Linux-only")
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn run_apt_cache_policy(path: &std::path::Path, package: &str) -> anyhow::Result<Vec<u8>> {
+    run_apt_cache_policy_with_timeout(path, package, std::time::Duration::from_secs(10))
+}
+
+#[cfg(target_os = "linux")]
+fn run_apt_cache_policy_with_timeout(
+    path: &std::path::Path,
+    package: &str,
+    timeout: std::time::Duration,
+) -> anyhow::Result<Vec<u8>> {
     use std::{
         io::Read,
         process::{Command, Stdio},
@@ -74,7 +101,7 @@ fn run_apt_cache_policy(path: &std::path::Path, package: &str) -> anyhow::Result
             .read_to_end(&mut bytes)
             .map(|_| bytes)
     });
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + timeout;
     let status = loop {
         match child.try_wait()? {
             Some(status) => break status,

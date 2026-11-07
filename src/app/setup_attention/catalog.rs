@@ -14,13 +14,13 @@ mod model;
 mod tests;
 
 pub use model::{
-    EvidenceCode, EvidenceOrigin, EvidenceState, GitProbeV1, HostCapabilityMatrixV1, HostKind,
-    ImageArchitectureV1, ImageProfileV1, LinuxDistributionV1, LinuxDistributionVersionV1,
-    LinuxKernelVersionV1, LinuxPackageManagerV1, LinuxRootlessMechanismV1, LinuxRootlessRecipeV1,
-    MachineSnapshotV1, PrerequisiteCapability, PrerequisiteDomain, PrerequisiteId,
-    PrerequisiteNodeV1, PrerequisiteSubject, ProbeEvidenceV1, ProbeObservationV1, ProviderIdV1,
-    RemediationEligibility, SupportClaim, WindowsEditionV1, WindowsKernelVersionV1,
-    WindowsProductV1,
+    ComputerUseCapabilityV1, EvidenceCode, EvidenceOrigin, EvidenceState, GitProbeV1,
+    HostCapabilityMatrixV1, HostKind, ImageArchitectureV1, ImageProfileV1, LinuxDistributionV1,
+    LinuxDistributionVersionV1, LinuxKernelVersionV1, LinuxPackageManagerV1,
+    LinuxRootlessMechanismV1, LinuxRootlessRecipeV1, LinuxVmStorageFilesystemV1, MachineSnapshotV1,
+    PrerequisiteCapability, PrerequisiteDomain, PrerequisiteId, PrerequisiteNodeV1,
+    PrerequisiteSubject, ProbeEvidenceV1, ProbeObservationV1, ProviderIdV1, RemediationEligibility,
+    SupportClaim, WindowsEditionV1, WindowsKernelVersionV1, WindowsProductV1,
 };
 pub type MachineSnapshot = MachineSnapshotV1;
 

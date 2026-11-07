@@ -1,8 +1,9 @@
 # Computer Use guest image catalog and cache (CU-03)
 
 Status: host-side verifier/cache/overlay APIs and a candidate build recipe are
-implemented. There is no promoted image, app-pinned catalog release key, or
-CU-05 companion binary yet. Images are not operationally ready: the guest unit
+implemented. There is no promoted image or CU-05 companion binary yet. The
+application pins an Ed25519 catalog verification key, but the bundled catalog
+and image lock remain unpromoted. Images are not operationally ready: the guest unit
 fails closed until the authenticated companion reports readiness. Real KVM GUI,
 companion, and overlay validation belongs to #392.
 
@@ -23,13 +24,15 @@ deterministic CycloneDX package-component inventory for review. A manual run
 from `main` adds GitHub OIDC build-provenance and SBOM attestations. Those
 attestations do not substitute for the app-pinned Ed25519 catalog signer. The
 candidate is not a runtime catalog and does not change the Docker lock, Docker
-promotion workflow, or Docker images. This repo currently has no production
-catalog signing key or CU-05 companion payload, so the workflow must not publish
-a signed catalog or label the candidate trusted. The component inventory does
+promotion workflow, or Docker images. The private catalog signing key is held
+as a repository secret and is not available to the image build job. The workflow
+must not publish a signed catalog or label the candidate trusted without a real
+CU-05 companion payload. The component inventory does
 not claim OS-file coverage or license compliance.
 `containers/computer-use/images.lock.json` is an explicit empty VM lock with
-`status: not_promoted`; it is separate from `containers/images.lock.json` and
-must remain empty until a real, signed catalog can be pinned.
+`status: not_promoted`; the bundled `catalog-v1.json` is a non-catalog sentinel.
+Both files are separate from `containers/images.lock.json` and must remain
+unpromoted until a real, signed catalog can be pinned.
 
 The service unit `/etc/systemd/system/koolade-computer-use-agent.service` is
 installed but its executable is intentionally absent. The service is
@@ -59,7 +62,11 @@ the floor after fresh manifest verification and before cache/QEMU use. The
 directory and state files are owner-restricted, updates are locked and fsynced,
 and a lower generation is rejected across process restart. The app must keep
 this path stable in durable application data and provision it only from an
-authenticated application release. No key is embedded in this feature branch.
+authenticated application release. The application embeds only the public key;
+readiness uses it to check the bundled catalog, lock digest/generation, existing
+durable generation floor, and cached image bytes. It opens existing state
+without provisioning or repairing it. Missing floor or cache state remains
+Unknown; readiness never initializes the anti-rollback floor.
 
 The outer catalog uses camel-case JSON keys (`schemaVersion`,
 `catalogGeneration`, `issuedAtUnixMs`, `expiresAtUnixMs`, `signerKeyId`,
@@ -82,14 +89,21 @@ signature, revoked entry, changed digest, or mismatched session fails closed.
 The only release download URL is derived from the verified release tag and the
 fixed public GitHub repository. Redirects are HTTPS-only and host-allowlisted.
 `ComputerImageDownloadApprovalV1` must approve the exact manifest/image digest
-before the body is read. The cache bounds size, checks the signed byte length
+before the body is read. Setup can obtain a catalog-scoped download handle
+before a VM session exists; that handle cannot create an overlay or start a VM.
+The durable generation floor is checked and advanced before an approved
+pre-session download, while readiness checks only read the floor. The cache
+bounds size, checks the signed byte length
 and SHA-256, writes a private temporary file, syncs then atomically installs
 read-only content, and rehashes cached files on every use. There is no
 user-controlled URL or tag fallback. Cache corruption fails closed for explicit
 repair/re-download through
 `remove_corrupt_for_approved_redownload`; it is never silently booted. The
 replacement API again requires approval for the exact pair and removes only a
-corrupt cache file. The verified cache handle
+corrupt cache file. `GuestImageCacheV1::new` provisions the cache only for an
+explicit operation. `open_existing` verifies an existing owner-private cache
+without creating it or changing permissions, so readiness can remain
+read-only. The verified cache handle
 keeps the image digest, signed manifest digest, signer key ID, and catalog
 generation available to the host integration as provenance evidence.
 
@@ -120,10 +134,9 @@ application path.
 - #381 owns the authenticated companion protocol, binary, and actual heartbeat.
   Until it lands and is cryptographically bound in a signed catalog, the guest
   must be reported unavailable even if the desktop is visible.
-- #378 consumes `GuestImageManifestTrustV1` and
-  `verify_guest_image_manifest`; its app trust integration must supply keys
-  pinned by the signed application distribution. Do not add a private signing
-  key or select from mutable tags.
+- #378 consumes `GuestImageManifestTrustV1` and verifies promoted catalog and
+  cached-image readiness with an application-pinned key. Do not add a private
+  signing key or select from mutable tags.
 - #392 owns real KVM boot, GUI capture/input, companion heartbeat, base
   immutability, two-overlay isolation, cleanup, and no-host-credential checks.
   Synthetic tests and build success do not establish those properties.

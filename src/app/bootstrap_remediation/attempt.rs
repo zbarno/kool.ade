@@ -203,6 +203,7 @@ fn operation_code(operation: crate::app::bootstrap_repair_policy::Operation) -> 
         Operation::InstallClaudeCode => "install_claude_code",
         Operation::OpenCodingTools => "open_coding_tools",
         Operation::InstallLinuxRootlessPackages => "install_linux_rootless_packages",
+        Operation::InstallLinuxQemu => "install_linux_qemu",
         Operation::ConfigureLinuxSubordinateIds => "configure_linux_subordinate_ids",
         Operation::InstallLinuxRootlessService => "install_linux_rootless_service",
         Operation::EnableWindowsWslFeatures => "windows_enable_wsl_features",

@@ -28,6 +28,8 @@ pub enum Operation {
     OpenCodingTools,
     /// Install the exact supported Linux distro package recipe for rootless Docker.
     InstallLinuxRootlessPackages,
+    /// Install the exact QEMU package set from the supported distro archive.
+    InstallLinuxQemu,
     /// Add subordinate ID mappings for the current Linux user.
     ConfigureLinuxSubordinateIds,
     /// Install and enable the current user's rootless Docker service.
@@ -161,6 +163,14 @@ pub fn validate(proposal: &Proposal, detected_host: Host) -> anyhow::Result<Revi
                 "rootless Docker operation does not match its canonical prerequisite"
             );
             (true, false)
+        }
+        Operation::InstallLinuxQemu => {
+            anyhow::ensure!(
+                proposal.host == Host::Linux && proposal.prerequisite_id == "setup:computer:qemu",
+                "QEMU installation requires its canonical Linux prerequisite"
+            );
+            anyhow::ensure!(proposal.image_profile.is_none(), "unexpected image profile");
+            (true, true)
         }
         Operation::EnableWindowsWslFeatures => {
             anyhow::ensure!(

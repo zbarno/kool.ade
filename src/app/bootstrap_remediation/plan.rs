@@ -96,6 +96,7 @@ pub(crate) enum PlanEffect {
     ConfigureDockerAptRepository,
     ConfigureDockerDnfRepository,
     InstallLinuxRootlessPackages,
+    InstallLinuxQemu,
     ConfigureLinuxSubordinateIds,
     VerifyRootlesskitBeforeInstall,
     RefuseConflictingExistingRootlessInstallation,
@@ -133,6 +134,7 @@ pub(crate) enum ManagedPackageChange {
     Ubuntu,
     PopOs,
     Fedora,
+    Qemu,
 }
 
 /// A UI-level consent requirement included in the immutable plan digest.
@@ -141,6 +143,7 @@ pub(crate) enum ManagedPackageChange {
 pub(crate) enum PlanConsent {
     RootfulDockerPackageActivation,
     RootfulDockerCoexistence,
+    QemuPackageInstallation,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]

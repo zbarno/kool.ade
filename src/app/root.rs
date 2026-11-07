@@ -107,6 +107,10 @@ pub struct KooladeApp {
     setup_attention: Vec<super::setup_attention::SetupIssue>,
     /// Read-only projection of the machine-local setup task store.
     machine_setup_tasks: Vec<crate::persistence::setup_tasks::LocalTask>,
+    machine_setup_checked_domains: Vec<String>,
+    machine_setup_scan_current: bool,
+    /// Current local Docker execution capability from the last persisted scan.
+    machine_docker_local_execution_ready: Option<bool>,
     setup_attention_notified: Option<String>,
     setup_probe: Option<std::thread::JoinHandle<setup_attention::ProbeOutput>>,
     setup_probe_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,

@@ -6,6 +6,8 @@ use crate::app::{
     setup_attention::catalog::LinuxRootlessRecipeV1,
 };
 
+mod qemu;
+
 /// A strict request shape. All executable details are absent by construction.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
@@ -30,6 +32,9 @@ pub(crate) enum OperationParameters {
         target_path: String,
     },
     InstallLinuxRootlessPackages {
+        recipe: LinuxRootlessRecipeV1,
+    },
+    InstallLinuxQemu {
         recipe: LinuxRootlessRecipeV1,
     },
     ConfigureLinuxSubordinateIds {
@@ -181,6 +186,14 @@ impl RemediationRequest {
                     "rootless Docker operation requires Linux kernel 4.15 or newer"
                 );
             }
+            (Operation::InstallLinuxQemu, OperationParameters::InstallLinuxQemu { recipe }) => {
+                qemu::validate_request(
+                    self.host,
+                    &self.prerequisite_id,
+                    &self.os_version,
+                    *recipe,
+                )?;
+            }
             _ => anyhow::bail!("remediation parameters do not match the typed operation"),
         }
         Ok(())
@@ -192,6 +205,7 @@ impl RemediationRequest {
             OperationParameters::None
             | OperationParameters::ClaudeCodeInstall { .. }
             | OperationParameters::InstallLinuxRootlessPackages { .. }
+            | OperationParameters::InstallLinuxQemu { .. }
             | OperationParameters::ConfigureLinuxSubordinateIds { .. }
             | OperationParameters::InstallLinuxRootlessService { .. } => None,
         };
@@ -261,6 +275,7 @@ fn parameters_for(proposal: &Proposal, os_version: &str) -> anyhow::Result<Opera
             })?;
             Ok(OperationParameters::InstallLinuxRootlessPackages { recipe })
         }
+        Operation::InstallLinuxQemu => qemu::parameters(os_version),
         Operation::ConfigureLinuxSubordinateIds => {
             let recipe = recipe.ok_or_else(|| {
                 anyhow::anyhow!("Linux host identity has no supported rootless recipe")

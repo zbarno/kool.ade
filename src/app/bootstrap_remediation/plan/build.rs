@@ -1,10 +1,10 @@
 use super::*;
-#[cfg(test)]
 use crate::app::bootstrap_remediation::identity::HostIdentity;
 use crate::app::bootstrap_remediation::request::{OperationParameters, RemediationRequest};
 use crate::execution::docker::images::{ImageLock, RuntimeProfile};
 use sha2::{Digest, Sha256};
 
+mod qemu;
 mod rootless;
 mod validation;
 
@@ -131,6 +131,9 @@ impl RemediationPlan {
                 Operation::InstallLinuxRootlessPackages,
                 OperationParameters::InstallLinuxRootlessPackages { recipe },
             ) => rootless::install_packages(&mut plan, *recipe)?,
+            (Operation::InstallLinuxQemu, OperationParameters::InstallLinuxQemu { recipe }) => {
+                qemu::install_packages(&mut plan, *recipe)?
+            }
             (
                 Operation::ConfigureLinuxSubordinateIds,
                 OperationParameters::ConfigureLinuxSubordinateIds { recipe },
@@ -226,6 +229,31 @@ impl RemediationPlan {
             anyhow::ensure!(
                 self.install_target.as_deref() == Some(expected.as_str()),
                 "Claude Code install target changed after review"
+            );
+        }
+        if self.operation == Operation::InstallLinuxQemu {
+            let identity = HostIdentity::current()?;
+            let planned =
+                crate::app::setup_attention::catalog::LinuxRootlessRecipeV1::from_os_version(
+                    &self.os_version,
+                );
+            let current =
+                crate::app::setup_attention::catalog::LinuxRootlessRecipeV1::from_os_version(
+                    identity.os_version(),
+                );
+            anyhow::ensure!(
+                identity.host() == crate::app::bootstrap_repair_policy::Host::Linux
+                    && planned.is_some()
+                    && planned == current
+                    && matches!(
+                        planned,
+                        Some(
+                            crate::app::setup_attention::catalog::LinuxRootlessRecipeV1::Debian13Amd64
+                                | crate::app::setup_attention::catalog::LinuxRootlessRecipeV1::Ubuntu2404Amd64
+                                | crate::app::setup_attention::catalog::LinuxRootlessRecipeV1::PopOs2404Amd64
+                        )
+                    ),
+                "QEMU package recipe changed after approval"
             );
         }
         Ok(())

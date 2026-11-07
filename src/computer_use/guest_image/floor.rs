@@ -70,6 +70,16 @@ impl GuestImageCatalogGenerationFloorV1 {
         FileExt::unlock(&lock).map_err(|_| ImageCacheErrorV1::CatalogFloorUnavailable)
     }
 
+    pub(super) fn require_not_rolled_back(&self, generation: u64) -> Result<(), ImageCacheErrorV1> {
+        let lock = self.lock(false)?;
+        let current = self.read_generation()?;
+        FileExt::unlock(&lock).map_err(|_| ImageCacheErrorV1::CatalogFloorUnavailable)?;
+        if generation < current {
+            return Err(ImageCacheErrorV1::CatalogRollback);
+        }
+        Ok(())
+    }
+
     fn lock(&self, create: bool) -> Result<File, ImageCacheErrorV1> {
         validate_root(&self.root)?;
         let path = self.root.join(LOCK_FILE);

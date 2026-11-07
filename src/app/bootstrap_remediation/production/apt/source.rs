@@ -35,6 +35,43 @@ pub(super) fn check_docker_source_configuration(
 ) -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
     {
+        let exact_entries = inspect_active_sources(recipe)?;
+        anyhow::ensure!(
+            exact_entries == 1,
+            "exactly one active Docker source for the approved stable amd64 recipe is required"
+        );
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = recipe;
+        anyhow::bail!("Linux rootless Docker package sources are Linux-only")
+    }
+}
+
+pub(super) fn check_qemu_source_configuration(recipe: LinuxRootlessRecipeV1) -> anyhow::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        let exact_entries = inspect_active_sources(recipe)?;
+        anyhow::ensure!(
+            exact_entries <= 1,
+            "APT source configuration contains duplicate approved Docker entries"
+        );
+        if exact_entries == 1 {
+            check_docker_keyring()?;
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = recipe;
+        anyhow::bail!("Linux QEMU package sources are Linux-only")
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn inspect_active_sources(recipe: LinuxRootlessRecipeV1) -> anyhow::Result<usize> {
+    {
         verify_root_directory(Path::new("/etc"))?;
         verify_root_directory(Path::new("/etc/apt"))?;
         let source_dir = Path::new(SOURCES_DIR);
@@ -69,16 +106,7 @@ pub(super) fn check_docker_source_configuration(
             );
             exact_entries += inspection.exact_entries;
         }
-        anyhow::ensure!(
-            exact_entries == 1,
-            "exactly one active Docker source for the approved stable amd64 recipe is required"
-        );
-        Ok(())
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = recipe;
-        anyhow::bail!("Linux rootless Docker package sources are Linux-only")
+        Ok(exact_entries)
     }
 }
 

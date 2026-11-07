@@ -204,6 +204,7 @@ fn host_identity(
         "host:linux:package_manager" => C::LinuxPackageManager,
         "host:linux:rootless_recipe" => C::LinuxRootlessRecipe,
         "host:linux:kernel" => C::LinuxKernel,
+        "host:linux:qemu" => C::LinuxQemu,
         "host:linux:user_namespaces" => C::LinuxUserNamespaces,
         "host:linux:cgroups" => C::LinuxCgroups,
         "host:linux:rootless_helpers" => C::LinuxRootlessHelpers,

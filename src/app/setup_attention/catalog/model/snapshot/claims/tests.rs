@@ -1,10 +1,10 @@
 use crate::app::setup_attention::catalog::{
     EvidenceCode, EvidenceOrigin, EvidenceState, HostCapabilityMatrixV1, HostKind,
     ImageArchitectureV1, MachineSnapshotV1, PrerequisiteCapability, PrerequisiteDomain,
-    PrerequisiteId, PrerequisiteSubject, ProbeEvidenceV1, SupportClaim,
+    PrerequisiteId, PrerequisiteSubject, ProbeEvidenceV1, ProbeObservationV1, SupportClaim,
 };
 
-use super::desktop_docker_ready;
+use super::{desktop_docker_ready, guest_image_ready};
 
 const SCAN_GENERATION: u64 = 3;
 
@@ -223,4 +223,29 @@ fn desktop_readiness_requires_current_host_scoped_positive_trust() {
             "Desktop readiness requires positive {capability:?} evidence"
         );
     }
+}
+
+#[test]
+fn guest_image_domain_requires_current_verified_application_evidence() {
+    let mut snapshot = desktop_snapshot(HostKind::Linux);
+    snapshot.checked_domains.push("computer:guest-image".into());
+    let mut image = evidence(
+        PrerequisiteDomain::Host,
+        HostKind::Linux,
+        PrerequisiteCapability::ComputerGuestImage,
+        PrerequisiteSubject::None,
+        EvidenceState::Ready,
+        EvidenceCode::ComputerGuestImageCatalogVerified,
+        EvidenceOrigin::ApplicationInventory,
+    );
+    image.observation = Some(ProbeObservationV1::ComputerUseCapability {
+        capability: crate::app::setup_attention::catalog::ComputerUseCapabilityV1::
+            GuestImageCatalogIntegrity,
+        readiness_probe_integrated: true,
+    });
+    snapshot.probe_evidence.push(image);
+    assert!(guest_image_ready(&snapshot));
+
+    snapshot.probe_evidence.last_mut().unwrap().state = EvidenceState::Unknown;
+    assert!(!guest_image_ready(&snapshot));
 }

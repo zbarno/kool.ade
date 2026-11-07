@@ -12,6 +12,7 @@ use crate::app::{
 use super::{apt, dnf, subids};
 
 const PACKAGE_OPERATION_ID: &str = "setup:linux:rootless:packages";
+const QEMU_OPERATION_ID: &str = "setup:computer:qemu";
 const SUBIDS_OPERATION_ID: &str = "setup:linux:rootless:subids";
 const SERVICE_OPERATION_ID: &str = "setup:linux:rootless:service";
 pub(crate) struct ProductionOperationRegistry;
@@ -65,6 +66,10 @@ pub(crate) fn validate_before_elevated_launch(
             let recipe = invocation.rootless_package_recipe()?;
             validate_package_source_bootstrap(recipe)
         }
+        TrustedProgram::LinuxQemuPackageSetup => {
+            let recipe = invocation.qemu_package_recipe()?;
+            apt::verify_qemu_package_candidates(recipe)
+        }
         TrustedProgram::Usermod => {
             let (uid, name) = invocation.current_user_identity()?;
             subids::validate_current_mappings_for_uid(uid, name)
@@ -102,6 +107,16 @@ pub(crate) fn package_install_arguments(
 
 pub(crate) fn production_package_source_ready(recipe: LinuxRootlessRecipeV1) -> anyhow::Result<()> {
     verify_package_source(recipe)
+}
+
+pub(crate) fn qemu_package_arguments(
+    recipe: LinuxRootlessRecipeV1,
+) -> anyhow::Result<Vec<TrustedArgument>> {
+    apt::qemu_package_arguments(recipe)
+}
+
+pub(crate) fn verify_qemu_package_candidates(recipe: LinuxRootlessRecipeV1) -> anyhow::Result<()> {
+    apt::verify_qemu_package_candidates(recipe)
 }
 
 pub(crate) fn validate_package_source_bootstrap(
@@ -142,7 +157,11 @@ impl OperationRegistry for ProductionOperationRegistry {
             );
             return TrustedInvocation::windows_wsl_features();
         }
-        validate_rootless_plan(plan)?;
+        if plan.operation == Operation::InstallLinuxQemu {
+            validate_qemu_plan(plan)?;
+        } else {
+            validate_rootless_plan(plan)?;
+        }
         match plan.operation {
             Operation::InstallLinuxRootlessPackages => {
                 let recipe = recipe_from_os_version(&plan.os_version)?;
@@ -152,6 +171,19 @@ impl OperationRegistry for ProductionOperationRegistry {
                     vec![TrustedArgument::LinuxRootlessRecipe(recipe)],
                     Duration::from_secs(300),
                 )
+            }
+            Operation::InstallLinuxQemu => {
+                let recipe = recipe_from_os_version(&plan.os_version)?;
+                anyhow::ensure!(
+                    matches!(
+                        recipe,
+                        LinuxRootlessRecipeV1::Debian13Amd64
+                            | LinuxRootlessRecipeV1::Ubuntu2404Amd64
+                            | LinuxRootlessRecipeV1::PopOs2404Amd64
+                    ),
+                    "QEMU setup is not supported for this Linux distro"
+                );
+                TrustedInvocation::qemu_package_setup(recipe)
             }
             Operation::ConfigureLinuxSubordinateIds => {
                 let account = subids::verify_free_range_for_current_user()?;
@@ -173,6 +205,31 @@ impl OperationRegistry for ProductionOperationRegistry {
             _ => anyhow::bail!("production rootless registry does not implement this operation"),
         }
     }
+}
+
+fn validate_qemu_plan(plan: &RemediationPlan) -> anyhow::Result<()> {
+    plan.validate()?;
+    anyhow::ensure!(
+        plan.host == Host::Linux
+            && plan.operation == Operation::InstallLinuxQemu
+            && plan.prerequisite_id == QEMU_OPERATION_ID
+            && plan.privilege == crate::app::bootstrap_remediation::PrivilegeLevel::Administrator
+            && plan.requires_consent
+            && plan.package_changes
+                == [crate::app::bootstrap_remediation::plan::ManagedPackageChange::Qemu],
+        "QEMU installation plan is not canonical"
+    );
+    let recipe = recipe_from_os_version(&plan.os_version)?;
+    anyhow::ensure!(
+        matches!(
+            recipe,
+            LinuxRootlessRecipeV1::Debian13Amd64
+                | LinuxRootlessRecipeV1::Ubuntu2404Amd64
+                | LinuxRootlessRecipeV1::PopOs2404Amd64
+        ),
+        "QEMU installation plan has no supported APT recipe"
+    );
+    Ok(())
 }
 
 fn validate_rootless_plan(plan: &RemediationPlan) -> anyhow::Result<()> {

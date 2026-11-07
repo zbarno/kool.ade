@@ -1,10 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use super::identifiers::{
-    ImageArchitectureV1, LinuxDistributionV1, LinuxDistributionVersionV1, LinuxKernelVersionV1,
-    LinuxPackageManagerV1, LinuxRootlessRecipeV1, PrerequisiteId, WindowsEditionV1,
-    WindowsKernelVersionV1, WindowsProductV1,
-};
+use super::identifiers::PrerequisiteId;
+
+mod observations;
+pub use observations::{ComputerUseCapabilityV1, LinuxVmStorageFilesystemV1, ProbeObservationV1};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -23,6 +22,7 @@ pub enum EvidenceState {
 #[serde(rename_all = "snake_case")]
 pub enum EvidenceOrigin {
     HostRuntime,
+    ApplicationInventory,
     ProviderCli,
     DockerDiscovery,
     ImageInventory,
@@ -64,6 +64,26 @@ pub enum EvidenceCode {
     LinuxServiceManagerUnknown,
     LinuxPackageManagerDetected,
     LinuxPackageManagerMissing,
+    LinuxKvmDeviceAccessible,
+    LinuxKvmDeviceMissing,
+    LinuxKvmDevicePermissionDenied,
+    LinuxKvmDeviceUnknown,
+    LinuxKvmNestedUnsupported,
+    LinuxVirtualizationAvailable,
+    LinuxVirtualizationMissing,
+    LinuxVirtualizationNestedUnsupported,
+    LinuxVirtualizationUnknown,
+    LinuxQemuDetected,
+    LinuxQemuMissing,
+    LinuxQemuPermissionDenied,
+    LinuxQemuUnknown,
+    LinuxVmResourcesAvailable,
+    LinuxVmResourcesInsufficient,
+    LinuxVmResourcesUnknown,
+    ComputerUseReadinessProbeNotIntegrated,
+    ComputerGuestImageNotPromoted,
+    ComputerGuestImageCatalogUnverified,
+    ComputerGuestImageCatalogVerified,
     ArchitectureDetected,
     ProviderInstalled,
     ProviderPathInvalid,
@@ -154,96 +174,6 @@ pub struct ProbeEvidenceV1 {
     pub observed_at_unix_ms: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observation: Option<ProbeObservationV1>,
-}
-
-/// Closed, privacy-safe typed values that bind host capability claims to their
-/// originating evidence. Raw host command output is never retained.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
-pub enum ProbeObservationV1 {
-    HostArchitecture {
-        observed: ImageArchitectureV1,
-        supported_runtime_architectures: Vec<ImageArchitectureV1>,
-    },
-    MacOsVersion {
-        version: String,
-    },
-    WindowsHost {
-        product: WindowsProductV1,
-        edition: WindowsEditionV1,
-        build_number: u32,
-        architecture: ImageArchitectureV1,
-    },
-    WindowsOptionalFeature {
-        enabled: bool,
-        pending_reboot: bool,
-    },
-    WindowsWslKernel {
-        version: Option<WindowsKernelVersionV1>,
-    },
-    WindowsRebootPending {
-        pending: bool,
-    },
-    WindowsWslPolicy {
-        allowed: Option<bool>,
-    },
-    WindowsVirtualization {
-        enabled: bool,
-    },
-    LinuxDistribution {
-        distribution: Option<LinuxDistributionV1>,
-        version: Option<LinuxDistributionVersionV1>,
-    },
-    DockerEngineIdentity {
-        fingerprint: String,
-    },
-    LinuxRootlessRecipe {
-        candidate: Option<LinuxRootlessRecipeV1>,
-        distribution_state: EvidenceState,
-    },
-    LinuxKernel {
-        version: LinuxKernelVersionV1,
-    },
-    LinuxUserNamespaces {
-        max_user_namespaces: Option<u32>,
-        unprivileged_clone_allowed: Option<bool>,
-        apparmor_userns_restricted: Option<bool>,
-    },
-    LinuxSubordinateIds {
-        configured: bool,
-    },
-    LinuxRootlessHelpers {
-        newuidmap: bool,
-        newgidmap: bool,
-        rootlesskit: bool,
-        dockerd_rootless: bool,
-        setuptool: bool,
-        slirp4netns: Option<bool>,
-    },
-    LinuxCgroups {
-        cgroup_v2: bool,
-        cpu_delegated: bool,
-        memory_delegated: bool,
-        pids_delegated: bool,
-    },
-    LinuxServiceManager {
-        runtime_directory_ready: bool,
-        private_socket_ready: bool,
-        bus_socket_ready: bool,
-    },
-    LinuxPackageManager {
-        expected: Option<LinuxPackageManagerV1>,
-        found: Option<LinuxPackageManagerV1>,
-    },
-    DockerRootlessSmoke {
-        endpoint_fingerprint: String,
-        daemon_fingerprint: String,
-        daemon_version: String,
-        image_reference: String,
-        image_digest: String,
-        image_platform: String,
-        completed_at_unix_ms: u64,
-    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

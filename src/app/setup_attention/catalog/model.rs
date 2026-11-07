@@ -5,8 +5,9 @@ mod recipe;
 mod snapshot;
 
 pub use evidence::{
-    EvidenceCode, EvidenceOrigin, EvidenceState, GitProbeV1, PrerequisiteNodeV1, ProbeEvidenceV1,
-    ProbeObservationV1, RemediationEligibility,
+    ComputerUseCapabilityV1, EvidenceCode, EvidenceOrigin, EvidenceState, GitProbeV1,
+    LinuxVmStorageFilesystemV1, PrerequisiteNodeV1, ProbeEvidenceV1, ProbeObservationV1,
+    RemediationEligibility,
 };
 pub use identifiers::{
     HostKind, ImageArchitectureV1, ImageProfileV1, LinuxDistributionV1, LinuxDistributionVersionV1,

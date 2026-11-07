@@ -40,51 +40,59 @@ pub(super) fn run_qemu(
 }
 
 pub fn probe_host_qemu_image_tool() -> Result<QemuImageToolV1, QemuProcessError> {
+    probe_host_qemu_image_tool_with_timeout(QEMU_TIMEOUT)
+}
+
+pub fn probe_host_qemu_image_tool_for_readiness() -> Result<(), QemuProcessError> {
+    probe_host_qemu_image_tool_with_timeout(Duration::from_secs(2)).map(|_| ())
+}
+
+fn probe_host_qemu_image_tool_with_timeout(
+    timeout: Duration,
+) -> Result<QemuImageToolV1, QemuProcessError> {
     #[cfg(target_os = "linux")]
     {
         let path = PathBuf::from("/usr/bin/qemu-img");
         validate_root_owned_executable(&path)?;
-        let output = run_bounded(&path, &[OsStr::new("--version")], QEMU_TIMEOUT)?;
-        let version = String::from_utf8_lossy(&output.stdout);
-        if !output.status.success() || !version.starts_with("qemu-img version ") {
+        let output = run_bounded(&path, &[OsStr::new("--version")], timeout)?;
+        if !output.status.success() || !qemu_img_version_is_valid(&output.stdout) {
             return Err(QemuProcessError::Unavailable);
         }
         Ok(QemuImageToolV1 { path })
     }
     #[cfg(not(target_os = "linux"))]
     {
+        let _ = timeout;
         Err(QemuProcessError::Unavailable)
     }
 }
 
 #[cfg(target_os = "linux")]
+fn qemu_img_version_is_valid(output: &[u8]) -> bool {
+    let Ok(output) = std::str::from_utf8(output) else {
+        return false;
+    };
+    let Some(line) = output.lines().next() else {
+        return false;
+    };
+    if line.len() > 160 || line.chars().any(char::is_control) {
+        return false;
+    }
+    let Some(version) = line.strip_prefix("qemu-img version ") else {
+        return false;
+    };
+    let version = version.split_ascii_whitespace().next().unwrap_or_default();
+    let mut parts = version.split('.');
+    let numeric = [parts.next(), parts.next(), parts.next()];
+    numeric.into_iter().all(|part| {
+        part.is_some_and(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+    }) && parts.next().is_none()
+}
+
+#[cfg(target_os = "linux")]
 fn validate_root_owned_executable(path: &Path) -> Result<(), QemuProcessError> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
-    let canonical = path
-        .canonicalize()
-        .map_err(|_| QemuProcessError::Unavailable)?;
-    if canonical != path {
-        return Err(QemuProcessError::Unavailable);
-    }
-    let metadata = std::fs::symlink_metadata(path).map_err(|_| QemuProcessError::Unavailable)?;
-    if !metadata.file_type().is_file()
-        || metadata.uid() != 0
-        || metadata.permissions().mode() & 0o022 != 0
-        || metadata.permissions().mode() & 0o111 == 0
-    {
-        return Err(QemuProcessError::Unavailable);
-    }
-    for ancestor in [Path::new("/"), Path::new("/usr"), Path::new("/usr/bin")] {
-        let metadata =
-            std::fs::symlink_metadata(ancestor).map_err(|_| QemuProcessError::Unavailable)?;
-        if !metadata.file_type().is_dir()
-            || metadata.uid() != 0
-            || metadata.permissions().mode() & 0o022 != 0
-        {
-            return Err(QemuProcessError::Unavailable);
-        }
-    }
-    Ok(())
+    crate::computer_use::validate_trusted_system_executable(path)
+        .map_err(|_| QemuProcessError::Unavailable)
 }
 
 #[cfg(test)]

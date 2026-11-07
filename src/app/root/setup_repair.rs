@@ -189,6 +189,7 @@ fn is_remediation_task(task_id: &str) -> bool {
         "setup:linux:rootless:packages"
             | "setup:linux:rootless:subids"
             | "setup:linux:rootless:service"
+            | "setup:computer:qemu"
     ) || windows_setup_task_enabled(task_id)
 }
 
@@ -231,5 +232,30 @@ mod tests {
         assert_eq!(can_prepare(&ready), enabled);
         assert_eq!(can_approve(&awaiting_approval), enabled);
         assert_eq!(is_remediation_task(&ready.id), enabled);
+    }
+
+    #[test]
+    fn qemu_task_uses_the_native_remediation_review_and_approval_gate() {
+        let ready = LocalTask {
+            id: "setup:computer:qemu".into(),
+            ..wsl_features_task(State::ReadyToFix)
+        };
+        let awaiting_approval = LocalTask {
+            state: State::NeedsApproval,
+            ..ready.clone()
+        };
+        assert!(is_remediation_task(&ready.id));
+        assert!(can_prepare(&ready));
+        assert!(can_approve(&awaiting_approval));
+
+        let blocked = LocalTask {
+            blocked_by: vec!["setup:computer:kvm".into()],
+            ..ready.clone()
+        };
+        assert!(!can_prepare(&blocked));
+        assert!(!can_approve(&LocalTask {
+            state: State::NeedsVerification,
+            ..awaiting_approval
+        }));
     }
 }

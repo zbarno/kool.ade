@@ -30,6 +30,36 @@ pub(super) fn package_arguments(
     Ok(arguments)
 }
 
+pub(super) fn qemu_package_arguments(
+    recipe: LinuxRootlessRecipeV1,
+) -> anyhow::Result<Vec<TrustedArgument>> {
+    ensure_apt_recipe(recipe)?;
+    let mut arguments = TrustedArgument::apt_source_options();
+    arguments.extend([
+        TrustedArgument::AptInstall,
+        TrustedArgument::AptAssumeYes,
+        TrustedArgument::AptNoUpgrade,
+        TrustedArgument::AptNoRemove,
+        TrustedArgument::AptNoInstallRecommends,
+        TrustedArgument::AptQemuSystemX86,
+        TrustedArgument::AptQemuUtils,
+    ]);
+    Ok(arguments)
+}
+
+pub(super) fn verify_qemu_package_candidates(recipe: LinuxRootlessRecipeV1) -> anyhow::Result<()> {
+    ensure_apt_recipe(recipe)?;
+    #[cfg(target_os = "linux")]
+    {
+        source::check_qemu_source_configuration(recipe)?;
+        candidate::check_qemu_candidates(recipe)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        anyhow::bail!("Linux QEMU package candidates are Linux-only")
+    }
+}
+
 pub(super) fn verify_package_source(recipe: LinuxRootlessRecipeV1) -> anyhow::Result<()> {
     ensure_apt_recipe(recipe)?;
     #[cfg(target_os = "linux")]

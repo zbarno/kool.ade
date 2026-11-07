@@ -19,6 +19,7 @@ pub use identity::{ComputerIdentityV1, ComputerSessionClassV1};
 pub use lease::ComputerLeaseV1;
 pub use policy::{
     ComputerCapabilityV1, ComputerNetworkProfileV1, ComputerPolicyV1, ComputerResourceBudgetV1,
+    MINIMUM_DISPOSABLE_VM_BUDGET_V1,
 };
 pub use session::{ComputerControllerProofV1, ComputerSessionV1, ComputerTargetV1};
 pub use state::{ComputerLifecycleV1, can_transition};
