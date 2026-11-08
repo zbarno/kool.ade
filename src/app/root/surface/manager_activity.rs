@@ -50,6 +50,13 @@ macro_rules! manager_activity_surface_methods {
             }
         }
 
+        fn reviewed_baseline_evidence(&self, review_id: &str) -> Vec<crate::domain::chatlog::VerifiedRepositoryEvidence> {
+            self.manager_activity().iter()
+                .find(|message| message.role == crate::domain::ChatRole::Agent && message.baseline_review_id.as_deref() == Some(review_id))
+                .map(|message| message.verified_repository_evidence.iter().take(8).cloned().collect())
+                .unwrap_or_default()
+        }
+
         fn manager_running(&self) -> bool {
             matches!(&self.screen, Screen::Connected(project) if project.activity.manager.is_some())
         }

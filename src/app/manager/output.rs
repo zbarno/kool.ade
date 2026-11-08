@@ -12,6 +12,8 @@ pub struct ManagerOutput {
     pub planning_revision: String,
     pub code_review_targets:
         std::collections::HashMap<String, catalog::code_reviews::FindingTarget>,
+    pub verified_repository_evidence: Vec<crate::domain::chatlog::VerifiedRepositoryEvidence>,
+    pub baseline_review_id: Option<String>,
 }
 
 pub fn persist_output(project: &session::Project, output: &ManagerOutput) -> String {

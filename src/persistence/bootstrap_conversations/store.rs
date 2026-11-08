@@ -88,6 +88,8 @@ fn append_at(
             answer_context: None,
             clarification: false,
             specification_context: None,
+            baseline_review_id: None,
+            verified_repository_evidence: Vec::new(),
             ts: message.ts,
         };
         StoredMessageV1::from_message(&sanitized)?;
