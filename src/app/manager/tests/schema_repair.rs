@@ -17,7 +17,7 @@ impl AiHarness for RepairHarness {
             final_text: if prompts.len() == 1 {
                 r#"{"schema_version":2,"summary":"Current update","proposed_actions":[],"opportunities":[]}"#
             } else {
-                r#"{"summary":"Current update","proposed_actions":[],"opportunities":[]}"#
+                r#"{"summary":"Current update","what_exists":"Fixture state.","how_known":["workspace-summary"],"uncertainty":"Fixture limitation.","next_action":"Review evidence.","conflicts":[],"proposed_actions":[],"opportunities":[]}"#
             }.into(), envelope: None, stderr_tail: String::new(),
         })
     }

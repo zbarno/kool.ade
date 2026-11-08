@@ -49,6 +49,7 @@ impl EventFold {
             activity_events: Vec::new(),
             activity_events_truncated_before_ms: None,
             prompt_manifest: None,
+            manager_context: None,
             telemetry: Default::default(),
             selected_route: None,
             posts: self

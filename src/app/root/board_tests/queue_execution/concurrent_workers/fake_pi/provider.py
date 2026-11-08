@@ -119,8 +119,8 @@ if prompt.startswith('FIXTURE TASK PATH LOOKUP\n'):
     request = json.loads(prompt.split('\n', 1)[1])
     print(task_path_lookup(request['task_uid']))
     sys.exit(0)
-if prompt.startswith('Return JSON matching ManagerOutputV2'):
-    output = {'summary':'Fixture manager has no additional actions.', 'proposed_actions':[], 'opportunities':[]}
+if prompt.startswith('Return JSON matching ManagerOutputV3'):
+    output = {'summary':'Fixture manager has no additional actions.', 'what_exists':'No additional task action is evidenced.', 'how_known':['workspace-summary'], 'uncertainty':'The fixture reports no broader workspace facts.', 'next_action':'Continue monitoring the supplied task state.', 'conflicts':[], 'proposed_actions':[], 'opportunities':[]}
     print(json.dumps({'type':'agent_end','messages':[{'role':'assistant','stopReason':'stop','content':[{'type':'text','text':json.dumps(output)}]}]}))
     sys.exit(0)
 if prompt.startswith('Return WorkResultV1 JSON.'):

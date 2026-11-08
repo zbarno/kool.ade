@@ -124,6 +124,11 @@ fn manager_receives_persisted_plan_findings_and_returns_a_typed_disposition() {
     let prompt = Arc::new(Mutex::new(None));
     let response = serde_json::json!({
         "summary": "Repair the technical wording while preserving approved intent.",
+        "what_exists": "The plan review found a missing requirement detail.",
+        "how_known": [evidence_id],
+        "uncertainty": "The reviewer finding requires the user's approved intent to remain unchanged.",
+        "next_action": "Repair the plan wording and retain the current approval boundary.",
+        "conflicts": [],
         "proposed_actions": [{
             "kind": "repair_plan",
             "target": "CHG-004#TEST-FINDING",

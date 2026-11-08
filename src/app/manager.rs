@@ -99,6 +99,10 @@ impl Manager {
             .map(|prompt| prompt.rendered.manifest.clone());
         let _ = tx.send(LiveProgress {
             prompt_manifest: prompt_manifest.clone(),
+            manager_context: prepared
+                .as_ref()
+                .ok()
+                .map(|prompt| prompt.context_telemetry.clone()),
             activity: Some(
                 if prepared.is_ok() {
                     "Project manager prompt prepared"

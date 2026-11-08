@@ -7,6 +7,48 @@ pub(super) fn validate_output_refs(
 ) -> Result<(), String> {
     match output {
         RoleOutputV1::Manager(value) => {
+            if context.require_grounded_manager_answer {
+                if value.what_exists.trim().is_empty()
+                    || value.how_known.is_empty()
+                    || value.uncertainty.trim().is_empty()
+                    || value.next_action.trim().is_empty()
+                {
+                    return Err("Manager answer must include what_exists, how_known, uncertainty, and next_action".into());
+                }
+                if value.what_exists.len() > 8_000
+                    || value.uncertainty.len() > 4_000
+                    || value.next_action.len() > 4_000
+                    || value.how_known.len() > 16
+                    || value.conflicts.len() > 8
+                {
+                    return Err("Manager answer exceeds its bounded response fields".into());
+                }
+                super::validate_refs(&value.how_known, &context.evidence_ids)?;
+                for conflict in &value.conflicts {
+                    if conflict.left_evidence_id == conflict.right_evidence_id
+                        || conflict.claim.trim().is_empty()
+                        || conflict.disposition.trim().is_empty()
+                    {
+                        return Err("Manager conflict must identify two sources, a claim, and a disposition".into());
+                    }
+                    super::validate_refs(
+                        &[
+                            conflict.left_evidence_id.clone(),
+                            conflict.right_evidence_id.clone(),
+                        ],
+                        &context.evidence_ids,
+                    )?;
+                }
+            }
+            for conflict in &value.conflicts {
+                super::validate_refs(
+                    &[
+                        conflict.left_evidence_id.clone(),
+                        conflict.right_evidence_id.clone(),
+                    ],
+                    &context.evidence_ids,
+                )?;
+            }
             let broker_ids = context
                 .evidence_ids
                 .iter()

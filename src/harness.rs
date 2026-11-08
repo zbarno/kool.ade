@@ -245,9 +245,9 @@ pub use api::{
     DependencyPreparationTelemetry, DependencyRequest, DependencyRequestStatus,
     DependencyRetryResult, DocumentUpdate, ExecutionMode, ExecutionProfile,
     HarnessExecutionFailure, HarnessFailureCategory, HarnessOutcome, HarnessRouteProvenance,
-    LivePost, LiveProgress, ModelCallUsage, PackageEcosystem, PlanningRequest, PlanningTaskDraft,
-    PlanningTaskOffer, ProviderAuthStrategy, RequestedAction, RetrievalPlan,
-    ReviewExecutionIdentity, RuntimeQaReviewScreenshot, RuntimeQaScreenshotReview,
+    LivePost, LiveProgress, ManagerContextTelemetryV1, ModelCallUsage, PackageEcosystem,
+    PlanningRequest, PlanningTaskDraft, PlanningTaskOffer, ProviderAuthStrategy, RequestedAction,
+    RetrievalPlan, ReviewExecutionIdentity, RuntimeQaReviewScreenshot, RuntimeQaScreenshotReview,
     TaskActivityActor, TaskActivityEventV1, TaskActivityOrigin, TaskActivityVisibility, ToolAccess,
     TurnEnvelope, TurnItem, TurnItemUpdate, safe_activity_text,
 };

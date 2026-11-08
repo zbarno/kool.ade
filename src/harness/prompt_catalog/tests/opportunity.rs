@@ -62,6 +62,43 @@ fn context() -> OutputValidationContext<'static> {
     }
 }
 
+#[test]
+fn grounded_manager_answer_requires_complete_fields_and_manifest_citations() {
+    let evidence_id = "repository-architecture-profile";
+    let context = OutputValidationContext {
+        require_grounded_manager_answer: true,
+        evidence_ids: [evidence_id.to_owned()].into(),
+        ..Default::default()
+    };
+    let complete = serde_json::json!({
+        "summary": "A bounded repository profile was found.",
+        "what_exists": "A revision-pinned repository profile is available.",
+        "how_known": [evidence_id],
+        "uncertainty": "It may lag the current source revision.",
+        "next_action": "Investigate the selected current revision for an exact code question.",
+        "conflicts": [],
+        "proposed_actions": [],
+        "opportunities": []
+    })
+    .to_string();
+    assert!(validate_output_with_context(PromptRole::Manager, &complete, &context).is_ok());
+
+    let missing_citation = serde_json::json!({
+        "summary": "A claim without a source.",
+        "what_exists": "A feature exists.",
+        "how_known": ["invented-evidence"],
+        "uncertainty": "Unknown.",
+        "next_action": "Check it.",
+        "conflicts": [],
+        "proposed_actions": [],
+        "opportunities": []
+    })
+    .to_string();
+    assert!(
+        validate_output_with_context(PromptRole::Manager, &missing_citation, &context).is_err()
+    );
+}
+
 fn manager_output(proposal: &OpportunityProposalV1) -> String {
     serde_json::json!({
         "summary": "A small improvement may reduce recurring failures.",

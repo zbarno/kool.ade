@@ -86,6 +86,9 @@ impl LiveProgress {
         if next.prompt_manifest.is_none() {
             next.prompt_manifest = self.prompt_manifest.clone();
         }
+        if next.manager_context.is_none() {
+            next.manager_context = self.manager_context.clone();
+        }
         // Progress snapshots can be delayed behind a newer snapshot. Checklist
         // reports carry a worker-local revision so late snapshots cannot roll
         // the durable board state back.

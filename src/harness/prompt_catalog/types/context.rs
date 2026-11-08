@@ -76,6 +76,7 @@ pub enum RolePayloadV1 {
         work_graph: Vec<String>,
         unresolved_findings: Vec<String>,
         latest_review_receipts: Vec<String>,
+        context_resolution: Vec<String>,
     },
     PlannerOpportunity {
         open_questions: Vec<String>,

@@ -33,8 +33,23 @@ pub(in crate::app::manager) fn decode(
         code_review_targets,
         &context.evidence_ids,
     )?;
+    let uncertainty_reported =
+        crate::app::manager::output::uncertainty_reported(&output.uncertainty);
     let proposed_actions = output.proposed_actions;
     let mut lines = vec![output.summary];
+    lines.push(format!("What exists: {}", output.what_exists));
+    lines.push(format!("How known: {}", output.how_known.join(", ")));
+    lines.push(format!("Uncertainty: {}", output.uncertainty));
+    lines.push(format!("Next action: {}", output.next_action));
+    for conflict in &output.conflicts {
+        lines.push(format!(
+            "Evidence conflict: {} vs {} — {} ({})",
+            conflict.left_evidence_id,
+            conflict.right_evidence_id,
+            conflict.claim,
+            conflict.disposition
+        ));
+    }
     if !output.summary_evidence.is_empty() {
         let evidence = output
             .summary_evidence
@@ -66,6 +81,7 @@ pub(in crate::app::manager) fn decode(
     }
     Ok(ManagerOutput {
         summary: lines.join("\n"),
+        uncertainty_reported,
         proposed_actions,
         opportunities: output.opportunities,
         evidence_hashes,

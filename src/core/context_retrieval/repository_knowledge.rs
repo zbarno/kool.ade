@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, path::PathBuf, process::Command, sync::Arc};
 use crate::core::{
     repository_knowledge::{
         NavigationCandidateV1, ProfileRequest, ProfileSource, RepositoryKnowledgeProfileV1,
-        read_selected_document, scan_profile,
+        read_selected_document,
     },
     state::PlannerState,
 };
@@ -16,6 +16,7 @@ pub(super) struct RepositoryEvidence {
     pub summary: String,
     pub candidates: BTreeMap<String, RepositoryDocument>,
     pub areas: BTreeMap<String, super::RetrievedArea>,
+    pub cache_hits: usize,
 }
 
 pub(super) struct RepositoryDocument {
@@ -28,6 +29,7 @@ pub(super) fn collect(state: &PlannerState) -> RepositoryEvidence {
     let mut summary = String::new();
     let mut candidates = BTreeMap::new();
     let mut areas = BTreeMap::new();
+    let mut cache_hits = 0;
     for repository in state.repositories.repositories.iter().take(MAX_PROFILES) {
         let Ok(Some(root)) = state.repositories.target_if_available(
             &state.planning_store,
@@ -55,13 +57,16 @@ pub(super) fn collect(state: &PlannerState) -> RepositoryEvidence {
             repositories: &state.repositories,
             now_unix_ms: now_unix_ms(),
         };
-        let Ok(profile) = scan_profile(request) else {
+        let Ok((profile, cached)) =
+            crate::core::repository_knowledge::scan_profile_with_cache(request)
+        else {
             summary.push_str(&format!(
                 "Repository {} at {}: profile unavailable; architecture is unknown.\n",
                 repository.id, source_ref
             ));
             continue;
         };
+        cache_hits += usize::from(cached);
         let status = format!("{:?}", profile.status).to_ascii_lowercase();
         summary.push_str(&format!(
             "Repository {} at checked-out ref {} commit {} status {} dirty {} languages {:?}. This evidence describes the labeled ref only and does not establish that a task branch was merged into another ref.\n",
@@ -150,6 +155,7 @@ pub(super) fn collect(state: &PlannerState) -> RepositoryEvidence {
         summary,
         candidates,
         areas,
+        cache_hits,
     }
 }
 

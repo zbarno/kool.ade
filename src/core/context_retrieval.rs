@@ -44,10 +44,10 @@ pub enum RetrievedDocumentTrust {
 
 /// Bounded workspace-private repository profile summary for Manager evidence.
 /// The product-only Manager path does not call this function.
-pub(crate) fn manager_profile_summary(state: &PlannerState) -> Option<String> {
+pub(crate) fn manager_profile_summary(state: &PlannerState) -> Option<(String, usize)> {
     let evidence = repository_knowledge::collect(state);
     let summary = crate::core::context_build::clip(&evidence.summary, 8_000);
-    (!summary.trim().is_empty()).then_some(summary)
+    (!summary.trim().is_empty()).then_some((summary, evidence.cache_hits))
 }
 
 #[derive(Debug, Clone)]

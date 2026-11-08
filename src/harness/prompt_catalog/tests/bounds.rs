@@ -9,6 +9,7 @@ fn oversized_role_payload_is_rejected_before_rendering() {
             work_graph: vec!["x".repeat(4097)],
             unresolved_findings: vec![],
             latest_review_receipts: vec![],
+            context_resolution: Vec::new(),
         },
     );
     assert!(render(&input).unwrap_err().contains("work_graph"));
@@ -23,6 +24,7 @@ fn manager_payload_reports_the_invalid_cursor_field() {
             work_graph: vec![],
             unresolved_findings: vec![],
             latest_review_receipts: vec![],
+            context_resolution: Vec::new(),
         },
     );
     assert!(render(&input).unwrap_err().contains("board_event_cursor"));
@@ -37,6 +39,7 @@ fn evidence_metadata_counts_toward_the_total_quoted_evidence_limit() {
             work_graph: vec![],
             unresolved_findings: vec![],
             latest_review_receipts: vec![],
+            context_resolution: Vec::new(),
         },
     );
     input.evidence_manifest.clear();
@@ -97,6 +100,7 @@ fn evidence_that_exceeds_rendered_budget_is_rejected_without_truncation() {
             work_graph: vec![],
             unresolved_findings: vec![],
             latest_review_receipts: vec![],
+            context_resolution: Vec::new(),
         },
     );
     input.evidence_manifest.clear();

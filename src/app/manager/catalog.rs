@@ -1,12 +1,14 @@
 use sha2::Digest;
 use std::collections::{HashMap, HashSet};
 
+use crate::harness::ManagerContextTelemetryV1;
 use crate::harness::prompt_catalog::{
     EvidenceConfidentiality, EvidenceItem, EvidenceOrigin, OutputValidationContext, PromptRole,
     RenderedPrompt, RoleInputV1, RolePayloadV1,
 };
 
 pub(in crate::app::manager) mod code_reviews;
+mod context;
 mod decode;
 mod opportunities;
 mod payload;
@@ -31,12 +33,14 @@ pub(super) struct ManagerPrompt {
     pub repo_root: Option<std::path::PathBuf>,
     pub _workspace_guard: Option<tempfile::TempDir>,
     pub code_review_targets: std::collections::HashMap<String, code_reviews::FindingTarget>,
+    pub context_telemetry: ManagerContextTelemetryV1,
 }
 
 pub(super) fn render(
     project: &super::super::session::Project,
     events: &[String],
 ) -> Result<ManagerPrompt, String> {
+    let context_started = std::time::Instant::now();
     let workspace_uid = project
         .state
         .planning_store
@@ -84,6 +88,8 @@ pub(super) fn render(
         .map(|repository| repository.id.clone());
     let summary = super::Manager::prompt_body(project, events);
     let trusted_evidence = opportunities::trusted_opportunity_evidence(project, &original_goal);
+    let authoritative_evidence =
+        context::authoritative_evidence(project, &workspace_uid, &original_goal);
     let plan_review_evidence = reviews::current_review_evidence(project);
     let code_review_evidence = code_reviews::current_findings(project)?;
     let mut evidence_manifest = vec![EvidenceItem {
@@ -95,6 +101,7 @@ pub(super) fn render(
         content: summary,
     }];
     evidence_manifest.extend(trusted_evidence);
+    evidence_manifest.extend(authoritative_evidence);
     let code_review_targets = code_review_evidence
         .iter()
         .map(|(item, target)| (item.id.clone(), target.clone()))
@@ -127,6 +134,13 @@ pub(super) fn render(
         })
         .collect();
     evidence_manifest = deduplicate_evidence(evidence_manifest)?;
+    let (evidence_manifest, context_resolution) =
+        context::resolve_sources(evidence_manifest, &original_goal);
+    let context_telemetry = context::telemetry(
+        &evidence_manifest,
+        &context_resolution,
+        context_started.elapsed(),
+    );
     let evidence_ids = evidence_manifest
         .iter()
         .map(|item| item.id.clone())
@@ -186,11 +200,13 @@ pub(super) fn render(
             work_graph: payload::work_graph(project),
             unresolved_findings: payload::unresolved_findings(project),
             latest_review_receipts: payload::latest_review_receipts(latest_review_receipts),
+            context_resolution,
         },
     };
     Ok(ManagerPrompt {
         rendered: crate::harness::prompt_catalog::render(&input)?,
         validation: OutputValidationContext {
+            require_grounded_manager_answer: true,
             evidence_ids,
             evidence_content,
             allowed_repositories,
@@ -207,6 +223,7 @@ pub(super) fn render(
         repo_root: None,
         _workspace_guard: None,
         code_review_targets,
+        context_telemetry,
     })
 }
 

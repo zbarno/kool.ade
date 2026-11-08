@@ -50,6 +50,7 @@ fn shared_evidence_from_multiple_pending_reviews_renders_once() {
                 "plan-review:feature-a".into(),
                 "plan-review:feature-b".into(),
             ],
+            context_resolution: Vec::new(),
         },
     });
     assert!(
