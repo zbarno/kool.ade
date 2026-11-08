@@ -41,6 +41,7 @@ fn specification_follow_up_uses_same_scope_history_and_excludes_other_streams() 
             sha256: "b".repeat(64),
         }],
         effective_document_sha256: "c".repeat(64),
+        reviewed_repository_evidence: Vec::new(),
     });
     project.remember_chat(vec![
         crate::domain::ChatMessage::new(
@@ -145,6 +146,7 @@ fn in_flight_feature_question_keeps_its_captured_uid_after_selection_changes() {
                 intent: crate::core::specification_chat::Intent::Ask,
                 target,
                 omitted_history_messages: 0,
+                reviewed_repository_evidence: Vec::new(),
             },
             pin,
         )

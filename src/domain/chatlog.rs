@@ -40,6 +40,12 @@ pub struct ChatMessage {
     /// Target and published source revision for Specification chat turns.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub specification_context: Option<SpecificationChatContext>,
+    /// Correlates a baseline review result with the specific UI request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub baseline_review_id: Option<String>,
+    /// Bounded, receipt-verified source excerpts from a Manager review.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub verified_repository_evidence: Vec<VerifiedRepositoryEvidence>,
     /// Durable lease heartbeat; the visible event timestamp remains unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lease_renewed_at: Option<DateTime<Utc>>,
@@ -55,6 +61,33 @@ pub struct SpecificationChatContext {
     pub published_commit_sha: String,
     pub source_documents: Vec<SpecificationSourceDocument>,
     pub effective_document_sha256: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviewed_repository_evidence: Vec<ReviewedRepositoryEvidenceRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewedRepositoryEvidenceRef {
+    pub evidence_id: String,
+    pub repository_id: String,
+    pub source_ref: String,
+    pub source_sha: String,
+    pub content_sha256: String,
+    #[serde(default)]
+    pub excerpt_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerifiedRepositoryEvidence {
+    pub evidence_id: String,
+    pub repository_id: String,
+    pub source_ref: String,
+    pub source_sha: String,
+    pub content_sha256: String,
+    #[serde(default)]
+    pub excerpt_sha256: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,6 +110,8 @@ impl ChatMessage {
             answer_context: None,
             clarification: false,
             specification_context: None,
+            baseline_review_id: None,
+            verified_repository_evidence: Vec::new(),
             lease_renewed_at: None,
             ts: Utc::now(),
         }

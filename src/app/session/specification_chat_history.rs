@@ -95,6 +95,7 @@ fn scoped_message(role: ChatRole, text: &str, scope_key: &str) -> ChatMessage {
             sha256: "b".repeat(64),
         }],
         effective_document_sha256: "c".repeat(64),
+        reviewed_repository_evidence: Vec::new(),
     });
     message
 }

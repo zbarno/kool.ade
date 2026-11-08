@@ -51,6 +51,13 @@ pub struct Manager {
     investigation_receipt_root: Option<std::path::PathBuf>,
     investigation_cancellation_id: Option<String>,
     cancellation_watch_stop: Arc<AtomicBool>,
+    baseline_review_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BaselineReviewRequest {
+    pub review_id: String,
+    pub repository_id: String,
 }
 
 impl Manager {
@@ -68,6 +75,7 @@ impl Manager {
             investigation_receipt_root: None,
             investigation_cancellation_id: None,
             cancellation_watch_stop: Arc::new(AtomicBool::new(true)),
+            baseline_review_id: None,
         }
     }
 
@@ -78,6 +86,15 @@ impl Manager {
     pub fn start(
         project: &super::session::Project,
         events: &[String],
+        harness: Box<dyn AiHarness>,
+    ) -> Self {
+        Self::start_with_baseline_review(project, events, None, harness)
+    }
+
+    pub(crate) fn start_with_baseline_review(
+        project: &super::session::Project,
+        events: &[String],
+        baseline_review: Option<BaselineReviewRequest>,
         harness: Box<dyn AiHarness>,
     ) -> Self {
         let (tx, progress) = mpsc::channel();
@@ -120,7 +137,15 @@ impl Manager {
             .as_ref()
             .zip(receipt_root.as_ref())
             .and_then(|(workspace, root)| {
-                manager_investigation_authorization(project, workspace, root)
+                manager_investigation_authorization(
+                    project,
+                    workspace,
+                    root,
+                    baseline_review
+                        .as_ref()
+                        .map(|review| review.repository_id.as_str())
+                        .unwrap_or("root"),
+                )
             });
         if investigation_authorization.is_none()
             && let Some(root) = &receipt_root
@@ -212,6 +237,7 @@ impl Manager {
                 investigation_receipt_root: receipt_root,
                 investigation_cancellation_id: cancellation_id,
                 cancellation_watch_stop,
+                baseline_review_id: baseline_review.map(|review| review.review_id),
             };
         }
         execute::launch(
@@ -235,6 +261,7 @@ impl Manager {
             investigation_receipt_root: receipt_root,
             investigation_cancellation_id: cancellation_id,
             cancellation_watch_stop,
+            baseline_review_id: baseline_review.map(|review| review.review_id),
         }
     }
     pub fn progress(&self) -> Option<LiveProgress> {
@@ -247,10 +274,13 @@ impl Manager {
     }
     pub(super) fn result(&self) -> Option<Result<ManagerOutput, String>> {
         match self.result.try_recv() {
-            Ok(result) => {
+            Ok(mut result) => {
                 self.cancellation_watch_stop.store(true, Ordering::Release);
                 if let Some(root) = &self.investigation_receipt_root {
                     let _ = std::fs::remove_dir_all(root);
+                }
+                if let Ok(output) = &mut result {
+                    output.baseline_review_id = self.baseline_review_id.clone();
                 }
                 Some(result)
             }
@@ -263,6 +293,9 @@ impl Manager {
                 Some(Err("Project-manager process ended unexpectedly".into()))
             }
         }
+    }
+    pub(super) fn baseline_review_id(&self) -> Option<&str> {
+        self.baseline_review_id.as_deref()
     }
 }
 

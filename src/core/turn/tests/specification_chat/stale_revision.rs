@@ -82,6 +82,7 @@ fn specification_request(
         intent,
         target: target(inputs),
         omitted_history_messages: 0,
+        reviewed_repository_evidence: Vec::new(),
     }
 }
 
