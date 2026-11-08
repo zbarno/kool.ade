@@ -7,7 +7,7 @@ use crate::{
     app::bootstrap_repair_policy::{Host, Operation, Proposal},
     execution::{
         docker::{
-            engine::{DockerEndpoint, EngineDiscovery, HostPlatform},
+            engine::{DockerEndpoint, EngineDiscovery},
             images::{ImageLock, RuntimeProfile, SelectedImage},
         },
         errors::{ExecutionError, ExecutionErrorKind},
@@ -20,6 +20,11 @@ use crate::{
 };
 
 use super::process_lock;
+mod attempt_guard;
+mod profiles;
+
+use attempt_guard::AttemptFailureGuard;
+use profiles::{host_platform, profile_name};
 
 static PREPARATION: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
 
@@ -166,6 +171,7 @@ async fn prepare_approved_image_unlocked(
             "the image preparation attempt could not be recorded ({task_state}): {error:#}"
         ))
     })?;
+    let mut attempt_guard = AttemptFailureGuard::new(&task_id, &operation_id);
 
     let proposal = Proposal {
         schema_version: 1,
@@ -233,7 +239,7 @@ async fn prepare_approved_image_unlocked(
     .map_err(|_| image_error("the successful smoke receipt could not be persisted"))?;
     crate::persistence::setup_tasks::apply_transition(SetupTaskTransitionV1::AwaitVerification {
         task_id: task_id.clone(),
-        operation_id,
+        operation_id: operation_id.clone(),
         at_unix_ms: now_ms(),
     })
     .map_err(|_| image_error("the verified image task could not be settled"))?;
@@ -245,6 +251,7 @@ async fn prepare_approved_image_unlocked(
             "the persisted image receipt does not match the current lock and Docker Engine",
         ));
     }
+    attempt_guard.complete();
     Ok(())
 }
 
@@ -256,9 +263,13 @@ fn publish_image_task(task_id: &str) -> Result<(), ExecutionError> {
     })
     .join()
     .map_err(|_| image_error("the fresh machine setup scan worker stopped unexpectedly"))?;
-    let snapshot = result
-        .snapshot
-        .ok_or_else(|| image_error("a fresh machine setup scan did not complete"))?;
+    let snapshot = result.snapshot.ok_or_else(|| {
+        image_error(format!(
+            "a fresh machine setup scan did not complete (cancelled={}, issue={:?})",
+            result.cancelled,
+            result.issue.as_ref().map(|issue| issue.issue.as_str())
+        ))
+    })?;
     let store = crate::persistence::setup_tasks::reconcile_live(&snapshot, generation)
         .map_err(|_| image_error("the current machine setup scan could not be saved"))?;
     if store.tasks.contains_key(task_id) {
@@ -268,29 +279,6 @@ fn publish_image_task(task_id: &str) -> Result<(), ExecutionError> {
             "the current machine setup scan did not publish this engine-bound image task",
         ))
     }
-}
-
-fn profile_name(profile: RuntimeProfile) -> Option<(RuntimeProfile, &'static str)> {
-    Some((
-        profile,
-        match profile {
-            RuntimeProfile::General => "general",
-            RuntimeProfile::Rust => "rust",
-            RuntimeProfile::Node => "node",
-            RuntimeProfile::Python => "python",
-            RuntimeProfile::Go => "go",
-            RuntimeProfile::BrowserQa | RuntimeProfile::DesktopQa => return None,
-        },
-    ))
-}
-
-fn host_platform() -> HostPlatform {
-    #[cfg(target_os = "macos")]
-    return HostPlatform::MacOs;
-    #[cfg(target_os = "windows")]
-    return HostPlatform::Windows;
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    HostPlatform::Linux
 }
 
 fn now_ms() -> u64 {

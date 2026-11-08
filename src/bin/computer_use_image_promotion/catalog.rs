@@ -22,7 +22,7 @@ use self::{
     previous::{PreviousCatalog, read_previous_bundle, validate_lock_against_catalog},
 };
 
-const SIGNER_KEY_ID: &str = "f0d468f0-69f3-4495-887e-5b0fbb4f98f4";
+const SIGNER_KEY_ID: &str = "76fe57c9-0102-424b-9bb2-90b7ca745006";
 const CATALOG_TTL_MS: u64 = 90 * 24 * 60 * 60 * 1000;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
