@@ -156,3 +156,35 @@ fn retained_post_and_event_windows_are_bounded_and_marked() {
     assert!(progress.activity_events_truncated_before_ms.is_some());
     assert!(progress.posts.first().unwrap().id.0 >= 100);
 }
+
+#[test]
+fn provider_progress_snapshots_preserve_manager_context_accounting() {
+    let mut progress = LiveProgress {
+        manager_context: Some(super::super::super::ManagerContextTelemetryV1 {
+            selected_source_ids: vec!["workspace-summary".into()],
+            selected_evidence_bytes: 42,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    progress.update(LiveProgress {
+        response: "Manager response arrived".into(),
+        ..Default::default()
+    });
+    assert_eq!(
+        progress
+            .manager_context
+            .as_ref()
+            .unwrap()
+            .selected_source_ids,
+        ["workspace-summary"]
+    );
+    assert_eq!(
+        progress
+            .manager_context
+            .as_ref()
+            .unwrap()
+            .selected_evidence_bytes,
+        42
+    );
+}

@@ -24,6 +24,9 @@ pub struct LiveProgress {
     /// Versioned prompt identity associated with this run's activity evidence.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_manifest: Option<crate::harness::prompt_catalog::PromptManifest>,
+    /// Workspace-private accounting for the Manager's bounded source choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manager_context: Option<ManagerContextTelemetryV1>,
     /// Selected local harness/model at the start of this unit of work.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_route: Option<String>,
@@ -45,6 +48,24 @@ pub struct LiveProgress {
     pub response: String,
     pub specification: Option<String>,
     pub activity: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ManagerContextTelemetryV1 {
+    pub selected_source_ids: Vec<String>,
+    pub omitted_source_count: u32,
+    pub omitted_source_ids: String,
+    pub omitted_ids_truncated: bool,
+    pub selected_evidence_bytes: u64,
+    /// Approximate context tokens (UTF-8 bytes / 4), not provider usage.
+    pub estimated_context_tokens: u64,
+    pub preparation_millis: u64,
+    pub profile_cache_hits: u32,
+    pub uncertainty_reported: Option<bool>,
+    /// True when grounded technical evidence was present and no AskUser action
+    /// was emitted. This is an observable proxy, not a product-quality score.
+    pub answerable_without_user_question: Option<bool>,
 }
 
 /// Provider-neutral usage from one completed model response.

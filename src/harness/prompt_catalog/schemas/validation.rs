@@ -13,7 +13,7 @@ mod task_graph;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum RoleOutputV1 {
-    Manager(ManagerOutputV2),
+    Manager(ManagerOutputV3),
     PlannerV3(PlannerOutputV2),
     Review(ReviewVerdictV1),
     TaskGraph(TaskGraphV1),
@@ -28,6 +28,7 @@ pub enum RoleOutputV1 {
 
 #[derive(Debug, Clone, Default)]
 pub struct OutputValidationContext<'a> {
+    pub require_grounded_manager_answer: bool,
     pub turn_purpose: crate::core::workflow::TurnPurpose,
     pub expected_feature_uid: Option<&'a str>,
     pub expected_approved_spec_ref: Option<&'a str>,
@@ -173,7 +174,7 @@ fn decode(
         };
     }
     match role {
-        PromptRole::Manager => parse!(ManagerOutputV2, Manager),
+        PromptRole::Manager => parse!(ManagerOutputV3, Manager),
         PromptRole::Planner => parse!(PlannerOutputV2, PlannerV3),
         PromptRole::PlannerConversationV6 => {
             crate::harness::responses::decode_turn(text, turn_purpose)

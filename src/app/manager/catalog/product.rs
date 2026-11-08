@@ -67,6 +67,7 @@ pub fn render_product(
             work_graph: Vec::new(),
             unresolved_findings: Vec::new(),
             latest_review_receipts: Vec::new(),
+            context_resolution: Vec::new(),
         },
     };
     let allowed_repositories = std::collections::HashMap::from([(
@@ -80,6 +81,7 @@ pub fn render_product(
     Ok(Some(ManagerPrompt {
         rendered: crate::harness::prompt_catalog::render(&input)?,
         validation: OutputValidationContext {
+            require_grounded_manager_answer: true,
             evidence_ids: evidence_ids.clone(),
             public_evidence_ids: evidence_ids,
             allowed_repositories,
@@ -92,6 +94,7 @@ pub fn render_product(
         planning_revision: project.state.baseline_planning_revision.clone(),
         review_targets: std::collections::HashMap::new(),
         code_review_targets: std::collections::HashMap::new(),
+        context_telemetry: crate::harness::ManagerContextTelemetryV1::default(),
         repo_root: Some(repo_root),
         _workspace_guard: Some(workspace_guard),
     }))

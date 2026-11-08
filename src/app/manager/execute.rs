@@ -64,6 +64,29 @@ pub(super) fn launch(
                 return;
             }
         };
+        let mut context_telemetry = prepared.context_telemetry.clone();
+        let has_answerable_source = context_telemetry.selected_source_ids.iter().any(|id| {
+            id.starts_with("investigation:")
+                || id.starts_with("repository-architecture-profile")
+                || id.starts_with("runtime-qa")
+                || id.starts_with("published-spec:")
+                || id.starts_with("authorized-task-direction:")
+                || id.contains("capability")
+        });
+        context_telemetry.uncertainty_reported = Some(output.uncertainty_reported);
+        context_telemetry.answerable_without_user_question = Some(
+            has_answerable_source
+                && !output.proposed_actions.iter().any(|action| {
+                    matches!(
+                        &action.kind,
+                        crate::harness::prompt_catalog::ManagerActionKind::AskUser
+                    )
+                }),
+        );
+        let _ = request.progress_tx.send(crate::harness::LiveProgress {
+            manager_context: Some(context_telemetry),
+            ..Default::default()
+        });
         match product_prepared {
             Ok(Some(product_prompt))
                 if !request.cancel.load(std::sync::atomic::Ordering::Relaxed) =>
@@ -216,7 +239,7 @@ fn run_prompt(
         }
         if let Err(detail) = &outcome {
             request.prompt_body.push_str(&format!(
-                "\nApplication validation rejected the previous response: {}\nReturn only a corrected JSON object with exactly these top-level fields: {{\"summary\":\"Exact complete sanitized evidence line\",\"summary_evidence\":[],\"proposed_actions\":[],\"opportunities\":[]}}. If the summary relies on investigation evidence, reproduce one complete sanitized evidence line verbatim and cite its source ID in summary_evidence; add no conclusions to that line. Do not add schema_version, output_schema_version, evidence_refs, or commentary fields. Preserve the original evidence and action restrictions. Empty action arrays are valid; do not invent actions to repair the format.",
+                "\nApplication validation rejected the previous response: {}\nReturn only a corrected ManagerOutputV3 JSON object with exactly these top-level fields: summary, what_exists, how_known, uncertainty, next_action, conflicts, summary_evidence, proposed_actions, and opportunities. Cite only supplied evidence IDs in how_known, summary_evidence, action evidence, and conflict references. If the summary relies on investigation evidence, reproduce one complete sanitized evidence line verbatim and cite its source ID in summary_evidence; add no conclusions to that line. Do not add schema_version, output_schema_version, evidence_refs, or commentary fields. Preserve the original evidence and action restrictions. Empty action arrays are valid; do not invent actions to repair the format.",
                 crate::core::context_build::clip_bytes(&crate::error::redact_secrets(detail), 2048)
             ));
         }

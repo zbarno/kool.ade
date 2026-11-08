@@ -42,7 +42,7 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
         ),
     ];
     if requests_repository_profile(goal)
-        && let Some(content) =
+        && let Some((content, cache_hits)) =
             crate::core::context_retrieval::manager_profile_summary(&project.state)
     {
         items.push(EvidenceItem {
@@ -50,7 +50,9 @@ pub(in crate::app::manager::catalog) fn trusted_opportunity_evidence(
             workspace_uid: workspace_uid.clone(),
             origin: EvidenceOrigin::Application,
             confidentiality: EvidenceConfidentiality::WorkspacePrivate,
-            source: "revision-pinned local repository architecture profile".into(),
+            source: format!(
+                "revision-pinned local repository architecture profile; cache_hits={cache_hits}"
+            ),
             content,
         });
     }

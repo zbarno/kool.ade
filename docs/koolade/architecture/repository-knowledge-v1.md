@@ -67,3 +67,28 @@ receipts per Manager run, and bounded to 32 files, 256 KiB, 128 matches, and
 10 seconds per request. Cancellation crosses the provider process through a
 private app-owned marker and is acknowledged before temporary evidence is
 cleaned up.
+
+## Manager answer grounding
+
+Manager prompts receive an application-generated bounded source ordering for
+the request category. Relevant published specification documents are selected
+from the primary repository's published navigation and read by immutable Git
+object at the configured published pin. Validated active user directions for
+the currently active feature are separate workspace-private evidence. The
+ordering favors target specifications for desired behavior, verified source
+and QA evidence for current behavior, authorized directions for execution,
+and the build capability catalog for product support. Conversation remains
+context only. Missing or stale pinned documents are omitted and must be
+reported as uncertainty.
+
+ManagerOutputV3 requires `what_exists`, cited `how_known`, `uncertainty`, and
+`next_action` fields. Typed conflicts must cite two distinct supplied evidence
+items and state how the disagreement is handled. The app validates every
+reference against the current evidence manifest; the model cannot create
+citations, resolve human choices, or change approval gates.
+Private Manager activity records selected and omitted source IDs, selected
+evidence size, an approximate context-token count, preparation latency,
+revision-profile cache hits, whether uncertainty was surfaced, and whether an
+answerable source was handled without an `AskUser` action. Provider model-call
+records continue to carry actual token, cache-token, duration, and cost values.
+The activity stores identifiers and counts, not selected private source text.

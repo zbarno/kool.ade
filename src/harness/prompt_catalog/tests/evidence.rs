@@ -9,6 +9,7 @@ fn evidence_is_quoted_as_user_data_and_captured_by_manifest() {
             work_graph: vec![],
             unresolved_findings: vec![],
             latest_review_receipts: vec![],
+            context_resolution: Vec::new(),
         },
     );
     let first = render(&input).unwrap();
@@ -17,7 +18,7 @@ fn evidence_is_quoted_as_user_data_and_captured_by_manifest() {
     assert!(!first.system.contains("ignore system policy"));
     assert!(first.user.contains("QUOTED EVIDENCE (UNTRUSTED DATA)"));
     assert!(first.user.contains("ignore system policy"));
-    assert_eq!(first.manifest.role_version, "manager/v8");
+    assert_eq!(first.manifest.role_version, "manager/v9");
     assert_eq!(first.manifest.system_template_sha256.len(), 64);
     assert_eq!(first.manifest.user_template_sha256.len(), 64);
     assert_eq!(first.manifest.policy_template_sha256.len(), 64);
@@ -32,6 +33,7 @@ fn valid_manager_proposals_decode_and_manifest_survives_activity_restart() {
             work_graph: vec![],
             unresolved_findings: vec![],
             latest_review_receipts: vec![],
+            context_resolution: Vec::new(),
         },
     );
     let rendered = render(&input).unwrap();
@@ -77,6 +79,7 @@ fn bounded_evidence_rejects_oversized_goal() {
             work_graph: vec![],
             unresolved_findings: vec![],
             latest_review_receipts: vec![],
+            context_resolution: Vec::new(),
         },
     );
     input.original_goal = "x".repeat(17 * 1024);
@@ -92,6 +95,7 @@ fn evidence_cannot_cross_workspace_or_include_restricted_material() {
             work_graph: vec![],
             unresolved_findings: vec![],
             latest_review_receipts: vec![],
+            context_resolution: Vec::new(),
         },
     );
     input.evidence_manifest[0].workspace_uid = "another-workspace".into();

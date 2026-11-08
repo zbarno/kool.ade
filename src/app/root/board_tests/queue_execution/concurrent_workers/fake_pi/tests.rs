@@ -130,7 +130,7 @@ fn manager_and_work_result_fixtures_match_their_declared_role_schemas() {
     let pi = super::create(root.path());
     for (prompt, role) in [
         (
-            "Return JSON matching ManagerOutputV2 with a concise summary.",
+            "Return JSON matching ManagerOutputV3 with a concise summary.",
             crate::harness::prompt_catalog::PromptRole::Manager,
         ),
         (

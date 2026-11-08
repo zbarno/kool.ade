@@ -54,6 +54,14 @@ impl<'a> From<ProfileRequest<'a>> for ProfileSource {
 
 /// Build or load the bounded local profile for one repository/ref/commit key.
 pub fn scan_profile(request: ProfileRequest<'_>) -> Result<RepositoryKnowledgeProfileV1, String> {
+    scan_profile_with_cache(request).map(|(profile, _)| profile)
+}
+
+/// Build or load the bounded local profile and report whether it came from the
+/// exact revision-keyed local cache.
+pub fn scan_profile_with_cache(
+    request: ProfileRequest<'_>,
+) -> Result<(RepositoryKnowledgeProfileV1, bool), String> {
     let now = request.now_unix_ms.max(1);
     let source = ProfileSource::from(request);
     let root = resolve_root(&source)?;
@@ -67,11 +75,11 @@ pub fn scan_profile(request: ProfileRequest<'_>) -> Result<RepositoryKnowledgePr
         dirty_checkout,
     };
     if let Some(profile) = cached(&source.planning_store, &key) {
-        return Ok(profile);
+        return Ok((profile, true));
     }
     let profile = scan_uncached(&root, key, now)?;
     save_cache(&source.planning_store, profile.clone());
-    Ok(profile)
+    Ok((profile, false))
 }
 
 /// Verify that a previously selected profile still names the current commit

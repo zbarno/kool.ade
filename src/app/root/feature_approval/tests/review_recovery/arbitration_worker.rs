@@ -102,8 +102,19 @@ fn manager_contest_runs_independent_arbitration_and_persists_effective_receipt()
         }),
     };
     let manager_response = serde_json::to_string(&ManagerOutputV2 {
-        summary: "Request independent arbitration for the cited finding.".into(),
-        summary_evidence: Vec::new(),
+        summary: source_quote
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_owned(),
+        what_exists: "The plan review contests requirement wording against a specification source."
+            .into(),
+        how_known: vec![review_id.clone(), source_id.clone()],
+        uncertainty: "The review finding and cited specification may disagree.".into(),
+        next_action: "Preserve the conflict and request independent arbitration.".into(),
+        conflicts: Vec::new(),
+        summary_evidence: vec![source_id.clone()],
         proposed_actions: vec![action],
         opportunities: Vec::new(),
     })

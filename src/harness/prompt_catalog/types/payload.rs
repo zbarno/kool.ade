@@ -13,6 +13,7 @@ pub(crate) fn validate_payload(payload: &RolePayloadV1) -> Result<(), String> {
         work_graph,
         unresolved_findings,
         latest_review_receipts,
+        context_resolution,
     } = payload
     {
         if !text(board_event_cursor, 128) {
@@ -32,6 +33,9 @@ pub(crate) fn validate_payload(payload: &RolePayloadV1) -> Result<(), String> {
         }
         if !list(latest_review_receipts, 256, 512) {
             return Err("role payload field latest_review_receipts contains an empty, oversized, or excessive entry".into());
+        }
+        if !list(context_resolution, 16, 512) {
+            return Err("role payload field context_resolution contains an empty, oversized, or excessive entry".into());
         }
         return Ok(());
     }

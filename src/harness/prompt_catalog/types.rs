@@ -40,7 +40,7 @@ pub enum PromptRole {
 impl PromptRole {
     pub fn id(self) -> &'static str {
         match self {
-            Self::Manager => "manager/v8",
+            Self::Manager => "manager/v9",
             Self::Planner => "planner/v6",
             Self::PlannerConversationV6 => "planner_conversation/v6",
             Self::PlanReviewer => "plan_reviewer/v2",
@@ -62,7 +62,7 @@ impl PromptRole {
 
     pub fn output_schema_version(self) -> &'static str {
         match self {
-            Self::Manager => "ManagerOutputV2",
+            Self::Manager => "ManagerOutputV3",
             Self::Planner => "PlannerOutputV2",
             Self::PlannerConversationV6 => "PlanningTurnResponseV1",
             Self::PlanReviewer
@@ -83,7 +83,7 @@ impl PromptRole {
 
     pub(crate) fn system(self) -> &'static str {
         match self {
-            Self::Manager => include_str!("../../../prompts/v8/manager.system.md"),
+            Self::Manager => include_str!("../../../prompts/v9/manager.system.md"),
             Self::Planner => include_str!("../../../prompts/v6/planner.system.md"),
             Self::PlannerConversationV6 => {
                 include_str!("../../../prompts/v6/planner_conversation.system.md")
@@ -115,7 +115,7 @@ impl PromptRole {
 
     pub(crate) fn user(self) -> &'static str {
         match self {
-            Self::Manager => include_str!("../../../prompts/v8/manager.user.md"),
+            Self::Manager => include_str!("../../../prompts/v9/manager.user.md"),
             Self::Planner => include_str!("../../../prompts/v6/planner.user.md"),
             Self::PlannerConversationV6 => {
                 include_str!("../../../prompts/v6/planner_conversation.user.md")

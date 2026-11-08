@@ -2,14 +2,37 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ManagerOutputV2 {
+pub struct ManagerOutputV3 {
     pub summary: String,
+    #[serde(default)]
+    pub what_exists: String,
+    #[serde(default)]
+    pub how_known: Vec<String>,
+    #[serde(default)]
+    pub uncertainty: String,
+    #[serde(default)]
+    pub next_action: String,
+    #[serde(default)]
+    pub conflicts: Vec<ManagerEvidenceConflictV1>,
     #[serde(default)]
     pub summary_evidence: Vec<String>,
     pub proposed_actions: Vec<ManagerActionV1>,
     #[serde(default)]
     pub opportunities: Vec<OpportunityProposalV1>,
 }
+
+/// A visible disagreement between two independently supplied evidence items.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManagerEvidenceConflictV1 {
+    pub left_evidence_id: String,
+    pub right_evidence_id: String,
+    pub claim: String,
+    pub disposition: String,
+}
+
+/// Compatibility name for existing typed callers; Manager prompts use V3.
+pub type ManagerOutputV2 = ManagerOutputV3;
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ManagerActionV1 {

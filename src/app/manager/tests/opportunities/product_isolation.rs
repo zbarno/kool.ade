@@ -95,12 +95,22 @@ fn product_opportunity_isolated_and_persists_public_evidence_only() {
         Box::new(SplitOpportunityHarness {
             workspace: serde_json::json!({
                 "summary": "The workspace is healthy.",
+                "what_exists": "The supplied workspace summary reports current activity.",
+                "how_known": ["workspace-summary"],
+                "uncertainty": "Only bounded current activity was supplied.",
+                "next_action": "Continue with the current board state.",
+                "conflicts": [],
                 "proposed_actions": [],
                 "opportunities": [],
             })
             .to_string(),
             product: serde_json::json!({
                 "summary": "A public product improvement is available.",
+                "what_exists": "The public product capability inventory supports this workflow.",
+                "how_known": ["koolade-product-capability-inventory"],
+                "uncertainty": "The public scan does not inspect linked user project data.",
+                "next_action": "Present the candidate as an optional product improvement.",
+                "conflicts": [],
                 "proposed_actions": [],
                 "opportunities": [product_proposal_json()],
             })
@@ -205,12 +215,22 @@ fn product_opportunity_isolated_and_persists_public_evidence_only() {
         Box::new(SplitOpportunityHarness {
             workspace: serde_json::json!({
                 "summary": "The workspace is healthy.",
+                "what_exists": "The supplied workspace summary reports current activity.",
+                "how_known": ["workspace-summary"],
+                "uncertainty": "Only bounded current activity was supplied.",
+                "next_action": "Continue with the current board state.",
+                "conflicts": [],
                 "proposed_actions": [],
                 "opportunities": [],
             })
             .to_string(),
             product: serde_json::json!({
                 "summary": "A product proposal cites private data.",
+                "what_exists": "The public product scan proposes an improvement.",
+                "how_known": ["koolade-product-capability-inventory"],
+                "uncertainty": "Private workspace data is outside this scan's scope.",
+                "next_action": "Reject any proposal that cites private workspace evidence.",
+                "conflicts": [],
                 "proposed_actions": [],
                 "opportunities": [private_evidence],
             })

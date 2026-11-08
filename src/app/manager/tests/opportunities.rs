@@ -24,8 +24,30 @@ impl AiHarness for OpportunityHarness {
         &self,
         _request: &crate::harness::PlanningRequest,
     ) -> Result<HarnessOutcome, crate::error::AppError> {
+        let final_text = serde_json::from_str::<serde_json::Value>(&self.0)
+            .ok()
+            .and_then(|mut value| {
+                let object = value.as_object_mut()?;
+                object
+                    .entry("what_exists")
+                    .or_insert_with(|| "Fixture state supplied.".into());
+                object
+                    .entry("how_known")
+                    .or_insert_with(|| serde_json::json!(["workspace-summary"]));
+                object
+                    .entry("uncertainty")
+                    .or_insert_with(|| "Fixture uncertainty is unassessed.".into());
+                object
+                    .entry("next_action")
+                    .or_insert_with(|| "Review the cited evidence.".into());
+                object
+                    .entry("conflicts")
+                    .or_insert_with(|| serde_json::json!([]));
+                Some(value.to_string())
+            })
+            .unwrap_or_else(|| self.0.clone());
         Ok(HarnessOutcome {
-            final_text: self.0.clone(),
+            final_text,
             envelope: None,
             stderr_tail: String::new(),
         })

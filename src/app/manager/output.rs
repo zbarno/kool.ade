@@ -3,6 +3,7 @@ use crate::app::session;
 
 pub struct ManagerOutput {
     pub summary: String,
+    pub uncertainty_reported: bool,
     pub proposed_actions: Vec<crate::harness::prompt_catalog::ManagerActionV1>,
     pub opportunities: Vec<crate::harness::prompt_catalog::OpportunityProposalV1>,
     pub evidence_hashes: std::collections::HashMap<String, String>,
@@ -19,4 +20,39 @@ pub fn persist_output(project: &session::Project, output: &ManagerOutput) -> Str
         return output.summary.clone();
     }
     format!("{}\n\n{}", output.summary, messages.join("\n"))
+}
+
+pub(super) fn uncertainty_reported(value: &str) -> bool {
+    let normalized = value.trim().to_ascii_lowercase();
+    let normalized = normalized.trim_end_matches(['.', '!', '?']).trim();
+    !normalized.is_empty()
+        && !matches!(
+            normalized,
+            "none"
+                | "none known"
+                | "no uncertainty"
+                | "no known uncertainty"
+                | "no uncertainties"
+                | "not applicable"
+                | "n/a"
+                | "nil"
+        )
+}
+
+#[cfg(test)]
+mod uncertainty_tests {
+    use super::uncertainty_reported;
+
+    #[test]
+    fn uncertainty_telemetry_ignores_empty_and_explicitly_clear_answers() {
+        assert!(!uncertainty_reported(""));
+        assert!(!uncertainty_reported("No known uncertainty."));
+    }
+
+    #[test]
+    fn uncertainty_telemetry_counts_a_stated_open_question() {
+        assert!(uncertainty_reported(
+            "The deployment state has not been observed."
+        ));
+    }
 }

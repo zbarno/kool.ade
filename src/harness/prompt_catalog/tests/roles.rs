@@ -50,8 +50,8 @@ fn all_role_templates_are_versioned_and_hashes_are_stable() {
     let pinned = [
         (
             PromptRole::Manager,
-            "bd302391bf7b5cbfe2db81a6b8b282760cf21f557f5ada79cee5219cb3dce2da",
-            "b845b50de27043e90e20825ff59ed35cac004e524e18d58f64273802818743ca",
+            "06e0a9fdf0272b1c66b61c7f26642e71312735c15e840080efbc36f12a5432dc",
+            "30cd1a4c17f1eaaca94a3274b52f251bc757d3a902bf0601f48813b49e9315ac",
         ),
         (
             PromptRole::Planner,

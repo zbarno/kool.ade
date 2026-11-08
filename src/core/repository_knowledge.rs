@@ -16,8 +16,8 @@ pub use profile::{
 };
 pub use scan::{
     ProfileRequest, ProfileSource, read_pinned_file, read_pinned_file_bounded,
-    read_pinned_file_bounded_with_deadline, scan_profile, verify_profile_freshness,
-    verify_profile_freshness_with_deadline,
+    read_pinned_file_bounded_with_deadline, scan_profile, scan_profile_with_cache,
+    verify_profile_freshness, verify_profile_freshness_with_deadline,
 };
 
 /// Re-read and validate a selected navigation candidate at its pinned commit.

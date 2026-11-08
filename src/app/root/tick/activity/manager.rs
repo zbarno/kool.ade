@@ -146,6 +146,7 @@ mod tests {
         let planning_revision = project.state.baseline_planning_revision.clone();
         let output = crate::app::manager::ManagerOutput {
             summary: "Board checked; one blocked task needs attention.".into(),
+            uncertainty_reported: false,
             proposed_actions: Vec::new(),
             opportunities: Vec::new(),
             evidence_hashes: Default::default(),
