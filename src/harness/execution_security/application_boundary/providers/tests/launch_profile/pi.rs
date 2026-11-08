@@ -1,6 +1,85 @@
 use super::{CliProvider, ValidatedProviderLaunch, complete_evidence};
 use std::path::Path;
 
+#[cfg(unix)]
+#[test]
+fn pi_implementation_accepts_only_registered_computer_use_tools() {
+    let provider = CliProvider::Pi;
+    let scratch = tempfile::tempdir().unwrap();
+    let extension = scratch.path().join("pi-koolade-mcp.ts");
+    std::fs::write(&extension, include_bytes!("../../../pi_mcp_extension.ts")).unwrap();
+    let skill_dir = scratch.path().join("worker-skills/koolade-task");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    let skill = skill_dir.join("SKILL.md");
+    std::fs::write(&skill, include_bytes!("../../../pi_worker_skill.md")).unwrap();
+
+    let mut tools = vec![
+        "koolade_bash".to_owned(),
+        "koolade_resource".to_owned(),
+        "koolade_dependency".to_owned(),
+    ];
+    tools.extend(crate::harness::execution_security::computer_use_bridge::tool_names());
+    let mut argv = vec!["/bin/true".into()];
+    argv.extend(
+        provider
+            .profile_requirements()
+            .launch_tokens()
+            .iter()
+            .map(|token| {
+                if token.ends_with('=') {
+                    format!("{token}read")
+                } else {
+                    (*token).to_owned()
+                }
+            }),
+    );
+    argv.extend([
+        "--tools".into(),
+        tools.join(","),
+        "--extension".into(),
+        extension.to_string_lossy().into_owned(),
+        "--skill".into(),
+        skill.to_string_lossy().into_owned(),
+    ]);
+    let mut env = provider
+        .profile_requirements()
+        .environment_keys()
+        .iter()
+        .map(|key| ((*key).into(), "/tmp/profile".into()))
+        .collect::<Vec<_>>();
+    env.push((
+        "KOOLADE_MCP_TOOLS".into(),
+        serde_json::to_string(&tools).unwrap(),
+    ));
+
+    ValidatedProviderLaunch::bind_for_workspace(
+        complete_evidence(provider, "0.30.1"),
+        crate::harness::ExecutionMode::Implementation,
+        argv.clone(),
+        scratch.path(),
+        env.clone(),
+        scratch.path(),
+    )
+    .expect("Pi should accept the exact application-registered Computer Use tool set");
+
+    let tool_index = argv
+        .iter()
+        .position(|argument| argument == "--tools")
+        .unwrap();
+    argv[tool_index + 1].push_str(",koolade_unapproved");
+    assert!(
+        ValidatedProviderLaunch::bind_for_workspace(
+            complete_evidence(provider, "0.30.1"),
+            crate::harness::ExecutionMode::Implementation,
+            argv,
+            scratch.path(),
+            env,
+            scratch.path(),
+        )
+        .is_err()
+    );
+}
+
 #[test]
 fn strict_manager_launch_is_verified_only_for_pi_profile_controls() {
     let provider = CliProvider::Pi;

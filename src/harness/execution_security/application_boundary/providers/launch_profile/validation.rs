@@ -1,6 +1,8 @@
 use super::{CliProvider, ProfileProbeEvidence, ValidatedProviderLaunch};
 use std::path::Path;
 
+mod tool_controls;
+
 pub(super) fn validate_profile(launch: &ValidatedProviderLaunch) -> anyhow::Result<()> {
     #[cfg(test)]
     let explicit_uncontained_test = crate::harness::uncontained_provider_test_execution_enabled();
@@ -58,7 +60,7 @@ pub(super) fn validate_profile(launch: &ValidatedProviderLaunch) -> anyhow::Resu
         missing_env.join(", "),
     );
     if launch.evidence.provider == super::CliProvider::Pi {
-        validate_pi_tool_controls(launch)?;
+        tool_controls::validate_pi_tool_controls(launch)?;
         anyhow::ensure!(
             validate_pi_skill_controls(launch),
             "Pi launch may use only the application-curated worker skill in bounded implementation; other modes must have no explicit skill"
@@ -68,69 +70,6 @@ pub(super) fn validate_profile(launch: &ValidatedProviderLaunch) -> anyhow::Resu
         validate_claude_update_lock(launch)?;
     }
     Ok(())
-}
-
-fn validate_pi_tool_controls(launch: &ValidatedProviderLaunch) -> anyhow::Result<()> {
-    let argv = &launch.argv;
-    anyhow::ensure!(
-        !argv.iter().any(|argument| {
-            ["--tools=", "--extension="]
-                .iter()
-                .any(|flag| argument.starts_with(flag))
-        }),
-        "Pi launch must use the validated separate tool and extension arguments"
-    );
-    let no_tools = argv
-        .iter()
-        .filter(|arg| arg.as_str() == "--no-tools")
-        .count();
-    let tools = argv
-        .windows(2)
-        .filter(|pair| pair[0] == "--tools")
-        .collect::<Vec<_>>();
-    let extensions = argv
-        .windows(2)
-        .filter(|pair| pair[0] == "--extension")
-        .collect::<Vec<_>>();
-    let approved_tools: &[&str] = match launch.mode.tool_access() {
-        crate::harness::ToolAccess::None => &[],
-        crate::harness::ToolAccess::ReadOnly => &["koolade_bash"],
-        crate::harness::ToolAccess::InvestigationBroker => &["koolade_investigate"],
-        crate::harness::ToolAccess::BoundedImplementation => {
-            &["koolade_bash", "koolade_resource", "koolade_dependency"]
-        }
-        crate::harness::ToolAccess::RuntimeQaScreenshots => &["koolade_runtime_qa_screenshot"],
-    };
-    // Missing broker configuration must reduce a normally tool-capable role
-    // to a tool-free launch. That is fail-closed and remains a valid profile.
-    let tool_free = no_tools == 1 && tools.is_empty() && extensions.is_empty();
-    let brokered_tools = !approved_tools.is_empty()
-        && no_tools == 0
-        && tools.len() == 1
-        && extensions.len() == 1
-        && tools[0][1].split(',').collect::<Vec<_>>() == approved_tools
-        && validate_app_extension(launch, &extensions[0][1]);
-    anyhow::ensure!(
-        argv.iter().any(|arg| arg == "--no-builtin-tools") && (tool_free || brokered_tools),
-        "Pi launch must disable built-in tools and expose either no tools or one app-brokered tool extension"
-    );
-    Ok(())
-}
-
-fn validate_app_extension(launch: &ValidatedProviderLaunch, extension: &str) -> bool {
-    let expected = launch.cwd.join("pi-koolade-mcp.ts");
-    let path = Path::new(extension);
-    if path != expected || !path.is_absolute() {
-        return false;
-    }
-    let Ok(metadata) = std::fs::symlink_metadata(path) else {
-        return false;
-    };
-    metadata.is_file()
-        && !metadata.file_type().is_symlink()
-        && std::fs::read(path).is_ok_and(|contents| {
-            contents.as_slice() == include_bytes!("../../pi_mcp_extension.ts")
-        })
 }
 
 fn validate_pi_skill_controls(launch: &ValidatedProviderLaunch) -> bool {
