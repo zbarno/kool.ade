@@ -10,10 +10,15 @@ scaffold.
 Automated setup coverage must prove that a clean installation can create and
 open a workspace from a normal code repository, that repository documents are
 proposed without overwriting existing human content, and that the app neither
-creates a dedicated planning repository nor derives a `.packet` remote. The app must create private local
-workspace metadata without writing task, approval, conversation, or QA records
-to the source repository. Setup errors must not create partial external GitHub
-repositories or weaken existing Git authorization.
+creates a dedicated planning repository nor derives a `.packet` remote. A
+blank code repository must support a concise idea interview before product
+modules are published; product drafts and Human decision cards stay local, and
+source Git remains unchanged. Existing-code review must use the revision-aware
+profile and bounded Manager investigation evidence, with source references and
+unknowns kept explicit. The app must create private local workspace metadata
+without writing task, approval, conversation, or QA records to the source
+repository. Setup errors must not create partial external GitHub repositories
+or weaken existing Git authorization.
 
 ## Manual acceptance deferred
 

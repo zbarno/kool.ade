@@ -95,6 +95,12 @@ pub trait Surface {
     fn manager_activity(&self) -> &[ChatMessage] {
         &[]
     }
+    fn reviewed_baseline_evidence(
+        &self,
+        _review_id: &str,
+    ) -> Vec<crate::domain::chatlog::VerifiedRepositoryEvidence> {
+        Vec::new()
+    }
     fn manager_running(&self) -> bool {
         false
     }

@@ -4,6 +4,9 @@ use crate::core::{published_specs::PublishedSpecPin, state::PlannerState};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+mod evidence;
+pub(crate) use evidence::validate_reviewed_repository_evidence;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Intent {
@@ -41,6 +44,8 @@ pub struct Request {
     pub target: Target,
     #[serde(default)]
     pub omitted_history_messages: usize,
+    #[serde(default)]
+    pub reviewed_repository_evidence: Vec<crate::domain::chatlog::VerifiedRepositoryEvidence>,
 }
 
 impl Request {
@@ -68,6 +73,20 @@ impl Request {
                 })
                 .collect(),
             effective_document_sha256: self.target.effective_document_sha256.clone(),
+            reviewed_repository_evidence: self
+                .reviewed_repository_evidence
+                .iter()
+                .map(
+                    |evidence| crate::domain::chatlog::ReviewedRepositoryEvidenceRef {
+                        evidence_id: evidence.evidence_id.clone(),
+                        repository_id: evidence.repository_id.clone(),
+                        source_ref: evidence.source_ref.clone(),
+                        source_sha: evidence.source_sha.clone(),
+                        content_sha256: evidence.content_sha256.clone(),
+                        excerpt_sha256: evidence.excerpt_sha256.clone(),
+                    },
+                )
+                .collect(),
         }
     }
 }
@@ -88,10 +107,6 @@ pub fn capture_target(state: &PlannerState, scope: Scope) -> anyhow::Result<Targ
                 .iter()
                 .filter(|doc| doc.path.starts_with("docs/koolade/product/"))
                 .collect::<Vec<_>>();
-            anyhow::ensure!(
-                !product_docs.is_empty(),
-                "No published product documents exist"
-            );
             product_docs
                 .iter()
                 .map(|doc| SourceDocument {
@@ -200,8 +215,18 @@ pub fn validate_proposal(
     {
         return Err("The proposal did not stay within the selected specification scope; no changes were saved.".into());
     }
+    if let Scope::Product = &target.scope {
+        validate_local_product_questions(&normalized.added)?;
+        if !normalized.change_status_updates.is_empty() {
+            return Err("A product baseline cannot change feature lifecycle status.".into());
+        }
+    } else if !normalized.added.is_empty() {
+        return Err(
+            "A feature proposal cannot create unrelated product questions; no changes were saved."
+                .into(),
+        );
+    }
     if !normalized.planning_tasks.is_empty()
-        || !normalized.added.is_empty()
         || !normalized.updates.is_empty()
         || !normalized.resolved.is_empty()
         || normalized.requested_action.is_some()
@@ -232,6 +257,31 @@ pub fn validate_proposal(
         normalized
             .change_status_updates
             .insert(display_id.clone(), ChangeStatus::Draft);
+    }
+    Ok(())
+}
+
+fn validate_local_product_questions(items: &[crate::domain::OpenItem]) -> Result<(), String> {
+    use crate::domain::{Authority, ItemKind, ItemStatus};
+    if items.len() > 5 {
+        return Err(
+            "A product baseline can add at most five local decision questions per turn.".into(),
+        );
+    }
+    if items.iter().any(|item| {
+        item.authority != Authority::Human
+            || !matches!(
+                item.kind,
+                ItemKind::Question | ItemKind::Ambiguity | ItemKind::Assumption
+            )
+            || item.status != ItemStatus::Open
+            || item.feature_id.is_some()
+            || item.feature_uid.is_some()
+            || item.task_intent_uid.is_some()
+            || item.task_intent_cycle_uid.is_some()
+            || !item.blocked_by.is_empty()
+    }) {
+        return Err("Product baseline cards must be open, local Human decisions without task or feature links.".into());
     }
     Ok(())
 }

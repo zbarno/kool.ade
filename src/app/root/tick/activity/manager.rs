@@ -15,6 +15,12 @@ pub(super) fn advance(
         result = manager.result();
     }
     if let Some(result) = result {
+        let baseline_review_id = project
+            .activity
+            .manager
+            .as_ref()
+            .and_then(crate::app::manager::Manager::baseline_review_id)
+            .map(str::to_owned);
         project.activity.manager = None;
         project.activity.manager_progress = Default::default();
         match result {
@@ -38,19 +44,24 @@ pub(super) fn advance(
                     )),
                     _ => {}
                 }
-                project.remember_manager_activity(ChatMessage::new(ChatRole::Agent, text, None));
+                let mut message = ChatMessage::new(ChatRole::Agent, text, None);
+                message.verified_repository_evidence = output.verified_repository_evidence;
+                message.baseline_review_id = output.baseline_review_id;
+                project.remember_manager_activity(message);
             }
             Err(error) => {
                 let detail =
                     crate::core::context_build::clip(&crate::error::redact_secrets(&error), 1200);
                 let changed = project.activity.last_manager_error.as_deref() != Some(&detail);
                 project.activity.last_manager_error = Some(detail.clone());
-                if changed {
-                    project.remember_manager_activity(ChatMessage::new(
+                if changed || baseline_review_id.is_some() {
+                    let mut message = ChatMessage::new(
                         ChatRole::System,
                         format!("Manager check unavailable: {detail}"),
                         None,
-                    ));
+                    );
+                    message.baseline_review_id = baseline_review_id;
+                    project.remember_manager_activity(message);
                 }
             }
         }
@@ -104,8 +115,12 @@ pub(super) fn advance(
         &project.state.harness_routes.routes,
     );
     let route_label = harness.label();
-    project.activity.manager = Some(crate::app::manager::Manager::start(
-        project, &events, harness,
+    let baseline_review = project.activity.pending_baseline_review.take();
+    project.activity.manager = Some(crate::app::manager::Manager::start_with_baseline_review(
+        project,
+        &events,
+        baseline_review,
+        harness,
     ));
     project.activity.last_update = Some(now);
     project.activity.manager_progress = crate::harness::LiveProgress {
@@ -139,6 +154,7 @@ mod tests {
                 published_commit_sha: "a".repeat(40),
                 source_documents: Vec::new(),
                 effective_document_sha256: "b".repeat(64),
+                reviewed_repository_evidence: Vec::new(),
             });
         project.chat.push(specification.clone());
         project.activity.pending.clear();
@@ -153,6 +169,8 @@ mod tests {
             evidence_confidentialities: Default::default(),
             planning_revision,
             code_review_targets: Default::default(),
+            verified_repository_evidence: Vec::new(),
+            baseline_review_id: None,
         };
         project.activity.manager =
             Some(crate::app::manager::Manager::completed_for_test(Ok(output)));

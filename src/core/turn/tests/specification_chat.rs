@@ -5,6 +5,8 @@ use std::sync::mpsc::channel;
 mod authority;
 #[path = "specification_chat/authority_decision.rs"]
 mod authority_decision;
+#[path = "specification_chat/baseline.rs"]
+mod baseline;
 #[path = "specification_chat/feature_scope.rs"]
 mod feature_scope;
 #[path = "specification_chat/malformed_request.rs"]
@@ -52,6 +54,7 @@ fn ask_preserves_exact_text_history_and_source_while_refusing_model_edits() {
         intent: crate::core::specification_chat::Intent::Ask,
         target: target.clone(),
         omitted_history_messages: 0,
+        reviewed_repository_evidence: Vec::new(),
     });
     let before_head = git_stdout(&root, &["rev-parse", "HEAD"]);
     let captured = Arc::new(std::sync::Mutex::new(None));
@@ -109,6 +112,7 @@ fn specification_chat_prompt_clips_oversized_unicode_at_request_boundary() {
         intent: crate::core::specification_chat::Intent::Ask,
         target,
         omitted_history_messages: 0,
+        reviewed_repository_evidence: Vec::new(),
     });
     let captured = Arc::new(std::sync::Mutex::new(None));
     let outcome = super::super::execute::run_turn_read_only(
@@ -150,6 +154,7 @@ fn explicit_proposal_creates_only_private_draft_at_captured_revision() {
         intent: crate::core::specification_chat::Intent::Propose,
         target: target.clone(),
         omitted_history_messages: 0,
+        reviewed_repository_evidence: Vec::new(),
     });
     let before_head = git_stdout(&root, &["rev-parse", "HEAD"]);
     let envelope = serde_json::json!({

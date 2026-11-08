@@ -71,6 +71,7 @@ fn feature_ask_keeps_scope_and_hostile_text_read_only() {
         intent: crate::core::specification_chat::Intent::Ask,
         target: target.clone(),
         omitted_history_messages: 0,
+        reviewed_repository_evidence: Vec::new(),
     });
     let head = git_stdout(&root, &["rev-parse", "HEAD"]);
     let captured = std::sync::Arc::new(std::sync::Mutex::new(None));
@@ -116,6 +117,7 @@ fn feature_proposal_is_a_private_draft_bound_to_the_selected_uid() {
         intent: crate::core::specification_chat::Intent::Propose,
         target: target.clone(),
         omitted_history_messages: 0,
+        reviewed_repository_evidence: Vec::new(),
     });
     let head = git_stdout(&root, &["rev-parse", "HEAD"]);
     let envelope = serde_json::json!({

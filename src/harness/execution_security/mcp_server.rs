@@ -180,11 +180,15 @@ impl ServerConfigV2 {
                     .ok_or_else(|| anyhow::anyhow!("Manager investigation authority is missing"))?;
                 anyhow::ensure!(
                     authorization.task_id == self.task_id
-                        && authorization.workspace_id == self.workspace_id
-                        && authorization.source_sha == source_sha
+                        && authorization.project_id == project_id
+                        && authorization.workspace_id
+                            == format!(
+                                "{}:{}:{}",
+                                authorization.project_id, self.task_id, authorization.source_sha
+                            )
                         && authorization.profile.key.repository_id == authorization.repository_id
                         && authorization.profile.key.source_ref == authorization.source_ref
-                        && authorization.profile.key.commit_sha == source_sha,
+                        && authorization.profile.key.commit_sha == authorization.source_sha,
                     "Manager investigation authority does not match its MCP session"
                 );
                 authorization
