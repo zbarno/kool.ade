@@ -99,7 +99,7 @@ cat >/dev/null
 echo done
 "#;
     let binary = fake_cli(&root, script);
-    let usage_file = UsageFile::new();
+    let usage_file = UsageFile::new().unwrap();
     let request = request(ExecutionMode::Implementation);
     let args = super::execute::command(&binary, &request, None, Some(&usage_file.path));
     let output = super::execute::run_process(&request, &args, "prompt".into()).unwrap();

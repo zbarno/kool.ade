@@ -139,7 +139,9 @@ fn approved_comparison_pins<'a>(
 mod tests;
 
 pub(super) fn manager_receipt_root(task_id: &str) -> Option<std::path::PathBuf> {
-    let path = std::env::temp_dir().join(format!("koolade-investigation-{task_id}"));
+    let path = crate::persistence::temporary_root()
+        .ok()?
+        .join(format!("koolade-investigation-{task_id}"));
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;

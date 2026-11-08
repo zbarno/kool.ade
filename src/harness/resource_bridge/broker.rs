@@ -122,10 +122,9 @@ impl ResourceBridge {
             && !crate::harness::runtime_config::paths_with_source(&worktree, runtime_source)?
                 .is_empty();
         let baseline_commit = super::dependency::baseline_commit(&worktree);
-        let temp = std::env::temp_dir().join(format!(
-            "koolade-resources-{}-{}",
-            std::process::id(),
-            uuid::Uuid::new_v4()
+        let temp = crate::persistence::temporary_root()?.join(format!(
+            "r-{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..20]
         ));
         fs::create_dir(&temp)?;
         let mut temp_guard = TemporaryDirectoryGuard::new(temp.clone());
@@ -134,7 +133,11 @@ impl ResourceBridge {
         fs::create_dir(&cache_dir)?;
         set_private_dir(&cache_dir)?;
         let caches = BrokerCaches::create(&temp, state_root, &worktree)?;
-        let socket = temp.join("resource.sock");
+        let socket = temp.join("s");
+        anyhow::ensure!(
+            socket.as_os_str().as_encoded_bytes().len() <= 107,
+            "Kool.ad/e resource bridge path is too long for a Unix socket"
+        );
         let listener = UnixListener::bind(&socket)?;
         set_private_file(&socket)?;
         listener.set_nonblocking(true)?;

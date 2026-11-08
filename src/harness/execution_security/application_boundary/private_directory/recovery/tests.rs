@@ -22,7 +22,10 @@ fn stale_session_recovery_preserves_live_runs_and_removes_crashed_auth_copies() 
     let sessions = root.path().join(SESSION_ROOT);
     ensure_private_root(&sessions).unwrap();
 
-    let stale = sessions.join(format!("run-{}-{}", u32::MAX, uuid::Uuid::new_v4()));
+    let stale = sessions.join(format!(
+        "r-{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..20]
+    ));
     super::super::create_private_directory(&stale).unwrap();
     let stale_lock = create_lock_file(&stale.join(ACTIVE_LOCK)).unwrap();
     drop(stale_lock);
@@ -81,6 +84,57 @@ fn stale_session_recovery_preserves_live_runs_and_removes_crashed_auth_copies() 
         !active_path.exists(),
         "child session should clean up on exit"
     );
+}
+
+#[test]
+fn legacy_session_root_reclaims_crashed_runs_and_preserves_active_runs() {
+    let root = tempfile::tempdir().unwrap();
+    let legacy_root = root.path().join(LEGACY_SESSION_ROOT);
+    ensure_private_root(&legacy_root).unwrap();
+    let coordinator_path = legacy_root.join(COORDINATOR_LOCK);
+    let coordinator = open_lock_file(&coordinator_path).unwrap();
+    let stale = legacy_root.join(format!("run-{}-{}", u32::MAX, uuid::Uuid::new_v4()));
+    super::super::create_private_directory(&stale).unwrap();
+    let stale_lock = create_lock_file(&stale.join(ACTIVE_LOCK)).unwrap();
+    drop(stale_lock);
+
+    let active = legacy_root.join(format!(
+        "run-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    super::super::create_private_directory(&active).unwrap();
+    let active_lock = create_lock_file(&active.join(ACTIVE_LOCK)).unwrap();
+    FileExt::lock_exclusive(&active_lock).unwrap();
+    drop(coordinator);
+
+    reclaim_legacy_session_root(root.path()).unwrap();
+
+    assert!(!stale.exists(), "crashed legacy sessions should be removed");
+    assert!(active.exists(), "active legacy sessions must be preserved");
+}
+
+#[cfg(unix)]
+#[test]
+fn legacy_cleanup_skips_untrusted_roots_without_blocking_new_sessions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempfile::tempdir().unwrap();
+    let legacy_root = root.path().join(LEGACY_SESSION_ROOT);
+    fs::create_dir(&legacy_root).unwrap();
+    fs::set_permissions(&legacy_root, fs::Permissions::from_mode(0o755)).unwrap();
+    let flat = root.path().join(format!(
+        "{SESSION_PREFIX}-{}-{}",
+        u32::MAX,
+        uuid::Uuid::new_v4()
+    ));
+    fs::create_dir(&flat).unwrap();
+    fs::set_permissions(&flat, fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert!(reclaim_legacy_session_root(root.path()).is_ok());
+    assert!(reclaim_legacy_sessions(root.path()).is_ok());
+    assert!(legacy_root.exists());
+    assert!(flat.exists());
 }
 
 #[test]

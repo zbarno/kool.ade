@@ -199,7 +199,7 @@ fn find_dotnet() -> anyhow::Result<PathBuf> {
 }
 
 fn unique_temp_dir() -> anyhow::Result<PathBuf> {
-    let path = env::temp_dir().join(format!(
+    let path = crate::persistence::temporary_root()?.join(format!(
         "koolade-nuget-audit-{}-{}",
         std::process::id(),
         uuid::Uuid::new_v4()

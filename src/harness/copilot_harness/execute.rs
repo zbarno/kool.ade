@@ -60,7 +60,12 @@ impl AiHarness for CopilotHarness {
         })?;
         let version = checked_binary(&binary)?;
         let model = model.map(str::to_owned).or_else(configured_model);
-        let usage_file = supports_usage_output(&binary).then(UsageFile::new);
+        let usage_file = supports_usage_output(&binary)
+            .then(UsageFile::new)
+            .transpose()
+            .map_err(|error| {
+                AppError::Other(format!("Cannot prepare Copilot usage output: {error:#}"))
+            })?;
         let mut argv = command(
             &binary,
             request,

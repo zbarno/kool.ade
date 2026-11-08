@@ -95,7 +95,7 @@ fn run_bash_tool_request(
 
     let directory = tempfile::tempdir().unwrap();
     let config_path = directory.path().join("mcp.json");
-    let listener = UnixListener::bind(directory.path().join("execution.sock")).unwrap();
+    let listener = UnixListener::bind(directory.path().join("e.sock")).unwrap();
     let command = command.to_owned();
     let bridge_command = command.clone();
     let bridge_output = bridge_output.to_owned();

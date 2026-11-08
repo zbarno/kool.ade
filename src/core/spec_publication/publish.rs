@@ -89,9 +89,7 @@ fn publish_inner(
     }
     let identity = public_commit_identity(gh, repository_root)?;
 
-    let temp = tempfile::Builder::new()
-        .prefix("koolade-spec-publication-")
-        .tempdir()?;
+    let temp = crate::persistence::temporary_directory("koolade-spec-publication-")?;
     let bare = temp.path().join("publication");
     git_standalone(&["init", bare.to_str().unwrap_or_default()])?;
     git_at(&bare, &["remote", "add", "origin", &remote_url])?;
