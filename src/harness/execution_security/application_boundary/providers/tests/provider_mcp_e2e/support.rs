@@ -19,7 +19,7 @@ pub(super) fn server_session(
     expected_command: &str,
     host_marker: &Path,
 ) -> (PathBuf, thread::JoinHandle<()>) {
-    let listener = UnixListener::bind(case_dir.join("execution.sock")).unwrap();
+    let listener = UnixListener::bind(case_dir.join("e.sock")).unwrap();
     listener.set_nonblocking(true).unwrap();
     let task_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let binding = SessionBinding {

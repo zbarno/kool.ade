@@ -14,13 +14,13 @@ pub(crate) struct PrivateDirectory {
 impl PrivateDirectory {
     pub(crate) fn create(prefix: &str) -> anyhow::Result<Self> {
         if prefix == "koolade-cli-session" {
-            return recovery::create_session(&std::env::temp_dir());
+            return recovery::create_session(&crate::persistence::temporary_root()?);
         }
         Self::create_unlocked(prefix)
     }
 
     fn create_unlocked(prefix: &str) -> anyhow::Result<Self> {
-        let path = std::env::temp_dir().join(format!(
+        let path = crate::persistence::temporary_root()?.join(format!(
             "{prefix}-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()

@@ -10,16 +10,17 @@ pub(crate) struct CopilotUsage {
 
 pub(crate) struct UsageFile {
     pub(crate) path: PathBuf,
+    _directory: tempfile::TempDir,
 }
 
 impl UsageFile {
-    pub(crate) fn new() -> Self {
-        Self {
-            path: std::env::temp_dir().join(format!(
-                "koolade-copilot-usage-{}.json",
-                uuid::Uuid::new_v4()
-            )),
-        }
+    pub(crate) fn new() -> anyhow::Result<Self> {
+        let directory = crate::persistence::temporary_directory("koolade-copilot-usage-")?;
+        let path = directory.path().join("usage.json");
+        Ok(Self {
+            path,
+            _directory: directory,
+        })
     }
 
     pub(crate) fn read(&self) -> CopilotUsage {

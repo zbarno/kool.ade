@@ -16,7 +16,7 @@ struct TemporaryOutput {
 
 impl TemporaryOutput {
     fn create() -> anyhow::Result<Self> {
-        let directory = std::env::temp_dir();
+        let directory = crate::persistence::temporary_root()?;
         let metadata = fs::symlink_metadata(&directory)?;
         anyhow::ensure!(
             metadata.is_dir() && !metadata.file_type().is_symlink(),

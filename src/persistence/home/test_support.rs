@@ -5,6 +5,7 @@ use std::{
 };
 
 static REGISTERED_TEST_HOMES: OnceLock<Mutex<HashMap<PathBuf, (usize, String)>>> = OnceLock::new();
+static TEST_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
 pub(crate) struct TestHomeRegistration {
     path: PathBuf,
@@ -103,13 +104,11 @@ pub(super) fn is_registered_test_home(path: &Path) -> bool {
 
 /// Keeps unit-test persistence away from an operator's real packet.
 pub(super) fn test_state_root() -> PathBuf {
-    static TEST_ROOT: OnceLock<PathBuf> = OnceLock::new();
     TEST_ROOT
         .get_or_init(|| {
             let root = std::env::temp_dir().join(format!(
-                "koolade-test-state-{}-{}",
-                std::process::id(),
-                uuid::Uuid::new_v4()
+                "koolade-test-state-{}",
+                &uuid::Uuid::new_v4().simple().to_string()[..20]
             ));
             std::fs::create_dir(&root).expect("create isolated test application state root");
             #[cfg(unix)]
@@ -118,7 +117,47 @@ pub(super) fn test_state_root() -> PathBuf {
                 std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700))
                     .expect("restrict isolated test application state root permissions");
             }
+            #[cfg(unix)]
+            {
+                // Test binaries otherwise leave one private app-state root per
+                // process in the system temp directory after every run.
+                let registered = unsafe { libc::atexit(cleanup_test_state_root) };
+                assert_eq!(registered, 0, "register test state cleanup");
+            }
             root
         })
         .clone()
+}
+
+#[cfg(unix)]
+extern "C" fn cleanup_test_state_root() {
+    let Some(root) = TEST_ROOT.get() else {
+        return;
+    };
+    let Ok(metadata) = std::fs::symlink_metadata(root) else {
+        return;
+    };
+    use std::os::unix::fs::MetadataExt;
+    if !metadata.is_dir()
+        || metadata.file_type().is_symlink()
+        || metadata.uid() != unsafe { libc::geteuid() }
+    {
+        return;
+    }
+    let mut pending = vec![root.clone()];
+    while let Some(path) = pending.pop() {
+        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            continue;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        let mode = metadata.permissions().mode() | 0o700;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode));
+        if let Ok(entries) = std::fs::read_dir(&path) {
+            pending.extend(entries.filter_map(Result::ok).map(|entry| entry.path()));
+        }
+    }
+    let _ = std::fs::remove_dir_all(root);
 }

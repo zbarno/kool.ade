@@ -9,11 +9,20 @@ use locks::{
 };
 
 const SESSION_PREFIX: &str = "koolade-cli-session";
-const SESSION_ROOT: &str = "koolade-cli-sessions";
+const SESSION_ROOT: &str = "s";
+const LEGACY_SESSION_ROOT: &str = "koolade-cli-sessions";
 const COORDINATOR_LOCK: &str = ".recovery.lock";
 const ACTIVE_LOCK: &str = ".active.lock";
 
 pub(super) fn create_session(temp_root: &Path) -> anyhow::Result<PrivateDirectory> {
+    #[cfg(not(test))]
+    {
+        let legacy_temp_root = std::env::temp_dir();
+        if legacy_temp_root != temp_root {
+            let _ = reclaim_legacy_sessions(&legacy_temp_root);
+            let _ = reclaim_legacy_session_root(&legacy_temp_root);
+        }
+    }
     let session_root = temp_root.join(SESSION_ROOT);
     ensure_private_root(&session_root)?;
     let coordinator = open_lock_file(&session_root.join(COORDINATOR_LOCK))?;
@@ -57,9 +66,8 @@ fn create_session_locked(
 ) -> anyhow::Result<PrivateDirectory> {
     reclaim_crashed_sessions(temp_root, session_root)?;
     let path = session_root.join(format!(
-        "run-{}-{}",
-        std::process::id(),
-        uuid::Uuid::new_v4()
+        "r-{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..20]
     ));
     super::create_private_directory(&path)?;
     if let Err(error) = super::verify_private_acl(&path) {
@@ -94,7 +102,7 @@ fn reclaim_crashed_sessions(temp_root: &Path, session_root: &Path) -> anyhow::Re
         let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
             continue;
         };
-        if name == COORDINATOR_LOCK || !parse_run_name(&name, "run-").is_some() {
+        if name == COORDINATOR_LOCK || !is_session_run_name(&name) {
             continue;
         }
         if !is_private_directory(&path)? {
@@ -122,6 +130,61 @@ fn reclaim_crashed_sessions(temp_root: &Path, session_root: &Path) -> anyhow::Re
     reclaim_legacy_sessions(temp_root)
 }
 
+fn is_session_run_name(name: &str) -> bool {
+    name.strip_prefix("r-")
+        .is_some_and(|id| id.len() == 20 && id.bytes().all(|byte| byte.is_ascii_hexdigit()))
+}
+
+fn reclaim_legacy_session_root(temp_root: &Path) -> anyhow::Result<()> {
+    let root = temp_root.join(LEGACY_SESSION_ROOT);
+    if !matches!(is_private_directory(&root), Ok(true)) {
+        return Ok(());
+    }
+    let coordinator_path = root.join(COORDINATOR_LOCK);
+    let coordinator = match open_existing_lock(&coordinator_path) {
+        Ok(lock) => lock,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    verify_lock_file(&coordinator_path, &coordinator)?;
+    match FileExt::try_lock_exclusive(&coordinator) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+        Err(error) => return Err(error.into()),
+    }
+    for entry in fs::read_dir(&root)? {
+        let entry = entry?;
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if name == COORDINATOR_LOCK || parse_run_name(&name, "run-").is_none() {
+            continue;
+        }
+        let path = entry.path();
+        if !is_private_directory(&path)? {
+            continue;
+        }
+        let active_path = path.join(ACTIVE_LOCK);
+        match open_existing_lock(&active_path) {
+            Ok(active) => match FileExt::try_lock_exclusive(&active) {
+                Ok(()) => {
+                    FileExt::unlock(&active)?;
+                    drop(active);
+                    remove_if_present(&path)?;
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                Err(error) => return Err(error.into()),
+            },
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                remove_if_present(&path)?;
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    let _ = FileExt::unlock(&coordinator);
+    Ok(())
+}
+
 fn reclaim_legacy_sessions(temp_root: &Path) -> anyhow::Result<()> {
     for entry in fs::read_dir(temp_root)? {
         let entry = entry?;
@@ -132,7 +195,7 @@ fn reclaim_legacy_sessions(temp_root: &Path) -> anyhow::Result<()> {
             continue;
         };
         let path = entry.path();
-        if !is_private_directory(&path)? || process_is_alive(pid) {
+        if !matches!(is_private_directory(&path), Ok(true)) || process_is_alive(pid) {
             continue;
         }
         remove_if_present(&path)?;

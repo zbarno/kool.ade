@@ -19,7 +19,7 @@ pub(crate) fn stage_cache(
     let socket_path = config_path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("MCP config has no private parent directory"))?
-        .join("execution.sock");
+        .join("e.sock");
     let mut stream = UnixStream::connect(socket_path)?;
     stream.set_read_timeout(Some(Duration::from_secs(1200)))?;
     let target_arch = binding

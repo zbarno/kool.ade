@@ -20,8 +20,8 @@ fn denied_remote_dependency_request_never_stages_or_installs_cache() {
     assert!(npm_available(), "remote npm E2E requires npm");
 
     let workspace = std::env::temp_dir().join(format!(
-        "koolade-remote-denied-cache-e2e-{}",
-        uuid::Uuid::new_v4()
+        "k-rcd-{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
     ));
     fs::create_dir_all(&workspace).unwrap();
     let (task_home_path, repository, archive, registry_url) =

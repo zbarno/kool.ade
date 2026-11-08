@@ -112,7 +112,11 @@ impl SessionBridge {
         cancel: Arc<AtomicBool>,
         resource_bridge: Option<Arc<crate::harness::resource_bridge::ResourceBridge>>,
     ) -> anyhow::Result<Self> {
-        let socket_path = scratch.join("execution.sock");
+        let socket_path = scratch.join("e.sock");
+        anyhow::ensure!(
+            socket_path.as_os_str().as_encoded_bytes().len() <= 107,
+            "Kool.ad/e private session path is too long for a Unix socket"
+        );
         let _ = std::fs::remove_file(&socket_path);
         let listener = UnixListener::bind(&socket_path)?;
         std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600))?;
@@ -183,7 +187,7 @@ pub(super) fn call(
     let socket_path = config_path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("MCP config has no private parent directory"))?
-        .join("execution.sock");
+        .join("e.sock");
     let mut stream = UnixStream::connect(socket_path)?;
     stream.set_read_timeout(Some(Duration::from_secs(
         timeout_seconds.clamp(1, 1200) + 10,
@@ -219,7 +223,7 @@ pub(crate) fn request_dependency(
     let socket_path = config_path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("MCP config has no private parent directory"))?
-        .join("execution.sock");
+        .join("e.sock");
     let mut stream = UnixStream::connect(socket_path)?;
     let request = DependencyRelayStart {
         session_id: binding.session_id.clone(),
