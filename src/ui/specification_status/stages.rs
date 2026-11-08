@@ -12,6 +12,8 @@ pub enum FeatureDeliveryStage {
     Merged,
     Deployed,
     NeedsReview,
+    NeedsAttention,
+    Cancelled,
 }
 
 impl FeatureDeliveryStage {
@@ -26,6 +28,8 @@ impl FeatureDeliveryStage {
             Self::Merged => "Merged",
             Self::Deployed => "Deployed",
             Self::NeedsReview => "Needs review · drift detected",
+            Self::NeedsAttention => "Needs attention",
+            Self::Cancelled => "Cancelled",
         }
     }
 }
@@ -43,6 +47,15 @@ pub fn derive_feature_delivery_stage(
     }
     if needs_review {
         return Some(FeatureDeliveryStage::NeedsReview);
+    }
+    if phases
+        .iter()
+        .any(|phase| matches!(phase, TaskPhase::Blocked | TaskPhase::Failed))
+    {
+        return Some(FeatureDeliveryStage::NeedsAttention);
+    }
+    if !phases.is_empty() && phases.iter().all(|phase| *phase == TaskPhase::Cancelled) {
+        return Some(FeatureDeliveryStage::Cancelled);
     }
     if deployed {
         return Some(FeatureDeliveryStage::Deployed);
@@ -114,6 +127,30 @@ mod tests {
             (true, vec![Task::Done], false, false, false, Stage::Verified),
             (
                 true,
+                vec![Task::Blocked],
+                false,
+                false,
+                false,
+                Stage::NeedsAttention,
+            ),
+            (
+                true,
+                vec![Task::Failed],
+                false,
+                false,
+                false,
+                Stage::NeedsAttention,
+            ),
+            (
+                true,
+                vec![Task::Cancelled],
+                false,
+                false,
+                false,
+                Stage::Cancelled,
+            ),
+            (
+                true,
                 vec![Task::PrOpened],
                 false,
                 false,
@@ -147,6 +184,8 @@ mod tests {
         assert_eq!(Stage::Merged.label(), "Merged");
         assert_eq!(Stage::Deployed.label(), "Deployed");
         assert_eq!(Stage::NeedsReview.label(), "Needs review · drift detected");
+        assert_eq!(Stage::NeedsAttention.label(), "Needs attention");
+        assert_eq!(Stage::Cancelled.label(), "Cancelled");
         assert_ne!(Stage::Merged.label(), Stage::Deployed.label());
     }
 }
