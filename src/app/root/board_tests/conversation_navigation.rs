@@ -218,6 +218,18 @@ fn document_switcher_displays_product_and_multiple_features_without_task_story_t
     let first = feature("CHG-001", "First feature", "First proposal marker");
     let second = feature("CHG-002", "Second feature", "Second proposal marker");
     if let Screen::Connected(project) = &mut app.screen {
+        let second_uid = crate::domain::ArtifactIdentity::from_markdown(&second)
+            .unwrap()
+            .unwrap()
+            .uid;
+        let inaccessible_record = project
+            .state
+            .planning_store
+            .root
+            .join("state/lifecycle_features")
+            .join(format!("{second_uid}.json"));
+        std::fs::create_dir_all(inaccessible_record.parent().unwrap()).unwrap();
+        std::fs::write(&inaccessible_record, b"{ malformed lifecycle record").unwrap();
         project.state.spec_text = Some("# Product\n\nProduct behavior marker".into());
         project.state.active_feature = Some(("CHG-001".into(), first.clone()));
         project.state.active_features = vec![("CHG-001".into(), first), ("CHG-002".into(), second)];
@@ -227,10 +239,22 @@ fn document_switcher_displays_product_and_multiple_features_without_task_story_t
     frame(&mut app, &ctx, vec![]);
     let product = frame(&mut app, &ctx, vec![]);
     assert!(text_position(&product, "Product behavior marker").is_some());
+    assert!(text_position(&product, "Current product").is_some());
+    assert!(text_position(&product, "Feature delivery status").is_some());
+    assert!(text_position(&product, "Status not recorded").is_some());
+    assert!(text_contains(&product, "lifecycle state unavailable"));
+    assert!(text_position(&product, "Product specification hash").is_none());
     assert!(text_position(&product, "Task Stories").is_none());
     assert!(text_position(&product, "First proposal marker").is_none());
     let first = click_text(&mut app, &ctx, "Features  2");
     assert!(text_position(&first, "First proposal marker").is_some());
+    assert!(text_position(&first, "Feature status").is_some());
+    assert!(text_position(&first, "Status not recorded").is_some());
+    for size in [egui::vec2(1280.0, 800.0), egui::vec2(390.0, 844.0)] {
+        let layout = frame_at(&mut app, &ctx, vec![], size);
+        assert!(text_position(&layout, "Feature status").is_some());
+        assert!(text_position(&layout, "Status not recorded").is_some());
+    }
     assert!(text_position(&first, "Product behavior marker").is_none());
     ctx.data_mut(|data| {
         data.insert_persisted(
