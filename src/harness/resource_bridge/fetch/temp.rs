@@ -8,7 +8,7 @@ pub(super) struct TempResponse {
 
 impl TempResponse {
     pub(super) fn new() -> anyhow::Result<Self> {
-        let directory = std::env::temp_dir().join(format!(
+        let directory = crate::persistence::temporary_root()?.join(format!(
             "koolade-resource-response-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()

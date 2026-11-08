@@ -63,10 +63,10 @@ impl Controller {
             .filter(|message| message.id != persisted_user.id)
             .cloned()
             .collect::<Vec<_>>();
-        let private_directory = tempfile::Builder::new()
-            .prefix("koolade-bootstrap-context-")
-            .tempdir()
-            .map_err(|_| "A private setup-assistant workspace could not be prepared.".to_owned())?;
+        let private_directory = crate::persistence::temporary_directory(
+            "koolade-bootstrap-context-",
+        )
+        .map_err(|_| "A private setup-assistant workspace could not be prepared.".to_owned())?;
         let cancel = Arc::new(AtomicBool::new(false));
         let request = super::super::prompt::render_context_request(
             context,

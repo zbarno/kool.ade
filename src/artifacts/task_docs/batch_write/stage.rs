@@ -21,8 +21,7 @@ pub(super) fn write_new_batch<R: PlanningRoot + ?Sized>(
         directory = format!("{task_dir}/{feature}-{revision:02}");
         revision += 1;
     }
-    let stage = std::env::temp_dir().join(format!("koolade-task-batch-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir(&stage)?;
+    let stage = crate::persistence::temporary_directory("koolade-task-batch-")?;
     let mut batch_identity = identity::new_batch_identity(&batch.brief.feature_name);
     identity::link_batch_to_feature(repo, batch.feature_id.as_deref(), &mut batch_identity)?;
     let names: Vec<_> = batch
@@ -34,7 +33,7 @@ pub(super) fn write_new_batch<R: PlanningRoot + ?Sized>(
     ensure_unique_task_names(&names)?;
     let task_intent_uid = super::super::task_intent_uid_for_batch(repo, batch)?;
     let task_intent_cycle_uid = super::super::task_intent_cycle_uid_for_batch(repo, batch)?;
-    let result = (|| -> anyhow::Result<(Vec<String>, String)> {
+    (|| -> anyhow::Result<(Vec<String>, String)> {
         let mut index = format!(
             "# {} — task stories\n\nGenerated after user approval of the interview and specification.\n\n## Goal\n\n{}\n\n## Intended users\n\n{}\n\n## Intended outcome\n\n{}\n\n[Approved specification](specification.md)\n\n## Implementation order\n\n",
             batch.brief.feature_name,
@@ -45,7 +44,7 @@ pub(super) fn write_new_batch<R: PlanningRoot + ?Sized>(
         let mut identified = Vec::with_capacity(batch.stories.len());
         let mut task_uids = Vec::with_capacity(batch.stories.len());
         for (i, story) in batch.stories.iter().enumerate() {
-            let path = stage.join(&names[i]);
+            let path = stage.path().join(&names[i]);
             let base = render(batch, i, story, &names);
             let mut identified_text = identity::with_path_identity(
                 &path,
@@ -122,7 +121,7 @@ pub(super) fn write_new_batch<R: PlanningRoot + ?Sized>(
                 batch.task_routing.inherited_from.as_deref(),
             )?;
             let contents = super::super::metadata::embed(&identified[i].0, &metadata)?;
-            std::fs::write(stage.join(&names[i]), contents)?;
+            std::fs::write(stage.path().join(&names[i]), contents)?;
             index.push_str(&format!("{}. [{}]({})\n", i + 1, story.title, names[i]));
         }
         list(&mut index, "Approved scope", &batch.brief.in_scope, true);
@@ -133,11 +132,11 @@ pub(super) fn write_new_batch<R: PlanningRoot + ?Sized>(
             true,
         );
         let index = identity::embed_identity(&index, &batch_identity)?;
-        std::fs::write(stage.join("README.md"), index)?;
-        std::fs::write(stage.join("specification.md"), &batch.specification)?;
+        std::fs::write(stage.path().join("README.md"), index)?;
+        std::fs::write(stage.path().join("specification.md"), &batch.specification)?;
         if let Some(contract) = &batch.contract {
             std::fs::write(
-                stage.join("contract.json"),
+                stage.path().join("contract.json"),
                 serde_json::to_string_pretty(contract)?,
             )?;
         }
@@ -162,7 +161,7 @@ pub(super) fn write_new_batch<R: PlanningRoot + ?Sized>(
         record_checks.extend(additional_checks.iter().cloned());
         let mut staged_task_state = Vec::new();
         for name in names.iter().take(identified.len()) {
-            let task_text = std::fs::read_to_string(stage.join(name))?;
+            let task_text = std::fs::read_to_string(stage.path().join(name))?;
             let metadata = super::super::metadata::parse(&task_text)?
                 .ok_or_else(|| anyhow::anyhow!("Generated task {name} has no metadata"))?;
             let (path, bytes, check) = super::super::task_state::create(&metadata)?;
@@ -170,7 +169,7 @@ pub(super) fn write_new_batch<R: PlanningRoot + ?Sized>(
             record_checks.push(check);
         }
         changes.extend(
-            std::fs::read_dir(&stage)?
+            std::fs::read_dir(stage.path())?
                 .map(|entry| {
                     let entry = entry?;
                     let name = entry.file_name().to_string_lossy().into_owned();
@@ -204,9 +203,5 @@ pub(super) fn write_new_batch<R: PlanningRoot + ?Sized>(
                 .collect(),
             revision,
         ))
-    })();
-    if stage.exists() {
-        let _ = std::fs::remove_dir_all(stage);
-    }
-    result
+    })()
 }

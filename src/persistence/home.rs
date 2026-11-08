@@ -6,6 +6,9 @@
 
 use std::path::{Path, PathBuf};
 
+mod temporary;
+pub use temporary::{temporary_directory, temporary_root};
+
 #[cfg(test)]
 mod test_support;
 #[cfg(test)]
