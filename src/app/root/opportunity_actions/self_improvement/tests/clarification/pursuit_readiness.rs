@@ -15,6 +15,12 @@ fn pursued_product_question_reaches_planner_readiness_before_any_clone_is_alloca
         let crate::app::root::Screen::Connected(project) = &mut app.screen else {
             panic!("fixture should be connected")
         };
+        // Board fixtures include legacy PR states that schedule an unrelated
+        // attention explanation and can consume the one-shot test harness.
+        // This integration is scoped to Evolve clarification and Planner only.
+        project.task_documents.clear();
+        project.active_implementations.clear();
+        project.implementation_states.clear();
         app_product_proposal(project)
     };
     let opportunity_revision = match &app.screen {

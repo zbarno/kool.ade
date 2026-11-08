@@ -96,6 +96,17 @@ against the key embedded in this application before release. The private
 signing key is only read from the protected promotion job's secret and is not
 included in this tree or in the candidate build job.
 
+Set the repository Actions secret `COMPUTER_USE_CATALOG_SIGNING_KEY` to the
+32-byte Ed25519 seed as 64 hexadecimal characters (the optional
+`ed25519-seed-hex:` prefix is accepted). The seed must derive to the public key
+and key ID pinned by the application; the promotion workflow verifies the
+signature against that pin before creating a release or review branch. Never
+commit the seed or include it in logs, artifacts, issues, or pull requests. To
+rotate it, generate and store a new seed in an approved secret manager, update
+the application-pinned public key and key ID in a reviewed application release,
+then update the repository Actions secret to the matching seed before promoting
+a catalog.
+
 The session binding is exact: session `image_digest` must equal an approved
 catalog entry; `image_manifest_digest` is the canonical signed-manifest digest;
 `image_signer_key_id` is the UUID catalog signer. The verifier also validates

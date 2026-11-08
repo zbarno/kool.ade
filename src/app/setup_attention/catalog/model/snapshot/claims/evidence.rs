@@ -33,6 +33,16 @@ pub(super) fn ready_claim(
             Code::LinuxVirtualizationAvailable,
         ) | (
             Domain::Host,
+            Capability::LinuxKernel,
+            Origin::HostRuntime,
+            Code::LinuxHostCheckReady,
+        ) | (
+            Domain::Host,
+            Capability::LinuxUserNamespaces,
+            Origin::HostRuntime,
+            Code::LinuxHostCheckReady,
+        ) | (
+            Domain::Host,
             Capability::ComputerGuestImage,
             Origin::ApplicationInventory,
             Code::ComputerGuestImageCatalogVerified,
@@ -124,6 +134,9 @@ pub(super) fn ready_claim(
         )
     )
 }
+
+#[cfg(test)]
+mod tests;
 
 pub(super) fn provider_evidence(
     capability: Capability,

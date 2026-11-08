@@ -67,10 +67,24 @@ fn readiness_diagnostics(
         .lock()
         .map(|items| items.len())
         .unwrap_or(0);
-    let planner_requests = planner_requests
+    let planner_request_prefixes = planner_requests
         .lock()
-        .map(|items| items.len())
-        .unwrap_or(0);
+        .map(|items| {
+            items
+                .iter()
+                .map(|prompt| {
+                    prompt
+                        .lines()
+                        .next()
+                        .unwrap_or_default()
+                        .chars()
+                        .take(120)
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let planner_request_count = planner_request_prefixes.len();
     let feature_updated = project.state.active_features.iter().any(|(id, body)| {
         id == feature_id && body.contains("The user chose workspace-specific retention periods.")
     });
@@ -83,7 +97,7 @@ fn readiness_diagnostics(
         .collect::<Vec<_>>()
         .join(" | ");
     format!(
-        "active_turn={}, planner_running={}, pending_planner={}, active_work={}, question={question_status:?}, readiness={readiness:?}, manager_requests={manager_requests}, planner_requests={planner_requests}, feature_updated={feature_updated}, recent_chat={recent_chat}",
+        "active_turn={}, planner_running={}, pending_planner={}, active_work={}, question={question_status:?}, readiness={readiness:?}, manager_requests={manager_requests}, planner_requests={planner_request_count} ({planner_request_prefixes:?}), feature_updated={feature_updated}, recent_chat={recent_chat}",
         project.active_turn.is_some(),
         project.activity.clarification_planner.is_some(),
         project.activity.pending_clarification_planner.is_some(),
@@ -111,6 +125,12 @@ fn wait_for_readiness(
             output: planner_output.to_owned(),
             requests: Arc::clone(planner_requests),
         }));
+        if let crate::app::root::Screen::Connected(project) = &mut app.screen {
+            // This test owns the one-shot harness slot for its Evolve follow-up.
+            // Keep unrelated automatic Manager patrols from consuming a Planner
+            // response while the asynchronous turn/planner handoff is in flight.
+            project.activity.last_update = Some(std::time::Instant::now());
+        }
         app.tick(0.016, &context);
         let completed = match &app.screen {
             crate::app::root::Screen::Connected(project) => {
