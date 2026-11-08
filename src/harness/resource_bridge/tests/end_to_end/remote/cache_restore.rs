@@ -19,8 +19,12 @@ fn remote_docker_worker_restores_authorized_npm_cache_without_container_network(
     );
     assert!(npm_available(), "remote npm E2E requires npm");
 
-    let workspace =
-        std::env::temp_dir().join(format!("koolade-remote-cache-e2e-{}", uuid::Uuid::new_v4()));
+    // Keep the fixture compact because its application-state Unix socket must
+    // fit the platform's bounded sockaddr path while remaining under this root.
+    let workspace = std::env::temp_dir().join(format!(
+        "k-rce-{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
+    ));
     fs::create_dir_all(&workspace).unwrap();
     let (task_home_path, repository, archive, registry_url) = setup::prepare_workspace(&workspace);
     let _home = support::task_home(&task_home_path);
