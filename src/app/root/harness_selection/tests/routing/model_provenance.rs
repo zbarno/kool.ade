@@ -19,6 +19,7 @@ fn request() -> crate::harness::PlanningRequest {
         progress_tx: std::sync::mpsc::channel().0,
         cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         review_identity: None,
+        computer_use: None,
     }
 }
 

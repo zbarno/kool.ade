@@ -3,6 +3,7 @@ use crate::{
     persistence::{execution_environment_settings::ExecutionEnvironmentSettings, remote_workers},
     ui::theme,
 };
+mod computer_use_permissions;
 mod experimental;
 mod runtime_qa;
 mod smoke;
@@ -10,7 +11,7 @@ mod target;
 mod worker_management;
 mod workers;
 
-pub(super) fn paint(ui: &mut egui::Ui) -> Option<String> {
+pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn crate::ui::Surface) -> Option<String> {
     ui.label(theme::page_title("Execution Environments"));
     ui.label(theme::helper_text(
         "Configure trusted local and remote execution targets. Provider model routing stays under Coding Tools.",
@@ -39,6 +40,24 @@ pub(super) fn paint(ui: &mut egui::Ui) -> Option<String> {
         &mut settings,
         smoke_pending,
         smoke_result.as_deref(),
+    );
+    let permissions = surface.computer_use_permissions();
+    let consent_requests = surface.pending_computer_use_consent_requests();
+    let surface = std::cell::RefCell::new(surface);
+    computer_use_permissions::paint(
+        ui,
+        &permissions,
+        &consent_requests,
+        &mut |session_id| {
+            surface
+                .borrow_mut()
+                .revoke_computer_use_permission(session_id)
+        },
+        &mut |request_id, approve| {
+            surface
+                .borrow_mut()
+                .decide_computer_use_consent(request_id, approve)
+        },
     );
     if let Some(error) = load_error {
         ui.colored_label(theme::WARNING, error);

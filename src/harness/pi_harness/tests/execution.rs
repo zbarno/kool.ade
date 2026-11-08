@@ -189,6 +189,7 @@ printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"
 
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     });
     let error = outcome.expect_err("an implementation without an app-owned workspace fails closed");
     assert!(

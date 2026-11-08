@@ -71,6 +71,7 @@ pub(super) fn render_context_request(
         progress_tx,
         cancel,
         review_identity: None,
+        computer_use: None,
     })
 }
 

@@ -299,6 +299,7 @@ impl Sandbox {
                 user_context: None,
                 auto_publish_gate: None,
                 claim_lease: None,
+                computer_use: None,
             },
         )
     }
@@ -330,6 +331,7 @@ impl Sandbox {
                 user_context: None,
                 auto_publish_gate: None,
                 claim_lease: None,
+                computer_use: None,
             },
         )
     }
@@ -361,6 +363,7 @@ impl Sandbox {
                 user_context: None,
                 auto_publish_gate,
                 claim_lease: None,
+                computer_use: None,
             },
         )
     }

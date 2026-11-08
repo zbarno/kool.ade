@@ -236,6 +236,7 @@ pub(super) fn prepare(
             session_id: reviewer_session_id.clone(),
             runtime_qa_screenshot_review: None,
         }),
+        computer_use: None,
     };
     Ok((
         request,

@@ -133,6 +133,7 @@ fn newer_blocking_clarification_stops_task_generation_before_model_or_artifacts(
         progress_tx: std::sync::mpsc::channel().0,
         cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         review_identity: None,
+        computer_use: None,
     };
     let Screen::Connected(project) = &app.screen else {
         panic!("project stays connected")

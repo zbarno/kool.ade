@@ -73,6 +73,7 @@ pub(crate) struct ApplicationBoundary {
     access: ToolAccess,
     profile: ExecutionProfile,
     _session_bridge: Option<SessionBridge>,
+    _computer_use_bridge: Option<super::computer_use_bridge::ComputerUseBridge>,
     _resource_bridge: Option<Arc<crate::harness::resource_bridge::ResourceBridge>>,
     execution_session: Option<Arc<ExecutionSession>>,
     screenshot_review_audit: Option<runtime_qa_screenshots::PreparedReviewImages>,
@@ -96,6 +97,7 @@ impl ApplicationBoundary {
             access: ToolAccess::None,
             profile: _request.mode.profile(),
             _session_bridge: None,
+            _computer_use_bridge: None,
             _resource_bridge: None,
             execution_session: None,
             screenshot_review_audit: None,
@@ -224,18 +226,28 @@ impl ApplicationBoundary {
         if self.server_config.is_none() {
             return Vec::new();
         }
+        if self.access == ToolAccess::None {
+            return if self._computer_use_bridge.is_some() {
+                crate::harness::execution_security::computer_use_bridge::tool_names()
+            } else {
+                Vec::new()
+            };
+        }
         let mut names = vec!["koolade_bash".to_owned()];
         if self.access == ToolAccess::RuntimeQaScreenshots {
-            return vec!["koolade_runtime_qa_screenshot".to_owned()];
+            names = vec!["koolade_runtime_qa_screenshot".to_owned()];
         }
         if self.access == ToolAccess::InvestigationBroker {
-            return vec!["koolade_investigate".to_owned()];
+            names = vec!["koolade_investigate".to_owned()];
         }
         if self.access == ToolAccess::BoundedImplementation {
             names.extend([
                 "koolade_resource".to_owned(),
                 "koolade_dependency".to_owned(),
             ]);
+        }
+        if self._computer_use_bridge.is_some() {
+            names.extend(crate::harness::execution_security::computer_use_bridge::tool_names());
         }
         names
     }

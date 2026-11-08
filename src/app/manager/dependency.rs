@@ -124,6 +124,7 @@ fn run_review(
 
        authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
 };
     let outcome = harness.execute(&request).map_err(|error| error.detail())?;
     let object = crate::harness::pi_extract::extract_json_object(&outcome.final_text)

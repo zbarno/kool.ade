@@ -11,6 +11,10 @@ use crate::{
     harness::PlanningRequest,
 };
 
+#[cfg(test)]
+#[path = "construction/tests.rs"]
+mod tests;
+
 pub(super) fn new(request: &PlanningRequest) -> anyhow::Result<ApplicationBoundary> {
     crate::harness::validate_review_invocation(request)
         .map_err(|error| anyhow::anyhow!(error.detail()))?;
@@ -25,7 +29,19 @@ pub(super) fn new(request: &PlanningRequest) -> anyhow::Result<ApplicationBounda
     };
     let scratch = super::PrivateDirectory::create("koolade-cli-session")?;
     let requested_access = request.mode.tool_access();
-    let app_binary = if requested_access == ToolAccess::None {
+    if let Some(computer_use) = request.computer_use.as_ref() {
+        validate_computer_use_invocation(
+            computer_use,
+            request.mode,
+            request.task_id.as_deref(),
+            request
+                .prompt_manifest
+                .as_ref()
+                .map(|manifest| manifest.role_version.as_str()),
+            request.execution_workspace.as_ref(),
+        )?;
+    }
+    let app_binary = if requested_access == ToolAccess::None && request.computer_use.is_none() {
         None
     } else {
         #[cfg(test)]
@@ -40,7 +56,29 @@ pub(super) fn new(request: &PlanningRequest) -> anyhow::Result<ApplicationBounda
     let mut session_bridge = None;
     let mut execution_session = None;
     let mut screenshot_review_audit = None;
+    let mut computer_use_bridge = None;
     let mut access = ToolAccess::None;
+    if let Some(computer_use) = request.computer_use.as_ref() {
+        let task_id = request.task_id.as_deref().ok_or_else(|| {
+            anyhow::anyhow!("Computer Use requires an application-selected task identity")
+        })?;
+        anyhow::ensure!(
+            computer_use.caller.identity.task_id == task_id,
+            "Computer Use authority does not match the selected task"
+        );
+        #[cfg(unix)]
+        {
+            let bridge = super::super::computer_use_bridge::ComputerUseBridge::start(
+                &scratch.path,
+                computer_use.clone(),
+                request.cancel.clone(),
+                request.progress_tx.clone(),
+            )?;
+            computer_use_bridge = Some(bridge);
+        }
+        #[cfg(windows)]
+        anyhow::bail!("Computer Use MCP is not supported on this host");
+    }
     let server_config = if requested_access == ToolAccess::RuntimeQaScreenshots {
         let identity = request
             .review_identity
@@ -169,6 +207,26 @@ pub(super) fn new(request: &PlanningRequest) -> anyhow::Result<ApplicationBounda
     } else {
         None
     };
+    let server_config = if let Some(computer_use) = &computer_use_bridge {
+        let binding = super::super::mcp_server::ComputerUseBridgeConfigV1 {
+            socket_path: computer_use.binding.socket_path.clone(),
+            bridge_session_id: computer_use.binding.bridge_session_id.clone(),
+            capability_id: computer_use.binding.capability_id.clone(),
+            task_id: computer_use.binding.task_id.clone(),
+        };
+        Some(match server_config {
+            Some(mut config) => {
+                config.attach_computer_use(binding)?;
+                config
+            }
+            None => super::super::mcp_server::ServerConfig::computer_use_only(
+                task_id_from_request(request)?,
+                binding,
+            ),
+        })
+    } else {
+        server_config
+    };
     let server_config = server_config
         .map(|config| scratch.write_json("server.json", &config))
         .transpose()?;
@@ -180,12 +238,57 @@ pub(super) fn new(request: &PlanningRequest) -> anyhow::Result<ApplicationBounda
         access,
         profile: request.mode.profile(),
         _session_bridge: session_bridge,
+        _computer_use_bridge: computer_use_bridge,
         _resource_bridge: resource_bridge,
         execution_session,
         screenshot_review_audit,
         approved_project_guidance,
         codex_auth_strategy: std::sync::Mutex::new(None),
     })
+}
+
+fn validate_computer_use_invocation(
+    access: &crate::harness::ComputerUseMcpAccessV1,
+    mode: crate::harness::ExecutionMode,
+    task_id: Option<&str>,
+    prompt_role: Option<&str>,
+    workspace: Option<&crate::execution::contract::WorkspaceRef>,
+) -> anyhow::Result<()> {
+    let caller = &access.caller;
+    caller.identity.validate().map_err(anyhow::Error::msg)?;
+    let task_id = task_id.ok_or_else(|| {
+        anyhow::anyhow!("Computer Use requires an application-selected task identity")
+    })?;
+    anyhow::ensure!(
+        caller.identity.task_id == task_id,
+        "Computer Use authority does not match the selected task"
+    );
+    let role_id = prompt_role
+        .ok_or_else(|| anyhow::anyhow!("Computer Use requires the app-selected role manifest"))?;
+    anyhow::ensure!(
+        caller.role_id == role_id,
+        "Computer Use authority does not match the app-selected role"
+    );
+    match (mode, role_id) {
+        (crate::harness::ExecutionMode::Implementation, "implementer/v1" | "repair/v1") => {
+            let workspace = workspace.ok_or_else(|| {
+                anyhow::anyhow!("Computer Use implementation requires the selected task workspace")
+            })?;
+            anyhow::ensure!(
+                workspace.task_id == task_id && workspace.project_id == caller.identity.project_id,
+                "Computer Use authority does not match the selected project workspace"
+            );
+        }
+        _ => anyhow::bail!("Computer Use is unavailable to this role or execution mode"),
+    }
+    Ok(())
+}
+
+fn task_id_from_request(request: &PlanningRequest) -> anyhow::Result<String> {
+    request
+        .task_id
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("Computer Use requires a task identity"))
 }
 
 pub(super) fn mode_uses_project_guidance(mode: crate::harness::ExecutionMode) -> bool {

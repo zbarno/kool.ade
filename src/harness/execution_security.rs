@@ -1,6 +1,11 @@
 use super::ExecutionMode;
 
 mod application_boundary;
+#[cfg(unix)]
+mod computer_use_bridge;
+#[cfg(windows)]
+#[path = "execution_security/computer_use_bridge_windows.rs"]
+mod computer_use_bridge;
 mod mcp_server;
 #[path = "execution_security/profiles.rs"]
 mod profiles;

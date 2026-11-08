@@ -50,6 +50,7 @@ fn headless_runtime_qa_boundary_accepts_empty_screenshot_set() {
                 inspected_screenshot_ids: Arc::default(),
             })),
         }),
+        computer_use: None,
     };
 
     let boundary = ApplicationBoundary::new(&request).unwrap();

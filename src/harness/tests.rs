@@ -26,6 +26,7 @@ fn planning_request(mode: ExecutionMode) -> PlanningRequest {
 
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     }
 }
 

@@ -184,6 +184,7 @@ fn same_source_and_destination_reconciles_destination_updates_before_opening_pr(
             user_context: None,
             auto_publish_gate: None,
             claim_lease: None,
+            computer_use: None,
         },
     )
     .unwrap();
@@ -220,6 +221,7 @@ fn approved_destination_pr_reconciles_remote_changes_before_publication() {
             user_context: None,
             auto_publish_gate: None,
             claim_lease: None,
+            computer_use: None,
         },
     )
     .unwrap();

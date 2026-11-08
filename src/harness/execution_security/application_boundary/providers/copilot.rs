@@ -216,6 +216,7 @@ mod tests {
             access: ToolAccess::None,
             profile: crate::harness::ExecutionProfile::Worker,
             _session_bridge: None,
+            _computer_use_bridge: None,
             _resource_bridge: None,
             execution_session: None,
             screenshot_review_audit: None,

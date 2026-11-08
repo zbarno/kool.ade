@@ -29,6 +29,7 @@ fn test_boundary_for_profile(access: ToolAccess, profile: ExecutionProfile) -> A
         access,
         profile,
         _session_bridge: None,
+        _computer_use_bridge: None,
         _resource_bridge: None,
         execution_session: None,
         screenshot_review_audit: None,

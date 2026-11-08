@@ -59,6 +59,22 @@ pub struct GuestImageOverlayRequestV1<'a> {
 }
 
 impl GuestImageOverlayV1 {
+    #[cfg(test)]
+    pub(crate) fn for_cleanup_test(path: PathBuf, directory: PathBuf) -> Self {
+        Self {
+            session_id: "cleanup-test-session".into(),
+            path,
+            directory,
+            base_image_path: PathBuf::new(),
+            base_artifact_size_bytes: 0,
+            image_digest: String::new(),
+            manifest_digest: String::new(),
+            signer_key_id: String::new(),
+            catalog_generation: 0,
+            virtual_size_bytes: 0,
+        }
+    }
+
     pub fn session_id(&self) -> &str {
         &self.session_id
     }

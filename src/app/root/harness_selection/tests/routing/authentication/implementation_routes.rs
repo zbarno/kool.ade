@@ -145,5 +145,6 @@ fn planning_request() -> crate::harness::PlanningRequest {
         destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     }
 }

@@ -15,6 +15,25 @@ pub struct RepositoryGitOptions {
     pub unavailable_reason: Option<String>,
 }
 
+/// Display-only projection of one app-owned Computer Use grant. It contains no
+/// screenshots, action arguments, or signing material.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComputerUsePermissionView {
+    pub project_id: String,
+    pub task_id: String,
+    pub user_id: String,
+    pub session_id: String,
+    pub role_id: String,
+    pub machine_id: String,
+    pub allowed_operations: Vec<String>,
+    pub network_profile: crate::computer_use::ComputerNetworkProfileV1,
+    pub approved_destination: Option<String>,
+    pub resource_budget: crate::computer_use::ComputerResourceBudgetV1,
+    pub expires_at_unix_ms: u64,
+    pub revoked: bool,
+    pub expired: bool,
+}
+
 /// Everything the chrome/panes need: read-mostly accessors plus two command
 /// sinks (composer intents, header actions).
 pub trait Surface {
@@ -64,6 +83,30 @@ pub trait Surface {
         _draft: &mut crate::app::dialogs::DlgSettings,
     ) -> Result<String, String> {
         Err("Local identity settings are unavailable in this workspace.".into())
+    }
+    /// Active and recently closed Computer Use grants owned by the app
+    /// controller. The default preserves surfaces without Computer Use.
+    fn computer_use_permissions(&self) -> Vec<ComputerUsePermissionView> {
+        Vec::new()
+    }
+    /// Revoke one app-owned Computer Use grant immediately.
+    fn revoke_computer_use_permission(&mut self, _session_id: &str) -> Result<(), String> {
+        Err("Computer Use permission control is unavailable in this workspace.".into())
+    }
+    /// Consent requests waiting for a user decision. No approval is implied by
+    /// listing a request or redrawing the settings page.
+    fn pending_computer_use_consent_requests(
+        &self,
+    ) -> Vec<crate::computer_use::mcp::ComputerUseConsentRequestV1> {
+        Vec::new()
+    }
+    /// Record an explicit user decision for one pending grant request.
+    fn decide_computer_use_consent(
+        &mut self,
+        _request_id: &str,
+        _approve: bool,
+    ) -> Result<(), String> {
+        Err("Computer Use consent is unavailable in this workspace.".into())
     }
     fn project_settings_draft(&self) -> Option<crate::app::dialogs::DlgProjectSettings> {
         None

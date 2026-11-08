@@ -92,7 +92,7 @@ pub(super) fn paint_page(
         Page::ProjectGit => paint_project_git(ui, surface),
         Page::CodingTools => paint_harness(ui, HarnessSettingsSection::Tools),
         Page::ModelsRouting => paint_harness(ui, HarnessSettingsSection::Routing),
-        Page::ExecutionEnvironments => execution_environments::paint(ui),
+        Page::ExecutionEnvironments => execution_environments::paint(ui, surface),
         Page::Automation => automation::paint(ui, surface, board),
         Page::LocalUser => paint_local_user(ui, surface),
     }

@@ -1,0 +1,217 @@
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+
+use crate::computer_use::guest_protocol::AuthorizedComputerUseSessionV1;
+
+use super::super::{
+    ComputerUseCallerV1, ComputerUseMcpRequestV1, ComputerUseMcpResponseV1,
+    ComputerUseObservationKindV1,
+};
+use super::{
+    cancellation::run_cancellable,
+    session::{completed, denied, failed, unix_time_ms},
+    types::ComputerUseMcpControllerV1,
+};
+
+mod action;
+#[cfg(test)]
+pub(super) use action::operation;
+use action::{ActionContext, action};
+
+pub(super) fn dispatch(
+    controller: &ComputerUseMcpControllerV1,
+    caller: &ComputerUseCallerV1,
+    authority: Arc<AuthorizedComputerUseSessionV1>,
+    request: ComputerUseMcpRequestV1,
+    cancelled: &AtomicBool,
+) -> ComputerUseMcpResponseV1 {
+    let Some(runtime) = controller.runtime.as_ref() else {
+        return controller.blocked(
+            controller
+                .unavailable_reason
+                .as_deref()
+                .unwrap_or("trusted_runtime_unavailable"),
+        );
+    };
+    if cancelled.load(Ordering::Acquire) {
+        return denied("cancelled");
+    }
+    let session_id = match &request {
+        ComputerUseMcpRequestV1::Capabilities | ComputerUseMcpRequestV1::RequestSession { .. } => {
+            return denied("invalid_request");
+        }
+        ComputerUseMcpRequestV1::StartSession { session_id }
+        | ComputerUseMcpRequestV1::Observe { session_id, .. }
+        | ComputerUseMcpRequestV1::Action { session_id, .. }
+        | ComputerUseMcpRequestV1::Pause { session_id }
+        | ComputerUseMcpRequestV1::Resume { session_id }
+        | ComputerUseMcpRequestV1::Release { session_id } => session_id.clone(),
+    };
+    if session_id != caller.identity.session_id || authority.session().identity != caller.identity {
+        return denied("authorization_failed");
+    }
+    let Ok(mut sessions) = controller.sessions.lock() else {
+        return failed("session_state_unavailable");
+    };
+    let Some(active) = sessions.get_mut(&session_id) else {
+        return denied("session_not_active");
+    };
+    if active.session.identity != caller.identity || active.uncertain {
+        return controller.blocked("session_state_uncertain");
+    }
+    match request {
+        ComputerUseMcpRequestV1::StartSession { .. } => {
+            if active.paused {
+                return controller.blocked("session_paused");
+            }
+            completed(&session_id)
+        }
+        ComputerUseMcpRequestV1::Observe { observation, .. } => {
+            let payload = match observation {
+                ComputerUseObservationKindV1::Screenshot => {
+                    crate::computer_use::ComputerActionPayloadV1::ObserveScreen
+                }
+                ComputerUseObservationKindV1::Windows => {
+                    crate::computer_use::ComputerActionPayloadV1::ObserveWindows
+                }
+                ComputerUseObservationKindV1::State => {
+                    crate::computer_use::ComputerActionPayloadV1::QueryState
+                }
+                ComputerUseObservationKindV1::Accessibility => {
+                    return controller.blocked("guest_accessibility_unavailable");
+                }
+            };
+            action(
+                active,
+                ActionContext {
+                    controller,
+                    authority,
+                    caller,
+                    cancelled,
+                    session_id: &session_id,
+                },
+                payload,
+                60_000,
+            )
+        }
+        ComputerUseMcpRequestV1::Action {
+            payload,
+            timeout_ms,
+            ..
+        } => action(
+            active,
+            ActionContext {
+                controller,
+                authority,
+                caller,
+                cancelled,
+                session_id: &session_id,
+            },
+            payload,
+            timeout_ms,
+        ),
+        ComputerUseMcpRequestV1::Pause { .. } => {
+            if active.paused {
+                return completed(&session_id);
+            }
+            if runtime
+                .backend
+                .suspend(&active.session, &active.handle, unix_time_ms())
+                .is_err()
+            {
+                active.uncertain = true;
+                return failed("backend_pause_failed");
+            }
+            active.channel.take();
+            active.paused = true;
+            completed(&session_id)
+        }
+        ComputerUseMcpRequestV1::Resume { .. } => {
+            if !active.paused {
+                return completed(&session_id);
+            }
+            let session = active.session.clone();
+            let handle = active.handle.clone();
+            let resumed = run_cancellable(
+                controller,
+                &session,
+                &handle,
+                cancelled,
+                || -> Result<_, &'static str> {
+                    runtime
+                        .backend
+                        .resume(&session, &handle, unix_time_ms())
+                        .map_err(|_| "backend_resume_failed")?;
+                    #[cfg(target_os = "linux")]
+                    let channel = runtime
+                        .backend
+                        .authenticate_guest(&session, &handle, unix_time_ms())
+                        .map_err(|_| "guest_reauthentication_failed")?;
+                    #[cfg(not(target_os = "linux"))]
+                    return Err("unsupported_host");
+                    runtime
+                        .backend
+                        .wait_ready(
+                            &session,
+                            &handle,
+                            std::time::Duration::from_secs(120),
+                            unix_time_ms(),
+                        )
+                        .map_err(|_| "guest_not_ready")?;
+                    #[cfg(target_os = "linux")]
+                    Ok(channel)
+                },
+            );
+            if cancelled.load(Ordering::Acquire) {
+                active.channel.take();
+                active.uncertain = true;
+                return denied("cancelled");
+            }
+            match resumed {
+                Ok(channel) => {
+                    active.channel = Some(channel);
+                    active.paused = false;
+                    completed(&session_id)
+                }
+                Err("backend_resume_failed") => {
+                    active.uncertain = true;
+                    failed("backend_resume_failed")
+                }
+                Err("guest_reauthentication_failed") => {
+                    active.uncertain = true;
+                    controller.blocked("guest_reauthentication_failed")
+                }
+                Err("guest_not_ready") => {
+                    active.uncertain = true;
+                    controller.blocked("guest_not_ready")
+                }
+                Err(_) => {
+                    active.uncertain = true;
+                    controller.blocked("unsupported_host")
+                }
+            }
+        }
+        ComputerUseMcpRequestV1::Release { .. } => {
+            let active = sessions
+                .remove(&session_id)
+                .expect("active session was checked");
+            let revoked = controller.registry.revoke(&session_id);
+            let released = runtime
+                .backend
+                .release(&active.session, &active.handle, unix_time_ms())
+                .is_err();
+            if released {
+                failed("backend_release_failed")
+            } else if revoked.is_err() {
+                failed("authority_revocation_failed")
+            } else {
+                completed(&session_id)
+            }
+        }
+        ComputerUseMcpRequestV1::Capabilities | ComputerUseMcpRequestV1::RequestSession { .. } => {
+            denied("invalid_request")
+        }
+    }
+}

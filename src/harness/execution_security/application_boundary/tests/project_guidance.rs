@@ -65,6 +65,7 @@ fn planning_boundary_reloads_only_enabled_project_guidance() {
         destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
 
     let first = ApplicationBoundary::new(&request).unwrap();

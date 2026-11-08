@@ -334,6 +334,7 @@ pub(super) fn prepare(
 
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
 
     Ok(PreparedTurn {

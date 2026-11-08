@@ -25,6 +25,7 @@ pub(super) fn request(
         destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     }
 }
 

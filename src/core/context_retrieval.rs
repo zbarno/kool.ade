@@ -106,6 +106,7 @@ pub fn select(
 
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
     harness
         .plan_retrieval(&request)

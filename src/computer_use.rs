@@ -13,6 +13,7 @@ pub mod guest_image;
 pub mod guest_protocol;
 #[cfg(target_os = "linux")]
 mod host_executable;
+pub mod mcp;
 #[cfg(target_os = "linux")]
 pub(crate) mod process_security;
 

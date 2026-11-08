@@ -16,6 +16,7 @@ pub(crate) enum BoundaryAccess {
     InvestigationBroker,
     Implementation,
     RuntimeQaScreenshotReview,
+    ComputerUseOnly,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -24,6 +25,15 @@ pub(crate) struct ScreenshotAccessV1 {
     pub root: PathBuf,
     pub audit_root: PathBuf,
     pub sha256_by_id: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ComputerUseBridgeConfigV1 {
+    pub socket_path: PathBuf,
+    pub bridge_session_id: String,
+    pub capability_id: String,
+    pub task_id: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -46,6 +56,8 @@ pub(crate) struct ServerConfigV2 {
     #[serde(default)]
     pub investigation_authorization:
         Option<crate::core::investigation_broker::InvestigationAuthorizationV1>,
+    #[serde(default)]
+    pub computer_use: Option<ComputerUseBridgeConfigV1>,
 }
 
 pub(crate) type ServerConfig = ServerConfigV2;
@@ -68,6 +80,7 @@ impl ServerConfigV2 {
             resource_cache: Some(bridge.cache_path().to_path_buf()),
             screenshot_access: None,
             investigation_authorization: None,
+            computer_use: None,
         }
     }
 
@@ -88,6 +101,7 @@ impl ServerConfigV2 {
             resource_cache: None,
             screenshot_access: None,
             investigation_authorization: Some(authorization),
+            computer_use: None,
         }
     }
 
@@ -105,6 +119,7 @@ impl ServerConfigV2 {
             resource_cache: None,
             screenshot_access: None,
             investigation_authorization: None,
+            computer_use: None,
         }
     }
 
@@ -134,7 +149,40 @@ impl ServerConfigV2 {
                 sha256_by_id,
             }),
             investigation_authorization: None,
+            computer_use: None,
         }
+    }
+
+    pub(crate) fn computer_use_only(task_id: String, binding: ComputerUseBridgeConfigV1) -> Self {
+        Self {
+            protocol_version: 2,
+            access: BoundaryAccess::ComputerUseOnly,
+            session_id: binding.bridge_session_id.clone(),
+            task_id,
+            workspace_id: String::new(),
+            capability_id: binding.capability_id.clone(),
+            target_id: None,
+            target_arch: None,
+            resource_socket: None,
+            resource_cache: None,
+            screenshot_access: None,
+            investigation_authorization: None,
+            computer_use: Some(binding),
+        }
+    }
+
+    pub(crate) fn attach_computer_use(
+        &mut self,
+        binding: ComputerUseBridgeConfigV1,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.task_id == binding.task_id
+                && self.session_id != binding.bridge_session_id
+                && self.capability_id != binding.capability_id,
+            "Computer Use authority does not match this MCP session"
+        );
+        self.computer_use = Some(binding);
+        Ok(())
     }
 
     fn validate(&self) -> anyhow::Result<()> {
@@ -145,18 +193,43 @@ impl ServerConfigV2 {
         crate::execution::contract::validate_identifier(&self.session_id)?;
         crate::execution::contract::validate_identifier(&self.task_id)?;
         crate::execution::contract::validate_identifier(&self.capability_id)?;
-        let mut workspace_parts = self.workspace_id.split(':');
-        let project_id = workspace_parts.next().unwrap_or_default();
-        let task_id = workspace_parts.next().unwrap_or_default();
-        let source_sha = workspace_parts.next().unwrap_or_default();
-        anyhow::ensure!(
-            workspace_parts.next().is_none()
-                && crate::execution::contract::validate_identifier(project_id).is_ok()
-                && crate::execution::contract::validate_identifier(task_id).is_ok()
-                && task_id == self.task_id
-                && crate::execution::contract::is_valid_sha(source_sha),
-            "MCP workspace identity is invalid"
-        );
+        let project_id = if self.access == BoundaryAccess::ComputerUseOnly {
+            anyhow::ensure!(
+                self.workspace_id.is_empty(),
+                "Computer Use-only MCP cannot bind a repository workspace"
+            );
+            ""
+        } else {
+            let mut workspace_parts = self.workspace_id.split(':');
+            let project_id = workspace_parts.next().unwrap_or_default();
+            let task_id = workspace_parts.next().unwrap_or_default();
+            let source_sha = workspace_parts.next().unwrap_or_default();
+            anyhow::ensure!(
+                workspace_parts.next().is_none()
+                    && crate::execution::contract::validate_identifier(project_id).is_ok()
+                    && crate::execution::contract::validate_identifier(task_id).is_ok()
+                    && task_id == self.task_id
+                    && crate::execution::contract::is_valid_sha(source_sha),
+                "MCP workspace identity is invalid"
+            );
+            project_id
+        };
+        if let Some(computer_use) = &self.computer_use {
+            crate::execution::contract::validate_identifier(&computer_use.bridge_session_id)?;
+            crate::execution::contract::validate_identifier(&computer_use.capability_id)?;
+            crate::execution::contract::validate_identifier(&computer_use.task_id)?;
+            anyhow::ensure!(
+                computer_use.task_id == self.task_id
+                    && computer_use.capability_id != self.capability_id
+                    && !computer_use.socket_path.as_os_str().is_empty(),
+                "Computer Use MCP binding is invalid"
+            );
+        } else {
+            anyhow::ensure!(
+                self.access != BoundaryAccess::ComputerUseOnly,
+                "Computer Use-only MCP requires its app-owned broker"
+            );
+        }
         match self.access {
             BoundaryAccess::ReadOnly => {
                 anyhow::ensure!(
@@ -246,6 +319,17 @@ impl ServerConfigV2 {
                     "runtime QA screenshot review image allowlist is invalid"
                 );
             }
+            BoundaryAccess::ComputerUseOnly => {
+                anyhow::ensure!(
+                    self.resource_socket.is_none()
+                        && self.resource_cache.is_none()
+                        && self.target_id.is_none()
+                        && self.target_arch.is_none()
+                        && self.screenshot_access.is_none()
+                        && self.investigation_authorization.is_none(),
+                    "Computer Use-only MCP cannot access repository or resource tools"
+                );
+            }
         }
         Ok(())
     }
@@ -278,6 +362,26 @@ pub(crate) fn serve(config_path: &Path) -> anyhow::Result<()> {
                 && access.audit_root == parent.join("qa-screenshot-views"),
             "runtime QA screenshot paths must stay under the private MCP session"
         );
+    }
+    if let Some(computer_use) = &config.computer_use {
+        let parent = config_path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("MCP config path has no private parent"))?;
+        anyhow::ensure!(
+            computer_use.socket_path == parent.join("computer-use.sock"),
+            "Computer Use broker path must stay under the private MCP session"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
+            let socket = std::fs::symlink_metadata(&computer_use.socket_path)?;
+            anyhow::ensure!(
+                socket.file_type().is_socket()
+                    && socket.uid() == unsafe { geteuid() }
+                    && socket.permissions().mode() & 0o077 == 0,
+                "Computer Use broker socket must be a private socket owned by the current user"
+            );
+        }
     }
     protocol::serve(config_path, &config)
 }

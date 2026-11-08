@@ -50,6 +50,7 @@ pub(super) fn execute(
         runner,
         policy.user_context,
         policy.accrual.as_ref(),
+        policy.computer_use,
     )?;
     let author_identity = harness.current_execution_identity();
     let lifecycle_task = state

@@ -57,6 +57,7 @@ fn routed_retrieval_uses_the_selected_model() {
         destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
     harness.plan_retrieval(&request).unwrap();
     assert_eq!(observed.lock().unwrap().as_deref(), Some("selected-model"));
@@ -116,6 +117,7 @@ fn alternate_qa_harness_runs_read_only_when_verifying_implementation() {
 
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
 
     harness.execute(&request).unwrap();
@@ -148,6 +150,7 @@ fn runnable_provider_clis_pass_implementation_requests_through_the_shared_policy
 
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
 
     for provider in ["pi", "antigravity", "opencode", "copilot"] {
@@ -219,6 +222,7 @@ fn routed_provider_refuses_expired_or_changed_role_evidence_before_execution() {
         destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
     let provider = "pi";
     let changed_authentication =

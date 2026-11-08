@@ -166,6 +166,7 @@ pub(super) fn build_request(
         progress_tx,
         cancel: Arc::new(AtomicBool::new(false)),
         review_identity: Some(reviewer.clone()),
+        computer_use: None,
     };
     Ok((request, rendered.manifest, evidence_ids))
 }

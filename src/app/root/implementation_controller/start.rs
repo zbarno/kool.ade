@@ -2,6 +2,7 @@ use super::*;
 
 mod actions;
 mod claim;
+mod computer_use_context;
 mod identity;
 mod implementation;
 mod options;

@@ -1,5 +1,6 @@
 use super::*;
 
+mod computer_use;
 mod details;
 mod manager_activity;
 mod plan_review;
@@ -10,6 +11,7 @@ impl Surface for KooladeApp {
     manager_activity::manager_activity_surface_methods!();
     runtime_qa::runtime_qa_surface_methods!();
     plan_review::plan_review_surface_methods!();
+    computer_use::computer_use_surface_methods!();
 
     fn setup_image_preparation(&mut self, ui: &mut egui::Ui, prerequisite_id: &str) {
         let (completed, request) = setup_repair::paint(self, ui, prerequisite_id);

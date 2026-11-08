@@ -2,6 +2,7 @@ use super::{BoundaryAccess, ServerConfig, resource};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
+mod computer_use;
 mod inspection;
 mod investigation;
 use inspection::{record_inspection, screenshot};
@@ -23,6 +24,13 @@ impl InspectionAudit {
 }
 
 pub(super) fn list(config: &ServerConfig) -> Vec<Value> {
+    if config.computer_use.is_some() {
+        let mut tools = computer_use::list();
+        if config.access != BoundaryAccess::ComputerUseOnly {
+            tools.extend(repository_tools(config));
+        }
+        return tools;
+    }
     if config.access == BoundaryAccess::InvestigationBroker {
         return investigation::list(config);
     }
@@ -47,6 +55,10 @@ pub(super) fn list(config: &ServerConfig) -> Vec<Value> {
             }
         })];
     }
+    repository_tools(config)
+}
+
+fn repository_tools(config: &ServerConfig) -> Vec<Value> {
     let mut tools = vec![json!({
         "name": "koolade_bash",
         "description": match config.access {
@@ -54,6 +66,7 @@ pub(super) fn list(config: &ServerConfig) -> Vec<Value> {
             BoundaryAccess::InvestigationBroker => "Arbitrary commands are unavailable in Manager investigation sessions.",
             BoundaryAccess::Implementation => "Run a shell command in the assigned task clone inside Kool.ad/e's Docker implementation session. Network and host credentials are unavailable.",
             BoundaryAccess::RuntimeQaScreenshotReview => "Screenshot inspection is the only tool available in this runtime QA reviewer session.",
+            BoundaryAccess::ComputerUseOnly => "Computer Use tools are available for this task.",
         },
         "inputSchema": {
             "type": "object",
@@ -127,8 +140,16 @@ pub(super) fn call_with_audit(
     if name == "koolade_investigate" && config.access == BoundaryAccess::InvestigationBroker {
         return investigation::call(config, arguments);
     }
+    if config.computer_use.is_some() && computer_use::is_tool(name) {
+        return computer_use::call(config_path, config, name, arguments);
+    }
     let result = match name {
-        "koolade_bash" if config.access != BoundaryAccess::RuntimeQaScreenshotReview => {
+        "koolade_bash"
+            if matches!(
+                config.access,
+                BoundaryAccess::ReadOnly | BoundaryAccess::Implementation
+            ) =>
+        {
             bash(config_path, config, arguments)
         }
         "koolade_resource" if config.access == BoundaryAccess::Implementation => {
@@ -175,6 +196,7 @@ fn bash(
             BoundaryAccess::InvestigationBroker => "investigation_broker".into(),
             BoundaryAccess::Implementation => "implementation".into(),
             BoundaryAccess::RuntimeQaScreenshotReview => "runtime_qa_screenshot_review".into(),
+            BoundaryAccess::ComputerUseOnly => "computer_use_only".into(),
         },
     };
     let output = super::super::session_bridge::call(config_path, &binding, command, timeout)
@@ -282,6 +304,7 @@ mod tests {
             resource_cache: None,
             screenshot_access: None,
             investigation_authorization: None,
+            computer_use: None,
         }
     }
 }

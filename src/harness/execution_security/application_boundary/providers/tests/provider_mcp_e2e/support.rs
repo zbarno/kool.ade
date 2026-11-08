@@ -56,6 +56,7 @@ pub(super) fn server_session(
             resource_cache: Some(case_dir.join("cache")),
             screenshot_access: None,
             investigation_authorization: None,
+            computer_use: None,
         }
     };
     let path = case_dir.join("server.json");

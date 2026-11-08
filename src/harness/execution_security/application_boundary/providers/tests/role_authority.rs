@@ -134,6 +134,79 @@ fn every_user_role_keeps_its_intended_mode_and_provider_authority() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn computer_use_tools_have_the_same_six_provider_surface() {
+    // Production boundary: each provider's launch configuration exposes the
+    // same app-owned tool names without adding caller authority arguments.
+    // A schema unit test cannot prove provider CLI/env configuration parity.
+    // Dependencies: Unix sockets and temporary files only; setup is local and fast.
+    use crate::{
+        computer_use::{
+            ComputerActionActorV1, ComputerIdentityV1,
+            mcp::{
+                COMPUTER_USE_MCP_VERSION_V1, ComputerUseCallerV1, ComputerUseMcpHostV1,
+                ComputerUseMcpRequestV1, ComputerUseMcpResponseV1, ComputerUseMcpStatusV1,
+            },
+        },
+        harness::ComputerUseMcpAccessV1,
+    };
+    use std::sync::{Arc, atomic::AtomicBool, mpsc};
+
+    struct DenyHost;
+    impl ComputerUseMcpHostV1 for DenyHost {
+        fn handle(
+            &self,
+            _: &ComputerUseCallerV1,
+            _: ComputerUseMcpRequestV1,
+            _: &AtomicBool,
+        ) -> ComputerUseMcpResponseV1 {
+            ComputerUseMcpResponseV1 {
+                schema_version: COMPUTER_USE_MCP_VERSION_V1,
+                status: ComputerUseMcpStatusV1::Denied,
+                summary: "Denied by fixture.".into(),
+                reason_code: Some("denied".into()),
+                session_id: None,
+                capabilities: vec![],
+                observation: None,
+                action_outcome: None,
+            }
+        }
+    }
+
+    let mut boundary = super::test_boundary(ToolAccess::None);
+    let task_id = "00000000-0000-4000-8000-000000000002";
+    let caller = ComputerUseCallerV1 {
+        identity: ComputerIdentityV1 {
+            project_id: "00000000-0000-4000-8000-000000000001".into(),
+            task_id: task_id.into(),
+            user_id: "00000000-0000-4000-8000-000000000003".into(),
+            session_id: "00000000-0000-4000-8000-000000000004".into(),
+        },
+        actor: ComputerActionActorV1::Agent,
+        role_id: "implementer/v1".into(),
+    };
+    let access = Arc::new(ComputerUseMcpAccessV1::new(caller, Arc::new(DenyHost)).unwrap());
+    let (progress, _events) = mpsc::channel();
+    let bridge = crate::harness::execution_security::computer_use_bridge::ComputerUseBridge::start(
+        &boundary.scratch.path,
+        access,
+        Arc::new(AtomicBool::new(false)),
+        progress,
+    )
+    .unwrap();
+    boundary.server_config = Some(boundary.scratch.path.join("server.json"));
+    boundary._computer_use_bridge = Some(bridge);
+    let expected = crate::harness::execution_security::computer_use_bridge::tool_names();
+    for provider in PROVIDERS {
+        let mut args = Vec::new();
+        let mut env = Vec::new();
+        configure(&boundary, provider, &mut args, &mut env).unwrap();
+        assert_eq!(boundary.mcp_tool_names(), expected, "{provider:?}");
+        assert_provider_tool_authority(provider, &boundary, &args, &expected);
+    }
+}
+
 fn expected_execution_mode(role: HarnessRole) -> crate::execution::contract::ExecutionModeV1 {
     use crate::execution::contract::ExecutionModeV1;
     match role {

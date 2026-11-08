@@ -112,6 +112,7 @@ fn executes_stdin_prompt_and_normalizes_usage_result() {
 
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
     let result = crate::harness::with_uncontained_provider_test_execution(|| {
         AntigravityHarness.execute(&request)
@@ -226,6 +227,7 @@ fn stdin_prompt_keeps_task_text_out_of_arguments() {
 
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
     let args = execute::command(Path::new("agy"), &request, Some("gemini-3.8-flash-high"));
     assert!(
@@ -311,5 +313,6 @@ fn request(
 
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     }
 }

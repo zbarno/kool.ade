@@ -78,6 +78,7 @@ fn implementation_qa_verification_uses_the_independent_qa_harness() {
 
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
     harness.execute(&request).unwrap();
     assert_eq!(implementation_calls.load(Ordering::SeqCst), 0);
@@ -113,6 +114,7 @@ fn implementation_repair_attempt_uses_repair_route() {
         destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
     harness.execute(&request).unwrap();
     assert_eq!(implementation_calls.load(Ordering::SeqCst), 0);

@@ -70,6 +70,7 @@ pub(super) fn run_with_settle_window(
 
        authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
 };
         let output = harness.execute(&request);
         let result = output.and_then(|outcome| {

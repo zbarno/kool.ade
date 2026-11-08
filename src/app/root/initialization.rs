@@ -57,6 +57,11 @@ impl Default for KooladeApp {
             wiz: None,
             clone_computation_override: None,
             cached_user: CurrentUser::new(""),
+            #[cfg(target_os = "linux")]
+            computer_use_authority: Default::default(),
+            #[cfg(target_os = "linux")]
+            computer_use_controller: Default::default(),
+            computer_use_consent: Default::default(),
             attention: Default::default(),
             setup_attention: Vec::new(),
             machine_setup_tasks: Vec::new(),

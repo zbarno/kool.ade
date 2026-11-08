@@ -2,6 +2,25 @@ use std::path::PathBuf;
 
 use crate::computer_use::ComputerBackendErrorV1 as Error;
 
+#[test]
+fn failed_prepare_releases_the_unregistered_overlay_guard() {
+    let temp = tempfile::tempdir().unwrap();
+    let overlay_root = temp.path().join("overlays");
+    std::fs::create_dir(&overlay_root).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&overlay_root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let overlay_path = overlay_root.join("session.qcow2");
+    std::fs::write(&overlay_path, b"fixture overlay").unwrap();
+    let overlay = crate::computer_use::guest_image::GuestImageOverlayV1::for_cleanup_test(
+        overlay_path.clone(),
+        overlay_root,
+    );
+
+    drop(super::OverlayPreparationGuard(Some(overlay)));
+
+    assert!(!overlay_path.exists());
+}
+
 use super::{MachineOwnerRecordV1, validate_recovery_owner};
 
 fn owner(overlay_path: PathBuf) -> MachineOwnerRecordV1 {

@@ -152,6 +152,7 @@ pub(in crate::core::implementation::publication::pr_preparer) fn build_request(
         progress_tx: runner.progress.clone(),
         cancel: runner.cancel.clone(),
         review_identity: None,
+        computer_use: None,
     };
     Ok(PromptRequest {
         request,

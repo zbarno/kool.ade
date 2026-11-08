@@ -56,6 +56,7 @@ fn context_only_request_does_not_probe_or_require_a_repository_sandbox() {
         destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
 
     let boundary = ApplicationBoundary::new(&request).unwrap();
@@ -92,6 +93,7 @@ fn planning_without_a_workspace_receives_no_repository_tools() {
         destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
 
     let boundary = ApplicationBoundary::new(&request).unwrap();
@@ -111,6 +113,7 @@ fn approved_guidance_enters_only_the_user_prompt_as_a_hashed_data_envelope() {
         access: ToolAccess::None,
         profile: crate::harness::ExecutionProfile::Worker,
         _session_bridge: None,
+        _computer_use_bridge: None,
         _resource_bridge: None,
         execution_session: None,
         screenshot_review_audit: None,
@@ -160,6 +163,7 @@ fn implementation_without_an_application_selected_task_workspace_fails_closed() 
         destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
 
     let error = match ApplicationBoundary::new(&request) {
@@ -203,6 +207,7 @@ fn requested_read_only_workspace_connection_failure_is_reported() {
         destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
 
     let error = match ApplicationBoundary::new(&request) {
@@ -246,6 +251,7 @@ fn reviewer_request_without_bound_prompt_and_session_fails_before_boundary_creat
             session_id: "00000000-0000-4000-8000-000000000002".into(),
             runtime_qa_screenshot_review: None,
         }),
+        computer_use: None,
     };
 
     let error = match ApplicationBoundary::new(&request) {

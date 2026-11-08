@@ -262,6 +262,17 @@ pub(crate) struct RunOptions<'a> {
     user_context: Option<&'a str>,
     auto_publish_gate: Option<Arc<AtomicBool>>,
     claim_lease: Option<crate::core::task_claim::ClaimLeaseHandle>,
+    computer_use: Option<ComputerUseRunContext>,
+}
+
+/// Per-run, app-owned host authority. The caller task/session identity is
+/// completed inside the implementation request builder from task metadata.
+#[derive(Clone)]
+pub(crate) struct ComputerUseRunContext {
+    pub project_id: String,
+    pub user_id: String,
+    pub session_id: String,
+    pub host: Arc<dyn crate::computer_use::mcp::ComputerUseMcpHostV1>,
 }
 
 struct ExecutionPolicy<'a> {
@@ -270,6 +281,7 @@ struct ExecutionPolicy<'a> {
     require_independent_checks: bool,
     auto_publish_gate: Option<&'a AtomicBool>,
     claim_lease: Option<&'a crate::core::task_claim::ClaimLeaseHandle>,
+    computer_use: Option<&'a ComputerUseRunContext>,
     /// Per-workspace accrual scope (F7): `Some` when identifiers resolved.
     accrual: Option<crate::core::time_accrual::AgentSpan>,
 }
