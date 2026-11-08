@@ -24,7 +24,8 @@ fn test_boundary_for_profile(access: ToolAccess, profile: ExecutionProfile) -> A
         scratch,
         server_name: "koolade_test_0123456789abcdef".into(),
         app_binary: Some(std::env::current_exe().unwrap()),
-        server_config: (access != ToolAccess::None).then(|| PathBuf::from("/tmp/server.json")),
+        server_config: (access != ToolAccess::None && access != ToolAccess::InvestigationBroker)
+            .then(|| PathBuf::from("/tmp/server.json")),
         access,
         profile,
         _session_bridge: None,

@@ -48,6 +48,7 @@ fn live_progress_retains_harness_usage_metadata() {
 fn command_uses_model_reasoning_and_operation_scoped_sandbox() {
     let (tx, _rx) = mpsc::channel();
     let request = PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: ExecutionMode::Implementation,
         task_id: None,
@@ -93,6 +94,7 @@ fn command_uses_model_reasoning_and_operation_scoped_sandbox() {
     assert!(argv.iter().any(|value| value == "--ephemeral"));
 
     let read_only = PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: ExecutionMode::Planning,
         task_id: None,
@@ -104,6 +106,7 @@ fn command_uses_model_reasoning_and_operation_scoped_sandbox() {
             .any(|pair| pair == ["--sandbox", "read-only"])
     );
     let visual_review = PlanningRequest {
+        investigation_authorization: None,
         mode: ExecutionMode::RuntimeQaVisualReview,
         ..read_only
     };

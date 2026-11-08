@@ -1,7 +1,10 @@
 use std::{collections::BTreeMap, path::Path};
 
 mod git;
-pub(crate) use git::{command_bytes, command_bytes_bounded, command_text, valid_oid, valid_path};
+pub(crate) use git::{
+    command_bytes, command_bytes_bounded, command_bytes_with_deadline, command_text, valid_oid,
+    valid_path,
+};
 
 mod classify;
 pub(crate) use classify::{is_doc, is_manifest, is_test, source_extension};

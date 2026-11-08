@@ -17,6 +17,7 @@ fn headless_runtime_qa_boundary_accepts_empty_screenshot_set() {
     let session_id = uuid::Uuid::new_v4().hyphenated().to_string();
     let (progress_tx, _progress_rx) = mpsc::channel();
     let request = PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: Some(PromptManifest {
             role_version: "runtime_qa/v3".into(),
             system_template_sha256: "a".repeat(64),

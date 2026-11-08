@@ -202,6 +202,7 @@ fn with_settings(settings: &HarnessSettings, run: impl FnOnce()) {
 
 fn request() -> crate::harness::PlanningRequest {
     crate::harness::PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: crate::harness::ExecutionMode::Planning,
         task_id: None,

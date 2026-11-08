@@ -2,7 +2,70 @@ use std::{
     io::Read,
     path::Path,
     process::{Command, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
+    thread,
+    time::Instant,
 };
+
+pub(crate) fn command_bytes_with_deadline(
+    root: &Path,
+    args: &[&str],
+    limit: usize,
+    deadline: Instant,
+    cancelled: &AtomicBool,
+) -> Result<Vec<u8>, String> {
+    let mut child = sanitized_command(root, args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| "Git could not read the selected repository".to_owned())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Git output stream was unavailable".to_owned())?;
+    let reader = thread::spawn(move || {
+        let mut bytes = Vec::with_capacity(limit.min(64 * 1024));
+        stdout
+            .take(limit as u64 + 1)
+            .read_to_end(&mut bytes)
+            .map(|_| bytes)
+    });
+    let status = loop {
+        if cancelled.load(Ordering::Acquire) {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = reader.join();
+            return Err("investigation cancelled".into());
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = reader.join();
+            return Err("investigation exceeded its wall-time budget".into());
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => thread::sleep(std::time::Duration::from_millis(5)),
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = reader.join();
+                return Err("Git process status could not be checked".into());
+            }
+        }
+    };
+    let bytes = reader
+        .join()
+        .map_err(|_| "Git output reader failed".to_owned())?
+        .map_err(|_| "Git output could not be read".to_owned())?;
+    if bytes.len() > limit {
+        return Err("Git output exceeded the configured bound".into());
+    }
+    if !status.success() {
+        return Err("Git could not read the selected repository revision".into());
+    }
+    Ok(bytes)
+}
 
 pub(crate) fn command_text(root: &Path, args: &[&str]) -> Result<String, String> {
     String::from_utf8(command_bytes(root, args)?)
@@ -88,4 +151,37 @@ pub(crate) fn valid_path(value: &str) -> bool {
         && value
             .split('/')
             .all(|part| !part.is_empty() && part != "." && part != "..")
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::command_bytes_with_deadline;
+    use std::{
+        path::Path,
+        sync::atomic::AtomicBool,
+        time::{Duration, Instant},
+    };
+
+    #[test]
+    fn bounded_git_command_stops_on_cancellation_and_deadline() {
+        let cancelled = AtomicBool::new(true);
+        let result = command_bytes_with_deadline(
+            Path::new("."),
+            &["--version"],
+            1024,
+            Instant::now() + Duration::from_secs(2),
+            &cancelled,
+        );
+        assert!(result.unwrap_err().contains("cancelled"));
+
+        let not_cancelled = AtomicBool::new(false);
+        let result = command_bytes_with_deadline(
+            Path::new("."),
+            &["--version"],
+            1024,
+            Instant::now() - Duration::from_millis(1),
+            &not_cancelled,
+        );
+        assert!(result.unwrap_err().contains("wall-time budget"));
+    }
 }

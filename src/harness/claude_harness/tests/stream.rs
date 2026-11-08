@@ -53,6 +53,7 @@ fn structured_prompt_uses_stream_json_input_without_arguments() {
     assert!(args.iter().any(|arg| arg == "Read,Glob,Grep,Edit,Write"));
     assert!(!args.iter().any(|arg| arg == "private task prompt"));
     let read_only = PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: ExecutionMode::Planning,
         task_id: None,

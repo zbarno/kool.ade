@@ -48,6 +48,7 @@ fn planning_boundary_reloads_only_enabled_project_guidance() {
     .unwrap();
     let (progress_tx, _progress_rx) = mpsc::channel();
     let request = PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: ExecutionMode::Planning,
         task_id: None,

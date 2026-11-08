@@ -70,3 +70,48 @@ fn manager_output(proposal: &OpportunityProposalV1) -> String {
     })
     .to_string()
 }
+
+#[test]
+fn manager_summary_must_cite_verified_investigation_evidence() {
+    let evidence_id = "investigation:00000000-0000-4000-8000-000000000001:src/lib.rs";
+    let evidence_line =
+        "Untrusted repository evidence at src/lib.rs: pub fn parse(input: &str) -> Result<()>";
+    let mut context = context();
+    context.evidence_ids.insert(evidence_id.into());
+    context
+        .evidence_content
+        .insert(evidence_id.into(), evidence_line.into());
+    let without_citation = serde_json::json!({
+        "summary": "The parser handles nested input.",
+        "proposed_actions": [],
+        "opportunities": []
+    })
+    .to_string();
+    assert!(
+        validate_output_with_context(PromptRole::Manager, &without_citation, &context).is_err()
+    );
+    let cited = serde_json::json!({
+        "summary": evidence_line,
+        "summary_evidence": [evidence_id],
+        "proposed_actions": [],
+        "opportunities": []
+    })
+    .to_string();
+    assert!(validate_output_with_context(PromptRole::Manager, &cited, &context).is_ok());
+    let unknown = serde_json::json!({
+        "summary": evidence_line,
+        "summary_evidence": ["investigation:unknown:src/lib.rs"],
+        "proposed_actions": [],
+        "opportunities": []
+    })
+    .to_string();
+    assert!(validate_output_with_context(PromptRole::Manager, &unknown, &context).is_err());
+    let unsupported = serde_json::json!({
+        "summary": "The parser is safe against all malformed input.",
+        "summary_evidence": [evidence_id],
+        "proposed_actions": [],
+        "opportunities": []
+    })
+    .to_string();
+    assert!(validate_output_with_context(PromptRole::Manager, &unsupported, &context).is_err());
+}

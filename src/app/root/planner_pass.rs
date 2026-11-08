@@ -32,6 +32,7 @@ impl ClarificationPlanner {
             let outcome = (|| {
                 let (rendered, validation) = prepared?;
                 let request = PlanningRequest {
+                    investigation_authorization: None,
                     mode: ExecutionMode::ReadOnlyAnalysis,
                     destination_sha: None,
                     task_id: None,

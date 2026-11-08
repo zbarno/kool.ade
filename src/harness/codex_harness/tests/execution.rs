@@ -110,6 +110,7 @@ fn cancellation_terminates_the_active_codex_process() {
         let (tx, _) = mpsc::channel();
         crate::harness::with_uncontained_provider_test_execution(|| {
             CodexHarness.execute(&PlanningRequest {
+                investigation_authorization: None,
                 prompt_manifest: None,
                 cancel: worker_cancel,
                 ..request(worker_root, tx)

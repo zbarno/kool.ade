@@ -128,6 +128,7 @@ fn stale_saved_default_is_rejected_before_it_can_route() {
 
 fn planning_request() -> crate::harness::PlanningRequest {
     crate::harness::PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: crate::harness::ExecutionMode::Planning,
         task_id: None,

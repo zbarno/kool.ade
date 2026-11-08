@@ -95,6 +95,7 @@ fn validate_pi_tool_controls(launch: &ValidatedProviderLaunch) -> anyhow::Result
     let approved_tools: &[&str] = match launch.mode.tool_access() {
         crate::harness::ToolAccess::None => &[],
         crate::harness::ToolAccess::ReadOnly => &["koolade_bash"],
+        crate::harness::ToolAccess::InvestigationBroker => &["koolade_investigate"],
         crate::harness::ToolAccess::BoundedImplementation => {
             &["koolade_bash", "koolade_resource", "koolade_dependency"]
         }

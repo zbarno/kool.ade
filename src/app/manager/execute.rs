@@ -3,6 +3,7 @@ use super::{
     catalog::{self, ManagerPrompt},
 };
 use crate::harness::{AiHarness, HarnessRouteProvenance, PlanningRequest};
+use sha2::Digest;
 use std::sync::mpsc;
 
 pub(super) struct InvocationContext {
@@ -166,15 +167,46 @@ fn run_prompt(
                 continue;
             }
         };
-        outcome = catalog::decode(
-            &response.final_text,
-            &prepared.validation,
-            prepared.evidence_hashes.clone(),
-            prepared.evidence_confidentialities.clone(),
-            prepared.planning_revision.clone(),
-            &prepared.review_targets,
-            &prepared.code_review_targets,
-        );
+        let mut validation = prepared.validation.clone();
+        let mut hashes = prepared.evidence_hashes.clone();
+        let mut confidentiality = prepared.evidence_confidentialities.clone();
+        let broker_evidence = request
+            .investigation_authorization
+            .as_ref()
+            .map(verified_broker_evidence)
+            .transpose();
+        outcome = match broker_evidence {
+            Ok(Some(evidence)) => {
+                for (id, hash, content) in evidence {
+                    validation.evidence_ids.insert(id.clone());
+                    validation.evidence_content.insert(id.clone(), content);
+                    hashes.insert(id.clone(), hash);
+                    confidentiality.insert(
+                        id,
+                        crate::harness::prompt_catalog::EvidenceConfidentiality::WorkspacePrivate,
+                    );
+                }
+                catalog::decode(
+                    &response.final_text,
+                    &validation,
+                    hashes,
+                    confidentiality,
+                    prepared.planning_revision.clone(),
+                    &prepared.review_targets,
+                    &prepared.code_review_targets,
+                )
+            }
+            Ok(None) => catalog::decode(
+                &response.final_text,
+                &validation,
+                hashes,
+                confidentiality,
+                prepared.planning_revision.clone(),
+                &prepared.review_targets,
+                &prepared.code_review_targets,
+            ),
+            Err(error) => Err(error),
+        };
         if outcome.is_ok() {
             failure_category = None;
             failure_message = None;
@@ -182,7 +214,7 @@ fn run_prompt(
         }
         if let Err(detail) = &outcome {
             request.prompt_body.push_str(&format!(
-                "\nApplication validation rejected the previous response: {}\nReturn only a corrected JSON object with exactly these top-level fields: {{\"summary\":\"Current evidence-backed update\",\"proposed_actions\":[],\"opportunities\":[]}}. Do not add schema_version, output_schema_version, evidence_refs, or commentary fields. Preserve the original evidence and action restrictions. Empty action arrays are valid; do not invent actions to repair the format.",
+                "\nApplication validation rejected the previous response: {}\nReturn only a corrected JSON object with exactly these top-level fields: {{\"summary\":\"Exact complete sanitized evidence line\",\"summary_evidence\":[],\"proposed_actions\":[],\"opportunities\":[]}}. If the summary relies on investigation evidence, reproduce one complete sanitized evidence line verbatim and cite its source ID in summary_evidence; add no conclusions to that line. Do not add schema_version, output_schema_version, evidence_refs, or commentary fields. Preserve the original evidence and action restrictions. Empty action arrays are valid; do not invent actions to repair the format.",
                 crate::core::context_build::clip_bytes(&crate::error::redact_secrets(detail), 2048)
             ));
         }
@@ -193,4 +225,81 @@ fn run_prompt(
             .map(|detail| crate::error::redact_secrets(detail));
     }
     (outcome, failure_category, failure_message)
+}
+
+pub(super) fn verified_broker_evidence(
+    authorization: &crate::core::investigation_broker::InvestigationAuthorizationV1,
+) -> Result<Vec<(String, String, String)>, String> {
+    let metadata = std::fs::symlink_metadata(&authorization.receipt_root)
+        .map_err(|_| "Manager investigation receipt handoff disappeared".to_owned())?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err("Manager investigation receipt handoff is invalid".into());
+    }
+    let mut files = std::fs::read_dir(&authorization.receipt_root)
+        .map_err(|_| "Manager investigation receipts could not be read".to_owned())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Manager investigation receipts could not be listed".to_owned())?;
+    files.sort_by_key(|entry| entry.file_name());
+    if files.len() > 8 {
+        return Err("Manager investigation exceeded its receipt limit".into());
+    }
+    let context = authorization.context()?;
+    let broker = crate::core::investigation_broker::InvestigationBroker::default();
+    let mut output = Vec::new();
+    for entry in files {
+        let file_type = entry
+            .file_type()
+            .map_err(|_| "Manager receipt metadata is unavailable")?;
+        if !file_type.is_file() || file_type.is_symlink() {
+            return Err("Manager receipt handoff contains a non-regular file".into());
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let bytes = std::fs::read(entry.path())
+            .map_err(|_| "Manager receipt could not be read".to_owned())?;
+        if bytes.len() > 300_000 {
+            return Err("Manager receipt exceeded its size limit".into());
+        }
+        let envelope: crate::core::investigation_broker::InvestigationEvidenceEnvelopeV1 =
+            serde_json::from_slice(&bytes)
+                .map_err(|_| "Manager receipt is malformed or tampered".to_owned())?;
+        if name != format!("{}.json", envelope.request.idempotency_key) {
+            return Err("Manager receipt filename does not match its request identity".into());
+        }
+        broker.verify_receipt(&context, &envelope.request, &envelope.receipt)?;
+        let serialized_receipt = serde_json::to_vec(&envelope.receipt)
+            .map_err(|_| "verified Manager receipt could not be encoded".to_owned())?;
+        let receipt_hash = format!("{:x}", sha2::Sha256::digest(&serialized_receipt));
+        let receipt_content = format!(
+            "Investigation outcome: {:?}; confidence {}; inspected scope: {}; omitted scope: {}; findings: {}",
+            envelope.receipt.outcome,
+            envelope.receipt.confidence,
+            envelope.receipt.inspected_scope.join(", "),
+            envelope.receipt.omitted_scope.join(", "),
+            envelope.receipt.findings.join(" | "),
+        );
+        output.push((
+            format!("investigation-receipt:{}", envelope.request.idempotency_key),
+            receipt_hash,
+            receipt_content,
+        ));
+        for source in &envelope.receipt.source_refs {
+            let prefix = format!("Untrusted repository evidence at {}:", source.path);
+            let content = envelope
+                .receipt
+                .findings
+                .iter()
+                .filter(|finding| finding.starts_with(&prefix))
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("\n");
+            if !content.is_empty() {
+                output.push((
+                    source.evidence_id.clone(),
+                    source.content_sha256.clone(),
+                    content,
+                ));
+            }
+        }
+    }
+    Ok(output)
 }

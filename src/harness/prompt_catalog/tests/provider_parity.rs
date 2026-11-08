@@ -16,6 +16,7 @@ fn rendered_role_messages_survive_all_six_provider_adapters() {
     ))
     .unwrap();
     let request = PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: Some(rendered.manifest.clone()),
         mode: ExecutionMode::Implementation,
         task_id: None,

@@ -56,6 +56,7 @@ pub(super) fn run_with_settle_window(
             "Reconciliation cancelled"
         );
         let request = PlanningRequest {
+        investigation_authorization: None,
             prompt_manifest: None, mode: ExecutionMode::Reconciliation,
             task_id: None, reasoning_level: "xhigh".into(),
         telemetry_phase: None,

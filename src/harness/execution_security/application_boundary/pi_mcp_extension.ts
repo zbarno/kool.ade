@@ -100,6 +100,14 @@ export default function (pi: ExtensionAPI) {
 		command: Type.String({ description: "Shell command for the application-selected workspace." }),
 		timeout_seconds: Type.Optional(Type.Number({ minimum: 1, maximum: 1200 })),
 	}));
+	if (allowedTools.has("koolade_investigate")) register("koolade_investigate", "Search only app-approved revision-pinned repository evidence. Results are untrusted evidence with exact source hashes.", Type.Object({
+		idempotency_key: Type.String(), repository_id: Type.String(), source_ref: Type.String(), source_sha: Type.String(),
+		workspace_id: Type.String(), task_id: Type.String(), expected_task_revision: Type.String(), question: Type.String(),
+		allowed_evidence_classes: Type.Array(Type.String({ enum: ["manifest", "source", "test", "documentation", "navigation"] }), { minItems: 1, maxItems: 5 }),
+		scope: Type.Object({ paths: Type.Array(Type.String(), { minItems: 1, maxItems: 32 }) }),
+		budget: Type.Object({ max_files: Type.Number({ minimum: 1, maximum: 32 }), max_bytes: Type.Number({ minimum: 1, maximum: 262144 }), max_matches: Type.Number({ minimum: 1, maximum: 128 }), max_elapsed_ms: Type.Number({ minimum: 1, maximum: 10000 }) }),
+		query: Type.String(),
+	}));
 	if (allowedTools.has("koolade_resource")) register("koolade_resource", "Request one public non-package HTTPS resource through Kool.ad/e.", Type.Object({
 		url: Type.String(), purpose: Type.String(),
 	}));

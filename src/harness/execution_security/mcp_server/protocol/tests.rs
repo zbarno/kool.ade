@@ -110,6 +110,7 @@ fn run_bash_tool_request(
             request["access"],
             match access {
                 super::super::BoundaryAccess::ReadOnly => "read_only",
+                super::super::BoundaryAccess::InvestigationBroker => "investigation_broker",
                 super::super::BoundaryAccess::Implementation => "implementation",
                 super::super::BoundaryAccess::RuntimeQaScreenshotReview =>
                     "runtime_qa_screenshot_review",
@@ -170,5 +171,6 @@ fn test_config(access: super::super::BoundaryAccess) -> ServerConfig {
         resource_socket: None,
         resource_cache: None,
         screenshot_access: None,
+        investigation_authorization: None,
     }
 }

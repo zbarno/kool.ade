@@ -119,7 +119,7 @@ fn fake_provider_invocations_cover_all_modes_and_launch_profiles() {
             );
             assert_eq!(
                 boundary.mcp_tool_names().is_empty(),
-                access == ToolAccess::None,
+                matches!(access, ToolAccess::None | ToolAccess::InvestigationBroker),
                 "{provider:?} {mode:?} MCP authority did not match its mode"
             );
         }

@@ -79,6 +79,7 @@ pub(super) fn build(
     let rendered =
         crate::harness::prompt_catalog::render(&prompt_input).map_err(anyhow::Error::msg)?;
     Ok(PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: Some(rendered.manifest),
         mode: ExecutionMode::Implementation,
         task_id: state

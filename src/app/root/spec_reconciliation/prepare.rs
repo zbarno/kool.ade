@@ -248,6 +248,7 @@ pub(super) fn prepare(
     let (progress_tx, _progress_rx) = mpsc::channel::<LiveProgress>();
     Ok((
         PlanningRequest {
+            investigation_authorization: None,
             mode: ExecutionMode::Reconciliation,
             task_id: Some(task.task_uid.clone()),
             execution_workspace: None,

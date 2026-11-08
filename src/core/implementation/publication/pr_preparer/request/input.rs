@@ -135,6 +135,7 @@ pub(in crate::core::implementation::publication::pr_preparer) fn build_request(
     })
     .map_err(anyhow::Error::msg)?;
     let request = PlanningRequest {
+        investigation_authorization: None,
         mode: ExecutionMode::ReadOnlyAnalysis,
         task_id: Some(task.task_uid.clone()),
         execution_workspace: None,

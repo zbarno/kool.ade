@@ -131,6 +131,7 @@ fn review(
     };
     let rendered = render(&input)?;
     let plan = PlanningRequest {
+        investigation_authorization: None,
         mode: ExecutionMode::ReadOnlyAnalysis,
         task_id: Some(assessment.task_uid.clone()),
         execution_workspace: None,

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use super::{
     RepositoryKnowledgeProfileV1, RepositoryRevisionKeyV1,
-    source::{MAX_BLOB_BYTES, command_bytes, command_text, valid_oid, valid_path},
+    source::{MAX_BLOB_BYTES, command_bytes_with_deadline, valid_oid, valid_path},
 };
 mod build;
 mod cache;
@@ -74,6 +74,51 @@ pub fn scan_profile(request: ProfileRequest<'_>) -> Result<RepositoryKnowledgePr
     Ok(profile)
 }
 
+/// Verify that a previously selected profile still names the current commit
+/// for its repository ref before a broker accepts any evidence from it.
+pub fn verify_profile_freshness(
+    source: &ProfileSource,
+    profile: &RepositoryKnowledgeProfileV1,
+) -> Result<(), String> {
+    if source.repository_id != profile.key.repository_id
+        || normalize_ref(&source.source_ref)? != profile.key.source_ref
+    {
+        return Err("profile identity no longer matches the selected repository".into());
+    }
+    let root = resolve_root(source)?;
+    if resolve_commit(&root, &profile.key.source_ref)? != profile.key.commit_sha {
+        return Err("profile source revision has changed".into());
+    }
+    Ok(())
+}
+
+/// Cancellable/deadline-bounded profile freshness check for Manager broker calls.
+pub fn verify_profile_freshness_with_deadline(
+    source: &ProfileSource,
+    profile: &RepositoryKnowledgeProfileV1,
+    deadline: std::time::Instant,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> Result<(), String> {
+    validate_pinned_source_identity(source, &profile.key)?;
+    let root = resolve_root_with_deadline(source, deadline, cancelled)?;
+    let reference = format!("{}^{{commit}}", profile.key.source_ref);
+    let output = command_bytes_with_deadline(
+        &root,
+        &["rev-parse", "--verify", &reference],
+        128,
+        deadline,
+        cancelled,
+    )?;
+    let commit = String::from_utf8(output)
+        .map_err(|_| "Git returned a non-text commit identity".to_owned())?
+        .trim()
+        .to_owned();
+    if commit != profile.key.commit_sha {
+        return Err("profile source revision has changed".into());
+    }
+    Ok(())
+}
+
 /// Re-read one selected file from the exact commit recorded by a profile.
 /// The worktree and index are never consulted for file contents.
 pub fn read_pinned_file(
@@ -81,33 +126,72 @@ pub fn read_pinned_file(
     key: &RepositoryRevisionKeyV1,
     relative_path: &str,
 ) -> Result<(String, String), String> {
-    if source.repository_id != key.repository_id
-        || normalize_ref(&source.source_ref)? != key.source_ref
-        || !valid_oid(&key.commit_sha)
-        || !valid_path(relative_path)
-    {
-        return Err("profile file request does not match its pinned repository identity".into());
+    read_pinned_file_bounded(source, key, relative_path, MAX_BLOB_BYTES)
+}
+
+/// Read a pinned regular blob only when it fits the caller's remaining byte budget.
+pub fn read_pinned_file_bounded(
+    source: &ProfileSource,
+    key: &RepositoryRevisionKeyV1,
+    relative_path: &str,
+    max_bytes: usize,
+) -> Result<(String, String), String> {
+    let never_cancelled = std::sync::atomic::AtomicBool::new(false);
+    read_pinned_file_bounded_with_deadline(
+        source,
+        key,
+        relative_path,
+        max_bytes,
+        std::time::Instant::now() + std::time::Duration::from_secs(30),
+        &never_cancelled,
+    )
+}
+
+/// Pinned regular-blob read with hard output, cancellation, and time bounds.
+pub fn read_pinned_file_bounded_with_deadline(
+    source: &ProfileSource,
+    key: &RepositoryRevisionKeyV1,
+    relative_path: &str,
+    max_bytes: usize,
+    deadline: std::time::Instant,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> Result<(String, String), String> {
+    validate_pinned_source_identity(source, key)?;
+    if !valid_path(relative_path) {
+        return Err("profile file request path is invalid".into());
     }
-    let root = resolve_root(source)?;
-    let listing = command_bytes(
+    let root = resolve_root_with_deadline(source, deadline, cancelled)?;
+    let literal_path = format!(":(literal){relative_path}");
+    let listing = command_bytes_with_deadline(
         &root,
-        &[
-            "ls-tree",
-            "-z",
-            &key.commit_sha,
-            "--",
-            &format!(":(literal){relative_path}"),
-        ],
+        &["ls-tree", "-z", &key.commit_sha, "--", &literal_path],
+        16 * 1024,
+        deadline,
+        cancelled,
     )?;
     let object_id = regular_blob(&listing, relative_path)?;
-    let size = command_text(&root, &["cat-file", "-s", &object_id])?
+    let size_output = command_bytes_with_deadline(
+        &root,
+        &["cat-file", "-s", &object_id],
+        64,
+        deadline,
+        cancelled,
+    )?;
+    let size = String::from_utf8(size_output)
+        .map_err(|_| "Git returned an invalid blob size".to_owned())?
         .trim()
         .parse::<usize>()
         .map_err(|_| "Git returned an invalid blob size".to_owned())?;
-    if size > MAX_BLOB_BYTES {
+    if size > MAX_BLOB_BYTES || size > max_bytes {
         return Err("selected repository document exceeds the size limit".into());
     }
-    let bytes = command_bytes(&root, &["cat-file", "blob", &object_id])?;
+    let bytes = command_bytes_with_deadline(
+        &root,
+        &["cat-file", "blob", &object_id],
+        size,
+        deadline,
+        cancelled,
+    )?;
     if bytes.len() != size {
         return Err("selected repository blob changed while being read".into());
     }
@@ -115,4 +199,55 @@ pub fn read_pinned_file(
     let content = String::from_utf8(bytes)
         .map_err(|_| "selected repository document is not valid UTF-8".to_owned())?;
     Ok((content, digest))
+}
+
+fn validate_pinned_source_identity(
+    source: &ProfileSource,
+    key: &RepositoryRevisionKeyV1,
+) -> Result<(), String> {
+    if source.repository_id != key.repository_id
+        || source.source_ref != key.source_ref
+        || !(key.source_ref.starts_with("refs/heads/")
+            || key.source_ref.starts_with("refs/remotes/"))
+        || key.source_ref.len() > 256
+        || key.source_ref.chars().any(char::is_control)
+        || !valid_oid(&key.commit_sha)
+    {
+        return Err("profile file request does not match its pinned repository identity".into());
+    }
+    Ok(())
+}
+
+fn resolve_root_with_deadline(
+    source: &ProfileSource,
+    deadline: std::time::Instant,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> Result<PathBuf, String> {
+    let root = source
+        .repositories
+        .target_if_available(
+            &source.planning_store,
+            &source.code_root,
+            &source.repository_id,
+        )
+        .map_err(|_| "selected code repository is unavailable".to_owned())?
+        .ok_or_else(|| "selected code repository has no local checkout".to_owned())?
+        .canonicalize()
+        .map_err(|_| "selected code repository cannot be opened".to_owned())?;
+    let output = command_bytes_with_deadline(
+        &root,
+        &["rev-parse", "--show-toplevel"],
+        4096,
+        deadline,
+        cancelled,
+    )?;
+    let top = String::from_utf8(output)
+        .map_err(|_| "Git returned a non-text repository root".to_owned())?;
+    let top = PathBuf::from(top.trim())
+        .canonicalize()
+        .map_err(|_| "selected code repository cannot be resolved".to_owned())?;
+    if top != root {
+        return Err("selected path is not a Git worktree root".into());
+    }
+    Ok(root)
 }

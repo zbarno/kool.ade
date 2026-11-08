@@ -97,6 +97,7 @@ pub(super) fn execute(inputs: ReviewInputs<'_>) -> Result<ReviewVerdictV1, Strin
         runtime_qa_screenshot_review: Some(Arc::clone(&screenshot_review)),
     };
     let plan = PlanningRequest {
+        investigation_authorization: None,
         mode: ExecutionMode::RuntimeQaVisualReview,
         task_id: Some(request.parent_task_uid.clone()),
         // The independent model review receives the frozen QA evidence in its

@@ -145,6 +145,7 @@ fn run_with_settle_window(
     for attempt in 1..=3 {
         anyhow::ensure!(!cancel.load(Ordering::SeqCst), "Investigation cancelled");
         let request = PlanningRequest {
+            investigation_authorization: None,
             prompt_manifest: None,
             mode: ExecutionMode::Investigation,
             task_id: Some(task_id.clone()),

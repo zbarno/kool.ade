@@ -75,6 +75,7 @@ printf '{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"
     .map(|mode| {
         let (progress_tx, _rx) = mpsc::channel();
         PiHarness.execute(&PlanningRequest {
+            investigation_authorization: None,
             prompt_manifest: None,
             mode,
             task_id: None,

@@ -1,9 +1,9 @@
 use super::super::super::CliProvider;
-use super::test_boundary;
+use super::{test_boundary, test_boundary_for_profile};
 use crate::{
     execution::contract::HarnessRole,
     harness::{
-        ToolAccess,
+        ExecutionProfile, ToolAccess,
         pi_proc::{PollState, StreamEvt, spawn_with_input_provider_env},
     },
 };
@@ -13,6 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod manager_investigation;
 mod registration;
 mod support;
 
@@ -73,6 +74,7 @@ fn every_provider_role_calls_only_its_application_owned_mcp_authority() {
                     (Some(path), Some(bridge), Some(command))
                 }
                 ToolAccess::RuntimeQaScreenshots => (None, None, None),
+                ToolAccess::InvestigationBroker => (None, None, None),
             };
 
             let mut boundary = test_boundary(access);
@@ -198,6 +200,7 @@ fn every_provider_role_calls_only_its_application_owned_mcp_authority() {
             * HarnessRole::ALL
                 .iter()
                 .filter(|role| role.harness_mode().tool_access() != ToolAccess::None)
+                .filter(|role| role.harness_mode().tool_access() != ToolAccess::InvestigationBroker)
                 .count()
     );
     fs::remove_dir_all(root).unwrap();

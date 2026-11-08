@@ -55,6 +55,7 @@ pub(super) fn server_session(
             resource_socket: Some(case_dir.join("resource.sock")),
             resource_cache: Some(case_dir.join("cache")),
             screenshot_access: None,
+            investigation_authorization: None,
         }
     };
     let path = case_dir.join("server.json");

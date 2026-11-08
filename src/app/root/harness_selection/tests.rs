@@ -60,6 +60,7 @@ fn implementation_qa_verification_uses_the_independent_qa_harness() {
     };
     let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
     let request = crate::harness::PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: crate::harness::ExecutionMode::Implementation,
         task_id: None,
@@ -95,6 +96,7 @@ fn implementation_repair_attempt_uses_repair_route() {
     };
     let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
     let request = crate::harness::PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: crate::harness::ExecutionMode::Implementation,
         task_id: None,

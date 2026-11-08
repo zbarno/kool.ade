@@ -94,6 +94,7 @@ fn executes_stdin_prompt_and_normalizes_usage_result() {
     let _env = set_binary(&cli);
     let (tx, rx) = mpsc::channel();
     let request = PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: ExecutionMode::Implementation,
         task_id: None,
@@ -177,6 +178,7 @@ fn cancellation_stops_the_active_cli_process() {
     let worker = std::thread::spawn(move || {
         crate::harness::with_uncontained_provider_test_execution(|| {
             AntigravityHarness.execute(&PlanningRequest {
+                investigation_authorization: None,
                 prompt_manifest: None,
                 cancel: worker_cancel,
                 ..request(&worker_root, std::sync::mpsc::channel().0)
@@ -206,6 +208,7 @@ fn stdin_prompt_keeps_task_text_out_of_arguments() {
     use std::sync::{Arc, atomic::AtomicBool, mpsc};
     use std::time::Duration;
     let request = PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: ExecutionMode::Implementation,
         task_id: None,
@@ -290,6 +293,7 @@ fn request(
     use std::sync::{Arc, atomic::AtomicBool};
     use std::time::Duration;
     crate::harness::PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: ExecutionMode::Implementation,
         task_id: None,

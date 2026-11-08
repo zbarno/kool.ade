@@ -85,7 +85,7 @@ fn missing_capabilities(help: &str, mode: ExecutionMode) -> Vec<String> {
     ];
     match mode.tool_access() {
         ToolAccess::None => required.push("--no-tools"),
-        ToolAccess::ReadOnly => {
+        ToolAccess::ReadOnly | ToolAccess::InvestigationBroker => {
             required.extend(["--no-builtin-tools", "--tools", "--extension"]);
         }
         ToolAccess::BoundedImplementation => {

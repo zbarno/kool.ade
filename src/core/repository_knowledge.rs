@@ -14,7 +14,11 @@ pub use profile::{
     KnowledgeProfileStatus, NavigationCandidateV1, RepositoryKnowledgeProfileV1,
     RepositoryRevisionKeyV1, ScanOmissionV1, ScanStatsV1,
 };
-pub use scan::{ProfileRequest, ProfileSource, read_pinned_file, scan_profile};
+pub use scan::{
+    ProfileRequest, ProfileSource, read_pinned_file, read_pinned_file_bounded,
+    read_pinned_file_bounded_with_deadline, scan_profile, verify_profile_freshness,
+    verify_profile_freshness_with_deadline,
+};
 
 /// Re-read and validate a selected navigation candidate at its pinned commit.
 pub fn read_selected_document(

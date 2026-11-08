@@ -19,6 +19,7 @@ pub(crate) fn command(
     let tools = match access {
         crate::harness::ToolAccess::None => "",
         crate::harness::ToolAccess::ReadOnly => "read",
+        crate::harness::ToolAccess::InvestigationBroker => "",
         crate::harness::ToolAccess::BoundedImplementation => "read,edit",
         crate::harness::ToolAccess::RuntimeQaScreenshots => "",
     };
