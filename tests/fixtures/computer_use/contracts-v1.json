@@ -25,8 +25,16 @@
     "session_class": "disposable",
     "capability": "approved_gui_task",
     "network_profile": "disabled",
-    "allowed_apps": ["text-editor"],
-    "authorized_operations": ["observe_screen", "read_accessibility", "mouse_input", "keyboard_input", "launch_allowed_app"],
+    "allowed_apps": [
+      "text-editor"
+    ],
+    "authorized_operations": [
+      "observe_screen",
+      "read_accessibility",
+      "mouse_input",
+      "keyboard_input",
+      "launch_allowed_app"
+    ],
     "approval_generation": 1,
     "resource_budget": {
       "cpu_millis": 2000,
@@ -38,6 +46,7 @@
   },
   "session": {
     "schema_version": 1,
+    "session_started_at_unix_ms": 1000000,
     "identity": {
       "project_id": "00000000-0000-4000-8000-000000000001",
       "task_id": "00000000-0000-4000-8000-000000000002",
@@ -45,12 +54,17 @@
       "session_id": "00000000-0000-4000-8000-000000000004"
     },
     "session_class": "disposable",
-    "target": {"kind": "local_kvm", "machine_id": "00000000-0000-4000-8000-000000000006"},
+    "target": {
+      "kind": "local_kvm",
+      "machine_id": "00000000-0000-4000-8000-000000000006"
+    },
     "image_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "image_manifest_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "image_signer_key_id": "00000000-0000-4000-8000-000000000012",
     "network_profile": "disabled",
-    "allowed_apps": ["text-editor"],
+    "allowed_apps": [
+      "text-editor"
+    ],
     "policy": {
       "schema_version": 1,
       "identity": {
@@ -62,8 +76,16 @@
       "session_class": "disposable",
       "capability": "approved_gui_task",
       "network_profile": "disabled",
-      "allowed_apps": ["text-editor"],
-      "authorized_operations": ["observe_screen", "read_accessibility", "mouse_input", "keyboard_input", "launch_allowed_app"],
+      "allowed_apps": [
+        "text-editor"
+      ],
+      "authorized_operations": [
+        "observe_screen",
+        "read_accessibility",
+        "mouse_input",
+        "keyboard_input",
+        "launch_allowed_app"
+      ],
       "approval_generation": 1,
       "resource_budget": {
         "cpu_millis": 2000,
@@ -82,14 +104,14 @@
       "expires_at_unix_ms": 1600000,
       "cancellation_generation": 1
     },
-    "lifecycle": "ready",
+    "lifecycle": "delegated",
     "action_sequence": 0,
     "approval_generation": 1,
     "cancellation_generation": 1,
     "evidence_refs": [],
     "controller_proof": {
       "signer_key_id": "00000000-0000-4000-8000-000000000011",
-      "signature_hex": "dd64341621c413dade2462f6b5e6a430b2c70866f1007e9ad45e7e17605b1934c67f38e85894b7f861f5c1d98c7294a05989adee8dfc817301baf3bb35578d0a"
+      "signature_hex": "cad7dee33856e8067b9e03984ae705af1ae3c35e65994e3c2ebf70b130928b6cddbc2210669ca83687c0313a3b1613ba7acd82e5ac402e92198b52b5da9f6d0e"
     }
   },
   "action": {
@@ -102,7 +124,12 @@
     "approval_generation": 1,
     "cancellation_generation": 1,
     "operation": "keyboard_input",
-    "payload": {"kind": "type_text", "text": "synthetic text"}
+    "payload": {
+      "kind": "type_text",
+      "text": "synthetic text",
+      "window_id": "00000000-0000-4000-8000-000000000010",
+      "observation_revision": 1
+    }
   },
   "observation": {
     "schema_version": 1,
@@ -113,7 +140,9 @@
     "height_px": 720,
     "screenshot_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "accessibility_snapshot_ref": "00000000-0000-4000-8000-000000000008",
-    "evidence_refs": ["00000000-0000-4000-8000-000000000009"]
+    "evidence_refs": [
+      "00000000-0000-4000-8000-000000000009"
+    ]
   },
   "event": {
     "schema_version": 1,
@@ -123,6 +152,10 @@
     "lease_generation": 1,
     "approval_generation": 1,
     "cancellation_generation": 1,
-    "kind": {"kind": "state_changed", "from": "preparing", "to": "booting"}
+    "kind": {
+      "kind": "state_changed",
+      "from": "preparing",
+      "to": "booting"
+    }
   }
 }

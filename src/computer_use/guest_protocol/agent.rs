@@ -1,20 +1,20 @@
+mod action;
 mod bootstrap;
 mod platform;
 mod protocol;
 mod replay;
 mod x11;
-use platform::{guest_capabilities, launch_chromium, readable, write_exit_notice};
+use platform::{guest_capabilities, readable, write_exit_notice};
 use protocol::{envelope, write_outcome};
 use replay::{action_digest, request_id_for_action};
 
 use super::{
     AuthenticatedGuestEnvelopeV1, GuestBootConfigV1, GuestEnvelopeContextV1, GuestMessageV1,
-    GuestOperationResultV1, GuestProtocolErrorV1, GuestSenderV1,
+    GuestProtocolErrorV1, GuestSenderV1,
     auth::{GuestHandshakeCompleteV1, guest_handshake},
     frame::{read_frame, write_frame},
     types::{canonical_uuid, required_capability},
 };
-use crate::computer_use::{ComputerActionPayloadV1, ComputerActionV1};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -42,16 +42,21 @@ struct AgentReplayState {
     completed: BTreeMap<u64, (String, ReplayEntryV1)>,
     highest_sequence: u64,
     request_digests: HashMap<String, String>,
+    latest_observation: Option<super::GuestObservationV1>,
 }
 
 pub fn run() -> Result<(), GuestProtocolErrorV1> {
     let config = bootstrap::read_boot_config(Path::new(BOOT_CONFIG))?;
-    let capabilities = guest_capabilities(&config);
     let mut replay = AgentReplayState {
         highest_sequence: config.initial_action_sequence,
         ..AgentReplayState::default()
     };
     loop {
+        let capabilities = guest_capabilities(&config);
+        if !capabilities.screen_capture {
+            thread::sleep(Duration::from_millis(250));
+            continue;
+        }
         match OpenOptions::new().read(true).write(true).open(GUEST_PORT) {
             Ok(mut port) => match guest_handshake(&mut port, &config, capabilities.clone()) {
                 Ok(handshake) => {
@@ -155,7 +160,7 @@ fn serve_connection(
         if action.action_sequence <= replay.highest_sequence {
             return Err(GuestProtocolErrorV1::SequenceGap);
         }
-        let outcome = match execute_action(action, config) {
+        let outcome = match action::execute_action(action, config, replay) {
             Ok(outcome) => outcome,
             Err(error) => {
                 write_exit_notice(port, config, &handshake, guest_sequence, host, error)?;
@@ -184,51 +189,6 @@ fn serve_connection(
         }
         guest_sequence = write_outcome(port, config, &handshake, guest_sequence, host, &outcome)?;
     }
-}
-
-fn execute_action(
-    action: &ComputerActionV1,
-    config: &GuestBootConfigV1,
-) -> Result<super::GuestActionOutcomeV1, GuestProtocolErrorV1> {
-    let result = match &action.payload {
-        ComputerActionPayloadV1::ObserveScreen => GuestOperationResultV1::Completed,
-        ComputerActionPayloadV1::ReadAccessibility => GuestOperationResultV1::UnsupportedCapability,
-        ComputerActionPayloadV1::MouseClick { x, y, button } => {
-            x11::click(*x, *y, *button)?;
-            GuestOperationResultV1::Completed
-        }
-        ComputerActionPayloadV1::KeyPress { key } => {
-            x11::key_press(*key)?;
-            GuestOperationResultV1::Completed
-        }
-        ComputerActionPayloadV1::TypeText { text }
-            if text.len() <= 4096 && !text.contains('\0') =>
-        {
-            x11::type_ascii(text)?;
-            GuestOperationResultV1::Completed
-        }
-        ComputerActionPayloadV1::TypeText { .. } => GuestOperationResultV1::Rejected,
-        ComputerActionPayloadV1::LaunchApp { app_id }
-            if app_id == "chromium"
-                && config.allowed_apps.iter().any(|allowed| allowed == app_id) =>
-        {
-            launch_chromium()?;
-            GuestOperationResultV1::Completed
-        }
-        ComputerActionPayloadV1::LaunchApp { .. } => GuestOperationResultV1::UnsupportedCapability,
-    };
-    let observation = if result == GuestOperationResultV1::Completed {
-        Some(x11::capture_png()?)
-    } else {
-        None
-    };
-    Ok(super::GuestActionOutcomeV1 {
-        reply: super::GuestActionReplyV1 {
-            action_sequence: action.action_sequence,
-            result,
-        },
-        observation,
-    })
 }
 
 #[cfg(test)]
