@@ -174,7 +174,7 @@ fn linux_vm_probe_helper_persists_current_typed_evidence_and_dependencies() {
     for (capability, expected_state) in [
         (
             catalog::PrerequisiteCapability::ComputerGuestImage,
-            catalog::EvidenceState::Missing,
+            catalog::EvidenceState::Unknown,
         ),
         (
             catalog::PrerequisiteCapability::ComputerOverlay,
@@ -206,7 +206,7 @@ fn linux_vm_probe_helper_persists_current_typed_evidence_and_dependencies() {
         assert_eq!(
             evidence.code,
             if capability == catalog::PrerequisiteCapability::ComputerGuestImage {
-                catalog::EvidenceCode::ComputerGuestImageNotPromoted
+                catalog::EvidenceCode::ComputerGuestImageCatalogUnverified
             } else {
                 catalog::EvidenceCode::ComputerUseReadinessProbeNotIntegrated
             }
