@@ -32,6 +32,7 @@ fn request() -> InvestigationRequestV1 {
         },
         cancellation_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         query: "parse".into(),
+        comparison: None,
     }
 }
 
@@ -104,6 +105,7 @@ fn broker_returns_hash_verified_evidence_and_reuses_replayed_requests() {
         task_id,
         cancellation_id,
         task_revision: planning_store.revision().unwrap(),
+        comparison: None,
     };
     let mut request = request();
     request.repository_id = "root".into();
@@ -233,6 +235,18 @@ fn git(root: &Path, args: &[&str]) {
 #[test]
 fn request_accepts_bounded_scoped_query() {
     assert!(request().validate().is_ok());
+}
+
+#[test]
+fn revision_comparison_requires_two_file_reads_in_its_declared_budget() {
+    let mut value = request();
+    value.comparison = Some(InvestigationRevisionV1 {
+        source_ref: "refs/heads/approved-source".into(),
+        source_sha: "b".repeat(40),
+    });
+    assert!(value.validate().is_ok());
+    value.budget.max_files = 1;
+    assert!(value.validate().is_err());
 }
 
 #[test]

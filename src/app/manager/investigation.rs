@@ -79,9 +79,54 @@ pub(super) fn manager_investigation_authorization(
             task_revision: project.state.planning_store.revision().ok()?,
             profile,
             repositories: project.state.repositories.clone(),
+            approved_comparison_revisions: approved_comparison_revisions(project, &repository.id),
         },
     )
 }
+
+fn approved_comparison_revisions(
+    project: &crate::app::session::Project,
+    repository_id: &str,
+) -> Vec<crate::core::investigation_broker::InvestigationApprovedRevisionV1> {
+    approved_comparison_pins(
+        project
+            .task_documents
+            .iter()
+            .filter_map(|document| document.metadata.as_ref()),
+        repository_id,
+    )
+}
+
+fn approved_comparison_pins<'a>(
+    metadata_items: impl IntoIterator<Item = &'a crate::artifacts::task_docs::TaskMetadata>,
+    repository_id: &str,
+) -> Vec<crate::core::investigation_broker::InvestigationApprovedRevisionV1> {
+    let mut pins = std::collections::BTreeMap::new();
+    for metadata in metadata_items {
+        let Some(intent) = metadata.git_intent.as_ref() else {
+            continue;
+        };
+        if intent.validate().is_err() || intent.repository_id != repository_id {
+            continue;
+        }
+        let source_ref = if intent.source_ref.starts_with("refs/heads/") {
+            intent.source_ref.clone()
+        } else {
+            format!("refs/heads/{}", intent.source_ref)
+        };
+        pins.entry((source_ref, intent.source_sha.clone()))
+            .or_insert_with(|| {
+                crate::core::investigation_broker::InvestigationApprovedRevisionV1 {
+                    intent: intent.clone(),
+                }
+            });
+    }
+    pins.into_values().take(8).collect()
+}
+
+#[cfg(test)]
+#[path = "investigation/tests.rs"]
+mod tests;
 
 pub(super) fn manager_receipt_root(task_id: &str) -> Option<std::path::PathBuf> {
     let path = std::env::temp_dir().join(format!("koolade-investigation-{task_id}"));

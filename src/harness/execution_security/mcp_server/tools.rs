@@ -237,6 +237,7 @@ mod tests {
                 "navigation_candidates":[], "omissions":[], "scan":{"tree_entries_seen":0,"files_read":0,"bytes_read":0,"navigation_indexes_read":0,"documents_read":0,"truncated":false}
             })).unwrap(),
             repositories: crate::core::project_repos::ProjectManifest { repositories: vec![crate::core::project_repos::Repository { id: "root".into(), role: "Primary code".into(), remote: String::new(), display_name: None }] },
+            approved_comparison_revisions: Vec::new(),
         });
         let listed = list(&config);
         assert_eq!(listed.len(), 1);

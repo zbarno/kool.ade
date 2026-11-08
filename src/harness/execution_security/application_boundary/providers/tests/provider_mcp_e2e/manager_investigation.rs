@@ -1,10 +1,11 @@
 use super::*;
 
 /// Production boundary: Manager Pi launch policy plus the real internal MCP
-/// server. Invariant: a Manager provider registers only koolade_investigate,
-/// and the server refuses shell calls. Unit tests cannot prove the selected
-/// provider args and server config agree. Uses a synthetic profile and local
-/// process only; no Docker, network, SSH, or vendor CLI; setup cost is low.
+/// server. Invariant: a Manager provider registers only koolade_investigate
+/// and the server refuses shell calls.
+/// Unit tests cannot prove the selected provider args and server config agree.
+/// Uses a synthetic profile and local process only; no Docker, network, SSH,
+/// or vendor CLI; setup cost is low.
 #[test]
 fn manager_pi_receives_only_the_scoped_investigation_tool() {
     let app_binary = current_application_binary();
@@ -87,6 +88,7 @@ fn manager_pi_receives_only_the_scoped_investigation_tool() {
         task_revision,
         profile,
         repositories,
+        approved_comparison_revisions: Vec::new(),
     };
     let binding = crate::harness::execution_security::session_bridge::SessionBinding {
         session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
@@ -148,6 +150,7 @@ fn manager_pi_receives_only_the_scoped_investigation_tool() {
         },
         cancellation_id: auth.cancellation_id.clone(),
         query: "broker_fixture".into(),
+        comparison: None,
     };
     let mut request_arguments = serde_json::to_value(&request).unwrap();
     request_arguments
@@ -189,6 +192,9 @@ fn manager_pi_receives_only_the_scoped_investigation_tool() {
     assert_eq!(shell["result"]["isError"], true);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[path = "manager_investigation/comparison.rs"]
+mod comparison;
 
 fn invoke_internal_mcp(app: &std::path::Path, config: &std::path::Path, request: Value) -> Value {
     use std::io::Write;

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+mod authorization;
+pub use authorization::InvestigationAuthorizationV1;
 
 const MAX_QUESTION_CHARS: usize = 2_000;
 const MAX_SCOPE_PATHS: usize = 32;
@@ -53,6 +54,23 @@ pub struct InvestigationRequestV1 {
     pub budget: InvestigationBudgetV1,
     pub cancellation_id: String,
     pub query: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comparison: Option<InvestigationRevisionV1>,
+}
+
+/// A second revision may be compared only when the app includes its exact
+/// approved repository pin in the authorization material.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InvestigationRevisionV1 {
+    pub source_ref: String,
+    pub source_sha: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InvestigationApprovedRevisionV1 {
+    pub intent: crate::core::git_intent::GitIntentV1,
 }
 
 impl InvestigationRequestV1 {
@@ -89,6 +107,17 @@ impl InvestigationRequestV1 {
             return Err("investigation request has an invalid identity, question, or scope".into());
         }
         self.budget.validate()?;
+        if let Some(comparison) = &self.comparison
+            && (comparison.source_ref.is_empty()
+                || comparison.source_ref.len() > 256
+                || !comparison.source_ref.starts_with("refs/heads/")
+                || !valid_sha(&comparison.source_sha)
+                || (comparison.source_ref == self.source_ref
+                    && comparison.source_sha == self.source_sha)
+                || self.budget.max_files < 2)
+        {
+            return Err("comparison revision has an invalid or duplicate identity".into());
+        }
         let mut paths = std::collections::BTreeSet::new();
         for path in &self.scope.paths {
             if path.is_empty()
@@ -131,6 +160,17 @@ pub struct InvestigationSourceRefV1 {
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct InvestigationComparisonRefV1 {
+    pub evidence_id: String,
+    pub path: String,
+    pub left_source_sha: String,
+    pub left_content_sha256: String,
+    pub right_source_sha: String,
+    pub right_content_sha256: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct InvestigationReceiptV1 {
     pub schema_version: u32,
     pub idempotency_key: String,
@@ -138,6 +178,8 @@ pub struct InvestigationReceiptV1 {
     pub source_sha: String,
     pub inspected_scope: Vec<String>,
     pub source_refs: Vec<InvestigationSourceRefV1>,
+    #[serde(default)]
+    pub comparison_refs: Vec<InvestigationComparisonRefV1>,
     pub findings: Vec<String>,
     pub uncertainty: Vec<String>,
     pub omitted_scope: Vec<String>,
@@ -149,65 +191,11 @@ pub struct InvestigationReceiptV1 {
     pub outcome: InvestigationOutcomeV1,
 }
 
-/// App-owned immutable authorization material staged for one Manager call.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct InvestigationAuthorizationV1 {
-    pub code_root: PathBuf,
-    pub planning_root: PathBuf,
-    pub receipt_root: PathBuf,
-    pub project_id: String,
-    pub repository_id: String,
-    pub source_ref: String,
-    pub source_sha: String,
-    pub workspace_id: String,
-    pub task_id: String,
-    pub cancellation_id: String,
-    pub task_revision: String,
-    pub profile: crate::core::repository_knowledge::RepositoryKnowledgeProfileV1,
-    pub repositories: crate::core::project_repos::ProjectManifest,
-}
-
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct InvestigationEvidenceEnvelopeV1 {
     pub request: InvestigationRequestV1,
     pub receipt: InvestigationReceiptV1,
-}
-
-impl InvestigationAuthorizationV1 {
-    pub fn context(&self) -> Result<super::InvestigationContext, String> {
-        self.profile.validate()?;
-        if self.profile.key.repository_id != self.repository_id
-            || self.profile.key.source_ref != self.source_ref
-            || self.profile.key.commit_sha != self.source_sha
-            || self.workspace_id
-                != format!("{}:{}:{}", self.project_id, self.task_id, self.source_sha)
-        {
-            return Err("investigation authorization material is inconsistent".into());
-        }
-        let project_id = uuid::Uuid::parse_str(&self.project_id)
-            .map_err(|_| "investigation project identity is invalid")?;
-        let planning_store = crate::artifacts::planning_store::PlanningStore::for_code_repository(
-            project_id,
-            self.planning_root.clone(),
-            self.code_root.clone(),
-        );
-        Ok(super::InvestigationContext {
-            source: crate::core::repository_knowledge::ProfileSource {
-                repository_id: self.repository_id.clone(),
-                source_ref: self.source_ref.clone(),
-                code_root: self.code_root.clone(),
-                planning_store,
-                repositories: self.repositories.clone(),
-            },
-            profile: self.profile.clone(),
-            workspace_id: self.workspace_id.clone(),
-            task_id: self.task_id.clone(),
-            cancellation_id: self.cancellation_id.clone(),
-            task_revision: self.task_revision.clone(),
-        })
-    }
 }
 
 pub(crate) fn valid_sha(value: &str) -> bool {
