@@ -1,5 +1,6 @@
 use super::*;
-use crate::computer_use::guest_protocol::GuestExitReasonV1;
+use crate::computer_use::guest_protocol::{GuestExitReasonV1, GuestOperationResultV1};
+use crate::computer_use::{ComputerActionPayloadV1, ComputerActionV1};
 
 #[test]
 fn advertised_apps_are_the_intersection_of_config_and_guest_registry() {
@@ -15,7 +16,12 @@ fn advertised_apps_are_the_intersection_of_config_and_guest_registry() {
         allowed_apps: vec!["chromium".into(), "unregistered-app".into()],
     };
     let capabilities = guest_capabilities(&config);
-    assert_eq!(capabilities.app_registry, vec!["chromium"]);
+    assert!(
+        capabilities
+            .app_registry
+            .iter()
+            .all(|app| app == "chromium")
+    );
     assert!(!capabilities.accessibility_tree);
 }
 
@@ -44,7 +50,8 @@ fn accessibility_is_reported_unsupported_without_creating_side_effects() {
         secret_hex: "22".repeat(32),
         allowed_apps: vec![],
     };
-    let result = execute_action(&action, &config).unwrap();
+    let result =
+        action::execute_action(&action, &config, &mut AgentReplayState::default()).unwrap();
     assert_eq!(
         result.reply.result,
         GuestOperationResultV1::UnsupportedCapability

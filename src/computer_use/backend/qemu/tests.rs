@@ -37,6 +37,7 @@ fn session() -> ComputerSessionV1 {
     };
     ComputerSessionV1 {
         schema_version: 1,
+        session_started_at_unix_ms: 1,
         identity,
         session_class: ComputerSessionClassV1::Disposable,
         target: ComputerTargetV1::LocalKvm {

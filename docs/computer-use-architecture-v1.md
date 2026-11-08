@@ -92,8 +92,9 @@ the required KVM, QEMU, or resource controls. `ComputerSessionV1`
 binds the immutable image digest and approved manifest identity, class,
 network profile, app allowlist,
 controller-issued policy and lease, lifecycle, action/cancellation/approval
-generations, and evidence references. No host path or arbitrary launch command
-is representable.
+generations, the immutable session start time, and evidence references. The
+session-wide elapsed-time budget remains anchored to that start time across
+lease renewal. No host path or arbitrary launch command is representable.
 
 The full session authority payload is signed with Ed25519 by the controller.
 The signing key remains in trusted host storage and is never sent to a model,
@@ -155,6 +156,20 @@ session and the controller validates their sequence. The caller must
 append accepted events durably before acknowledging them and replay that
 trusted journal after restart; this contract does not define a serialized
 validator checkpoint or a durable store.
+
+The guest action protocol supports bounded screenshots, window summaries,
+pointer actions, keyboard actions, allowlisted application launch, waits, and
+state queries. Screenshots carry a session-bound frame ID, monotonic revision,
+display generation, pixel dimensions, device scale, compressed PNG, and SHA-256.
+Pointer requests bind coordinates to that exact frame and observed window bounds;
+the host and guest both reject stale references. Keyboard text uses X11 key
+events, including temporary server keyboard mappings for Unicode, and never
+uses the clipboard. Application launch uses a fixed in-guest catalog and the
+session allowlist; request data cannot supply executable paths or arguments.
+Accessibility-tree requests return a typed unsupported result in v1, so callers
+must use screenshot and window observations with reduced confidence. The
+candidate guest image is still unpromoted; these controls do not establish real
+guest-image or cross-toolkit runtime acceptance.
 
 ## Lifecycle
 

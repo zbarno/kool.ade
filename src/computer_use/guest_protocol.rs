@@ -18,7 +18,7 @@ pub use journal::{GuestActionJournalV1, GuestJournalErrorV1, GuestReplayDecision
 pub use types::{
     GUEST_PROTOCOL_VERSION_V1, GuestActionOutcomeV1, GuestActionReplyV1, GuestCapabilitySetV1,
     GuestEnvelopeV1, GuestExitReasonV1, GuestMessageV1, GuestObservationV1, GuestOperationResultV1,
-    GuestProtocolErrorV1, GuestSenderV1,
+    GuestProtocolErrorV1, GuestSenderV1, GuestWindowObservationV1,
 };
 
 pub(crate) use types::GuestEnvelopeContextV1;

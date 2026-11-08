@@ -61,7 +61,15 @@ pub(in crate::computer_use::guest_protocol::agent) fn click(
 pub(in crate::computer_use::guest_protocol::agent) fn key_press(
     key: KeyCodeV1,
 ) -> Result<(), GuestProtocolErrorV1> {
-    let keysym = match key {
+    let keysym = named_keysym(key);
+    let (connection, screen_index) = connect()?;
+    let screen = &connection.setup().roots[screen_index];
+    let keycode = keycode_for_keysym(&connection, keysym, false)?;
+    send_key(&connection, screen.root, keycode)
+}
+
+pub(super) fn named_keysym(key: KeyCodeV1) -> u32 {
+    match key {
         KeyCodeV1::Enter => 0xff0d,
         KeyCodeV1::Escape => 0xff1b,
         KeyCodeV1::Tab => 0xff09,
@@ -80,41 +88,7 @@ pub(in crate::computer_use::guest_protocol::agent) fn key_press(
         KeyCodeV1::Shift => 0xffe1,
         KeyCodeV1::Alt => 0xffe9,
         KeyCodeV1::Super => 0xffeb,
-    };
-    let (connection, screen_index) = connect()?;
-    let screen = &connection.setup().roots[screen_index];
-    let keycode = keycode_for_keysym(&connection, keysym, false)?;
-    send_key(&connection, screen.root, keycode)
-}
-
-pub(in crate::computer_use::guest_protocol::agent) fn type_ascii(
-    text: &str,
-) -> Result<(), GuestProtocolErrorV1> {
-    let (connection, screen_index) = connect()?;
-    let root = connection.setup().roots[screen_index].root;
-    let keymap = keyboard_map(&connection)?;
-    let shift = keycode_for_keysym(&connection, 0xffe1, false)?;
-    let keycodes = text
-        .chars()
-        .map(|character| {
-            let (keysym, needs_shift) =
-                ascii_keysym(character).ok_or(GuestProtocolErrorV1::UnsupportedCapability)?;
-            Ok((
-                keycode_for_keysym_from_map(&keymap, keysym, needs_shift)?,
-                needs_shift,
-            ))
-        })
-        .collect::<Result<Vec<_>, GuestProtocolErrorV1>>()?;
-    for (keycode, needs_shift) in keycodes {
-        if needs_shift {
-            send_key(&connection, root, shift)?;
-        }
-        send_key(&connection, root, keycode)?;
-        if needs_shift {
-            send_key_release(&connection, root, shift)?;
-        }
     }
-    Ok(())
 }
 
 pub(super) fn connect() -> Result<(impl Connection, usize), GuestProtocolErrorV1> {
@@ -208,7 +182,7 @@ fn send_key<C: Connection>(
     root: xproto::Window,
     keycode: u8,
 ) -> Result<(), GuestProtocolErrorV1> {
-    connection
+    let pressed = connection
         .xtest_fake_input(
             xproto::KEY_PRESS_EVENT,
             keycode,
@@ -218,10 +192,10 @@ fn send_key<C: Connection>(
             0,
             0,
         )
-        .map_err(|_| GuestProtocolErrorV1::Io)?
-        .check()
-        .map_err(|_| GuestProtocolErrorV1::Io)?;
-    send_key_release(connection, root, keycode)
+        .map_err(|_| GuestProtocolErrorV1::Io)
+        .and_then(|cookie| cookie.check().map_err(|_| GuestProtocolErrorV1::Io));
+    let released = send_key_release(connection, root, keycode);
+    pressed.and(released)
 }
 
 fn send_key_release<C: Connection>(
@@ -257,3 +231,10 @@ mod tests {
         assert_eq!(ascii_keysym('\n'), None);
     }
 }
+mod keyboard;
+mod pointer;
+
+pub(in crate::computer_use::guest_protocol::agent) use keyboard::{key_chord, type_text};
+pub(in crate::computer_use::guest_protocol::agent) use pointer::{
+    double_click, drag, focus_window, move_pointer, scroll,
+};

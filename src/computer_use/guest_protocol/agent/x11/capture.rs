@@ -12,8 +12,10 @@ use x11rb::{
 const MAX_WIDTH: u16 = 1920;
 const MAX_HEIGHT: u16 = 1080;
 
-pub(in crate::computer_use::guest_protocol::agent) fn capture_png()
--> Result<GuestObservationV1, GuestProtocolErrorV1> {
+pub(in crate::computer_use::guest_protocol::agent) fn capture_png(
+    session_id: &str,
+    previous: Option<&GuestObservationV1>,
+) -> Result<GuestObservationV1, GuestProtocolErrorV1> {
     let (connection, screen_index) = super::input::connect()?;
     let screen = &connection.setup().roots[screen_index];
     let geometry = connection
@@ -83,11 +85,35 @@ pub(in crate::computer_use::guest_protocol::agent) fn capture_png()
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect();
+    let width_px = u32::from(geometry.width);
+    let height_px = u32::from(geometry.height);
+    let windows = super::windows::observe_windows(
+        session_id,
+        previous.map_or(&[], |observation| observation.windows.as_slice()),
+    )?;
+    let (observation_revision, display_generation) = match previous {
+        Some(previous) => (
+            previous.observation_revision.saturating_add(1),
+            if previous.width_px == width_px && previous.height_px == height_px {
+                previous.display_generation
+            } else {
+                previous.display_generation.saturating_add(1)
+            },
+        ),
+        None => (1, 1),
+    };
     Ok(GuestObservationV1 {
-        width_px: geometry.width as u32,
-        height_px: geometry.height as u32,
+        session_id: session_id.to_owned(),
+        frame_id: uuid::Uuid::new_v4().to_string(),
+        display_generation,
+        observation_revision,
+        device_scale_numerator: 1,
+        device_scale_denominator: 1,
+        width_px,
+        height_px,
         screenshot_png_base64: BASE64.encode(png),
         screenshot_sha256: digest,
+        windows,
     })
 }
 

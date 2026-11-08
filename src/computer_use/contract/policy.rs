@@ -108,7 +108,11 @@ impl ComputerPolicyV1 {
             && self.authorized_operations.iter().any(|operation| {
                 !matches!(
                     operation,
-                    ComputerOperationV1::ObserveScreen | ComputerOperationV1::ReadAccessibility
+                    ComputerOperationV1::ObserveScreen
+                        | ComputerOperationV1::ObserveWindows
+                        | ComputerOperationV1::ReadAccessibility
+                        | ComputerOperationV1::WaitFor
+                        | ComputerOperationV1::QueryState
                 )
             })
         {
