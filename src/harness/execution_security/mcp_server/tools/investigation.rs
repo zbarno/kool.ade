@@ -57,7 +57,7 @@ pub(super) fn call(config: &ServerConfig, arguments: &Value) -> CallResponse {
                 "investigation request does not match the approved schema".to_owned()
             })?;
         if authorization.task_id != config.task_id
-            || authorization.workspace_id != config.workspace_id
+            || authorization.workspace_id != request.workspace_id
         {
             return Err("Manager investigation session identity is stale".into());
         }

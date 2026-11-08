@@ -97,6 +97,8 @@ fn unmatched_conversation_does_not_suppress_the_current_prompt() {
                 answer_context: None,
                 clarification: false,
                 specification_context: None,
+                baseline_review_id: None,
+                verified_repository_evidence: Vec::new(),
                 ts: chrono::Utc::now(),
             }],
         )
@@ -167,6 +169,8 @@ fn prior_item_conversation_does_not_hide_question_for_reused_display_id() {
                 answer_context: None,
                 clarification: false,
                 specification_context: None,
+                baseline_review_id: None,
+                verified_repository_evidence: Vec::new(),
                 ts: chrono::Utc::now(),
             }],
         )

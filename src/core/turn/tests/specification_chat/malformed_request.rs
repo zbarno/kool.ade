@@ -62,6 +62,7 @@ fn mismatched_user_text_and_captured_request_are_rejected_before_provider() {
         intent: crate::core::specification_chat::Intent::Ask,
         target,
         omitted_history_messages: 0,
+        reviewed_repository_evidence: Vec::new(),
     });
 
     assert_rejected_before_provider(&inputs, &root, true);
@@ -83,6 +84,7 @@ fn proposal_intent_in_read_only_turn_is_rejected_before_provider() {
         intent: crate::core::specification_chat::Intent::Propose,
         target,
         omitted_history_messages: 0,
+        reviewed_repository_evidence: Vec::new(),
     });
 
     assert_rejected_before_provider(&inputs, &root, true);
@@ -105,6 +107,7 @@ fn tampered_source_identity_is_rejected_before_provider() {
         intent: crate::core::specification_chat::Intent::Ask,
         target,
         omitted_history_messages: 0,
+        reviewed_repository_evidence: Vec::new(),
     });
 
     assert_rejected_before_provider(&inputs, &root, true);
@@ -125,6 +128,7 @@ fn ask_intent_in_mutating_turn_is_rejected_before_provider() {
         intent: crate::core::specification_chat::Intent::Ask,
         target,
         omitted_history_messages: 0,
+        reviewed_repository_evidence: Vec::new(),
     });
 
     assert_rejected_before_provider(&inputs, &root, false);
@@ -147,6 +151,7 @@ fn tampered_source_path_is_rejected_before_provider() {
         intent: crate::core::specification_chat::Intent::Ask,
         target,
         omitted_history_messages: 0,
+        reviewed_repository_evidence: Vec::new(),
     });
 
     assert_rejected_before_provider(&inputs, &root, true);

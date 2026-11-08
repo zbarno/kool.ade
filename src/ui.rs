@@ -40,6 +40,10 @@ pub enum ApplicationCommand {
     },
     CloseSpecificationTrace,
     PublishInitialProductSpecification,
+    RequestProductBaselineEvidence {
+        review_id: String,
+        repository_id: String,
+    },
     GenerateRuntimeQaScenarios {
         ticket: String,
     },

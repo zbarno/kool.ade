@@ -115,18 +115,14 @@ pub(super) fn new(request: &PlanningRequest) -> anyhow::Result<ApplicationBounda
         ) {
             anyhow::ensure!(
                 authorization.task_id == workspace.task_id
-                    && authorization.source_sha == workspace.source_sha
                     && authorization.project_id == workspace.project_id,
-                "Manager investigation authorization does not match the selected workspace"
+                "Manager investigation authorization does not match the selected task"
             );
             let binding = super::super::session_bridge::SessionBinding {
                 session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
                 capability_id: uuid::Uuid::new_v4().hyphenated().to_string(),
                 task_id: workspace.task_id.clone(),
-                workspace_id: format!(
-                    "{}:{}:{}",
-                    workspace.project_id, workspace.task_id, workspace.source_sha
-                ),
+                workspace_id: authorization.workspace_id.clone(),
                 access: "investigation_broker".into(),
                 target_id: "local".into(),
                 target_arch: None,

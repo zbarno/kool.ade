@@ -1,5 +1,6 @@
 use super::*;
 
+mod baseline_invitation;
 mod initial_specification;
 mod lifecycle;
 mod proposal;
@@ -94,6 +95,12 @@ pub(super) fn paint(
                 ui.add_space(4.0);
             }
             ui.ctx().data_mut(|d| d.insert_temp(tab_id, selected_tab));
+            if !s.has_published_product_spec()
+                || selected_tab == 0
+                || baseline_invitation::review_pending(ui.ctx())
+            {
+                baseline_invitation::paint(ui, s, compact);
+            }
             if selected_tab != 2 {
                 new_task::paint(ui, s);
             }

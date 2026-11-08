@@ -163,6 +163,8 @@ impl KooladeApp {
                 answer_context: None,
                 clarification: false,
                 specification_context: None,
+                baseline_review_id: None,
+                verified_repository_evidence: Vec::new(),
                 ts: chrono::Utc::now(),
             };
             let saved = match &mut self.screen {

@@ -1,3 +1,5 @@
+use sha2::Digest;
+
 mod verified_evidence;
 pub(super) use verified_evidence::verified_broker_evidence;
 
@@ -200,9 +202,30 @@ fn run_prompt(
             .as_ref()
             .map(verified_broker_evidence)
             .transpose();
-        outcome = match broker_evidence {
+        let mut reviewed_repository_evidence = Vec::new();
+        let decoded = match broker_evidence {
             Ok(Some(evidence)) => {
                 for (id, hash, content) in evidence {
+                    if id.starts_with("investigation:")
+                        && content.len() <= 2048
+                        && reviewed_repository_evidence.len() < 8
+                        && let Some(authorization) = request.investigation_authorization.as_ref()
+                    {
+                        reviewed_repository_evidence.push(
+                            crate::domain::chatlog::VerifiedRepositoryEvidence {
+                                evidence_id: id.clone(),
+                                repository_id: authorization.repository_id.clone(),
+                                source_ref: authorization.source_ref.clone(),
+                                source_sha: authorization.source_sha.clone(),
+                                content_sha256: hash.clone(),
+                                excerpt_sha256: format!(
+                                    "{:x}",
+                                    sha2::Sha256::digest(content.as_bytes())
+                                ),
+                                content: content.clone(),
+                            },
+                        );
+                    }
                     validation.evidence_ids.insert(id.clone());
                     validation.evidence_content.insert(id.clone(), content);
                     hashes.insert(id.clone(), hash);
@@ -232,6 +255,10 @@ fn run_prompt(
             ),
             Err(error) => Err(error),
         };
+        outcome = decoded.map(|mut output| {
+            output.verified_repository_evidence = reviewed_repository_evidence;
+            output
+        });
         if outcome.is_ok() {
             failure_category = None;
             failure_message = None;

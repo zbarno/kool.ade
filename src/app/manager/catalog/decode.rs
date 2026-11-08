@@ -88,5 +88,7 @@ pub(in crate::app::manager) fn decode(
         evidence_confidentialities,
         planning_revision,
         code_review_targets: code_review_targets.clone(),
+        verified_repository_evidence: Vec::new(),
+        baseline_review_id: None,
     })
 }
