@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
-  "status": "not_promoted",
-  "manifest_sha256": null,
-  "catalog_generation": null,
-  "images": []
+  "status": "promoted",
+  "manifest_sha256": "sha256:4783c3292817d83e67af3a167d98a01478a2fdf6ca91f6e532d610764df300d0",
+  "catalog_generation": 1,
+  "images": [
+    "sha256:6ae802274b9bea94f4365fc9a4923cff0496039fd4a283bb95e87fe8bfce127c"
+  ]
 }

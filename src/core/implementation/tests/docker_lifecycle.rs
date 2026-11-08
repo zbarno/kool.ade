@@ -38,9 +38,43 @@ fn cancelled_task_clone_resumes_through_docker_verification_and_waits_for_pr_aut
         .run("resume", calls.clone())
         .unwrap_or_else(|error| panic!("Docker-backed resume failed: {error:#}"));
 
-    // A resumed verification can request an additional correction turn, so
-    // assert both lifecycle invocations without pinning the retry count.
-    assert!(calls.load(Ordering::SeqCst) >= 2);
+    let actual_calls = calls.load(Ordering::SeqCst);
+    let correction_summaries = if actual_calls == 2 {
+        Vec::new()
+    } else {
+        let state_dir =
+            crate::core::implementation::state_dir(&s.planning_store.root, &s.ticket).unwrap();
+        std::fs::read_dir(state_dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .ends_with("-correction.txt")
+            })
+            .map(|entry| {
+                let summary = std::fs::read_to_string(entry.path())
+                    .unwrap_or_default()
+                    .lines()
+                    .take(2)
+                    .map(|line| {
+                        if line.contains('/') || line.contains('\\') {
+                            "<path-redacted>"
+                        } else {
+                            line
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                (entry.file_name(), summary)
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        actual_calls, 2,
+        "unexpected implementation retry; correction evidence: {correction_summaries:#?}"
+    );
     assert_eq!(resumed.task_repository_kind, TaskRepositoryKind::Clone);
     assert_ne!(resumed.task_repository, interrupted.task_repository);
     assert!(

@@ -105,7 +105,8 @@ fn successful_kvm_recheck_closes_only_its_checked_domain_idempotently() {
 }
 
 #[test]
-fn absent_image_storage_viewer_and_vault_never_become_ready() {
+fn promoted_image_stays_unverified_without_local_state_but_unimplemented_domains_stay_unsupported()
+{
     let cards = findings_for(VmFacts {
         architecture: Check::Ready(()),
         distribution: Check::Ready(()),
@@ -137,7 +138,8 @@ fn absent_image_storage_viewer_and_vault_never_become_ready() {
             .find(|card| card.id == "setup:computer:image:amd64")
             .unwrap()
             .status,
-        FindingStatus::Unsupported
+        FindingStatus::Unverified,
+        "the signed bundled image still needs a verified local floor and cache"
     );
     for id in [
         "setup:computer:network",
