@@ -26,7 +26,9 @@ pub mod toast;
 
 pub use chat_pane::Intent;
 pub use layout::HeaderAction;
-pub use specification_status::FeatureSpecificationStatus;
+pub use specification_status::{
+    FeatureDeliveryStage, FeatureSpecificationStatus, derive_feature_delivery_stage,
+};
 pub use surface_trait::{RepositoryGitOptions, Surface};
 pub use toast::ToastQueue;
 
@@ -40,6 +42,10 @@ pub enum ApplicationCommand {
     },
     CloseSpecificationTrace,
     PublishInitialProductSpecification,
+    RequestProductBaselineEvidence {
+        review_id: String,
+        repository_id: String,
+    },
     GenerateRuntimeQaScenarios {
         ticket: String,
     },

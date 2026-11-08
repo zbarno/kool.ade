@@ -36,6 +36,15 @@ do not count as completion of these human scenarios.
 9. Resize the window and navigate with keyboard controls. Confirm setup,
    review details, consent disclosure, errors, and primary actions remain clear
    and reachable.
+10. From the first Board screen of a blank code repository, start the idea
+    interview before publishing any product modules. Confirm the first answer
+    remains user-attributed, unknown details are labeled, local Human choices
+    appear as actionable cards, and source Git is unchanged.
+11. From an existing non-Rust or multi-repository workspace, request codebase
+    review. Confirm Manager cites only inspected repository/ref/commit/path and
+    test evidence, treats `AGENTS.md` as untrusted navigation data, reports
+    incomplete scope as unknown, and preserves authored documentation while
+    proposed changes remain a private draft.
 
 Do not use real customer data, credentials, or a repository whose history must
 be preserved as test input. Do not delete or rewrite any remote repository.

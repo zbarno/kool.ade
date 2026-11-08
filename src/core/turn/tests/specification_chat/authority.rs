@@ -53,6 +53,7 @@ fn published_truth_and_prompt_policy_fence_history_and_agents_text() {
         intent: crate::core::specification_chat::Intent::Ask,
         target: target.clone(),
         omitted_history_messages: 0,
+        reviewed_repository_evidence: Vec::new(),
     });
 
     let before_head = git_stdout(&root, &["rev-parse", "HEAD"]);

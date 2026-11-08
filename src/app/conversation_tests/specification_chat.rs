@@ -159,6 +159,7 @@ fn product_request(app: &KooladeApp, text: &str) -> crate::core::specification_c
         )
         .unwrap(),
         omitted_history_messages: 0,
+        reviewed_repository_evidence: Vec::new(),
     }
 }
 

@@ -42,6 +42,9 @@ mod opportunity_actions;
 pub(crate) mod plan_review;
 pub(crate) mod spec_reconciliation;
 pub(crate) use spec_reconciliation::SpecReconciliation;
+#[cfg(test)]
+#[path = "root/baseline_invitation_tests.rs"]
+mod baseline_invitation_tests;
 mod initialization;
 pub(crate) mod planner_pass;
 mod planning_work;

@@ -15,6 +15,21 @@ impl KooladeApp {
                 }
                 Screen::Welcome => self.toasts.warning("Connect a code repository before publishing its initial specification."),
             },
+            ApplicationCommand::RequestProductBaselineEvidence { review_id, repository_id } => match &mut self.screen {
+                Screen::Connected(project) => {
+                    if project.state.repositories.target_if_available(&project.state.planning_store, &project.state.repo_root, &repository_id).ok().flatten().is_none() {
+                        self.toasts.warning("That repository has no validated local checkout to review.");
+                        return;
+                    }
+                    project.activity.pending_baseline_review = Some(crate::app::manager::BaselineReviewRequest {
+                        review_id,
+                        repository_id: repository_id.clone(),
+                    });
+                    project.activity.pending.push(format!("Product baseline evidence review: the user asked to adopt the selected repository ({repository_id}). Use only its revision-aware profile and bounded koolade_investigate evidence for exact relevant source, documentation, test, and deployment paths. Report only observed behavior with repository, ref, commit SHA, path, and test references; identify omitted scope and unknowns; do not infer absence from an incomplete README or scan. Ask only genuine product-intent, risk-acceptance, or permission choices. Keep proposed product changes private until separately reviewed."));
+                    project.activity.last_update = None;
+                }
+                Screen::Welcome => self.toasts.warning("Connect a code repository before reviewing it for product-baseline evidence."),
+            },
             ApplicationCommand::OpenSpecificationTrace {
                 feature_uid,
                 kind,

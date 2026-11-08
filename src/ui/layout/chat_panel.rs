@@ -36,9 +36,14 @@ pub(super) fn paint(
                             ui.ctx().data_mut(|data| data.insert_temp(collapsed_id, true));
                         }
                     });
-                    ui.label("Ask about the published specification or choose Propose to create a local draft.");
+                    ui.label(if s.has_published_product_spec() {
+                        "Ask about the published specification, or propose a change to save a private draft."
+                    } else {
+                        "Start with an idea or review this codebase. Proposed product changes are saved privately; nothing is published from this conversation."
+                    });
                     let mode_id = egui::Id::new("koolade_spec_chat_intent");
-                    let mut mode = ui.ctx().data_mut(|data| data.get_temp::<u8>(mode_id).unwrap_or(0));
+                    let default_mode = if s.has_published_product_spec() { 0 } else { 1 };
+                    let mut mode = ui.ctx().data_mut(|data| data.get_temp::<u8>(mode_id).unwrap_or(default_mode));
                     ui.horizontal(|ui| {
                         if ui.selectable_label(mode == 0, "Ask").clicked() { mode = 0; }
                         if ui.selectable_label(mode == 1, "Propose change").clicked() { mode = 1; }
@@ -70,6 +75,12 @@ pub(super) fn paint(
                             s.toasts().warning("The selected feature identity is unavailable. Refresh the specification before sending.");
                             return;
                         };
+                        let reviewed_repository_evidence = if mode == 1
+                            && matches!(scope, crate::core::specification_chat::Scope::Product)
+                        {
+                            let review_id = ui.ctx().data_mut(|data| data.get_temp::<String>(egui::Id::new("koolade_baseline_evidence_review_id")).filter(|id| !id.is_empty()));
+                            review_id.map(|id| s.reviewed_baseline_evidence(&id)).unwrap_or_default()
+                        } else { Vec::new() };
                         match s.specification_chat_target(scope) {
                             Ok(target) => {
                                 let text = s.chat_draft().clone();
@@ -83,6 +94,7 @@ pub(super) fn paint(
                                         },
                                         target,
                                         omitted_history_messages: 0,
+                                        reviewed_repository_evidence,
                                     },
                                 ));
                             }

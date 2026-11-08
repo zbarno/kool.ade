@@ -97,6 +97,7 @@ fn published_decision_is_labeled_authoritative_alongside_conflicting_context() {
         intent: crate::core::specification_chat::Intent::Ask,
         target: target.clone(),
         omitted_history_messages: 0,
+        reviewed_repository_evidence: Vec::new(),
     });
 
     let before_head = git_stdout(&root, &["rev-parse", "HEAD"]);

@@ -21,6 +21,7 @@ pub(super) fn manager_investigation_authorization(
     project: &crate::app::session::Project,
     workspace: &crate::execution::contract::WorkspaceRef,
     receipt_root: &std::path::Path,
+    repository_id: &str,
 ) -> Option<crate::core::investigation_broker::InvestigationAuthorizationV1> {
     use crate::core::repository_knowledge::{ProfileRequest, scan_profile};
     let repository = project
@@ -28,11 +29,19 @@ pub(super) fn manager_investigation_authorization(
         .repositories
         .repositories
         .iter()
-        .find(|repo| repo.id == "root")?;
-    let root = project.state.repo_root.clone();
+        .find(|repo| repo.id == repository_id)?;
+    let selected_checkout = project
+        .state
+        .repositories
+        .target(
+            &project.state.planning_store,
+            &project.state.repo_root,
+            repository_id,
+        )
+        .ok()?;
     let branch = std::process::Command::new("git")
         .args(["symbolic-ref", "--quiet", "--short", "HEAD"])
-        .current_dir(&root)
+        .current_dir(&selected_checkout)
         .env_remove("GIT_DIR")
         .env_remove("GIT_WORK_TREE")
         .output()
@@ -48,7 +57,7 @@ pub(super) fn manager_investigation_authorization(
     let profile = scan_profile(ProfileRequest {
         repository_id: &repository.id,
         source_ref: &source_ref,
-        code_root: &root,
+        code_root: &project.state.repo_root,
         planning_store: &project.state.planning_store,
         repositories: &project.state.repositories,
         now_unix_ms: std::time::SystemTime::now()
@@ -58,21 +67,22 @@ pub(super) fn manager_investigation_authorization(
             .min(u64::MAX as u128) as u64,
     })
     .ok()?;
-    if profile.key.commit_sha != workspace.source_sha {
+    if repository_id == "root" && profile.key.commit_sha != workspace.source_sha {
         return None;
     }
+    let source_sha = profile.key.commit_sha.clone();
     Some(
         crate::core::investigation_broker::InvestigationAuthorizationV1 {
-            code_root: root,
+            code_root: project.state.repo_root.clone(),
             planning_root: project.state.planning_store.root.clone(),
             receipt_root: receipt_root.to_path_buf(),
             project_id: workspace.project_id.clone(),
             repository_id: repository.id.clone(),
             source_ref,
-            source_sha: workspace.source_sha.clone(),
+            source_sha: source_sha.clone(),
             workspace_id: format!(
                 "{}:{}:{}",
-                workspace.project_id, workspace.task_id, workspace.source_sha
+                workspace.project_id, workspace.task_id, source_sha
             ),
             task_id: workspace.task_id.clone(),
             cancellation_id: workspace.task_id.clone(),

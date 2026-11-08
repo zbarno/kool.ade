@@ -94,7 +94,9 @@ fn manager_pi_receives_only_the_scoped_investigation_tool() {
         session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         capability_id: uuid::Uuid::new_v4().hyphenated().to_string(),
         task_id,
-        workspace_id: auth.workspace_id.clone(),
+        // Manager execution can be pinned to the primary repository while
+        // this investigation is pinned to a registered secondary checkout.
+        workspace_id: format!("{}:{}:{}", project_id, auth.task_id, "b".repeat(40)),
         access: "investigation_broker".into(),
         target_id: "local".into(),
         target_arch: None,
