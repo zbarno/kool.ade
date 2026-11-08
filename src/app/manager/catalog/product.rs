@@ -18,7 +18,8 @@ pub fn render_product(
     else {
         return Ok(None);
     };
-    let workspace_guard = tempfile::tempdir().map_err(|error| error.to_string())?;
+    let workspace_guard = crate::persistence::temporary_directory("koolade-product-scan-")
+        .map_err(|error| error.to_string())?;
     let repo_root = workspace_guard.path().to_path_buf();
     let scan_uid = uuid::Uuid::new_v5(
         &uuid::Uuid::NAMESPACE_URL,
