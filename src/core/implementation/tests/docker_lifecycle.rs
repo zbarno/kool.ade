@@ -38,7 +38,9 @@ fn cancelled_task_clone_resumes_through_docker_verification_and_waits_for_pr_aut
         .run("resume", calls.clone())
         .unwrap_or_else(|error| panic!("Docker-backed resume failed: {error:#}"));
 
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    // A resumed verification can request an additional correction turn, so
+    // assert both lifecycle invocations without pinning the retry count.
+    assert!(calls.load(Ordering::SeqCst) >= 2);
     assert_eq!(resumed.task_repository_kind, TaskRepositoryKind::Clone);
     assert_ne!(resumed.task_repository, interrupted.task_repository);
     assert!(
