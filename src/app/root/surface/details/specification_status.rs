@@ -159,7 +159,7 @@ pub(in crate::app::root::surface) fn for_markdown(
         feature_uid: Some(identity.uid.clone()),
         current_spec_hash,
         drift_status,
-        approved_target_hash: feature.approved_plan_sha256,
+        approved_target_hash: feature.approved_plan_sha256.clone(),
         revision: revision.as_ref().map(|revision| revision.seq),
         reconciliation_status: revision
             .as_ref()
@@ -197,30 +197,41 @@ pub(in crate::app::root::surface) fn for_markdown(
     {
         status.feature_deltas = revision.1;
     }
-    for task in lifecycle
+    let tasks = lifecycle
         .list_tasks()
         .map_err(|error| error.to_string())?
         .into_iter()
         .filter(|task| task.feature_uid == identity.uid)
-    {
+        .collect::<Vec<_>>();
+    for task in &tasks {
         if task.code_review.as_ref().is_some_and(|review| {
             review.decision == crate::core::lifecycle::GateDecision::Approved
                 && task.reviewed_code_head_sha.is_some()
-        }) && let Some(head) = task.reviewed_code_head_sha
+        }) && let Some(head) = task.reviewed_code_head_sha.as_ref()
         {
-            status.reviewed_heads.push((task.task_uid.clone(), head));
+            status
+                .reviewed_heads
+                .push((task.task_uid.clone(), head.clone()));
         }
         if let Some(work_uid) = task.pr_work_item_uid.as_deref() {
             let work = lifecycle
                 .load_pr_preparation(work_uid)
                 .map_err(|error| error.to_string())?;
             if let Some(commit) = work.merged_commit_sha {
-                status.merged_commits.push((task.task_uid, commit));
+                status.merged_commits.push((task.task_uid.clone(), commit));
             }
         }
     }
     status.reviewed_heads.sort();
     status.merged_commits.sort();
+    status.delivery_stage = crate::ui::derive_feature_delivery_stage(
+        feature.approved_plan_sha256.as_ref().is_some(),
+        tasks.iter().map(|task| task.phase),
+        !status.merged_commits.is_empty(),
+        status.deployed_spec_hash.is_some(),
+        status.current_implementation_stale
+            || matches!(status.drift_status, "drift detected" | "needs decision"),
+    );
     Ok(Some(status))
 }
 
