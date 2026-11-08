@@ -174,6 +174,14 @@ fn computer_use_tools_have_the_same_six_provider_surface() {
         }
     }
 
+    // The application-state scratch path is deliberately nested, and CI's
+    // temp root can be long enough to exceed AF_UNIX's socket path limit.
+    // Keep this bridge fixture under a short OS temp directory like the
+    // provider MCP end-to-end fixture does.
+    let socket_root = tempfile::Builder::new()
+        .prefix("k-")
+        .tempdir_in("/tmp")
+        .unwrap();
     let mut boundary = super::test_boundary(ToolAccess::None);
     let task_id = "00000000-0000-4000-8000-000000000002";
     let caller = ComputerUseCallerV1 {
@@ -189,7 +197,7 @@ fn computer_use_tools_have_the_same_six_provider_surface() {
     let access = Arc::new(ComputerUseMcpAccessV1::new(caller, Arc::new(DenyHost)).unwrap());
     let (progress, _events) = mpsc::channel();
     let bridge = crate::harness::execution_security::computer_use_bridge::ComputerUseBridge::start(
-        &boundary.scratch.path,
+        socket_root.path(),
         access,
         Arc::new(AtomicBool::new(false)),
         progress,
