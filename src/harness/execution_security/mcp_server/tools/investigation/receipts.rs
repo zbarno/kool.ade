@@ -83,7 +83,7 @@ pub(super) fn load_cached_receipt(
     if envelope.request != *request {
         return Err("idempotency key was replayed with a different request".into());
     }
-    let context = authorization.context()?;
+    let context = authorization.context_for_request(request)?;
     InvestigationBroker::default().verify_receipt(&context, request, &envelope.receipt)?;
     Ok(Some(envelope.receipt))
 }

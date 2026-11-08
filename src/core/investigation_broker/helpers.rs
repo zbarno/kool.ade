@@ -61,6 +61,7 @@ pub(super) fn stale_receipt(request: &InvestigationRequestV1) -> InvestigationRe
         source_sha: request.source_sha.clone(),
         inspected_scope: Vec::new(),
         source_refs: Vec::new(),
+        comparison_refs: Vec::new(),
         findings: Vec::new(),
         uncertainty: vec![
             "The selected source or planning revision changed before investigation.".into(),

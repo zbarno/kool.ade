@@ -6,10 +6,11 @@ mod execute;
 mod helpers;
 mod types;
 
-pub use execute::{InvestigationBroker, InvestigationContext};
+pub use execute::{InvestigationBroker, InvestigationContext, InvestigationRevisionContext};
 pub use types::{
-    InvestigationAuthorizationV1, InvestigationBudgetV1, InvestigationEvidenceEnvelopeV1,
-    InvestigationOutcomeV1, InvestigationReceiptV1, InvestigationRequestV1, InvestigationScopeV1,
+    InvestigationApprovedRevisionV1, InvestigationAuthorizationV1, InvestigationBudgetV1,
+    InvestigationComparisonRefV1, InvestigationEvidenceEnvelopeV1, InvestigationOutcomeV1,
+    InvestigationReceiptV1, InvestigationRequestV1, InvestigationRevisionV1, InvestigationScopeV1,
     InvestigationSourceRefV1,
 };
 

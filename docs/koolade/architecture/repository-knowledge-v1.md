@@ -48,6 +48,15 @@ arbitrary filesystem path, network URL, or cancellation target. Investigation
 uses pinned Git objects through the repository profile boundary and does not
 mount the checkout into a shell or container.
 
+For a comparison, the app may additionally authorize up to eight distinct
+source pins from validated task Git intents in the same repository. The request
+must match one of those exact branch and commit pairs. Arbitrary local refs and
+model-selected SHAs are rejected. Comparison reads the requested indexed paths
+from both commits, counts both copies against the file and byte budgets, and
+rechecks each ref before accepting the receipt. A moved or missing ref produces
+a stale-source outcome; incomplete scope never implies that no differences
+exist.
+
 Each receipt reports inspected and omitted paths, exact source and content
 hashes, sanitized matching lines, resource use, uncertainty, confidence, and a
 typed outcome. The app rechecks the pinned repository profile and planning

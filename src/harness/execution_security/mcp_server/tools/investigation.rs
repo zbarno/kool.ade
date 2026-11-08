@@ -29,7 +29,8 @@ pub(super) fn list(config: &ServerConfig) -> Vec<Value> {
                 "allowed_evidence_classes": { "type": "array", "items": { "type": "string", "enum": ["manifest", "source", "test", "documentation", "navigation"] }, "minItems": 1, "maxItems": 5 },
                 "scope": { "type": "object", "properties": { "paths": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 32 } }, "required": ["paths"], "additionalProperties": false },
                 "budget": { "type": "object", "properties": { "max_files": { "type": "integer", "minimum": 1, "maximum": 32 }, "max_bytes": { "type": "integer", "minimum": 1, "maximum": 262144 }, "max_matches": { "type": "integer", "minimum": 1, "maximum": 128 }, "max_elapsed_ms": { "type": "integer", "minimum": 1, "maximum": 10000 } }, "required": ["max_files", "max_bytes", "max_matches", "max_elapsed_ms"], "additionalProperties": false },
-                "query": { "type": "string" }
+                "query": { "type": "string" },
+                "comparison": { "type": "object", "properties": { "source_ref": { "type": "string", "maxLength": 256 }, "source_sha": { "type": "string", "pattern": "^[a-fA-F0-9]{40}$" } }, "required": ["source_ref", "source_sha"], "additionalProperties": false }
             },
             "required": ["idempotency_key", "repository_id", "source_ref", "source_sha", "workspace_id", "task_id", "expected_task_revision", "question", "allowed_evidence_classes", "scope", "budget", "query"],
             "additionalProperties": false
@@ -60,10 +61,10 @@ pub(super) fn call(config: &ServerConfig, arguments: &Value) -> CallResponse {
         {
             return Err("Manager investigation session identity is stale".into());
         }
-        let context = authorization.context()?;
         static BROKER: std::sync::OnceLock<crate::core::investigation_broker::InvestigationBroker> =
             std::sync::OnceLock::new();
         request.validate()?;
+        let context = authorization.context_for_request(&request)?;
         cleanup_temporary_receipts(authorization)?;
         let cached = load_cached_receipt(authorization, &request)?;
         if cached.is_none() && receipt_count(authorization)? >= 8 {

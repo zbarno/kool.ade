@@ -107,6 +107,7 @@ export default function (pi: ExtensionAPI) {
 		scope: Type.Object({ paths: Type.Array(Type.String(), { minItems: 1, maxItems: 32 }) }),
 		budget: Type.Object({ max_files: Type.Number({ minimum: 1, maximum: 32 }), max_bytes: Type.Number({ minimum: 1, maximum: 262144 }), max_matches: Type.Number({ minimum: 1, maximum: 128 }), max_elapsed_ms: Type.Number({ minimum: 1, maximum: 10000 }) }),
 		query: Type.String(),
+		comparison: Type.Optional(Type.Object({ source_ref: Type.String(), source_sha: Type.String() })),
 	}));
 	if (allowedTools.has("koolade_resource")) register("koolade_resource", "Request one public non-package HTTPS resource through Kool.ad/e.", Type.Object({
 		url: Type.String(), purpose: Type.String(),

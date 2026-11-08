@@ -1,4 +1,7 @@
+mod comparison;
+mod context;
 mod validation;
+pub use context::{InvestigationContext, InvestigationRevisionContext};
 use validation::{status_receipt, validate_context};
 
 use super::{
@@ -9,8 +12,7 @@ use super::{
     },
 };
 use crate::core::repository_knowledge::{
-    ProfileSource, RepositoryKnowledgeProfileV1, read_pinned_file_bounded_with_deadline,
-    verify_profile_freshness_with_deadline,
+    read_pinned_file_bounded_with_deadline, verify_profile_freshness_with_deadline,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -19,16 +21,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-
-/// App-selected identity and the existing bounded profile for one repository.
-pub struct InvestigationContext {
-    pub source: ProfileSource,
-    pub profile: RepositoryKnowledgeProfileV1,
-    pub workspace_id: String,
-    pub task_id: String,
-    pub cancellation_id: String,
-    pub task_revision: String,
-}
 
 #[derive(Default)]
 struct ReceiptCache {
@@ -121,6 +113,9 @@ fn execute(
     deadline: std::time::Instant,
     cancelled: &AtomicBool,
 ) -> Result<InvestigationReceiptV1, String> {
+    if request.comparison.is_some() {
+        return comparison::execute(context, request, started, deadline, cancelled);
+    }
     let evidence = evidence_map(&context.profile)?;
     let allowed: BTreeSet<&str> = evidence.keys().map(String::as_str).collect();
     let mut inspected = Vec::new();
@@ -193,7 +188,10 @@ fn execute(
             Err(error) => {
                 outcome = InvestigationOutcomeV1::InsufficientEvidence;
                 omitted.push(path.clone());
-                uncertainty.push(format!("Evidence could not be read from {path}: {error}"));
+                uncertainty.push(format!(
+                    "Evidence could not be read from {path}: {}",
+                    safe_line(&error)
+                ));
                 continue;
             }
         };
@@ -281,6 +279,7 @@ fn execute(
         source_sha: request.source_sha.clone(),
         inspected_scope: inspected,
         source_refs: refs,
+        comparison_refs: Vec::new(),
         findings,
         uncertainty,
         omitted_scope: omitted,
