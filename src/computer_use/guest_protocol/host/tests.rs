@@ -17,35 +17,41 @@ fn screenshot_validation_rejects_wrong_digest_dimensions_and_oversize() {
     let png = tiny_png();
     let digest = sha256_hex(&png);
     let valid = GuestObservationV1 {
+        session_id: "00000000-0000-4000-8000-000000000001".into(),
+        frame_id: "00000000-0000-4000-8000-000000000002".into(),
+        display_generation: 1,
+        observation_revision: 1,
+        device_scale_numerator: 1,
+        device_scale_denominator: 1,
         width_px: 2,
         height_px: 1,
         screenshot_png_base64: BASE64.encode(&png),
         screenshot_sha256: digest,
+        windows: vec![],
     };
-    let accepted = validate_observation(&valid).unwrap();
+    let session_id = valid.session_id.clone();
+    let validate = |observation| validate_observation(observation, &session_id, 0, 0);
+    let accepted = validate(&valid).unwrap();
     assert_eq!(accepted.width_px, 2);
     assert_eq!(accepted.height_px, 1);
 
     let mut mismatch = valid.clone();
     mismatch.screenshot_sha256 = sha256_hex(b"different image");
     assert_eq!(
-        validate_observation(&mismatch),
+        validate(&mismatch),
         Err(GuestProtocolErrorV1::AuthenticationFailed)
     );
     let mut wrong_dimensions = valid.clone();
     wrong_dimensions.width_px = 1;
     assert_eq!(
-        validate_observation(&wrong_dimensions),
+        validate(&wrong_dimensions),
         Err(GuestProtocolErrorV1::Malformed)
     );
     let too_large = GuestObservationV1 {
         screenshot_png_base64: "A".repeat(MAX_SCREENSHOT_PNG_BYTES * 2),
-        ..valid
+        ..valid.clone()
     };
-    assert_eq!(
-        validate_observation(&too_large),
-        Err(GuestProtocolErrorV1::Oversized)
-    );
+    assert_eq!(validate(&too_large), Err(GuestProtocolErrorV1::Oversized));
 }
 
 fn tiny_png() -> Vec<u8> {

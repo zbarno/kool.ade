@@ -1,3 +1,7 @@
+mod observation;
+
+pub use observation::{GuestObservationV1, GuestWindowObservationV1};
+
 use crate::computer_use::{ComputerActionPayloadV1, ComputerActionV1};
 use serde::{Deserialize, Serialize};
 
@@ -154,6 +158,9 @@ pub enum GuestExitReasonV1 {
 pub enum GuestOperationResultV1 {
     Completed,
     UnsupportedCapability,
+    StaleObservation,
+    FocusRequired,
+    TimedOut,
     Rejected,
     Failed,
 }
@@ -172,26 +179,25 @@ pub struct GuestActionOutcomeV1 {
     pub observation: Option<GuestObservationV1>,
 }
 
-/// PNG bytes are separate from the typed observation metadata and always
-/// authenticated by their own envelope MAC.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct GuestObservationV1 {
-    pub width_px: u32,
-    pub height_px: u32,
-    pub screenshot_png_base64: String,
-    pub screenshot_sha256: String,
-}
-
 pub(crate) fn required_capability(action: &ComputerActionV1) -> &'static str {
     match &action.payload {
-        ComputerActionPayloadV1::ObserveScreen => "computer_use.screen.v1",
-        ComputerActionPayloadV1::ReadAccessibility => "computer_use.accessibility.v1",
-        ComputerActionPayloadV1::MouseClick { .. } => "computer_use.pointer.v1",
-        ComputerActionPayloadV1::KeyPress { .. } | ComputerActionPayloadV1::TypeText { .. } => {
-            "computer_use.keyboard.v1"
+        ComputerActionPayloadV1::ObserveScreen | ComputerActionPayloadV1::ObserveWindows => {
+            "computer_use.screen.v1"
         }
+        ComputerActionPayloadV1::ReadAccessibility => "computer_use.accessibility.v1",
+        ComputerActionPayloadV1::MouseClick { .. }
+        | ComputerActionPayloadV1::MouseDoubleClick { .. }
+        | ComputerActionPayloadV1::MouseMove { .. }
+        | ComputerActionPayloadV1::MouseDrag { .. }
+        | ComputerActionPayloadV1::MouseScroll { .. }
+        | ComputerActionPayloadV1::FocusWindow { .. } => "computer_use.pointer.v1",
+        ComputerActionPayloadV1::KeyPress { .. }
+        | ComputerActionPayloadV1::KeyChord { .. }
+        | ComputerActionPayloadV1::TypeText { .. } => "computer_use.keyboard.v1",
         ComputerActionPayloadV1::LaunchApp { .. } => "computer_use.app_registry.v1",
+        ComputerActionPayloadV1::WaitFor { .. } | ComputerActionPayloadV1::QueryState => {
+            "computer_use.state.v1"
+        }
     }
 }
 
@@ -201,6 +207,7 @@ pub enum GuestProtocolErrorV1 {
     Oversized,
     AuthenticationFailed,
     WrongSession,
+    StaleObservation,
     StaleLease,
     Replay,
     SequenceGap,

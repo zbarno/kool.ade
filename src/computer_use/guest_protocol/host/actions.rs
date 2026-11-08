@@ -74,10 +74,19 @@ impl AuthenticatedGuestChannelV1 {
         let requires_observation = matches!(
             &action.payload,
             crate::computer_use::ComputerActionPayloadV1::ObserveScreen
+                | crate::computer_use::ComputerActionPayloadV1::ObserveWindows
                 | crate::computer_use::ComputerActionPayloadV1::MouseClick { .. }
+                | crate::computer_use::ComputerActionPayloadV1::MouseDoubleClick { .. }
+                | crate::computer_use::ComputerActionPayloadV1::MouseMove { .. }
+                | crate::computer_use::ComputerActionPayloadV1::MouseDrag { .. }
+                | crate::computer_use::ComputerActionPayloadV1::MouseScroll { .. }
+                | crate::computer_use::ComputerActionPayloadV1::FocusWindow { .. }
                 | crate::computer_use::ComputerActionPayloadV1::KeyPress { .. }
+                | crate::computer_use::ComputerActionPayloadV1::KeyChord { .. }
                 | crate::computer_use::ComputerActionPayloadV1::TypeText { .. }
                 | crate::computer_use::ComputerActionPayloadV1::LaunchApp { .. }
+                | crate::computer_use::ComputerActionPayloadV1::WaitFor { .. }
+                | crate::computer_use::ComputerActionPayloadV1::QueryState
         );
         if !requires_observation {
             return Err(GuestProtocolErrorV1::Malformed);
@@ -94,7 +103,17 @@ impl AuthenticatedGuestChannelV1 {
             return Err(GuestProtocolErrorV1::Malformed);
         };
         self.guest_sequence = self.guest_sequence.saturating_add(1);
-        let observation = validate_observation(observation)?;
+        let observation = validate_observation(
+            observation,
+            &self.config.session_id,
+            self.latest_observation
+                .as_ref()
+                .map_or(0, |previous| previous.observation_revision),
+            self.latest_observation
+                .as_ref()
+                .map_or(0, |previous| previous.display_generation),
+        )?;
+        self.latest_observation = Some(observation.clone());
         Ok(GuestActionOutcomeV1 {
             reply: GuestActionReplyV1 {
                 action_sequence: action.action_sequence,

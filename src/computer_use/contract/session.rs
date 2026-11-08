@@ -38,6 +38,8 @@ impl ComputerControllerProofV1 {
 #[serde(deny_unknown_fields)]
 pub struct ComputerSessionV1 {
     pub schema_version: u16,
+    /// Controller-recorded origin of the session-wide elapsed-time budget.
+    pub session_started_at_unix_ms: u64,
     pub identity: ComputerIdentityV1,
     pub session_class: ComputerSessionClassV1,
     pub target: ComputerTargetV1,
@@ -67,6 +69,16 @@ impl ComputerSessionV1 {
         self.identity.validate()?;
         self.policy.validate()?;
         self.lease.validate(now_unix_ms)?;
+        if self.session_started_at_unix_ms == 0
+            || self.session_started_at_unix_ms > self.lease.issued_at_unix_ms
+        {
+            return Err("session start time is invalid");
+        }
+        if now_unix_ms.saturating_sub(self.session_started_at_unix_ms)
+            >= self.policy.resource_budget.time_limit_ms
+        {
+            return Err("session action budget has expired");
+        }
         if self.policy.identity != self.identity || self.policy.session_class != self.session_class
         {
             return Err("session policy identity mismatch");
@@ -162,6 +174,7 @@ impl ComputerSessionV1 {
 #[derive(Serialize)]
 struct UnsignedComputerSessionV1<'a> {
     schema_version: u16,
+    session_started_at_unix_ms: u64,
     identity: &'a ComputerIdentityV1,
     session_class: ComputerSessionClassV1,
     target: &'a ComputerTargetV1,
@@ -183,6 +196,7 @@ impl<'a> From<&'a ComputerSessionV1> for UnsignedComputerSessionV1<'a> {
     fn from(session: &'a ComputerSessionV1) -> Self {
         Self {
             schema_version: session.schema_version,
+            session_started_at_unix_ms: session.session_started_at_unix_ms,
             identity: &session.identity,
             session_class: session.session_class,
             target: &session.target,

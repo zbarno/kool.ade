@@ -150,31 +150,12 @@ fn event_stream_fences_sequences_actors_and_uncertain_external_effects() {
         ),
         Err("lease is not currently valid")
     );
-    validator
-        .accept(
-            &ComputerEventV1 {
-                schema_version: 1,
-                session_id: action.session_id.clone(),
-                sequence: 1,
-                occurred_at_unix_ms: 1000500,
-                lease_generation: 1,
-                approval_generation: 1,
-                cancellation_generation: 1,
-                kind: ComputerEventKindV1::StateChanged {
-                    from: ComputerLifecycleV1::Ready,
-                    to: ComputerLifecycleV1::Delegated,
-                },
-            },
-            1_050_000,
-        )
-        .unwrap();
-
     assert_eq!(
         validator.accept(
             &ComputerEventV1 {
                 schema_version: 1,
                 session_id: action.session_id.clone(),
-                sequence: 2,
+                sequence: 1,
                 occurred_at_unix_ms: 1000600,
                 lease_generation: 1,
                 approval_generation: 1,
@@ -190,7 +171,7 @@ fn event_stream_fences_sequences_actors_and_uncertain_external_effects() {
     let accepted = ComputerEventV1 {
         schema_version: 1,
         session_id: action.session_id.clone(),
-        sequence: 2,
+        sequence: 1,
         occurred_at_unix_ms: 1001000,
         lease_generation: 1,
         approval_generation: 1,
@@ -210,7 +191,7 @@ fn event_stream_fences_sequences_actors_and_uncertain_external_effects() {
             &ComputerEventV1 {
                 schema_version: 1,
                 session_id: action.session_id.clone(),
-                sequence: 3,
+                sequence: 2,
                 occurred_at_unix_ms: 1001500,
                 lease_generation: 1,
                 approval_generation: 1,
@@ -240,7 +221,7 @@ fn event_stream_fences_sequences_actors_and_uncertain_external_effects() {
                 &ComputerEventV1 {
                     schema_version: 1,
                     session_id: action.session_id.clone(),
-                    sequence: 3,
+                    sequence: 2,
                     occurred_at_unix_ms: 1002000,
                     lease_generation: 1,
                     approval_generation: 1,
@@ -262,7 +243,7 @@ fn event_stream_fences_sequences_actors_and_uncertain_external_effects() {
             &ComputerEventV1 {
                 schema_version: 1,
                 session_id: action.session_id.clone(),
-                sequence: 3,
+                sequence: 2,
                 occurred_at_unix_ms: 1002000,
                 lease_generation: 1,
                 approval_generation: 1,
@@ -284,7 +265,7 @@ fn event_stream_fences_sequences_actors_and_uncertain_external_effects() {
         &ComputerEventV1 {
             schema_version: 1,
             session_id: retry.session_id.clone(),
-            sequence: 4,
+            sequence: 3,
             occurred_at_unix_ms: 1003000,
             lease_generation: 1,
             approval_generation: 1,
@@ -334,7 +315,7 @@ fn event_stream_fences_sequences_actors_and_uncertain_external_effects() {
             &ComputerEventV1 {
                 schema_version: 1,
                 session_id: action.session_id.clone(),
-                sequence: 4,
+                sequence: 3,
                 occurred_at_unix_ms: 1003500,
                 lease_generation: 2,
                 approval_generation: 2,
@@ -349,7 +330,7 @@ fn event_stream_fences_sequences_actors_and_uncertain_external_effects() {
     let stale_lease = ComputerEventV1 {
         schema_version: 1,
         session_id: action.session_id.clone(),
-        sequence: 5,
+        sequence: 4,
         occurred_at_unix_ms: 1004000,
         lease_generation: 1,
         approval_generation: 2,

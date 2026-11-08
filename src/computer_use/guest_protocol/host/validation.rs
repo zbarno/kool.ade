@@ -38,7 +38,21 @@ pub(super) fn request_id_for_action(
 
 pub(super) fn validate_observation(
     observation: &GuestObservationV1,
+    expected_session_id: &str,
+    previous_revision: u64,
+    previous_display_generation: u64,
 ) -> Result<GuestObservationV1, GuestProtocolErrorV1> {
+    observation
+        .validate_metadata()
+        .map_err(|_| GuestProtocolErrorV1::Malformed)?;
+    if observation.session_id != expected_session_id {
+        return Err(GuestProtocolErrorV1::WrongSession);
+    }
+    if observation.observation_revision <= previous_revision
+        || observation.display_generation < previous_display_generation
+    {
+        return Err(GuestProtocolErrorV1::StaleObservation);
+    }
     if observation.screenshot_png_base64.len() > MAX_SCREENSHOT_PNG_BYTES * 4 / 3 + 8 {
         return Err(GuestProtocolErrorV1::Oversized);
     }
@@ -65,10 +79,17 @@ pub(super) fn validate_observation(
         return Err(GuestProtocolErrorV1::Malformed);
     }
     Ok(GuestObservationV1 {
+        session_id: observation.session_id.clone(),
+        frame_id: observation.frame_id.clone(),
+        display_generation: observation.display_generation,
+        observation_revision: observation.observation_revision,
+        device_scale_numerator: observation.device_scale_numerator,
+        device_scale_denominator: observation.device_scale_denominator,
         width_px: image.width(),
         height_px: image.height(),
         screenshot_png_base64: BASE64.encode(bytes),
         screenshot_sha256: digest,
+        windows: observation.windows.clone(),
     })
 }
 

@@ -1,0 +1,186 @@
+use super::*;
+use crate::computer_use::{
+    ComputerCapabilityV1, ComputerControllerProofV1, ComputerIdentityV1, ComputerLeaseV1,
+    ComputerNetworkProfileV1, ComputerPolicyV1, ComputerResourceBudgetV1, ComputerSessionClassV1,
+    ComputerSessionV1, ComputerTargetV1,
+};
+use std::collections::BTreeSet;
+
+#[test]
+fn action_authority_checks_actor_lifecycle_generations_and_budget() {
+    let session = session();
+    let action = action();
+    assert_eq!(
+        action.validate_as(ComputerActionActorV1::Agent, &session, 2_000),
+        Ok(())
+    );
+
+    assert_eq!(
+        action.validate_as(ComputerActionActorV1::Human, &session, 2_000),
+        Err("action actor does not match authenticated caller")
+    );
+    let mut wrong_lifecycle = session.clone();
+    wrong_lifecycle.lifecycle = super::super::super::ComputerLifecycleV1::HumanControl;
+    assert_eq!(
+        action.validate_as(ComputerActionActorV1::Agent, &wrong_lifecycle, 2_000),
+        Err("action actor does not own computer control")
+    );
+    let mut expired = session.clone();
+    expired.policy.resource_budget.time_limit_ms = 10_000;
+    assert_eq!(
+        action.validate(&expired, 11_000),
+        Err("session action budget has expired")
+    );
+    let mut revoked = session;
+    revoked.cancellation_generation += 1;
+    assert_eq!(
+        action.validate(&revoked, 2_000),
+        Err("action scope or approval generation mismatch")
+    );
+}
+
+#[test]
+fn pointer_input_rejects_stale_geometry_and_excessive_scroll() {
+    let session = session();
+    let mut action = action();
+    action.operation = ComputerOperationV1::MouseInput;
+    let target = ComputerFrameReferenceV1 {
+        frame_id: "00000000-0000-4000-8000-000000000005".into(),
+        display_generation: 1,
+        observation_revision: 1,
+        display_width_px: 800,
+        display_height_px: 600,
+        device_scale_numerator: 1,
+        device_scale_denominator: 1,
+        window_id: "00000000-0000-4000-8000-000000000006".into(),
+        window_generation: 1,
+        window_bounds: ComputerWindowBoundsV1 {
+            left: 0,
+            top: 0,
+            width_px: 800,
+            height_px: 600,
+        },
+    };
+    action.payload = ComputerActionPayloadV1::MouseClick {
+        target: target.clone(),
+        x: 800,
+        y: 10,
+        button: MouseButtonV1::Primary,
+    };
+    assert_eq!(
+        action.validate(&session, 2_000),
+        Err("pointer action does not match its observed frame and window")
+    );
+    action.payload = ComputerActionPayloadV1::MouseScroll {
+        target,
+        x: 10,
+        y: 10,
+        delta_x: 0,
+        delta_y: 31,
+    };
+    assert_eq!(
+        action.validate(&session, 2_000),
+        Err("scroll delta exceeds bounds")
+    );
+}
+
+#[test]
+fn lease_renewal_does_not_reset_the_session_time_budget() {
+    let mut session = session();
+    let mut action = action();
+    session.policy.resource_budget.time_limit_ms = 6_000;
+    session.lease.issued_at_unix_ms = 5_000;
+    session.lease.generation = 3;
+    action.lease_generation = 3;
+    assert_eq!(
+        action.validate(&session, 7_000),
+        Err("session action budget has expired")
+    );
+}
+
+#[test]
+fn action_authority_allows_completed_sequence_replay_for_the_durable_journal() {
+    let mut session = session();
+    let action = action();
+    session.action_sequence = action.action_sequence;
+    assert_eq!(
+        action.validate_as(ComputerActionActorV1::Agent, &session, 2_000),
+        Ok(())
+    );
+}
+
+fn action() -> ComputerActionV1 {
+    ComputerActionV1 {
+        schema_version: 1,
+        session_id: "00000000-0000-4000-8000-000000000004".into(),
+        action_sequence: 1,
+        idempotency_key: "00000000-0000-4000-8000-000000000007".into(),
+        actor: ComputerActionActorV1::Agent,
+        lease_generation: 2,
+        approval_generation: 4,
+        cancellation_generation: 3,
+        operation: ComputerOperationV1::ObserveScreen,
+        payload: ComputerActionPayloadV1::ObserveScreen,
+    }
+}
+
+fn session() -> ComputerSessionV1 {
+    let identity = ComputerIdentityV1 {
+        project_id: "00000000-0000-4000-8000-000000000001".into(),
+        task_id: "00000000-0000-4000-8000-000000000002".into(),
+        user_id: "00000000-0000-4000-8000-000000000003".into(),
+        session_id: "00000000-0000-4000-8000-000000000004".into(),
+    };
+    let allowed_apps = BTreeSet::from(["chromium".into()]);
+    let authorized_operations = BTreeSet::from([
+        ComputerOperationV1::ObserveScreen,
+        ComputerOperationV1::MouseInput,
+    ]);
+    let policy = ComputerPolicyV1 {
+        schema_version: 1,
+        identity: identity.clone(),
+        session_class: ComputerSessionClassV1::Disposable,
+        capability: ComputerCapabilityV1::ApprovedGuiTask,
+        network_profile: ComputerNetworkProfileV1::Disabled,
+        allowed_apps: allowed_apps.clone(),
+        authorized_operations,
+        approval_generation: 4,
+        resource_budget: ComputerResourceBudgetV1 {
+            time_limit_ms: 600_000,
+            ..crate::computer_use::MINIMUM_DISPOSABLE_VM_BUDGET_V1
+        },
+    };
+    ComputerSessionV1 {
+        schema_version: 1,
+        session_started_at_unix_ms: 1_000,
+        identity,
+        session_class: ComputerSessionClassV1::Disposable,
+        target: ComputerTargetV1::LocalKvm {
+            machine_id: "00000000-0000-4000-8000-000000000008".into(),
+        },
+        image_digest: format!("sha256:{}", "a".repeat(64)),
+        image_manifest_digest: format!("sha256:{}", "b".repeat(64)),
+        image_signer_key_id: "00000000-0000-4000-8000-000000000009".into(),
+        network_profile: ComputerNetworkProfileV1::Disabled,
+        allowed_apps,
+        policy,
+        lease: ComputerLeaseV1 {
+            schema_version: 1,
+            owner_id: "00000000-0000-4000-8000-000000000003".into(),
+            lease_id: "00000000-0000-4000-8000-000000000010".into(),
+            generation: 2,
+            issued_at_unix_ms: 1_000,
+            expires_at_unix_ms: 900_000,
+            cancellation_generation: 3,
+        },
+        lifecycle: super::super::super::ComputerLifecycleV1::Delegated,
+        action_sequence: 0,
+        approval_generation: 4,
+        cancellation_generation: 3,
+        evidence_refs: vec![],
+        controller_proof: ComputerControllerProofV1 {
+            signer_key_id: "00000000-0000-4000-8000-000000000011".into(),
+            signature_hex: "a".repeat(128),
+        },
+    }
+}

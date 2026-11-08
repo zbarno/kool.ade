@@ -1,13 +1,23 @@
+mod gui;
+mod validation;
+
+pub use gui::{
+    ComputerFrameReferenceV1, ComputerKeyV1, ComputerWaitConditionV1, ComputerWindowBoundsV1,
+};
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
 pub enum ComputerOperationV1 {
     ObserveScreen,
+    ObserveWindows,
     ReadAccessibility,
     MouseInput,
     KeyboardInput,
     LaunchAllowedApp,
+    WaitFor,
+    QueryState,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -21,21 +31,67 @@ pub enum ComputerActionActorV1 {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ComputerActionPayloadV1 {
     ObserveScreen,
+    ObserveWindows,
     ReadAccessibility,
     MouseClick {
+        target: ComputerFrameReferenceV1,
         x: u32,
         y: u32,
         button: MouseButtonV1,
     },
+    MouseDoubleClick {
+        target: ComputerFrameReferenceV1,
+        x: u32,
+        y: u32,
+        button: MouseButtonV1,
+    },
+    MouseMove {
+        target: ComputerFrameReferenceV1,
+        x: u32,
+        y: u32,
+    },
+    MouseDrag {
+        target: ComputerFrameReferenceV1,
+        from_x: u32,
+        from_y: u32,
+        to_x: u32,
+        to_y: u32,
+        button: MouseButtonV1,
+    },
+    MouseScroll {
+        target: ComputerFrameReferenceV1,
+        x: u32,
+        y: u32,
+        delta_x: i16,
+        delta_y: i16,
+    },
+    FocusWindow {
+        window_id: String,
+        observation_revision: u64,
+    },
     KeyPress {
-        key: KeyCodeV1,
+        key: ComputerKeyV1,
+        window_id: String,
+        observation_revision: u64,
+    },
+    KeyChord {
+        keys: Vec<ComputerKeyV1>,
+        window_id: String,
+        observation_revision: u64,
     },
     TypeText {
         text: String,
+        window_id: String,
+        observation_revision: u64,
     },
     LaunchApp {
         app_id: String,
     },
+    WaitFor {
+        condition: ComputerWaitConditionV1,
+        timeout_ms: u32,
+    },
+    QueryState,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -84,108 +140,4 @@ pub struct ComputerActionV1 {
     pub cancellation_generation: u64,
     pub operation: ComputerOperationV1,
     pub payload: ComputerActionPayloadV1,
-}
-
-impl ComputerActionV1 {
-    /// Bind an untrusted action request to the actor authenticated by the
-    /// controller ingress. Never take the actor value as proof of identity.
-    pub fn validate_as(
-        &self,
-        authenticated_actor: ComputerActionActorV1,
-        session: &super::ComputerSessionV1,
-        now_unix_ms: u64,
-    ) -> Result<(), &'static str> {
-        if self.actor != authenticated_actor {
-            return Err("action actor does not match authenticated caller");
-        }
-        self.validate(session, now_unix_ms)
-    }
-
-    pub fn validate(
-        &self,
-        session: &super::ComputerSessionV1,
-        now_unix_ms: u64,
-    ) -> Result<(), &'static str> {
-        if self.schema_version != 1 {
-            return Err("unsupported action version");
-        }
-        session.lease.validate(now_unix_ms)?;
-        let policy = &session.policy;
-        policy.validate()?;
-        if !is_uuid(&self.session_id) || !is_uuid(&self.idempotency_key) {
-            return Err("invalid action identity");
-        }
-        if self.session_id != session.identity.session_id
-            || self.lease_generation != session.lease.generation
-            || self.approval_generation != policy.approval_generation
-            || self.cancellation_generation != session.cancellation_generation
-            || self.action_sequence > policy.resource_budget.action_limit as u64
-        {
-            return Err("action scope or approval generation mismatch");
-        }
-        if self.action_sequence == 0
-            || self.approval_generation == 0
-            || self.cancellation_generation == 0
-        {
-            return Err("action generations and sequence must be positive");
-        }
-        if !policy.authorized_operations.contains(&self.operation) {
-            return Err("action operation is not authorized");
-        }
-        let payload_matches = matches!(
-            (&self.operation, &self.payload),
-            (
-                ComputerOperationV1::ObserveScreen,
-                ComputerActionPayloadV1::ObserveScreen
-            ) | (
-                ComputerOperationV1::ReadAccessibility,
-                ComputerActionPayloadV1::ReadAccessibility
-            ) | (
-                ComputerOperationV1::MouseInput,
-                ComputerActionPayloadV1::MouseClick { .. }
-            ) | (
-                ComputerOperationV1::KeyboardInput,
-                ComputerActionPayloadV1::KeyPress { .. }
-            ) | (
-                ComputerOperationV1::KeyboardInput,
-                ComputerActionPayloadV1::TypeText { .. }
-            ) | (
-                ComputerOperationV1::LaunchAllowedApp,
-                ComputerActionPayloadV1::LaunchApp { .. }
-            )
-        );
-        if !payload_matches {
-            return Err("action payload does not match its operation");
-        }
-        match &self.payload {
-            ComputerActionPayloadV1::MouseClick { x, y, .. } if *x > 16_384 || *y > 16_384 => {
-                return Err("pointer coordinate exceeds display limit");
-            }
-            ComputerActionPayloadV1::TypeText { text }
-                if text.len() > 4096 || text.contains('\0') =>
-            {
-                return Err("text input exceeds bounds");
-            }
-            ComputerActionPayloadV1::LaunchApp { app_id }
-                if app_id.is_empty()
-                    || app_id.len() > 64
-                    || !app_id.bytes().all(|b| {
-                        b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.'
-                    }) =>
-            {
-                return Err("app identifier is invalid");
-            }
-            ComputerActionPayloadV1::LaunchApp { app_id }
-                if !policy.allowed_apps.contains(app_id) =>
-            {
-                return Err("app is not in the session allowlist");
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-}
-
-fn is_uuid(value: &str) -> bool {
-    uuid::Uuid::parse_str(value).is_ok_and(|id| id.to_string() == value)
 }
