@@ -1,6 +1,10 @@
+mod stages;
+pub use stages::{FeatureDeliveryStage, derive_feature_delivery_stage};
+
 #[derive(Clone, Debug, Default)]
 pub struct FeatureSpecificationStatus {
     pub feature_uid: Option<String>,
+    pub delivery_stage: Option<FeatureDeliveryStage>,
     pub current_spec_hash: Option<String>,
     pub drift_status: &'static str,
     pub approved_target_hash: Option<String>,

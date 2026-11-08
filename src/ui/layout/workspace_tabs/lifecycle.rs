@@ -6,13 +6,22 @@ mod trace_navigation;
 pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn Surface, markdown: &str) {
     match surface.feature_specification_status(markdown) {
         Ok(Some(status)) => {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Feature status").weak());
+                ui.strong(
+                    status
+                        .delivery_stage
+                        .map(crate::ui::FeatureDeliveryStage::label)
+                        .unwrap_or("Status not recorded"),
+                );
+            });
             if let Some(navigation) = surface.specification_trace_navigation()
                 && status.feature_uid.as_deref() == Some(navigation.feature_uid.as_str())
             {
                 trace_navigation::paint(ui, surface, navigation);
             }
-            egui::CollapsingHeader::new("Specification lifecycle evidence")
-                .default_open(true)
+            egui::CollapsingHeader::new("Technical details")
+                .default_open(false)
                 .show(ui, |ui| {
                     row(
                         ui,
@@ -93,17 +102,30 @@ pub(super) fn paint_product_summary(
     surface: &dyn Surface,
     features: &[(String, String)],
 ) {
+    ui.heading("Current product");
     match surface.product_specification_status() {
         Ok(Some(aggregate)) => {
-            ui.heading("Product specification reconciliation");
             ui.label(format!(
-                "{} · rendered product hash {} · {} lifecycle features · {} open findings · {} pending triggers · deployment evidence shown per feature below",
+                "Baseline status · {} · {} lifecycle features · {} open findings",
                 aggregate_status(aggregate.status),
-                &aggregate.rendered_product_hash[..12],
                 aggregate.lifecycle_features.len(),
-                aggregate.findings.len(),
-                aggregate.pending_trigger_count
+                aggregate.findings.len()
             ));
+            egui::CollapsingHeader::new("Technical details")
+                .default_open(false)
+                .show(ui, |ui| {
+                    ui.label(format!(
+                        "Product specification hash · {} · {} pending triggers",
+                        &aggregate.rendered_product_hash[..12],
+                        aggregate.pending_trigger_count
+                    ));
+                });
+            if !aggregate.findings.is_empty() {
+                ui.colored_label(
+                    theme::WARNING,
+                    "Needs review · product changes are unresolved",
+                );
+            }
             for finding in aggregate.findings {
                 ui.label(format!(
                     "{} · {} · {:?} · {} · trigger {}",
@@ -128,7 +150,9 @@ pub(super) fn paint_product_summary(
                 }
             }
         }
-        Ok(None) => {}
+        Ok(None) => {
+            ui.label("Baseline status not recorded");
+        }
         Err(error) => {
             ui.colored_label(
                 theme::WARNING,
@@ -139,8 +163,8 @@ pub(super) fn paint_product_summary(
     let mut recorded = 0;
     let mut pending = 0;
     let mut deployed = 0;
-    egui::CollapsingHeader::new("Product feature lifecycle summary")
-        .default_open(false)
+    egui::CollapsingHeader::new("Feature delivery status")
+        .default_open(true)
         .show(ui, |ui| {
             for (id, markdown) in features {
                 match surface.feature_specification_status(markdown) {
@@ -148,18 +172,40 @@ pub(super) fn paint_product_summary(
                         recorded += 1;
                         pending += status.pending_triggers;
                         deployed += usize::from(status.deployed_spec_hash.is_some());
-                        ui.label(format!(
-                            "{id} · rendered product-spec {} · drift {} · approved {} · deployed {} · deployment {} · revision {} · {} · {} pending · {} merged commits",
-                            short_hash(status.current_spec_hash.as_deref()),
-                            status.drift_status,
-                            short_hash(status.approved_target_hash.as_deref()),
-                            short_hash(status.deployed_spec_hash.as_deref()),
-                            status.deployment_status.as_deref().unwrap_or("not recorded"),
-                            status.revision.map_or_else(|| "not recorded".into(), |revision| revision.to_string()),
-                            status.reconciliation_status.map_or("not recorded", status_label),
-                            status.pending_triggers,
-                            status.merged_commits.len()
-                        ));
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(id.as_str());
+                            ui.strong(
+                                status
+                                    .delivery_stage
+                                    .map(crate::ui::FeatureDeliveryStage::label)
+                                    .unwrap_or("Status not recorded"),
+                            );
+                        });
+                        egui::CollapsingHeader::new(format!("{id} · supporting evidence"))
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                ui.label(format!(
+                                    "Drift · {} · product revision {} · reconciliation {} · {} pending triggers",
+                                    status.drift_status,
+                                    status.revision.map_or_else(|| "not recorded".into(), |revision| revision.to_string()),
+                                    status.reconciliation_status.map_or("not recorded", status_label),
+                                    status.pending_triggers
+                                ));
+                                if let Some(hash) = status.approved_target_hash.as_deref() {
+                                    ui.small(format!("Approved plan · {}", short_hash(Some(hash))));
+                                }
+                                for (task, head) in &status.reviewed_heads {
+                                    ui.small(format!("Verified task {task} · {head}"));
+                                }
+                                for (task, commit) in &status.merged_commits {
+                                    ui.small(format!("Merged task {task} · {commit}"));
+                                }
+                                if let Some(hash) = status.deployed_spec_hash.as_deref() {
+                                    ui.small(format!("Deployment · {}", short_hash(Some(hash))));
+                                } else {
+                                    ui.small(format!("Deployment · {}", status.deployment_status.as_deref().unwrap_or("not recorded")));
+                                }
+                            });
                     }
                     Ok(None) => { ui.label(format!("{id} · lifecycle state not recorded")); }
                     Err(error) => { ui.colored_label(theme::WARNING, format!("{id} · lifecycle state unavailable: {error}")); }
