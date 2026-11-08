@@ -1,13 +1,17 @@
 //! Versioned, provider-neutral Computer Use MCP request and response contracts.
 
+#[cfg(target_os = "linux")]
 mod authorized_host;
+#[cfg(target_os = "linux")]
 pub use authorized_host::{ComputerUseMcpOperationsV1, RegistryBoundComputerUseMcpHostV1};
 mod consent;
+#[cfg(target_os = "linux")]
 mod controller;
 pub use consent::{
     ComputerUseConsentBrokerV1, ComputerUseConsentDecisionV1, ComputerUseConsentGrantV1,
     ComputerUseConsentRequestV1, ComputerUseConsentScopeV1,
 };
+#[cfg(target_os = "linux")]
 pub use controller::{ComputerUseMcpControllerV1, ComputerUseMcpRuntimeConfigV1};
 
 use serde::{Deserialize, Serialize};

@@ -56,7 +56,8 @@ pub(super) fn new(request: &PlanningRequest) -> anyhow::Result<ApplicationBounda
     let mut session_bridge = None;
     let mut execution_session = None;
     let mut screenshot_review_audit = None;
-    let mut computer_use_bridge = None;
+    let mut computer_use_bridge: Option<super::super::computer_use_bridge::ComputerUseBridge> =
+        None;
     let mut access = ToolAccess::None;
     if let Some(computer_use) = request.computer_use.as_ref() {
         let task_id = request.task_id.as_deref().ok_or_else(|| {

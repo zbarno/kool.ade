@@ -132,6 +132,7 @@ impl KooladeApp {
         }
     }
 
+    #[cfg(target_os = "linux")]
     pub(crate) fn shared_computer_use_controller(
         &self,
     ) -> std::sync::Arc<crate::computer_use::mcp::ComputerUseMcpControllerV1> {
@@ -153,6 +154,7 @@ impl KooladeApp {
             .clone()
     }
 
+    #[cfg(target_os = "linux")]
     pub(crate) fn revoke_computer_use_session(&self, session_id: &str) -> Result<(), String> {
         let current = self
             .computer_use_controller
