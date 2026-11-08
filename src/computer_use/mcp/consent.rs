@@ -156,7 +156,7 @@ impl ComputerUseConsentBrokerV1 {
             || !super::is_supported_computer_use_role_v1(&caller.role_id)
             || purpose.trim().is_empty()
             || purpose.len() > super::MAX_COMPUTER_USE_PURPOSE_BYTES
-            || !valid_scope(&scope)
+            || scope.validate().is_err()
         {
             return ComputerUseConsentDecisionV1::Denied;
         }
