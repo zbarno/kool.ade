@@ -103,6 +103,7 @@ fn manager_contest_runs_independent_arbitration_and_persists_effective_receipt()
     };
     let manager_response = serde_json::to_string(&ManagerOutputV2 {
         summary: "Request independent arbitration for the cited finding.".into(),
+        summary_evidence: Vec::new(),
         proposed_actions: vec![action],
         opportunities: Vec::new(),
     })

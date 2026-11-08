@@ -106,6 +106,7 @@ fn run_review(
 ) -> Result<DependencyTriage, String> {
     let (progress_tx, _progress_rx) = mpsc::channel();
     let request = PlanningRequest {
+        investigation_authorization: None,
             prompt_manifest: None,
         mode: ExecutionMode::ReadOnlyAnalysis,
         task_id: Some(dependency.task_id.clone()),

@@ -88,6 +88,7 @@ pub fn select(
         return Ok(None);
     }
     let request = PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: crate::harness::ExecutionMode::ReadOnlyAnalysis,
         task_id: None,

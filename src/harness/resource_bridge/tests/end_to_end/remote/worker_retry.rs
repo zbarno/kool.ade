@@ -164,6 +164,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
     };
     let (progress_tx, _progress_rx) = mpsc::channel::<LiveProgress>();
     let request = PlanningRequest {
+        investigation_authorization: None,
         mode: ExecutionMode::Implementation,
         task_id: Some(task_id),
         execution_workspace: Some(workspace.clone()),

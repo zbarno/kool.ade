@@ -180,7 +180,7 @@ fn changed_commit_dirty_worktree_and_targeted_read_keep_revision_provenance() {
     let selected = read_pinned_file(
         &crate::core::repository_knowledge::ProfileSource {
             repository_id: "root".into(),
-            source_ref: "main".into(),
+            source_ref: "refs/heads/main".into(),
             code_root: code.path().to_path_buf(),
             planning_store: store.clone(),
             repositories: manifest(),
@@ -203,7 +203,7 @@ fn changed_commit_dirty_worktree_and_targeted_read_keep_revision_provenance() {
         read_pinned_file(
             &crate::core::repository_knowledge::ProfileSource {
                 repository_id: "root".into(),
-                source_ref: "main".into(),
+                source_ref: "refs/heads/main".into(),
                 code_root: code.path().to_path_buf(),
                 planning_store: store,
                 repositories: manifest(),

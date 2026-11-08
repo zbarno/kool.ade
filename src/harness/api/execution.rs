@@ -46,9 +46,8 @@ impl ExecutionMode {
 
     pub fn tool_access(self) -> ToolAccess {
         match self {
-            Self::Manager | Self::Planning | Self::TaskGeneration | Self::Investigation => {
-                ToolAccess::ReadOnly
-            }
+            Self::Manager => ToolAccess::InvestigationBroker,
+            Self::Planning | Self::TaskGeneration | Self::Investigation => ToolAccess::ReadOnly,
             Self::Implementation => ToolAccess::BoundedImplementation,
             Self::RuntimeQaVisualReview => ToolAccess::RuntimeQaScreenshots,
             Self::ReadOnlyAnalysis | Self::Reconciliation | Self::DecisionExplanation => {
@@ -72,6 +71,8 @@ impl ExecutionMode {
 pub enum ToolAccess {
     None,
     ReadOnly,
+    /// Manager may request only app-brokered evidence from the selected profile.
+    InvestigationBroker,
     BoundedImplementation,
     /// Inspect only validated screenshots supplied by the app for one QA run.
     RuntimeQaScreenshots,
@@ -124,6 +125,9 @@ pub struct PlanningRequest {
     /// Stable planning workspace and immutable source identity selected by the
     /// application for Docker-backed repository tools.
     pub execution_workspace: Option<crate::execution::contract::WorkspaceRef>,
+    /// Narrow app-issued evidence authority for a Manager investigation tool.
+    pub investigation_authorization:
+        Option<crate::core::investigation_broker::InvestigationAuthorizationV1>,
     /// Selected destination branch head pinned by the application before an
     /// implementation tool session is authorized.
     pub destination_sha: Option<String>,

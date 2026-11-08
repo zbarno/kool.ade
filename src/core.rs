@@ -22,6 +22,7 @@ pub mod git_intent;
 pub mod gitops;
 pub mod ids;
 pub mod investigation;
+pub mod investigation_broker;
 pub mod opportunity;
 pub mod prompt;
 pub mod reconciliation;

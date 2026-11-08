@@ -39,6 +39,7 @@ fn resource_budget_overrides_are_task_scoped_and_restored() {
 fn context_only_request_does_not_probe_or_require_a_repository_sandbox() {
     let (progress_tx, _progress_rx) = mpsc::channel();
     let request = PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: ExecutionMode::ReadOnlyAnalysis,
         task_id: None,
@@ -74,6 +75,7 @@ fn planning_without_a_workspace_receives_no_repository_tools() {
     let (progress_tx, _progress_rx) = mpsc::channel();
     let repository = tempfile::tempdir().unwrap();
     let request = PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: ExecutionMode::Planning,
         task_id: None,
@@ -141,6 +143,7 @@ fn approved_guidance_enters_only_the_user_prompt_as_a_hashed_data_envelope() {
 fn implementation_without_an_application_selected_task_workspace_fails_closed() {
     let (progress_tx, _progress_rx) = mpsc::channel();
     let request = PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: ExecutionMode::Implementation,
         task_id: Some("task-1".into()),
@@ -179,6 +182,7 @@ fn requested_read_only_workspace_connection_failure_is_reported() {
     environment.set("DOCKER_CONTEXT", "untrusted-koolade-test-context");
     let (progress_tx, _progress_rx) = mpsc::channel();
     let request = PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: ExecutionMode::Planning,
         task_id: Some("task-1".into()),
@@ -221,6 +225,7 @@ fn requested_read_only_workspace_connection_failure_is_reported() {
 fn reviewer_request_without_bound_prompt_and_session_fails_before_boundary_creation() {
     let (progress_tx, _progress_rx) = mpsc::channel();
     let request = PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: ExecutionMode::ReadOnlyAnalysis,
         task_id: None,

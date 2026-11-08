@@ -30,7 +30,7 @@ fn strict_manager_launch_is_verified_only_for_pi_profile_controls() {
     ];
     argv.extend([
         "--tools".into(),
-        "koolade_bash".into(),
+        "koolade_investigate".into(),
         "--extension".into(),
         extension.to_string_lossy().into_owned(),
     ]);
@@ -77,7 +77,7 @@ fn strict_manager_launch_is_verified_only_for_pi_profile_controls() {
     // extension from the exact-token validation below.
     for injected in [
         format!("--skill={}", extension.display()),
-        "--tools=koolade_bash,unapproved_tool".into(),
+        "--tools=koolade_investigate,koolade_bash".into(),
         "--extension=/tmp/unapproved-extension.ts".into(),
     ] {
         let mut alternate_spelling = argv.clone();
@@ -110,7 +110,7 @@ fn strict_manager_launch_is_verified_only_for_pi_profile_controls() {
         .iter()
         .position(|arg| arg == "--tools")
         .unwrap();
-    excess_tools[tools_index + 1] = "koolade_bash,koolade_dependency".into();
+    excess_tools[tools_index + 1] = "koolade_investigate,koolade_bash".into();
     assert!(
         ValidatedProviderLaunch::bind_for_workspace(
             complete_evidence(provider, "0.30.1"),

@@ -94,6 +94,7 @@ impl AiHarness for UsageHarness {
 
 fn request(progress_tx: mpsc::Sender<LiveProgress>) -> PlanningRequest {
     PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: ExecutionMode::Implementation,
         task_id: None,

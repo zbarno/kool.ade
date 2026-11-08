@@ -194,6 +194,7 @@ fn malformed_output_fails_and_cancellation_stops_the_child() {
     let worker = std::thread::spawn(move || {
         crate::harness::with_uncontained_provider_test_execution(|| {
             OpenCodeHarness.execute(&PlanningRequest {
+                investigation_authorization: None,
                 prompt_manifest: None,
                 cancel: worker_cancel,
                 ..request(worker_root, mpsc::channel().0)
@@ -219,6 +220,7 @@ fn malformed_output_fails_and_cancellation_stops_the_child() {
 
 fn request(root: std::path::PathBuf, progress_tx: mpsc::Sender<LiveProgress>) -> PlanningRequest {
     PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: ExecutionMode::Implementation,
         task_id: None,

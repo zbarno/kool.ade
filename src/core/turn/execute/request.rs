@@ -306,6 +306,7 @@ pub(super) fn prepare(
     }
     let execution_workspace = workspace::bind(&inputs.state, task, started)?;
     let request = PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest,
         mode: if inputs.purpose == crate::core::workflow::TurnPurpose::GenerateTasks {
             crate::harness::ExecutionMode::TaskGeneration

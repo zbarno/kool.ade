@@ -178,6 +178,7 @@ pub(super) fn run(
         anyhow::ensure!(!cancel.load(Ordering::SeqCst), "Explanation cancelled");
         let (progress_tx, _progress_rx) = mpsc::channel();
         let request = PlanningRequest {
+            investigation_authorization: None,
             prompt_manifest: None,
             mode: crate::harness::ExecutionMode::DecisionExplanation,
             task_id: None,

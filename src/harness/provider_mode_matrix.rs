@@ -166,6 +166,7 @@ fn argument_capture(root: &Path, provider: &str) -> PathBuf {
 
 fn request(root: PathBuf, mode: ExecutionMode) -> PlanningRequest {
     let mut request = PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode,
         task_id: None,

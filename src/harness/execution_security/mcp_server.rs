@@ -13,6 +13,7 @@ mod tools;
 #[serde(rename_all = "snake_case")]
 pub(crate) enum BoundaryAccess {
     ReadOnly,
+    InvestigationBroker,
     Implementation,
     RuntimeQaScreenshotReview,
 }
@@ -42,6 +43,9 @@ pub(crate) struct ServerConfigV2 {
     pub resource_cache: Option<PathBuf>,
     #[serde(default)]
     pub screenshot_access: Option<ScreenshotAccessV1>,
+    #[serde(default)]
+    pub investigation_authorization:
+        Option<crate::core::investigation_broker::InvestigationAuthorizationV1>,
 }
 
 pub(crate) type ServerConfig = ServerConfigV2;
@@ -63,6 +67,27 @@ impl ServerConfigV2 {
             resource_socket: Some(bridge.socket_path().to_path_buf()),
             resource_cache: Some(bridge.cache_path().to_path_buf()),
             screenshot_access: None,
+            investigation_authorization: None,
+        }
+    }
+
+    pub(crate) fn investigation_broker(
+        binding: &super::session_bridge::SessionBinding,
+        authorization: crate::core::investigation_broker::InvestigationAuthorizationV1,
+    ) -> Self {
+        Self {
+            protocol_version: 2,
+            access: BoundaryAccess::InvestigationBroker,
+            session_id: binding.session_id.clone(),
+            task_id: binding.task_id.clone(),
+            workspace_id: binding.workspace_id.clone(),
+            capability_id: binding.capability_id.clone(),
+            target_id: Some(binding.target_id.clone()),
+            target_arch: binding.target_arch.clone(),
+            resource_socket: None,
+            resource_cache: None,
+            screenshot_access: None,
+            investigation_authorization: Some(authorization),
         }
     }
 
@@ -79,6 +104,7 @@ impl ServerConfigV2 {
             resource_socket: None,
             resource_cache: None,
             screenshot_access: None,
+            investigation_authorization: None,
         }
     }
 
@@ -107,6 +133,7 @@ impl ServerConfigV2 {
                 audit_root,
                 sha256_by_id,
             }),
+            investigation_authorization: None,
         }
     }
 
@@ -135,13 +162,52 @@ impl ServerConfigV2 {
                 anyhow::ensure!(
                     self.resource_socket.is_none()
                         && self.resource_cache.is_none()
-                        && self.screenshot_access.is_none(),
+                        && self.screenshot_access.is_none()
+                        && self.investigation_authorization.is_none(),
                     "Read-only MCP tools cannot access resource brokers"
                 );
             }
+            BoundaryAccess::InvestigationBroker => {
+                anyhow::ensure!(
+                    self.resource_socket.is_none()
+                        && self.resource_cache.is_none()
+                        && self.screenshot_access.is_none(),
+                    "Manager investigation cannot access execution or resource brokers"
+                );
+                let authorization = self
+                    .investigation_authorization
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("Manager investigation authority is missing"))?;
+                anyhow::ensure!(
+                    authorization.task_id == self.task_id
+                        && authorization.workspace_id == self.workspace_id
+                        && authorization.source_sha == source_sha
+                        && authorization.profile.key.repository_id == authorization.repository_id
+                        && authorization.profile.key.source_ref == authorization.source_ref
+                        && authorization.profile.key.commit_sha == source_sha,
+                    "Manager investigation authority does not match its MCP session"
+                );
+                authorization
+                    .profile
+                    .validate()
+                    .map_err(|_| anyhow::anyhow!("Manager investigation profile is invalid"))?;
+                let receipt_root = std::fs::symlink_metadata(&authorization.receipt_root)?;
+                anyhow::ensure!(
+                    receipt_root.is_dir() && !receipt_root.file_type().is_symlink(),
+                    "Manager investigation receipt handoff is not a directory"
+                );
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    anyhow::ensure!(
+                        receipt_root.permissions().mode() & 0o077 == 0,
+                        "Manager investigation receipt handoff is not private"
+                    );
+                }
+            }
             BoundaryAccess::Implementation => {
                 anyhow::ensure!(
-                    self.screenshot_access.is_none(),
+                    self.screenshot_access.is_none() && self.investigation_authorization.is_none(),
                     "implementation MCP tools cannot access runtime QA screenshots"
                 );
                 anyhow::ensure!(
@@ -158,7 +224,8 @@ impl ServerConfigV2 {
                     self.resource_socket.is_none()
                         && self.resource_cache.is_none()
                         && self.target_id.is_none()
-                        && self.target_arch.is_none(),
+                        && self.target_arch.is_none()
+                        && self.investigation_authorization.is_none(),
                     "runtime QA screenshot review cannot access repository or resource tools"
                 );
                 let access = self.screenshot_access.as_ref().ok_or_else(|| {

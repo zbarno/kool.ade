@@ -214,6 +214,7 @@ pub(super) fn prepare(
     };
     let (progress_tx, _progress_rx) = mpsc::channel::<LiveProgress>();
     let request = PlanningRequest {
+        investigation_authorization: None,
         mode: ExecutionMode::ReadOnlyAnalysis,
         task_id: None,
         execution_workspace: None,

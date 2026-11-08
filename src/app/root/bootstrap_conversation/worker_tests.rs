@@ -63,6 +63,7 @@ fn request(cancel: Arc<AtomicBool>) -> PlanningRequest {
     let rendered = crate::harness::prompt_catalog::render(&input).unwrap();
     let (progress_tx, _progress_rx) = mpsc::channel::<LiveProgress>();
     PlanningRequest {
+        investigation_authorization: None,
         mode: crate::harness::ExecutionMode::ReadOnlyAnalysis,
         task_id: None,
         execution_workspace: None,

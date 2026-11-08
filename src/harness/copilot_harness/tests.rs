@@ -12,6 +12,7 @@ mod manual_path;
 
 fn request(mode: ExecutionMode) -> PlanningRequest {
     PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode,
         task_id: None,

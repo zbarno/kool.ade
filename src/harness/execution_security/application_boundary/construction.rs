@@ -108,6 +108,35 @@ pub(super) fn new(request: &PlanningRequest) -> anyhow::Result<ApplicationBounda
         resource_bridge = Some(bridge);
         access = ToolAccess::BoundedImplementation;
         Some(config)
+    } else if requested_access == ToolAccess::InvestigationBroker {
+        if let (Some(workspace), Some(authorization)) = (
+            request.execution_workspace.as_ref(),
+            request.investigation_authorization.clone(),
+        ) {
+            anyhow::ensure!(
+                authorization.task_id == workspace.task_id
+                    && authorization.source_sha == workspace.source_sha
+                    && authorization.project_id == workspace.project_id,
+                "Manager investigation authorization does not match the selected workspace"
+            );
+            let binding = super::super::session_bridge::SessionBinding {
+                session_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+                capability_id: uuid::Uuid::new_v4().hyphenated().to_string(),
+                task_id: workspace.task_id.clone(),
+                workspace_id: format!(
+                    "{}:{}:{}",
+                    workspace.project_id, workspace.task_id, workspace.source_sha
+                ),
+                access: "investigation_broker".into(),
+                target_id: "local".into(),
+                target_arch: None,
+            };
+            let config = ServerConfig::investigation_broker(&binding, authorization);
+            access = ToolAccess::InvestigationBroker;
+            Some(config)
+        } else {
+            None
+        }
     } else if requested_access == ToolAccess::ReadOnly {
         if let Some(workspace) = request.execution_workspace.clone() {
             anyhow::ensure!(

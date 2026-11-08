@@ -40,6 +40,7 @@ fn routed_retrieval_uses_the_selected_model() {
     };
     let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
     let request = crate::harness::PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: crate::harness::ExecutionMode::Implementation,
         task_id: None,
@@ -97,6 +98,7 @@ fn alternate_qa_harness_runs_read_only_when_verifying_implementation() {
     };
     let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
     let request = crate::harness::PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: crate::harness::ExecutionMode::Implementation,
         task_id: None,
@@ -128,6 +130,7 @@ fn alternate_qa_harness_runs_read_only_when_verifying_implementation() {
 fn runnable_provider_clis_pass_implementation_requests_through_the_shared_policy() {
     let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
     let request = crate::harness::PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: crate::harness::ExecutionMode::Implementation,
         task_id: None,
@@ -199,6 +202,7 @@ fn runnable_provider_clis_pass_implementation_requests_through_the_shared_policy
 fn routed_provider_refuses_expired_or_changed_role_evidence_before_execution() {
     let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
     let request = crate::harness::PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: crate::harness::ExecutionMode::Implementation,
         task_id: None,

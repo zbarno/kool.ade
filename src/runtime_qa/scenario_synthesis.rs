@@ -168,6 +168,7 @@ fn synthesize(
     let rendered = render(&input)?;
     let prompt_manifest = rendered.manifest.clone();
     let planning = PlanningRequest {
+        investigation_authorization: None,
         mode: ExecutionMode::ReadOnlyAnalysis,
         task_id: Some(request.parent_task_uid.clone()),
         execution_workspace: None,

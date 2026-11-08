@@ -7,6 +7,35 @@ pub(super) fn validate_output_refs(
 ) -> Result<(), String> {
     match output {
         RoleOutputV1::Manager(value) => {
+            let broker_ids = context
+                .evidence_ids
+                .iter()
+                .filter(|id| id.starts_with("investigation"))
+                .collect::<std::collections::HashSet<_>>();
+            if !broker_ids.is_empty() {
+                if value.summary_evidence.is_empty()
+                    || !value
+                        .summary_evidence
+                        .iter()
+                        .any(|id| broker_ids.contains(id))
+                {
+                    return Err("Manager summary must cite verified investigation evidence".into());
+                }
+                super::validate_refs(&value.summary_evidence, &context.evidence_ids)?;
+                let cited_text = value
+                    .summary_evidence
+                    .iter()
+                    .filter_map(|id| context.evidence_content.get(id))
+                    .flat_map(|text| text.lines())
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .collect::<std::collections::HashSet<_>>();
+                if !cited_text.contains(value.summary.trim()) {
+                    return Err(
+                        "Manager summary must reproduce one verified evidence line verbatim".into(),
+                    );
+                }
+            }
             for action in &value.proposed_actions {
                 super::validate_refs(&action.evidence, &context.evidence_ids)?;
             }

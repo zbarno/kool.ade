@@ -37,3 +37,24 @@ profiles the local checkout's selected branch and labels its commit explicitly.
 It does not establish that a task branch has been merged into a destination
 branch; callers that need task source and destination evidence must request
 those refs explicitly from the scanner.
+
+## Manager investigation broker
+
+Manager's technical investigation tool accepts only an app-authorized
+repository, source ref and commit, workspace/task identity, planning revision,
+profile-indexed paths, evidence classes, and bounded literal query. The app
+injects the cancellation identity. The provider cannot supply a host command,
+arbitrary filesystem path, network URL, or cancellation target. Investigation
+uses pinned Git objects through the repository profile boundary and does not
+mount the checkout into a shell or container.
+
+Each receipt reports inspected and omitted paths, exact source and content
+hashes, sanitized matching lines, resource use, uncertainty, confidence, and a
+typed outcome. The app rechecks the pinned repository profile and planning
+revision before accepting the result, then attaches receipt and source hashes
+to Manager output validation. Incomplete or omitted scope is not evidence of
+absence. Requests are idempotent across provider retries, limited to eight
+receipts per Manager run, and bounded to 32 files, 256 KiB, 128 matches, and
+10 seconds per request. Cancellation crosses the provider process through a
+private app-owned marker and is acknowledged before temporary evidence is
+cleaned up.

@@ -171,6 +171,7 @@ printf '%s\n' '{"type":"agent_end","messages":[{"role":"assistant","content":[{"
     fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
     environment.set(PI_BINARY_ENV, &script);
     let outcome = PiHarness.execute(&PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode: crate::harness::ExecutionMode::Implementation,
         task_id: None,

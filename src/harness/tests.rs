@@ -8,6 +8,7 @@ fn temp_dir() -> std::path::PathBuf {
 fn planning_request(mode: ExecutionMode) -> PlanningRequest {
     let (progress_tx, _progress_rx) = std::sync::mpsc::channel();
     PlanningRequest {
+        investigation_authorization: None,
         prompt_manifest: None,
         mode,
         task_id: Some("synthetic-task".into()),

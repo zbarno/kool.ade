@@ -35,6 +35,20 @@ pub(in crate::app::manager) fn decode(
     )?;
     let proposed_actions = output.proposed_actions;
     let mut lines = vec![output.summary];
+    if !output.summary_evidence.is_empty() {
+        let evidence = output
+            .summary_evidence
+            .iter()
+            .filter_map(|id| {
+                evidence_hashes
+                    .get(id)
+                    .map(|hash| format!("{id} sha256:{hash}"))
+            })
+            .collect::<Vec<_>>();
+        if !evidence.is_empty() {
+            lines.push(format!("Evidence: {}", evidence.join(", ")));
+        }
+    }
     for action in &proposed_actions {
         lines.push(format!(
             "{:?}: {} — {}",

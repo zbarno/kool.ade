@@ -54,6 +54,7 @@ pub(super) fn render_context_request(
     let rendered = render(&RoleInputV1::bootstrap_conversation(payload))?;
     let (progress_tx, _progress_rx) = mpsc::channel::<LiveProgress>();
     Ok(PlanningRequest {
+        investigation_authorization: None,
         mode: ExecutionMode::ReadOnlyAnalysis,
         task_id: None,
         execution_workspace: None,

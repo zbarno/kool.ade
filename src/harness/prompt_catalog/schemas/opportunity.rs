@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub struct ManagerOutputV2 {
     pub summary: String,
+    #[serde(default)]
+    pub summary_evidence: Vec<String>,
     pub proposed_actions: Vec<ManagerActionV1>,
     #[serde(default)]
     pub opportunities: Vec<OpportunityProposalV1>,

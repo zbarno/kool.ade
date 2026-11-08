@@ -165,6 +165,7 @@ fn live_reviewer_detects_seeded_overengineering_and_unrelated_changes() {
         runtime_qa_screenshot_review: None,
     };
     let request = PlanningRequest {
+        investigation_authorization: None,
         mode: ExecutionMode::ReadOnlyAnalysis,
         task_id: Some("seeded-review-eval-task".into()),
         execution_workspace: None,

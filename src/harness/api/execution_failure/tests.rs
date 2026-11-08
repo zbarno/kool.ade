@@ -2,6 +2,7 @@ use super::*;
 
 fn request(mode: ExecutionMode) -> PlanningRequest {
     PlanningRequest {
+        investigation_authorization: None,
         mode,
         task_id: Some("task-1".into()),
         execution_workspace: Some(crate::execution::contract::WorkspaceRef {

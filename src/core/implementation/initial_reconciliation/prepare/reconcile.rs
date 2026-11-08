@@ -41,6 +41,7 @@ pub(super) fn run(
         let unmerged = unmerged_paths(runner, &state.task_repository)?;
         let diff = runner.git(&state.task_repository, &["diff", "--cc"])?;
         let request = PlanningRequest {
+        investigation_authorization: None,
             prompt_manifest: None,
             mode: crate::harness::ExecutionMode::Implementation,
             task_id: state.task_uid.clone().or_else(|| Some(state.ticket.clone())),

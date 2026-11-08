@@ -149,6 +149,7 @@ pub(super) fn build_request(
     .map_err(anyhow::Error::msg)?;
     let (progress_tx, _progress_rx) = mpsc::channel();
     let request = PlanningRequest {
+        investigation_authorization: None,
         mode: ExecutionMode::ReadOnlyAnalysis,
         task_id: state.task_uid.clone(),
         execution_workspace: None,

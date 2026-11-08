@@ -116,6 +116,7 @@ fn newer_blocking_clarification_stops_task_generation_before_model_or_artifacts(
     let baseline = task_files(&root);
     let (harness, calls) = harness(Vec::new());
     let request = crate::harness::PlanningRequest {
+        investigation_authorization: None,
         mode: crate::harness::ExecutionMode::TaskGeneration,
         task_id: None,
         execution_workspace: None,

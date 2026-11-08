@@ -18,7 +18,11 @@ const PROVIDERS: [CliProvider; 6] = [
 fn every_mode_has_equal_repository_tool_authority_across_all_providers() {
     for mode in ExecutionMode::ALL {
         let expected_access = mode.tool_access();
-        let expected_tools = tool_names(expected_access);
+        let expected_tools = if expected_access == ToolAccess::InvestigationBroker {
+            Vec::new()
+        } else {
+            tool_names(expected_access)
+        };
         for provider in PROVIDERS {
             let boundary = super::test_boundary_for_profile(expected_access, mode.profile());
             let mut args = Vec::new();
@@ -41,7 +45,7 @@ fn every_user_role_keeps_its_intended_mode_and_provider_authority() {
         (
             HarnessRole::Manager,
             ExecutionMode::Manager,
-            ToolAccess::ReadOnly,
+            ToolAccess::InvestigationBroker,
         ),
         (
             HarnessRole::PlanningAnalyst,
@@ -111,7 +115,11 @@ fn every_user_role_keeps_its_intended_mode_and_provider_authority() {
             expected_execution_mode(role),
             "{role:?}"
         );
-        let tools = tool_names(access);
+        let tools = if access == ToolAccess::InvestigationBroker {
+            Vec::new()
+        } else {
+            tool_names(access)
+        };
         for provider in PROVIDERS {
             let boundary = super::test_boundary_for_profile(
                 role.harness_mode().tool_access(),
@@ -146,6 +154,7 @@ fn tool_names(access: ToolAccess) -> Vec<String> {
     match access {
         ToolAccess::None => Vec::new(),
         ToolAccess::ReadOnly => vec!["koolade_bash".into()],
+        ToolAccess::InvestigationBroker => vec!["koolade_investigate".into()],
         ToolAccess::BoundedImplementation => vec![
             "koolade_bash".into(),
             "koolade_resource".into(),

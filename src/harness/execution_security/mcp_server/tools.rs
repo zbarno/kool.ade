@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 mod inspection;
+mod investigation;
 use inspection::{record_inspection, screenshot};
 
 pub(super) struct CallResponse {
@@ -22,6 +23,9 @@ impl InspectionAudit {
 }
 
 pub(super) fn list(config: &ServerConfig) -> Vec<Value> {
+    if config.access == BoundaryAccess::InvestigationBroker {
+        return investigation::list(config);
+    }
     if config.access == BoundaryAccess::RuntimeQaScreenshotReview {
         if config
             .screenshot_access
@@ -47,6 +51,7 @@ pub(super) fn list(config: &ServerConfig) -> Vec<Value> {
         "name": "koolade_bash",
         "description": match config.access {
             BoundaryAccess::ReadOnly => "Run a read-only shell command in the application-selected workspace inside Kool.ad/e's Docker planning session.",
+            BoundaryAccess::InvestigationBroker => "Arbitrary commands are unavailable in Manager investigation sessions.",
             BoundaryAccess::Implementation => "Run a shell command in the assigned task clone inside Kool.ad/e's Docker implementation session. Network and host credentials are unavailable.",
             BoundaryAccess::RuntimeQaScreenshotReview => "Screenshot inspection is the only tool available in this runtime QA reviewer session.",
         },
@@ -119,6 +124,9 @@ pub(super) fn call_with_audit(
     {
         return screenshot(config, arguments);
     }
+    if name == "koolade_investigate" && config.access == BoundaryAccess::InvestigationBroker {
+        return investigation::call(config, arguments);
+    }
     let result = match name {
         "koolade_bash" if config.access != BoundaryAccess::RuntimeQaScreenshotReview => {
             bash(config_path, config, arguments)
@@ -164,6 +172,7 @@ fn bash(
         workspace_id: config.workspace_id.clone(),
         access: match config.access {
             BoundaryAccess::ReadOnly => "read_only".into(),
+            BoundaryAccess::InvestigationBroker => "investigation_broker".into(),
             BoundaryAccess::Implementation => "implementation".into(),
             BoundaryAccess::RuntimeQaScreenshotReview => "runtime_qa_screenshot_review".into(),
         },
@@ -206,6 +215,42 @@ mod tests {
     }
 
     #[test]
+    fn manager_investigation_mode_never_exposes_shell_or_other_tools() {
+        let mut config = config(BoundaryAccess::InvestigationBroker);
+        let id = "00000000-0000-4000-8000-000000000002".to_owned();
+        config.investigation_authorization = Some(crate::core::investigation_broker::InvestigationAuthorizationV1 {
+            code_root: PathBuf::from("/synthetic/repo"),
+            planning_root: PathBuf::from("/synthetic/planning"),
+            receipt_root: PathBuf::from("/synthetic/receipts"),
+            project_id: "00000000-0000-4000-8000-000000000003".into(),
+            repository_id: "root".into(),
+            source_ref: "refs/heads/main".into(),
+            source_sha: "a".repeat(40),
+            workspace_id: format!("00000000-0000-4000-8000-000000000003:{id}:{}", "a".repeat(40)),
+            task_id: id,
+            cancellation_id: "00000000-0000-4000-8000-000000000002".into(),
+            task_revision: "planning-revision-1".into(),
+            profile: serde_json::from_value(serde_json::json!({
+                "schema_version": 1, "key": {"repository_id":"root", "source_ref":"refs/heads/main", "commit_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "dirty_checkout":false},
+                "scanned_at_unix_ms":1, "status":"unavailable", "languages":[], "manifests":[], "build_and_test_conventions":[],
+                "top_level_subsystems":[], "entry_points_and_interfaces":[], "dependencies":[], "execution_boundaries":[], "observed_capabilities":[],
+                "navigation_candidates":[], "omissions":[], "scan":{"tree_entries_seen":0,"files_read":0,"bytes_read":0,"navigation_indexes_read":0,"documents_read":0,"truncated":false}
+            })).unwrap(),
+            repositories: crate::core::project_repos::ProjectManifest { repositories: vec![crate::core::project_repos::Repository { id: "root".into(), role: "Primary code".into(), remote: String::new(), display_name: None }] },
+        });
+        let listed = list(&config);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0]["name"], "koolade_investigate");
+        let response = call(
+            Path::new("/tmp/server.json"),
+            &config,
+            "koolade_bash",
+            &Value::Null,
+        );
+        assert_eq!(response["isError"], true);
+    }
+
+    #[test]
     fn implementation_tools_are_exactly_the_shared_policy_surface() {
         let config = config(BoundaryAccess::Implementation);
         let listed = list(&config);
@@ -235,6 +280,7 @@ mod tests {
             resource_socket: None,
             resource_cache: None,
             screenshot_access: None,
+            investigation_authorization: None,
         }
     }
 }
