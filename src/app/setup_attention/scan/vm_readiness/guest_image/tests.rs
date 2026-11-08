@@ -27,10 +27,22 @@ fn checked_image_domain_requires_linux_amd64_host() {
 }
 
 #[test]
-fn bundled_lock_reports_no_promoted_guest_image() {
-    let probe = super::probe();
-    assert_eq!(probe.state, EvidenceState::Missing);
-    assert_eq!(probe.code, EvidenceCode::ComputerGuestImageNotPromoted);
+fn bundled_catalog_stays_unverified_without_local_floor_and_cache() {
+    let lock: serde_json::Value = serde_json::from_str(super::IMAGE_LOCK).unwrap();
+    assert_eq!(lock["status"], "promoted");
+    assert_eq!(lock["catalog_generation"], 1);
+    assert!(
+        lock["images"]
+            .as_array()
+            .is_some_and(|images| !images.is_empty())
+    );
+
+    let probe = super::probe_bundle_at(super::IMAGE_LOCK.as_bytes(), super::SIGNED_CATALOG, None);
+    assert_eq!(probe.state, EvidenceState::Unknown);
+    assert_eq!(
+        probe.code,
+        EvidenceCode::ComputerGuestImageCatalogUnverified
+    );
 }
 
 #[test]
