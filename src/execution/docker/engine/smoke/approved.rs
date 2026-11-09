@@ -235,7 +235,11 @@ impl EngineDiscovery {
                 true,
             ));
         }
-        let available = self.api.image_digests().await?;
+        let available = super::super::probe::image_digests_with_retry(
+            self.api.as_ref(),
+            super::super::ENGINE_OPERATION_TIMEOUT,
+        )
+        .await?;
         verify_image_observation(&image, &available, "linux", architecture)?;
         self.verify_image_present(&image).await?;
         let after_inventory = self.inspect_snapshot_engine().await?;
