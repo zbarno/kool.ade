@@ -20,6 +20,7 @@
 - [kool-ad-e-redesign.md](./kool-ad-e-redesign.md) - Read for Kool.ad/e redesign and rebrand.
 - [living-specification-policy.md](./living-specification-policy.md) - Read for Published specification policy.
 - [machine-bootstrap.md](./machine-bootstrap.md) - Read for Machine bootstrap readiness and setup guidance.
+- [manager-knowledge-evaluation.md](./manager-knowledge-evaluation.md) - Read for integrated Manager knowledge trust boundaries and evaluation.
 - [manager-lifecycle.md](./manager-lifecycle.md) - Read for Man.ager lifecycle contract.
 - [native-desktop-distribution.md](./native-desktop-distribution.md) - Read for Native desktop packaging status.
 - [opportunity-discovery.md](./opportunity-discovery.md) - Read for Opportunity discovery and user authority.

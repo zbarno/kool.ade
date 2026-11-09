@@ -237,6 +237,42 @@ impl ComputerUseAuthorityRegistryV1 {
         Ok(())
     }
 
+    /// Atomically replace one active actor's authority after fencing it.
+    /// The old authority is revoked while the registry write lock excludes
+    /// new lookups; revoke waits for any action already inside its read guard.
+    pub fn replace_actor(
+        &self,
+        session: ComputerSessionV1,
+        controller_key_id: String,
+        controller_key: ed25519_dalek::VerifyingKey,
+        actor: ComputerActionActorV1,
+        role_id: String,
+        now_unix_ms: u64,
+    ) -> Result<(), GuestProtocolErrorV1> {
+        let session_id = session.identity.session_id.clone();
+        let replacement = Arc::new(AuthorizedComputerUseSessionV1::new(
+            session,
+            controller_key_id,
+            controller_key,
+            actor,
+            role_id,
+            now_unix_ms,
+        )?);
+        let mut sessions = self
+            .sessions
+            .write()
+            .map_err(|_| GuestProtocolErrorV1::StaleLease)?;
+        let previous = sessions
+            .get(&session_id)
+            .ok_or(GuestProtocolErrorV1::WrongSession)?;
+        if previous.session.identity != replacement.session.identity {
+            return Err(GuestProtocolErrorV1::WrongSession);
+        }
+        previous.revoke()?;
+        sessions.insert(session_id, replacement);
+        Ok(())
+    }
+
     pub fn authorize(
         &self,
         caller: &ComputerIdentityV1,

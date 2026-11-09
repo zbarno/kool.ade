@@ -1,6 +1,6 @@
 use super::{
     EngineDiscovery, ImageLock, PrerequisiteCode, PrerequisiteFailure, SelectedImage, failure,
-    operation_timeout,
+    probe::inspect_image_with_retry,
 };
 
 impl EngineDiscovery {
@@ -26,9 +26,7 @@ impl EngineDiscovery {
             ));
         }
         let observation =
-            tokio::time::timeout(self.timeouts.operation, self.api.inspect_image(image))
-                .await
-                .map_err(|_| operation_timeout("approved local image inspection"))??;
+            inspect_image_with_retry(self.api.as_ref(), image, self.timeouts.operation).await?;
         crate::execution::docker::images::verify_image_observation(
             image,
             &observation.repo_digests,

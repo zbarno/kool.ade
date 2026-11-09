@@ -2,9 +2,20 @@
 
 Status: host-side verifier/cache/overlay APIs, authenticated guest companion,
 candidate image build, and protected signed-catalog promotion workflow are
-implemented. The bundled catalog and image lock remain unpromoted until a
-successful manual promotion and reviewed catalog PR. Real KVM GUI and overlay
-validation is tracked separately in #392.
+implemented. `main` contains signed catalog generation 1 with an approved
+x86_64 image and a promoted image lock. The merge-triggered publisher
+succeeded in [run #42612937221](https://github.com/zbarno/kool.ade/actions/runs/42612937221)
+after [PR #555](https://github.com/zbarno/kool.ade/pull/555) merged. The
+[public release](https://github.com/zbarno/kool.ade/releases/tag/computer-use-images-v1-1-6ae802274b9b)
+contains the qcow2 image, signed catalog, image lock, SBOM, and verified
+attestations. Its approved x86_64 image digest is
+`sha256:6ae802274b9bea94f4365fc9a4923cff0496039fd4a283bb95e87fe8bfce127c`.
+Real KVM GUI readiness and overlay validation are tracked separately in #392.
+The current host support claim is x86_64 Linux without nested virtualization.
+Readiness reports macOS, Windows, ARM hosts, and nested virtualization as
+unsupported. Image availability alone does not imply host support; future
+macOS/Windows backends belong to #395, and platform claims follow the #392
+release matrix.
 
 ## Image build boundary
 
@@ -43,15 +54,20 @@ catalog and lock against the draft release contents and guest image digest
 before publishing that release. A collision with an existing release tag
 fails closed. The component inventory does not claim OS-file coverage or
 license compliance.
-`containers/computer-use/images.lock.json` is an explicit empty VM lock with
-`status: not_promoted`; the bundled `catalog-v1.json` is a non-catalog sentinel.
-Both files are separate from `containers/images.lock.json` and must remain
-unpromoted until a real, signed catalog can be pinned.
+`containers/computer-use/images.lock.json` is separate from
+`containers/images.lock.json` and pins the image in signed catalog generation
+1. The catalog and lock are present in `main`; the publisher verified them
+against the release assets and verified the guest image bytes before making
+the release public. A push to `main` that changes the catalog, lock, or
+promotion workflow starts that publisher and fails closed on any mismatch. The
+current published release is linked above; a newly promoted digest must still
+pass the same merge-triggered verification before it is reported as public.
 
 The bootstrap and companion units are installed. The companion runs as the
-unprivileged `koolade` account and reconnects after channel loss. The unsigned
-candidate remains unpromoted; a future signed manifest must carry the reviewed
-companion protocol version and binary SHA-256. The typed channel carries
+unprivileged `koolade` account and reconnects after channel loss. The signed
+catalog binds the reviewed companion protocol version and binary SHA-256; the
+promotion workflow publishes the matching release only after verifying its
+assets. The typed channel carries
 authenticated heartbeats and structured guest failure reasons; a failed action
 leaves its durable host journal entry pending so callers cannot infer that a
 side effect did not occur.
@@ -152,20 +168,21 @@ fixed root-owned `/usr/bin/qemu-img`, and each invocation has a 20-second
 timeout, bounded output capture, and process-group kill. It makes the base
 read-only and creates an isolated qcow2 overlay. The overlay path is a random
 UUID under a private directory. The VM backend must stop the VM before calling
-`release_after_vm_stopped`. These APIs are not yet connected to a production VM
-backend; #380 consumes the verifier/cache/floor interface. The application
-must supply a stable durable state path and perform authenticated first-install
-initialization before launch; this component does not select or create that
-application path.
+`release_after_vm_stopped`. The local QEMU/KVM backend in #380 now connects to
+these verifier/cache/floor APIs. The application must supply a stable durable
+state path and perform authenticated first-install initialization before
+launch; this image component does not select or create that application path.
 
 ## Trust and readiness dependencies
 
-- #381 owns the authenticated companion protocol, binary, and actual heartbeat.
-  Until it lands and is cryptographically bound in a signed catalog, the guest
-  must be reported unavailable even if the desktop is visible.
-- #378 consumes `GuestImageManifestTrustV1` and verifies promoted catalog and
-  cached-image readiness with an application-pinned key. Do not add a private
-  signing key or select from mutable tags.
+- #381 delivered the authenticated companion protocol, binary, and heartbeat;
+  the signed generation-1 catalog binds the companion protocol version and
+  binary digest. The #392 suite still owns evidence of a real boot and
+  authenticated heartbeat; implementation or image promotion alone does not
+  prove integrated guest readiness.
+- #378 verifies promoted catalog and cached-image readiness with an
+  application-pinned key. Do not add a private signing key or select from
+  mutable tags.
 - #392 owns real KVM boot, GUI capture/input, companion heartbeat, base
   immutability, two-overlay isolation, cleanup, and no-host-credential checks.
   Synthetic tests and build success do not establish those properties.

@@ -16,6 +16,7 @@ on:
     paths:
       - "containers/computer-use/catalog-v1.json"
       - "containers/computer-use/images.lock.json"
+      - ".github/workflows/computer-use-image-promotion.yml"
 
 permissions:
   contents: read

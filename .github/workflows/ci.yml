@@ -21,6 +21,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Test documentation navigation validator
         run: python3 -m unittest scripts.tests.test_doc_navigation -v
+      - name: Test Manager knowledge evaluation corpus and scorer
+        run: python3 -m unittest scripts.tests.test_manager_knowledge_evaluation -v
       - name: Validate documentation navigation indexes
         run: python3 scripts/check-doc-navigation.py
 
@@ -286,6 +288,16 @@ jobs:
           unset DOCKER_CONTEXT
           cargo +1.98.1 nextest run --locked --lib --no-fail-fast --test-threads 1 \
             -E 'test(restarted_rootless_daemon_preserves_dirty_clone_without_command_replay)'
+
+      - name: Pre-pull locked General image for task resume E2E
+        run: |
+          set -euo pipefail
+          unset DOCKER_CONTEXT
+          mapfile -t images < <(jq -r '.profiles.general[] | select(.platform == "linux/amd64" and .runtime_enabled != false) | .reference' containers/images.lock.json | sort -u)
+          test "${#images[@]}" -gt 0
+          for image in "${images[@]}"; do
+            docker pull --platform linux/amd64 "$image"
+          done
 
       - name: Run isolated Docker-backed task resume E2E
         env:

@@ -1,9 +1,15 @@
+mod display;
+
 use std::{
     collections::BTreeMap,
     path::PathBuf,
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
+use super::super::{ComputerUseActionSummaryV1, ComputerUseControlOwnerV1};
+use super::scheduler::{ComputerUseSchedulerV1, SessionPermit};
+use super::session_journal::ComputerUseSessionJournalV1;
 use crate::computer_use::{
     ComputerBackend, ComputerMachineHandleV1, ComputerSessionV1,
     guest_image::{
@@ -40,6 +46,8 @@ pub(super) struct Runtime {
     pub overlay_root: PathBuf,
     pub qemu_tool: QemuImageToolV1,
     pub image: CachedGuestImageV1,
+    pub scheduler: Arc<ComputerUseSchedulerV1>,
+    pub session_journal: ComputerUseSessionJournalV1,
 }
 
 pub(super) struct ActiveSession {
@@ -50,7 +58,27 @@ pub(super) struct ActiveSession {
     pub started: bool,
     pub paused: bool,
     pub uncertain: bool,
+    pub uncertain_action_sequence: Option<u64>,
+    pub inspection_result: Option<String>,
     pub next_action_sequence: u64,
+    pub role_id: String,
+    pub control_owner: ComputerUseControlOwnerV1,
+    pub control_generation: u64,
+    pub require_fresh_agent_observation: bool,
+    pub private_input: bool,
+    pub active_app: Option<String>,
+    pub action_log: std::collections::VecDeque<ComputerUseActionSummaryV1>,
+    pub display_io: Arc<Mutex<()>>,
+    pub _scheduler_permit: SessionPermit,
+}
+
+pub(super) struct DisplaySnapshot {
+    pub(super) last_requested: Instant,
+    pub(super) frame_revision: u64,
+    pub(super) frame_width: u16,
+    pub(super) frame_height: u16,
+    pub(super) frame_png: Option<Vec<u8>>,
+    pub(super) frame_error: bool,
 }
 
 pub struct ComputerUseMcpControllerV1 {
@@ -58,6 +86,10 @@ pub struct ComputerUseMcpControllerV1 {
     pub(super) runtime: Option<Runtime>,
     pub(super) unavailable_reason: Option<String>,
     pub(super) sessions: Mutex<BTreeMap<String, ActiveSession>>,
+    pub(super) display_streams: Mutex<BTreeMap<String, Arc<Mutex<DisplaySnapshot>>>>,
+    pub(super) view_cache: Mutex<BTreeMap<String, super::super::ComputerUseTaskSessionViewV1>>,
+    pub(super) pending_controls: Mutex<BTreeMap<String, Option<String>>>,
+    pub(super) recovery_notices: Mutex<BTreeMap<String, String>>,
 }
 
 impl ComputerUseMcpControllerV1 {
@@ -74,6 +106,10 @@ impl ComputerUseMcpControllerV1 {
             runtime: None,
             unavailable_reason: Some(reason.into()),
             sessions: Mutex::new(BTreeMap::new()),
+            display_streams: Mutex::new(BTreeMap::new()),
+            view_cache: Mutex::new(BTreeMap::new()),
+            pending_controls: Mutex::new(BTreeMap::new()),
+            recovery_notices: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -110,6 +146,21 @@ impl ComputerUseMcpControllerV1 {
                 crate::computer_use::guest_image::ComputerGuestArchitectureV1::X86_64,
             )
             .map_err(|_| "trusted_image_unavailable")?;
+        let scheduler = ComputerUseSchedulerV1::new(
+            probe.parallel_slots_per_machine,
+            probe.max_vcpus,
+            probe.max_memory_bytes,
+            probe.max_overlay_bytes,
+        )
+        .ok_or("trusted_scheduler_unavailable")?;
+        let session_journal = ComputerUseSessionJournalV1::open(
+            &config.overlay_root.with_file_name("session-journal"),
+        )?;
+        config
+            .backend
+            .recover()
+            .map_err(|_| "trusted_runtime_recovery_failed")?;
+        session_journal.reconcile_after_restart(super::session::unix_time_ms())?;
         Ok(Self {
             registry,
             runtime: Some(Runtime {
@@ -124,9 +175,15 @@ impl ComputerUseMcpControllerV1 {
                 overlay_root: config.overlay_root,
                 qemu_tool: config.qemu_tool,
                 image,
+                scheduler,
+                session_journal,
             }),
             unavailable_reason: None,
             sessions: Mutex::new(BTreeMap::new()),
+            display_streams: Mutex::new(BTreeMap::new()),
+            view_cache: Mutex::new(BTreeMap::new()),
+            pending_controls: Mutex::new(BTreeMap::new()),
+            recovery_notices: Mutex::new(BTreeMap::new()),
         })
     }
 

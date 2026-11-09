@@ -1,11 +1,15 @@
 use super::super::{KooladeApp, Screen};
 use crate::ui::ApplicationCommand;
 mod code_review;
+mod computer_use_task;
 mod task_detail;
 
 impl KooladeApp {
     pub(in crate::app::root) fn dispatch_ui_command(&mut self, command: ApplicationCommand) {
         match command {
+            ApplicationCommand::ComputerUseTask { task_id, session_id, action } => {
+                computer_use_task::dispatch(self, &task_id, &session_id, action)
+            }
             ApplicationCommand::PublishInitialProductSpecification => match &mut self.screen {
                 Screen::Connected(project) => {
                     match crate::app::root::spec_reconciliation::publish_initial_product_specification(project) {
