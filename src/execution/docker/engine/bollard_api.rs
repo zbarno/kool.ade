@@ -49,7 +49,8 @@ impl BollardApi {
         image: &SelectedImage,
         expected_fingerprint: &str,
     ) -> Result<EngineSnapshot, PrerequisiteFailure> {
-        let snapshot = DockerApi::inspect(self).await?;
+        let snapshot =
+            super::probe::inspect_with_retry(self, super::ENGINE_OPERATION_TIMEOUT).await?;
         let actual =
             super::approval_fingerprint(&self.endpoint, &snapshot, image).map_err(|_| {
                 failure(
