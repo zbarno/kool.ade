@@ -3,6 +3,7 @@ use crate::app::setup_attention::catalog::{Finding, FindingStatus, HostKind, Mac
 
 mod cancellation;
 mod cross_process;
+mod flow;
 mod ordering;
 
 #[test]
@@ -17,7 +18,7 @@ fn loads_schema_v2_store_without_required_image_profiles() {
 
     let store = load_from(&path).unwrap();
 
-    assert_eq!(store.schema_version, 2);
+    assert_eq!(store.schema_version, 3);
     assert_eq!(store.latest_scan_generation, 36);
     assert!(store.required_image_profiles.is_empty());
 }

@@ -6,6 +6,14 @@ use std::collections::BTreeSet;
 
 pub(super) fn decode(bytes: &[u8]) -> anyhow::Result<SetupTaskStoreV1> {
     let mut value: serde_json::Value = serde_json::from_slice(bytes)?;
+    let declared_version = value
+        .get("schemaVersion")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| anyhow::anyhow!("unsupported setup store schema"))?;
+    anyhow::ensure!(
+        declared_version == 2 || declared_version == 3,
+        "unsupported setup store schema"
+    );
     let mut legacy_rootless = false;
     if let Some(tasks) = value
         .get_mut("tasks")
@@ -25,6 +33,10 @@ pub(super) fn decode(bytes: &[u8]) -> anyhow::Result<SetupTaskStoreV1> {
         }
     }
     let mut store: SetupTaskStoreV1 = serde_json::from_value(value)?;
+    // Schema 3 adds the additive `setupFlow` field; prior files upgrade in place.
+    if store.schema_version == 2 {
+        store.schema_version = 3;
+    }
     let old_probe = legacy_rootless
         && store
             .tasks
