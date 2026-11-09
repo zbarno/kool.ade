@@ -21,8 +21,9 @@ const GRANTABLE_OPERATIONS: [crate::computer_use::ComputerOperationV1; 8] = [
     crate::computer_use::ComputerOperationV1::WaitFor,
     crate::computer_use::ComputerOperationV1::QueryState,
 ];
-const GRANTABLE_APPS: [&str; 4] = [
+const GRANTABLE_APPS: [&str; 5] = [
     "chromium",
+    "chromium-research",
     "file-manager",
     "text-editor",
     "test-gui-fixture",
@@ -37,6 +38,9 @@ pub struct ComputerUseConsentScopeV1 {
     pub allowed_operations: Vec<crate::computer_use::ComputerOperationV1>,
     pub allowed_apps: Vec<String>,
     pub network_profile: crate::computer_use::ComputerNetworkProfileV1,
+    /// Research networking is a separate, human-selected consent option. The
+    /// provider cannot request or promote this profile through its tool input.
+    pub internet_research_available: bool,
     pub resource_budget: crate::computer_use::ComputerResourceBudgetV1,
 }
 
@@ -59,6 +63,7 @@ pub struct ComputerUseConsentRequestV1 {
     pub allowed_operations: Vec<crate::computer_use::ComputerOperationV1>,
     pub allowed_apps: Vec<String>,
     pub network_profile: crate::computer_use::ComputerNetworkProfileV1,
+    pub available_network_profiles: Vec<crate::computer_use::ComputerNetworkProfileV1>,
     pub resource_budget: crate::computer_use::ComputerResourceBudgetV1,
 }
 
@@ -116,17 +121,67 @@ impl ComputerUseConsentBrokerV1 {
     }
 
     pub fn decide(&self, request_id: &str, approve: bool) -> Result<(), &'static str> {
-        let pending = self
+        if approve {
+            self.decide_with_network_profile(
+                request_id,
+                crate::computer_use::ComputerNetworkProfileV1::Disabled,
+            )
+        } else {
+            self.finish_decision(request_id, None)
+        }
+    }
+
+    pub fn decide_with_network_profile(
+        &self,
+        request_id: &str,
+        network_profile: crate::computer_use::ComputerNetworkProfileV1,
+    ) -> Result<(), &'static str> {
+        self.finish_decision(request_id, Some(network_profile))
+    }
+
+    fn finish_decision(
+        &self,
+        request_id: &str,
+        network_profile: Option<crate::computer_use::ComputerNetworkProfileV1>,
+    ) -> Result<(), &'static str> {
+        let mut state = self
             .state
             .lock()
-            .map_err(|_| "Computer Use consent state is unavailable")?
+            .map_err(|_| "Computer Use consent state is unavailable")?;
+        let pending_view = state
+            .pending
+            .get(request_id)
+            .ok_or("Computer Use consent request is no longer pending")?;
+        if network_profile.is_some_and(|profile| {
+            !pending_view
+                .view
+                .available_network_profiles
+                .contains(&profile)
+        }) {
+            return Err("selected network profile was not offered by the app");
+        }
+        let pending = state
             .pending
             .remove(request_id)
             .ok_or("Computer Use consent request is no longer pending")?;
-        let approved_at = if approve { unix_time_ms() } else { None };
-        let decision = if let Some(approved_at_unix_ms) = approved_at {
+        drop(state);
+        let decision = if let Some(network_profile) = network_profile {
+            let Some(approved_at_unix_ms) = unix_time_ms() else {
+                let _ = pending.reply.send(ComputerUseConsentDecisionV1::Denied);
+                return Err("system clock is unavailable");
+            };
+            let mut request = pending.view;
+            request.network_profile = network_profile;
+            if network_profile == crate::computer_use::ComputerNetworkProfileV1::InternetResearch
+                && request.allowed_apps.iter().any(|app| app == "chromium")
+            {
+                request.allowed_apps.retain(|app| app != "chromium");
+                request.allowed_apps.push("chromium-research".to_owned());
+                request.allowed_apps.sort();
+                request.allowed_apps.dedup();
+            }
             ComputerUseConsentDecisionV1::Approved(Box::new(ComputerUseConsentGrantV1 {
-                request: pending.view,
+                request,
                 approved_at_unix_ms,
                 expires_at_unix_ms: approved_at_unix_ms.saturating_add(
                     crate::computer_use::MINIMUM_DISPOSABLE_VM_BUDGET_V1.time_limit_ms,
@@ -139,9 +194,6 @@ impl ComputerUseConsentBrokerV1 {
             .reply
             .send(decision)
             .map_err(|_| "Computer Use consent request has already ended")?;
-        if approve && approved_at.is_none() {
-            return Err("System clock is unavailable");
-        }
         Ok(())
     }
 
@@ -173,6 +225,14 @@ impl ComputerUseConsentBrokerV1 {
                 allowed_operations: scope.allowed_operations,
                 allowed_apps: scope.allowed_apps,
                 network_profile: scope.network_profile,
+                available_network_profiles: if scope.internet_research_available {
+                    vec![
+                        crate::computer_use::ComputerNetworkProfileV1::Disabled,
+                        crate::computer_use::ComputerNetworkProfileV1::InternetResearch,
+                    ]
+                } else {
+                    vec![crate::computer_use::ComputerNetworkProfileV1::Disabled]
+                },
                 resource_budget: scope.resource_budget,
             },
             reply,

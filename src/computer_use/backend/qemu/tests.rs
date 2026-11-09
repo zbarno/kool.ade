@@ -79,6 +79,7 @@ fn launch_arguments_have_no_network_monitor_host_mount_or_guest_shell() {
         Path::new("/private/guest-control.sock"),
         Path::new("/private/display.sock"),
         Path::new("/private/boot.json"),
+        None,
     )
     .unwrap();
     let args = args
@@ -115,8 +116,49 @@ fn launch_argument_paths_reject_qemu_option_delimiters() {
         Path::new("/private/guest-control.sock"),
         Path::new("/private/display.sock"),
         Path::new("/private/boot.json"),
+        None,
     );
     assert_eq!(result, Err(ComputerBackendErrorV1::InvalidOverlay));
+}
+
+#[test]
+fn internet_research_qemu_network_is_restricted_to_the_loopback_proxy() {
+    let mut session = session();
+    session.network_profile = ComputerNetworkProfileV1::InternetResearch;
+    session.policy.network_profile = ComputerNetworkProfileV1::InternetResearch;
+    session.policy.capability = ComputerCapabilityV1::InternetResearch;
+    let args = command_args(
+        &session,
+        Path::new("/private/overlay.qcow2"),
+        Path::new("/private/guest-control.sock"),
+        Path::new("/private/display.sock"),
+        Path::new("/private/boot.json"),
+        Some("127.0.0.1:49152".parse().unwrap()),
+    )
+    .unwrap()
+    .iter()
+    .map(|arg| arg.to_string_lossy().into_owned())
+    .collect::<Vec<_>>();
+    let nic = args.windows(2).find(|pair| pair[0] == "-nic").unwrap();
+    assert!(nic[1].contains("restrict=on"));
+    assert!(nic[1].contains("ipv6=off"));
+    assert!(nic[1].contains("guestfwd=tcp:10.0.2.100:3128-tcp:127.0.0.1:49152"));
+    assert!(!nic[1].contains("hostfwd"));
+    assert!(!nic[1].contains("bridge"));
+    assert!(args.iter().any(|arg| arg.contains("spawn=deny")));
+
+    session.policy.capability = ComputerCapabilityV1::ApprovedGuiTask;
+    assert_eq!(
+        command_args(
+            &session,
+            Path::new("/private/overlay.qcow2"),
+            Path::new("/private/guest-control.sock"),
+            Path::new("/private/display.sock"),
+            Path::new("/private/boot.json"),
+            Some("127.0.0.1:49152".parse().unwrap()),
+        ),
+        Err(ComputerBackendErrorV1::UnsupportedPolicy)
+    );
 }
 
 #[test]

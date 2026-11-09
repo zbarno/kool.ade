@@ -51,7 +51,11 @@ impl LocalKvmComputerBackend {
             .validate_for_host(now_unix_ms, &self.controller_key_id, &self.controller_key)
             .map_err(|_| Error::UntrustedSession)?;
         if session.session_class != ComputerSessionClassV1::Disposable
-            || session.network_profile != crate::computer_use::ComputerNetworkProfileV1::Disabled
+            || !matches!(
+                session.network_profile,
+                crate::computer_use::ComputerNetworkProfileV1::Disabled
+                    | crate::computer_use::ComputerNetworkProfileV1::InternetResearch
+            )
             || session.identity.session_id != overlay.session_id()
             || session.image_digest != overlay.image_digest()
             || session.image_manifest_digest != overlay.manifest_digest()
@@ -136,6 +140,7 @@ impl LocalKvmComputerBackend {
             overlay: overlay.0.take(),
             owner,
             child: None,
+            network_gateway: None,
             supervision: Arc::new(AtomicU8::new(2)),
         };
         let event = match self.event(&mut machine, EventKind::Prepared) {

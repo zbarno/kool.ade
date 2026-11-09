@@ -22,6 +22,9 @@ impl LocalKvmComputerBackend {
         {
             return Err(Error::QemuTimedOut);
         }
+        if let Some(gateway) = machine.network_gateway.as_ref() {
+            gateway.pause();
+        }
         process::signal_owned(&machine.owner, libc::SIGSTOP)?;
         machine.owner.state = "suspended".to_owned();
         self.event(machine, EventKind::Suspended)
@@ -48,6 +51,9 @@ impl LocalKvmComputerBackend {
             return Err(Error::QemuTimedOut);
         }
         process::signal_owned(&machine.owner, libc::SIGCONT)?;
+        if let Some(gateway) = machine.network_gateway.as_ref() {
+            gateway.resume();
+        }
         machine.owner.state = if machine
             .supervision
             .load(std::sync::atomic::Ordering::Acquire)

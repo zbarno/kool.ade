@@ -30,12 +30,32 @@ impl LocalKvmComputerBackend {
             return Err(Error::OwnershipMismatch);
         }
         boot_config::write_boot_config(session, &boot_config)?;
+        let mut network_gateway = if session.network_profile
+            == crate::computer_use::ComputerNetworkProfileV1::InternetResearch
+        {
+            let lifetime_ms = session
+                .policy
+                .resource_budget
+                .time_limit_ms
+                .min(session.lease.expires_at_unix_ms.saturating_sub(now_unix_ms));
+            let lifetime = Duration::from_millis(lifetime_ms);
+            Some(
+                crate::computer_use::network::InternetResearchGatewayV1::start(lifetime)
+                    .map_err(|_| Error::UnsupportedPolicy)?,
+            )
+        } else {
+            None
+        };
+        let research_proxy = network_gateway
+            .as_ref()
+            .map(crate::computer_use::network::InternetResearchGatewayV1::address);
         let args = commands::command_args(
             session,
             overlay.path(),
             &control_socket,
             &display_socket,
             &boot_config,
+            research_proxy,
         )
         .map_err(|_| Error::ResourceLimit)?;
         let qemu_path = self.qemu_path();
@@ -76,6 +96,7 @@ impl LocalKvmComputerBackend {
             let _ = cgroup.kill_and_remove(&handle.session_id);
             return Err(error);
         }
+        machine.network_gateway = network_gateway.take();
         machine.child = Some(child);
         machine
             .supervision

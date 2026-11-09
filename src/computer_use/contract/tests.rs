@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 fn capability_restriction_only_intersects_and_lowers_authority_and_quotas() {
     let mut broad = test_policy();
     broad.capability = ComputerCapabilityV1::InternetResearch;
-    broad.network_profile = ComputerNetworkProfileV1::ApprovedInternet;
+    broad.network_profile = ComputerNetworkProfileV1::InternetResearch;
     let mut ceiling = broad.clone();
     ceiling.capability = ComputerCapabilityV1::ApprovedGuiTask;
     ceiling.network_profile = ComputerNetworkProfileV1::Disabled;
@@ -20,6 +20,39 @@ fn capability_restriction_only_intersects_and_lowers_authority_and_quotas() {
     assert_eq!(result.authorized_operations, ceiling.authorized_operations);
     assert_eq!(result.resource_budget.action_limit, 4);
     assert_eq!(result.resource_budget.cpu_millis, 1000);
+}
+
+#[test]
+fn internet_research_network_requires_its_exact_disposable_capability() {
+    let mut policy = test_policy();
+    policy.capability = ComputerCapabilityV1::InternetResearch;
+    policy.network_profile = ComputerNetworkProfileV1::InternetResearch;
+    assert_eq!(policy.validate(), Ok(()));
+
+    policy.capability = ComputerCapabilityV1::ApprovedGuiTask;
+    assert_eq!(
+        policy.validate(),
+        Err("internet research requires a disposable research capability")
+    );
+
+    policy.capability = ComputerCapabilityV1::InternetResearch;
+    policy.session_class = ComputerSessionClassV1::PersonalPersistent;
+    assert_eq!(
+        policy.validate(),
+        Err("persistent sessions are unsupported until encrypted storage grants exist")
+    );
+
+    policy = test_policy();
+    policy.network_profile = ComputerNetworkProfileV1::InternalApprovedPreview;
+    assert_eq!(
+        policy.validate(),
+        Err("internal preview networking is not implemented")
+    );
+    policy.network_profile = ComputerNetworkProfileV1::PersonalInternet;
+    assert_eq!(
+        policy.validate(),
+        Err("personal internet networking is not implemented")
+    );
 }
 
 #[test]

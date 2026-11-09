@@ -10,6 +10,10 @@ pub(super) fn paint(
     consent_requests: &[crate::computer_use::mcp::ComputerUseConsentRequestV1],
     revoke: &mut impl FnMut(&str) -> Result<(), String>,
     decide: &mut impl FnMut(&str, bool) -> Result<(), String>,
+    decide_network: &mut impl FnMut(
+        &str,
+        crate::computer_use::ComputerNetworkProfileV1,
+    ) -> Result<(), String>,
 ) {
     ui.add_space(theme::spacing::L);
     ui.label(theme::section_heading("Pending Computer Use consent"));
@@ -28,6 +32,19 @@ pub(super) fn paint(
                 ui.label(format!("User ID: {}", request.identity.user_id));
                 ui.label(format!("Role: {}", request.role_id));
                 ui.label(format!("Purpose: {}", request.purpose));
+                if request
+                    .available_network_profiles
+                    .contains(&crate::computer_use::ComputerNetworkProfileV1::InternetResearch)
+                {
+                    ui.colored_label(
+                        theme::WARNING,
+                        "Internet research permits public HTTPS only (64 MiB per session; 8 concurrent, 256 total connections). HTTP, UDP, and QUIC are blocked.",
+                    );
+                    ui.colored_label(
+                        theme::WARNING,
+                        "TLS contents cannot be inspected; do not enter credentials or submit purchases, posts, or other sensitive actions.",
+                    );
+                }
                 ui.label(format!("Target VM: {}", request.machine_id));
                 ui.label(format!(
                     "Proposed operations: {}",
@@ -46,9 +63,11 @@ pub(super) fn paint(
                     "Network access: {}",
                     match request.network_profile {
                         crate::computer_use::ComputerNetworkProfileV1::Disabled => "disabled",
-                        crate::computer_use::ComputerNetworkProfileV1::ApprovedInternet => {
-                            "approved internet"
+                        crate::computer_use::ComputerNetworkProfileV1::InternetResearch => {
+                            "internet research"
                         }
+                        crate::computer_use::ComputerNetworkProfileV1::InternalApprovedPreview => "internal preview",
+                        crate::computer_use::ComputerNetworkProfileV1::PersonalInternet => "personal internet",
                     }
                 ));
                 ui.label(format!(
@@ -77,6 +96,20 @@ pub(super) fn paint(
                             ui,
                             decide(&request.request_id, true),
                             "Computer Use request approved.",
+                        );
+                    }
+                    if request
+                        .available_network_profiles
+                        .contains(&crate::computer_use::ComputerNetworkProfileV1::InternetResearch)
+                        && ui.button("Approve for Internet research").clicked()
+                    {
+                        set_consent_result(
+                            ui,
+                            decide_network(
+                                &request.request_id,
+                                crate::computer_use::ComputerNetworkProfileV1::InternetResearch,
+                            ),
+                            "Computer Use Internet research access approved.",
                         );
                     }
                 });
@@ -131,9 +164,11 @@ pub(super) fn paint(
                 "Network access: {}",
                 match permission.network_profile {
                     crate::computer_use::ComputerNetworkProfileV1::Disabled => "disabled",
-                    crate::computer_use::ComputerNetworkProfileV1::ApprovedInternet => {
-                        "approved internet"
+                    crate::computer_use::ComputerNetworkProfileV1::InternetResearch => {
+                        "internet research"
                     }
+                    crate::computer_use::ComputerNetworkProfileV1::InternalApprovedPreview => "internal preview",
+                    crate::computer_use::ComputerNetworkProfileV1::PersonalInternet => "personal internet",
                 }
             ));
             ui.label(format!(

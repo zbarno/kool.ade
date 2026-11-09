@@ -80,9 +80,12 @@ readiness is assessed independently, so a VM finding does not make ordinary
 Docker work unavailable. Its state comes from the completed, persisted setup
 scan; UI rendering does not launch a Docker probe.
 
-Internet computer mode has a separate `setup:computer:network` task. It remains
-unverified until the approved filtered gateway and SSRF controls are available;
-the disposable computer profile stays offline by default.
+Internet computer mode has a separate `setup:computer:network` task. A local
+filtered HTTPS gateway is implemented for explicit disposable InternetResearch
+grants, but the current signed guest companion protocol is v1, so consent does
+not offer networking and the disposable computer profile stays offline. The
+network readiness task remains Unverified until a compatible signed image is
+promoted and the independent real-guest security matrix in #392 passes.
 
 Current typed Linux kernel and user namespace observations are consumed by the
 KVM finding; a missing or inaccessible current-generation observation remains
@@ -112,8 +115,10 @@ filtered network gateway, authenticated graphics transport, personal
 encryption key service, and guest protocol compatibility. Each record is bound
 to the current scan generation and has no host path or raw command output. The
 readiness probes for a filtered gateway, authenticated viewer, and personal key
-service are `Unsupported` because those components are not integrated in this
-build. Image catalog integrity is `Missing` when the bundled lock confirms no
+service are `Unsupported` because those components are not integrated in the
+readiness scan in this build. The filtered gateway implementation is not
+itself evidence of signed-image compatibility or real-guest isolation. Image
+catalog integrity is `Missing` when the bundled lock confirms no
 image was promoted. A promoted catalog is `Ready` only when its app-pinned
 signature, lock digest and generation, existing durable generation floor, and
 cached image bytes all verify. Missing or unsafe floor/cache state and malformed

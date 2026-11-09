@@ -16,6 +16,8 @@ pub mod guest_protocol;
 mod host_executable;
 pub mod mcp;
 #[cfg(target_os = "linux")]
+pub(crate) mod network;
+#[cfg(target_os = "linux")]
 pub(crate) mod process_security;
 
 #[cfg(target_os = "linux")]

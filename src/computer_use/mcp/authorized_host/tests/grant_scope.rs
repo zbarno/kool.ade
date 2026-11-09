@@ -27,7 +27,7 @@ fn issued_session_is_accepted_only_when_its_scope_fits_explicit_consent() {
     assert!(!host.validate_issued_grant(&caller, &wrong_destination, &ready));
     let mut wrong_network = grant.clone();
     wrong_network.request.network_profile =
-        crate::computer_use::ComputerNetworkProfileV1::ApprovedInternet;
+        crate::computer_use::ComputerNetworkProfileV1::InternetResearch;
     assert!(!host.validate_issued_grant(&caller, &wrong_network, &ready));
     let mut smaller_budget = grant.clone();
     smaller_budget.request.resource_budget.cpu_millis = 1;
