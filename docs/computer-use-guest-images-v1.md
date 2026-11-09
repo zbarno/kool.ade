@@ -3,9 +3,14 @@
 Status: host-side verifier/cache/overlay APIs, authenticated guest companion,
 candidate image build, and protected signed-catalog promotion workflow are
 implemented. `main` contains signed catalog generation 1 with an approved
-x86_64 image and a promoted image lock. The corresponding GitHub release is
-still a draft until the merge-triggered publisher succeeds. Real KVM GUI and
-overlay validation is tracked separately in #392.
+x86_64 image and a promoted image lock. The merge-triggered publisher
+succeeded in [run #42612937221](https://github.com/zbarno/kool.ade/actions/runs/42612937221)
+after [PR #555](https://github.com/zbarno/kool.ade/pull/555) merged. The
+[public release](https://github.com/zbarno/kool.ade/releases/tag/computer-use-images-v1-1-6ae802274b9b)
+contains the qcow2 image, signed catalog, image lock, SBOM, and verified
+attestations. Its approved x86_64 image digest is
+`sha256:6ae802274b9bea94f4365fc9a4923cff0496039fd4a283bb95e87fe8bfce127c`.
+Real KVM GUI readiness and overlay validation are tracked separately in #392.
 
 ## Image build boundary
 
@@ -45,12 +50,13 @@ before publishing that release. A collision with an existing release tag
 fails closed. The component inventory does not claim OS-file coverage or
 license compliance.
 `containers/computer-use/images.lock.json` is separate from
-`containers/images.lock.json` and now pins the image in signed catalog
-generation 1. The catalog and lock are present in `main`; the publisher
-workflow verifies their digests against the draft release assets before making
+`containers/images.lock.json` and pins the image in signed catalog generation
+1. The catalog and lock are present in `main`; the publisher verified them
+against the release assets and verified the guest image bytes before making
 the release public. A push to `main` that changes the catalog, lock, or
-promotion workflow starts that publisher. Until it succeeds, do not claim the
-release asset is publicly available.
+promotion workflow starts that publisher and fails closed on any mismatch. The
+current published release is linked above; a newly promoted digest must still
+pass the same merge-triggered verification before it is reported as public.
 
 The bootstrap and companion units are installed. The companion runs as the
 unprivileged `koolade` account and reconnects after channel loss. The signed
