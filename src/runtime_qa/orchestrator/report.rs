@@ -15,6 +15,7 @@ pub(super) fn assemble_report(
     request: &QaRunRequestV1,
     scenarios: &[QaScenarioV1],
     outputs: Vec<QaDriverOutputV1>,
+    computer_qa_target: Option<super::super::QaComputerTargetV1>,
 ) -> Result<ReportAssembly, String> {
     let platform = request.relevant_platforms[0];
     let mut actions = Vec::<QaActionEvidenceV1>::new();
@@ -188,6 +189,15 @@ pub(super) fn assemble_report(
     if actions.len() > request.bounded_limits.max_total_actions as usize {
         return Err("runtime QA action trace exceeds its approved bound".into());
     }
+    let screenshot_bytes = screenshots
+        .iter()
+        .map(|screenshot| screenshot.bytes.len() as u64)
+        .sum::<u64>();
+    if screenshots.len() > usize::from(request.bounded_limits.max_screenshots)
+        || screenshot_bytes > request.bounded_limits.max_evidence_bytes
+    {
+        return Err("runtime QA evidence exceeds its approved screenshot bounds".into());
+    }
     let mut requirement_coverage = Vec::with_capacity(request.requirement_ids.len());
     for requirement in &request.requirement_ids {
         let matching = assertions
@@ -229,6 +239,7 @@ pub(super) fn assemble_report(
         approved_spec_hash: request.approved_spec_hash.clone(),
         build_hash: request.build_artifact_sha256.clone(),
         platform,
+        computer_qa_target,
         driver_version: request.driver_profile_version.clone(),
         display,
         scenario_ids: scenario_ids.clone(),

@@ -11,6 +11,8 @@ pub struct RuntimeQaScenarioProposal {
     pub proposal_sha256: Option<String>,
     pub scenarios: Vec<crate::runtime_qa::QaScenarioV1>,
     pub approved: bool,
+    pub approved_execution_target: Option<crate::runtime_qa::QaExecutionTargetV1>,
+    pub computer_qa_available: bool,
     pub stale: bool,
     pub experimental: bool,
 }

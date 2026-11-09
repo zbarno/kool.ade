@@ -32,6 +32,7 @@ pub(super) fn save_infrastructure_report(
         approved_spec_hash: request.approved_spec_hash.clone(),
         build_hash: request.build_artifact_sha256.clone(),
         platform: QaPlatform::Web,
+        computer_qa_target: None,
         driver_version: request.driver_profile_version.clone(),
         display: QaDisplayV1 {
             width: Some(1024),
@@ -131,6 +132,7 @@ fn save_failed_report_without_receipt(
         approved_spec_hash: request.approved_spec_hash.clone(),
         build_hash: request.build_artifact_sha256.clone(),
         platform: QaPlatform::Web,
+        computer_qa_target: None,
         driver_version: request.driver_profile_version.clone(),
         display: QaDisplayV1 {
             width: Some(1024),

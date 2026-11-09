@@ -20,6 +20,7 @@ struct SmokeApi {
     derived_observation: Mutex<Option<ImageObservation>>,
     daemon_id: Mutex<String>,
     pull_count: AtomicUsize,
+    transient_inventory_failures: AtomicUsize,
     swap_after_pull: Mutex<Option<String>>,
     swap_after_smoke: Mutex<Option<String>>,
     available_images: Mutex<Vec<String>>,
@@ -61,7 +62,22 @@ impl DockerApi for SmokeApi {
     }
 
     fn image_digests<'a>(&'a self) -> EngineFuture<'a, Result<Vec<String>, PrerequisiteFailure>> {
-        Box::pin(async move { Ok(self.available_images.lock().unwrap().clone()) })
+        Box::pin(async move {
+            if self
+                .transient_inventory_failures
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
+                    remaining.checked_sub(1)
+                })
+                .is_ok()
+            {
+                return Err(failure(
+                    PrerequisiteCode::DaemonStopped,
+                    "Docker Engine disconnected or did not answer its health request",
+                    true,
+                ));
+            }
+            Ok(self.available_images.lock().unwrap().clone())
+        })
     }
 
     fn inspect_image<'a>(
@@ -160,6 +176,8 @@ impl DockerApi for SmokeApi {
         Box::pin(async move {
             *self.smoke_image.lock().unwrap() = Some(image.reference.clone());
             *self.smoke_name.lock().unwrap() = Some(container_name.to_owned());
+            self.transient_inventory_failures
+                .fetch_add(1, Ordering::Relaxed);
             if self.tamper_after_smoke
                 && let Some(observation) = self.derived_observation.lock().unwrap().as_mut()
             {

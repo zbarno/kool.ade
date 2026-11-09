@@ -27,14 +27,17 @@ pub(super) fn for_ticket(project: &Project, ticket: &str) -> Option<RuntimeQaSce
         .is_some_and(|proposal| proposal.task_revision != task.revision);
     let approved = store
         .load_approved_scenario_proposal(request, task.revision)
-        .is_ok();
+        .ok();
     Some(RuntimeQaScenarioProposal {
         task_revision: task.revision,
         proposal_sha256: proposal
             .as_ref()
             .and_then(|proposal| proposal.proposal_sha256().ok()),
         scenarios: proposal.map_or_else(Vec::new, |proposal| proposal.scenarios),
-        approved,
+        approved: approved.is_some(),
+        approved_execution_target: approved.map(|approved| approved.execution_target),
+        computer_qa_available: request.relevant_platforms
+            == [crate::runtime_qa::QaPlatform::LinuxDesktop],
         stale,
         experimental: request.mode == crate::runtime_qa::QaRunMode::Experimental,
     })

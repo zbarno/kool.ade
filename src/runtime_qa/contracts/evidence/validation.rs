@@ -20,6 +20,10 @@ impl QaEvidenceManifestV1 {
             || self.build_hash != request.build_artifact_sha256
             || !request.relevant_platforms.contains(&self.platform)
             || self.driver_version != request.driver_profile_version
+            || self.computer_qa_target.as_ref().is_some_and(|target| {
+                self.platform != super::super::super::QaPlatform::LinuxDesktop
+                    || target.validate_for(request).is_err()
+            })
             || !valid_display(self.platform, &self.display)
             || !valid_text(&self.display.theme, 64)
             || !valid_text(&self.display.locale, 64)
@@ -47,6 +51,11 @@ impl QaEvidenceManifestV1 {
             || !valid_text(&self.retention_policy, 256)
         {
             return Err("runtime QA evidence manifest does not match its request or bounds".into());
+        }
+        if self.computer_qa_target.is_some()
+            && self.platform != super::super::super::QaPlatform::LinuxDesktop
+        {
+            return Err("Computer QA evidence must use the Linux desktop platform".into());
         }
         let scenario_ids = self
             .scenario_ids

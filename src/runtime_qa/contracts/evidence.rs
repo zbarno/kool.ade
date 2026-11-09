@@ -79,6 +79,10 @@ pub struct QaEvidenceManifestV1 {
     pub approved_spec_hash: String,
     pub build_hash: String,
     pub platform: QaPlatform,
+    /// Present only when an app-owned Computer QA driver verified and used the
+    /// exact disposable guest session and staged task build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub computer_qa_target: Option<super::QaComputerTargetV1>,
     pub driver_version: String,
     pub display: QaDisplayV1,
     pub scenario_ids: Vec<String>,
