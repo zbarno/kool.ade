@@ -189,6 +189,15 @@ pub(super) fn assemble_report(
     if actions.len() > request.bounded_limits.max_total_actions as usize {
         return Err("runtime QA action trace exceeds its approved bound".into());
     }
+    let screenshot_bytes = screenshots
+        .iter()
+        .map(|screenshot| screenshot.bytes.len() as u64)
+        .sum::<u64>();
+    if screenshots.len() > usize::from(request.bounded_limits.max_screenshots)
+        || screenshot_bytes > request.bounded_limits.max_evidence_bytes
+    {
+        return Err("runtime QA evidence exceeds its approved screenshot bounds".into());
+    }
     let mut requirement_coverage = Vec::with_capacity(request.requirement_ids.len());
     for requirement in &request.requirement_ids {
         let matching = assertions

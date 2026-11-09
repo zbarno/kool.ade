@@ -138,9 +138,15 @@ identity that governed interaction. The contract validates that the staged
 artifact digest is the exact approved build digest; a launch or screenshot
 alone still cannot pass the normal assertion and review gates.
 
+The scenario approval view offers a separate, opt-in Computer QA approval for
+Linux desktop targets. That approval records `ComputerUseGuest` alongside the
+user receipt, exact scenario proposal hash, and immutable request SHA (which
+binds the task revision, spec, build, AppTarget, and Start recipe). A
+`QaComputerBuildApprovalV1` is emitted only from the persisted approval and
+exposes a canonical digest for P15 grants; it is not a caller-supplied boolean.
 Production dispatch remains unavailable until an app-owned adapter can verify
-the live Computer Use grant and consume the exact staging receipt before
-launching the approved application in the guest. Preview-only Docker drivers
+the live Human Computer Use consent and consume the exact staging receipt
+before launching the approved application in the guest. Preview-only Docker drivers
 do not receive guest authority, and no preview relay/network policy is changed.
 The current app still has no verified staged-build-to-guest-launch adapter;
 this limitation is tracked by #389. The adapter depends on verified guest
@@ -149,3 +155,11 @@ P15 transfer bridge in #385 being connected to task-build dispatch. Real guest
 interaction belongs to the #392 integration acceptance matrix. The typed
 contract and fail-closed routing are not evidence that task applications have
 run in a VM.
+
+The in-process Computer QA scenario adapter accepts only generic Linux desktop
+actions and returns the ordinary hashed screenshot/assertion evidence consumed
+by the independent reviewer and QA-finding repair loop. Browser locator, API,
+and URL-navigation actions remain unsupported in a guest session; the offline
+Computer Use VM path does not inherit preview-relay network access. A
+specialized in-guest browser adapter must be separately authorized and bound
+to the same staged build before web targets can use it.

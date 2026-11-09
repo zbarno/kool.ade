@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 
 mod browser;
+mod computer_approval;
 mod computer_target;
 mod evidence;
 mod finding;
@@ -12,7 +13,8 @@ mod review_subject;
 mod scenario;
 
 pub use browser::*;
-pub use computer_target::QaComputerTargetV1;
+pub use computer_approval::QaComputerBuildApprovalV1;
+pub use computer_target::{QA_COMPUTER_APP_ID_V1, QaComputerStagedArtifactV1, QaComputerTargetV1};
 pub use evidence::*;
 pub use finding::*;
 pub use linux_desktop::*;
@@ -28,6 +30,16 @@ pub enum QaOutcome {
     Fail,
     Incomplete,
     InfrastructureBlocked,
+}
+
+/// Explicit user selection for where approved Runtime QA scenarios run.
+/// Computer Use remains opt-in and requires its own Human consent session.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QaExecutionTargetV1 {
+    #[default]
+    IsolatedContainer,
+    ComputerUseGuest,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

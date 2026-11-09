@@ -59,6 +59,11 @@ pub enum ApplicationCommand {
         expected_task_revision: u64,
         proposal_sha256: String,
     },
+    ApproveRuntimeQaComputerScenarios {
+        ticket: String,
+        expected_task_revision: u64,
+        proposal_sha256: String,
+    },
     ReviewRuntimeQaApplicability {
         ticket: String,
     },
