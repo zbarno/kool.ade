@@ -240,6 +240,20 @@ overlays. This host backend does not authenticate the guest protocol or verify
 VM escape resistance; real KVM security evidence remains a separate release
 validation task.
 
+The controller also keeps a private append-only session journal with monotonic
+sequence numbers. It records session scope and policy digests, a fingerprint of
+the authenticated guest boot transcript, lifecycle and control-owner changes,
+and action intent/result dispositions without storing
+action payloads, screenshots, or observations. A restart first recovers owned
+VM processes, then fences unfinished journal entries as interrupted. An action
+that was in flight at that point stays outcome-unknown and is never replayed
+automatically. The task view exposes queue position, interruption, and uncertain
+outcome inspection; recovered sessions remain fenced until the operator
+dismisses them. Session admission is FIFO and reserves slot, CPU, memory, and
+overlay capacity before preparing a VM. These controller and UI tests do not
+claim real-VM interruption or recovery evidence; that lifecycle validation is
+tracked separately.
+
 ## Provider MCP boundary
 
 Provider access is an optional app-issued `ComputerUseMcpAccessV1` attached to

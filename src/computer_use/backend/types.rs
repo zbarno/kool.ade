@@ -115,6 +115,7 @@ pub struct ComputerBackendEventV1 {
     pub session_id: String,
     pub lease_generation: u64,
     pub kind: ComputerBackendEventKindV1,
+    pub boot_fingerprint: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
