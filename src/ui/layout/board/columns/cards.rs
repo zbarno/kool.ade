@@ -3,6 +3,7 @@ use super::super::super::*;
 mod clarification;
 mod feature;
 mod item;
+mod machine_group;
 mod ownership;
 mod pr_task;
 mod setup;
@@ -14,8 +15,9 @@ pub(super) use clarification::clarification;
 pub(super) use feature::approval;
 pub(super) use feature::plan_review;
 pub(super) use item::item;
+pub(super) use machine_group::machine_group;
 pub(super) use pr_task::{pr_task, pr_task_column};
-pub(super) use setup::{machine_setup, setup};
+pub(super) use setup::setup;
 pub(super) use task::task;
 pub(super) use work::work;
 

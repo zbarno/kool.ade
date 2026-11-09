@@ -21,8 +21,8 @@ pub use model::{
     VerifiedResultV1, authorization_scope_digest,
 };
 pub use transaction::{
-    apply_transition, begin_scan, insert_flow, load, load_flow, reconcile_live,
-    recover_after_restart, update_flow,
+    apply_transition, begin_scan, insert_flow, insert_or_replace_terminal_flow, load, load_flow,
+    reconcile_live, recover_after_restart, update_flow,
 };
 pub(crate) use transaction::{
     begin_scan_at, reconcile_at_if, reconcile_live_if, recover_interrupted_at,

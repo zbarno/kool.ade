@@ -648,5 +648,9 @@ impl Surface for KooladeApp {
         &mut self.toasts
     }
 
+    fn setup_flow_position(&self) -> Option<crate::persistence::setup_tasks::SetupFlowStateV1> {
+        self.setup_flow_cache.clone()
+    }
+
     details::specification_status::specification_status_surface_methods!();
 }

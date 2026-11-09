@@ -27,6 +27,7 @@ impl KooladeApp {
         let claude_install_completed = self.claude_install.take_completion().is_some();
         let remediation_completed = self.setup_remediation.poll(ctx);
         self.publish_setup_task_store_update();
+        self.pump_setup_flow();
         if image_completed || claude_install_completed || remediation_completed {
             self.refresh_setup_attention(true);
         }
