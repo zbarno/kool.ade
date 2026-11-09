@@ -135,6 +135,7 @@ impl LocalKvmComputerBackend {
                         session_id: machine.owner.session_id.clone(),
                         lease_generation: machine.owner.lease_generation,
                         kind: EventKind::GuestReady,
+                        boot_fingerprint: super::super::boot_fingerprint(machine),
                     });
                 }
                 if supervision >= 3 {
@@ -168,6 +169,7 @@ impl LocalKvmComputerBackend {
                 session_id: machine.owner.session_id.clone(),
                 lease_generation: machine.owner.lease_generation,
                 kind: EventKind::GuestReady,
+                boot_fingerprint: super::super::boot_fingerprint(machine),
             });
         }
         if machine

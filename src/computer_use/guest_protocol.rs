@@ -17,7 +17,9 @@ pub use host::{
     AuthenticatedGuestChannelV1, AuthorizedComputerUseSessionV1, ComputerUseAuthorityRegistryV1,
     ComputerUsePermissionV1, GuestHostTransportV1,
 };
-pub use journal::{GuestActionJournalV1, GuestJournalErrorV1, GuestReplayDecisionV1};
+pub use journal::{
+    GuestActionJournalStatusV1, GuestActionJournalV1, GuestJournalErrorV1, GuestReplayDecisionV1,
+};
 pub use types::{
     GUEST_PROTOCOL_VERSION_V1, GuestActionOutcomeV1, GuestActionReplyV1, GuestCapabilitySetV1,
     GuestEnvelopeV1, GuestExitReasonV1, GuestMessageV1, GuestObservationV1, GuestOperationResultV1,

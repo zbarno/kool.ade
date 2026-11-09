@@ -216,7 +216,7 @@ impl EngineDiscovery {
     }
 }
 
-async fn inspect_with_retry(
+pub(super) async fn inspect_with_retry(
     api: &dyn super::DockerApi,
     timeout: Duration,
 ) -> Result<EngineSnapshot, PrerequisiteFailure> {
@@ -236,7 +236,7 @@ async fn inspect_with_retry(
     }
 }
 
-async fn image_digests_with_retry(
+pub(super) async fn image_digests_with_retry(
     api: &dyn super::DockerApi,
     timeout: Duration,
 ) -> Result<Vec<String>, PrerequisiteFailure> {
@@ -245,6 +245,27 @@ async fn image_digests_with_retry(
         let result = match tokio::time::timeout(timeout, api.image_digests()).await {
             Ok(result) => result,
             Err(_) => Err(operation_timeout("Docker image inventory")),
+        };
+        match result {
+            Err(error) if error.retryable && attempt < TRANSIENT_PROBE_RETRIES => {
+                attempt += 1;
+                tokio::time::sleep(PROBE_RETRY_DELAY).await;
+            }
+            result => return result,
+        }
+    }
+}
+
+pub(super) async fn inspect_image_with_retry(
+    api: &dyn super::DockerApi,
+    image: &crate::execution::docker::images::SelectedImage,
+    timeout: Duration,
+) -> Result<crate::execution::docker::images::ImageObservation, PrerequisiteFailure> {
+    let mut attempt = 0;
+    loop {
+        let result = match tokio::time::timeout(timeout, api.inspect_image(image)).await {
+            Ok(result) => result,
+            Err(_) => Err(operation_timeout("approved local image inspection")),
         };
         match result {
             Err(error) if error.retryable && attempt < TRANSIENT_PROBE_RETRIES => {

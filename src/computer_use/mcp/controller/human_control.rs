@@ -1,4 +1,4 @@
-use std::sync::Arc;
+mod queue;
 
 use crate::computer_use::{ComputerActionActorV1 as Actor, ComputerLifecycleV1 as Lifecycle};
 
@@ -6,80 +6,10 @@ use super::{
     types::{ActiveSession, ComputerUseMcpControllerV1},
     unix_time_ms,
 };
-use crate::computer_use::mcp::{
-    ComputerUseControlCommandV1 as ControlCommand, ComputerUseControlOwnerV1 as Owner,
-};
+use crate::computer_use::mcp::ComputerUseControlOwnerV1 as Owner;
+use crate::computer_use::mcp::controller::session_journal::SessionEventKindV1 as JournalEvent;
 
 impl ComputerUseMcpControllerV1 {
-    pub fn queue_control_change(
-        self: &Arc<Self>,
-        task_id: &str,
-        user_id: &str,
-        session_id: &str,
-        command: ControlCommand,
-    ) -> Result<(), &'static str> {
-        let view = self
-            .view_cache
-            .lock()
-            .map_err(|_| "session_state_unavailable")?
-            .get(session_id)
-            .cloned()
-            .ok_or("session_not_active")?;
-        if view.task_id != task_id || view.user_id != user_id {
-            return Err("session_binding_mismatch");
-        }
-        {
-            let mut pending = self
-                .pending_controls
-                .lock()
-                .map_err(|_| "session_state_unavailable")?;
-            if pending.get(session_id).is_some_and(Option::is_none) {
-                return Err("control_change_already_pending");
-            }
-            pending.insert(session_id.to_owned(), None);
-        }
-        let weak = Arc::downgrade(self);
-        let task = task_id.to_owned();
-        let user = user_id.to_owned();
-        let session = session_id.to_owned();
-        std::thread::spawn(move || {
-            let Some(controller) = weak.upgrade() else {
-                return;
-            };
-            let result = match command {
-                ControlCommand::PauseAgent => controller.pause_agent(&task, &user, &session),
-                ControlCommand::ResumeAgent => controller.resume_agent(&task, &user, &session),
-                ControlCommand::TakeControl => {
-                    controller.take_human_control(&task, &user, &session)
-                }
-                ControlCommand::ReturnControl => {
-                    controller.return_agent_control(&task, &user, &session)
-                }
-                ControlCommand::StopComputer => {
-                    controller.stop_from_task_view(&task, &user, &session)
-                }
-                ControlCommand::LaunchApprovedApp(app_id) => {
-                    controller.launch_approved_app(&task, &user, &session, &app_id)
-                }
-            };
-            let error = result.err().map(str::to_owned);
-            if let Ok(mut pending) = controller.pending_controls.lock() {
-                if let Some(error) = &error {
-                    pending.insert(session.clone(), Some(error.clone()));
-                } else {
-                    pending.remove(&session);
-                }
-            }
-            if let Some(error) = error
-                && let Ok(mut views) = controller.view_cache.lock()
-                && let Some(view) = views.get_mut(&session)
-            {
-                view.control_error = Some(error);
-            }
-        });
-        Ok(())
-    }
-
     pub fn pause_agent(
         &self,
         task_id: &str,
@@ -97,6 +27,7 @@ impl ComputerUseMcpControllerV1 {
         if active.control_owner != Owner::Agent {
             return Err("human_control_is_active");
         }
+        journal_control(self, active, JournalEvent::AgentPaused)?;
         self.registry
             .revoke(session_id)
             .map_err(|_| "authority_revocation_failed")?;
@@ -124,6 +55,7 @@ impl ComputerUseMcpControllerV1 {
         if active.control_owner != Owner::Paused {
             return Err("human_control_is_active");
         }
+        journal_control(self, active, JournalEvent::AgentResumed)?;
         self.replace_actor(active, Actor::Agent, Lifecycle::Delegated)?;
         active.control_owner = Owner::Agent;
         advance_control_generation(active)?;
@@ -152,6 +84,7 @@ impl ComputerUseMcpControllerV1 {
         if active.control_owner == Owner::Human {
             return Ok(());
         }
+        journal_control(self, active, JournalEvent::HumanTakeover)?;
         self.replace_actor(active, Actor::Human, Lifecycle::HumanControl)?;
         active.control_owner = Owner::Human;
         active.require_fresh_agent_observation = false;
@@ -175,6 +108,7 @@ impl ComputerUseMcpControllerV1 {
         if active.control_owner != Owner::Human {
             return Err("human_control_is_not_active");
         }
+        journal_control(self, active, JournalEvent::AgentResumed)?;
         self.replace_actor(active, Actor::Agent, Lifecycle::Delegated)?;
         active.control_owner = Owner::Agent;
         active.private_input = false;
@@ -221,6 +155,21 @@ impl ComputerUseMcpControllerV1 {
         active.session = candidate;
         Ok(())
     }
+}
+
+fn journal_control(
+    controller: &ComputerUseMcpControllerV1,
+    active: &ActiveSession,
+    kind: JournalEvent,
+) -> Result<(), &'static str> {
+    let runtime = controller
+        .runtime
+        .as_ref()
+        .ok_or("trusted_runtime_unavailable")?;
+    runtime
+        .session_journal
+        .append_session(&active.session, &active.role_id, kind, None, unix_time_ms())
+        .map(|_| ())
 }
 
 pub(super) fn bound_active<'a>(

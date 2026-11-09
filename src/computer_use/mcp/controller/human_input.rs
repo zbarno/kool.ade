@@ -193,6 +193,60 @@ impl ComputerUseMcpControllerV1 {
         if cancel.is_err() || release.is_err() {
             return Err("computer_cleanup_failed");
         }
+        runtime
+            .session_journal
+            .append_session(
+                &active.session,
+                &active.role_id,
+                super::session_journal::SessionEventKindV1::SessionStopped,
+                None,
+                unix_time_ms(),
+            )
+            .map_err(|_| "session_journal_unavailable")?;
+        Ok(())
+    }
+
+    pub fn inspect_uncertain_outcome(
+        &self,
+        task_id: &str,
+        user_id: &str,
+        session_id: &str,
+    ) -> Result<(), &'static str> {
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| "session_state_unavailable")?;
+        let active = bound_active(&mut sessions, task_id, user_id, session_id)?;
+        if !active.uncertain {
+            return Err("session_outcome_is_not_uncertain");
+        }
+        let detail = match active.uncertain_action_sequence {
+            Some(sequence) => match active.journal.status_for_sequence(sequence) {
+                Ok(crate::computer_use::guest_protocol::GuestActionJournalStatusV1::Pending) => {
+                    format!("Action {sequence} remains possibly applied; do not retry it.")
+                }
+                Ok(crate::computer_use::guest_protocol::GuestActionJournalStatusV1::Completed(
+                    result,
+                )) => {
+                    format!(
+                        "Action {sequence} has a durable guest result ({result:?}); session remains fenced."
+                    )
+                }
+                Ok(
+                    crate::computer_use::guest_protocol::GuestActionJournalStatusV1::NotRecorded,
+                ) => {
+                    format!("Action {sequence} has no durable outcome; session remains fenced.")
+                }
+                Err(_) => "The local action journal is unavailable; session remains fenced.".into(),
+            },
+            None => {
+                "No action sequence was recorded; session remains fenced until it is destroyed."
+                    .into()
+            }
+        };
+        active.inspection_result = Some(detail.clone());
+        record(active, Owner::Paused, &detail, false);
+        self.cache_active_view(active);
         Ok(())
     }
 }

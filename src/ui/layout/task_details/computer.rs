@@ -23,6 +23,81 @@ fn paint_session(
     task_id: &str,
     session: &crate::computer_use::mcp::ComputerUseTaskSessionViewV1,
 ) {
+    use crate::computer_use::mcp::ComputerUseTaskSessionStatusV1 as Status;
+    match session.status {
+        Status::Queued => {
+            ui.heading("Queued computer session");
+            if let Some(position) = session.queue_position {
+                ui.label(format!(
+                    "Waiting for VM resources · queue position {position}"
+                ));
+            } else {
+                ui.label("Waiting for available VM resources");
+            }
+            button(
+                ui,
+                surface,
+                task_id,
+                session,
+                "Cancel queued request",
+                crate::ui::ComputerUseTaskActionV1::StopComputer,
+            );
+            return;
+        }
+        Status::Starting => {
+            ui.heading("Starting computer session");
+            ui.label("The VM is being prepared. Agent actions are not available yet.");
+            return;
+        }
+        Status::Uncertain => {
+            ui.heading("Computer session needs attention");
+            ui.colored_label(
+                crate::ui::theme::WARNING,
+                "The last action may have completed. It will not be retried automatically, and control will not return to the agent.",
+            );
+            if let Some(result) = &session.control_notice {
+                ui.label(result);
+            }
+            ui.add_enabled(false, egui::Button::new("Retry safe step"));
+            ui.small("Unavailable: recovery stopped the VM and recorded no retry-safe step.");
+            button(
+                ui,
+                surface,
+                task_id,
+                session,
+                "Inspect uncertain outcome",
+                crate::ui::ComputerUseTaskActionV1::InspectUncertainOutcome,
+            );
+            button(
+                ui,
+                surface,
+                task_id,
+                session,
+                "Destroy session",
+                crate::ui::ComputerUseTaskActionV1::StopComputer,
+            );
+            return;
+        }
+        Status::Interrupted => {
+            ui.heading("Computer session interrupted");
+            ui.colored_label(
+                crate::ui::theme::WARNING,
+                "This session cannot resume agent control automatically. Review its recorded activity or destroy the session.",
+            );
+            ui.add_enabled(false, egui::Button::new("Retry safe step"));
+            ui.small("Unavailable: recovery stopped the VM and recorded no retry-safe step.");
+            button(
+                ui,
+                surface,
+                task_id,
+                session,
+                "Destroy session",
+                crate::ui::ComputerUseTaskActionV1::StopComputer,
+            );
+            return;
+        }
+        Status::Active => {}
+    }
     let owner = match session.control_owner {
         crate::computer_use::mcp::ComputerUseControlOwnerV1::Agent => "Agent has control",
         crate::computer_use::mcp::ComputerUseControlOwnerV1::Human => "You have control",

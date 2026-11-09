@@ -12,6 +12,7 @@ use crate::execution::docker::{
 struct InspectApi {
     observed: Mutex<Option<ImageObservation>>,
     derived_observed: Mutex<Option<ImageObservation>>,
+    transient_inspect_failures: AtomicUsize,
     inspect_count: AtomicUsize,
     derived_inspect_count: AtomicUsize,
     pull_count: AtomicUsize,
@@ -54,6 +55,19 @@ impl DockerApi for InspectApi {
     ) -> EngineFuture<'a, Result<ImageObservation, PrerequisiteFailure>> {
         Box::pin(async move {
             self.inspect_count.fetch_add(1, Ordering::Relaxed);
+            if self
+                .transient_inspect_failures
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                    (count > 0).then_some(count.saturating_sub(1))
+                })
+                .is_ok()
+            {
+                return Err(super::super::failure(
+                    PrerequisiteCode::DaemonStopped,
+                    "synthetic transient Docker health request failure",
+                    true,
+                ));
+            }
             self.observed.lock().unwrap().clone().ok_or_else(|| {
                 super::super::failure(
                     PrerequisiteCode::ImageUnavailable,
@@ -94,6 +108,37 @@ impl DockerApi for InspectApi {
                 })
         })
     }
+}
+
+#[test]
+fn transient_locked_image_inspection_retries_before_failing_verification() {
+    let image = locked_general_image();
+    let api = Arc::new(api(Some(observation(&image)), None));
+    api.transient_inspect_failures.store(1, Ordering::Relaxed);
+    let engine = engine(api.clone());
+
+    runtime()
+        .block_on(engine.verify_image_present(&image))
+        .unwrap();
+
+    assert_eq!(api.inspect_count.load(Ordering::Relaxed), 2);
+    assert_eq!(api.pull_count.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn transient_locked_image_inspection_stops_after_two_retries() {
+    let image = locked_general_image();
+    let api = Arc::new(api(Some(observation(&image)), None));
+    api.transient_inspect_failures.store(3, Ordering::Relaxed);
+    let engine = engine(api.clone());
+
+    let error = runtime()
+        .block_on(engine.verify_image_present(&image))
+        .unwrap_err();
+
+    assert_eq!(error.code, PrerequisiteCode::DaemonStopped);
+    assert_eq!(api.inspect_count.load(Ordering::Relaxed), 3);
+    assert_eq!(api.pull_count.load(Ordering::Relaxed), 0);
 }
 
 #[test]
@@ -178,6 +223,7 @@ fn api(
     InspectApi {
         observed: Mutex::new(observed),
         derived_observed: Mutex::new(derived_observed),
+        transient_inspect_failures: AtomicUsize::new(0),
         inspect_count: AtomicUsize::new(0),
         derived_inspect_count: AtomicUsize::new(0),
         pull_count: AtomicUsize::new(0),

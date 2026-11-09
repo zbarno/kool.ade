@@ -34,6 +34,15 @@ pub enum ComputerUseControlOwnerV1 {
     Paused,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ComputerUseTaskSessionStatusV1 {
+    Queued,
+    Starting,
+    Active,
+    Interrupted,
+    Uncertain,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ComputerUseControlCommandV1 {
     PauseAgent,
@@ -41,6 +50,7 @@ pub enum ComputerUseControlCommandV1 {
     TakeControl,
     ReturnControl,
     StopComputer,
+    InspectUncertainOutcome,
     LaunchApprovedApp(String),
 }
 
@@ -62,6 +72,8 @@ pub struct ComputerUseTaskSessionViewV1 {
     pub resource_budget: super::ComputerResourceBudgetV1,
     pub actions_remaining: u32,
     pub lifecycle: super::ComputerLifecycleV1,
+    pub status: ComputerUseTaskSessionStatusV1,
+    pub queue_position: Option<usize>,
     pub control_owner: ComputerUseControlOwnerV1,
     pub control_generation: u64,
     pub active_app: Option<String>,
@@ -75,6 +87,7 @@ pub struct ComputerUseTaskSessionViewV1 {
     pub private_input: bool,
     pub control_transition_pending: bool,
     pub control_error: Option<String>,
+    pub control_notice: Option<String>,
     pub action_log: Vec<ComputerUseActionSummaryV1>,
 }
 

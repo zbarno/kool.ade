@@ -17,6 +17,7 @@ use std::{
 };
 
 use ed25519_dalek::VerifyingKey;
+use sha2::Digest;
 use uuid::Uuid;
 
 use crate::computer_use::{
@@ -39,6 +40,16 @@ use self::process::{CgroupV2, owned_process_start_ticks, qemu_program, validate_
 #[cfg(test)]
 #[path = "qemu/tests.rs"]
 mod tests;
+
+fn boot_fingerprint(machine: &LiveMachine) -> Option<String> {
+    let boot_id = machine.owner.guest_boot_id.as_ref()?;
+    let transcript = machine.owner.guest_transcript_sha256.as_ref()?;
+    let mut digest = sha2::Sha256::new();
+    digest.update(b"koolade.computer-use-boot-fingerprint.v1\0");
+    digest.update(boot_id.as_bytes());
+    digest.update(transcript.as_bytes());
+    Some(format!("sha256:{:x}", digest.finalize()))
+}
 
 struct LiveMachine {
     directory: PathBuf,
@@ -209,6 +220,7 @@ impl LocalKvmComputerBackend {
             session_id: machine.owner.session_id.clone(),
             lease_generation: machine.owner.lease_generation,
             kind,
+            boot_fingerprint: boot_fingerprint(machine),
         })
     }
 
