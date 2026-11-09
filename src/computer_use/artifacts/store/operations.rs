@@ -40,6 +40,30 @@ impl ComputerArtifactBridgeV1 {
         })
     }
 
+    /// Dedicated permission path for a persisted, user-approved Runtime QA
+    /// build. Callers must pass the canonical digest from its typed approval
+    /// record; generic grants cannot set this field or user approval.
+    // The typed controller caller will use this after #389's receipt API merges.
+    #[allow(dead_code)]
+    pub(crate) fn issue_approved_task_app_grant(
+        &self,
+        request: GrantRequest,
+        approval_receipt_sha256: String,
+    ) -> Result<Grant, ComputerArtifactBridgeErrorV1> {
+        self.with_lock(|| {
+            let grant = Grant::from_approved_task_app_request(request, approval_receipt_sha256)
+                .map_err(|_| ComputerArtifactBridgeErrorV1::Denied)?;
+            grant
+                .validate(grant.issued_at_unix_ms)
+                .map_err(|_| ComputerArtifactBridgeErrorV1::Invalid)?;
+            self.create_private(
+                &grant_path(&grant.grant_id),
+                &serde_json::to_vec(&grant).map_err(|_| ComputerArtifactBridgeErrorV1::Storage)?,
+            )?;
+            Ok(grant)
+        })
+    }
+
     /// Create a one-use clipboard permission. Clipboard bytes are passed only
     /// in memory and are never written to the operational store or model logs.
     #[allow(clippy::too_many_arguments)] // Explicit consent and both authority generations are required.

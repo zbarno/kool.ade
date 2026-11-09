@@ -3,13 +3,7 @@ use crate::computer_use::guest_protocol::{
     GuestEnvelopeV1, GuestExitReasonV1, GuestMessageV1, GuestProtocolErrorV1, GuestSenderV1,
     auth::GuestHandshakeCompleteV1, frame::write_frame,
 };
-use std::{
-    io::Write,
-    os::unix::fs::MetadataExt,
-    path::Path,
-    process::{Command, Stdio},
-    time::Duration,
-};
+use std::{io::Write, os::unix::fs::MetadataExt, path::Path, time::Duration};
 
 const GUEST_APPS: &[(&str, &str)] = &[
     ("chromium", "/usr/bin/chromium"),
@@ -24,12 +18,21 @@ const GUEST_APPS: &[(&str, &str)] = &[
 
 pub(super) fn guest_capabilities(config: &GuestBootConfigV1) -> GuestCapabilitySetV1 {
     let (screen_capture, input) = super::x11::capabilities();
-    guest_capabilities_with(config, trusted_executable_present, screen_capture, input)
+    guest_capabilities_with(
+        config,
+        trusted_executable_present,
+        crate::computer_use::apps::guest_helper::app_management_available(),
+        crate::computer_use::apps::guest_helper::installed_app_ids(),
+        screen_capture,
+        input,
+    )
 }
 
 fn guest_capabilities_with(
     config: &GuestBootConfigV1,
     executable_present: impl Fn(&str) -> bool,
+    app_management: bool,
+    catalog_installed: Vec<String>,
     screen_capture: bool,
     input: bool,
 ) -> GuestCapabilitySetV1 {
@@ -38,14 +41,25 @@ fn guest_capabilities_with(
         pointer_input: input,
         keyboard_input: input,
         accessibility_tree: false,
-        app_registry: GUEST_APPS
-            .iter()
-            .filter(|(app_id, path)| {
-                config.allowed_apps.iter().any(|allowed| allowed == app_id)
-                    && executable_present(path)
-            })
-            .map(|(app_id, _)| (*app_id).to_owned())
-            .collect(),
+        app_registry: {
+            let mut apps = GUEST_APPS
+                .iter()
+                .filter(|(app_id, path)| {
+                    config.allowed_apps.iter().any(|allowed| allowed == app_id)
+                        && executable_present(path)
+                })
+                .map(|(app_id, _)| (*app_id).to_owned())
+                .collect::<std::collections::BTreeSet<_>>();
+            apps.extend(
+                catalog_installed
+                    .into_iter()
+                    .filter(|app| config.allowed_apps.iter().any(|allowed| allowed == app)),
+            );
+            apps.into_iter().collect()
+        },
+        app_management,
+        staged_task_app_launch:
+            crate::computer_use::apps::guest_helper::staged_task_app_launch_available(),
     }
 }
 
@@ -186,11 +200,9 @@ mod tests {
                 "unknown-app".into(),
             ],
         };
-        let caps = guest_capabilities_with(&config, |_| true, true, true);
-        assert_eq!(
-            caps.app_registry,
-            ["chromium", "chromium-research", "file-manager"]
-        );
+        let caps = guest_capabilities_with(&config, |_| true, false, vec![], true, true);
+        assert_eq!(caps.app_registry, ["chromium", "chromium-research", "file-manager"]);
+        assert!(!caps.app_management);
         assert!(!caps.app_registry.iter().any(|app| app.starts_with('/')));
     }
 

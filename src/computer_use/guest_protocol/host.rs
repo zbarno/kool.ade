@@ -1,6 +1,7 @@
 use std::time::Duration;
 mod actions;
 mod authorized;
+mod staged_task;
 
 pub use authorized::{
     AuthorizedComputerUseSessionV1, ComputerUseAuthorityRegistryV1, ComputerUsePermissionV1,
@@ -105,6 +106,12 @@ impl AuthenticatedGuestChannelV1 {
             .validate_as(actor, session, now_unix_ms)
             .map_err(|_| GuestProtocolErrorV1::StaleLease)?;
         self.validate_observation_reference(action)?;
+        if matches!(
+            &action.payload,
+            crate::computer_use::ComputerActionPayloadV1::LaunchApprovedStagedTaskApp { .. }
+        ) {
+            return Err(GuestProtocolErrorV1::UnsupportedCapability);
+        }
         let capability_id = required_capability(action);
         if !self.supports(capability_id) {
             return Err(GuestProtocolErrorV1::UnsupportedCapability);
@@ -226,6 +233,7 @@ impl AuthenticatedGuestChannelV1 {
             "computer_use.keyboard.v1" => self.capabilities.keyboard_input,
             "computer_use.accessibility.v1" => self.capabilities.accessibility_tree,
             "computer_use.app_registry.v1" => !self.capabilities.app_registry.is_empty(),
+            "computer_use.staged_app.v1" => self.capabilities.staged_task_app_launch,
             "computer_use.state.v1" => self.capabilities.screen_capture,
             _ => false,
         }

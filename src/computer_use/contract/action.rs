@@ -5,6 +5,7 @@ pub use gui::{
     ComputerFrameReferenceV1, ComputerKeyV1, ComputerWaitConditionV1, ComputerWindowBoundsV1,
 };
 
+use crate::computer_use::apps::GuestAppOperationKindV1;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
@@ -16,6 +17,8 @@ pub enum ComputerOperationV1 {
     MouseInput,
     KeyboardInput,
     LaunchAllowedApp,
+    LaunchApprovedStagedTaskApp,
+    ManageApp,
     WaitFor,
     QueryState,
 }
@@ -86,6 +89,17 @@ pub enum ComputerActionPayloadV1 {
     },
     LaunchApp {
         app_id: String,
+    },
+    ManageApp {
+        app_id: String,
+        operation: GuestAppOperationKindV1,
+        catalog_digest: String,
+        image_digest: String,
+        manifest_sha256: String,
+        package_sha256: String,
+    },
+    LaunchApprovedStagedTaskApp {
+        application: Box<crate::computer_use::apps::StagedTaskApplicationV1>,
     },
     WaitFor {
         condition: ComputerWaitConditionV1,

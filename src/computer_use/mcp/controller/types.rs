@@ -10,6 +10,7 @@ use std::{
 use super::super::{ComputerUseActionSummaryV1, ComputerUseControlOwnerV1};
 use super::scheduler::{ComputerUseSchedulerV1, SessionPermit};
 use super::session_journal::ComputerUseSessionJournalV1;
+use crate::computer_use::artifacts::ComputerArtifactBridgeV1;
 use crate::computer_use::{
     ComputerBackend, ComputerMachineHandleV1, ComputerSessionV1,
     guest_image::{
@@ -32,6 +33,11 @@ pub struct ComputerUseMcpRuntimeConfigV1 {
     pub generation_floor: GuestImageCatalogGenerationFloorV1,
     pub overlay_root: PathBuf,
     pub qemu_tool: QemuImageToolV1,
+    /// Optional signed application catalog. Missing or invalid data disables
+    /// package operations without taking down ordinary guest sessions.
+    pub application_catalog_bytes: Option<Vec<u8>>,
+    /// App-owned P15 bridge shared with staged task application launch.
+    pub artifact_bridge: ComputerArtifactBridgeV1,
 }
 
 pub(super) struct Runtime {
@@ -49,6 +55,9 @@ pub(super) struct Runtime {
     pub scheduler: Arc<ComputerUseSchedulerV1>,
     pub session_journal: ComputerUseSessionJournalV1,
     pub personal_profiles: Option<crate::computer_use::PersonalVmProfileStoreV1>,
+    pub application_catalog: Option<crate::computer_use::apps::VerifiedGuestApplicationCatalogV1>,
+    pub application_catalog_status: &'static str,
+    pub artifact_bridge: ComputerArtifactBridgeV1,
 }
 
 pub(super) struct ActiveSession {
@@ -105,6 +114,14 @@ impl ComputerUseMcpControllerV1 {
         self.runtime.is_some()
     }
 
+    /// Return the controller's shared P15 bridge to trusted app code. This
+    /// carries no session key or action authority.
+    pub fn artifact_bridge(&self) -> Option<ComputerArtifactBridgeV1> {
+        self.runtime
+            .as_ref()
+            .map(|runtime| runtime.artifact_bridge.clone())
+    }
+
     pub fn unavailable(
         registry: Arc<ComputerUseAuthorityRegistryV1>,
         reason: impl Into<String>,
@@ -155,6 +172,8 @@ impl ComputerUseMcpControllerV1 {
                 crate::computer_use::guest_image::ComputerGuestArchitectureV1::X86_64,
             )
             .map_err(|_| "trusted_image_unavailable")?;
+        let (application_catalog, application_catalog_status) =
+            verify_application_catalog(config.application_catalog_bytes.as_deref(), &image);
         let scheduler = ComputerUseSchedulerV1::new(
             probe.parallel_slots_per_machine,
             probe.max_vcpus,
@@ -192,6 +211,9 @@ impl ComputerUseMcpControllerV1 {
                 scheduler,
                 session_journal,
                 personal_profiles,
+                application_catalog,
+                application_catalog_status,
+                artifact_bridge: config.artifact_bridge,
             }),
             unavailable_reason: None,
             sessions: Mutex::new(BTreeMap::new()),
@@ -215,6 +237,41 @@ impl ComputerUseMcpControllerV1 {
             action_outcome: None,
         }
     }
+}
+
+fn verify_application_catalog(
+    bytes: Option<&[u8]>,
+    image: &CachedGuestImageV1,
+) -> (
+    Option<crate::computer_use::apps::VerifiedGuestApplicationCatalogV1>,
+    &'static str,
+) {
+    use crate::computer_use::apps::{
+        GuestAppArchitectureV1, GuestApplicationCatalogTrustV1, GuestApplicationCatalogV1,
+        VerifiedGuestApplicationCatalogV1,
+    };
+
+    let Some(bytes) = bytes else {
+        return (None, "signed_app_catalog_unavailable");
+    };
+    if bytes.is_empty() || bytes.len() > 256 * 1024 {
+        return (None, "signed_app_catalog_invalid");
+    }
+    let Ok(catalog) = serde_json::from_slice::<GuestApplicationCatalogV1>(bytes) else {
+        return (None, "signed_app_catalog_invalid");
+    };
+    let Ok(trust) = GuestApplicationCatalogTrustV1::application_pinned() else {
+        return (None, "signed_app_catalog_trust_unavailable");
+    };
+    let Ok(verified) = VerifiedGuestApplicationCatalogV1::verify(catalog, &trust) else {
+        return (None, "signed_app_catalog_invalid");
+    };
+    if verified.catalog().image_digest != image.entry().image_digest
+        || verified.catalog().architecture != GuestAppArchitectureV1::X86_64
+    {
+        return (None, "signed_app_catalog_image_mismatch");
+    }
+    (Some(verified), "signed_app_catalog_ready")
 }
 
 impl Drop for ComputerUseMcpControllerV1 {

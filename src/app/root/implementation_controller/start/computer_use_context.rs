@@ -178,8 +178,10 @@ impl KooladeApp {
 fn current_host_controller(
     registry: std::sync::Arc<crate::computer_use::guest_protocol::ComputerUseAuthorityRegistryV1>,
 ) -> crate::computer_use::mcp::ComputerUseMcpControllerV1 {
+    use crate::artifacts::planning_store::{PlanningStore, StoreMode};
     use crate::computer_use::{
         ComputerResourceLimitsV1, LocalKvmComputerBackend,
+        artifacts::ComputerArtifactBridgeV1,
         guest_image::{
             ComputerGuestArchitectureV1, GuestImageCacheV1, GuestImageCatalogGenerationFloorV1,
             application_guest_image_manifest_trust_v1, probe_host_qemu_image_tool,
@@ -190,6 +192,15 @@ fn current_host_controller(
     let result = (|| {
         let storage = crate::persistence::setup_tasks::computer_use_storage_dir()
             .map_err(|_| "trusted_runtime_unavailable")?;
+        let transfer_store = PlanningStore::new(
+            uuid::Uuid::new_v5(
+                &uuid::Uuid::NAMESPACE_OID,
+                b"koolade-computer-use-private-transfers-v1",
+            ),
+            storage.join("transfers-v1"),
+            StoreMode::ManagedLocal,
+        );
+        let artifact_bridge = ComputerArtifactBridgeV1::new(transfer_store);
         let machine_id = current_host_machine_id()?;
         let cgroup_root = current_cgroup_v2_path()?;
         let cache = GuestImageCacheV1::open_existing(storage.join("images"))
@@ -202,6 +213,7 @@ fn current_host_controller(
         let qemu_tool = probe_host_qemu_image_tool().map_err(|_| "trusted_runtime_unavailable")?;
         let manifest_bytes =
             include_bytes!("../../../../../containers/computer-use/catalog-v1.json").to_vec();
+        let application_catalog_bytes = load_application_catalog(&storage);
         let lock_bytes = include_bytes!("../../../../../containers/computer-use/images.lock.json");
         let lock: EmbeddedGuestImageLockV1 =
             serde_json::from_slice(lock_bytes).map_err(|_| "trusted_image_unavailable")?;
@@ -240,7 +252,8 @@ fn current_host_controller(
                 controller_key.verifying_key(),
                 ComputerResourceLimitsV1::default(),
             )
-            .map_err(|_| "trusted_runtime_unavailable")?,
+            .map_err(|_| "trusted_runtime_unavailable")?
+            .with_application_catalog_bytes(application_catalog_bytes.clone()),
         );
         Ok::<_, &'static str>(ComputerUseMcpRuntimeConfigV1 {
             backend,
@@ -253,6 +266,8 @@ fn current_host_controller(
             generation_floor,
             overlay_root: storage.join("overlays"),
             qemu_tool,
+            application_catalog_bytes,
+            artifact_bridge,
         })
     })();
     match result {
@@ -260,4 +275,30 @@ fn current_host_controller(
             .unwrap_or_else(|reason| ComputerUseMcpControllerV1::unavailable(registry, reason)),
         Err(reason) => ComputerUseMcpControllerV1::unavailable(registry, reason),
     }
+}
+
+#[cfg(target_os = "linux")]
+fn load_application_catalog(storage: &std::path::Path) -> Option<Vec<u8>> {
+    use std::io::Read;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    const MAX_CATALOG_BYTES: u64 = 256 * 1024;
+    let path = storage.join("guest-app-catalog-v1.json");
+    let metadata = std::fs::symlink_metadata(&path).ok()?;
+    if !metadata.file_type().is_file()
+        || metadata.size() == 0
+        || metadata.size() > MAX_CATALOG_BYTES
+    {
+        return None;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    let file = options.open(path).ok()?;
+    let mut bytes = Vec::with_capacity(metadata.size() as usize);
+    file.take(MAX_CATALOG_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() as u64 <= MAX_CATALOG_BYTES).then_some(bytes)
 }

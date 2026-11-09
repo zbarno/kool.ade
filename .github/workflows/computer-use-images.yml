@@ -7,6 +7,8 @@ on:
       - "containers/computer-use/**"
       - "src/computer_use/guest_protocol/**"
       - "src/bin/koolade_computer_use_agent.rs"
+      - "src/bin/koolade_computer_use_app_helper.rs"
+      - "src/computer_use/apps/**"
       - "src/computer_use.rs"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -27,7 +29,7 @@ jobs:
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.98.1 --profile minimal
       - name: Build guest companion
-        run: cargo +1.98.1 build --locked --release --bin koolade-computer-use-agent
+        run: cargo +1.98.1 build --locked --release --bin koolade-computer-use-agent --bin koolade-computer-use-app-helper
       - name: Install image builder tools
         run: |
           sudo apt-get update
@@ -44,8 +46,9 @@ jobs:
           first="$RUNNER_TEMP/computer-use-image-first"
           second="$RUNNER_TEMP/computer-use-image-second"
           agent="$GITHUB_WORKSPACE/target/release/koolade-computer-use-agent"
-          containers/computer-use/build-image.sh "$first" "$agent"
-          containers/computer-use/build-image.sh "$second" "$agent"
+          app_helper="$GITHUB_WORKSPACE/target/release/koolade-computer-use-app-helper"
+          containers/computer-use/build-image.sh "$first" "$agent" "$app_helper"
+          containers/computer-use/build-image.sh "$second" "$agent" "$app_helper"
           image="koolade-computer-use-guest-x86_64.qcow2"
           verify_image_digest() {
             local directory="$1"
@@ -112,7 +115,7 @@ jobs:
             exit 1
           fi
           for suffix in \
-            packages.tsv sbom.cdx.json agent.sha256 qemu-info.json recipe-components.sha256 \
+            packages.tsv app-packages.tsv sbom.cdx.json agent.sha256 app-helper.sha256 qemu-info.json recipe-components.sha256 \
             recipe.sha256 builder-versions.txt source-revision promotion-status.txt; do
             first_file="$first/koolade-computer-use-guest-x86_64.$suffix"
             second_file="$second/koolade-computer-use-guest-x86_64.$suffix"

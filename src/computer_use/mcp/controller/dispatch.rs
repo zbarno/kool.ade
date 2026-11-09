@@ -132,6 +132,7 @@ pub(super) fn dispatch(
                 },
                 payload,
                 60_000,
+                None,
             );
             if caller.actor == crate::computer_use::ComputerActionActorV1::Agent
                 && observation == ComputerUseObservationKindV1::Screenshot
@@ -145,6 +146,7 @@ pub(super) fn dispatch(
         ComputerUseMcpRequestV1::Action {
             payload,
             timeout_ms,
+            idempotency_key,
             ..
         } => action(
             active,
@@ -157,6 +159,7 @@ pub(super) fn dispatch(
             },
             payload,
             timeout_ms,
+            idempotency_key,
         ),
         ComputerUseMcpRequestV1::Pause { .. } => {
             if active.paused {

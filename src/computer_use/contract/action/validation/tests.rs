@@ -4,6 +4,7 @@ use crate::computer_use::{
     ComputerNetworkProfileV1, ComputerPolicyV1, ComputerResourceBudgetV1, ComputerSessionClassV1,
     ComputerSessionV1, ComputerTargetV1,
 };
+use sha2::Digest;
 use std::collections::BTreeSet;
 
 #[test]
@@ -106,6 +107,119 @@ fn action_authority_allows_completed_sequence_replay_for_the_durable_journal() {
     assert_eq!(
         action.validate_as(ComputerActionActorV1::Agent, &session, 2_000),
         Ok(())
+    );
+}
+
+#[test]
+fn guest_app_operations_require_human_control_and_exact_catalog_digests() {
+    let mut session = session();
+    session.lifecycle = super::super::super::ComputerLifecycleV1::HumanControl;
+    session
+        .policy
+        .authorized_operations
+        .insert(ComputerOperationV1::ManageApp);
+    session.policy.allowed_apps.insert("chromium".into());
+    session.allowed_apps.insert("chromium".into());
+    let mut action = action();
+    action.actor = ComputerActionActorV1::Human;
+    action.operation = ComputerOperationV1::ManageApp;
+    action.payload = ComputerActionPayloadV1::ManageApp {
+        app_id: "chromium".into(),
+        operation: crate::computer_use::apps::GuestAppOperationKindV1::Update,
+        catalog_digest: format!("sha256:{}", "c".repeat(64)),
+        image_digest: format!("sha256:{}", "d".repeat(64)),
+        manifest_sha256: format!("sha256:{}", "a".repeat(64)),
+        package_sha256: format!("sha256:{}", "b".repeat(64)),
+    };
+    assert_eq!(
+        action.validate_as(ComputerActionActorV1::Human, &session, 2_000),
+        Ok(())
+    );
+    assert!(
+        action
+            .validate_as(ComputerActionActorV1::Agent, &session, 2_000)
+            .is_err()
+    );
+
+    if let ComputerActionPayloadV1::ManageApp {
+        manifest_sha256, ..
+    } = &mut action.payload
+    {
+        *manifest_sha256 = "file:///etc/passwd".into();
+    }
+    assert_eq!(
+        action.validate(&session, 2_000),
+        Err("guest app operation identity is invalid")
+    );
+}
+
+#[test]
+fn staged_task_launch_requires_human_control_and_session_bound_receipts() {
+    let mut session = session();
+    session.lifecycle = super::super::super::ComputerLifecycleV1::HumanControl;
+    session.image_digest = format!("sha256:{}", "d".repeat(64));
+    session
+        .policy
+        .allowed_apps
+        .insert(crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_APP_ID_V1.into());
+    session
+        .allowed_apps
+        .insert(crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_APP_ID_V1.into());
+    session
+        .policy
+        .authorized_operations
+        .insert(ComputerOperationV1::LaunchApprovedStagedTaskApp);
+    let receipt = crate::computer_use::artifacts::ComputerArtifactReceiptV1 {
+        artifact_id: "00000000-0000-4000-8000-000000000011".into(),
+        display_name: "editor.txt".into(),
+        size_bytes: 8,
+        sha256: format!("sha256:{}", "1".repeat(64)),
+        media_type: "text/plain".into(),
+        expires_at_unix_ms: 30_000,
+    };
+    let artifacts = vec![crate::computer_use::apps::StagedTaskArtifactV1 {
+        relative_path: "bin/editor.txt".into(),
+        transfer_grant_id: "00000000-0000-4000-8000-000000000012".into(),
+        receipt,
+    }];
+    let manifest = vec![("bin/editor.txt", "1".repeat(64))];
+    let build_receipt_sha256 = format!(
+        "{:x}",
+        sha2::Sha256::digest(serde_json::to_vec(&manifest).unwrap())
+    );
+    let application = crate::computer_use::apps::StagedTaskApplicationV1 {
+        schema_version: 1,
+        app_id: crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_APP_ID_V1.into(),
+        executable_id: "editor".into(),
+        executable_relative_path: "bin/editor.txt".into(),
+        task_revision: "revision-1".into(),
+        app_target_id: "target-1".into(),
+        execution_recipe_id: "recipe-1".into(),
+        build_receipt_sha256,
+        build_approval_sha256: "c".repeat(64),
+        guest_image_digest: session.image_digest.clone(),
+        guest_architecture: crate::computer_use::apps::GuestAppArchitectureV1::X86_64,
+        artifacts,
+    };
+    let mut action = action();
+    action.actor = ComputerActionActorV1::Human;
+    action.operation = ComputerOperationV1::LaunchApprovedStagedTaskApp;
+    action.payload = ComputerActionPayloadV1::LaunchApprovedStagedTaskApp {
+        application: Box::new(application),
+    };
+    assert_eq!(
+        action.validate_as(ComputerActionActorV1::Human, &session, 2_000),
+        Ok(())
+    );
+    assert!(
+        action
+            .validate_as(ComputerActionActorV1::Agent, &session, 2_000)
+            .is_err()
+    );
+    session.image_digest = format!("sha256:{}", "e".repeat(64));
+    assert_eq!(
+        action.validate(&session, 2_000),
+        Err("staged task application is invalid or outside session approval")
     );
 }
 

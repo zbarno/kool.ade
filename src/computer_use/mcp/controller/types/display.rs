@@ -1,6 +1,7 @@
 mod recovered;
 mod streams;
 
+use sha2::Digest;
 use std::sync::Arc;
 
 use super::{ActiveSession, ComputerUseMcpControllerV1};
@@ -87,6 +88,22 @@ impl ComputerUseMcpControllerV1 {
             agent_role: active.role_id.clone(),
             session_class: session.session_class,
             allowed_apps: session.allowed_apps.iter().cloned().collect(),
+            guest_apps: self.guest_app_views(active),
+            guest_app_catalog_status: self
+                .runtime
+                .as_ref()
+                .map_or("trusted_runtime_unavailable", |runtime| {
+                    runtime.application_catalog_status
+                })
+                .to_owned(),
+            app_management_available: active
+                .channel
+                .as_ref()
+                .is_some_and(|channel| channel.capabilities().app_management)
+                && self
+                    .runtime
+                    .as_ref()
+                    .is_some_and(|runtime| runtime.application_catalog.is_some()),
             resource_budget: session.policy.resource_budget.clone(),
             actions_remaining: session
                 .policy
@@ -130,6 +147,46 @@ impl ComputerUseMcpControllerV1 {
         }
     }
 
+    fn guest_app_views(
+        &self,
+        active: &ActiveSession,
+    ) -> Vec<crate::computer_use::mcp::ComputerUseGuestAppViewV1> {
+        let Some(catalog) = self
+            .runtime
+            .as_ref()
+            .and_then(|runtime| runtime.application_catalog.as_ref())
+        else {
+            return Vec::new();
+        };
+        let installed = active
+            .channel
+            .as_ref()
+            .map(|channel| channel.capabilities().app_registry.as_slice())
+            .unwrap_or_default();
+        catalog
+            .catalog()
+            .apps
+            .iter()
+            .filter_map(|manifest| {
+                let bytes = serde_json::to_vec(manifest).ok()?;
+                Some(crate::computer_use::mcp::ComputerUseGuestAppViewV1 {
+                    app_id: manifest.app_id.clone(),
+                    display_name: manifest.display_name.clone(),
+                    publisher: manifest.package.publisher.clone(),
+                    source_id: manifest.package.source_id.clone(),
+                    provenance: manifest.package.provenance,
+                    version: manifest.package.version.clone(),
+                    package_id: manifest.package.package_id.clone(),
+                    package_sha256: manifest.package.package_sha256.clone(),
+                    manifest_sha256: format!("sha256:{:x}", sha2::Sha256::digest(bytes)),
+                    required_capabilities: manifest.required_capabilities.iter().copied().collect(),
+                    installed: installed.iter().any(|app| app == &manifest.app_id),
+                    session_allowed: active.session.allowed_apps.contains(&manifest.app_id),
+                })
+            })
+            .collect()
+    }
+
     pub(in crate::computer_use::mcp::controller) fn cache_queued_view(
         &self,
         caller: &super::super::super::ComputerUseCallerV1,
@@ -143,6 +200,9 @@ impl ComputerUseMcpControllerV1 {
             agent_role: caller.role_id.clone(),
             session_class: crate::computer_use::ComputerSessionClassV1::Disposable,
             allowed_apps: Vec::new(),
+            guest_apps: Vec::new(),
+            guest_app_catalog_status: "signed_app_catalog_unavailable".into(),
+            app_management_available: false,
             actions_remaining: budget.action_limit,
             resource_budget: budget,
             lifecycle: crate::computer_use::ComputerLifecycleV1::Preparing,

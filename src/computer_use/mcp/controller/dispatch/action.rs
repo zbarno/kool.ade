@@ -29,6 +29,7 @@ pub(super) fn action(
     context: ActionContext<'_>,
     payload: crate::computer_use::ComputerActionPayloadV1,
     timeout_ms: u32,
+    idempotency_key: Option<String>,
 ) -> ComputerUseMcpResponseV1 {
     let ActionContext {
         controller,
@@ -59,7 +60,7 @@ pub(super) fn action(
         schema_version: 1,
         session_id: session_id.to_owned(),
         action_sequence: sequence,
-        idempotency_key: uuid::Uuid::new_v4().to_string(),
+        idempotency_key: idempotency_key.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
         actor: caller.actor,
         lease_generation: active.session.lease.generation,
         approval_generation: active.session.approval_generation,
@@ -205,6 +206,8 @@ fn action_label(payload: &crate::computer_use::ComputerActionPayloadV1) -> Strin
         P::KeyPress { .. } | P::KeyChord { .. } => "Used keyboard".into(),
         P::TypeText { .. } => "Entered text".into(),
         P::LaunchApp { .. } => "Launched an approved app".into(),
+        P::ManageApp { .. } => "Managed an approved guest app".into(),
+        P::LaunchApprovedStagedTaskApp { .. } => "Launched an approved staged task app".into(),
         P::WaitFor { .. } => "Waited for the desktop".into(),
         P::QueryState => "Checked desktop status".into(),
     }
@@ -228,6 +231,8 @@ pub(crate) fn operation(
             ComputerOperationV1::KeyboardInput
         }
         P::LaunchApp { .. } => ComputerOperationV1::LaunchAllowedApp,
+        P::ManageApp { .. } => ComputerOperationV1::ManageApp,
+        P::LaunchApprovedStagedTaskApp { .. } => ComputerOperationV1::LaunchApprovedStagedTaskApp,
         P::WaitFor { .. } => ComputerOperationV1::WaitFor,
         P::QueryState => ComputerOperationV1::QueryState,
     }

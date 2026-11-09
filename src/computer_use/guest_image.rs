@@ -13,6 +13,7 @@ mod process;
 #[path = "guest_image/tests.rs"]
 mod tests;
 
+pub(crate) use application_trust::application_catalog_signer;
 pub use application_trust::application_guest_image_manifest_trust_v1;
 pub use cache::{
     CachedGuestImageV1, ComputerImageDownloadApprovalV1, GuestImageCacheV1, ImageCacheErrorV1,

@@ -72,6 +72,7 @@ pub struct LocalKvmComputerBackend {
     host_machine_id: String,
     limits: Limits,
     live: Mutex<HashMap<String, LiveMachine>>,
+    application_catalog_bytes: Option<Vec<u8>>,
     #[cfg(test)]
     qemu_path_override: Option<PathBuf>,
 }
@@ -108,9 +109,15 @@ impl LocalKvmComputerBackend {
             host_machine_id,
             limits,
             live: Mutex::new(HashMap::new()),
+            application_catalog_bytes: None,
             #[cfg(test)]
             qemu_path_override: None,
         })
+    }
+
+    pub fn with_application_catalog_bytes(mut self, bytes: Option<Vec<u8>>) -> Self {
+        self.application_catalog_bytes = bytes;
+        self
     }
 
     fn qemu_path(&self) -> PathBuf {

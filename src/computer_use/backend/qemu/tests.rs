@@ -79,6 +79,8 @@ fn launch_arguments_have_no_network_monitor_host_mount_or_guest_shell() {
         Path::new("/private/guest-control.sock"),
         Path::new("/private/display.sock"),
         Path::new("/private/boot.json"),
+        Path::new("/private/app-helper.json"),
+        None,
         None,
         None,
     )
@@ -104,6 +106,10 @@ fn launch_arguments_have_no_network_monitor_host_mount_or_guest_shell() {
     assert!(args.windows(2).any(|pair| {
         pair[0] == "-fw_cfg"
             && pair[1].starts_with("name=opt/org.koolade.computer-use/boot-config,file=")
+    }));
+    assert!(args.windows(2).any(|pair| {
+        pair[0] == "-fw_cfg"
+            && pair[1].starts_with("name=opt/org.koolade.computer-use/app-helper-config,file=")
     }));
     assert!(args.iter().any(|arg| arg.contains("koolade:")));
 }
@@ -147,6 +153,8 @@ fn launch_argument_paths_reject_qemu_option_delimiters() {
         Path::new("/private/guest-control.sock"),
         Path::new("/private/display.sock"),
         Path::new("/private/boot.json"),
+        Path::new("/private/app-helper.json"),
+        None,
         None,
         None,
     );
@@ -165,6 +173,8 @@ fn internet_research_qemu_network_is_restricted_to_the_loopback_proxy() {
         Path::new("/private/guest-control.sock"),
         Path::new("/private/display.sock"),
         Path::new("/private/boot.json"),
+        Path::new("/private/app-helper.json"),
+        None,
         Some("127.0.0.1:49152".parse().unwrap()),
         None,
     )

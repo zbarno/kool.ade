@@ -253,6 +253,8 @@ fn computer_use_operation_label(
         Operation::MouseInput => "mouse_input",
         Operation::KeyboardInput => "keyboard_input",
         Operation::LaunchAllowedApp => "launch_allowed_app",
+        Operation::LaunchApprovedStagedTaskApp => "launch_approved_staged_task_app",
+        Operation::ManageApp => "manage_app",
         Operation::WaitFor => "wait_for",
         Operation::QueryState => "query_state",
     }

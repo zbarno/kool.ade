@@ -15,6 +15,8 @@ use super::{
     types::ComputerUseMcpControllerV1,
 };
 
+mod manage_app;
+
 impl ComputerUseMcpControllerV1 {
     pub fn set_private_input(
         &self,
@@ -157,6 +159,7 @@ impl ComputerUseMcpControllerV1 {
                     app_id: app_id.to_owned(),
                 },
                 timeout_ms: 30_000,
+                idempotency_key: None,
             },
             &AtomicBool::new(false),
         );
