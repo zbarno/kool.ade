@@ -68,6 +68,15 @@ impl KooladeApp {
             } => {
                 self.approve_runtime_qa_scenarios(&ticket, expected_task_revision, &proposal_sha256)
             }
+            ApplicationCommand::ApproveRuntimeQaComputerScenarios {
+                ticket,
+                expected_task_revision,
+                proposal_sha256,
+            } => self.approve_runtime_qa_computer_scenarios(
+                &ticket,
+                expected_task_revision,
+                &proposal_sha256,
+            ),
             ApplicationCommand::ReviewRuntimeQaApplicability { ticket } => {
                 self.review_runtime_qa_applicability(&ticket)
             }

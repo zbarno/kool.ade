@@ -104,6 +104,72 @@ fn proposal_approval_binds_exact_hash_and_task_revision_before_dispatch_is_eligi
 }
 
 #[test]
+fn computer_qa_build_approval_is_explicit_and_binds_the_exact_request() {
+    use crate::{
+        core::lifecycle::{GateActor, GateDecision, GateReceipt},
+        runtime_qa::{QaExecutionTargetV1, QaScenarioProposalV1},
+    };
+    let request = request();
+    let proposal = QaScenarioProposalV1::new(&request, 7, vec![scenario(&request)]).unwrap();
+    let proposal_sha256 = proposal.proposal_sha256().unwrap();
+    let approval = GateReceipt {
+        receipt_uid: uuid::Uuid::new_v4().hyphenated().to_string(),
+        subject_uid: request.parent_task_uid.clone(),
+        subject_sha256: proposal.scenario_sha256.clone(),
+        actor: GateActor::User,
+        decision: GateDecision::Approved,
+        recorded_at_unix_ms: 3,
+        evidence_refs: vec![
+            format!("runtime-qa:{}/approved-scenarios", request.qa_run_id),
+            format!(
+                "runtime-qa:{}/proposal:{proposal_sha256}:task-revision:7",
+                request.qa_run_id
+            ),
+            format!(
+                "runtime-qa:{}/execution-target:computer-use-guest",
+                request.qa_run_id
+            ),
+        ],
+        prompt_sha256: None,
+        prompt_manifest: None,
+        reviewer_run_id: None,
+        author_run_id: None,
+        reviewer_session_id: None,
+        author_session_id: None,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let store = RuntimeQaStore::new(root.path().join("qa"));
+    store.save_scenario_proposal(&request, &proposal).unwrap();
+    store
+        .approve_scenario_proposal_for_target(
+            &request,
+            &proposal,
+            7,
+            QaExecutionTargetV1::ComputerUseGuest,
+            &approval,
+        )
+        .unwrap();
+    let build_approval = store.load_computer_build_approval(&request, 7).unwrap();
+    build_approval
+        .validate_for(&request, 7, QaExecutionTargetV1::ComputerUseGuest)
+        .unwrap();
+    assert!(build_approval.approval_sha256().unwrap().len() == 64);
+    assert!(
+        build_approval
+            .validate_for(&request, 7, QaExecutionTargetV1::IsolatedContainer)
+            .is_err()
+    );
+
+    let mut changed_request = request;
+    changed_request.build_artifact_sha256 = "f".repeat(64);
+    assert!(
+        build_approval
+            .validate_for(&changed_request, 7, QaExecutionTargetV1::ComputerUseGuest)
+            .is_err()
+    );
+}
+
+#[test]
 fn approved_scenarios_are_durable_and_bound_to_user_receipt_and_request() {
     use sha2::{Digest, Sha256};
     let request = request();

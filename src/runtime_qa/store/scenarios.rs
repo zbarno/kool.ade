@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 use super::{RuntimeQaStore, create_or_match_json, read_json, safe_uuid};
 use crate::{
     core::lifecycle::{GateActor, GateDecision, GateReceipt},
-    runtime_qa::{QaRunRequestV1, QaScenarioV1, validate_scenario_set},
+    runtime_qa::{QaExecutionTargetV1, QaRunRequestV1, QaScenarioV1, validate_scenario_set},
 };
 
 /// Durable operator approval for the exact scenario set of one immutable QA
@@ -18,6 +18,12 @@ pub struct ApprovedQaScenarioSetV1 {
     pub request_sha256: String,
     pub scenario_sha256: String,
     pub scenarios: Vec<QaScenarioV1>,
+    #[serde(default)]
+    pub execution_target: QaExecutionTargetV1,
+    #[serde(default)]
+    pub proposal_sha256: Option<String>,
+    #[serde(default)]
+    pub task_revision: Option<u64>,
     pub approval: GateReceipt,
 }
 
@@ -30,17 +36,54 @@ impl RuntimeQaStore {
         scenarios: &[QaScenarioV1],
         approval: &GateReceipt,
     ) -> Result<ApprovedQaScenarioSetV1, String> {
+        self.approve_scenarios_for_target(
+            request,
+            scenarios,
+            QaExecutionTargetV1::IsolatedContainer,
+            approval,
+        )
+    }
+
+    pub fn approve_scenarios_for_target(
+        &self,
+        request: &QaRunRequestV1,
+        scenarios: &[QaScenarioV1],
+        execution_target: QaExecutionTargetV1,
+        approval: &GateReceipt,
+    ) -> Result<ApprovedQaScenarioSetV1, String> {
+        self.approve_scenarios_with_proposal(
+            request,
+            scenarios,
+            execution_target,
+            None,
+            None,
+            approval,
+        )
+    }
+
+    pub(super) fn approve_scenarios_with_proposal(
+        &self,
+        request: &QaRunRequestV1,
+        scenarios: &[QaScenarioV1],
+        execution_target: QaExecutionTargetV1,
+        proposal_sha256: Option<String>,
+        task_revision: Option<u64>,
+        approval: &GateReceipt,
+    ) -> Result<ApprovedQaScenarioSetV1, String> {
         request.validate()?;
         validate_scenario_set(request, scenarios)?;
         let request_sha256 = hash(request)?;
         let scenario_sha256 = crate::runtime_qa::scenario_set_sha256(scenarios)?;
-        validate_approval(request, &scenario_sha256, approval)?;
+        validate_approval(request, &scenario_sha256, execution_target, approval)?;
         let record = ApprovedQaScenarioSetV1 {
             schema_version: 1,
             qa_run_id: request.qa_run_id.clone(),
             request_sha256,
             scenario_sha256,
             scenarios: scenarios.to_vec(),
+            execution_target,
+            proposal_sha256,
+            task_revision,
             approval: approval.clone(),
         };
         let run = safe_uuid(&request.qa_run_id)?;
@@ -70,7 +113,12 @@ impl RuntimeQaStore {
             return Err("approved runtime QA scenarios are stale for this request".into());
         }
         validate_scenario_set(request, &record.scenarios)?;
-        validate_approval(request, &scenario_sha256, &record.approval)?;
+        validate_approval(
+            request,
+            &scenario_sha256,
+            record.execution_target,
+            &record.approval,
+        )?;
         Ok(record)
     }
 }
@@ -78,6 +126,7 @@ impl RuntimeQaStore {
 fn validate_approval(
     request: &QaRunRequestV1,
     scenario_sha256: &str,
+    execution_target: QaExecutionTargetV1,
     approval: &GateReceipt,
 ) -> Result<(), String> {
     approval.validate()?;
@@ -92,6 +141,14 @@ fn validate_approval(
         || approval.reviewer_session_id.is_some()
         || approval.author_run_id.is_some()
         || approval.author_session_id.is_some()
+        || (execution_target == QaExecutionTargetV1::ComputerUseGuest
+            && !approval.evidence_refs.iter().any(|reference| {
+                reference
+                    == &format!(
+                        "runtime-qa:{}/execution-target:computer-use-guest",
+                        request.qa_run_id
+                    )
+            }))
     {
         return Err(
             "runtime QA scenarios require an explicit user approval bound to this exact set".into(),

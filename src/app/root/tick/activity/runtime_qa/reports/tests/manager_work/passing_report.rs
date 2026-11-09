@@ -35,6 +35,7 @@ pub(super) fn save(store: &RuntimeQaStore, request: &QaRunRequestV1) -> QaResult
         approved_spec_hash: request.approved_spec_hash.clone(),
         build_hash: request.build_artifact_sha256.clone(),
         platform: QaPlatform::HeadlessService,
+        computer_qa_target: None,
         driver_version: request.driver_profile_version.clone(),
         display: QaDisplayV1 {
             width: None,
