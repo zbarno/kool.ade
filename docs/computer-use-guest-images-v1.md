@@ -2,9 +2,10 @@
 
 Status: host-side verifier/cache/overlay APIs, authenticated guest companion,
 candidate image build, and protected signed-catalog promotion workflow are
-implemented. The bundled catalog and image lock remain unpromoted until a
-successful manual promotion and reviewed catalog PR. Real KVM GUI and overlay
-validation is tracked separately in #392.
+implemented. `main` contains signed catalog generation 1 with an approved
+x86_64 image and a promoted image lock. The corresponding GitHub release is
+still a draft until the merge-triggered publisher succeeds. Real KVM GUI and
+overlay validation is tracked separately in #392.
 
 ## Image build boundary
 
@@ -43,15 +44,19 @@ catalog and lock against the draft release contents and guest image digest
 before publishing that release. A collision with an existing release tag
 fails closed. The component inventory does not claim OS-file coverage or
 license compliance.
-`containers/computer-use/images.lock.json` is an explicit empty VM lock with
-`status: not_promoted`; the bundled `catalog-v1.json` is a non-catalog sentinel.
-Both files are separate from `containers/images.lock.json` and must remain
-unpromoted until a real, signed catalog can be pinned.
+`containers/computer-use/images.lock.json` is separate from
+`containers/images.lock.json` and now pins the image in signed catalog
+generation 1. The catalog and lock are reviewed in `main`; the publisher
+workflow verifies their digests against the draft release assets before making
+the release public. A push to `main` that changes the catalog, lock, or
+promotion workflow starts that publisher. Until it succeeds, do not claim the
+release asset is publicly available.
 
 The bootstrap and companion units are installed. The companion runs as the
-unprivileged `koolade` account and reconnects after channel loss. The unsigned
-candidate remains unpromoted; a future signed manifest must carry the reviewed
-companion protocol version and binary SHA-256. The typed channel carries
+unprivileged `koolade` account and reconnects after channel loss. The signed
+catalog binds the reviewed companion protocol version and binary SHA-256; the
+promotion workflow publishes the matching release only after verifying its
+assets. The typed channel carries
 authenticated heartbeats and structured guest failure reasons; a failed action
 leaves its durable host journal entry pending so callers cannot infer that a
 side effect did not occur.
