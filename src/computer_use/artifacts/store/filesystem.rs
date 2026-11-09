@@ -1,8 +1,12 @@
 use super::{ARTIFACTS, BYTES, CLIPBOARD, GRANTS};
-use crate::computer_use::artifacts::{ComputerArtifactBridgeErrorV1, validation};
+use crate::computer_use::artifacts::ComputerArtifactBridgeErrorV1;
+#[cfg(unix)]
+use crate::computer_use::artifacts::validation;
+#[cfg(unix)]
+use std::{fs::File, io::Read};
 use std::{
-    fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    fs::{self, OpenOptions},
+    io::Write,
     path::{Component, Path},
 };
 
