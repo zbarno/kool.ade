@@ -14,7 +14,7 @@ pub(super) enum PipelineFailureKind {
 
 pub(super) struct PipelineFailure {
     pub(super) kind: PipelineFailureKind,
-    pub(super) store_update: Option<SetupTaskStoreV1>,
+    pub(super) store_update: Option<Box<SetupTaskStoreV1>>,
 }
 
 /// Shared production seam: durable authorization, UI publication, execution,
@@ -39,12 +39,12 @@ pub(super) fn authorize_publish_execute(
     if !publish(authorized.clone()) {
         return Err(PipelineFailure {
             kind: PipelineFailureKind::AuthorizationNotPublished,
-            store_update: Some(authorized),
+            store_update: Some(Box::new(authorized)),
         });
     }
     execute().map_err(|_| PipelineFailure {
         kind: PipelineFailureKind::OperationFailed,
-        store_update: Some(authorized.clone()),
+        store_update: Some(Box::new(authorized.clone())),
     })?;
     persist(SetupTaskTransitionV1::AwaitVerification {
         task_id: attempt.task_id.clone(),
@@ -53,7 +53,7 @@ pub(super) fn authorize_publish_execute(
     })
     .map_err(|_| PipelineFailure {
         kind: PipelineFailureKind::AwaitVerificationPersistence,
-        store_update: Some(authorized),
+        store_update: Some(Box::new(authorized)),
     })
 }
 

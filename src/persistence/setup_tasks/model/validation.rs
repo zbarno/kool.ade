@@ -35,6 +35,9 @@ impl SetupTaskStoreV1 {
             validate_task_state(task, self.latest_scan_generation)?;
         }
         graph::ordered_task_ids(self)?;
+        if let Some(flow) = &self.setup_flow {
+            validate_flow(flow)?;
+        }
         Ok(())
     }
 }
@@ -203,5 +206,53 @@ fn validate_task_state(task: &SetupTaskV1, latest_generation: u64) -> anyhow::Re
             "blocked setup task has no unresolved prerequisite"
         );
     }
+    Ok(())
+}
+
+fn validate_flow(flow: &super::flow::SetupFlowStateV1) -> anyhow::Result<()> {
+    use super::flow::{
+        MAX_COMPLETED_RECORDS, MAX_FLOW_TASK_REF_LEN, MAX_SEEN_VERIFIED, MAX_SKIPPED_RECORDS,
+        SETUP_FLOW_SCHEMA_VERSION,
+    };
+    anyhow::ensure!(
+        flow.schema == SETUP_FLOW_SCHEMA_VERSION,
+        "unsupported setup flow schema"
+    );
+    flow.validate_identity()?;
+    anyhow::ensure!(
+        flow.started_at <= flow.updated_at,
+        "setup flow clock moved backwards"
+    );
+    for reference in flow
+        .phase
+        .task_reference()
+        .into_iter()
+        .chain(flow.last_completed.iter().map(String::as_str))
+        .chain(flow.seen_verified.iter().map(String::as_str))
+        .chain(flow.skipped.iter().map(String::as_str))
+    {
+        anyhow::ensure!(
+            !reference.is_empty() && reference.len() <= MAX_FLOW_TASK_REF_LEN,
+            "oversized setup flow task reference"
+        );
+        anyhow::ensure!(
+            reference
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '.' | '/' | '_')),
+            "malformed setup flow task reference"
+        );
+    }
+    anyhow::ensure!(
+        flow.last_completed.len() <= MAX_COMPLETED_RECORDS,
+        "oversized setup flow completion record"
+    );
+    anyhow::ensure!(
+        flow.seen_verified.len() <= MAX_SEEN_VERIFIED,
+        "oversized setup flow observation record"
+    );
+    anyhow::ensure!(
+        flow.skipped.len() <= MAX_SKIPPED_RECORDS,
+        "oversized setup flow skip record"
+    );
     Ok(())
 }

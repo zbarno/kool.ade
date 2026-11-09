@@ -9,6 +9,8 @@ pub mod dialogs;
 pub mod root;
 pub mod session;
 pub(crate) mod setup_attention;
+pub mod setup_explain;
+pub mod setup_workflow;
 pub mod spawn;
 pub mod welcome;
 
