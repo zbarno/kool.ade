@@ -53,9 +53,12 @@ The canonical recipe SHA-256 key includes the target Linux architecture,
 foundation and component source digests, exact advertised tool versions, and
 canonical logical requirements. A Docker tag under
 `koolade-derived:<recipe-hash>` persists in the Docker daemon across
-application restarts. Cached image tags are **hints only**. A later task
-rechecks locked sources, image labels, image ID/architecture, and installed
-tool versions before registering and using the cached result.
+application restarts. Cached image tags are **hints only**. A later task —
+or a restarted application — rediscovers the image by tag and persisted
+receipt, then rechecks locked sources, image labels, image ID/architecture,
+and installed tool versions before registering and using the cached result;
+a surviving verified composite is therefore reused without rebuilding after
+an application restart.
 
 The image *recipe* hash is not the OCI image ID. The Docker image ID is
 obtained only from the successful build and validation. There is no fallback
@@ -90,6 +93,36 @@ invalidate the content identity and therefore bypass obsolete cached images.
 Dependency snapshots remain in the existing separate, broker-verified cache;
 they are not copied into the composite image on each source revision.
 
+**Foreign or poisoned derived tags.** The recipe-content tag can collide
+with a foreign image (manual retagging, another tool, or a compromised
+environment). Such an image always fails identity verification (wrong
+content/base labels or unparseable identifier). Recovery stays
+fail-closed and conservative: if the foreign image still holds another
+**tag**, the builder releases only the exact app-owned tag and rebuilds;
+if the reserved tag is the image's only tag — or the identifier cannot be
+parsed safely — destructive removal is refused and an operator-actionable
+error is raised instead. Repo digest references never count as protection:
+the Docker engine deletes an image when its last tag is removed and lets
+digest references expire with it, so a tag-only squat (the posture a plain
+`docker import` of a foreign image creates) is always refused. Deleting an
+unidentified image under its only surviving handle would destroy someone
+else's data. Force deletion is never used.
+
+### Implementation session integration
+
+Local implementation sessions are project-aware: the harness resolves the
+logical tools required by the *approved* recipes of the task's active
+application targets (detected-but-unapproved candidates never contribute).
+Those tools drive the same selection pipeline as the recipe queue — first
+any existing locked image that already covers the tool set, then verified
+on-demand composition — so an approved Rust+Node project stops relying on
+filename-marker guesses. When no usable capability manifest exists the
+legacy marker-file heuristic remains as a compatibility fallback.
+The resulting session records lightweight provenance (recipe digest and a
+hash of the project facts that authorized the plan) for auditing; the cache
+identity itself stays repository-independent so verified composites remain
+shareable.
+
 ### Limitations and rollout
 
 - This initial builder covers the four existing approved toolchain sources.
@@ -109,3 +142,7 @@ they are not copied into the composite image on each source revision.
 - Keep the old locked profiles available for existing and in-flight tasks.
   If provisioning fails, show the missing/invalid setup requirement, never
   launch in an unverified container.
+- Non-local execution targets (registered workers) keep the conventional
+  single locked image contract: the approved tool set maps to the dominant
+  tool family's locked image, matching historical heuristic behavior.
+  Verified on-demand compositing currently serves local Docker targets.
