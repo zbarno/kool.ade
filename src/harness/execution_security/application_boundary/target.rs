@@ -4,7 +4,7 @@ mod remote;
 use crate::{
     execution::{
         contract::{ExecutionModeV1, ResourceBudgetV1, TargetPreference},
-        docker::images::RuntimeProfile,
+        docker::images::{RuntimePlanBinding, RuntimeProfile},
         session::ExecutionSession,
     },
     harness::PlanningRequest,
@@ -76,6 +76,78 @@ pub(super) fn connect(
             allowed_targets,
             Vec::new(),
         ),
+    }
+}
+
+pub(super) fn connect_tools(
+    request: &PlanningRequest,
+    workspace: crate::execution::contract::WorkspaceRef,
+    required_tools: Vec<String>,
+    binding: RuntimePlanBinding,
+    resources: ResourceBudgetV1,
+) -> anyhow::Result<ExecutionSession> {
+    let (settings, diagnostic) = crate::persistence::execution_environment_settings::load();
+    ensure_settings_available(diagnostic.as_deref())?;
+    let preference = selected_preference(&settings, request.task_id.as_deref());
+    let requirements = task_capability_requirements(&settings, request.task_id.as_deref());
+    let allowed_targets = task_allowed_targets(&settings, request.task_id.as_deref());
+    if matches!(preference, TargetPreference::Local) {
+        ensure_local_capabilities(&requirements)?;
+    }
+    match preference {
+        TargetPreference::Local => {
+            ensure_local_capabilities(&requirements)?;
+            local_session_tools(request, workspace, required_tools, binding, resources)
+        }
+        TargetPreference::Worker(worker_id) => {
+            ensure_target_allowed(
+                &TargetPreference::Worker(worker_id.clone()),
+                &allowed_targets,
+            )?;
+            remote::remote_session(
+                request,
+                workspace,
+                representative_profile(&required_tools),
+                resources,
+                &worker_id,
+                requirements,
+            )
+        }
+        TargetPreference::Auto => automatic::auto_session_excluding(
+            request,
+            workspace,
+            representative_profile(&required_tools),
+            resources,
+            requirements,
+            allowed_targets,
+            Vec::new(),
+        ),
+    }
+}
+
+/// Non-local targets retain the conventional single locked image contract,
+/// so the approved tool set collapses to its dominant tool family (parity
+/// with the historical marker-file heuristic).
+fn representative_profile(required_tools: &[String]) -> RuntimeProfile {
+    if required_tools
+        .iter()
+        .any(|tool| tool == "cargo" || tool == "rustc")
+    {
+        RuntimeProfile::Rust
+    } else if required_tools
+        .iter()
+        .any(|tool| tool == "node" || tool == "npm")
+    {
+        RuntimeProfile::Node
+    } else if required_tools
+        .iter()
+        .any(|tool| tool == "python" || tool == "pip")
+    {
+        RuntimeProfile::Python
+    } else if required_tools.iter().any(|tool| tool == "go") {
+        RuntimeProfile::Go
+    } else {
+        RuntimeProfile::General
     }
 }
 
@@ -164,9 +236,51 @@ fn local_session(
     })
 }
 
+fn local_session_tools(
+    request: &PlanningRequest,
+    workspace: crate::execution::contract::WorkspaceRef,
+    required_tools: Vec<String>,
+    binding: RuntimePlanBinding,
+    resources: ResourceBudgetV1,
+) -> anyhow::Result<ExecutionSession> {
+    ExecutionSession::connect_local_with_destination_tools_authorization(
+        workspace,
+        &request.repo_root,
+        ExecutionModeV1::Implementation,
+        &required_tools,
+        resources,
+        request.destination_sha.clone(),
+        request.authorization_verifier.clone(),
+        Some(binding),
+    )
+    .map_err(|error| {
+        anyhow::anyhow!(
+            "Docker implementation session unavailable: {}",
+            error.message
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn representative_profile_tracks_the_dominant_tool_family() {
+        use RuntimeProfile::*;
+        assert_eq!(
+            representative_profile(&["cargo".to_owned(), "rustc".to_owned(), "node".to_owned()]),
+            Rust
+        );
+        assert_eq!(
+            representative_profile(&["node".to_owned(), "npm".to_owned()]),
+            Node
+        );
+        assert_eq!(representative_profile(&["python".to_owned()]), Python);
+        assert_eq!(representative_profile(&["go".to_owned()]), Go);
+        assert_eq!(representative_profile(&["git".to_owned()]), General);
+        assert_eq!(representative_profile(&[]), General);
+    }
 
     #[test]
     fn explicit_worker_never_has_local_fallback() {

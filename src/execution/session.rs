@@ -21,6 +21,7 @@ mod commands;
 mod constructors;
 mod dependency_cache;
 mod local;
+mod local_project;
 mod process;
 mod remote;
 mod remote_dependency;
@@ -39,6 +40,17 @@ pub struct ExecutionOutput {
     pub stdout: String,
     pub stderr: String,
     pub result: ExecutionResultV1,
+}
+
+/// Audit provenance of the image a session connected against.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeProvenance {
+    /// Content-addressed digest of the composite recipe that produced the
+    /// image, when the session required on-demand composition.
+    pub recipe_digest: Option<String>,
+    /// Digest of the project facts (workspace, repository, source revision,
+    /// selected target, approved recipe set) that justified the plan.
+    pub binding_digest: Option<String>,
 }
 
 pub(super) struct RequestParameters {
@@ -92,6 +104,7 @@ pub struct ExecutionSession {
         Mutex<Option<crate::persistence::remote_workers::RemoteWorkerCapacityLease>>,
     runtime_processes: Mutex<Vec<Arc<process::RuntimeProcessHandle>>>,
     runtime: tokio::runtime::Runtime,
+    runtime_provenance: Option<RuntimeProvenance>,
 }
 
 pub(crate) type RemoteRetryFactory =
@@ -121,6 +134,26 @@ impl ExecutionSession {
 
     pub fn target_id(&self) -> &str {
         &self.target.target_id
+    }
+
+    /// Provenance of the image this session connected against, when the
+    /// connect path recorded one (composite composition or an explicit
+    /// project plan binding).
+    pub fn runtime_provenance(&self) -> &Option<RuntimeProvenance> {
+        &self.runtime_provenance
+    }
+
+    /// Digest of the exact image this session was connected against.
+    /// Intended for observability and integration tests that must prove
+    /// which runtime served a task.
+    #[cfg(test)]
+    pub(crate) fn connected_image_digest(&self) -> String {
+        self.image_digest.read().unwrap().clone()
+    }
+
+    pub(crate) fn with_runtime_provenance(mut self, provenance: Option<RuntimeProvenance>) -> Self {
+        self.runtime_provenance = provenance;
+        self
     }
 
     pub fn authorization_generation(&self) -> &str {

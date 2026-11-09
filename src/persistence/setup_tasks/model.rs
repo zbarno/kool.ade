@@ -6,6 +6,7 @@ use crate::app::setup_attention::catalog::{
 };
 mod attempts;
 mod evidence;
+mod flow;
 mod image_receipt;
 mod image_requirements;
 mod reconciliation;
@@ -17,6 +18,7 @@ pub use attempts::{
     RemediationAttemptResultV1, RemediationProcessStatusV1, RemediationVerificationStatusV1,
     RemediationVerificationV1,
 };
+pub use flow::{DoneOutcomeV1, FlowPhaseV1, HaltReasonV1, SetupFlowStateV1, UserActionReasonV1};
 pub use image_receipt::ImagePreparationReceiptV1;
 pub use store::{SetupTaskStoreV1, Store};
 
@@ -24,7 +26,7 @@ pub(super) use evidence::positive_domain_for;
 pub(super) use image_receipt::is_image_task_id;
 pub use transitions::SetupTaskTransitionV1;
 
-pub(super) const FILE_SCHEMA_VERSION: u8 = 2;
+pub(super) const FILE_SCHEMA_VERSION: u8 = 3;
 const TASK_SCHEMA_VERSION: u8 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

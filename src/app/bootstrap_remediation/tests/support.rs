@@ -72,7 +72,7 @@ pub(super) fn windows_wsl_features_plan() -> (RemediationPlan, HostIdentity) {
 
 pub(super) fn ready_store(task_id: &str) -> SetupTaskStoreV1 {
     SetupTaskStoreV1 {
-        schema_version: 2,
+        schema_version: 3,
         latest_scan_generation: 1,
         tasks: BTreeMap::from([(
             task_id.to_owned(),
@@ -100,6 +100,7 @@ pub(super) fn ready_store(task_id: &str) -> SetupTaskStoreV1 {
             },
         )]),
         required_image_profiles: Default::default(),
+        setup_flow: None,
     }
 }
 

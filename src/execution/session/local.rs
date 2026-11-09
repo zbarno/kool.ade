@@ -8,12 +8,14 @@ use crate::execution::{
             DockerExecutionBackend, OwnedTaskWorkspaceResolver, ReadOnlyProjectWorkspaceResolver,
         },
         engine::DockerEndpoint,
-        images::{ImageLock, ProjectRuntimeImagePlan, RuntimeProfile},
+        images::{ImageLock, ProjectRuntimeImagePlan, RuntimePlanBinding, RuntimeProfile},
     },
     errors::{ExecutionError, ExecutionErrorKind},
 };
 
-use super::{AuthorizationGenerationVerifier, ExecutionSession, current_platform};
+use super::{
+    AuthorizationGenerationVerifier, ExecutionSession, RuntimeProvenance, current_platform,
+};
 
 impl ExecutionSession {
     /// Creates a local Docker session for an application-selected task clone.
@@ -66,6 +68,7 @@ impl ExecutionSession {
             resources,
             destination_sha,
             authorization_verifier,
+            None,
         )
     }
 
@@ -92,6 +95,7 @@ impl ExecutionSession {
             PROFILES,
             required_tools,
             resources,
+            None,
             None,
             None,
         )
@@ -133,7 +137,7 @@ impl ExecutionSession {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn connect_local_with_image_selection(
+pub(crate) fn connect_local_with_image_selection(
     workspace: WorkspaceRef,
     task_clone: &Path,
     mode: ExecutionModeV1,
@@ -142,6 +146,7 @@ fn connect_local_with_image_selection(
     resources: ResourceBudgetV1,
     destination_sha: Option<String>,
     authorization_verifier: Option<Arc<dyn AuthorizationGenerationVerifier>>,
+    plan_binding: Option<&RuntimePlanBinding>,
 ) -> Result<ExecutionSession, ExecutionError> {
     let endpoint =
         DockerEndpoint::from_process_environment(current_platform()).map_err(prerequisite)?;
@@ -177,6 +182,7 @@ fn connect_local_with_image_selection(
             error.retryable,
         )
     })?;
+    let mut recipe_digest: Option<String> = None;
     let image = match lock.select_with_tools(profiles, &architecture, required_tools) {
         Ok(image) => image,
         Err(original) => match lock.plan_project_runtime(&architecture, required_tools) {
@@ -185,22 +191,41 @@ fn connect_local_with_image_selection(
                 // builder must independently verify their local identity,
                 // execute the fixed offline build and smoke-test its tools.
                 // No host fallback or synthetic image digest is allowed.
-                runtime
-                    .block_on(backend.compose_project_runtime(&candidate))
+                let recipe_digest_assignment = Some(candidate.recipe_sha256.clone());
+                let composed = runtime.block_on(backend.compose_project_runtime(&candidate));
+                let image = composed
                     .map_err(|error| {
                         // The recipe queue can recover missing system tools
                         // through a separately authorized broker. A failed
                         // composite build or verification must NOT take that
                         // fallback, which could mask a trusted-image failure.
+                        let tool_hint = candidate
+                            .required_tools
+                            .iter()
+                            .take(4)
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let estimate = lock
+                            .composition_size_estimate(&candidate)
+                            .map(|estimate| {
+                                format!(
+                                    ", estimated <= {} MiB total image storage",
+                                    estimate.estimated_storage_bytes.div_ceil(1 << 20)
+                                )
+                            })
+                            .unwrap_or_default();
                         ExecutionError::new(
                             ExecutionErrorKind::PolicyDenied,
                             format!(
-                                "Trusted composite preparation was blocked: {}",
+                                "Trusted composite runtime preparation failed for {tool_hint}{estimate}: {}. Resolve the reported blocker (typically Docker storage or a missing trusted source image) and retry; if preparation keeps failing, clear the application's composite runtime cache and try again.",
                                 error.message
                             ),
                             error.retryable,
                         )
-                    })?
+                    })?;
+                recipe_digest = recipe_digest_assignment;
+                image
             }
             Ok(ProjectRuntimeImagePlan::Existing(_)) => {
                 return Err(ExecutionError::new(
@@ -218,7 +243,7 @@ fn connect_local_with_image_selection(
             }
         },
     };
-    ExecutionSession::new_with_destination_authorization(
+    let mut session = ExecutionSession::new_with_destination_authorization(
         backend,
         workspace,
         ExecutionTarget::local(),
@@ -228,7 +253,14 @@ fn connect_local_with_image_selection(
         destination_sha,
         authorization_verifier,
     )
-    .map_err(|_| prerequisite_message())
+    .map_err(|_| prerequisite_message())?;
+    if plan_binding.is_some() || recipe_digest.is_some() {
+        session = session.with_runtime_provenance(Some(RuntimeProvenance {
+            recipe_digest,
+            binding_digest: plan_binding.map(RuntimePlanBinding::binding_digest),
+        }));
+    }
+    Ok(session)
 }
 
 fn connect_with_resolver(

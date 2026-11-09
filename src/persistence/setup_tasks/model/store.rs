@@ -16,6 +16,9 @@ pub struct SetupTaskStoreV1 {
     /// the current trusted engine identity and architecture.
     #[serde(default)]
     pub required_image_profiles: BTreeSet<RuntimeProfile>,
+    /// Coordination position for the "Prepare this computer" flow (issue 554).
+    #[serde(default)]
+    pub setup_flow: Option<super::flow::SetupFlowStateV1>,
 }
 
 pub type Store = SetupTaskStoreV1;
@@ -27,6 +30,7 @@ impl Default for SetupTaskStoreV1 {
             latest_scan_generation: 0,
             tasks: BTreeMap::new(),
             required_image_profiles: BTreeSet::new(),
+            setup_flow: None,
         }
     }
 }

@@ -10,12 +10,15 @@ use fs2::FileExt;
 
 use super::{MAX_STATE_BYTES, SetupTaskStoreV1};
 
+mod flow;
 mod legacy;
 mod owner;
 #[cfg(test)]
 mod tests;
 mod transitions;
 
+pub use flow::update_flow;
+pub use flow::{insert_flow, load_flow};
 pub use transitions::apply_transition;
 #[cfg(test)]
 pub(super) use transitions::apply_transition_at;
