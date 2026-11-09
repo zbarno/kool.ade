@@ -11,6 +11,11 @@ contains the qcow2 image, signed catalog, image lock, SBOM, and verified
 attestations. Its approved x86_64 image digest is
 `sha256:6ae802274b9bea94f4365fc9a4923cff0496039fd4a283bb95e87fe8bfce127c`.
 Real KVM GUI readiness and overlay validation are tracked separately in #392.
+The current host support claim is x86_64 Linux without nested virtualization.
+Readiness reports macOS, Windows, ARM hosts, and nested virtualization as
+unsupported. Image availability alone does not imply host support; future
+macOS/Windows backends belong to #395, and platform claims follow the #392
+release matrix.
 
 ## Image build boundary
 
@@ -163,20 +168,21 @@ fixed root-owned `/usr/bin/qemu-img`, and each invocation has a 20-second
 timeout, bounded output capture, and process-group kill. It makes the base
 read-only and creates an isolated qcow2 overlay. The overlay path is a random
 UUID under a private directory. The VM backend must stop the VM before calling
-`release_after_vm_stopped`. These APIs are not yet connected to a production VM
-backend; #380 consumes the verifier/cache/floor interface. The application
-must supply a stable durable state path and perform authenticated first-install
-initialization before launch; this component does not select or create that
-application path.
+`release_after_vm_stopped`. The local QEMU/KVM backend in #380 now connects to
+these verifier/cache/floor APIs. The application must supply a stable durable
+state path and perform authenticated first-install initialization before
+launch; this image component does not select or create that application path.
 
 ## Trust and readiness dependencies
 
-- #381 owns the authenticated companion protocol, binary, and actual heartbeat.
-  Until it lands and is cryptographically bound in a signed catalog, the guest
-  must be reported unavailable even if the desktop is visible.
-- #378 consumes `GuestImageManifestTrustV1` and verifies promoted catalog and
-  cached-image readiness with an application-pinned key. Do not add a private
-  signing key or select from mutable tags.
+- #381 delivered the authenticated companion protocol, binary, and heartbeat;
+  the signed generation-1 catalog binds the companion protocol version and
+  binary digest. The #392 suite still owns evidence of a real boot and
+  authenticated heartbeat; implementation or image promotion alone does not
+  prove integrated guest readiness.
+- #378 verifies promoted catalog and cached-image readiness with an
+  application-pinned key. Do not add a private signing key or select from
+  mutable tags.
 - #392 owns real KVM boot, GUI capture/input, companion heartbeat, base
   immutability, two-overlay isolation, cleanup, and no-host-credential checks.
   Synthetic tests and build success do not establish those properties.
