@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 
 mod browser;
+mod computer_target;
 mod evidence;
 mod finding;
 mod linux_desktop;
@@ -11,6 +12,7 @@ mod review_subject;
 mod scenario;
 
 pub use browser::*;
+pub use computer_target::QaComputerTargetV1;
 pub use evidence::*;
 pub use finding::*;
 pub use linux_desktop::*;

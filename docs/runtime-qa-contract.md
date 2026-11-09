@@ -126,3 +126,26 @@ The lifecycle acceptance test does not satisfy the pinned-image application
 E2E requirement: real desktop/browser interaction, private screenshot
 collection, release security negatives, and setup UX remain separately
 required.
+
+## Computer-controlled QA boundary
+
+Runtime QA has a typed `QaComputerTargetV1` for binding a disposable guest
+session to the QA run, approved task UID, source revision, approved
+specification, guest image, session attestation, application ID, and P15
+staged artifact receipt. The evidence
+manifest retains this target so the independent reviewer receives the same
+identity that governed interaction. The contract validates that the staged
+artifact digest is the exact approved build digest; a launch or screenshot
+alone still cannot pass the normal assertion and review gates.
+
+Production dispatch remains unavailable until an app-owned adapter can verify
+the live Computer Use grant and consume the exact staging receipt before
+launching the approved application in the guest. Preview-only Docker drivers
+do not receive guest authority, and no preview relay/network policy is changed.
+The current app still has no verified staged-build-to-guest-launch adapter;
+this limitation is tracked by #389. The adapter depends on verified guest
+image provenance from #379, app-ID launch support from #394, and the existing
+P15 transfer bridge in #385 being connected to task-build dispatch. Real guest
+interaction belongs to the #392 integration acceptance matrix. The typed
+contract and fail-closed routing are not evidence that task applications have
+run in a VM.

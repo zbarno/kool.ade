@@ -1,3 +1,5 @@
+#[path = "tests/computer_qa.rs"]
+mod computer_qa;
 #[path = "tests/headless_service.rs"]
 mod headless_service;
 #[path = "tests/multi_scenario.rs"]

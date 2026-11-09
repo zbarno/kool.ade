@@ -51,6 +51,7 @@ pub(super) fn record_completed_qa(
         approved_spec_hash: request.approved_spec_hash.clone(),
         build_hash: request.build_artifact_sha256.clone(),
         platform: QaPlatform::Web,
+        computer_qa_target: None,
         driver_version: request.driver_profile_version.clone(),
         display: QaDisplayV1 {
             width: Some(1024),
