@@ -27,6 +27,57 @@ pub const MAX_COMPUTER_USE_SUMMARY_BYTES: usize = 512;
 pub const MAX_COMPUTER_USE_ACTION_TIMEOUT_MS: u32 = 60_000;
 pub const SUPPORTED_COMPUTER_USE_ROLES_V1: [&str; 2] = ["implementer/v1", "repair/v1"];
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ComputerUseControlOwnerV1 {
+    Agent,
+    Human,
+    Paused,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ComputerUseControlCommandV1 {
+    PauseAgent,
+    ResumeAgent,
+    TakeControl,
+    ReturnControl,
+    StopComputer,
+    LaunchApprovedApp(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComputerUseActionSummaryV1 {
+    pub actor: ComputerUseControlOwnerV1,
+    pub label: String,
+    pub occurred_at_unix_ms: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComputerUseTaskSessionViewV1 {
+    pub session_id: String,
+    pub task_id: String,
+    pub user_id: String,
+    pub agent_role: String,
+    pub session_class: super::ComputerSessionClassV1,
+    pub allowed_apps: Vec<String>,
+    pub resource_budget: super::ComputerResourceBudgetV1,
+    pub actions_remaining: u32,
+    pub lifecycle: super::ComputerLifecycleV1,
+    pub control_owner: ComputerUseControlOwnerV1,
+    pub control_generation: u64,
+    pub active_app: Option<String>,
+    pub remaining_ms: u64,
+    pub expires_at_unix_ms: u64,
+    pub frame_revision: u64,
+    pub frame_width: u16,
+    pub frame_height: u16,
+    pub frame_png: Option<Vec<u8>>,
+    pub frame_error: bool,
+    pub private_input: bool,
+    pub control_transition_pending: bool,
+    pub control_error: Option<String>,
+    pub action_log: Vec<ComputerUseActionSummaryV1>,
+}
+
 pub fn is_supported_computer_use_role_v1(role_id: &str) -> bool {
     SUPPORTED_COMPUTER_USE_ROLES_V1.contains(&role_id)
 }

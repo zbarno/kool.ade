@@ -89,6 +89,14 @@ pub trait Surface {
     fn computer_use_permissions(&self) -> Vec<ComputerUsePermissionView> {
         Vec::new()
     }
+    /// Task-scoped, display-only Computer Use state. Frame bytes are transient
+    /// local memory and are never stored in the task or source repository.
+    fn computer_use_task_sessions(
+        &self,
+        _task_id: &str,
+    ) -> Vec<crate::computer_use::mcp::ComputerUseTaskSessionViewV1> {
+        Vec::new()
+    }
     /// Revoke one app-owned Computer Use grant immediately.
     fn revoke_computer_use_permission(&mut self, _session_id: &str) -> Result<(), String> {
         Err("Computer Use permission control is unavailable in this workspace.".into())

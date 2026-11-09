@@ -41,9 +41,11 @@ pub(super) fn action(
     }
     let Some(channel) = active.channel.as_mut() else {
         active.uncertain = true;
+        controller.cache_active_view(active);
         return controller.blocked("guest_channel_unavailable");
     };
     let operation = operation(&payload);
+    let summary_payload = payload.clone();
     let now = unix_time_ms();
     let Some(deadline) = now.checked_add(timeout_ms as u64) else {
         return denied("invalid_request");
@@ -78,11 +80,35 @@ pub(super) fn action(
     if cancelled.load(Ordering::Acquire) {
         active.channel.take();
         active.uncertain = true;
+        controller.cache_active_view(active);
         return denied("cancelled");
     }
-    match result {
+    let response = match result {
         Ok(outcome) => {
             active.next_action_sequence = active.next_action_sequence.saturating_add(1);
+            if let crate::computer_use::ComputerActionPayloadV1::LaunchApp { app_id } =
+                &summary_payload
+            {
+                active.active_app = Some(app_id.clone());
+            }
+            let label = action_label(&summary_payload);
+            if should_record_action_summary(active.private_input, caller.actor, operation) {
+                active
+                    .action_log
+                    .push_back(crate::computer_use::mcp::ComputerUseActionSummaryV1 {
+                        actor: if caller.actor == crate::computer_use::ComputerActionActorV1::Human
+                        {
+                            crate::computer_use::mcp::ComputerUseControlOwnerV1::Human
+                        } else {
+                            crate::computer_use::mcp::ComputerUseControlOwnerV1::Agent
+                        },
+                        label,
+                        occurred_at_unix_ms: now,
+                    });
+                while active.action_log.len() > 50 {
+                    active.action_log.pop_front();
+                }
+            }
             let mut result = completed(session_id);
             result.observation = outcome.observation.clone();
             result.action_outcome = Some(outcome);
@@ -103,6 +129,27 @@ pub(super) fn action(
         Err(GuestProtocolErrorV1::StaleObservation) => denied("stale_observation"),
         Err(GuestProtocolErrorV1::DeadlineExpired) => denied("action_deadline_expired"),
         Err(_) => denied("action_authorization_failed"),
+    };
+    controller.cache_active_view(active);
+    response
+}
+
+fn action_label(payload: &crate::computer_use::ComputerActionPayloadV1) -> String {
+    use crate::computer_use::ComputerActionPayloadV1 as P;
+    match payload {
+        P::ObserveScreen => "Observed desktop".into(),
+        P::ObserveWindows => "Observed open windows".into(),
+        P::ReadAccessibility => "Read accessibility information".into(),
+        P::MouseClick { .. } | P::MouseDoubleClick { .. } => "Used pointer".into(),
+        P::MouseMove { .. } => "Moved pointer".into(),
+        P::MouseDrag { .. } => "Dragged pointer".into(),
+        P::MouseScroll { .. } => "Scrolled desktop".into(),
+        P::FocusWindow { .. } => "Focused a window".into(),
+        P::KeyPress { .. } | P::KeyChord { .. } => "Used keyboard".into(),
+        P::TypeText { .. } => "Entered text".into(),
+        P::LaunchApp { .. } => "Launched an approved app".into(),
+        P::WaitFor { .. } => "Waited for the desktop".into(),
+        P::QueryState => "Checked desktop status".into(),
     }
 }
 
@@ -126,5 +173,45 @@ pub(crate) fn operation(
         P::LaunchApp { .. } => ComputerOperationV1::LaunchAllowedApp,
         P::WaitFor { .. } => ComputerOperationV1::WaitFor,
         P::QueryState => ComputerOperationV1::QueryState,
+    }
+}
+
+fn should_record_action_summary(
+    private_input: bool,
+    actor: crate::computer_use::ComputerActionActorV1,
+    operation: ComputerOperationV1,
+) -> bool {
+    !(private_input
+        && actor == crate::computer_use::ComputerActionActorV1::Human
+        && operation == ComputerOperationV1::KeyboardInput)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_record_action_summary;
+    use crate::computer_use::{ComputerActionActorV1, ComputerOperationV1 as Operation};
+
+    #[test]
+    fn private_human_keyboard_actions_are_omitted_from_the_local_journal() {
+        assert!(!should_record_action_summary(
+            true,
+            ComputerActionActorV1::Human,
+            Operation::KeyboardInput,
+        ));
+        assert!(should_record_action_summary(
+            true,
+            ComputerActionActorV1::Human,
+            Operation::MouseInput,
+        ));
+        assert!(should_record_action_summary(
+            true,
+            ComputerActionActorV1::Agent,
+            Operation::KeyboardInput,
+        ));
+        assert!(should_record_action_summary(
+            false,
+            ComputerActionActorV1::Human,
+            Operation::KeyboardInput,
+        ));
     }
 }
