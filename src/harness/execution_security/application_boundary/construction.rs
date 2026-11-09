@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use super::super::mcp_server::ServerConfig;
-use super::{ApplicationBoundary, SessionBridge, ToolAccess, runtime_qa_screenshots, target};
+use super::{
+    ApplicationBoundary, SessionBridge, ToolAccess, resolution, runtime_qa_screenshots, target,
+};
 use crate::{
     execution::{
         contract::{ExecutionModeV1, ResourceBudgetV1},
@@ -129,12 +131,26 @@ pub(super) fn new(request: &PlanningRequest) -> anyhow::Result<ApplicationBounda
                 request.cancel.clone(),
             )?,
         );
-        let session = Arc::new(target::connect(
-            request,
-            workspace.clone(),
-            runtime_profile(&request.repo_root),
-            default_resource_budget(request.task_id.as_deref()),
-        )?);
+        // Project-aware runtime selection: the approved recipe set of the
+        // task's active targets wins; without a usable manifest we degrade
+        // to the legacy marker-file heuristic (compatibility for in-flight
+        // and unmanaged projects). See `resolution` for the rationale.
+        let plan = resolution::resolve_local_runtime(request, runtime_profile(&request.repo_root));
+        let session = Arc::new(match plan {
+            resolution::LocalRuntimePlan::Heuristic(profile) => target::connect(
+                request,
+                workspace.clone(),
+                profile,
+                default_resource_budget(request.task_id.as_deref()),
+            )?,
+            resolution::LocalRuntimePlan::Project { tools, binding } => target::connect_tools(
+                request,
+                workspace.clone(),
+                tools,
+                binding,
+                default_resource_budget(request.task_id.as_deref()),
+            )?,
+        });
         execution_session = Some(session.clone());
         bridge.bind_execution_session(session.clone())?;
         let ipc = SessionBridge::start(
