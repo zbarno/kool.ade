@@ -239,6 +239,7 @@ pub enum ComputerUseTaskActionV1 {
     TakeControl,
     ReturnControl,
     StopComputer,
+    InspectUncertainOutcome,
     SetPrivateInput(bool),
     DisplayInput(crate::computer_use::ComputerDisplayInputV1),
     LaunchApprovedApp(String),

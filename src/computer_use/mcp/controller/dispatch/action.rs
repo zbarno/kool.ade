@@ -9,6 +9,7 @@ use crate::computer_use::{
 };
 
 use super::super::super::{ComputerUseCallerV1, ComputerUseMcpResponseV1};
+use super::super::session_journal::SessionEventKindV1 as JournalEvent;
 use super::super::{
     cancellation::run_cancellable,
     session::{completed, denied, unix_time_ms},
@@ -36,8 +37,8 @@ pub(super) fn action(
         cancelled,
         session_id,
     } = context;
-    if active.paused || !active.started {
-        return controller.blocked("session_not_ready");
+    if let Some(reason) = action_blocker(active.uncertain, active.paused, active.started) {
+        return controller.blocked(reason);
     }
     let Some(channel) = active.channel.as_mut() else {
         active.uncertain = true;
@@ -66,8 +67,25 @@ pub(super) fn action(
         operation,
         payload,
     };
+    active.inspection_result = None;
     let session = active.session.clone();
     let handle = active.handle.clone();
+    let Some(runtime) = controller.runtime.as_ref() else {
+        return controller.blocked("trusted_runtime_unavailable");
+    };
+    if runtime
+        .session_journal
+        .append_session(
+            &session,
+            &active.role_id,
+            JournalEvent::ActionIntent,
+            Some(&action),
+            now,
+        )
+        .is_err()
+    {
+        return controller.blocked("session_journal_unavailable");
+    }
     let result = run_cancellable(controller, &session, &handle, cancelled, || {
         authority.execute(
             channel,
@@ -77,15 +95,43 @@ pub(super) fn action(
             now,
         )
     });
+    let result_kind = match &result {
+        Ok(_) => JournalEvent::ActionApplied,
+        Err(
+            GuestProtocolErrorV1::OutcomeUnknown
+            | GuestProtocolErrorV1::Io
+            | GuestProtocolErrorV1::GuestExited(_),
+        ) => JournalEvent::OutcomeUnknown,
+        Err(_) => JournalEvent::ActionFailed,
+    };
+    if runtime
+        .session_journal
+        .append_session(
+            &session,
+            &active.role_id,
+            result_kind,
+            Some(&action),
+            unix_time_ms(),
+        )
+        .is_err()
+    {
+        active.channel.take();
+        active.uncertain = true;
+        active.uncertain_action_sequence = Some(sequence);
+        controller.cache_active_view(active);
+        return controller.blocked("session_journal_unavailable");
+    }
     if cancelled.load(Ordering::Acquire) {
         active.channel.take();
         active.uncertain = true;
+        active.uncertain_action_sequence = Some(sequence);
         controller.cache_active_view(active);
         return denied("cancelled");
     }
     let response = match result {
         Ok(outcome) => {
             active.next_action_sequence = active.next_action_sequence.saturating_add(1);
+            active.uncertain_action_sequence = None;
             if let crate::computer_use::ComputerActionPayloadV1::LaunchApp { app_id } =
                 &summary_payload
             {
@@ -121,6 +167,7 @@ pub(super) fn action(
         ) => {
             active.next_action_sequence = active.next_action_sequence.saturating_add(1);
             active.uncertain = true;
+            active.uncertain_action_sequence = Some(sequence);
             controller.blocked("action_outcome_unknown")
         }
         Err(GuestProtocolErrorV1::UnsupportedCapability) => {
@@ -132,6 +179,16 @@ pub(super) fn action(
     };
     controller.cache_active_view(active);
     response
+}
+
+fn action_blocker(uncertain: bool, paused: bool, started: bool) -> Option<&'static str> {
+    if uncertain {
+        Some("session_state_uncertain")
+    } else if paused || !started {
+        Some("session_not_ready")
+    } else {
+        None
+    }
 }
 
 fn action_label(payload: &crate::computer_use::ComputerActionPayloadV1) -> String {
@@ -188,8 +245,22 @@ fn should_record_action_summary(
 
 #[cfg(test)]
 mod tests {
-    use super::should_record_action_summary;
+    use super::{action_blocker, should_record_action_summary};
     use crate::computer_use::{ComputerActionActorV1, ComputerOperationV1 as Operation};
+
+    #[test]
+    fn uncertain_action_outcome_fences_every_following_action() {
+        assert_eq!(
+            action_blocker(true, false, true),
+            Some("session_state_uncertain")
+        );
+        assert_eq!(action_blocker(false, false, true), None);
+        assert_eq!(action_blocker(false, true, true), Some("session_not_ready"));
+        assert_eq!(
+            action_blocker(false, false, false),
+            Some("session_not_ready")
+        );
+    }
 
     #[test]
     fn private_human_keyboard_actions_are_omitted_from_the_local_journal() {

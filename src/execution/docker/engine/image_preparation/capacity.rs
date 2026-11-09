@@ -1,5 +1,6 @@
 use super::super::{
     EngineDiscovery, EngineSnapshot, approval_fingerprint, failure, operation_timeout,
+    probe::{image_digests_with_retry, inspect_with_retry},
 };
 use crate::execution::docker::{
     discovery::{
@@ -18,9 +19,7 @@ impl EngineDiscovery {
         &self,
         profile: RuntimeProfile,
     ) -> Result<EngineSnapshot, PrerequisiteFailure> {
-        let mut snapshot = tokio::time::timeout(self.timeouts.operation, self.api.inspect())
-            .await
-            .map_err(|_| operation_timeout("Docker Engine identity inspection"))??;
+        let mut snapshot = inspect_with_retry(self.api.as_ref(), self.timeouts.operation).await?;
         validate_snapshot_engine(&snapshot)?;
         if is_unmeasured_desktop_storage(
             self.desktop_transport_candidate,
@@ -28,9 +27,7 @@ impl EngineDiscovery {
             &snapshot,
         ) {
             let image_digests =
-                tokio::time::timeout(self.timeouts.operation, self.api.image_digests())
-                    .await
-                    .map_err(|_| operation_timeout("Docker image inventory"))??;
+                image_digests_with_retry(self.api.as_ref(), self.timeouts.operation).await?;
             self.measure_desktop_capacity_if_available(&mut snapshot, &image_digests)
                 .await?;
         }
@@ -53,9 +50,7 @@ impl EngineDiscovery {
     pub(crate) async fn inspect_snapshot_engine(
         &self,
     ) -> Result<EngineSnapshot, PrerequisiteFailure> {
-        let snapshot = tokio::time::timeout(self.timeouts.operation, self.api.inspect())
-            .await
-            .map_err(|_| operation_timeout("Docker Engine identity inspection"))??;
+        let snapshot = inspect_with_retry(self.api.as_ref(), self.timeouts.operation).await?;
         validate_snapshot_engine(&snapshot)?;
         Ok(snapshot)
     }

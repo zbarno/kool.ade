@@ -210,6 +210,7 @@ impl LocalKvmComputerBackend {
                     session_id: owner.session_id.clone(),
                     lease_generation: owner.lease_generation,
                     kind: EventKind::Recovered,
+                    boot_fingerprint: None,
                 });
                 fs::remove_dir_all(&directory).map_err(|_| Error::Io)?;
             }

@@ -150,6 +150,8 @@ fn task_session_views_are_scoped_to_the_exact_task_and_local_user() {
             resource_budget: crate::computer_use::MINIMUM_DISPOSABLE_VM_BUDGET_V1,
             actions_remaining: 100,
             lifecycle: crate::computer_use::ComputerLifecycleV1::Delegated,
+            status: crate::computer_use::mcp::ComputerUseTaskSessionStatusV1::Active,
+            queue_position: None,
             control_owner: crate::computer_use::mcp::ComputerUseControlOwnerV1::Agent,
             control_generation: 1,
             active_app: None,
@@ -163,6 +165,7 @@ fn task_session_views_are_scoped_to_the_exact_task_and_local_user() {
             private_input: false,
             control_transition_pending: false,
             control_error: None,
+            control_notice: None,
             action_log: Vec::new(),
         }
     };

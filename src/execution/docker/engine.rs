@@ -37,7 +37,7 @@ pub(crate) use approval::fingerprint as approval_fingerprint;
 use bollard_api::BollardApi;
 pub use endpoint::{DockerEndpoint, HostPlatform};
 pub(crate) use image_pull::{ImagePullControl, ImagePullProgress};
-use probe::{CacheEntry, DesktopCapacitySample};
+use probe::{CacheEntry, DesktopCapacitySample, inspect_with_retry};
 pub use snapshot::EngineSnapshot;
 
 const ENGINE_OPERATION_TIMEOUT: Duration = Duration::from_secs(10);
@@ -152,9 +152,7 @@ impl EngineDiscovery {
     /// Return one bounded, validated daemon identity snapshot for consent
     /// binding. Callers must re-probe before using the resulting identity.
     pub async fn inspect_snapshot(&self) -> Result<EngineSnapshot, PrerequisiteFailure> {
-        let snapshot = tokio::time::timeout(self.timeouts.operation, self.api.inspect())
-            .await
-            .map_err(|_| operation_timeout("Docker Engine identity inspection"))??;
+        let snapshot = inspect_with_retry(self.api.as_ref(), self.timeouts.operation).await?;
         validate_snapshot(&snapshot)?;
         Ok(snapshot)
     }

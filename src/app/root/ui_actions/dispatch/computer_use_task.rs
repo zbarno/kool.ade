@@ -42,6 +42,12 @@ pub(super) fn dispatch(app: &mut KooladeApp, task_id: &str, session_id: &str, ac
                 session_id,
                 crate::computer_use::mcp::ComputerUseControlCommandV1::StopComputer,
             ),
+            Action::InspectUncertainOutcome => controller.queue_control_change(
+                task_id,
+                &user_id,
+                session_id,
+                crate::computer_use::mcp::ComputerUseControlCommandV1::InspectUncertainOutcome,
+            ),
             Action::SetPrivateInput(enabled) => {
                 controller.set_private_input(task_id, &user_id, session_id, enabled)
             }
