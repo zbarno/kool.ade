@@ -252,6 +252,10 @@ pub trait Surface {
         false
     }
     fn setup_provider_install(&mut self, _ui: &mut egui::Ui, _task_id: &str) {}
+    /// Position of the "Prepare this computer" flow, when one is active.
+    fn setup_flow_position(&self) -> Option<crate::persistence::setup_tasks::SetupFlowStateV1> {
+        None
+    }
     fn bootstrap_conversation(
         &mut self,
         _task_id: &str,

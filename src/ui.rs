@@ -103,6 +103,16 @@ pub enum ApplicationCommand {
     ApproveSetupTaskFix {
         task_id: String,
     },
+    /// Begin, resume, or restart the deterministic "Prepare this computer" flow.
+    StartSetupFlow,
+    /// Park the setup flow; in-flight work settles, nothing new begins.
+    PauseSetupFlow,
+    /// Stop the setup flow outright (resumable, never destructive).
+    StopSetupFlow,
+    /// Decline one offered setup operation; the flow stops proposing it.
+    DeclineSetupOperation {
+        task_id: String,
+    },
     CreatePlanningTask {
         kind: crate::core::planning_work::WorkKind,
         description: String,

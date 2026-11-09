@@ -201,6 +201,22 @@ the exact local image; ordinary execution never pulls an image implicitly.
 Browser and desktop QA images remain disabled. Docker Desktop image preparation
 remains gated on the trusted VM transport and capacity evidence tracked by #347.
 
+## Orchestration: the "Prepare this computer" flow (#554)
+
+Scattered setup tasks are grouped under one machine-parent checklist —
+"Prepare this computer" — driven by a deterministic decision loop that
+orders work by priority and dependencies, waits for explicit scoped consent,
+verifies each operation, and escalates only what it cannot safely decide.
+The loop pauses across app restarts rather than continuing invisibly,
+honors per-operator declines durably, and stops with a stated reason if a
+once-ready check stops verifying. No operation acquires new privileges;
+every change still passes the per-task approval gates described above, with
+plain-English explanations (what changes, why, security impact,
+reversibility, consequence of declining) generated only from curated or
+scanned task text — never by a model. See
+[machine-setup-flow.md](machine-setup-flow.md) for phases, halt reasons,
+controls, and the test map.
+
 ## Safety contract
 
 - A Docker or image finding comes only from its own typed probe evidence. An

@@ -23,7 +23,7 @@ fn user_action_colors(dark_mode: bool) -> (egui::Color32, egui::Color32) {
 enum Entry<'a> {
     Work(&'a crate::core::planning_work::Work),
     Setup(&'a crate::app::setup_attention::SetupIssue),
-    MachineSetup(&'a crate::persistence::setup_tasks::LocalTask),
+    MachineGroup(Vec<&'a crate::persistence::setup_tasks::LocalTask>),
     Item(&'a crate::domain::item::OpenItem),
     Task(&'a crate::artifacts::task_docs::TaskDocument),
     Clarification(&'a crate::core::planning::QuestionV1),
@@ -133,11 +133,14 @@ pub(super) fn paint(
         entries.push((Entry::Setup(issue), None, fallback_order));
         fallback_order += 1;
     }
-    for task in lane.setup_tasks {
-        if task.is_active() {
-            entries.push((Entry::MachineSetup(task), None, fallback_order));
-            fallback_order += 1;
-        }
+    let machine_tasks: Vec<_> = lane
+        .setup_tasks
+        .iter()
+        .filter(|task| task.is_active())
+        .collect();
+    if !machine_tasks.is_empty() {
+        entries.push((Entry::MachineGroup(machine_tasks), None, fallback_order));
+        fallback_order += 1;
     }
     for item in lane.items {
         let recency = [
@@ -172,8 +175,8 @@ pub(super) fn paint(
         match entry {
             Entry::Work(work) => super::cards::work(ui, s, work, board, 3, planning_selection),
             Entry::Setup(issue) => super::cards::setup(ui, s, board, issue, planning_selection),
-            Entry::MachineSetup(task) => {
-                super::cards::machine_setup(ui, s, board, task, planning_selection)
+            Entry::MachineGroup(tasks) => {
+                super::cards::machine_group(ui, s, board, &tasks, planning_selection)
             }
             Entry::Item(item) => super::cards::item(ui, s, board, item, 3, planning_selection),
             Entry::Task(task) => super::cards::task(ui, s, board, task, 3, selected_path),

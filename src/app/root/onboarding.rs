@@ -76,7 +76,7 @@ impl KooladeApp {
                         ui.collapsing("Review checks and available repairs", |ui| {
                             action = crate::ui::layout::paint_welcome_setup_board(ui,
                                 &self.machine_setup_tasks, &self.setup_attention,
-                                self.setup_probe.is_some(), &mut selection);
+                                self.setup_probe.is_some(), self.setup_flow_cache.as_ref(), &mut selection);
                         });
                         if ui.add(presentation::primary_button("Continue to a code repository")).clicked() { next = Some(Step::Projects); }
                         if ui.button("Back").clicked() { next = Some(Step::Manager); }
@@ -100,6 +100,15 @@ impl KooladeApp {
             self.dispatch_ui_command(crate::ui::ApplicationCommand::RequestSetupTaskFix {
                 task_id,
             });
+        }
+        if action.start_flow {
+            self.dispatch_ui_command(crate::ui::ApplicationCommand::StartSetupFlow);
+        }
+        if action.pause_flow {
+            self.dispatch_ui_command(crate::ui::ApplicationCommand::PauseSetupFlow);
+        }
+        if action.stop_flow {
+            self.dispatch_ui_command(crate::ui::ApplicationCommand::StopSetupFlow);
         }
         if let Some(task) = selection.as_deref() {
             let tasks = self.machine_setup_tasks.clone();

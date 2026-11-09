@@ -6,6 +6,10 @@ const DETAILS_SELECTION_PREFIX: &str = "setup-notice:";
 pub(crate) struct WelcomeSetupAction {
     pub retry: bool,
     pub fix_task: Option<String>,
+    /// Operator asked the deterministic setup flow to start or resume.
+    pub start_flow: bool,
+    pub pause_flow: bool,
+    pub stop_flow: bool,
 }
 
 pub(crate) fn paint_board(
@@ -13,6 +17,7 @@ pub(crate) fn paint_board(
     tasks: &[crate::persistence::setup_tasks::LocalTask],
     notices: &[crate::app::setup_attention::SetupIssue],
     checking: bool,
+    flow: Option<&crate::persistence::setup_tasks::SetupFlowStateV1>,
     selected: &mut Option<String>,
 ) -> WelcomeSetupAction {
     let mut action = WelcomeSetupAction::default();
@@ -49,6 +54,42 @@ pub(crate) fn paint_board(
         }
     } else {
         ui.label("Setup progress · no machine checks have completed yet");
+    }
+
+    if !active.is_empty() || flow.is_some() {
+        ui.add_space(8.0);
+        ui.label(super::phase_blurb(flow, |id| {
+            tasks
+                .iter()
+                .find(|task| task.id == id)
+                .map(crate::ui::layout::setup_task_title)
+                .unwrap_or_else(|| id.to_owned())
+        }));
+        let controls = super::flow_controls(flow);
+        ui.horizontal_wrapped(|ui| {
+            if controls.start
+                && ui
+                    .add_enabled(
+                        !checking,
+                        egui::Button::new("Fix it for me").fill(crate::ui::theme::ACTION),
+                    )
+                    .clicked()
+            {
+                action.start_flow = true;
+            }
+            if controls.pause_and_stop {
+                if ui.button("Pause").clicked() {
+                    action.pause_flow = true;
+                }
+                if ui.button("Stop").clicked() {
+                    action.stop_flow = true;
+                }
+            }
+        });
+        ui.label(crate::ui::theme::helper_text(
+            "The list below is one parent checklist: \"Prepare this computer\". Each step can be explained, approved, or declined on its own terms.",
+        ));
+        ui.add_space(6.0);
     }
 
     for task in active {

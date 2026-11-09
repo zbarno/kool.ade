@@ -130,6 +130,12 @@ impl KooladeApp {
             ApplicationCommand::ApproveSetupTaskFix { task_id } => {
                 self.approve_setup_task_fix(&task_id)
             }
+            ApplicationCommand::StartSetupFlow => self.start_setup_flow_cmd(),
+            ApplicationCommand::PauseSetupFlow => self.pause_setup_flow_cmd(),
+            ApplicationCommand::StopSetupFlow => self.stop_setup_flow_cmd(),
+            ApplicationCommand::DeclineSetupOperation { task_id } => {
+                self.decline_setup_operation_cmd(&task_id)
+            }
             ApplicationCommand::CreatePlanningTask {
                 kind,
                 description,

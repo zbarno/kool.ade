@@ -70,6 +70,7 @@ struct BeatTune {
     needs_fresh_scan: bool,
     probe_busy: bool,
     last_rescan_at: Option<u64>,
+    slots: &'static [SlotStatus],
 }
 
 fn input_ext(
@@ -85,7 +86,7 @@ fn input_ext(
         tasks: parked,
         scan_generation: tune.scan_generation.max(GEN),
         probe_busy: tune.probe_busy,
-        slots: &[],
+        slots: tune.slots,
         needs_fresh_scan: tune.needs_fresh_scan,
         now_unix_ms: NOW,
         rescan_cooldown_ms: DEFAULT_RESCAN_COOLDOWN_MS,
@@ -431,5 +432,60 @@ fn sequence_errors_surface_as_internal_halts() {
             reason: HaltReasonV1::InternalError,
             detail_task: None
         }
+    );
+}
+#[test]
+fn a_busy_family_holds_back_every_sibling_in_that_family() {
+    // Family-serial executors: while ANY remediation operation is
+    // in flight, no second remediation operation may be proposed, even
+    // for a different task.
+    let state = flow(|f| {
+        f.seen_verified.clear();
+    });
+    let slots: &'static [SlotStatus] = Box::leak(Box::new([SlotStatus {
+        family: Some(SlotFamily::Remediation),
+        task_id: Some("setup:linux:rootless:packages".to_owned()),
+        phase: SlotPhase::Running,
+    }]));
+    let tune = BeatTune {
+        slots,
+        ..Default::default()
+    };
+    let input = input_ext(
+        &state,
+        vec![task("setup:computer:qemu", State::ReadyToFix, &[], 0)],
+        tune,
+    );
+    assert!(
+        matches!(beat(&input), FlowAction::Hold),
+        "same-family sibling must wait while the family is busy"
+    );
+}
+
+#[test]
+fn a_busy_family_does_not_block_independent_families() {
+    let state = flow(|f| {
+        f.seen_verified.clear();
+    });
+    let slots: &'static [SlotStatus] = Box::leak(Box::new([SlotStatus {
+        family: Some(SlotFamily::Remediation),
+        task_id: Some("setup:linux:rootless:packages".to_owned()),
+        phase: SlotPhase::Running,
+    }]));
+    let tune = BeatTune {
+        slots,
+        ..Default::default()
+    };
+    let input = input_ext(
+        &state,
+        vec![
+            task("setup:computer:qemu", State::ReadyToFix, &[], 0),
+            task("setup:cli:claude:install", State::ReadyToFix, &[], 0),
+        ],
+        tune,
+    );
+    assert!(
+        begin(&beat(&input), "setup:cli:claude:install"),
+        "an independent family may proceed while remediation is busy"
     );
 }

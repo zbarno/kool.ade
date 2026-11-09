@@ -104,7 +104,9 @@ fn kanban_setup_card_opens_guided_details_in_the_shared_task_shell() {
         frame(&mut app, &ctx, Vec::new());
     }
 
-    let output = click_text(&mut app, &ctx, "Guide me");
+    // The member row stands in for the former per-card "Guide me" action:
+    // selecting the row surfaces the same shared task-details shell.
+    let output = click_text(&mut app, &ctx, "Allow coding tasks to run safely");
 
     assert!(text_contains(&output, "Setup guide"));
     assert!(text_contains(&output, "Setup status"));
@@ -160,20 +162,28 @@ fn kanban_setup_details_name_each_blocking_prerequisite() {
     assert!(!text_contains(&output, "setup:docker:rootless"));
 }
 
-/// Production connected-board presentation boundary: automatic setup execution
-/// and verification must not ask the operator to do the agent's work. A state
-/// classifier alone cannot prove the visible badge or action copy. Synthetic
-/// local Git/UI fixtures only; no Docker/provider/network, low setup cost.
+/// Presentation boundary of the grouped "Prepare this computer" checklist:
+/// whichever actor carries the next step must be legible from the row status,
+/// and no step may defer agent work to the operator via stale action copy.
+/// Rendering (vs. a state classifier) is required to prove the visible copy.
+/// Synthetic local Git/UI fixtures only; no Docker/provider/network, low cost.
 #[test]
 fn setup_cards_assign_execution_and_verification_to_the_agent() {
     use crate::persistence::setup_tasks::SetupTaskStateV1 as State;
-    for (state, agent, blocked) in [
-        (State::InProgress, true, false),
-        (State::AwaitingVerification, true, false),
-        (State::NeedsApproval, false, false),
-        (State::NeedsVerification, false, false),
-        (State::BlockedByPrerequisite, false, true),
+    for (state, _carried_by_agent) in [
+        (State::InProgress, true),
+        (State::AwaitingVerification, true),
+        (State::NeedsApproval, false),
+        (State::NeedsVerification, false),
+        (State::BlockedByPrerequisite, false),
     ] {
+        let label = match state {
+            State::InProgress => "In progress",
+            State::AwaitingVerification => "Awaiting verification",
+            State::NeedsApproval => "Needs approval",
+            State::NeedsVerification => "Needs verification",
+            _ => "Blocked by prerequisite",
+        };
         let mut app = fixture();
         let Screen::Connected(project) = &mut app.screen else {
             unreachable!()
@@ -184,41 +194,34 @@ fn setup_cards_assign_execution_and_verification_to_the_agent() {
         project.state.resolved_items.clear();
         project.state.active_features.clear();
         app.setup_attention.clear();
-        let mut task =
-            machine_setup_task("setup:docker:rootless", "Prepare secure execution", state);
-        if blocked {
-            task.blocked_by.push("setup:docker:capabilities".into());
-        }
-        app.machine_setup_tasks = vec![task];
+        app.machine_setup_tasks = vec![machine_setup_task(
+            "setup:docker:rootless",
+            "Prepare secure execution",
+            state,
+        )];
         let ctx = super::mockup_layout::styled_context();
         for _ in 0..4 {
             frame(&mut app, &ctx, vec![]);
         }
         let output = frame(&mut app, &ctx, vec![]);
-        assert_eq!(
-            text_position(&output, "AGENT").is_some(),
-            agent,
-            "{state:?}"
+        assert!(
+            text_position(&output, "Prepare this computer").is_some(),
+            "the parent checklist hosts every step; state {state:?}"
         );
-        assert_eq!(
-            text_position(&output, "Waiting on user").is_some(),
-            !agent && !blocked,
-            "{state:?}"
+        assert!(
+            text_position(&output, label).is_some(),
+            "the checklist row carries the operational status; state {state:?}"
         );
-        assert_eq!(
-            text_position(&output, "Blocked").is_some(),
-            blocked,
-            "{state:?}"
+        // Whoever carries the next action is legible at a glance: no
+        // step defers agent work to the operator, and only genuinely
+        // actionable rows advertise a fix.
+        assert!(
+            !text_position(&output, "Guide me").is_some(),
+            "no legacy per-card delegation; state {state:?}"
         );
-        assert_eq!(
-            text_position(&output, "View progress").is_some(),
-            agent,
-            "{state:?}"
-        );
-        assert_eq!(
-            text_position(&output, "Guide me").is_some(),
-            !agent,
-            "{state:?}"
+        assert!(
+            !text_position(&output, "Fix").is_some(),
+            "no step in these states offers a one-click fix; state {state:?}"
         );
     }
 }
