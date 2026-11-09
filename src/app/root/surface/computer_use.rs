@@ -30,6 +30,14 @@ macro_rules! computer_use_surface_methods {
         ) -> Result<(), String> {
             self.decide_computer_use_consent_request(request_id, approve)
         }
+
+        fn decide_computer_use_consent_network_profile(
+            &mut self,
+            request_id: &str,
+            profile: crate::computer_use::ComputerNetworkProfileV1,
+        ) -> Result<(), String> {
+            self.decide_computer_use_consent_network_request(request_id, profile)
+        }
     };
 }
 
@@ -122,6 +130,16 @@ impl KooladeApp {
     ) -> Result<(), String> {
         self.computer_use_consent
             .decide(request_id, approve)
+            .map_err(str::to_owned)
+    }
+
+    pub(super) fn decide_computer_use_consent_network_request(
+        &mut self,
+        request_id: &str,
+        profile: crate::computer_use::ComputerNetworkProfileV1,
+    ) -> Result<(), String> {
+        self.computer_use_consent
+            .decide_with_network_profile(request_id, profile)
             .map_err(str::to_owned)
     }
 }

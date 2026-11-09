@@ -34,6 +34,10 @@ fn grant(caller: &ComputerUseCallerV1) -> ComputerUseConsentGrantV1 {
             allowed_operations: vec![crate::computer_use::ComputerOperationV1::ObserveScreen],
             allowed_apps: vec!["chromium".into()],
             network_profile: ComputerNetworkProfileV1::Disabled,
+            available_network_profiles: vec![
+                ComputerNetworkProfileV1::Disabled,
+                ComputerNetworkProfileV1::InternetResearch,
+            ],
             resource_budget: crate::computer_use::MINIMUM_DISPOSABLE_VM_BUDGET_V1,
         },
         approved_at_unix_ms: 10,

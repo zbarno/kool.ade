@@ -49,6 +49,7 @@ fn active_permission_view_shows_scope_and_expiry_without_revoking() {
                 &[],
                 &mut |_| Ok(()),
                 &mut |_, _| Ok(()),
+                &mut |_, _| Ok(()),
             )
         },
     );
@@ -100,6 +101,7 @@ fn revoke_requires_confirmation_and_expired_grants_cannot_be_revoked() {
                     Ok(())
                 },
                 &mut |_, _| Ok(()),
+                &mut |_, _| Ok(()),
             );
         },
     );
@@ -124,6 +126,7 @@ fn revoke_requires_confirmation_and_expired_grants_cannot_be_revoked() {
                     calls.set(calls.get() + 1);
                     Ok(())
                 },
+                &mut |_, _| Ok(()),
                 &mut |_, _| Ok(()),
             )
         },
@@ -152,6 +155,10 @@ fn pending_consent_shows_identity_and_purpose_without_deciding_automatically() {
         allowed_operations: vec![crate::computer_use::ComputerOperationV1::ObserveScreen],
         allowed_apps: vec!["test-gui-fixture".into()],
         network_profile: crate::computer_use::ComputerNetworkProfileV1::Disabled,
+        available_network_profiles: vec![
+            crate::computer_use::ComputerNetworkProfileV1::Disabled,
+            crate::computer_use::ComputerNetworkProfileV1::InternetResearch,
+        ],
         resource_budget: crate::computer_use::MINIMUM_DISPOSABLE_VM_BUDGET_V1,
     };
     let decisions = std::cell::RefCell::new(Vec::new());
@@ -175,6 +182,7 @@ fn pending_consent_shows_identity_and_purpose_without_deciding_automatically() {
                         .push((request_id.to_owned(), approve));
                     Ok(())
                 },
+                &mut |_, _| Ok(()),
             );
         },
     );
@@ -191,6 +199,8 @@ fn pending_consent_shows_identity_and_purpose_without_deciding_automatically() {
         "Proposed operations: observe screen",
         "Allowed applications: test-gui-fixture",
         "Network access: disabled",
+        "Approve for Internet research",
+        "do not enter credentials",
         "Resource budget:",
         "Deny request",
         "Approve request",

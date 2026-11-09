@@ -26,7 +26,10 @@ pub enum ComputerCapabilityV1 {
 #[serde(rename_all = "snake_case")]
 pub enum ComputerNetworkProfileV1 {
     Disabled,
-    ApprovedInternet,
+    InternalApprovedPreview,
+    #[serde(alias = "approved_internet")]
+    InternetResearch,
+    PersonalInternet,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -118,10 +121,20 @@ impl ComputerPolicyV1 {
         {
             return Err("read-only capability includes an input operation");
         }
-        if self.network_profile == ComputerNetworkProfileV1::ApprovedInternet
-            && self.capability < ComputerCapabilityV1::InternetResearch
-        {
-            return Err("network profile exceeds the capability grant");
+        match self.network_profile {
+            ComputerNetworkProfileV1::Disabled => {}
+            ComputerNetworkProfileV1::InternetResearch
+                if self.capability == ComputerCapabilityV1::InternetResearch
+                    && self.session_class == super::ComputerSessionClassV1::Disposable => {}
+            ComputerNetworkProfileV1::InternetResearch => {
+                return Err("internet research requires a disposable research capability");
+            }
+            ComputerNetworkProfileV1::InternalApprovedPreview => {
+                return Err("internal preview networking is not implemented");
+            }
+            ComputerNetworkProfileV1::PersonalInternet => {
+                return Err("personal internet networking is not implemented");
+            }
         }
         if self.capability >= ComputerCapabilityV1::PersistentPersonal
             && self.session_class != ComputerSessionClassV1::PersonalPersistent

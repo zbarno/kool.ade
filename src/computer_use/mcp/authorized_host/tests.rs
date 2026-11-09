@@ -18,6 +18,7 @@ impl ComputerUseMcpOperationsV1 for Operations {
             allowed_operations: vec![crate::computer_use::ComputerOperationV1::ObserveScreen],
             allowed_apps: vec!["chromium".into(), "test-gui-fixture".into()],
             network_profile: crate::computer_use::ComputerNetworkProfileV1::Disabled,
+            internet_research_available: true,
             resource_budget: crate::computer_use::MINIMUM_DISPOSABLE_VM_BUDGET_V1,
         })
     }
@@ -65,6 +66,7 @@ impl ComputerUseMcpOperationsV1 for RegisterThenFinish {
             allowed_operations: vec![crate::computer_use::ComputerOperationV1::ObserveScreen],
             allowed_apps: vec!["chromium".into()],
             network_profile: crate::computer_use::ComputerNetworkProfileV1::Disabled,
+            internet_research_available: true,
             resource_budget: crate::computer_use::MINIMUM_DISPOSABLE_VM_BUDGET_V1,
         })
     }
@@ -137,6 +139,10 @@ fn approved_grant(
             allowed_operations: vec![crate::computer_use::ComputerOperationV1::ObserveScreen],
             allowed_apps: vec!["chromium".into()],
             network_profile: crate::computer_use::ComputerNetworkProfileV1::Disabled,
+            available_network_profiles: vec![
+                crate::computer_use::ComputerNetworkProfileV1::Disabled,
+                crate::computer_use::ComputerNetworkProfileV1::InternetResearch,
+            ],
             resource_budget: crate::computer_use::MINIMUM_DISPOSABLE_VM_BUDGET_V1,
         },
         approved_at_unix_ms,

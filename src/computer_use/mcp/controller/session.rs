@@ -28,7 +28,12 @@ const OPS: [ComputerOperationV1; 7] = [
     ComputerOperationV1::WaitFor,
     ComputerOperationV1::QueryState,
 ];
-const APPS: [&str; 3] = ["chromium", "file-manager", "text-editor"];
+const APPS: [&str; 4] = [
+    "chromium",
+    "chromium-research",
+    "file-manager",
+    "text-editor",
+];
 
 impl ComputerUseMcpOperationsV1 for ComputerUseMcpControllerV1 {
     fn capabilities(&self, caller: &ComputerUseCallerV1) -> ComputerUseMcpResponseV1 {
@@ -96,6 +101,7 @@ impl ComputerUseMcpOperationsV1 for ComputerUseMcpControllerV1 {
             allowed_operations: OPS.to_vec(),
             allowed_apps: APPS.iter().map(|app| (*app).to_owned()).collect(),
             network_profile: ComputerNetworkProfileV1::Disabled,
+            internet_research_available: runtime.image.entry().companion_protocol_version >= 2,
             resource_budget: crate::computer_use::MINIMUM_DISPOSABLE_VM_BUDGET_V1,
         })
     }
@@ -124,7 +130,9 @@ impl ComputerUseMcpOperationsV1 for ComputerUseMcpControllerV1 {
             || request.role_id != caller.role_id
             || request.machine_id != runtime.machine_id
             || request.approved_destination.is_some()
-            || request.network_profile != ComputerNetworkProfileV1::Disabled
+            || !request
+                .available_network_profiles
+                .contains(&request.network_profile)
             || grant.expires_at_unix_ms <= unix_time_ms()
         {
             return denied("consent_grant_mismatch");
