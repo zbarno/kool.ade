@@ -58,6 +58,11 @@ pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn crate::ui::Surface) -> 
                 .borrow_mut()
                 .decide_computer_use_consent(request_id, approve)
         },
+        &mut |request_id, profile| {
+            surface
+                .borrow_mut()
+                .decide_computer_use_consent_network_profile(request_id, profile)
+        },
     );
     if let Some(error) = load_error {
         ui.colored_label(theme::WARNING, error);

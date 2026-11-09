@@ -13,6 +13,7 @@ use std::{
 
 const GUEST_APPS: &[(&str, &str)] = &[
     ("chromium", "/usr/bin/chromium"),
+    ("chromium-research", "/usr/bin/chromium"),
     ("file-manager", "/usr/bin/thunar"),
     ("text-editor", "/usr/bin/mousepad"),
     (
@@ -58,16 +59,8 @@ pub(super) fn launch_allowed_app(app_id: &str) -> Result<(), GuestProtocolErrorV
     }
     let mut command = Command::new(path);
     match app_id {
-        "chromium" => {
-            command.args([
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--disable-sync",
-                "--disable-background-networking",
-                "--user-data-dir=/run/koolade-computer-use-agent/chromium-profile",
-                "--disk-cache-dir=/run/koolade-computer-use-agent/chromium-cache",
-                "about:blank",
-            ]);
+        "chromium" | "chromium-research" => {
+            command.args(chromium_args(app_id == "chromium-research"));
         }
         "file-manager" => {
             command.arg("--no-desktop");
@@ -91,6 +84,22 @@ pub(super) fn launch_allowed_app(app_id: &str) -> Result<(), GuestProtocolErrorV
         .spawn()
         .map(|_| ())
         .map_err(|_| GuestProtocolErrorV1::UnsupportedCapability)
+}
+
+fn chromium_args(research: bool) -> Vec<&'static str> {
+    let mut args = vec![
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-sync",
+        "--disable-background-networking",
+        "--user-data-dir=/run/koolade-computer-use-agent/chromium-profile",
+        "--disk-cache-dir=/run/koolade-computer-use-agent/chromium-cache",
+    ];
+    if research {
+        args.push("--proxy-server=http://10.0.2.100:3128");
+    }
+    args.push("about:blank");
+    args
 }
 
 fn trusted_executable_present(path: &str) -> bool {
@@ -171,13 +180,25 @@ mod tests {
             secret_hex: "11".repeat(32),
             allowed_apps: vec![
                 "chromium".into(),
+                "chromium-research".into(),
                 "file-manager".into(),
                 "/bin/sh".into(),
                 "unknown-app".into(),
             ],
         };
         let caps = guest_capabilities_with(&config, |_| true, true, true);
-        assert_eq!(caps.app_registry, ["chromium", "file-manager"]);
+        assert_eq!(
+            caps.app_registry,
+            ["chromium", "chromium-research", "file-manager"]
+        );
         assert!(!caps.app_registry.iter().any(|app| app.starts_with('/')));
+    }
+
+    #[test]
+    fn research_proxy_is_present_only_in_the_separately_grantable_browser() {
+        let offline = chromium_args(false);
+        let research = chromium_args(true);
+        assert!(!offline.iter().any(|arg| arg.contains("proxy-server")));
+        assert!(research.contains(&"--proxy-server=http://10.0.2.100:3128"));
     }
 }

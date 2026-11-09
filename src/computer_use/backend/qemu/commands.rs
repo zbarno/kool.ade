@@ -1,4 +1,4 @@
-use std::{ffi::OsString, path::Path, process::Command};
+use std::{ffi::OsString, net::SocketAddr, path::Path, process::Command};
 
 use crate::computer_use::{ComputerSessionV1, ComputerTargetV1};
 
@@ -10,7 +10,9 @@ pub(super) fn command_args(
     control_socket: &Path,
     display_socket: &Path,
     boot_config: &Path,
+    research_proxy: Option<SocketAddr>,
 ) -> Result<Vec<OsString>, ComputerBackendErrorV1> {
+    use crate::computer_use::{ComputerCapabilityV1, ComputerNetworkProfileV1};
     let machine_id = match &session.target {
         ComputerTargetV1::LocalKvm { machine_id } => machine_id,
     };
@@ -40,6 +42,21 @@ pub(super) fn command_args(
         boot_config.display()
     );
     let name = format!("{identity},process={identity}");
+    let nic = match (session.network_profile, research_proxy) {
+        (ComputerNetworkProfileV1::Disabled, None) => "none".to_owned(),
+        (ComputerNetworkProfileV1::InternetResearch, Some(proxy))
+            if proxy.ip().is_loopback()
+                && proxy.port() != 0
+                && session.policy.network_profile == ComputerNetworkProfileV1::InternetResearch
+                && session.policy.capability == ComputerCapabilityV1::InternetResearch =>
+        {
+            format!(
+                "user,id=researchnet,ipv4=on,ipv6=off,restrict=on,guestfwd=tcp:10.0.2.100:3128-tcp:127.0.0.1:{}",
+                proxy.port()
+            )
+        }
+        _ => return Err(ComputerBackendErrorV1::UnsupportedPolicy),
+    };
     for path in [overlay, control_socket, display_socket, boot_config] {
         let text = path
             .to_str()
@@ -78,7 +95,7 @@ pub(super) fn command_args(
         "-vnc",
         &vnc,
         "-nic",
-        "none",
+        &nic,
         "-monitor",
         "none",
         "-serial",

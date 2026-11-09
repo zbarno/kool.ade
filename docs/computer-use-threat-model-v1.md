@@ -9,8 +9,8 @@ they do not claim real VM isolation.
 | --- | --- | --- | --- |
 | Malicious webpage/DOM injects instructions | High | Treat page, DOM, and accessibility text as data; policy authority stays in controller | `capability_restriction_only_intersects_and_lowers_authority_and_quotas`; CU16 adversarial prompt-injection E2E |
 | Malicious GUI app or compromised guest companion forges state | Critical | Per-boot nonce challenge and HMAC channel; host trusts only controller-fenced events | guest protocol handshake, identity-binding, and replay tests; real virtio-serial/KVM boundary remains #392 |
-| Web credential exfiltration | Critical | Offline default; isolated egress gateway; no inherited credentials; human-only secret path | `read_only_capability_cannot_include_input_and_restriction_can_revoke_all_operations`; CU10 egress/secret-canary E2E |
-| Virtual network SSRF or metadata access | Critical | No guest NIC by default; separately enforced destination policy for research | `capability_restriction_only_intersects_and_lowers_authority_and_quotas`; CU10 private-address/metadata denial E2E |
+| Web credential exfiltration | Critical | Offline default; explicit InternetResearch consent; isolated egress gateway; no inherited credentials; human-only secret path | CONNECT parsing, guest proxy selection, and tunnel revocation tests; CU10 guest secret-canary E2E in #392 |
+| Virtual network SSRF or metadata access | Critical | No guest NIC by default; restricted QEMU user network plus host-side DNS/IP policy for research | Public/reserved address, mixed DNS answer, and QEMU guestfwd contract tests; private-address/metadata denial E2E in #392 |
 | Screenshot, clipboard, or accessibility leak | High | Bounded opaque evidence refs, redaction/retention policy, no implicit clipboard bridge | `golden_wire_contracts_validate_and_round_trip_without_shape_drift`; CU09 content redaction tests |
 | File transfer crosses task, guest, or user boundary | Critical | Exact identity/revision/path grants, one-use lease and approval generations, bounded private staging, digest checks, and explicit user export | `computer_use::artifacts` grant, traversal, link, digest, collision, expiry, clipboard, and revocation tests; authenticated VM bridge remains #392 |
 | Replayed/replaced action or result | Critical | Session identity, idempotency key, contiguous sequence, durable host journal, immutable generations | guest journal and authenticated transport tests; real KVM boundary remains #392 |
@@ -26,6 +26,18 @@ they do not claim real VM isolation.
 | Guest changes task repository or publishes output | Critical | Controller owns source of truth; guest returns evidence only; controller applies under task claim | `golden_wire_contracts_validate_and_round_trip_without_shape_drift`; CU13 claim-fenced integration |
 
 ## Explicit limitations
+
+InternetResearch is an opt-in public HTTPS tunnel for disposable guests. It
+uses host DNS resolution, rejects a target if any resolved address is private
+or reserved, and pins the upstream socket to one approved resolution. The
+proxy cannot inspect encrypted HTTPS methods, paths, forms, or WebSocket
+messages, so it does not prevent a user from logging in or submitting an
+external action. The UI warns against credentials and sensitive actions; a
+separate CU-12 capability/policy is required before those actions can be
+claimed as controlled. The current signed guest image uses companion protocol
+v1, so UI consent does not offer research networking until a compatible image
+is promoted. The real guest denial, redirect/rebinding, bypass, and revoke
+checks remain in #392 and are not claimed as passed here.
 
 The guest companion authenticates the local channel and the host journal
 prevents automatic replay after uncertain outcomes. This does not prove real

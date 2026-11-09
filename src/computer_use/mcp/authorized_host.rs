@@ -256,8 +256,18 @@ impl RegistryBoundComputerUseMcpHostV1 {
         policy.identity == request.identity
             && target_machine_id(session) == request.machine_id
             && request.approved_destination.is_none()
+            && request
+                .available_network_profiles
+                .contains(&request.network_profile)
             && policy.session_class == ComputerSessionClassV1::Disposable
-            && policy.capability == ComputerCapabilityV1::ApprovedGuiTask
+            && policy.capability
+                == if request.network_profile
+                    == crate::computer_use::ComputerNetworkProfileV1::InternetResearch
+                {
+                    ComputerCapabilityV1::InternetResearch
+                } else {
+                    ComputerCapabilityV1::ApprovedGuiTask
+                }
             && policy.network_profile == request.network_profile
             && policy
                 .authorized_operations

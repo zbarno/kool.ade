@@ -20,6 +20,7 @@ use ed25519_dalek::VerifyingKey;
 use sha2::Digest;
 use uuid::Uuid;
 
+use crate::computer_use::network::InternetResearchGatewayV1;
 use crate::computer_use::{
     ComputerBackendErrorV1 as Error, ComputerBackendEventKindV1 as EventKind,
     ComputerBackendEventV1 as Event, ComputerMachineHandleV1 as Handle,
@@ -56,6 +57,7 @@ struct LiveMachine {
     overlay: Option<GuestImageOverlayV1>,
     owner: MachineOwnerRecordV1,
     child: Option<Child>,
+    network_gateway: Option<InternetResearchGatewayV1>,
     supervision: Arc<AtomicU8>,
 }
 
@@ -259,6 +261,9 @@ impl LocalKvmComputerBackend {
     }
 
     fn stop_owned(&self, machine: &mut LiveMachine) -> Result<(), Error> {
+        if let Some(gateway) = machine.network_gateway.as_mut() {
+            gateway.stop();
+        }
         if let Some(child) = machine.child.as_mut() {
             process::terminate_owned(child, &machine.owner, &self.limits.stop_timeout)?;
             machine.child = None;

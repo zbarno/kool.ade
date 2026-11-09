@@ -86,8 +86,9 @@ CU-04 consumes it without network discovery or unsigned-image fallback.
 fields; enum variants are closed; each top-level contract has an explicit
 version. `ComputerIdentityV1` binds project, task, user, and session UUIDs.
 `ComputerTargetV1` currently describes only local KVM. The Linux backend accepts
-only disposable, offline sessions, fixed QEMU arguments, app-owned overlays,
-and a delegated cgroup v2 subtree. It rejects root execution and hosts without
+disposable sessions with disabled networking or an explicitly consented
+InternetResearch profile, fixed QEMU arguments, app-owned overlays, and a
+delegated cgroup v2 subtree. It rejects root execution and hosts without
 the required KVM, QEMU, or resource controls. `ComputerSessionV1`
 binds the immutable image digest and approved manifest identity, class,
 network profile, app allowlist,
@@ -127,9 +128,29 @@ destination and transaction details.
 The `persistent_personal` and `high_impact_external_action` values are present
 to make the capability lattice explicit, but v1 policy validation rejects
 them. Persistent sessions need the separate encryption/key contract; high
-impact actions need an exact transaction grant. Approved internet is only a
-declared grant here and must remain unusable until the #386 network gateway is
-implemented and verified.
+impact actions need an exact transaction grant. InternetResearch is a separate
+consent choice for a disposable guest. It starts an app-owned, loopback-only
+HTTPS CONNECT gateway and attaches it through QEMU's restricted user network
+with one guest-forwarded TCP endpoint. QEMU does not bridge the guest to the
+host or LAN; guest UDP, QUIC, and direct proxy bypass have no route. The gateway
+permits only port 443, resolves each CONNECT target on the host, rejects the
+entire answer set if any IPv4/IPv6 result is private or reserved, and connects
+to a selected resolved address so DNS is pinned for that tunnel. Redirects to
+another host require another CONNECT and repeat the check. Each session is
+limited to 64 MiB of total tunnel traffic, 8 concurrent connections, 256 total
+connections, and the shorter of the policy time limit and lease expiry. Pause,
+revoke, cancellation, and expiry stop active tunnels. No query strings,
+credentials, or request headers are logged.
+
+This is an opaque TLS tunnel: it cannot inspect encrypted paths, HTTP methods,
+forms, or WebSocket messages. InternetResearch is not an authentication,
+download, submission, or transaction grant; do not enter credentials or
+perform sensitive actions. The separate CU-12 policy work must detect and
+authorize sensitive actions. The UI offers this profile only when the
+promoted guest image advertises companion protocol v2; the current signed
+protocol-v1 image remains offline. Real QEMU guest networking, private and
+metadata denial, redirect/rebinding, bypass, and revocation acceptance is
+tracked in #392; deterministic tests do not claim a real guest result.
 
 `ComputerActionV1` has a lease-scoped monotonic action sequence, idempotency
 key, controller-authenticated actor (`agent` or `human`), approval and

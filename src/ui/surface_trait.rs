@@ -116,6 +116,14 @@ pub trait Surface {
     ) -> Result<(), String> {
         Err("Computer Use consent is unavailable in this workspace.".into())
     }
+    /// Approve one pending session with a separately selected network profile.
+    fn decide_computer_use_consent_network_profile(
+        &mut self,
+        _request_id: &str,
+        _profile: crate::computer_use::ComputerNetworkProfileV1,
+    ) -> Result<(), String> {
+        Err("Computer Use network consent is unavailable in this workspace.".into())
+    }
     fn project_settings_draft(&self) -> Option<crate::app::dialogs::DlgProjectSettings> {
         None
     }

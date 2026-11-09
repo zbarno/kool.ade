@@ -36,18 +36,32 @@ pub(super) fn start_granted_session(
     controller.cache_queued_view(caller, budget.clone(), lease_expiry);
     let mut startup_view = StartupViewGuard::new(controller, &caller.identity.session_id);
     let lease_id = uuid::Uuid::new_v4().to_string();
+    let mut allowed_apps = request
+        .allowed_apps
+        .iter()
+        .filter(|app| APPS.contains(&app.as_str()))
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    if request.network_profile == crate::computer_use::ComputerNetworkProfileV1::InternetResearch {
+        if allowed_apps.remove("chromium") {
+            allowed_apps.insert("chromium-research".into());
+        }
+    } else {
+        allowed_apps.remove("chromium-research");
+    }
     let policy = ComputerPolicyV1 {
         schema_version: 1,
         identity: caller.identity.clone(),
         session_class: ComputerSessionClassV1::Disposable,
-        capability: ComputerCapabilityV1::ApprovedGuiTask,
+        capability: if request.network_profile
+            == crate::computer_use::ComputerNetworkProfileV1::InternetResearch
+        {
+            ComputerCapabilityV1::InternetResearch
+        } else {
+            ComputerCapabilityV1::ApprovedGuiTask
+        },
         network_profile: request.network_profile,
-        allowed_apps: request
-            .allowed_apps
-            .iter()
-            .filter(|app| APPS.contains(&app.as_str()))
-            .cloned()
-            .collect(),
+        allowed_apps,
         authorized_operations: request
             .allowed_operations
             .iter()
