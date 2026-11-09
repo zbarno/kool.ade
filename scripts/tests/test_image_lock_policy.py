@@ -253,6 +253,7 @@ class PublicationOrderingTests(unittest.TestCase):
         push = workflow.split("  push:", 1)[1].split("\n\npermissions:", 1)[0]
         promotion = workflow.split("  promote:", 1)[1].split("  publish:", 1)[0]
         publisher = workflow.split("  publish:", 1)[1]
+        self.assertIn("    branches: [main]", push)
         self.assertIn('      - ".github/workflows/computer-use-image-promotion.yml"', push)
         self.assertIn('"$RUNNER_TEMP/verified-attestations.json"', promotion)
         self.assertIn('"$RUNNER_TEMP/verified-attestations.json"', promotion.split("gh release create", 1)[1])
