@@ -1,0 +1,6 @@
+{
+  "name": "sample-web",
+  "version": "0.1.0",
+  "scripts": {"test": "vitest run"},
+  "devDependencies": {"typescript": "^5.0.0", "vite": "^5.0.0", "vitest": "^1.0.0"}
+}
