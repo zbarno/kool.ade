@@ -49,6 +49,11 @@ pub(super) fn dispatch(
         | ComputerUseMcpRequestV1::Resume { session_id }
         | ComputerUseMcpRequestV1::Release { session_id } => session_id.clone(),
     };
+    if caller.actor == crate::computer_use::ComputerActionActorV1::Agent
+        && controller.control_change_pending(&session_id)
+    {
+        return controller.blocked("control_transition_in_progress");
+    }
     if session_id != caller.identity.session_id || authority.session().identity != caller.identity {
         return denied("authorization_failed");
     }
@@ -58,8 +63,41 @@ pub(super) fn dispatch(
     let Some(active) = sessions.get_mut(&session_id) else {
         return denied("session_not_active");
     };
+    if caller.actor == crate::computer_use::ComputerActionActorV1::Agent
+        && controller.control_change_pending(&session_id)
+    {
+        return controller.blocked("control_transition_in_progress");
+    }
     if active.session.identity != caller.identity || active.uncertain {
         return controller.blocked("session_state_uncertain");
+    }
+    match (caller.actor, active.control_owner) {
+        (
+            crate::computer_use::ComputerActionActorV1::Agent,
+            crate::computer_use::mcp::ComputerUseControlOwnerV1::Agent,
+        )
+        | (
+            crate::computer_use::ComputerActionActorV1::Human,
+            crate::computer_use::mcp::ComputerUseControlOwnerV1::Human,
+        ) => {}
+        (crate::computer_use::ComputerActionActorV1::Agent, _) => {
+            return controller.blocked("agent_control_not_owned");
+        }
+        (crate::computer_use::ComputerActionActorV1::Human, _) => {
+            return denied("human_control_not_owned");
+        }
+    }
+    if caller.actor == crate::computer_use::ComputerActionActorV1::Agent
+        && active.require_fresh_agent_observation
+        && !matches!(
+            &request,
+            ComputerUseMcpRequestV1::Observe {
+                observation: ComputerUseObservationKindV1::Screenshot,
+                ..
+            }
+        )
+    {
+        return controller.blocked("fresh_observation_required_after_handback");
     }
     match request {
         ComputerUseMcpRequestV1::StartSession { .. } => {
@@ -83,7 +121,7 @@ pub(super) fn dispatch(
                     return controller.blocked("guest_accessibility_unavailable");
                 }
             };
-            action(
+            let result = action(
                 active,
                 ActionContext {
                     controller,
@@ -94,7 +132,15 @@ pub(super) fn dispatch(
                 },
                 payload,
                 60_000,
-            )
+            );
+            if caller.actor == crate::computer_use::ComputerActionActorV1::Agent
+                && observation == ComputerUseObservationKindV1::Screenshot
+                && result.status == super::super::ComputerUseMcpStatusV1::Completed
+                && result.observation.is_some()
+            {
+                active.require_fresh_agent_observation = false;
+            }
+            result
         }
         ComputerUseMcpRequestV1::Action {
             payload,
@@ -126,6 +172,7 @@ pub(super) fn dispatch(
             }
             active.channel.take();
             active.paused = true;
+            controller.cache_active_view(active);
             completed(&session_id)
         }
         ComputerUseMcpRequestV1::Resume { .. } => {
@@ -173,6 +220,7 @@ pub(super) fn dispatch(
                 Ok(channel) => {
                     active.channel = Some(channel);
                     active.paused = false;
+                    controller.cache_active_view(active);
                     completed(&session_id)
                 }
                 Err("backend_resume_failed") => {
@@ -197,6 +245,7 @@ pub(super) fn dispatch(
             let active = sessions
                 .remove(&session_id)
                 .expect("active session was checked");
+            controller.remove_cached_view(&session_id);
             let revoked = controller.registry.revoke(&session_id);
             let released = runtime
                 .backend

@@ -133,3 +133,54 @@ fn revoke_requires_the_app_bound_session_identity() {
         Some("authorization_failed")
     );
 }
+
+#[test]
+fn task_session_views_are_scoped_to_the_exact_task_and_local_user() {
+    let controller = Arc::new(super::ComputerUseMcpControllerV1::for_current_host(
+        Arc::new(ComputerUseAuthorityRegistryV1::default()),
+    ));
+    let base_view = |session_id: &str, task_id: &str, user_id: &str| {
+        crate::computer_use::mcp::ComputerUseTaskSessionViewV1 {
+            session_id: session_id.into(),
+            task_id: task_id.into(),
+            user_id: user_id.into(),
+            agent_role: "implementer/v1".into(),
+            session_class: crate::computer_use::ComputerSessionClassV1::Disposable,
+            allowed_apps: vec!["chromium".into()],
+            resource_budget: crate::computer_use::MINIMUM_DISPOSABLE_VM_BUDGET_V1,
+            actions_remaining: 100,
+            lifecycle: crate::computer_use::ComputerLifecycleV1::Delegated,
+            control_owner: crate::computer_use::mcp::ComputerUseControlOwnerV1::Agent,
+            control_generation: 1,
+            active_app: None,
+            remaining_ms: 60_000,
+            expires_at_unix_ms: super::unix_time_ms() + 60_000,
+            frame_revision: 0,
+            frame_width: 0,
+            frame_height: 0,
+            frame_png: None,
+            frame_error: false,
+            private_input: false,
+            control_transition_pending: false,
+            control_error: None,
+            action_log: Vec::new(),
+        }
+    };
+    controller.view_cache.lock().unwrap().extend([
+        (
+            "session-a".into(),
+            base_view("session-a", "task-a", "user-a"),
+        ),
+        (
+            "session-b".into(),
+            base_view("session-b", "task-a", "user-b"),
+        ),
+        (
+            "session-c".into(),
+            base_view("session-c", "task-b", "user-a"),
+        ),
+    ]);
+    let visible = controller.task_session_views("task-a", "user-a");
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].session_id, "session-a");
+}

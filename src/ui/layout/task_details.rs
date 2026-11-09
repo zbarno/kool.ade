@@ -2,6 +2,7 @@
 use super::*;
 mod action;
 mod activity;
+mod computer;
 mod conversation;
 mod dependency;
 mod details;
