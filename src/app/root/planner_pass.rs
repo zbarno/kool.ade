@@ -50,6 +50,7 @@ impl ClarificationPlanner {
 
                     authorization_verifier: None,
                     review_identity: None,
+                    computer_use: None,
                 };
                 if request.cancel.load(Ordering::Relaxed) {
                     return Err("clarification planning was cancelled".into());

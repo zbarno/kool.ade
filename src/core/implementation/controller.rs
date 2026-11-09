@@ -11,6 +11,7 @@ pub(crate) struct ProjectStartRequest {
     pub(crate) user_context: Option<String>,
     pub(crate) harness: Box<dyn AiHarness>,
     pub(crate) claim_request: crate::core::task_claim::ClaimRequest,
+    pub(crate) computer_use: Option<ComputerUseRunContext>,
 }
 
 pub struct Controller {
@@ -72,6 +73,7 @@ impl Controller {
             user_context,
             harness,
             claim_request,
+            computer_use,
         } = request;
         let (tx, rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
@@ -139,6 +141,7 @@ impl Controller {
                     user_context: user_context.as_deref(),
                     auto_publish_gate: Some(worker_publish_gate),
                     claim_lease,
+                    computer_use,
                 },
             );
             let _ = forward.join();

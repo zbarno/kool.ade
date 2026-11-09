@@ -181,6 +181,7 @@ fn ssh_worker_loss_fences_attempt_and_retries_on_a_different_trusted_worker() {
         progress_tx,
         cancel: Arc::new(AtomicBool::new(false)),
         review_identity: None,
+        computer_use: None,
     };
     let resources = ResourceBudgetV1 {
         cpu_millis: 2_000,

@@ -239,17 +239,17 @@ pub(crate) use api::validate_reasoning_level;
 pub use api::{
     ActivityTelemetry, AiHarness, ApplicationAction, BootstrapConversationReplyV1,
     BootstrapConversationResponseV1, BootstrapImageProfileV1, BootstrapIntentOperationV1,
-    BootstrapIntentSuggestionV1, CleanLaunchTelemetry, DependencyAuthorizationScope,
-    DependencyAuthorizationSource, DependencyDecision, DependencyFailureCategory, DependencyKind,
-    DependencyNeed, DependencyPackageIdentity, DependencyPreparationStatus,
-    DependencyPreparationTelemetry, DependencyRequest, DependencyRequestStatus,
-    DependencyRetryResult, DocumentUpdate, ExecutionMode, ExecutionProfile,
-    HarnessExecutionFailure, HarnessFailureCategory, HarnessOutcome, HarnessRouteProvenance,
-    LivePost, LiveProgress, ManagerContextTelemetryV1, ModelCallUsage, PackageEcosystem,
-    PlanningRequest, PlanningTaskDraft, PlanningTaskOffer, ProviderAuthStrategy, RequestedAction,
-    RetrievalPlan, ReviewExecutionIdentity, RuntimeQaReviewScreenshot, RuntimeQaScreenshotReview,
-    TaskActivityActor, TaskActivityEventV1, TaskActivityOrigin, TaskActivityVisibility, ToolAccess,
-    TurnEnvelope, TurnItem, TurnItemUpdate, safe_activity_text,
+    BootstrapIntentSuggestionV1, CleanLaunchTelemetry, ComputerUseMcpAccessV1,
+    DependencyAuthorizationScope, DependencyAuthorizationSource, DependencyDecision,
+    DependencyFailureCategory, DependencyKind, DependencyNeed, DependencyPackageIdentity,
+    DependencyPreparationStatus, DependencyPreparationTelemetry, DependencyRequest,
+    DependencyRequestStatus, DependencyRetryResult, DocumentUpdate, ExecutionMode,
+    ExecutionProfile, HarnessExecutionFailure, HarnessFailureCategory, HarnessOutcome,
+    HarnessRouteProvenance, LivePost, LiveProgress, ManagerContextTelemetryV1, ModelCallUsage,
+    PackageEcosystem, PlanningRequest, PlanningTaskDraft, PlanningTaskOffer, ProviderAuthStrategy,
+    RequestedAction, RetrievalPlan, ReviewExecutionIdentity, RuntimeQaReviewScreenshot,
+    RuntimeQaScreenshotReview, TaskActivityActor, TaskActivityEventV1, TaskActivityOrigin,
+    TaskActivityVisibility, ToolAccess, TurnEnvelope, TurnItem, TurnItemUpdate, safe_activity_text,
 };
 pub use claude_harness::ClaudeHarness;
 pub use codex_harness::CodexHarness;

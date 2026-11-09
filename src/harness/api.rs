@@ -38,8 +38,8 @@ pub use dependency::{
     DependencyRequestStatus, DependencyRetryResult, PackageEcosystem,
 };
 pub use execution::{
-    ExecutionMode, ExecutionProfile, PlanningRequest, RuntimeQaReviewScreenshot,
-    RuntimeQaScreenshotReview, ToolAccess,
+    ComputerUseMcpAccessV1, ExecutionMode, ExecutionProfile, PlanningRequest,
+    RuntimeQaReviewScreenshot, RuntimeQaScreenshotReview, ToolAccess,
 };
 pub(crate) use execution_failure::normalize_provider_error;
 pub use execution_failure::{HarnessExecutionFailure, HarnessFailureCategory};

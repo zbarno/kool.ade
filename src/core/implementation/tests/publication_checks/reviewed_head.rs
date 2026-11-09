@@ -38,6 +38,7 @@ fn current_reviewed_base_preserves_head_and_rejects_unverified_clone_edits() {
         user_context: None,
         accrual: None,
         claim_lease: None,
+        computer_use: None,
     };
     integration::prepare_reviewed_for_pull_request(
         &sandbox.repo,

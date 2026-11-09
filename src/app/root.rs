@@ -106,6 +106,15 @@ pub struct KooladeApp {
     clone_computation_override: Option<CloneWorkerCalc>,
     /// Cached routing identity (rebuilt after connect/adoption/settings).
     cached_user: CurrentUser,
+    /// Process-local app authority and consent broker for ephemeral Computer Use grants.
+    #[cfg(target_os = "linux")]
+    computer_use_authority:
+        std::sync::Arc<crate::computer_use::guest_protocol::ComputerUseAuthorityRegistryV1>,
+    #[cfg(target_os = "linux")]
+    computer_use_controller: std::sync::Mutex<
+        Option<std::sync::Arc<crate::computer_use::mcp::ComputerUseMcpControllerV1>>,
+    >,
+    computer_use_consent: crate::computer_use::mcp::ComputerUseConsentBrokerV1,
     attention: std::collections::BTreeMap<std::path::PathBuf, attention::Status>,
     setup_attention: Vec<super::setup_attention::SetupIssue>,
     /// Read-only projection of the machine-local setup task store.

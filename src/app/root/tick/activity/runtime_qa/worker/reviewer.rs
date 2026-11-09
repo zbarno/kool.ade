@@ -117,6 +117,7 @@ pub(super) fn execute(inputs: ReviewInputs<'_>) -> Result<ReviewVerdictV1, Strin
         progress_tx,
         cancel: Arc::clone(&cancelled),
         review_identity: Some(identity.clone()),
+        computer_use: None,
     };
     let output = harness
         .execute_review(&plan, &identity)

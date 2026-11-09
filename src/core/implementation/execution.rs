@@ -29,6 +29,7 @@ pub fn run(
             user_context: None,
             auto_publish_gate: None,
             claim_lease: None,
+            computer_use: None,
         },
     )
 }
@@ -81,6 +82,7 @@ pub(crate) fn run_with_code_root_and_task_repo_options(
         user_context,
         auto_publish_gate,
         claim_lease,
+        computer_use,
     } = options;
     let active_progress = progress.clone();
     let migration_gate = crate::artifacts::locks::acquire_project_state_gate(state_root)?;
@@ -198,6 +200,7 @@ pub(crate) fn run_with_code_root_and_task_repo_options(
                     auto_publish_gate: auto_publish_gate.as_deref(),
                     accrual,
                     claim_lease: claim_lease.as_ref(),
+                    computer_use: computer_use.as_ref(),
                 },
             )
         });

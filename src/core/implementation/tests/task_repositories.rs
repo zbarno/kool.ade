@@ -42,6 +42,7 @@ fn run_on_worker(sandbox: &Sandbox, ticket: &str) -> anyhow::Result<Implementati
             user_context: None,
             auto_publish_gate: None,
             claim_lease: None,
+            computer_use: None,
         },
     )
 }

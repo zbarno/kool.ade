@@ -66,6 +66,7 @@ fn command_uses_model_reasoning_and_operation_scoped_sandbox() {
 
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
     let private_workspace = Path::new("/private/review");
     let (argv, prompt) = command(

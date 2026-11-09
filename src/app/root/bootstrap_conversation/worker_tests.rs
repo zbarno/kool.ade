@@ -80,6 +80,7 @@ fn request(cancel: Arc<AtomicBool>) -> PlanningRequest {
         progress_tx,
         cancel,
         review_identity: None,
+        computer_use: None,
     }
 }
 

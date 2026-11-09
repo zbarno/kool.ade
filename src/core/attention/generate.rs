@@ -200,6 +200,7 @@ pub(super) fn run(
 
             authorization_verifier: None,
             review_identity: None,
+            computer_use: None,
         };
         let output = harness.execute(&request).map_err(anyhow::Error::new)?;
         let parsed = crate::harness::responses::decode_decision_brief(&output.final_text)

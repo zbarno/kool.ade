@@ -138,6 +138,7 @@ pub(super) fn run_task(
             user_context: None,
             auto_publish_gate: None,
             claim_lease: None,
+            computer_use: None,
         },
     )
 }

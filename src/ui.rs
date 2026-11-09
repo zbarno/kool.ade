@@ -29,7 +29,7 @@ pub use layout::HeaderAction;
 pub use specification_status::{
     FeatureDeliveryStage, FeatureSpecificationStatus, derive_feature_delivery_stage,
 };
-pub use surface_trait::{RepositoryGitOptions, Surface};
+pub use surface_trait::{ComputerUsePermissionView, RepositoryGitOptions, Surface};
 pub use toast::ToastQueue;
 
 /// Typed actions emitted by views and handled by the application state

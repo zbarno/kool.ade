@@ -163,6 +163,7 @@ fn run_with_settle_window(
 
             authorization_verifier: None,
             review_identity: None,
+            computer_use: None,
         };
         let result = harness
             .execute(&request)

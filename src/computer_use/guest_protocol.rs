@@ -13,7 +13,10 @@ mod host;
 pub use auth::{GuestBootConfigV1, GuestHandshakeErrorV1};
 pub use frame::{MAX_CONTROL_FRAME_BYTES, MAX_SCREENSHOT_PNG_BYTES};
 #[cfg(target_os = "linux")]
-pub use host::{AuthenticatedGuestChannelV1, GuestHostTransportV1};
+pub use host::{
+    AuthenticatedGuestChannelV1, AuthorizedComputerUseSessionV1, ComputerUseAuthorityRegistryV1,
+    ComputerUsePermissionV1, GuestHostTransportV1,
+};
 pub use journal::{GuestActionJournalV1, GuestJournalErrorV1, GuestReplayDecisionV1};
 pub use types::{
     GUEST_PROTOCOL_VERSION_V1, GuestActionOutcomeV1, GuestActionReplyV1, GuestCapabilitySetV1,

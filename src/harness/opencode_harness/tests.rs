@@ -238,6 +238,7 @@ fn request(root: std::path::PathBuf, progress_tx: mpsc::Sender<LiveProgress>) ->
 
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     }
 }
 

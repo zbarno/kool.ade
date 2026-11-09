@@ -148,6 +148,7 @@ fn review(
         progress_tx,
         cancel: Arc::clone(&cancel),
         review_identity: Some(reviewer_identity),
+        computer_use: None,
     };
     let output = harness
         .execute_review(

@@ -183,6 +183,7 @@ fn request(root: PathBuf, mode: ExecutionMode) -> PlanningRequest {
         destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
     if mode == ExecutionMode::RuntimeQaVisualReview {
         use crate::harness::{

@@ -240,6 +240,34 @@ overlays. This host backend does not authenticate the guest protocol or verify
 VM escape resistance; real KVM security evidence remains a separate release
 validation task.
 
+## Provider MCP boundary
+
+Provider access is an optional app-issued `ComputerUseMcpAccessV1` attached to
+one planning invocation. The app binds the caller identity, actor, and role;
+MCP arguments cannot supply task, user, role, VM, lease, or policy fields. The
+private application bridge exposes eight typed tools for capability discovery,
+session request/start, observation, action, pause, resume, and release. It
+accepts only a private socket below the MCP session directory, bounds request
+and response sizes, and returns screenshot bytes as an MCP image block rather
+than duplicating them in text.
+
+Every tool call is handed to the app-owned host dispatcher with the immutable
+caller identity and cooperative cancellation flag. The dispatcher must resolve
+the requested session against current app authority and recheck identity, role,
+VM, lease generation, expiry, supported action, resource budget, revocation,
+and approval policy on every call, including calls after a provider reconnect.
+The bridge reports typed blocked outcomes in task activity. No access object
+means no Computer Use tools. Non-Unix hosts fail closed. The controller remains
+responsible for creating an approved host dispatcher and presenting session
+permissions and revocation in the product UI; this provider bridge does not
+create VM sessions or elevate policy.
+
+The schema/parser parity test checks the fixed tool surface for all six CLI
+providers. A Unix socket integration test exercises the app-to-host boundary
+and blocked activity path without Docker, QEMU, SSH, or network setup. These
+fixtures do not claim real guest or KVM validation; the integrated VM test
+remains part of the separate release acceptance suite.
+
 ## Greenfield implementation plan
 
 1. CU-01 freezes contracts, authority boundaries, lifecycle and threats.

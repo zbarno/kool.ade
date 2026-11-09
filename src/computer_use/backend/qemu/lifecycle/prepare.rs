@@ -4,6 +4,9 @@ use crate::computer_use::{ComputerBackendProbeV1 as Probe, ComputerSessionClassV
 use std::fs::{self, OpenOptions};
 use std::sync::{Arc, atomic::AtomicU8};
 
+mod overlay_guard;
+use overlay_guard::OverlayPreparationGuard;
+
 impl LocalKvmComputerBackend {
     pub(super) fn probe_impl(&self) -> Result<Probe, Error> {
         if unsafe { libc::geteuid() } == 0 {
@@ -43,6 +46,7 @@ impl LocalKvmComputerBackend {
         overlay: GuestImageOverlayV1,
         now_unix_ms: u64,
     ) -> Result<(Handle, Event), Error> {
+        let mut overlay = OverlayPreparationGuard(Some(overlay));
         session
             .validate_for_host(now_unix_ms, &self.controller_key_id, &self.controller_key)
             .map_err(|_| Error::UntrustedSession)?;
@@ -128,18 +132,38 @@ impl LocalKvmComputerBackend {
             machine_id,
         };
         let mut machine = LiveMachine {
-            directory,
-            overlay: Some(overlay),
+            directory: directory.clone(),
+            overlay: overlay.0.take(),
             owner,
             child: None,
             supervision: Arc::new(AtomicU8::new(2)),
         };
-        let event = self.event(&mut machine, EventKind::Prepared)?;
-        self.live
-            .lock()
-            .map_err(|_| Error::Io)?
-            .insert(session_id, machine);
+        let event = match self.event(&mut machine, EventKind::Prepared) {
+            Ok(event) => event,
+            Err(error) => {
+                self.cleanup_unregistered_machine(&mut machine, &session_id);
+                return Err(error);
+            }
+        };
+        let mut live = match self.live.lock() {
+            Ok(live) => live,
+            Err(_) => {
+                self.cleanup_unregistered_machine(&mut machine, &session_id);
+                return Err(Error::Io);
+            }
+        };
+        live.insert(session_id, machine);
         Ok((handle, event))
+    }
+
+    fn cleanup_unregistered_machine(&self, machine: &mut LiveMachine, session_id: &str) {
+        CgroupV2::new(&self.cgroup_root)
+            .and_then(|cgroup| cgroup.kill_and_remove(session_id))
+            .ok();
+        if let Some(overlay) = machine.overlay.take() {
+            overlay.release_after_vm_stopped().ok();
+        }
+        fs::remove_dir_all(&machine.directory).ok();
     }
 
     pub(super) fn recover_impl(&self) -> Result<Vec<Event>, Error> {

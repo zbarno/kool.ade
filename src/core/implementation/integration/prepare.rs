@@ -220,6 +220,7 @@ pub(super) fn prepare_integration(
                 runner,
                 None,
                 policy.accrual.as_ref(),
+                policy.computer_use,
             );
             let unresolved = unresolved_paths(runner, &integration.task_repository)?;
             if !unresolved.is_empty() {

@@ -17,6 +17,11 @@ impl KooladeApp {
         if self.preflight_task_start(&ticket, manual, &capabilities) {
             return;
         }
+        let project_id = match &self.screen {
+            Screen::Connected(project) => project.state.planning_store.project_id,
+            _ => return,
+        };
+        let computer_use = self.computer_use_run_context(project_id);
         if let Screen::Connected(p) = &mut self.screen {
             if p.task_cancelled(&ticket) {
                 return;
@@ -277,6 +282,7 @@ impl KooladeApp {
                         user_context,
                         harness,
                         claim_request,
+                        computer_use,
                     },
                 ),
             );

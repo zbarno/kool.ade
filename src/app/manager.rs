@@ -191,6 +191,7 @@ impl Manager {
 
             authorization_verifier: None,
             review_identity: None,
+            computer_use: None,
         };
         let route = harness.route_provenance(&request);
         let harness_label = harness.label();

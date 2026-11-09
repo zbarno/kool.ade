@@ -182,6 +182,7 @@ fn live_reviewer_detects_seeded_overengineering_and_unrelated_changes() {
         progress_tx: mpsc::channel().0,
         cancel: Arc::new(AtomicBool::new(false)),
         review_identity: Some(identity.clone()),
+        computer_use: None,
     };
     let harness = crate::harness::pi_harness::PiHarness;
     harness.check_available().expect("configured Pi reviewer");

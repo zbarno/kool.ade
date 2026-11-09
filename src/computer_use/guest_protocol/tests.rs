@@ -1,13 +1,14 @@
 use super::{
-    GuestBootConfigV1, GuestCapabilitySetV1, GuestExitReasonV1, GuestHandshakeErrorV1,
-    GuestMessageV1, GuestProtocolErrorV1,
+    ComputerUseAuthorityRegistryV1, GuestBootConfigV1, GuestCapabilitySetV1, GuestExitReasonV1,
+    GuestHandshakeErrorV1, GuestMessageV1, GuestProtocolErrorV1,
     auth::{AuthenticatedGuestEnvelopeV1, guest_handshake, host_handshake},
     frame::read_frame,
 };
 use crate::computer_use::{
-    ComputerCapabilityV1, ComputerControllerProofV1, ComputerIdentityV1, ComputerLeaseV1,
-    ComputerLifecycleV1, ComputerNetworkProfileV1, ComputerOperationV1, ComputerPolicyV1,
-    ComputerResourceBudgetV1, ComputerSessionClassV1, ComputerSessionV1, ComputerTargetV1,
+    ComputerActionActorV1, ComputerCapabilityV1, ComputerControllerProofV1, ComputerIdentityV1,
+    ComputerLeaseV1, ComputerLifecycleV1, ComputerNetworkProfileV1, ComputerOperationV1,
+    ComputerPolicyV1, ComputerResourceBudgetV1, ComputerSessionClassV1, ComputerSessionV1,
+    ComputerTargetV1,
 };
 use std::{
     io::{Read, Write},
@@ -17,6 +18,91 @@ use std::{
 };
 
 const NOW: u64 = 10_000;
+
+#[test]
+fn app_authority_registry_rejects_wrong_actor_and_keeps_revocation_across_reconnect() {
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
+    let verifying_key = signing_key.verifying_key();
+    let key_id = "00000000-0000-4000-8000-000000000008";
+    let mut delegated = session();
+    delegated.lifecycle = ComputerLifecycleV1::Delegated;
+    delegated
+        .attest(key_id.into(), &signing_key)
+        .expect("trusted controller can attest session");
+
+    let registry = ComputerUseAuthorityRegistryV1::default();
+    assert_eq!(
+        registry.register(
+            delegated.clone(),
+            key_id.into(),
+            verifying_key,
+            ComputerActionActorV1::Human,
+            "implementer/v1".into(),
+            NOW,
+        ),
+        Err(GuestProtocolErrorV1::WrongSession)
+    );
+    registry
+        .register(
+            delegated,
+            key_id.into(),
+            verifying_key,
+            ComputerActionActorV1::Agent,
+            "implementer/v1".into(),
+            NOW,
+        )
+        .expect("delegated agent has scoped authority");
+    let caller = session().identity;
+    registry
+        .authorize(&caller, ComputerActionActorV1::Agent, "implementer/v1", NOW)
+        .unwrap();
+    let listed = registry.permissions(NOW).unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].identity, caller);
+    assert_eq!(listed[0].role_id, "implementer/v1");
+    assert_eq!(listed[0].machine_id, "00000000-0000-4000-8000-000000000005");
+    assert_eq!(
+        listed[0].network_profile,
+        ComputerNetworkProfileV1::Disabled
+    );
+    assert_eq!(listed[0].approved_destination, None);
+    assert_eq!(
+        listed[0].resource_budget,
+        ComputerResourceBudgetV1 {
+            cpu_millis: 2_000,
+            memory_bytes: 1024 * 1024 * 1024,
+            disk_bytes: 2 * 1024 * 1024 * 1024,
+            time_limit_ms: 60_000,
+            action_limit: 100,
+        }
+    );
+    assert!(!listed[0].revoked);
+    assert!(!listed[0].expired);
+    assert!(registry.permissions(NOW + 60_000).unwrap()[0].expired);
+    assert!(matches!(
+        registry.authorize(&caller, ComputerActionActorV1::Agent, "runtime_qa/v3", NOW),
+        Err(GuestProtocolErrorV1::WrongSession)
+    ));
+    let mut other_task = caller.clone();
+    other_task.task_id = "00000000-0000-4000-8000-000000000009".into();
+    assert!(matches!(
+        registry.authorize(
+            &other_task,
+            ComputerActionActorV1::Agent,
+            "implementer/v1",
+            NOW
+        ),
+        Err(GuestProtocolErrorV1::WrongSession)
+    ));
+    registry.revoke(&caller.session_id).unwrap();
+    assert!(registry.permissions(NOW).unwrap()[0].revoked);
+    assert_eq!(
+        registry
+            .authorize(&caller, ComputerActionActorV1::Agent, "implementer/v1", NOW)
+            .map(|_| ()),
+        Err(GuestProtocolErrorV1::StaleLease)
+    );
+}
 
 /// Production boundary: host and guest handshakes exchange length-framed
 /// authenticated messages on a Unix stream. This proves envelope binding and

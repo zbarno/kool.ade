@@ -93,6 +93,7 @@ printf '{"type":"agent_end","messages":[{"role":"assistant","content":[{"type":"
 
             authorization_verifier: None,
             review_identity: None,
+            computer_use: None,
         })
     })
     .collect::<Result<Vec<_>, _>>();

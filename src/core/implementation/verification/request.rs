@@ -1,5 +1,5 @@
 use super::{Implementation, Runner};
-use crate::harness::{ExecutionMode, PlanningRequest};
+use crate::harness::{ComputerUseMcpAccessV1, ExecutionMode, PlanningRequest};
 
 pub(super) fn build(
     state: &Implementation,
@@ -7,6 +7,7 @@ pub(super) fn build(
     prompt: String,
     attempt: usize,
     verification_corrections: usize,
+    computer_use: Option<&crate::core::implementation::ComputerUseRunContext>,
 ) -> anyhow::Result<PlanningRequest> {
     use crate::harness::prompt_catalog::{
         EvidenceConfidentiality, EvidenceItem, EvidenceOrigin, PromptRole, RoleInputV1,
@@ -78,6 +79,8 @@ pub(super) fn build(
     };
     let rendered =
         crate::harness::prompt_catalog::render(&prompt_input).map_err(anyhow::Error::msg)?;
+    let computer_use =
+        computer_use.and_then(|context| access_for_role(context, state.task_uid.as_deref(), role));
     Ok(PlanningRequest {
         investigation_authorization: None,
         prompt_manifest: Some(rendered.manifest),
@@ -118,5 +121,35 @@ pub(super) fn build(
         cancel: runner.cancel.clone(),
         authorization_verifier: runner.authorization_verifier.clone(),
         review_identity: None,
+        computer_use,
     })
 }
+
+fn access_for_role(
+    context: &crate::core::implementation::ComputerUseRunContext,
+    task_id: Option<&str>,
+    role: crate::harness::prompt_catalog::PromptRole,
+) -> Option<std::sync::Arc<ComputerUseMcpAccessV1>> {
+    let role_id = match role {
+        crate::harness::prompt_catalog::PromptRole::Implementer => "implementer/v1",
+        crate::harness::prompt_catalog::PromptRole::RepairWorker => "repair/v1",
+        _ => return None,
+    };
+    let caller = crate::computer_use::mcp::ComputerUseCallerV1 {
+        identity: crate::computer_use::ComputerIdentityV1 {
+            project_id: context.project_id.clone(),
+            task_id: task_id?.to_owned(),
+            user_id: context.user_id.clone(),
+            session_id: context.session_id.clone(),
+        },
+        actor: crate::computer_use::ComputerActionActorV1::Agent,
+        role_id: role_id.into(),
+    };
+    ComputerUseMcpAccessV1::new(caller, context.host.clone())
+        .ok()
+        .map(std::sync::Arc::new)
+}
+
+#[cfg(test)]
+#[path = "request/tests.rs"]
+mod tests;

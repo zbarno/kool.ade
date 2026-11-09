@@ -33,6 +33,7 @@ fn rendered_role_messages_survive_all_six_provider_adapters() {
         destination_sha: None,
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     };
 
     let (codex_args, codex_user) = crate::harness::codex_harness::command(

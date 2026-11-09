@@ -1,6 +1,7 @@
 use super::*;
 mod checks;
 
+#[allow(clippy::too_many_arguments)] // These are run-scoped policies passed through verification.
 pub(in crate::core::implementation) fn prepare_verified(
     repo: &Path,
     dir: &Path,
@@ -9,6 +10,7 @@ pub(in crate::core::implementation) fn prepare_verified(
     runner: &Runner,
     user_context: Option<&str>,
     accrual: Option<&crate::core::time_accrual::AgentSpan>,
+    computer_use: Option<&crate::core::implementation::ComputerUseRunContext>,
 ) -> anyhow::Result<()> {
     let (clean, head) = workspace::prepare_workspace(repo, dir, state, runner)?;
     let already_verified = requirements::already_verified(dir, state, clean, &head)?;
@@ -91,7 +93,14 @@ pub(in crate::core::implementation) fn prepare_verified(
                 dir,
                 stamp,
             });
-            let request = request::build(state, runner, prompt, attempt, verification_corrections)?;
+            let request = request::build(
+                state,
+                runner,
+                prompt,
+                attempt,
+                verification_corrections,
+                computer_use,
+            )?;
             // F7 accrual (AD-4): charge exactly the agent process lifetime.
             // The guard settles the workspace interval on every escape route
             // (Ok, Err-return, budget expiry, cancellation); the normal

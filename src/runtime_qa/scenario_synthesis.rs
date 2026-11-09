@@ -185,6 +185,7 @@ fn synthesize(
         progress_tx,
         cancel: Arc::clone(&cancel),
         review_identity: None,
+        computer_use: None,
     };
     let response = harness.execute(&planning).map_err(|error| error.detail())?;
     let RoleOutputV1::QaScenarioDraft(QaScenarioDraftV1 { scenarios }) =

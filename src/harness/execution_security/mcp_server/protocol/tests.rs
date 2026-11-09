@@ -114,6 +114,7 @@ fn run_bash_tool_request(
                 super::super::BoundaryAccess::Implementation => "implementation",
                 super::super::BoundaryAccess::RuntimeQaScreenshotReview =>
                     "runtime_qa_screenshot_review",
+                super::super::BoundaryAccess::ComputerUseOnly => "computer_use_only",
             }
         );
         let mut stream = reader.into_inner();
@@ -172,5 +173,6 @@ fn test_config(access: super::super::BoundaryAccess) -> ServerConfig {
         resource_cache: None,
         screenshot_access: None,
         investigation_authorization: None,
+        computer_use: None,
     }
 }

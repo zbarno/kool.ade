@@ -106,6 +106,7 @@ fn resumed_worker_receives_the_submitted_task_decision() {
             user_context: Some("I choose option (b): reissue the corrected footprint predicate."),
             auto_publish_gate: None,
             claim_lease: None,
+            computer_use: None,
         },
     )
     .unwrap();

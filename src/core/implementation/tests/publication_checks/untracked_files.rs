@@ -81,6 +81,7 @@ fn assert_untracked_source_is_rejected(file_name: &str, ignored: bool) {
         require_independent_checks: false,
         auto_publish_gate: None,
         claim_lease: None,
+        computer_use: None,
         accrual: None,
     };
     let error = integration::prepare_for_pull_request(

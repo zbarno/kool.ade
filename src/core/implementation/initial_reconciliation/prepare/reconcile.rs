@@ -75,6 +75,7 @@ pub(super) fn run(
 
             authorization_verifier: runner.authorization_verifier.clone(),
         review_identity: None,
+        computer_use: None,
 };
         if automatically_verified {
             runner.update("Checking the clean merge of disjoint branch changes…");

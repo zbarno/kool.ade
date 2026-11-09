@@ -265,6 +265,7 @@ pub(super) fn prepare(
             progress_tx,
             cancel: Arc::new(AtomicBool::new(false)),
             review_identity: None,
+            computer_use: None,
         },
         context,
         spec_sha256,

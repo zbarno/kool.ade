@@ -203,6 +203,7 @@ fn run_with_agent_for_ticket(
             user_context,
             auto_publish_gate: None,
             claim_lease: None,
+            computer_use: None,
         },
     )
 }

@@ -1,8 +1,10 @@
-// The provider-neutral authorized controller facade is added in dependent #384.
-#![allow(dead_code)]
-
 use std::time::Duration;
 mod actions;
+mod authorized;
+
+pub use authorized::{
+    AuthorizedComputerUseSessionV1, ComputerUseAuthorityRegistryV1, ComputerUsePermissionV1,
+};
 
 use crate::computer_use::{
     ComputerActionActorV1, ComputerActionV1, ComputerGuestChannelV1, ComputerGuestReadinessV1,

@@ -95,6 +95,45 @@ pub struct RuntimeQaScreenshotReview {
     pub inspected_screenshot_ids: Arc<Mutex<BTreeSet<String>>>,
 }
 
+/// App-issued Computer Use authority for one provider invocation. The caller
+/// identity and host dispatcher are private to the application process; a
+/// provider receives only the fixed MCP tool surface.
+#[derive(Clone)]
+pub struct ComputerUseMcpAccessV1 {
+    pub(crate) caller: crate::computer_use::mcp::ComputerUseCallerV1,
+    pub(crate) host: std::sync::Arc<dyn crate::computer_use::mcp::ComputerUseMcpHostV1>,
+}
+
+impl ComputerUseMcpAccessV1 {
+    /// Bind a task invocation to its controller-owned Computer Use dispatcher.
+    /// Provider tool arguments cannot override this caller identity or host.
+    pub fn new(
+        caller: crate::computer_use::mcp::ComputerUseCallerV1,
+        host: std::sync::Arc<dyn crate::computer_use::mcp::ComputerUseMcpHostV1>,
+    ) -> anyhow::Result<Self> {
+        caller.identity.validate().map_err(anyhow::Error::msg)?;
+        anyhow::ensure!(
+            crate::computer_use::mcp::is_supported_computer_use_role_v1(&caller.role_id)
+                && caller.role_id.len() <= 64
+                && caller.role_id.bytes().all(|byte| byte.is_ascii_lowercase()
+                    || byte.is_ascii_digit()
+                    || matches!(byte, b'_' | b'/' | b'.' | b'-')),
+            "Computer Use role identity is invalid"
+        );
+        Ok(Self { caller, host })
+    }
+}
+
+impl std::fmt::Debug for ComputerUseMcpAccessV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ComputerUseMcpAccessV1")
+            .field("role_id", &self.caller.role_id)
+            .field("session_id", &self.caller.identity.session_id)
+            .finish_non_exhaustive()
+    }
+}
+
 impl std::fmt::Debug for RuntimeQaScreenshotReview {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -157,4 +196,7 @@ pub struct PlanningRequest {
     /// Controller identity for an independent review invocation. Review
     /// backends must consume this on a newly spawned, non-resumed process.
     pub review_identity: Option<super::ReviewExecutionIdentity>,
+    /// Optional app-issued Computer Use authority. Absent requests expose no
+    /// Computer Use MCP tools, preserving existing role security defaults.
+    pub computer_use: Option<std::sync::Arc<ComputerUseMcpAccessV1>>,
 }

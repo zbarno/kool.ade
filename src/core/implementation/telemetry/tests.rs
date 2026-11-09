@@ -112,6 +112,7 @@ fn request(progress_tx: mpsc::Sender<LiveProgress>) -> PlanningRequest {
 
         authorization_verifier: None,
         review_identity: None,
+        computer_use: None,
     }
 }
 
