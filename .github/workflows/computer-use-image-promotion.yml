@@ -168,7 +168,7 @@ jobs:
           expected_sbom="$(jq -r '.images[] | select(.status == "approved") | .sbom_sha256' "$catalog")"
           actual_sbom="sha256:$(sha256sum "$RUNNER_TEMP/release/koolade-computer-use-guest-x86_64.sbom.cdx.json" | cut -d ' ' -f 1)"
           expected_attestations="$(jq -r '.images[] | select(.status == "approved") | .build_attestation_sha256' "$catalog")"
-          actual_attestations="sha256:$(sha256sum "$RUNNER_TEMP/release/attestations.json" | cut -d ' ' -f 1)"
+          actual_attestations="sha256:$(sha256sum "$RUNNER_TEMP/release/verified-attestations.json" | cut -d ' ' -f 1)"
           [[ "$actual_sbom" == "$expected_sbom" ]]
           [[ "$actual_attestations" == "$expected_attestations" ]]
           release_json="$(gh release view "$tag" --json isDraft)"
