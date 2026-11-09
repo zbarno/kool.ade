@@ -289,6 +289,16 @@ jobs:
           cargo +1.98.1 nextest run --locked --lib --no-fail-fast --test-threads 1 \
             -E 'test(restarted_rootless_daemon_preserves_dirty_clone_without_command_replay)'
 
+      - name: Pre-pull locked General image for task resume E2E
+        run: |
+          set -euo pipefail
+          unset DOCKER_CONTEXT
+          mapfile -t images < <(jq -r '.profiles.general[] | select(.platform == "linux/amd64" and .runtime_enabled != false) | .reference' containers/images.lock.json | sort -u)
+          test "${#images[@]}" -gt 0
+          for image in "${images[@]}"; do
+            docker pull --platform linux/amd64 "$image"
+          done
+
       - name: Run isolated Docker-backed task resume E2E
         env:
           KOOLADE_DOCKER_BACKEND_INTEGRATION: "1"
