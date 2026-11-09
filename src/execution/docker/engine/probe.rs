@@ -1,4 +1,7 @@
-use std::{path::Path, time::Instant};
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use super::{EngineDiscovery, EngineSnapshot, failure, operation_timeout};
 use crate::execution::docker::{
@@ -10,7 +13,13 @@ use crate::execution::docker::{
     prerequisites::inspect_workspace_capacity,
 };
 
+#[cfg(test)]
+#[path = "probe/tests.rs"]
+mod tests;
+
 const PROBE_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(15);
+const TRANSIENT_PROBE_RETRIES: usize = 2;
+const PROBE_RETRY_DELAY: Duration = Duration::from_millis(150);
 
 #[derive(Clone)]
 pub(super) struct CacheEntry {
@@ -60,12 +69,9 @@ impl EngineDiscovery {
         let (mut snapshot, observed_images) = if let Some(cached) = cached {
             cached
         } else {
-            let snapshot = tokio::time::timeout(self.timeouts.operation, self.api.inspect())
-                .await
-                .map_err(|_| operation_timeout("Docker Engine health inspection"))??;
-            let images = tokio::time::timeout(self.timeouts.operation, self.api.image_digests())
-                .await
-                .map_err(|_| operation_timeout("Docker image inventory"))??;
+            let snapshot = inspect_with_retry(self.api.as_ref(), self.timeouts.operation).await?;
+            let images =
+                image_digests_with_retry(self.api.as_ref(), self.timeouts.operation).await?;
             if !desktop_candidate && let Ok(mut cache) = self.cache.lock() {
                 *cache = Some(CacheEntry {
                     expires_at: Instant::now() + PROBE_CACHE_TTL,
@@ -207,6 +213,46 @@ impl EngineDiscovery {
             available_images: images,
             failure: result,
         })
+    }
+}
+
+async fn inspect_with_retry(
+    api: &dyn super::DockerApi,
+    timeout: Duration,
+) -> Result<EngineSnapshot, PrerequisiteFailure> {
+    let mut attempt = 0;
+    loop {
+        let result = match tokio::time::timeout(timeout, api.inspect()).await {
+            Ok(result) => result,
+            Err(_) => Err(operation_timeout("Docker Engine health inspection")),
+        };
+        match result {
+            Err(error) if error.retryable && attempt < TRANSIENT_PROBE_RETRIES => {
+                attempt += 1;
+                tokio::time::sleep(PROBE_RETRY_DELAY).await;
+            }
+            result => return result,
+        }
+    }
+}
+
+async fn image_digests_with_retry(
+    api: &dyn super::DockerApi,
+    timeout: Duration,
+) -> Result<Vec<String>, PrerequisiteFailure> {
+    let mut attempt = 0;
+    loop {
+        let result = match tokio::time::timeout(timeout, api.image_digests()).await {
+            Ok(result) => result,
+            Err(_) => Err(operation_timeout("Docker image inventory")),
+        };
+        match result {
+            Err(error) if error.retryable && attempt < TRANSIENT_PROBE_RETRIES => {
+                attempt += 1;
+                tokio::time::sleep(PROBE_RETRY_DELAY).await;
+            }
+            result => return result,
+        }
     }
 }
 
