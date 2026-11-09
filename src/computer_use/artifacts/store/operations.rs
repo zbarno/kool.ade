@@ -43,8 +43,6 @@ impl ComputerArtifactBridgeV1 {
     /// Dedicated permission path for a persisted, user-approved Runtime QA
     /// build. Callers must pass the canonical digest from its typed approval
     /// record; generic grants cannot set this field or user approval.
-    // The typed controller caller will use this after #389's receipt API merges.
-    #[allow(dead_code)]
     pub(crate) fn issue_approved_task_app_grant(
         &self,
         request: GrantRequest,

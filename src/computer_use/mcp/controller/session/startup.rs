@@ -59,20 +59,28 @@ pub(super) fn start_granted_session(
                     .collect(),
             )
         } else {
-            (
-                request
-                    .allowed_apps
-                    .iter()
-                    .filter(|app| APPS.contains(&app.as_str()))
-                    .cloned()
-                    .collect(),
-                request
-                    .allowed_operations
-                    .iter()
-                    .copied()
-                    .filter(|op| OPS.contains(op))
-                    .collect(),
-            )
+            let mut allowed_apps = request
+                .allowed_apps
+                .iter()
+                .filter(|app| APPS.contains(&app.as_str()))
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>();
+            if request.network_profile
+                == crate::computer_use::ComputerNetworkProfileV1::InternetResearch
+            {
+                if allowed_apps.remove("chromium") {
+                    allowed_apps.insert("chromium-research".into());
+                }
+            } else {
+                allowed_apps.remove("chromium-research");
+            }
+            let authorized_operations = request
+                .allowed_operations
+                .iter()
+                .copied()
+                .filter(|op| OPS.contains(op))
+                .collect();
+            (allowed_apps, authorized_operations)
         };
     let policy = ComputerPolicyV1 {
         schema_version: 1,

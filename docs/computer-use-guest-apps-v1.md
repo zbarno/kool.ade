@@ -55,12 +55,20 @@ only a native ELF executable matching guest architecture and launches the
 relative path with empty arguments as the unprivileged desktop user. Transfer
 or launch replay is denied, and task app files do not enter the signed release
 catalog or change network permissions. Each P15 task-to-guest grant is minted
-through a separate internal path bound to the canonical digest of the persisted
-target-specific human approval; the generic grant API cannot claim this
-approval. Launch verifies that every artifact manifest and grant carries the
-same approval digest as the staged application. #389 owns the QA adapter that
-validates the typed approval, obtains each approved P15 receipt, and calls the
-trusted controller method.
+through a controller method that reloads the workspace-scoped
+`QaComputerBuildApprovalV1`, validates it against the current request,
+lifecycle revision, and Computer Use target, then binds the canonical approval
+digest and active session lease/approval generations. The generic grant API
+cannot claim this approval. The controller accepts only a bounded in-memory
+file set whose sorted path/digest manifest matches the approved build hash,
+stages each file through the shared P15 bridge, and returns typed receipts.
+The Runtime QA target binds the current controller session attestation; launch
+verifies the target, approval, live Human-owned session, and every artifact
+grant before dispatching the typed guest action.
+`ComputerSessionV1::attestation_sha256()` provides a versioned digest over the
+domain-separated signed authority payload, signer key ID, and signature. #389
+owns only the QA adapter that supplies the typed request/build and calls these
+controller-owned methods.
 
 The `runtime_qa/v3` Computer Use role is session-consent scoped to the fixed
 `qa-task-app` ID, disabled networking, screen/window observation, pointer and

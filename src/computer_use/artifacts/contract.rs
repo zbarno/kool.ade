@@ -192,8 +192,6 @@ pub struct ComputerClipboardGrantV1 {
 }
 
 impl ComputerTransferGrantV1 {
-    // The typed controller caller will use this after #389's receipt API merges.
-    #[allow(dead_code)]
     pub(crate) fn from_approved_task_app_request(
         request: ComputerTransferGrantRequestV1,
         approval_receipt_sha256: String,

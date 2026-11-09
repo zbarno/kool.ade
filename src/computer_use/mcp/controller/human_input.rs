@@ -16,6 +16,7 @@ use super::{
 };
 
 mod manage_app;
+mod staged_task;
 
 impl ComputerUseMcpControllerV1 {
     pub fn set_private_input(

@@ -18,4 +18,7 @@ pub use operations::{
     GuestAppConsentGrantV1, GuestAppOperationKindV1, GuestAppOperationRequestV1,
     GuestAppProvisionerV1,
 };
-pub use staged_task::{StagedTaskApplicationV1, StagedTaskArtifactContentV1, StagedTaskArtifactV1};
+pub use staged_task::{
+    StagedTaskApplicationBuildV1, StagedTaskApplicationV1, StagedTaskArtifactContentV1,
+    StagedTaskArtifactV1, StagedTaskBuildFileV1,
+};

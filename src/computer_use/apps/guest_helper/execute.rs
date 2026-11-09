@@ -24,7 +24,9 @@ pub(super) fn launch_as_desktop_user(app_id: &str) -> ReplyV1 {
         return ReplyV1::Unsupported;
     }
     let executable_id = match app_id {
-        "chromium" | "file-manager" | "text-editor" | "test-gui-fixture" => app_id.to_owned(),
+        "chromium" | "chromium-research" | "file-manager" | "text-editor" | "test-gui-fixture" => {
+            app_id.to_owned()
+        }
         _ => {
             let Ok(catalog) = catalog::verified_catalog() else {
                 return ReplyV1::Unsupported;
@@ -42,23 +44,8 @@ pub(super) fn launch_as_desktop_user(app_id: &str) -> ReplyV1 {
             manifest.executable_id.clone()
         }
     };
-    let (path, args) = match executable_id.as_str() {
-        "chromium" => (
-            "/usr/bin/chromium",
-            vec![
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--disable-sync",
-                "--disable-background-networking",
-                "--user-data-dir=/home/koolade/.cache/koolade-chromium",
-                "--disk-cache-dir=/home/koolade/.cache/koolade-chromium-cache",
-                "about:blank",
-            ],
-        ),
-        "file-manager" => ("/usr/bin/thunar", vec!["--no-desktop"]),
-        "text-editor" => ("/usr/bin/mousepad", vec!["--new-window"]),
-        "test-gui-fixture" => ("/usr/lib/koolade/computer-use-test-fixture", vec![]),
-        _ => return ReplyV1::Unsupported,
+    let Some((path, args)) = launch_spec(&executable_id) else {
+        return ReplyV1::Unsupported;
     };
     if !trusted_executable_present(path) {
         return ReplyV1::Unsupported;
@@ -109,6 +96,32 @@ pub(super) fn launch_as_desktop_user(app_id: &str) -> ReplyV1 {
             ReplyV1::Completed
         }
         Err(_) => ReplyV1::Unsupported,
+    }
+}
+
+fn launch_spec(app_id: &str) -> Option<(&'static str, Vec<&'static str>)> {
+    let chromium_args = |research| {
+        let mut args = vec![
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-sync",
+            "--disable-background-networking",
+            "--user-data-dir=/home/koolade/.cache/koolade-chromium",
+            "--disk-cache-dir=/home/koolade/.cache/koolade-chromium-cache",
+        ];
+        if research {
+            args.push("--proxy-server=http://10.0.2.100:3128");
+        }
+        args.push("about:blank");
+        args
+    };
+    match app_id {
+        "chromium" => Some(("/usr/bin/chromium", chromium_args(false))),
+        "chromium-research" => Some(("/usr/bin/chromium", chromium_args(true))),
+        "file-manager" => Some(("/usr/bin/thunar", vec!["--no-desktop"])),
+        "text-editor" => Some(("/usr/bin/mousepad", vec!["--new-window"])),
+        "test-gui-fixture" => Some(("/usr/lib/koolade/computer-use-test-fixture", vec![])),
+        _ => None,
     }
 }
 
@@ -164,4 +177,18 @@ fn trusted_executable_present(path: &str) -> bool {
         && metadata.uid() == 0
         && metadata.mode() & 0o022 == 0
         && metadata.mode() & 0o111 != 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::launch_spec;
+
+    #[test]
+    fn research_proxy_is_present_only_in_the_separately_grantable_browser() {
+        let (_, offline) = launch_spec("chromium").unwrap();
+        let (_, research) = launch_spec("chromium-research").unwrap();
+        assert!(!offline.iter().any(|arg| arg.contains("proxy-server")));
+        assert!(research.contains(&"--proxy-server=http://10.0.2.100:3128"));
+        assert!(launch_spec("/usr/bin/sh").is_none());
+    }
 }

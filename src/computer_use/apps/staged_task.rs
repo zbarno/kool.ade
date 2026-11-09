@@ -5,6 +5,9 @@ use crate::computer_use::artifacts::{COMPUTER_ARTIFACT_MAX_BYTES_V1, ComputerArt
 
 use super::GuestAppArchitectureV1;
 
+mod build;
+pub use build::{StagedTaskApplicationBuildV1, StagedTaskBuildFileV1};
+
 const MAX_STAGED_FILES: usize = 64;
 const MAX_TOTAL_STAGED_BYTES: u64 = COMPUTER_ARTIFACT_MAX_BYTES_V1;
 

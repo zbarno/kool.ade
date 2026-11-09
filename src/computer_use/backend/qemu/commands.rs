@@ -4,6 +4,7 @@ use crate::computer_use::{ComputerSessionV1, ComputerTargetV1};
 
 use super::super::ComputerBackendErrorV1;
 
+#[allow(clippy::too_many_arguments)] // Each path is validated and emitted as a separate QEMU asset.
 pub(super) fn command_args(
     session: &ComputerSessionV1,
     overlay: &Path,

@@ -22,6 +22,7 @@ pub(super) struct ActionContext<'a> {
     pub(super) caller: &'a ComputerUseCallerV1,
     pub(super) cancelled: &'a AtomicBool,
     pub(super) session_id: &'a str,
+    pub(super) staged_task_revision: Option<&'a str>,
 }
 
 pub(super) fn action(
@@ -37,6 +38,7 @@ pub(super) fn action(
         caller,
         cancelled,
         session_id,
+        staged_task_revision,
     } = context;
     if let Some(reason) = action_blocker(active.uncertain, active.paused, active.started) {
         return controller.blocked(reason);
@@ -88,13 +90,25 @@ pub(super) fn action(
         return controller.blocked("session_journal_unavailable");
     }
     let result = run_cancellable(controller, &session, &handle, cancelled, || {
-        authority.execute(
-            channel,
-            &active.journal,
-            &action,
-            deadline.min(active.session.lease.expires_at_unix_ms),
-            now,
-        )
+        if let Some(current_task_revision) = staged_task_revision {
+            authority.execute_staged_task_application(
+                channel,
+                &active.journal,
+                &runtime.artifact_bridge,
+                &action,
+                current_task_revision,
+                deadline.min(active.session.lease.expires_at_unix_ms),
+                now,
+            )
+        } else {
+            authority.execute(
+                channel,
+                &active.journal,
+                &action,
+                deadline.min(active.session.lease.expires_at_unix_ms),
+                now,
+            )
+        }
     });
     let result_kind = match &result {
         Ok(_) => JournalEvent::ActionApplied,
@@ -133,10 +147,14 @@ pub(super) fn action(
         Ok(outcome) => {
             active.next_action_sequence = active.next_action_sequence.saturating_add(1);
             active.uncertain_action_sequence = None;
-            if let crate::computer_use::ComputerActionPayloadV1::LaunchApp { app_id } =
-                &summary_payload
-            {
-                active.active_app = Some(app_id.clone());
+            match &summary_payload {
+                crate::computer_use::ComputerActionPayloadV1::LaunchApp { app_id } => {
+                    active.active_app = Some(app_id.clone());
+                }
+                crate::computer_use::ComputerActionPayloadV1::LaunchApprovedStagedTaskApp {
+                    application,
+                } => active.active_app = Some(application.app_id.clone()),
+                _ => {}
             }
             let label = action_label(&summary_payload);
             if should_record_action_summary(active.private_input, caller.actor, operation) {

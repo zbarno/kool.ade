@@ -206,6 +206,72 @@ fn task_build_staging_accepts_opaque_extensionless_outputs_only_for_guest_transf
     assert_eq!(loaded, b"opaque build output");
 }
 
+#[test]
+fn approved_task_build_bytes_are_digest_and_generation_bound_and_one_use() {
+    let (_temp, bridge) = bridge();
+    let identity = identity();
+    let bytes = b"approved opaque executable";
+    let digest = super::super::validation::sha256(bytes);
+    let approval_sha256 = "c".repeat(64);
+    let mut request = grant_request(
+        &identity,
+        ComputerArtifactFlowV1::TaskArtifactToGuest,
+        "build/editor",
+        false,
+    );
+    request.max_bytes = bytes.len() as u64;
+    let grant = bridge
+        .issue_approved_task_app_grant(request, approval_sha256.clone())
+        .unwrap();
+    assert!(
+        bridge
+            .stage_approved_task_build_bytes(
+                &grant.grant_id,
+                &identity,
+                REV,
+                "build/editor",
+                &"d".repeat(64),
+                3,
+                2,
+                &approval_sha256,
+                bytes,
+                NOW + 1,
+            )
+            .is_err()
+    );
+    let receipt = bridge
+        .stage_approved_task_build_bytes(
+            &grant.grant_id,
+            &identity,
+            REV,
+            "build/editor",
+            &digest,
+            3,
+            2,
+            &approval_sha256,
+            bytes,
+            NOW + 1,
+        )
+        .unwrap();
+    assert_eq!(receipt.size_bytes, bytes.len() as u64);
+    assert!(
+        bridge
+            .stage_approved_task_build_bytes(
+                &grant.grant_id,
+                &identity,
+                REV,
+                "build/editor",
+                &digest,
+                3,
+                2,
+                &approval_sha256,
+                bytes,
+                NOW + 2,
+            )
+            .is_err()
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn staged_task_application_loads_only_its_exact_sorted_p15_receipts() {

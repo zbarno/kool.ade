@@ -10,6 +10,43 @@ use crate::computer_use::artifacts::{
 use std::path::Path;
 
 impl ComputerArtifactBridgeV1 {
+    /// Persist one exact file from a controller-verified QA build manifest.
+    /// The in-memory bytes must match both the one-use grant and its digest.
+    #[allow(clippy::too_many_arguments)] // Each grant fence is checked independently.
+    pub(crate) fn stage_approved_task_build_bytes(
+        &self,
+        grant_id: &str,
+        identity: &ComputerIdentityV1,
+        current_task_revision: &str,
+        relative_path: &str,
+        expected_sha256: &str,
+        lease_generation: u64,
+        approval_generation: u64,
+        approval_receipt_sha256: &str,
+        bytes: &[u8],
+        now_unix_ms: u64,
+    ) -> Result<Receipt, ComputerArtifactBridgeErrorV1> {
+        self.with_lock(|| {
+            let grant = self.active_grant(grant_id, identity, now_unix_ms)?;
+            self.ensure_unused(grant_id)?;
+            if grant.flow != Flow::TaskArtifactToGuest
+                || !grant.user_approved
+                || grant.approval_receipt_sha256.as_deref() != Some(approval_receipt_sha256)
+                || grant.task_revision != current_task_revision
+                || grant.relative_path != relative_path
+                || grant.lease_generation != lease_generation
+                || grant.approval_generation != approval_generation
+                || bytes.len() as u64 != grant.max_bytes
+                || sha256(bytes) != expected_sha256
+            {
+                return Err(ComputerArtifactBridgeErrorV1::StaleRevision);
+            }
+            let receipt = self.store_content(&grant, relative_path, bytes, now_unix_ms)?;
+            self.mark_used(grant_id, &receipt.artifact_id)?;
+            Ok(receipt)
+        })
+    }
+
     /// Atomically load a sorted staged-app receipt set only while every
     /// one-use task-to-guest grant remains bound to this identity/revision and
     /// the active lease and approval generations.
