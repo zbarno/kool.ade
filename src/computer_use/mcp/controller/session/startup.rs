@@ -234,7 +234,18 @@ pub(super) fn start_granted_session(
             paused: false,
             uncertain: false,
             next_action_sequence: 1,
+            role_id: caller.role_id.clone(),
+            control_owner: crate::computer_use::mcp::ComputerUseControlOwnerV1::Agent,
+            control_generation: 1,
+            require_fresh_agent_observation: false,
+            private_input: false,
+            active_app: None,
+            action_log: std::collections::VecDeque::new(),
+            display_io: std::sync::Arc::new(std::sync::Mutex::new(())),
         },
     );
+    if let Some(active) = sessions.get(&caller.identity.session_id) {
+        controller.cache_active_view(active);
+    }
     Ok(())
 }

@@ -1,4 +1,4 @@
-use super::super::types::ComputerBackend;
+use super::super::types::{ComputerBackend, ComputerDisplayInputV1};
 use super::*;
 use crate::computer_use::{
     ComputerBackendProbeV1 as Probe, ComputerGuestChannelV1, ComputerGuestReadinessV1,
@@ -65,6 +65,41 @@ impl ComputerBackend for LocalKvmComputerBackend {
         now_unix_ms: u64,
     ) -> Result<crate::computer_use::guest_protocol::GuestActionJournalV1, Error> {
         LocalKvmComputerBackend::open_guest_action_journal(self, session, handle, now_unix_ms)
+    }
+    fn capture_display_frame(
+        &self,
+        session: &ComputerSessionV1,
+        handle: &Handle,
+        now_unix_ms: u64,
+    ) -> Result<super::super::types::ComputerDisplayFrameV1, Error> {
+        let machines = self.owned_machine(session, handle, now_unix_ms)?;
+        let machine = machines
+            .get(&handle.session_id)
+            .ok_or(Error::OwnershipMismatch)?;
+        if machine.owner.state != "connected" || machine.child.is_none() {
+            return Err(Error::InvalidTransition);
+        }
+        let socket = machine.directory.join("display.sock");
+        drop(machines);
+        super::display::capture(&socket)
+    }
+    fn send_display_input(
+        &self,
+        session: &ComputerSessionV1,
+        handle: &Handle,
+        input: &ComputerDisplayInputV1,
+        now_unix_ms: u64,
+    ) -> Result<(), Error> {
+        let machines = self.owned_machine(session, handle, now_unix_ms)?;
+        let machine = machines
+            .get(&handle.session_id)
+            .ok_or(Error::OwnershipMismatch)?;
+        if machine.owner.state != "connected" || machine.child.is_none() {
+            return Err(Error::InvalidTransition);
+        }
+        let socket = machine.directory.join("display.sock");
+        drop(machines);
+        super::display::send_input(&socket, input)
     }
     fn mark_guest_ready(
         &self,

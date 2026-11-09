@@ -1,6 +1,7 @@
 //! Fixed-argument Linux QEMU/KVM implementation.
 
 mod commands;
+mod display;
 mod lifecycle;
 mod policy;
 mod process;

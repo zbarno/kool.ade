@@ -66,6 +66,9 @@ pub(super) fn paint(
                 }),
             );
         });
+    if let Some(task_id) = state.record.and_then(|record| record.task_uid.as_deref()) {
+        super::computer::paint(ui, surface, task_id);
+    }
     ui.add_space(16.0);
     let open_question = state
         .open_ask

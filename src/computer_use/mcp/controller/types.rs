@@ -1,9 +1,13 @@
+mod display;
+
 use std::{
     collections::BTreeMap,
     path::PathBuf,
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
+use super::super::{ComputerUseActionSummaryV1, ComputerUseControlOwnerV1};
 use crate::computer_use::{
     ComputerBackend, ComputerMachineHandleV1, ComputerSessionV1,
     guest_image::{
@@ -51,6 +55,23 @@ pub(super) struct ActiveSession {
     pub paused: bool,
     pub uncertain: bool,
     pub next_action_sequence: u64,
+    pub role_id: String,
+    pub control_owner: ComputerUseControlOwnerV1,
+    pub control_generation: u64,
+    pub require_fresh_agent_observation: bool,
+    pub private_input: bool,
+    pub active_app: Option<String>,
+    pub action_log: std::collections::VecDeque<ComputerUseActionSummaryV1>,
+    pub display_io: Arc<Mutex<()>>,
+}
+
+pub(super) struct DisplaySnapshot {
+    pub(super) last_requested: Instant,
+    pub(super) frame_revision: u64,
+    pub(super) frame_width: u16,
+    pub(super) frame_height: u16,
+    pub(super) frame_png: Option<Vec<u8>>,
+    pub(super) frame_error: bool,
 }
 
 pub struct ComputerUseMcpControllerV1 {
@@ -58,6 +79,9 @@ pub struct ComputerUseMcpControllerV1 {
     pub(super) runtime: Option<Runtime>,
     pub(super) unavailable_reason: Option<String>,
     pub(super) sessions: Mutex<BTreeMap<String, ActiveSession>>,
+    pub(super) display_streams: Mutex<BTreeMap<String, Arc<Mutex<DisplaySnapshot>>>>,
+    pub(super) view_cache: Mutex<BTreeMap<String, super::super::ComputerUseTaskSessionViewV1>>,
+    pub(super) pending_controls: Mutex<BTreeMap<String, Option<String>>>,
 }
 
 impl ComputerUseMcpControllerV1 {
@@ -74,6 +98,9 @@ impl ComputerUseMcpControllerV1 {
             runtime: None,
             unavailable_reason: Some(reason.into()),
             sessions: Mutex::new(BTreeMap::new()),
+            display_streams: Mutex::new(BTreeMap::new()),
+            view_cache: Mutex::new(BTreeMap::new()),
+            pending_controls: Mutex::new(BTreeMap::new()),
         }
     }
 
@@ -127,6 +154,9 @@ impl ComputerUseMcpControllerV1 {
             }),
             unavailable_reason: None,
             sessions: Mutex::new(BTreeMap::new()),
+            display_streams: Mutex::new(BTreeMap::new()),
+            view_cache: Mutex::new(BTreeMap::new()),
+            pending_controls: Mutex::new(BTreeMap::new()),
         })
     }
 
