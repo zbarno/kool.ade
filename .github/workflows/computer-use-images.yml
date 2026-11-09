@@ -29,7 +29,7 @@ jobs:
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.98.1 --profile minimal
       - name: Build guest companion
-        run: cargo +1.98.1 build --locked --release --bin koolade-computer-use-agent --bin koolade-computer-use-app-helper
+        run: cargo +1.98.1 build --locked --release --bin koolade-computer-use-agent --bin koolade_computer_use_app_helper
       - name: Install image builder tools
         run: |
           sudo apt-get update
@@ -46,7 +46,7 @@ jobs:
           first="$RUNNER_TEMP/computer-use-image-first"
           second="$RUNNER_TEMP/computer-use-image-second"
           agent="$GITHUB_WORKSPACE/target/release/koolade-computer-use-agent"
-          app_helper="$GITHUB_WORKSPACE/target/release/koolade-computer-use-app-helper"
+          app_helper="$GITHUB_WORKSPACE/target/release/koolade_computer_use_app_helper"
           containers/computer-use/build-image.sh "$first" "$agent" "$app_helper"
           containers/computer-use/build-image.sh "$second" "$agent" "$app_helper"
           image="koolade-computer-use-guest-x86_64.qcow2"
