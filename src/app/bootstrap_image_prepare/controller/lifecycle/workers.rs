@@ -246,7 +246,9 @@ impl Controller {
                     Completion::Prepared {
                         gate,
                         succeeded,
-                        store_update: settled.store_update.or(failure.store_update),
+                        store_update: settled
+                            .store_update
+                            .or(failure.store_update.map(|store| *store)),
                         resolution: Some(settled.resolution),
                     }
                 }

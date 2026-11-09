@@ -7,6 +7,9 @@ use crate::execution::{
 
 #[path = "docker_engine/cache_isolation.rs"]
 mod cache_isolation;
+#[cfg(target_os = "linux")]
+#[path = "docker_engine/composite_persistence.rs"]
+mod composite_persistence;
 #[path = "docker_engine/concurrent_tasks.rs"]
 mod concurrent_tasks;
 #[cfg(target_os = "linux")]

@@ -107,6 +107,7 @@ impl ExecutionSession {
             remote_capacity_lease: Mutex::new(None),
             runtime_processes: Mutex::new(Vec::new()),
             runtime,
+            runtime_provenance: None,
         })
     }
 }

@@ -8,6 +8,8 @@ mod composition;
 mod composition_cache;
 mod observation;
 mod project_plan;
+mod project_tools;
+mod runtime_binding;
 mod validation;
 pub(crate) use composition::verified_context as verified_composition_context;
 pub(crate) use composition_cache::{
@@ -18,6 +20,9 @@ pub use observation::{
     verify_qa_image_observation,
 };
 pub(crate) use project_plan::{CompositionCandidate, ProjectRuntimeImagePlan};
+pub use project_tools::ProjectRuntimeTools;
+pub(crate) use project_tools::active_target_recipe_tools;
+pub use runtime_binding::RuntimePlanBinding;
 
 #[cfg(not(feature = "qa-desktop-driver-image"))]
 pub const IMAGE_LOCK: &str = include_str!("../../../containers/images.lock.json");
@@ -259,12 +264,38 @@ impl ImageLock {
         })
     }
 
-    fn variant(
+    /// Conservative worst-case totals for a proposed composition: sums the
+    /// digest-bound estimates of the foundation and every component image.
+    /// Shared layers make real growth smaller, never larger. Returns
+    /// `None` when any part lacks an estimate; callers must treat that as
+    /// "unknown" (never zero) and avoid publishing numeric progress.
+    pub(crate) fn composition_size_estimate(
         &self,
-        profile: RuntimeProfile,
-        architecture: &str,
-    ) -> Result<&ImageVariant, PrerequisiteFailure> {
-        let profile_name = match profile {
+        candidate: &project_plan::CompositionCandidate,
+    ) -> Option<ImageSizeEstimate> {
+        let mut estimated_pull_bytes = 0_u64;
+        let mut estimated_storage_bytes = 0_u64;
+        for selected in std::iter::once(&candidate.foundation).chain(candidate.components.iter()) {
+            let variant = self
+                .profiles
+                .get(Self::profile_name(selected.profile))?
+                .iter()
+                .find(|variant| {
+                    variant.platform == selected.platform && variant.digest == selected.digest
+                })?;
+            estimated_pull_bytes =
+                estimated_pull_bytes.saturating_add(variant.estimated_pull_bytes?);
+            estimated_storage_bytes =
+                estimated_storage_bytes.saturating_add(variant.estimated_storage_bytes?);
+        }
+        Some(ImageSizeEstimate {
+            estimated_pull_bytes,
+            estimated_storage_bytes,
+        })
+    }
+
+    fn profile_name(profile: RuntimeProfile) -> &'static str {
+        match profile {
             RuntimeProfile::General => "general",
             RuntimeProfile::Rust => "rust",
             RuntimeProfile::Node => "node",
@@ -272,7 +303,15 @@ impl ImageLock {
             RuntimeProfile::Go => "go",
             RuntimeProfile::BrowserQa => "browser_qa",
             RuntimeProfile::DesktopQa => "desktop_qa",
-        };
+        }
+    }
+
+    fn variant(
+        &self,
+        profile: RuntimeProfile,
+        architecture: &str,
+    ) -> Result<&ImageVariant, PrerequisiteFailure> {
+        let profile_name = Self::profile_name(profile);
         let platform = format!("linux/{architecture}");
         self.profiles
             .get(profile_name)

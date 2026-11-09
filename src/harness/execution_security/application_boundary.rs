@@ -9,6 +9,7 @@ use std::{
 mod construction;
 mod private_directory;
 mod providers;
+mod resolution;
 mod runtime_qa_screenshots;
 mod target;
 #[cfg(test)]

@@ -3,11 +3,13 @@ use super::BollardApi;
 use crate::execution::docker::discovery::{PrerequisiteCode, PrerequisiteFailure};
 use bollard::{
     body_full,
-    query_parameters::{BuildImageOptionsBuilder, BuilderVersion},
+    errors::Error as BollardError,
+    query_parameters::{BuildImageOptionsBuilder, BuilderVersion, RemoveImageOptionsBuilder},
 };
 use futures_util::StreamExt;
 
 mod build_diagnostics;
+mod derived_tag_guard;
 mod verify;
 
 use build_diagnostics::sanitize_build_diagnostic;
@@ -55,11 +57,59 @@ pub(super) fn build<'a>(
                 {
                     return Ok(id);
                 }
-                return Err(failure(
-                    PrerequisiteCode::ImageUnavailable,
-                    "Content-addressed derived image cache failed identity verification",
-                    false,
-                ));
+                // The content-addressed tag exists but points at an image
+                // lacking this builder's identity labels: a stale, tampered,
+                // or deliberately planted collision. Never trust the tag; at
+                // most release the exact reserved name so the build below can
+                // recreate it (only when another TAG retains the image, and
+                // never with force). Repo digest references do not count:
+                // the engine deletes the image when its last tag is removed,
+                // letting those references expire with it.
+                let extra_reference = inspect
+                    .repo_tags
+                    .as_deref()
+                    .is_some_and(|tags| tags.iter().any(|reference| reference != &tag));
+                if !matches!(
+                    derived_tag_guard::classify_foreign_tag(&id, extra_reference),
+                    derived_tag_guard::DerivedTagDisposition::UntagAndRebuild
+                ) {
+                    return Err(failure(
+                        PrerequisiteCode::ImageUnavailable,
+                        "An unverified image holds the content-addressed derived image tag; the sole reference was refused removal to protect it, so reconcile the tag manually and retry",
+                        false,
+                    ));
+                }
+                match api
+                    .docker
+                    .remove_image(
+                        &tag,
+                        Some(
+                            RemoveImageOptionsBuilder::default()
+                                .force(false)
+                                .noprune(true)
+                                .build(),
+                        ),
+                        None,
+                    )
+                    .await
+                {
+                    Ok(_deleted_items) => {}
+                    Err(BollardError::DockerResponseServerError {
+                        status_code: 409, ..
+                    }) => {
+                        return Err(failure(
+                            PrerequisiteCode::ImageUnavailable,
+                            "The unverified image holding the derived image tag is currently in use; stop its consumer and retry",
+                            true,
+                        ));
+                    }
+                    Err(error) => {
+                        return Err(build_failure(
+                            "Could not release the stale derived image tag",
+                            &error.to_string(),
+                        ));
+                    }
+                }
             }
             Err(bollard::errors::Error::DockerResponseServerError {
                 status_code: 404, ..

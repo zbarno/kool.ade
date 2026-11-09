@@ -13,13 +13,17 @@ mod tests;
 
 pub use graph::ordered_task_ids;
 pub use model::{
-    AttemptState, AuthorizationBindingV1, DependencyResolution, FailureCode,
-    ImagePreparationReceiptV1, LocalTask, RemediationAttemptResultV1, RemediationProcessStatusV1,
-    RemediationVerificationStatusV1, RemediationVerificationV1, SetupAttemptV1, SetupDependencyV1,
-    SetupTaskEventV1, SetupTaskStateV1, SetupTaskStoreV1, SetupTaskTransitionV1, SetupTaskV1,
-    State, Store, VerifiedResultV1, authorization_scope_digest,
+    AttemptState, AuthorizationBindingV1, DependencyResolution, DoneOutcomeV1, FailureCode,
+    FlowPhaseV1, HaltReasonV1, ImagePreparationReceiptV1, LocalTask, RemediationAttemptResultV1,
+    RemediationProcessStatusV1, RemediationVerificationStatusV1, RemediationVerificationV1,
+    SetupAttemptV1, SetupDependencyV1, SetupFlowStateV1, SetupTaskEventV1, SetupTaskStateV1,
+    SetupTaskStoreV1, SetupTaskTransitionV1, SetupTaskV1, State, Store, UserActionReasonV1,
+    VerifiedResultV1, authorization_scope_digest,
 };
-pub use transaction::{apply_transition, begin_scan, load, reconcile_live, recover_after_restart};
+pub use transaction::{
+    apply_transition, begin_scan, insert_flow, load, load_flow, reconcile_live,
+    recover_after_restart, update_flow,
+};
 pub(crate) use transaction::{
     begin_scan_at, reconcile_at_if, reconcile_live_if, recover_interrupted_at,
 };
