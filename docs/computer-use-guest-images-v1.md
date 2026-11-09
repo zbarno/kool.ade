@@ -46,7 +46,7 @@ fails closed. The component inventory does not claim OS-file coverage or
 license compliance.
 `containers/computer-use/images.lock.json` is separate from
 `containers/images.lock.json` and now pins the image in signed catalog
-generation 1. The catalog and lock are reviewed in `main`; the publisher
+generation 1. The catalog and lock are present in `main`; the publisher
 workflow verifies their digests against the draft release assets before making
 the release public. A push to `main` that changes the catalog, lock, or
 promotion workflow starts that publisher. Until it succeeds, do not claim the
