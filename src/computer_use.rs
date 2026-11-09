@@ -3,6 +3,7 @@
 //! These contracts intentionally do not share authority with Docker execution.
 //! Typed VM lifecycle operations bind them to the local Linux QEMU/KVM backend.
 
+pub mod artifacts;
 mod backend;
 mod contract;
 pub mod guest_image;
