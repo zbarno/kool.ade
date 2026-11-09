@@ -5,7 +5,8 @@ use std::sync::{
 
 mod response;
 mod startup;
-pub(super) use response::{completed, denied, failed, response, unix_time_ms};
+pub(crate) use response::unix_time_ms;
+pub(super) use response::{completed, denied, failed, response};
 
 use crate::computer_use::{
     ComputerNetworkProfileV1, ComputerOperationV1, ComputerResourceBudgetV1, ComputerSessionV1,

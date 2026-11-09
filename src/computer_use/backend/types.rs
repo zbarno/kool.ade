@@ -82,6 +82,23 @@ pub struct ComputerMachineRecordV1 {
     pub exit_code: Option<i32>,
 }
 
+/// Host-validated input for the private, local Computer Use display proxy.
+/// No socket path or free-form VNC command can cross the controller boundary.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ComputerDisplayInputV1 {
+    Pointer { x: u16, y: u16, buttons: u8 },
+    Key { keysym: u32, pressed: bool },
+    Text { text: String },
+}
+
+/// A bounded image returned by the controller-owned local display proxy.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComputerDisplayFrameV1 {
+    pub width: u16,
+    pub height: u16,
+    pub png: Vec<u8>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ComputerMachineStateV1 {
     Prepared,
@@ -98,6 +115,7 @@ pub struct ComputerBackendEventV1 {
     pub session_id: String,
     pub lease_generation: u64,
     pub kind: ComputerBackendEventKindV1,
+    pub boot_fingerprint: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -228,6 +246,27 @@ pub trait ComputerBackend: Send + Sync {
         handle: &ComputerMachineHandleV1,
         now_unix_ms: u64,
     ) -> Result<GuestActionJournalV1, ComputerBackendErrorV1>;
+    /// Capture one bounded frame from the private VM display socket. Backends
+    /// without an independently verified local display return unsupported.
+    fn capture_display_frame(
+        &self,
+        _session: &ComputerSessionV1,
+        _handle: &ComputerMachineHandleV1,
+        _now_unix_ms: u64,
+    ) -> Result<ComputerDisplayFrameV1, ComputerBackendErrorV1> {
+        Err(ComputerBackendErrorV1::UnsupportedHost)
+    }
+    /// Send one validated local input event through the controller-owned
+    /// display proxy. Model/provider paths cannot supply a socket or endpoint.
+    fn send_display_input(
+        &self,
+        _session: &ComputerSessionV1,
+        _handle: &ComputerMachineHandleV1,
+        _input: &ComputerDisplayInputV1,
+        _now_unix_ms: u64,
+    ) -> Result<(), ComputerBackendErrorV1> {
+        Err(ComputerBackendErrorV1::UnsupportedHost)
+    }
     fn mark_guest_ready(
         &self,
         session: &ComputerSessionV1,

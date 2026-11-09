@@ -240,6 +240,20 @@ overlays. This host backend does not authenticate the guest protocol or verify
 VM escape resistance; real KVM security evidence remains a separate release
 validation task.
 
+The controller also keeps a private append-only session journal with monotonic
+sequence numbers. It records session scope and policy digests, a fingerprint of
+the authenticated guest boot transcript, lifecycle and control-owner changes,
+and action intent/result dispositions without storing
+action payloads, screenshots, or observations. A restart first recovers owned
+VM processes, then fences unfinished journal entries as interrupted. An action
+that was in flight at that point stays outcome-unknown and is never replayed
+automatically. The task view exposes queue position, interruption, and uncertain
+outcome inspection; recovered sessions remain fenced until the operator
+dismisses them. Session admission is FIFO and reserves slot, CPU, memory, and
+overlay capacity before preparing a VM. These controller and UI tests do not
+claim real-VM interruption or recovery evidence; that lifecycle validation is
+tracked separately.
+
 ## Provider MCP boundary
 
 Provider access is an optional app-issued `ComputerUseMcpAccessV1` attached to
@@ -267,6 +281,47 @@ providers. A Unix socket integration test exercises the app-to-host boundary
 and blocked activity path without Docker, QEMU, SSH, or network setup. These
 fixtures do not claim real guest or KVM validation; the integrated VM test
 remains part of the separate release acceptance suite.
+
+## Private file, artifact, and clipboard bridge
+
+`computer_use::artifacts::ComputerArtifactBridgeV1` is the controller-side
+staging boundary for `TaskArtifactToGuest`, `GuestArtifactToTask`,
+`UserApprovedFileToPersonalGuest`, and `UserDownloadFromGuest`. Grants bind an
+exact task/session identity, task revision, normalized relative path, byte
+limit, expiry, lease generation, approval generation, transfer purpose, and
+whether the operation followed a user approval. Grants are one-use. The
+bridge stores bytes and manifests under the installation-local operational
+store, outside task clones and Git repositories, with a 64 MiB per-file limit
+and a 1 GiB aggregate staging quota. Manifest receipts expose metadata only;
+callers fetch bytes separately after rechecking identity and current task
+revision/generations. Task files are read without following symbolic links,
+reject hard links and Git/private credential paths, and are staged only after
+the exact source revision is checked. Guest results remain private staged
+artifacts until the task controller applies them under its existing task
+claim fencing.
+
+Guest download/export grants require explicit user approval and export to a
+user-selected path without overwriting an existing file. Clipboard sharing
+has no default grant. A clipboard grant is one-use, identity-bound, at most
+five minutes, limited to 64 KiB of UTF-8 text, and carries a visible-indicator
+requirement. Clipboard contents are never persisted. Revocation blocks later
+reads/exports and removes staged blob bytes; expiry cleanup removes stale
+records. `UserApprovedFileToPersonalGuest` remains disabled until the separate
+encrypted-personal-session contract is implemented.
+
+The bridge never extracts ZIP archives. ZIP content stays an opaque bounded
+blob; consumers must not decompress it without their own expanded-size and
+entry-count limits. TAR and gzip/TGZ contents are inspected before staging;
+links, device entries, unsafe paths, excessive entries, and expanded content
+above the file limit are rejected. No screenshot, download, cookie, or private
+task artifact is written to the code repository or published documentation.
+
+The current automated bridge tests cross local grant persistence, task-file
+staging, digest verification, revision/generation checks, one-use clipboard,
+Unicode case-collision checks, revocation and explicit export. They use a
+temporary local application store and task checkout, with no external service.
+They do not exercise an authenticated VM file transport or the desktop file
+chooser; real VM transfer remains a #392 integration acceptance.
 
 ## Greenfield implementation plan
 

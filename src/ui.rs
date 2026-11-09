@@ -35,6 +35,11 @@ pub use toast::ToastQueue;
 /// Typed actions emitted by views and handled by the application state
 /// machine. UI code reads state through `Surface` and reports intent here.
 pub enum ApplicationCommand {
+    ComputerUseTask {
+        task_id: String,
+        session_id: String,
+        action: ComputerUseTaskActionV1,
+    },
     OpenSpecificationTrace {
         feature_uid: String,
         kind: crate::core::lifecycle::SpecTraceReferenceKindV1,
@@ -225,4 +230,17 @@ pub enum ApplicationCommand {
     UserIntent(Intent),
     HeaderAction(HeaderAction),
     TaskDetail(task_detail::Command),
+}
+
+#[derive(Clone, Debug)]
+pub enum ComputerUseTaskActionV1 {
+    PauseAgent,
+    ResumeAgent,
+    TakeControl,
+    ReturnControl,
+    StopComputer,
+    InspectUncertainOutcome,
+    SetPrivateInput(bool),
+    DisplayInput(crate::computer_use::ComputerDisplayInputV1),
+    LaunchApprovedApp(String),
 }

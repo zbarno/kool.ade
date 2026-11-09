@@ -57,6 +57,39 @@ fn completed_duplicate_replays_exact_outcome_but_conflict_is_rejected() {
 }
 
 #[test]
+fn operator_inspection_reads_only_durable_action_disposition() {
+    let temp = tempfile::tempdir().unwrap();
+    let journal = open(temp.path());
+    let action = action(1, "00000000-0000-4000-8000-000000000003");
+    journal.begin(REQUEST, &action).unwrap();
+    assert_eq!(
+        journal.status_for_sequence(1).unwrap(),
+        GuestActionJournalStatusV1::Pending
+    );
+    journal
+        .complete(
+            REQUEST,
+            &action,
+            GuestActionOutcomeV1 {
+                reply: GuestActionReplyV1 {
+                    action_sequence: 1,
+                    result: super::super::GuestOperationResultV1::Failed,
+                },
+                observation: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        journal.status_for_sequence(1).unwrap(),
+        GuestActionJournalStatusV1::Completed(super::super::GuestOperationResultV1::Failed)
+    );
+    assert_eq!(
+        journal.status_for_sequence(2).unwrap(),
+        GuestActionJournalStatusV1::NotRecorded
+    );
+}
+
+#[test]
 fn concurrent_duplicate_intent_has_only_one_executor() {
     let temp = tempfile::tempdir().unwrap();
     let journal = Arc::new(open(temp.path()));

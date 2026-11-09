@@ -73,6 +73,13 @@ pub enum GuestReplayDecisionV1 {
     Replay(GuestActionOutcomeV1),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum GuestActionJournalStatusV1 {
+    NotRecorded,
+    Pending,
+    Completed(super::GuestOperationResultV1),
+}
+
 pub struct GuestActionJournalV1 {
     directory: PathBuf,
     session_id: String,
@@ -211,6 +218,34 @@ impl GuestActionJournalV1 {
             entry.status = JournalEntryStatusV1::Completed(outcome);
             Ok(())
         })
+    }
+
+    /// Read only the last known disposition; observations and action payloads
+    /// stay out of operator-facing recovery UI.
+    pub fn status_for_sequence(
+        &self,
+        action_sequence: u64,
+    ) -> Result<GuestActionJournalStatusV1, GuestJournalErrorV1> {
+        let mut result = GuestActionJournalStatusV1::NotRecorded;
+        self.with_state(|state| {
+            let Some(state) = state.as_ref() else {
+                return Err(GuestJournalErrorV1::Corrupt);
+            };
+            if let Some(entry) = state
+                .entries
+                .values()
+                .find(|entry| entry.action_sequence == action_sequence)
+            {
+                result = match &entry.status {
+                    JournalEntryStatusV1::Pending => GuestActionJournalStatusV1::Pending,
+                    JournalEntryStatusV1::Completed(outcome) => {
+                        GuestActionJournalStatusV1::Completed(outcome.reply.result.clone())
+                    }
+                };
+            }
+            Ok(())
+        })?;
+        Ok(result)
     }
 
     fn with_state<T>(

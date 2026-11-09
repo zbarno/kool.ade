@@ -6,6 +6,13 @@ macro_rules! computer_use_surface_methods {
             self.computer_use_permission_view()
         }
 
+        fn computer_use_task_sessions(
+            &self,
+            task_id: &str,
+        ) -> Vec<crate::computer_use::mcp::ComputerUseTaskSessionViewV1> {
+            self.computer_use_task_session_view(task_id)
+        }
+
         fn revoke_computer_use_permission(&mut self, session_id: &str) -> Result<(), String> {
             self.revoke_computer_use(session_id)
         }
@@ -29,6 +36,28 @@ macro_rules! computer_use_surface_methods {
 pub(super) use computer_use_surface_methods;
 
 impl KooladeApp {
+    pub(super) fn computer_use_task_session_view(
+        &self,
+        task_id: &str,
+    ) -> Vec<crate::computer_use::mcp::ComputerUseTaskSessionViewV1> {
+        #[cfg(target_os = "linux")]
+        {
+            let uid = unsafe { libc::geteuid() };
+            let user_id = uuid::Uuid::new_v5(
+                &uuid::Uuid::NAMESPACE_OID,
+                format!("koolade-linux-effective-uid-v1:{uid}").as_bytes(),
+            )
+            .to_string();
+            self.shared_computer_use_controller()
+                .task_session_views(task_id, &user_id)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = task_id;
+            Vec::new()
+        }
+    }
+
     pub(super) fn computer_use_permission_view(&self) -> Vec<crate::ui::ComputerUsePermissionView> {
         #[cfg(target_os = "linux")]
         {

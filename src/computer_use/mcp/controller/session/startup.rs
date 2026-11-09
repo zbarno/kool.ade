@@ -4,13 +4,17 @@ use std::{
 };
 
 use super::super::super::{ComputerUseCallerV1, ComputerUseConsentGrantV1};
+mod guards;
+mod session_builder;
+use super::super::scheduler::ResourceRequest;
+use super::super::session_journal::SessionEventKindV1 as JournalEvent;
 use super::super::types::{ActiveSession, ComputerUseMcpControllerV1};
 use super::{APPS, OPS, bounded_budget, cleanup, unix_time_ms};
 use crate::computer_use::{
-    ComputerCapabilityV1, ComputerLifecycleV1, ComputerPolicyV1, ComputerSessionClassV1,
-    ComputerSessionV1, ComputerTargetV1,
+    ComputerCapabilityV1, ComputerPolicyV1, ComputerSessionClassV1,
     guest_image::{GuestImageOverlayRequestV1, create_guest_image_overlay},
 };
+use guards::{StartupJournalGuard, StartupViewGuard};
 
 pub(super) fn start_granted_session(
     controller: &ComputerUseMcpControllerV1,
@@ -29,6 +33,8 @@ pub(super) fn start_granted_session(
     if lease_expiry <= now {
         return Err("invalid_grant");
     }
+    controller.cache_queued_view(caller, budget.clone(), lease_expiry);
+    let mut startup_view = StartupViewGuard::new(controller, &caller.identity.session_id);
     let lease_id = uuid::Uuid::new_v4().to_string();
     let policy = ComputerPolicyV1 {
         schema_version: 1,
@@ -49,7 +55,7 @@ pub(super) fn start_granted_session(
             .filter(|op| OPS.contains(op))
             .collect(),
         approval_generation: 1,
-        resource_budget: budget,
+        resource_budget: budget.clone(),
     };
     if policy.allowed_apps.is_empty()
         || policy.authorized_operations.is_empty()
@@ -57,6 +63,28 @@ pub(super) fn start_granted_session(
     {
         return Err("invalid_grant_scope");
     }
+    let scheduler_permit = runtime
+        .scheduler
+        .acquire(
+            &caller.identity.session_id,
+            ResourceRequest {
+                vcpus: budget.cpu_millis.div_ceil(1_000) as u16,
+                memory_bytes: budget.memory_bytes,
+                disk_bytes: budget.disk_bytes,
+            },
+            cancelled,
+        )
+        .map_err(|error| match error {
+            "cancelled" => "cancelled",
+            "computer_session_queue_full" => "session_queue_full",
+            "computer_session_queue_expired" => "session_queue_expired",
+            "session_resource_budget_exceeds_host_capacity" => "session_resource_limit",
+            _ => "session_scheduler_unavailable",
+        })?;
+    controller.set_start_status(
+        &caller.identity.session_id,
+        crate::computer_use::mcp::ComputerUseTaskSessionStatusV1::Starting,
+    );
     let image = runtime
         .cache
         .verify_cached_catalog_image(
@@ -71,42 +99,21 @@ pub(super) fn start_granted_session(
     {
         return Err("trusted_image_changed");
     }
-    let mut session = ComputerSessionV1 {
-        schema_version: 1,
-        session_started_at_unix_ms: now,
-        identity: caller.identity.clone(),
-        session_class: ComputerSessionClassV1::Disposable,
-        target: ComputerTargetV1::LocalKvm {
-            machine_id: runtime.machine_id.clone(),
-        },
-        image_digest: image.entry().image_digest.clone(),
-        image_manifest_digest: image.manifest_digest().to_owned(),
-        image_signer_key_id: image.manifest_signer_key_id().to_owned(),
-        network_profile: request.network_profile,
-        allowed_apps: policy.allowed_apps.clone(),
+    let mut session = session_builder::build(session_builder::SessionBuild {
+        runtime,
+        caller,
         policy,
-        lease: crate::computer_use::ComputerLeaseV1 {
-            schema_version: 1,
-            owner_id: caller.identity.user_id.clone(),
-            lease_id,
-            generation: 1,
-            issued_at_unix_ms: now,
-            expires_at_unix_ms: lease_expiry,
-            cancellation_generation: 1,
-        },
-        lifecycle: ComputerLifecycleV1::Delegated,
-        action_sequence: 0,
-        approval_generation: 1,
-        cancellation_generation: 1,
-        evidence_refs: Vec::new(),
-        controller_proof: crate::computer_use::ComputerControllerProofV1 {
-            signer_key_id: runtime.controller_key_id.clone(),
-            signature_hex: "0".repeat(128),
-        },
-    };
+        network_profile: request.network_profile,
+        lease_id,
+        expires_at_unix_ms: lease_expiry,
+        now_unix_ms: now,
+        image: &image,
+    });
     session
         .attest(runtime.controller_key_id.clone(), &runtime.controller_key)
         .map_err(|_| "attestation_failed")?;
+    guards::record_session(runtime, &session, caller, JournalEvent::SessionRequested)?;
+    let mut journal_guard = StartupJournalGuard::new(runtime, &session, &caller.role_id);
     if cancelled.load(Ordering::Acquire) {
         return Err("cancelled");
     }
@@ -126,17 +133,40 @@ pub(super) fn start_granted_session(
         },
     )
     .map_err(|_| "overlay_unavailable")?;
+    if guards::record_session(runtime, &session, caller, JournalEvent::OverlayPrepared).is_err() {
+        overlay.release_after_vm_stopped().ok();
+        return Err("session_journal_unavailable");
+    }
     if cancelled.load(Ordering::Acquire) {
         overlay.release_after_vm_stopped().ok();
         return Err("cancelled");
+    }
+    if guards::record_session(
+        runtime,
+        &session,
+        caller,
+        JournalEvent::BackendPrepareStarted,
+    )
+    .is_err()
+    {
+        overlay.release_after_vm_stopped().ok();
+        return Err("session_journal_unavailable");
     }
     let (handle, _) = runtime
         .backend
         .prepare(&session, overlay, unix_time_ms())
         .map_err(|_| "backend_prepare_failed")?;
+    if guards::record_session(runtime, &session, caller, JournalEvent::BackendPrepared).is_err() {
+        cleanup(runtime, &session, &handle);
+        return Err("session_journal_unavailable");
+    }
     if cancelled.load(Ordering::Acquire) {
         cleanup(runtime, &session, &handle);
         return Err("cancelled");
+    }
+    if guards::record_session(runtime, &session, caller, JournalEvent::BootStarted).is_err() {
+        cleanup(runtime, &session, &handle);
+        return Err("session_journal_unavailable");
     }
     if runtime
         .backend
@@ -170,13 +200,13 @@ pub(super) fn start_granted_session(
         cleanup(runtime, &session, &handle);
         return Err("cancelled");
     }
-    if runtime
-        .backend
-        .wait_ready(&session, &handle, Duration::from_secs(120), unix_time_ms())
-        .is_err()
-    {
+    let readiness =
+        runtime
+            .backend
+            .wait_ready(&session, &handle, Duration::from_secs(120), unix_time_ms());
+    if let Err(error) = guards::record_guest_ready(runtime, &session, caller, readiness) {
         cleanup(runtime, &session, &handle);
-        return Err("guest_not_ready");
+        return Err(error);
     }
     if cancelled.load(Ordering::Acquire) {
         cleanup(runtime, &session, &handle);
@@ -226,15 +256,31 @@ pub(super) fn start_granted_session(
     sessions.insert(
         caller.identity.session_id.clone(),
         ActiveSession {
-            session,
+            session: session.clone(),
             handle,
             journal,
             channel: Some(channel),
             started: true,
             paused: false,
             uncertain: false,
+            uncertain_action_sequence: None,
+            inspection_result: None,
             next_action_sequence: 1,
+            role_id: caller.role_id.clone(),
+            control_owner: crate::computer_use::mcp::ComputerUseControlOwnerV1::Agent,
+            control_generation: 1,
+            require_fresh_agent_observation: false,
+            private_input: false,
+            active_app: None,
+            action_log: std::collections::VecDeque::new(),
+            display_io: std::sync::Arc::new(std::sync::Mutex::new(())),
+            _scheduler_permit: scheduler_permit,
         },
     );
+    if let Some(active) = sessions.get(&caller.identity.session_id) {
+        controller.cache_active_view(active);
+    }
+    journal_guard.mark_completed();
+    startup_view.keep();
     Ok(())
 }
