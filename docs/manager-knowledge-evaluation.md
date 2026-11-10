@@ -4,6 +4,12 @@
 
 Audited `main` at `160d17a4197f973fb3ea547b8343e204781ee103` on 2026-11-09.
 This is a source audit of that revision, not a claim about a later release.
+The integration paths listed below were rechecked against current `main`
+`66b4ff1d320d7ae12a5466b214b3ec6869226a90` on 2026-11-10. The Manager,
+repository-profile, investigation-broker, context-retrieval, product-capability,
+and published-spec implementation files are unchanged from the audited
+revision, so the source/data-flow findings below still apply to that exact
+head.
 
 | Evidence | Current owner and data path | Authority and invalidation |
 | --- | --- | --- |
@@ -70,11 +76,11 @@ omission measurements, plus independently assigned `grounded_correct`,
 python3 scripts/evaluations/manager_knowledge.py --before before.jsonl --after after.jsonl
 ```
 
-The report compares before/after correctness on identical questions, reports
-per-category accuracy, the unnecessary question rate for evidence-answerable
-cases, critical unsupported claims, p50/p95 latency, token/cost totals, profile
-cache hits/refreshes, scanned bytes and omitted sources. The after target is at
-least 90% grounded correctness and zero unsupported critical implementation or
+The report compares before/after correctness and unnecessary human-question
+rates on identical questions, reports per-category accuracy, critical
+unsupported claims, p50/p95 latency, token/cost totals, profile cache
+hits/refreshes, scanned bytes and omitted sources. The after target is at least
+90% grounded correctness and zero unsupported critical implementation or
 approval claims. The scorer fails closed for incomplete/duplicate question
 sets or non-reviewer judgments.
 
