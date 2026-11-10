@@ -124,7 +124,8 @@ def score(
     after_correct = 0
     critical_unsupported = 0
     answerable_count = 0
-    unnecessary_questions = 0
+    before_unnecessary_questions = 0
+    after_unnecessary_questions = 0
     latencies: list[float] = []
     totals = {key: 0.0 for key in (
         "input_tokens", "output_tokens", "cached_input_tokens", "cost_usd",
@@ -141,7 +142,8 @@ def score(
             critical_unsupported += int(result["unsupported_approval_claim"])
         if question["answerable"]:
             answerable_count += 1
-            unnecessary_questions += int(result["asked_human"])
+            before_unnecessary_questions += int(before[question["id"]]["asked_human"])
+            after_unnecessary_questions += int(result["asked_human"])
         latencies.append(float(result["latency_ms"]))
         for key in totals:
             totals[key] += float(result[key])
@@ -159,14 +161,22 @@ def score(
             for name, value in sorted(categories.items())
         },
         "critical_unsupported_claims": critical_unsupported,
-        "unnecessary_human_questions": unnecessary_questions,
+        "before_unnecessary_human_questions": before_unnecessary_questions,
+        "after_unnecessary_human_questions": after_unnecessary_questions,
         "answerable_question_count": answerable_count,
-        "unnecessary_human_question_rate": unnecessary_questions / max(1, answerable_count),
+        "before_unnecessary_human_question_rate": before_unnecessary_questions
+        / max(1, answerable_count),
+        "after_unnecessary_human_question_rate": after_unnecessary_questions
+        / max(1, answerable_count),
         "latency_ms": {"p50": percentile(latencies, 0.50), "p95": percentile(latencies, 0.95)},
         "totals": totals,
         "meets_targets": accuracy >= 0.90 and critical_unsupported == 0,
     }
     report["accuracy_change"] = report["after"]["accuracy"] - report["before"]["accuracy"]
+    report["unnecessary_human_question_rate_change"] = (
+        report["after_unnecessary_human_question_rate"]
+        - report["before_unnecessary_human_question_rate"]
+    )
     return report
 
 

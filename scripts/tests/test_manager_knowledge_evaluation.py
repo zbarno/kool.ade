@@ -48,7 +48,7 @@ class ManagerKnowledgeEvaluationTests(unittest.TestCase):
         before = {row["id"]: result(row["id"], "before", grounded_correct=False) for row in questions}
         after = {row["id"]: result(row["id"], "after") for row in questions}
         answerable = next(row for row in questions if row["answerable"])
-        after[answerable["id"]]["asked_human"] = True
+        before[answerable["id"]]["asked_human"] = True
         critical = next(row for row in questions if row["critical"])
         after[critical["id"]]["unsupported_approval_claim"] = False
         report = manager_knowledge.score(questions, before, after)
@@ -56,7 +56,14 @@ class ManagerKnowledgeEvaluationTests(unittest.TestCase):
         self.assertEqual(report["before"]["accuracy"], 0)
         self.assertEqual(report["after"]["accuracy"], 1)
         self.assertTrue(report["meets_targets"])
-        self.assertEqual(report["unnecessary_human_questions"], 1)
+        self.assertEqual(report["before_unnecessary_human_questions"], 1)
+        self.assertEqual(report["after_unnecessary_human_questions"], 0)
+        answerable_count = report["answerable_question_count"]
+        self.assertEqual(report["before_unnecessary_human_question_rate"], 1 / answerable_count)
+        self.assertEqual(report["after_unnecessary_human_question_rate"], 0)
+        self.assertEqual(
+            report["unnecessary_human_question_rate_change"], -1 / answerable_count
+        )
         self.assertEqual(report["latency_ms"]["p95"], 20)
         self.assertGreater(report["totals"]["cost_usd"], 0)
 
