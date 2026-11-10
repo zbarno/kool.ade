@@ -25,6 +25,8 @@ jobs:
         run: python3 -m unittest scripts.tests.test_manager_knowledge_evaluation -v
       - name: Test Computer Use documentation status validator
         run: python3 -m unittest scripts.tests.test_computer_use_doc_status -v
+      - name: Test Computer Use R1 KVM host preflight
+        run: python3 -m unittest scripts.tests.test_computer_use_r1_kvm_host -v
       - name: Validate documentation navigation indexes
         run: python3 scripts/check-doc-navigation.py
       - name: Validate Computer Use docs against release flags
