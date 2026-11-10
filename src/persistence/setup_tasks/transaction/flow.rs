@@ -100,6 +100,14 @@ pub(super) fn insert_flow_at(path: &std::path::Path, state: SetupFlowStateV1) ->
 }
 
 #[cfg(test)]
+pub(super) fn replace_terminal_flow_at(
+    path: &std::path::Path,
+    state: SetupFlowStateV1,
+) -> Result<bool> {
+    insert_or_replace_terminal_impl(path, state)
+}
+
+#[cfg(test)]
 pub(super) fn update_flow_at(
     path: &std::path::Path,
     update: impl FnOnce(&mut SetupFlowStateV1) -> bool,

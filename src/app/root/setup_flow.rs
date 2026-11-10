@@ -49,7 +49,7 @@ impl KooladeApp {
         self.track_scan_generation(state.last_scan_generation);
         if !self.setup_flow_boot_synced {
             self.setup_flow_boot_synced = true;
-            if matches!(state.phase, FlowPhaseV1::Running) {
+            if matches!(state.phase, FlowPhaseV1::Running | FlowPhaseV1::Finishing,) {
                 state.phase = FlowPhaseV1::Halted {
                     reason: HaltReasonV1::InterruptedByRestart,
                     detail_task: None,

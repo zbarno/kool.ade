@@ -121,22 +121,34 @@ impl KooladeApp {
             );
             return;
         }
-        if route == Some(FixRoute::Remediation) {
-            let Some(request) = self.setup_remediation.take_approval(task_id) else {
+        match route {
+            Some(FixRoute::Remediation) => {
+                let Some(request) = self.setup_remediation.take_approval(task_id) else {
+                    self.toasts
+                        .warning("The repair approval expired. Review it again before continuing.");
+                    self.setup_remediation.cancel_review();
+                    return;
+                };
+                self.setup_remediation.approve(request);
+            }
+            Some(FixRoute::ClaudeInstall) => {
+                // The staged approval request can only be raised through the
+                // dedicated Install Claude Code review, which the consent
+                // panel points at. Fabricating it here would authorize an
+                // unstaged operation, and cancelling would hit an unrelated
+                // controller's review.
                 self.toasts
-                    .warning("The repair approval expired. Review it again before continuing.");
-                self.setup_remediation.cancel_review();
-                return;
-            };
-            self.setup_remediation.approve(request);
-        } else {
-            let Some(request) = self.setup_image_preparation.take_approval(task_id) else {
-                self.toasts
-                    .warning("The repair approval expired. Review it again before continuing.");
-                self.setup_image_preparation.cancel_review();
-                return;
-            };
-            self.setup_image_preparation.approve(request);
+                    .info("Approve this install in the Install Claude Code review on this screen.");
+            }
+            Some(FixRoute::Image) | None => {
+                let Some(request) = self.setup_image_preparation.take_approval(task_id) else {
+                    self.toasts
+                        .warning("The repair approval expired. Review it again before continuing.");
+                    self.setup_image_preparation.cancel_review();
+                    return;
+                };
+                self.setup_image_preparation.approve(request);
+            }
         }
     }
 }
