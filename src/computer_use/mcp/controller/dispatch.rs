@@ -17,6 +17,8 @@ use super::{
 
 mod action;
 #[cfg(test)]
+mod personal_handoff_tests;
+#[cfg(test)]
 pub(super) use action::operation;
 use action::{ActionContext, action};
 
@@ -133,16 +135,11 @@ pub(super) fn dispatch(
             return denied("human_control_not_owned");
         }
     }
-    if caller.actor == crate::computer_use::ComputerActionActorV1::Agent
-        && active.require_fresh_agent_observation
-        && !matches!(
-            &request,
-            ComputerUseMcpRequestV1::Observe {
-                observation: ComputerUseObservationKindV1::Screenshot,
-                ..
-            }
-        )
-    {
+    if handback_requires_fresh_screenshot(
+        caller.actor,
+        active.require_fresh_agent_observation,
+        &request,
+    ) {
         return controller.blocked("fresh_observation_required_after_handback");
     }
     match request {
@@ -314,4 +311,20 @@ pub(super) fn dispatch(
             denied("invalid_request")
         }
     }
+}
+
+fn handback_requires_fresh_screenshot(
+    actor: crate::computer_use::ComputerActionActorV1,
+    required: bool,
+    request: &ComputerUseMcpRequestV1,
+) -> bool {
+    actor == crate::computer_use::ComputerActionActorV1::Agent
+        && required
+        && !matches!(
+            request,
+            ComputerUseMcpRequestV1::Observe {
+                observation: ComputerUseObservationKindV1::Screenshot,
+                ..
+            }
+        )
 }

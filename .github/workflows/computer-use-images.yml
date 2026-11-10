@@ -9,6 +9,10 @@ on:
       - "src/bin/koolade_computer_use_agent.rs"
       - "src/bin/koolade_computer_use_app_helper.rs"
       - "src/computer_use/apps/**"
+      - "src/computer_use/mcp/controller/session_journal/**"
+      - "src/computer_use/guest_protocol/tests.rs"
+      - "tests/fixtures/computer_use/synthetic_idp/**"
+      - "docs/computer-use-personal-auth-fixture-v1.md"
       - "src/computer_use.rs"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -19,6 +23,24 @@ permissions:
   contents: read
 
 jobs:
+  synthetic-personal-auth:
+    name: Synthetic personal login, MFA, and browser restart
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the pinned browser QA runtime
+        run: docker build --file containers/runtime-qa/browser/Dockerfile --tag koolade-personal-auth-fixture containers/runtime-qa/browser
+      - name: Run synthetic IdP and MFA in an isolated real browser
+        run: |
+          set -euo pipefail
+          docker run --rm --network none \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/tests/fixtures/computer_use/synthetic_idp,dst=/opt/koolade-runtime-qa/personal-fixture,readonly" \
+            --entrypoint node koolade-personal-auth-fixture \
+            --test /opt/koolade-runtime-qa/personal-fixture/browser_restart.test.mjs
+
   candidate:
     runs-on: ubuntu-24.04
     timeout-minutes: 120

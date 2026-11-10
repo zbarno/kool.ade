@@ -9,6 +9,7 @@
 - [computer-use-architecture.md](./computer-use-architecture.md) - Read for Computer Use: architecture, permissions, and operating guide.
 - [computer-use-guest-apps-v1.md](./computer-use-guest-apps-v1.md) - Read for Computer Use guest application catalog and provisioning.
 - [computer-use-guest-images-v1.md](./computer-use-guest-images-v1.md) - Read for Computer Use guest image catalog and cache (CU-03).
+- [computer-use-personal-auth-fixture-v1.md](./computer-use-personal-auth-fixture-v1.md) - Read for synthetic personal VM authentication fixture coverage.
 - [computer-use-readiness-v1.md](./computer-use-readiness-v1.md) - Read for Computer Use readiness probe boundary (v1).
 - [computer-use-remote-workers-v1.md](./computer-use-remote-workers-v1.md) - Read for Remote Computer Use workers (v1).
 - [computer-use-threat-model-v1.md](./computer-use-threat-model-v1.md) - Read for Computer Use threat model (v1).

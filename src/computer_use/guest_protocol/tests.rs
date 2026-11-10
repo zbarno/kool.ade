@@ -17,6 +17,9 @@ use std::{
     thread,
 };
 
+#[path = "tests/personal_auth.rs"]
+mod personal_auth;
+
 const NOW: u64 = 10_000;
 
 #[test]
