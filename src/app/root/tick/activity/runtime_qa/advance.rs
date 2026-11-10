@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "computer_use_context.rs"]
+pub(in crate::app::root::tick::activity) mod computer_use_context;
+
 mod blocking;
 mod dispatch;
 mod queue;
@@ -10,6 +13,7 @@ mod worker_completion;
 pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
     project: &mut Project,
     task_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
+    computer_use: Option<computer_use_context::ComputerQaRuntimeContextV1>,
 ) {
     let applicability_result = project
         .activity
@@ -320,6 +324,6 @@ pub(in crate::app::root::tick::activity) fn advance_runtime_qa(
         launch = Some((prepared, task.task_uid.clone()));
         break;
     }
-    dispatch::dispatch_queued_worker(project, task_harness, launch, &mut notices);
+    dispatch::dispatch_queued_worker(project, task_harness, computer_use, launch, &mut notices);
     dispatch::flush_notices(project, notices);
 }

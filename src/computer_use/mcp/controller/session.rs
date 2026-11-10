@@ -115,7 +115,10 @@ impl ComputerUseMcpOperationsV1 for ComputerUseMcpControllerV1 {
             allowed_operations,
             allowed_apps,
             network_profile: ComputerNetworkProfileV1::Disabled,
-            internet_research_available: runtime.image.entry().companion_protocol_version >= 2,
+            internet_research_available: internet_research_available(
+                &caller.role_id,
+                runtime.image.entry().companion_protocol_version,
+            ),
             resource_budget: crate::computer_use::MINIMUM_DISPOSABLE_VM_BUDGET_V1,
         })
     }
@@ -205,6 +208,22 @@ impl ComputerUseMcpOperationsV1 for ComputerUseMcpControllerV1 {
     ) -> ComputerUseMcpResponseV1 {
         ComputerUseMcpControllerV1::revoke_session(self, caller, session_id)
     }
+}
+
+fn internet_research_available(role_id: &str, companion_protocol_version: u16) -> bool {
+    role_id != crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_ROLE_V1
+        && companion_protocol_version >= 2
+}
+
+#[cfg(test)]
+#[test]
+fn runtime_qa_consent_never_offers_network_escalation() {
+    assert!(!internet_research_available(
+        crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_ROLE_V1,
+        2
+    ));
+    assert!(internet_research_available("implementer/v1", 2));
+    assert!(!internet_research_available("implementer/v1", 1));
 }
 
 impl ComputerUseMcpControllerV1 {

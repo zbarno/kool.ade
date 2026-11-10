@@ -1,7 +1,8 @@
 use crate::{app::session::Project, core::lifecycle::LifecycleStore};
 use prerequisites::{event_uid, unavailable_reason};
 
-mod advance;
+pub(super) mod advance;
+pub(super) use advance::computer_use_context::ComputerQaRuntimeContextV1;
 mod prerequisites;
 pub(crate) mod recipe_queue;
 mod reports;

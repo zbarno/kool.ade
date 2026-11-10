@@ -16,6 +16,28 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use super::super::{session::unix_time_ms, types::ComputerUseMcpControllerV1};
 
 impl ComputerUseMcpControllerV1 {
+    pub fn computer_qa_session_guest_image_digest(
+        &self,
+        task_id: &str,
+        session_id: &str,
+    ) -> Result<String, &'static str> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| "session_state_unavailable")?;
+        let active = sessions.get(session_id).ok_or("session_not_active")?;
+        if active.session.identity.task_id != task_id
+            || active.role_id != COMPUTER_USE_RUNTIME_QA_ROLE_V1
+            || active.uncertain
+            || active.paused
+            || !active.started
+            || active.control_owner != super::Owner::Human
+        {
+            return Err("computer_qa_session_not_authorized");
+        }
+        Ok(active.session.image_digest.clone())
+    }
+
     /// Return the stable controller-signed session digest used to bind the
     /// Runtime QA target to one live guest session.
     pub fn computer_qa_session_attestation_sha256(
@@ -108,7 +130,9 @@ impl ComputerUseMcpControllerV1 {
             return Err("computer_qa_approval_not_current");
         }
         let now = unix_time_ms();
-        let expires_at = expires_at.min(now.saturating_add(5 * 60 * 1_000));
+        // Keep one-use staged receipts valid for the bounded disposable session
+        // so later approved QA scenarios can relaunch the same exact build.
+        let expires_at = staged_receipt_expiry(now, expires_at);
         if expires_at <= now {
             return Err("computer_qa_session_expired");
         }
@@ -363,6 +387,10 @@ impl ComputerUseMcpControllerV1 {
     }
 }
 
+fn staged_receipt_expiry(now_unix_ms: u64, session_expires_at_unix_ms: u64) -> u64 {
+    session_expires_at_unix_ms.min(now_unix_ms.saturating_add(15 * 60 * 1_000))
+}
+
 fn validate_approved_task_build(
     request: &QaRunRequestV1,
     approval: &QaComputerBuildApprovalV1,
@@ -576,6 +604,19 @@ mod tests {
         assert_eq!(
             validate_approved_task_build(&request, &approval, 9, &wrong_build),
             Err("computer_qa_build_manifest_stale")
+        );
+    }
+
+    #[test]
+    fn staged_receipts_last_only_until_the_live_session_or_fifteen_minute_cap() {
+        let now = 10_000;
+        assert_eq!(
+            staged_receipt_expiry(now, now + 20 * 60 * 1_000),
+            now + 15 * 60 * 1_000
+        );
+        assert_eq!(
+            staged_receipt_expiry(now, now + 4 * 60 * 1_000),
+            now + 4 * 60 * 1_000
         );
     }
 }

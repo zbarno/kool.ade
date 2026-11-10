@@ -281,11 +281,15 @@ fn worker_rejects_revoked_prepared_start_after_selection_changes_to_new_target()
     let error = run(
         prepared,
         Vec::new(),
+        crate::runtime_qa::QaExecutionTargetV1::IsolatedContainer,
+        0,
+        0,
         Box::new(UnusedHarness),
         root.path().join("runtime-qa"),
         Arc::new(AtomicBool::new(false)),
         cancel_receiver,
         progress_sender,
+        None,
     )
     .unwrap_err();
     assert!(error.contains("runtime target is no longer the active selection"));

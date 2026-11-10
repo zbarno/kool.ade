@@ -121,6 +121,7 @@ fn start_worker_or_block(
 pub(super) fn dispatch_queued_worker(
     project: &mut Project,
     task_harness: &mut Option<Box<dyn crate::harness::AiHarness>>,
+    computer_use: Option<super::computer_use_context::ComputerQaRuntimeContextV1>,
     launch: Option<(PreparedRequest, String)>,
     notices: &mut Vec<String>,
 ) {
@@ -188,8 +189,11 @@ pub(super) fn dispatch_queued_worker(
                             project,
                             prepared,
                             approved.scenarios,
+                            approved.execution_target,
+                            approved.task_revision.unwrap_or(validated_revision),
                             harness,
                             validated_revision,
+                            computer_use,
                         )
                     },
                 ) {
