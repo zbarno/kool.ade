@@ -181,11 +181,16 @@ fn main() -> eframe::Result {
             std::process::exit(2);
         }
         #[cfg(target_os = "linux")]
-        if let Err(error) = koolade::computer_use::remote_worker::serve_computer_use_worker_stdio_v1(
-            std::path::Path::new(&config),
-        ) {
-            eprintln!("Kool.ad/e Computer Use worker stopped: {error:#}");
-            std::process::exit(1);
+        {
+            if let Err(error) =
+                koolade::computer_use::remote_worker::serve_computer_use_worker_stdio_v1(
+                    std::path::Path::new(&config),
+                )
+            {
+                eprintln!("Kool.ad/e Computer Use worker stopped: {error:#}");
+                std::process::exit(1);
+            }
+            return Ok(());
         }
         #[cfg(not(target_os = "linux"))]
         {
@@ -193,7 +198,6 @@ fn main() -> eframe::Result {
             eprintln!("Remote Computer Use workers require Linux with supported KVM isolation.");
             std::process::exit(1);
         }
-        return Ok(());
     }
     if command.as_deref() == Some(std::ffi::OsStr::new("--internal-mcp-server")) {
         let Some(config) = args.next() else {
