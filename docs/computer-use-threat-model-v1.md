@@ -27,21 +27,22 @@ they do not claim real VM isolation.
 
 ## Explicit limitations
 
-InternetResearch is an opt-in public HTTPS tunnel for disposable guests. It
-uses host DNS resolution, rejects a target if any resolved address is private
-or reserved, and pins the upstream socket to one approved resolution. The
-proxy cannot inspect encrypted HTTPS methods, paths, forms, or WebSocket
-messages, so it does not prevent a user from logging in or submitting an
-external action. The UI warns against credentials and sensitive actions; a
-separate CU-12 capability/policy is required before those actions can be
-claimed as controlled. The current signed guest image uses companion protocol
-v1, so UI consent does not offer research networking until a compatible image
-is promoted. The real guest denial, redirect/rebinding, bypass, and revoke
-checks remain in #392 and are not claimed as passed here.
+InternetResearch is designed as an opt-in public HTTPS tunnel for disposable
+guests. Its implementation uses host DNS resolution, rejects a target if any
+resolved address is private or reserved, and pins the upstream socket to one
+approved resolution. The proxy cannot inspect encrypted HTTPS methods, paths,
+forms, or WebSocket messages, so it does not prevent a user from logging in or
+submitting an external action. A separate CU-12 capability/policy is required
+before those actions can be claimed as controlled. The promoted signed guest
+image currently advertises companion protocol v1, so UI consent does not offer
+research networking. The real guest denial, redirect/rebinding, bypass, and
+revoke checks remain in #392 and are not claimed as passed here.
 
 The guest companion authenticates the local channel and the host journal
 prevents automatic replay after uncertain outcomes. This does not prove real
 VM isolation, disk encryption, viewer authentication, secure secret entry,
 or content redaction. Those require owning components and end-to-end tests in
-the linked issues. Logged-in accounts remain exposed to whatever a guest application
-can do inside that account, even when the VM boundary works as designed.
+the linked issues. Logged-in accounts remain exposed to whatever a guest
+application can do inside that account, even when the VM boundary works as
+designed. Persistent personal sessions and human-login acceptance remain
+unavailable until their separate security gates are complete.
