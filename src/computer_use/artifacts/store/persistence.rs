@@ -38,8 +38,14 @@ impl ComputerArtifactBridgeV1 {
             .file_name()
             .and_then(|part| part.to_str())
             .ok_or(ComputerArtifactBridgeErrorV1::Invalid)?;
-        let media =
-            validate_content(name, bytes).map_err(|_| ComputerArtifactBridgeErrorV1::Invalid)?;
+        let media = if grant.flow
+            == crate::computer_use::artifacts::ComputerArtifactFlowV1::TaskArtifactToGuest
+        {
+            validation::validate_task_build_content(name, bytes)
+        } else {
+            validate_content(name, bytes)
+        }
+        .map_err(|_| ComputerArtifactBridgeErrorV1::Invalid)?;
         self.store_content_with_media(grant, name, bytes, &media, now)
     }
 

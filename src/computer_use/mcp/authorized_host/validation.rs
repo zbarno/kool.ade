@@ -1,9 +1,7 @@
 use super::{Request, Response, Status};
 
 pub(super) fn target_machine_id(session: &crate::computer_use::ComputerSessionV1) -> &str {
-    match &session.target {
-        crate::computer_use::ComputerTargetV1::LocalKvm { machine_id } => machine_id,
-    }
+    session.target.worker_id()
 }
 
 pub(super) fn session_id(request: &Request) -> Option<&str> {

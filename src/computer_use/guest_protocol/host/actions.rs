@@ -10,20 +10,30 @@ impl AuthenticatedGuestChannelV1 {
         deadline_unix_ms: u64,
     ) -> Result<GuestActionOutcomeV1, GuestProtocolErrorV1> {
         let reply = loop {
-            let incoming: AuthenticatedGuestEnvelopeV1 = read_frame(self.channel.io())?;
-            incoming.verify(self.channel_key.expose())?;
+            let incoming: AuthenticatedGuestEnvelopeV1 = read_frame(
+                self.channel
+                    .as_mut()
+                    .ok_or(GuestProtocolErrorV1::WrongSession)?
+                    .io(),
+            )?;
+            incoming.verify(
+                self.channel_key
+                    .as_ref()
+                    .ok_or(GuestProtocolErrorV1::WrongSession)?
+                    .expose(),
+            )?;
             match &incoming.envelope.message {
                 GuestMessageV1::Heartbeat {
                     boot_id,
                     uptime_millis,
                 } => {
-                    if boot_id != &self.config.boot_id
+                    if boot_id != &self.context.boot_id
                         || incoming.envelope.sender != GuestSenderV1::Guest
                         || incoming.envelope.sequence != self.guest_sequence
-                        || incoming.envelope.session_id != self.config.session_id
-                        || incoming.envelope.worker_id != self.config.worker_id
-                        || incoming.envelope.lease_generation != self.config.lease_generation
-                        || incoming.envelope.deadline_unix_ms != self.config.expires_at_unix_ms
+                        || incoming.envelope.session_id != self.context.session_id
+                        || incoming.envelope.worker_id != self.context.worker_id
+                        || incoming.envelope.lease_generation != self.context.lease_generation
+                        || incoming.envelope.deadline_unix_ms != self.context.expires_at_unix_ms
                         || incoming.envelope.capability_id != GUEST_CHANNEL_CAPABILITY_V1
                         || incoming.envelope.request_id != self.request_id
                         || incoming.envelope.action_id != self.action_id
@@ -91,7 +101,12 @@ impl AuthenticatedGuestChannelV1 {
         if !requires_observation {
             return Err(GuestProtocolErrorV1::Malformed);
         }
-        let incoming: AuthenticatedGuestEnvelopeV1 = read_frame(self.channel.io())?;
+        let incoming: AuthenticatedGuestEnvelopeV1 = read_frame(
+            self.channel
+                .as_mut()
+                .ok_or(GuestProtocolErrorV1::WrongSession)?
+                .io(),
+        )?;
         self.validate_incoming(
             &incoming,
             request_id,
@@ -105,7 +120,7 @@ impl AuthenticatedGuestChannelV1 {
         self.guest_sequence = self.guest_sequence.saturating_add(1);
         let observation = validate_observation(
             observation,
-            &self.config.session_id,
+            &self.context.session_id,
             self.latest_observation
                 .as_ref()
                 .map_or(0, |previous| previous.observation_revision),

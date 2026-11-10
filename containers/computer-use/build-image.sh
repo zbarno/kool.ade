@@ -7,13 +7,24 @@ trap 'status=$?; printf "build-image.sh failed at line %s: %s (status %s)\\n" "$
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 output_dir="${1:?usage: build-image.sh OUTPUT_DIR}"
 agent_binary="${2:?usage: build-image.sh OUTPUT_DIR AGENT_BINARY}"
-[[ -f "$agent_binary" && -x "$agent_binary" && ! -L "$agent_binary" ]] || {
+app_helper_binary="${3:?usage: build-image.sh OUTPUT_DIR AGENT_BINARY APP_HELPER_BINARY [APP_PACKAGE_DIR]}"
+app_package_dir="${4:-}"
+[[ -f "$agent_binary" && -x "$agent_binary" && ! -L "$agent_binary" \
+  && -f "$app_helper_binary" && -x "$app_helper_binary" && ! -L "$app_helper_binary" ]] || {
   echo "companion binary must be a regular executable file" >&2
   exit 2
 }
-for tool in debootstrap qemu-img mkfs.ext4 debugfs mount umount mountpoint realpath grub-install chroot sha256sum parted sfdisk losetup sudo curl grep find sort touch; do
+for tool in debootstrap qemu-img mkfs.ext4 debugfs mount umount mountpoint realpath grub-install chroot sha256sum parted sfdisk losetup sudo curl grep find sort touch stat dpkg-deb; do
   command -v "$tool" >/dev/null || { echo "missing required builder: $tool" >&2; exit 2; }
 done
+package_dir_real=""
+if [[ -n "$app_package_dir" ]]; then
+  [[ -d "$app_package_dir" && ! -L "$app_package_dir" ]] || {
+    echo "app package bundle must be a real directory" >&2
+    exit 2
+  }
+  package_dir_real="$(cd "$app_package_dir" && pwd -P)"
+fi
 work_parent="${RUNNER_TEMP:-/tmp}"
 mkdir -p "$work_parent"
 work_parent="$(cd "$work_parent" && pwd -P)"
@@ -105,24 +116,88 @@ apt_get install -y --no-install-recommends \
   ca-certificates sudo locales
 chroot_guest apt-get clean
 sudo rm -f "$work_dir/rootfs/var/cache/ldconfig/aux-cache"
-chroot_guest useradd --create-home --shell /bin/bash --groups audio,video koolade
+sudo install -d -o root -g root -m 0755 "$work_dir/rootfs/var/cache/koolade/apps"
+sudo install -d -o root -g root -m 0711 "$work_dir/rootfs/var/lib/koolade-app-helper"
+sudo install -d -o root -g root -m 0711 "$work_dir/rootfs/var/lib/koolade-app-helper/task-staging"
+app_bundle_count=0
+app_bundle_bytes=0
+: > "$output_dir/${base_name}.app-packages.tsv"
+if [[ -n "$package_dir_real" ]]; then
+  while IFS= read -r -d '' unexpected; do
+    echo "app package bundle contains a non-file entry: $unexpected" >&2
+    exit 1
+  done < <(find "$package_dir_real" -mindepth 1 -maxdepth 1 ! -type f -print0)
+  shopt -s nullglob
+  for package in "$package_dir_real"/*.deb; do
+    [[ -f "$package" && ! -L "$package" ]] || {
+      echo "app package must be a regular file" >&2
+      exit 1
+    }
+    filename="${package##*/}"
+    [[ "$filename" =~ ^([0-9a-f]{64})\.deb$ ]] || {
+      echo "app package filename must be its lowercase SHA-256 digest: $filename" >&2
+      exit 1
+    }
+    digest="${BASH_REMATCH[1]}"
+    size="$(stat -c '%s' -- "$package")"
+    (( size > 0 && size <= 536870912 )) || {
+      echo "app package exceeds the 512 MiB per-package bound: $filename" >&2
+      exit 1
+    }
+    actual="$(sha256sum -- "$package" | cut -d ' ' -f 1)"
+    [[ "$actual" == "$digest" ]] || {
+      echo "app package filename digest does not match bytes: $filename" >&2
+      exit 1
+    }
+    package_name="$(dpkg-deb --field "$package" Package)"
+    package_version="$(dpkg-deb --field "$package" Version)"
+    [[ "$package_name" =~ ^[a-z0-9][a-z0-9+.-]{0,127}$ \
+      && "$package_version" =~ ^[A-Za-z0-9.+:~_-]{1,128}$ ]] || {
+      echo "app package metadata is malformed: $filename" >&2
+      exit 1
+    }
+    (( app_bundle_count += 1 ))
+    (( app_bundle_bytes += size ))
+    (( app_bundle_count <= 64 && app_bundle_bytes <= 1073741824 )) || {
+      echo "app package bundle exceeds the 64-file or 1 GiB bound" >&2
+      exit 1
+    }
+    sudo install -o root -g root -m 0644 "$package" \
+      "$work_dir/rootfs/var/cache/koolade/apps/${filename}"
+    printf '%s\t%s\t%s\t%s\n' "$digest" "$size" "$package_name" "$package_version" \
+      >> "$output_dir/${base_name}.app-packages.tsv"
+  done
+  shopt -u nullglob
+fi
+chroot_guest groupadd --system koolade-display
+chroot_guest groupadd --system koolade-agent
+chroot_guest useradd --create-home --shell /bin/bash \
+  --groups audio,video,koolade-display koolade
+chroot_guest useradd --system --create-home --home-dir /var/lib/koolade-agent \
+  --shell /usr/sbin/nologin --gid koolade-agent --groups koolade-display koolade-agent
 chroot_guest passwd --lock koolade
+chroot_guest passwd --lock koolade-agent
 chroot_guest usermod --lock root
 root_password_state="$(chroot_guest passwd -S root | awk '{print $2}')"
 guest_password_state="$(chroot_guest passwd -S koolade | awk '{print $2}')"
 guest_uid="$(chroot_guest id -u koolade)"
 guest_groups="$(chroot_guest id -Gn koolade)"
-if [[ "$root_password_state" != L || "$guest_password_state" != L || "$guest_uid" == 0 ]]; then
-  echo "refusing to build an image with an unlocked root or interactive guest password" >&2
+agent_uid="$(chroot_guest id -u koolade-agent)"
+agent_groups="$(chroot_guest id -Gn koolade-agent)"
+if [[ "$root_password_state" != L || "$guest_password_state" != L \
+  || "$guest_uid" == 0 || "$agent_uid" == 0 || "$guest_uid" == "$agent_uid" ]]; then
+  echo "refusing to build an image without separated locked guest identities" >&2
   exit 1
 fi
-if tr ' ' '\n' <<<"$guest_groups" | grep -Fxq sudo; then
+if tr ' ' '\n' <<<"$guest_groups $agent_groups" | grep -Fxq sudo; then
   echo "refusing to build an image whose desktop user belongs to sudo" >&2
   exit 1
 fi
 sudo install -d -m 0755 "$work_dir/rootfs/usr/lib/koolade"
 sudo install -o root -g root -m 0755 "$agent_binary" \
   "$work_dir/rootfs/usr/lib/koolade/computer-use-agent"
+sudo install -o root -g root -m 0755 "$app_helper_binary" \
+  "$work_dir/rootfs/usr/lib/koolade/computer-use-app-helper"
 sudo install -d -m 0755 "$work_dir/rootfs/etc/lightdm/lightdm.conf.d"
 sudo tee "$work_dir/rootfs/etc/lightdm/lightdm.conf.d/50-koolade-guest.conf" >/dev/null <<'LIGHTDM'
 [Seat:*]
@@ -134,8 +209,17 @@ sudo install -d -m 0755 "$work_dir/rootfs/home/koolade/.config/openbox"
 sudo tee "$work_dir/rootfs/home/koolade/.config/openbox/autostart" >/dev/null <<'AUTO'
 xset -dpms
 xset s off
+for _ in $(seq 1 40); do
+  [ -f "$HOME/.Xauthority" ] && break
+  sleep 0.1
+done
+if [ -f "$HOME/.Xauthority" ]; then
+  chgrp koolade-display "$HOME/.Xauthority"
+  chmod 0640 "$HOME/.Xauthority"
+fi
 AUTO
 chroot_guest chown -R koolade:koolade /home/koolade
+chroot_guest chmod 0710 /home/koolade
 sudo truncate -s 0 "$work_dir/rootfs/etc/machine-id"
 sudo ln -sfn /etc/machine-id "$work_dir/rootfs/var/lib/dbus/machine-id"
 sudo rm -f "$work_dir/rootfs/var/lib/systemd/random-seed"
@@ -149,7 +233,7 @@ chroot_guest systemctl disable NetworkManager systemd-networkd 2>/dev/null || tr
 # Runtime readiness still requires app-side image promotion and a real guest
 # handshake; packaging the companion alone does not promote the image.
 sudo tee "$work_dir/rootfs/etc/udev/rules.d/70-koolade-computer-use.rules" >/dev/null <<'UDEV'
-SUBSYSTEM=="virtio-ports", ATTR{name}=="org.koolade.computer-control.v1", OWNER="koolade", GROUP="koolade", MODE="0600"
+SUBSYSTEM=="virtio-ports", ATTR{name}=="org.koolade.computer-control.v1", OWNER="koolade-agent", GROUP="koolade-agent", MODE="0600"
 UDEV
 sudo tee "$work_dir/rootfs/etc/systemd/system/koolade-computer-use-bootstrap.service" >/dev/null <<'UNIT'
 [Unit]
@@ -175,12 +259,14 @@ sudo tee "$work_dir/rootfs/etc/systemd/system/koolade-computer-use-agent.service
 [Unit]
 Description=Kool.ad/e authenticated Computer Use guest companion
 Requires=koolade-computer-use-bootstrap.service
-After=koolade-computer-use-bootstrap.service graphical.target
+Requires=koolade-computer-use-app-helper.service
+After=koolade-computer-use-bootstrap.service koolade-computer-use-app-helper.service graphical.target
 
 [Service]
 Type=simple
-User=koolade
-Group=koolade
+User=koolade-agent
+Group=koolade-agent
+SupplementaryGroups=koolade-display
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=/home/koolade/.Xauthority
 Environment=HOME=/run/koolade-computer-use-agent
@@ -202,6 +288,41 @@ TasksMax=64
 WantedBy=multi-user.target
 UNIT
 chroot_guest systemctl enable koolade-computer-use-bootstrap.service
+sudo tee "$work_dir/rootfs/etc/systemd/system/koolade-computer-use-app-helper.service" >/dev/null <<'UNIT'
+[Unit]
+Description=Kool.ad/e bounded guest application helper
+After=koolade-computer-use-bootstrap.service
+Requires=koolade-computer-use-bootstrap.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/lib/koolade/computer-use-app-helper
+Restart=on-failure
+RestartSec=1
+RuntimeDirectory=koolade-app-helper
+RuntimeDirectoryMode=0750
+RuntimeDirectoryGroup=koolade-agent
+NoNewPrivileges=yes
+ProtectSystem=no
+ProtectHome=no
+PrivateTmp=no
+RestrictAddressFamilies=AF_UNIX
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryMax=128M
+TasksMax=16
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+chroot_guest systemctl enable koolade-computer-use-app-helper.service
 chroot_guest systemctl enable koolade-computer-use-agent.service
 sudo tee "$work_dir/rootfs/etc/fstab" >/dev/null <<'FSTAB'
 LABEL=rootfs / ext4 errors=remount-ro 0 1
@@ -305,16 +426,27 @@ print(json.dumps(without_filenames(json.load(sys.stdin)), sort_keys=True, separa
   > "$output_dir/${base_name}.qemu-info.json"
 sha256sum "$output_dir/${base_name}.qcow2" > "$output_dir/${base_name}.sha256"
 agent_digest="$(sha256sum "$agent_binary" | cut -d ' ' -f 1)"
+helper_digest="$(sha256sum "$app_helper_binary" | cut -d ' ' -f 1)"
 printf '%s  %s\n' "$agent_digest" "${base_name}.agent" \
   > "$output_dir/${base_name}.agent.sha256"
+printf '%s  %s\n' "$helper_digest" "${base_name}.app-helper" \
+  > "$output_dir/${base_name}.app-helper.sha256"
 (cd "$root_dir" && sha256sum \
   containers/computer-use/build-image.sh \
   containers/computer-use/test-overlay-isolation.sh \
   containers/computer-use/make-sbom.py \
   containers/computer-use/debootstrap-wget \
+  src/bin/koolade_computer_use_app_helper.rs \
+  src/computer_use/apps/guest_helper.rs \
+  src/computer_use/guest_protocol/agent/bootstrap.rs \
   .github/workflows/computer-use-images.yml) \
   > "$output_dir/${base_name}.recipe-components.sha256"
 printf '%s  %s\n' "$agent_digest" "companion-binary" \
+  >> "$output_dir/${base_name}.recipe-components.sha256"
+printf '%s  %s\n' "$helper_digest" "app-helper-binary" \
+  >> "$output_dir/${base_name}.recipe-components.sha256"
+app_packages_digest="$(sha256sum "$output_dir/${base_name}.app-packages.tsv" | cut -d ' ' -f 1)"
+printf '%s  %s\n' "$app_packages_digest" "${base_name}.app-packages.tsv" \
   >> "$output_dir/${base_name}.recipe-components.sha256"
 recipe_digest="$(sha256sum "$output_dir/${base_name}.recipe-components.sha256" | cut -d ' ' -f 1)"
 printf 'sha256:%s\n' "$recipe_digest" > "$output_dir/${base_name}.recipe.sha256"

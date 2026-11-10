@@ -10,6 +10,7 @@ use std::{
 use super::super::{ComputerUseActionSummaryV1, ComputerUseControlOwnerV1};
 use super::scheduler::{ComputerUseSchedulerV1, SessionPermit};
 use super::session_journal::ComputerUseSessionJournalV1;
+use crate::computer_use::artifacts::ComputerArtifactBridgeV1;
 use crate::computer_use::{
     ComputerBackend, ComputerMachineHandleV1, ComputerSessionV1,
     guest_image::{
@@ -23,6 +24,7 @@ use crate::computer_use::{
 
 pub struct ComputerUseMcpRuntimeConfigV1 {
     pub backend: Arc<dyn ComputerBackend>,
+    pub target: crate::computer_use::ComputerTargetV1,
     pub controller_key: ed25519_dalek::SigningKey,
     pub controller_key_id: String,
     pub machine_id: String,
@@ -32,10 +34,16 @@ pub struct ComputerUseMcpRuntimeConfigV1 {
     pub generation_floor: GuestImageCatalogGenerationFloorV1,
     pub overlay_root: PathBuf,
     pub qemu_tool: QemuImageToolV1,
+    /// Optional signed application catalog. Missing or invalid data disables
+    /// package operations without taking down ordinary guest sessions.
+    pub application_catalog_bytes: Option<Vec<u8>>,
+    /// App-owned P15 bridge shared with staged task application launch.
+    pub artifact_bridge: ComputerArtifactBridgeV1,
 }
 
 pub(super) struct Runtime {
     pub backend: Arc<dyn ComputerBackend>,
+    pub target: crate::computer_use::ComputerTargetV1,
     pub controller_key: ed25519_dalek::SigningKey,
     pub controller_key_id: String,
     pub machine_id: String,
@@ -48,6 +56,10 @@ pub(super) struct Runtime {
     pub image: CachedGuestImageV1,
     pub scheduler: Arc<ComputerUseSchedulerV1>,
     pub session_journal: ComputerUseSessionJournalV1,
+    pub personal_profiles: Option<crate::computer_use::PersonalVmProfileStoreV1>,
+    pub application_catalog: Option<crate::computer_use::apps::VerifiedGuestApplicationCatalogV1>,
+    pub application_catalog_status: &'static str,
+    pub artifact_bridge: ComputerArtifactBridgeV1,
 }
 
 pub(super) struct ActiveSession {
@@ -67,9 +79,15 @@ pub(super) struct ActiveSession {
     pub require_fresh_agent_observation: bool,
     pub private_input: bool,
     pub active_app: Option<String>,
+    pub personal_profile_id: Option<String>,
     pub action_log: std::collections::VecDeque<ComputerUseActionSummaryV1>,
     pub display_io: Arc<Mutex<()>>,
     pub _scheduler_permit: SessionPermit,
+}
+
+pub(super) struct PendingPersonalVmConsentV1 {
+    pub owner_id: String,
+    pub view: crate::computer_use::mcp::ComputerUsePersonalVmConsentViewV1,
 }
 
 pub(super) struct DisplaySnapshot {
@@ -89,12 +107,21 @@ pub struct ComputerUseMcpControllerV1 {
     pub(super) display_streams: Mutex<BTreeMap<String, Arc<Mutex<DisplaySnapshot>>>>,
     pub(super) view_cache: Mutex<BTreeMap<String, super::super::ComputerUseTaskSessionViewV1>>,
     pub(super) pending_controls: Mutex<BTreeMap<String, Option<String>>>,
+    pub(super) pending_personal_vm_consents: Mutex<BTreeMap<String, PendingPersonalVmConsentV1>>,
     pub(super) recovery_notices: Mutex<BTreeMap<String, String>>,
 }
 
 impl ComputerUseMcpControllerV1 {
     pub fn is_available(&self) -> bool {
         self.runtime.is_some()
+    }
+
+    /// Return the controller's shared P15 bridge to trusted app code. This
+    /// carries no session key or action authority.
+    pub fn artifact_bridge(&self) -> Option<ComputerArtifactBridgeV1> {
+        self.runtime
+            .as_ref()
+            .map(|runtime| runtime.artifact_bridge.clone())
     }
 
     pub fn unavailable(
@@ -109,6 +136,7 @@ impl ComputerUseMcpControllerV1 {
             display_streams: Mutex::new(BTreeMap::new()),
             view_cache: Mutex::new(BTreeMap::new()),
             pending_controls: Mutex::new(BTreeMap::new()),
+            pending_personal_vm_consents: Mutex::new(BTreeMap::new()),
             recovery_notices: Mutex::new(BTreeMap::new()),
         }
     }
@@ -125,6 +153,11 @@ impl ComputerUseMcpControllerV1 {
             |value: &str| uuid::Uuid::parse_str(value).is_ok_and(|id| id.to_string() == value);
         if !is_uuid(&config.machine_id) || !is_uuid(&config.controller_key_id) {
             return Err("trusted_host_identity_unavailable");
+        }
+        if config.target.validate().is_err()
+            || config.target.target_machine_id() != config.machine_id
+        {
+            return Err("trusted_target_identity_unavailable");
         }
         let probe = config
             .backend
@@ -146,6 +179,8 @@ impl ComputerUseMcpControllerV1 {
                 crate::computer_use::guest_image::ComputerGuestArchitectureV1::X86_64,
             )
             .map_err(|_| "trusted_image_unavailable")?;
+        let (application_catalog, application_catalog_status) =
+            verify_application_catalog(config.application_catalog_bytes.as_deref(), &image);
         let scheduler = ComputerUseSchedulerV1::new(
             probe.parallel_slots_per_machine,
             probe.max_vcpus,
@@ -156,6 +191,11 @@ impl ComputerUseMcpControllerV1 {
         let session_journal = ComputerUseSessionJournalV1::open(
             &config.overlay_root.with_file_name("session-journal"),
         )?;
+        let personal_profiles = crate::computer_use::PersonalVmProfileStoreV1::open(
+            config.overlay_root.join("personal"),
+            "/usr/bin/secret-tool",
+        )
+        .ok();
         config
             .backend
             .recover()
@@ -165,6 +205,7 @@ impl ComputerUseMcpControllerV1 {
             registry,
             runtime: Some(Runtime {
                 backend: config.backend,
+                target: config.target,
                 controller_key: config.controller_key,
                 controller_key_id: config.controller_key_id,
                 machine_id: config.machine_id,
@@ -177,12 +218,17 @@ impl ComputerUseMcpControllerV1 {
                 image,
                 scheduler,
                 session_journal,
+                personal_profiles,
+                application_catalog,
+                application_catalog_status,
+                artifact_bridge: config.artifact_bridge,
             }),
             unavailable_reason: None,
             sessions: Mutex::new(BTreeMap::new()),
             display_streams: Mutex::new(BTreeMap::new()),
             view_cache: Mutex::new(BTreeMap::new()),
             pending_controls: Mutex::new(BTreeMap::new()),
+            pending_personal_vm_consents: Mutex::new(BTreeMap::new()),
             recovery_notices: Mutex::new(BTreeMap::new()),
         })
     }
@@ -199,6 +245,41 @@ impl ComputerUseMcpControllerV1 {
             action_outcome: None,
         }
     }
+}
+
+fn verify_application_catalog(
+    bytes: Option<&[u8]>,
+    image: &CachedGuestImageV1,
+) -> (
+    Option<crate::computer_use::apps::VerifiedGuestApplicationCatalogV1>,
+    &'static str,
+) {
+    use crate::computer_use::apps::{
+        GuestAppArchitectureV1, GuestApplicationCatalogTrustV1, GuestApplicationCatalogV1,
+        VerifiedGuestApplicationCatalogV1,
+    };
+
+    let Some(bytes) = bytes else {
+        return (None, "signed_app_catalog_unavailable");
+    };
+    if bytes.is_empty() || bytes.len() > 256 * 1024 {
+        return (None, "signed_app_catalog_invalid");
+    }
+    let Ok(catalog) = serde_json::from_slice::<GuestApplicationCatalogV1>(bytes) else {
+        return (None, "signed_app_catalog_invalid");
+    };
+    let Ok(trust) = GuestApplicationCatalogTrustV1::application_pinned() else {
+        return (None, "signed_app_catalog_trust_unavailable");
+    };
+    let Ok(verified) = VerifiedGuestApplicationCatalogV1::verify(catalog, &trust) else {
+        return (None, "signed_app_catalog_invalid");
+    };
+    if verified.catalog().image_digest != image.entry().image_digest
+        || verified.catalog().architecture != GuestAppArchitectureV1::X86_64
+    {
+        return (None, "signed_app_catalog_image_mismatch");
+    }
+    (Some(verified), "signed_app_catalog_ready")
 }
 
 impl Drop for ComputerUseMcpControllerV1 {

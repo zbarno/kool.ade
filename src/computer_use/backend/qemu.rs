@@ -70,8 +70,10 @@ pub struct LocalKvmComputerBackend {
     controller_key_id: String,
     controller_key: VerifyingKey,
     host_machine_id: String,
+    remote_worker_id: Option<String>,
     limits: Limits,
     live: Mutex<HashMap<String, LiveMachine>>,
+    application_catalog_bytes: Option<Vec<u8>>,
     #[cfg(test)]
     qemu_path_override: Option<PathBuf>,
 }
@@ -106,11 +108,52 @@ impl LocalKvmComputerBackend {
             controller_key_id,
             controller_key,
             host_machine_id,
+            remote_worker_id: None,
             limits,
             live: Mutex::new(HashMap::new()),
+            application_catalog_bytes: None,
             #[cfg(test)]
             qemu_path_override: None,
         })
+    }
+
+    pub fn with_application_catalog_bytes(mut self, bytes: Option<Vec<u8>>) -> Self {
+        self.application_catalog_bytes = bytes;
+        self
+    }
+
+    /// Construct the worker-owned QEMU adapter. Only this explicitly
+    /// configured backend may accept signed sessions targeting its worker ID.
+    #[allow(clippy::too_many_arguments)] // Keep each worker trust and resource boundary explicit.
+    pub fn new_for_remote_worker(
+        runtime_root: PathBuf,
+        overlay_root: PathBuf,
+        delegated_cgroup_root: PathBuf,
+        host_machine_id: String,
+        worker_id: String,
+        controller_key_id: String,
+        controller_key: VerifyingKey,
+        limits: Limits,
+    ) -> Result<Self, Error> {
+        if worker_id.is_empty()
+            || worker_id.len() > 128
+            || !worker_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+        {
+            return Err(Error::UnsupportedTarget);
+        }
+        let mut backend = Self::new(
+            runtime_root,
+            overlay_root,
+            delegated_cgroup_root,
+            host_machine_id,
+            controller_key_id,
+            controller_key,
+            limits,
+        )?;
+        backend.remote_worker_id = Some(worker_id);
+        Ok(backend)
     }
 
     fn qemu_path(&self) -> PathBuf {
@@ -119,6 +162,10 @@ impl LocalKvmComputerBackend {
             return path.clone();
         }
         qemu_program()
+    }
+
+    pub(super) fn personal_overlay_root(&self) -> PathBuf {
+        self.overlay_root.join("personal")
     }
 
     fn validate_session(
@@ -134,7 +181,7 @@ impl LocalKvmComputerBackend {
             || session.lease.lease_id != handle.lease_id
             || session.lease.generation != handle.lease_generation
             || session.lease.owner_id != session.identity.user_id
-            || target_machine_id(session) != handle.machine_id
+            || target_machine_id(session, self.remote_worker_id.as_deref())? != handle.machine_id
             || handle.machine_id != self.host_machine_id
         {
             return Err(Error::StaleLease);
@@ -184,7 +231,7 @@ impl LocalKvmComputerBackend {
         if session.identity.session_id != handle.session_id
             || session.lease.lease_id != handle.lease_id
             || session.lease.generation < handle.lease_generation
-            || target_machine_id(session) != self.host_machine_id
+            || target_machine_id(session, self.remote_worker_id.as_deref())? != self.host_machine_id
             || handle.machine_id != self.host_machine_id
         {
             return Err(Error::StaleLease);

@@ -11,13 +11,14 @@ use super::ComputerUseCallerV1;
 const MAX_PENDING_REQUESTS: usize = 16;
 const CONSENT_TIMEOUT: Duration = Duration::from_secs(60);
 const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(100);
-const GRANTABLE_OPERATIONS: [crate::computer_use::ComputerOperationV1; 8] = [
+const GRANTABLE_OPERATIONS: [crate::computer_use::ComputerOperationV1; 9] = [
     crate::computer_use::ComputerOperationV1::ObserveScreen,
     crate::computer_use::ComputerOperationV1::ObserveWindows,
     crate::computer_use::ComputerOperationV1::ReadAccessibility,
     crate::computer_use::ComputerOperationV1::MouseInput,
     crate::computer_use::ComputerOperationV1::KeyboardInput,
     crate::computer_use::ComputerOperationV1::LaunchAllowedApp,
+    crate::computer_use::ComputerOperationV1::ManageApp,
     crate::computer_use::ComputerOperationV1::WaitFor,
     crate::computer_use::ComputerOperationV1::QueryState,
 ];
@@ -34,6 +35,8 @@ const GRANTABLE_APPS: [&str; 5] = [
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ComputerUseConsentScopeV1 {
     pub machine_id: String,
+    /// Exact, app-selected execution target shown for operator approval.
+    pub target: crate::computer_use::ComputerTargetV1,
     pub approved_destination: Option<String>,
     pub allowed_operations: Vec<crate::computer_use::ComputerOperationV1>,
     pub allowed_apps: Vec<String>,
@@ -45,8 +48,13 @@ pub struct ComputerUseConsentScopeV1 {
 }
 
 impl ComputerUseConsentScopeV1 {
+    #[cfg(any(target_os = "linux", test))]
     pub(crate) fn validate(&self) -> Result<(), &'static str> {
-        valid_scope(self)
+        self.validate_for_role("implementer/v1")
+    }
+
+    pub(crate) fn validate_for_role(&self, role_id: &str) -> Result<(), &'static str> {
+        valid_scope(self, role_id)
             .then_some(())
             .ok_or("Computer Use consent scope is invalid")
     }
@@ -59,6 +67,7 @@ pub struct ComputerUseConsentRequestV1 {
     pub role_id: String,
     pub purpose: String,
     pub machine_id: String,
+    pub target: crate::computer_use::ComputerTargetV1,
     pub approved_destination: Option<String>,
     pub allowed_operations: Vec<crate::computer_use::ComputerOperationV1>,
     pub allowed_apps: Vec<String>,
@@ -208,7 +217,7 @@ impl ComputerUseConsentBrokerV1 {
             || !super::is_supported_computer_use_role_v1(&caller.role_id)
             || purpose.trim().is_empty()
             || purpose.len() > super::MAX_COMPUTER_USE_PURPOSE_BYTES
-            || scope.validate().is_err()
+            || scope.validate_for_role(&caller.role_id).is_err()
         {
             return ComputerUseConsentDecisionV1::Denied;
         }
@@ -221,6 +230,7 @@ impl ComputerUseConsentBrokerV1 {
                 role_id: caller.role_id.clone(),
                 purpose: purpose.trim().to_owned(),
                 machine_id: scope.machine_id,
+                target: scope.target,
                 approved_destination: scope.approved_destination,
                 allowed_operations: scope.allowed_operations,
                 allowed_apps: scope.allowed_apps,
@@ -270,7 +280,7 @@ impl ComputerUseConsentBrokerV1 {
     }
 }
 
-fn valid_scope(scope: &ComputerUseConsentScopeV1) -> bool {
+fn valid_scope(scope: &ComputerUseConsentScopeV1, role_id: &str) -> bool {
     let allowed_operations = scope
         .allowed_operations
         .iter()
@@ -280,20 +290,30 @@ fn valid_scope(scope: &ComputerUseConsentScopeV1) -> bool {
         .allowed_apps
         .iter()
         .collect::<std::collections::BTreeSet<_>>();
-    uuid::Uuid::parse_str(&scope.machine_id)
-        .is_ok_and(|machine| machine.to_string() == scope.machine_id)
+    let (operation_limit, app_limit) = if role_id == super::COMPUTER_USE_RUNTIME_QA_ROLE_V1 {
+        (
+            &super::RUNTIME_QA_COMPUTER_USE_OPERATIONS_V1[..],
+            &[super::COMPUTER_USE_RUNTIME_QA_APP_ID_V1][..],
+        )
+    } else {
+        (&GRANTABLE_OPERATIONS[..], &GRANTABLE_APPS[..])
+    };
+    scope.target.validate().is_ok()
+        && scope.target.target_machine_id() == scope.machine_id
+        && uuid::Uuid::parse_str(&scope.machine_id)
+            .is_ok_and(|machine| machine.to_string() == scope.machine_id)
         && !scope.allowed_operations.is_empty()
         && allowed_operations.len() == scope.allowed_operations.len()
         && scope
             .allowed_operations
             .iter()
-            .all(|operation| GRANTABLE_OPERATIONS.contains(operation))
+            .all(|operation| operation_limit.contains(operation))
         && !scope.allowed_apps.is_empty()
         && allowed_apps.len() == scope.allowed_apps.len()
         && scope
             .allowed_apps
             .iter()
-            .all(|app| GRANTABLE_APPS.contains(&app.as_str()))
+            .all(|app| app_limit.contains(&app.as_str()))
         && scope.network_profile == crate::computer_use::ComputerNetworkProfileV1::Disabled
         && scope.approved_destination.is_none()
         && scope.resource_budget.validate().is_ok()

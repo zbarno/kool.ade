@@ -185,12 +185,15 @@ fn builder_cleanup_uses_privileged_removal_only_for_its_mktemp_directory() {
         "sha256sum",
         "parted",
         "losetup",
+        "dpkg-deb",
     ] {
         write_executable(&fake_bin.join(name), "#!/bin/sh\nexit 0\n");
     }
     write_executable(&fake_bin.join("sudo"), "#!/bin/sh\nexec \"$@\"\n");
     let agent_binary = temp.path().join("agent");
     write_executable(&agent_binary, "#!/bin/sh\nexit 0\n");
+    let app_helper_binary = temp.path().join("app-helper");
+    write_executable(&app_helper_binary, "#!/bin/sh\nexit 0\n");
     write_executable(
         &fake_bin.join("debootstrap"),
         "#!/bin/sh\nfor arg do case \"$arg\" in */rootfs) mkdir -p \"$arg\"; echo root-owned > \"$arg/root-owned-file\";; esac; done\nexit 17\n",
@@ -201,11 +204,18 @@ fn builder_cleanup_uses_privileged_removal_only_for_its_mktemp_directory() {
         .arg(script)
         .arg(temp.path().join("output"))
         .arg(&agent_binary)
+        .arg(&app_helper_binary)
         .env("PATH", format!("{}:{real_path}", fake_bin.display()))
         .env("RUNNER_TEMP", &runner_temp)
         .output()
         .unwrap();
-    assert_eq!(result.status.code(), Some(17));
+    assert_eq!(
+        result.status.code(),
+        Some(17),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
     assert!(String::from_utf8_lossy(&result.stderr).contains("failed after 3 attempts"));
     assert_eq!(fs::read(&sibling).unwrap(), b"keep");
     assert_eq!(fs::read_dir(&runner_temp).unwrap().count(), 1);

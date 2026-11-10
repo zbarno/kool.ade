@@ -134,6 +134,9 @@ impl ComputerUseMcpControllerV1 {
                 ControlCommand::LaunchApprovedApp(app_id) => {
                     controller.launch_approved_app(&task, &user, &session, &app_id)
                 }
+                ControlCommand::ManageApprovedApp { app_id, operation } => {
+                    controller.manage_approved_app(&task, &user, &session, &app_id, operation)
+                }
             };
             let error = result.err().map(str::to_owned);
             if let Ok(mut pending) = controller.pending_controls.lock() {

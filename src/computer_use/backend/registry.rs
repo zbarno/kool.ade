@@ -29,6 +29,8 @@ pub(super) struct MachineOwnerRecordV1 {
     pub image_signer_key_id: String,
     pub catalog_generation: u64,
     pub overlay_path: PathBuf,
+    #[serde(default)]
+    pub persistent_personal: bool,
     pub state: String,
     pub event_sequence: u64,
     #[serde(default)]

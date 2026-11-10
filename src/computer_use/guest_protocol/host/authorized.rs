@@ -91,9 +91,7 @@ impl AuthorizedComputerUseSessionV1 {
             .revoked
             .read()
             .map_err(|_| GuestProtocolErrorV1::StaleLease)?;
-        let machine_id = match &self.session.target {
-            crate::computer_use::ComputerTargetV1::LocalKvm { machine_id } => machine_id.clone(),
-        };
+        let machine_id = self.session.target.worker_id().to_owned();
         Ok(ComputerUsePermissionV1 {
             identity: self.session.identity.clone(),
             actor: self.actor,
@@ -158,12 +156,11 @@ impl AuthorizedComputerUseSessionV1 {
             return Err(GuestProtocolErrorV1::StaleLease);
         }
         self.validate_session_and_actor(now_unix_ms)?;
-        let machine_id = match &self.session.target {
-            crate::computer_use::ComputerTargetV1::LocalKvm { machine_id } => machine_id,
-        };
-        if channel.config.session_id != self.session.identity.session_id
-            || channel.config.worker_id != *machine_id
-            || channel.config.lease_generation != self.session.lease.generation
+        let worker_id = self.session.target.worker_id();
+        if channel.context.session_id != self.session.identity.session_id
+            || channel.context.worker_id != worker_id
+            || channel.context.lease_generation != self.session.lease.generation
+            || channel.remote_transport.is_some() != self.session.target.is_remote_vm_worker()
         {
             return Err(GuestProtocolErrorV1::WrongSession);
         }
@@ -177,6 +174,78 @@ impl AuthorizedComputerUseSessionV1 {
         );
         drop(revoked);
         result
+    }
+
+    /// Execute the Human-only task-build route after the controller has loaded
+    /// every exact P15 receipt under the same task/session/lease/approval.
+    #[allow(clippy::too_many_arguments)] // Each independent authority fence is checked here.
+    pub fn execute_staged_task_application(
+        &self,
+        channel: &mut AuthenticatedGuestChannelV1,
+        journal: &GuestActionJournalV1,
+        artifact_bridge: &crate::computer_use::artifacts::ComputerArtifactBridgeV1,
+        action: &ComputerActionV1,
+        stage_action: &ComputerActionV1,
+        current_task_revision: &str,
+        deadline_unix_ms: u64,
+        now_unix_ms: u64,
+    ) -> Result<GuestActionOutcomeV1, GuestProtocolErrorV1> {
+        let revoked = self
+            .revoked
+            .read()
+            .map_err(|_| GuestProtocolErrorV1::StaleLease)?;
+        if *revoked || self.actor != ComputerActionActorV1::Human {
+            return Err(GuestProtocolErrorV1::StaleLease);
+        }
+        self.validate_session_and_actor(now_unix_ms)?;
+        if channel.remote_transport.is_some() {
+            return Err(GuestProtocolErrorV1::UnsupportedCapability);
+        }
+        let worker_id = self.session.target.guest_worker_id();
+        if channel.context.session_id != self.session.identity.session_id
+            || channel.context.worker_id != worker_id
+            || channel.context.lease_generation != self.session.lease.generation
+        {
+            return Err(GuestProtocolErrorV1::WrongSession);
+        }
+        let crate::computer_use::ComputerActionPayloadV1::LaunchApprovedStagedTaskApp {
+            application,
+        } = &action.payload
+        else {
+            return Err(GuestProtocolErrorV1::Malformed);
+        };
+        if !action.verify_guest_helper_authorization(
+            &self.controller_key_id,
+            crate::computer_use::ComputerActionHelperPhaseV1::Launch,
+            &self.controller_key,
+        ) || !stage_action.verify_guest_helper_authorization(
+            &self.controller_key_id,
+            crate::computer_use::ComputerActionHelperPhaseV1::Stage,
+            &self.controller_key,
+        ) || !action.same_helper_action(stage_action)
+        {
+            return Err(GuestProtocolErrorV1::StaleLease);
+        }
+        let contents = artifact_bridge
+            .load_staged_task_application_for_guest(
+                application,
+                &self.session.identity,
+                current_task_revision,
+                self.session.lease.generation,
+                self.session.approval_generation,
+                now_unix_ms,
+            )
+            .map_err(|_| GuestProtocolErrorV1::StaleLease)?;
+        channel.execute_staged_task_application(
+            &self.session,
+            self.actor,
+            action,
+            stage_action,
+            &contents,
+            deadline_unix_ms,
+            now_unix_ms,
+            journal,
+        )
     }
 
     fn validate_session_and_actor(&self, now_unix_ms: u64) -> Result<(), GuestProtocolErrorV1> {

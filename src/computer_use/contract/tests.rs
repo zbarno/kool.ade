@@ -39,7 +39,7 @@ fn internet_research_network_requires_its_exact_disposable_capability() {
     policy.session_class = ComputerSessionClassV1::PersonalPersistent;
     assert_eq!(
         policy.validate(),
-        Err("persistent sessions are unsupported until encrypted storage grants exist")
+        Err("internet research requires a disposable research capability")
     );
 
     policy = test_policy();
@@ -87,13 +87,25 @@ fn high_impact_authority_stays_unavailable_until_exact_transaction_grants_exist(
 }
 
 #[test]
-fn persistent_session_class_fails_closed_without_encrypted_storage_grants() {
+fn personal_policy_requires_persistent_capability_and_disabled_networking() {
     let mut policy = test_policy();
     policy.session_class = ComputerSessionClassV1::PersonalPersistent;
     assert_eq!(
         policy.validate(),
-        Err("persistent sessions are unsupported until encrypted storage grants exist")
+        Err("personal sessions require the persistent capability and disabled networking")
     );
+    policy.allowed_apps = BTreeSet::from(["text-editor".into()]);
+    policy.capability = ComputerCapabilityV1::PersistentPersonal;
+    assert!(policy.validate().is_ok());
+
+    policy.network_profile = ComputerNetworkProfileV1::PersonalInternet;
+    assert_eq!(
+        policy.validate(),
+        Err("personal internet networking is not implemented")
+    );
+    policy.network_profile = ComputerNetworkProfileV1::Disabled;
+    policy.allowed_apps.insert("arbitrary-app".into());
+    assert!(policy.validate().is_err());
 }
 
 #[test]

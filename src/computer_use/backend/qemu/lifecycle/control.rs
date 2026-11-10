@@ -91,7 +91,7 @@ impl LocalKvmComputerBackend {
         self.validate_signed_session_allow_expired(session, now_unix_ms)?;
         if session.identity.session_id != handle.session_id
             || session.lease.lease_id != handle.lease_id
-            || target_machine_id(session) != self.host_machine_id
+            || target_machine_id(session, self.remote_worker_id.as_deref())? != self.host_machine_id
         {
             return Err(Error::StaleLease);
         }

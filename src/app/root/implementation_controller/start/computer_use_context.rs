@@ -1,8 +1,5 @@
 use super::super::*;
 #[cfg(target_os = "linux")]
-use zeroize::Zeroize;
-
-#[cfg(target_os = "linux")]
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EmbeddedGuestImageLockV1 {
@@ -178,8 +175,11 @@ impl KooladeApp {
 fn current_host_controller(
     registry: std::sync::Arc<crate::computer_use::guest_protocol::ComputerUseAuthorityRegistryV1>,
 ) -> crate::computer_use::mcp::ComputerUseMcpControllerV1 {
+    use crate::artifacts::planning_store::{PlanningStore, StoreMode};
     use crate::computer_use::{
-        ComputerResourceLimitsV1, LocalKvmComputerBackend,
+        ComputerRemoteWorkerTrustV1, ComputerResourceLimitsV1, ComputerTargetV1,
+        LocalKvmComputerBackend,
+        artifacts::ComputerArtifactBridgeV1,
         guest_image::{
             ComputerGuestArchitectureV1, GuestImageCacheV1, GuestImageCatalogGenerationFloorV1,
             application_guest_image_manifest_trust_v1, probe_host_qemu_image_tool,
@@ -190,8 +190,22 @@ fn current_host_controller(
     let result = (|| {
         let storage = crate::persistence::setup_tasks::computer_use_storage_dir()
             .map_err(|_| "trusted_runtime_unavailable")?;
-        let machine_id = current_host_machine_id()?;
-        let cgroup_root = current_cgroup_v2_path()?;
+        let transfer_store = PlanningStore::new(
+            uuid::Uuid::new_v5(
+                &uuid::Uuid::NAMESPACE_OID,
+                b"koolade-computer-use-private-transfers-v1",
+            ),
+            storage.join("transfers-v1"),
+            StoreMode::ManagedLocal,
+        );
+        let artifact_bridge = ComputerArtifactBridgeV1::new(transfer_store);
+        let selected_worker = crate::persistence::computer_use_remote_workers::selected()
+            .map_err(|_| "remote_worker_enrollment_unavailable")?;
+        let local_machine_id = if selected_worker.is_none() {
+            Some(current_host_machine_id()?)
+        } else {
+            None
+        };
         let cache = GuestImageCacheV1::open_existing(storage.join("images"))
             .map_err(|_| "trusted_image_unavailable")?;
         let generation_floor =
@@ -202,6 +216,7 @@ fn current_host_controller(
         let qemu_tool = probe_host_qemu_image_tool().map_err(|_| "trusted_runtime_unavailable")?;
         let manifest_bytes =
             include_bytes!("../../../../../containers/computer-use/catalog-v1.json").to_vec();
+        let application_catalog_bytes = load_application_catalog(&storage);
         let lock_bytes = include_bytes!("../../../../../containers/computer-use/images.lock.json");
         let lock: EmbeddedGuestImageLockV1 =
             serde_json::from_slice(lock_bytes).map_err(|_| "trusted_image_unavailable")?;
@@ -224,14 +239,44 @@ fn current_host_controller(
         {
             return Err("trusted_image_unavailable");
         }
-        let mut key_seed = [0u8; 32];
-        key_seed[..16].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
-        key_seed[16..].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
-        let controller_key = ed25519_dalek::SigningKey::from_bytes(&key_seed);
-        key_seed.zeroize();
-        let controller_key_id = uuid::Uuid::new_v4().to_string();
-        let backend = std::sync::Arc::new(
-            LocalKvmComputerBackend::new(
+        let (controller_key_id, controller_key) =
+            crate::persistence::computer_use_controller_key::load_or_create_computer_use_controller_key_v1()
+                .map_err(|_| "trusted_controller_key_unavailable")?;
+        let (backend, target, machine_id): (
+            std::sync::Arc<dyn crate::computer_use::ComputerBackend>,
+            ComputerTargetV1,
+            String,
+        ) = if let Some(enrollment) = selected_worker {
+            enrollment
+                .validate()
+                .map_err(|_| "remote_worker_enrollment_unavailable")?;
+            let target = ComputerTargetV1::RemoteVmWorker {
+                worker_id: enrollment.worker_id.clone(),
+                machine_id: enrollment.machine_id.clone(),
+                trust: ComputerRemoteWorkerTrustV1 {
+                    ssh_host_key_fingerprint: enrollment.ssh_host_key_fingerprint.clone(),
+                    worker_attestation_key_id: enrollment.worker_attestation_key_id.clone(),
+                    worker_attestation_verifying_key_hex: enrollment
+                        .worker_attestation_verifying_key_hex
+                        .clone(),
+                    transport_protocol_version: enrollment.transport_protocol_version,
+                    guest_protocol_version: enrollment.guest_protocol_version,
+                },
+            };
+            let backend = crate::computer_use::remote_worker::RemoteComputerBackendV1::new(
+                enrollment.clone(),
+                std::path::PathBuf::new(),
+                std::path::PathBuf::new(),
+                controller_key_id.clone(),
+                controller_key.verifying_key(),
+                storage.join("remote-worker-controller"),
+            )
+            .map_err(|_| "remote_worker_enrollment_unavailable")?;
+            (std::sync::Arc::new(backend), target, enrollment.machine_id)
+        } else {
+            let machine_id = local_machine_id.expect("local machine identity was loaded");
+            let cgroup_root = current_cgroup_v2_path()?;
+            let backend = LocalKvmComputerBackend::new(
                 storage.join("runtime"),
                 storage.join("overlays"),
                 cgroup_root,
@@ -240,10 +285,19 @@ fn current_host_controller(
                 controller_key.verifying_key(),
                 ComputerResourceLimitsV1::default(),
             )
-            .map_err(|_| "trusted_runtime_unavailable")?,
-        );
+            .map_err(|_| "trusted_runtime_unavailable")?
+            .with_application_catalog_bytes(application_catalog_bytes.clone());
+            (
+                std::sync::Arc::new(backend),
+                ComputerTargetV1::LocalKvm {
+                    machine_id: machine_id.clone(),
+                },
+                machine_id,
+            )
+        };
         Ok::<_, &'static str>(ComputerUseMcpRuntimeConfigV1 {
             backend,
+            target,
             controller_key,
             controller_key_id,
             machine_id,
@@ -253,6 +307,8 @@ fn current_host_controller(
             generation_floor,
             overlay_root: storage.join("overlays"),
             qemu_tool,
+            application_catalog_bytes,
+            artifact_bridge,
         })
     })();
     match result {
@@ -260,4 +316,30 @@ fn current_host_controller(
             .unwrap_or_else(|reason| ComputerUseMcpControllerV1::unavailable(registry, reason)),
         Err(reason) => ComputerUseMcpControllerV1::unavailable(registry, reason),
     }
+}
+
+#[cfg(target_os = "linux")]
+fn load_application_catalog(storage: &std::path::Path) -> Option<Vec<u8>> {
+    use std::io::Read;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    const MAX_CATALOG_BYTES: u64 = 256 * 1024;
+    let path = storage.join("guest-app-catalog-v1.json");
+    let metadata = std::fs::symlink_metadata(&path).ok()?;
+    if !metadata.file_type().is_file()
+        || metadata.size() == 0
+        || metadata.size() > MAX_CATALOG_BYTES
+    {
+        return None;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    let file = options.open(path).ok()?;
+    let mut bytes = Vec::with_capacity(metadata.size() as usize);
+    file.take(MAX_CATALOG_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() as u64 <= MAX_CATALOG_BYTES).then_some(bytes)
 }

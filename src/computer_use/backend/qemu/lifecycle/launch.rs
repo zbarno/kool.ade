@@ -23,9 +23,18 @@ impl LocalKvmComputerBackend {
         overlay
             .verify_before_boot()
             .map_err(|_| Error::InvalidOverlay)?;
+        let secret_file = overlay
+            .persistent_key_fd()
+            .map_err(|_| Error::InvalidOverlay)?;
+        let secret_fd = secret_file.as_ref().map(std::os::fd::AsRawFd::as_raw_fd);
         let control_socket = machine.directory.join("guest-control.sock");
         let display_socket = machine.directory.join("display.sock");
         let boot_config = machine.directory.join("guest-boot-config.json");
+        let app_helper_config = machine.directory.join("guest-app-helper-config.json");
+        let application_catalog = self
+            .application_catalog_bytes
+            .as_ref()
+            .map(|_| machine.directory.join("guest-app-catalog.json"));
         if control_socket.exists() || display_socket.exists() {
             return Err(Error::OwnershipMismatch);
         }
@@ -49,13 +58,28 @@ impl LocalKvmComputerBackend {
         let research_proxy = network_gateway
             .as_ref()
             .map(crate::computer_use::network::InternetResearchGatewayV1::address);
+        boot_config::write_app_helper_config(
+            session,
+            &self.controller_key_id,
+            &self.controller_key,
+            &app_helper_config,
+        )?;
+        if let (Some(bytes), Some(path)) = (
+            self.application_catalog_bytes.as_deref(),
+            application_catalog.as_deref(),
+        ) {
+            boot_config::write_application_catalog(bytes, path)?;
+        }
         let args = commands::command_args(
             session,
             overlay.path(),
             &control_socket,
             &display_socket,
             &boot_config,
+            &app_helper_config,
+            application_catalog.as_deref(),
             research_proxy,
+            secret_fd,
         )
         .map_err(|_| Error::ResourceLimit)?;
         let qemu_path = self.qemu_path();
@@ -67,6 +91,7 @@ impl LocalKvmComputerBackend {
             &mut command,
             session.policy.resource_budget.disk_bytes,
             &cgroup.process_path(&handle.session_id),
+            secret_fd,
         )?;
         let mut child = match command.spawn() {
             Ok(child) => child,

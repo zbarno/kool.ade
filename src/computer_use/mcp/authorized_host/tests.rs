@@ -14,6 +14,9 @@ impl ComputerUseMcpOperationsV1 for Operations {
     ) -> Result<super::super::ComputerUseConsentScopeV1, Box<Response>> {
         Ok(super::super::ComputerUseConsentScopeV1 {
             machine_id: "00000000-0000-4000-8000-000000000011".into(),
+            target: crate::computer_use::ComputerTargetV1::LocalKvm {
+                machine_id: "00000000-0000-4000-8000-000000000011".into(),
+            },
             approved_destination: None,
             allowed_operations: vec![crate::computer_use::ComputerOperationV1::ObserveScreen],
             allowed_apps: vec!["chromium".into(), "test-gui-fixture".into()],
@@ -62,6 +65,9 @@ impl ComputerUseMcpOperationsV1 for RegisterThenFinish {
     ) -> Result<super::super::ComputerUseConsentScopeV1, Box<Response>> {
         Ok(super::super::ComputerUseConsentScopeV1 {
             machine_id: "00000000-0000-4000-8000-000000000011".into(),
+            target: crate::computer_use::ComputerTargetV1::LocalKvm {
+                machine_id: "00000000-0000-4000-8000-000000000011".into(),
+            },
             approved_destination: None,
             allowed_operations: vec![crate::computer_use::ComputerOperationV1::ObserveScreen],
             allowed_apps: vec!["chromium".into()],
@@ -135,6 +141,9 @@ fn approved_grant(
             role_id: caller.role_id.clone(),
             purpose: "inspect a synthetic application".into(),
             machine_id: "00000000-0000-4000-8000-000000000011".into(),
+            target: crate::computer_use::ComputerTargetV1::LocalKvm {
+                machine_id: "00000000-0000-4000-8000-000000000011".into(),
+            },
             approved_destination: None,
             allowed_operations: vec![crate::computer_use::ComputerOperationV1::ObserveScreen],
             allowed_apps: vec!["chromium".into()],

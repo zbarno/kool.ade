@@ -1,6 +1,9 @@
 use super::*;
 
+mod personal_profiles;
+
 pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn Surface, task_id: &str) {
+    personal_profiles::paint(ui, surface);
     let sessions = surface.computer_use_task_sessions(task_id);
     egui::CollapsingHeader::new("Computer")
         .id_salt(("task_computer", task_id))
@@ -225,6 +228,79 @@ fn paint_session(
                 }
             });
         }
+        ui.separator();
+        ui.heading("Additional applications");
+        if session.guest_apps.is_empty() {
+            ui.label("No verified guest application catalog is available for this image.");
+            ui.small("Package changes stay disabled until a signed catalog and guest helper are promoted.");
+        } else {
+            for app in &session.guest_apps {
+                ui.group(|ui| {
+                    ui.label(egui::RichText::new(&app.display_name).strong());
+                    ui.label(format!(
+                        "{} · {} · {} {} · {:?}",
+                        app.publisher, app.source_id, app.package_id, app.version, app.provenance
+                    ));
+                    ui.small(format!("Package digest: {}", app.package_sha256));
+                    ui.small(format!(
+                        "Required guest capabilities: {}",
+                        app.required_capabilities
+                            .iter()
+                            .map(|capability| format!("{capability:?}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                    ui.label(if app.installed {
+                        "Installed in this disposable guest overlay."
+                    } else {
+                        "Not installed in this guest."
+                    });
+                    if !app.session_allowed {
+                        ui.small("This app is outside the current session grant.");
+                    } else if !session.app_management_available {
+                        ui.add_enabled(
+                            false,
+                            egui::Button::new(if app.installed {
+                                "Update / remove unavailable"
+                            } else {
+                                "Install unavailable"
+                            }),
+                        );
+                    } else if app.installed {
+                        ui.horizontal(|ui| {
+                            app_operation_button(
+                                ui,
+                                surface,
+                                task_id,
+                                session,
+                                app,
+                                crate::computer_use::apps::GuestAppOperationKindV1::Update,
+                                "Update",
+                            );
+                            app_operation_button(
+                                ui,
+                                surface,
+                                task_id,
+                                session,
+                                app,
+                                crate::computer_use::apps::GuestAppOperationKindV1::Remove,
+                                "Remove",
+                            );
+                        });
+                    } else {
+                        app_operation_button(
+                            ui,
+                            surface,
+                            task_id,
+                            session,
+                            app,
+                            crate::computer_use::apps::GuestAppOperationKindV1::Install,
+                            "Install this exact package",
+                        );
+                    }
+                });
+            }
+        }
     }
 
     if session.private_input {
@@ -260,6 +336,33 @@ fn paint_session(
             ui.label(format!("{actor} · {}", entry.label));
         }
     });
+}
+
+fn app_operation_button(
+    ui: &mut egui::Ui,
+    surface: &mut dyn Surface,
+    task_id: &str,
+    session: &crate::computer_use::mcp::ComputerUseTaskSessionViewV1,
+    app: &crate::computer_use::mcp::ComputerUseGuestAppViewV1,
+    operation: crate::computer_use::apps::GuestAppOperationKindV1,
+    label: &str,
+) {
+    let response = ui.button(label);
+    if response.clicked() {
+        send(
+            surface,
+            task_id,
+            session,
+            crate::ui::ComputerUseTaskActionV1::ManageApprovedApp {
+                app_id: app.app_id.clone(),
+                operation,
+            },
+        );
+    }
+    response.on_hover_text(format!(
+        "Approved package {} {} · SHA-256 {} · manifest SHA-256 {}",
+        app.package_id, app.version, app.package_sha256, app.manifest_sha256
+    ));
 }
 
 mod input;

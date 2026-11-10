@@ -25,7 +25,22 @@ pub const COMPUTER_USE_MCP_VERSION_V1: u16 = 1;
 pub const MAX_COMPUTER_USE_PURPOSE_BYTES: usize = 512;
 pub const MAX_COMPUTER_USE_SUMMARY_BYTES: usize = 512;
 pub const MAX_COMPUTER_USE_ACTION_TIMEOUT_MS: u32 = 60_000;
-pub const SUPPORTED_COMPUTER_USE_ROLES_V1: [&str; 2] = ["implementer/v1", "repair/v1"];
+pub const COMPUTER_USE_RUNTIME_QA_ROLE_V1: &str = "runtime_qa/v3";
+pub const COMPUTER_USE_RUNTIME_QA_APP_ID_V1: &str = "qa-task-app";
+pub const SUPPORTED_COMPUTER_USE_ROLES_V1: [&str; 3] = [
+    "implementer/v1",
+    "repair/v1",
+    COMPUTER_USE_RUNTIME_QA_ROLE_V1,
+];
+pub const RUNTIME_QA_COMPUTER_USE_OPERATIONS_V1: [crate::computer_use::ComputerOperationV1; 7] = [
+    crate::computer_use::ComputerOperationV1::ObserveScreen,
+    crate::computer_use::ComputerOperationV1::ObserveWindows,
+    crate::computer_use::ComputerOperationV1::MouseInput,
+    crate::computer_use::ComputerOperationV1::KeyboardInput,
+    crate::computer_use::ComputerOperationV1::LaunchApprovedStagedTaskApp,
+    crate::computer_use::ComputerOperationV1::WaitFor,
+    crate::computer_use::ComputerOperationV1::QueryState,
+];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ComputerUseControlOwnerV1 {
@@ -52,6 +67,10 @@ pub enum ComputerUseControlCommandV1 {
     StopComputer,
     InspectUncertainOutcome,
     LaunchApprovedApp(String),
+    ManageApprovedApp {
+        app_id: String,
+        operation: crate::computer_use::apps::GuestAppOperationKindV1,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -69,6 +88,9 @@ pub struct ComputerUseTaskSessionViewV1 {
     pub agent_role: String,
     pub session_class: super::ComputerSessionClassV1,
     pub allowed_apps: Vec<String>,
+    pub guest_apps: Vec<ComputerUseGuestAppViewV1>,
+    pub guest_app_catalog_status: String,
+    pub app_management_available: bool,
     pub resource_budget: super::ComputerResourceBudgetV1,
     pub actions_remaining: u32,
     pub lifecycle: super::ComputerLifecycleV1,
@@ -89,6 +111,55 @@ pub struct ComputerUseTaskSessionViewV1 {
     pub control_error: Option<String>,
     pub control_notice: Option<String>,
     pub action_log: Vec<ComputerUseActionSummaryV1>,
+}
+
+/// Display-only local inventory entry for an encrypted personal VM profile.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComputerUsePersonalProfileViewV1 {
+    pub profile_id: String,
+    pub created_at_unix_ms: u64,
+    pub retention_until_unix_ms: u64,
+    pub active_session_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ComputerUsePersonalVmChoiceV1 {
+    Create { retention_days: u16 },
+    Unlock { profile_id: String },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComputerUsePersonalVmSessionTargetV1 {
+    pub identity: super::ComputerIdentityV1,
+    pub profile_id: String,
+    pub session_class: super::ComputerSessionClassV1,
+    pub network_profile: super::ComputerNetworkProfileV1,
+    pub initial_control_owner: ComputerUseControlOwnerV1,
+    pub private_input_required: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComputerUsePersonalVmConsentViewV1 {
+    pub request_id: String,
+    pub choice: ComputerUsePersonalVmChoiceV1,
+    pub target: ComputerUsePersonalVmSessionTargetV1,
+    pub expires_at_unix_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ComputerUseGuestAppViewV1 {
+    pub app_id: String,
+    pub display_name: String,
+    pub publisher: String,
+    pub source_id: String,
+    pub provenance: crate::computer_use::apps::GuestAppProvenanceV1,
+    pub version: String,
+    pub package_id: String,
+    pub package_sha256: String,
+    pub manifest_sha256: String,
+    pub required_capabilities: Vec<crate::computer_use::apps::GuestAppCapabilityV1>,
+    pub installed: bool,
+    pub session_allowed: bool,
 }
 
 pub fn is_supported_computer_use_role_v1(role_id: &str) -> bool {
@@ -135,6 +206,10 @@ pub enum ComputerUseMcpRequestV1 {
         session_id: String,
         payload: ComputerActionPayloadV1,
         timeout_ms: u32,
+        /// Controller-generated operation identity. It is honored only for a
+        /// human-only ManageApp action; it never conveys authority.
+        #[serde(default)]
+        idempotency_key: Option<String>,
     },
     Pause {
         session_id: String,
@@ -250,9 +325,27 @@ pub fn validate_request(request: &ComputerUseMcpRequestV1) -> Result<(), &'stati
         {
             Err("Computer Use action timeout is outside the supported bound")
         }
+        ComputerUseMcpRequestV1::Action {
+            payload,
+            idempotency_key: Some(key),
+            ..
+        } if !matches!(payload, ComputerActionPayloadV1::ManageApp { .. })
+            || !canonical_uuid(key) =>
+        {
+            Err("Computer Use operation identity is invalid")
+        }
+        ComputerUseMcpRequestV1::Action {
+            payload: ComputerActionPayloadV1::ManageApp { .. },
+            idempotency_key: None,
+            ..
+        } => Err("managed app actions require a controller operation identity"),
         _ => Ok(()),
     }
 }
+
+#[cfg(test)]
+#[path = "mcp/tests.rs"]
+mod tests;
 
 fn canonical_uuid(value: &str) -> bool {
     uuid::Uuid::parse_str(value).is_ok_and(|parsed| parsed.hyphenated().to_string() == value)

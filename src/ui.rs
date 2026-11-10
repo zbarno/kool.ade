@@ -258,4 +258,8 @@ pub enum ComputerUseTaskActionV1 {
     SetPrivateInput(bool),
     DisplayInput(crate::computer_use::ComputerDisplayInputV1),
     LaunchApprovedApp(String),
+    ManageApprovedApp {
+        app_id: String,
+        operation: crate::computer_use::apps::GuestAppOperationKindV1,
+    },
 }

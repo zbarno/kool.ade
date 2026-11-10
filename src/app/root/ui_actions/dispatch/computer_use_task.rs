@@ -60,6 +60,15 @@ pub(super) fn dispatch(app: &mut KooladeApp, task_id: &str, session_id: &str, ac
                 session_id,
                 crate::computer_use::mcp::ComputerUseControlCommandV1::LaunchApprovedApp(app_id),
             ),
+            Action::ManageApprovedApp { app_id, operation } => controller.queue_control_change(
+                task_id,
+                &user_id,
+                session_id,
+                crate::computer_use::mcp::ComputerUseControlCommandV1::ManageApprovedApp {
+                    app_id,
+                    operation,
+                },
+            ),
         };
         if let Err(error) = result {
             app.toasts

@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc};
+use std::{path::Path, sync::Arc, time::Duration};
 
 use crate::execution::{
     backend::ExecutionBackend,
@@ -166,7 +166,13 @@ pub(crate) fn connect_local_with_image_selection(
         .enable_all()
         .build()
         .map_err(|_| prerequisite_message())?;
-    let probe = runtime.block_on(backend.probe(&ExecutionTarget::local()))?;
+    // This is a read-only preflight: no execution session or command exists
+    // yet. A rootless Engine can accept its first ping before its API stack is
+    // ready, so retry only the typed health-disconnect failure here. Never
+    // replay a command after `start` has been attempted.
+    let probe = retry_local_engine_health_probe(|| {
+        runtime.block_on(backend.probe(&ExecutionTarget::local()))
+    })?;
     if !probe.available || !probe.compatible {
         return Err(ExecutionError::new(
             ExecutionErrorKind::EnvironmentUnavailable,
@@ -321,6 +327,26 @@ fn connect_with_resolver(
     .map_err(|_| prerequisite_message())
 }
 
+fn retry_local_engine_health_probe<T>(
+    mut probe: impl FnMut() -> Result<T, ExecutionError>,
+) -> Result<T, ExecutionError> {
+    const MAX_ATTEMPTS: usize = 3;
+    const RETRY_DELAY: Duration = Duration::from_millis(250);
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        match probe() {
+            Err(error)
+                if error.is_retryable_local_docker_health_disconnect()
+                    && attempt < MAX_ATTEMPTS =>
+            {
+                std::thread::sleep(RETRY_DELAY);
+            }
+            result => return result,
+        }
+    }
+    unreachable!("local engine health probe loop always returns")
+}
+
 fn prerequisite(
     failure: crate::execution::docker::discovery::PrerequisiteFailure,
 ) -> ExecutionError {
@@ -337,4 +363,75 @@ fn prerequisite_message() -> ExecutionError {
         "Local Docker execution prerequisites are unavailable",
         true,
     )
+}
+
+#[cfg(test)]
+mod health_probe_retry_tests {
+    use super::*;
+    use crate::execution::errors::{ExecutionErrorKind, LOCAL_DOCKER_HEALTH_DISCONNECTED};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn retries_transient_docker_health_failure_before_session_creation() {
+        let calls = AtomicUsize::new(0);
+        let result = retry_local_engine_health_probe(|| {
+            if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                Err(ExecutionError::new(
+                    ExecutionErrorKind::EnvironmentUnavailable,
+                    LOCAL_DOCKER_HEALTH_DISCONNECTED,
+                    true,
+                ))
+            } else {
+                Ok("ready")
+            }
+        });
+
+        assert_eq!(result.unwrap(), "ready");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn does_not_retry_non_health_failures_or_non_retryable_health_failures() {
+        for error in [
+            ExecutionError::new(
+                ExecutionErrorKind::EnvironmentUnavailable,
+                "Docker Engine is unavailable",
+                true,
+            ),
+            ExecutionError::new(
+                ExecutionErrorKind::EnvironmentUnavailable,
+                LOCAL_DOCKER_HEALTH_DISCONNECTED,
+                false,
+            ),
+        ] {
+            let calls = AtomicUsize::new(0);
+            let result = retry_local_engine_health_probe(|| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Err::<(), _>(error.clone())
+            });
+
+            let returned = result.unwrap_err();
+            assert_eq!(returned.kind, error.kind);
+            assert_eq!(returned.message, error.message);
+            assert_eq!(returned.retryable, error.retryable);
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+        }
+    }
+
+    #[test]
+    fn stops_after_three_consecutive_health_probe_failures() {
+        let calls = AtomicUsize::new(0);
+        let result = retry_local_engine_health_probe(|| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err::<(), _>(ExecutionError::new(
+                ExecutionErrorKind::EnvironmentUnavailable,
+                LOCAL_DOCKER_HEALTH_DISCONNECTED,
+                true,
+            ))
+        });
+
+        let error = result.unwrap_err();
+        assert!(error.is_retryable_local_docker_health_disconnect());
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+    }
 }

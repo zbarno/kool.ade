@@ -43,6 +43,11 @@ pub struct GuestImageOverlayV1 {
     pub(super) signer_key_id: String,
     pub(super) catalog_generation: u64,
     pub(super) virtual_size_bytes: u64,
+    #[cfg(target_os = "linux")]
+    pub(crate) persistent_disk_key:
+        Option<crate::computer_use::personal_storage::PersonalVmDiskKeyV1>,
+    #[cfg(target_os = "linux")]
+    pub(crate) _profile_lock: Option<std::fs::File>,
 }
 
 /// Current trust and launch inputs that must be revalidated at the overlay boundary.
@@ -59,6 +64,43 @@ pub struct GuestImageOverlayRequestV1<'a> {
 }
 
 impl GuestImageOverlayV1 {
+    #[cfg(target_os = "linux")]
+    pub(crate) fn from_personal_profile(
+        session_id: String,
+        profile: &crate::computer_use::PersonalVmProfileV1,
+        image: &super::super::CachedGuestImageV1,
+        overlay_root: &Path,
+        key: crate::computer_use::personal_storage::PersonalVmDiskKeyV1,
+        profile_lock: std::fs::File,
+    ) -> Result<Self, GuestImageOverlayErrorV1> {
+        if !super::is_canonical_uuid(&session_id) {
+            return Err(GuestImageOverlayErrorV1::InvalidSessionId);
+        }
+        if profile.image_digest != image.entry().image_digest
+            || profile.image_manifest_digest != image.manifest_digest()
+            || profile.image_signer_key_id != image.manifest_signer_key_id()
+            || profile.catalog_generation != image.catalog_generation()
+            || profile.virtual_size_bytes != image.entry().image_size_bytes
+        {
+            return Err(GuestImageOverlayErrorV1::BaseImageChanged);
+        }
+        super::validate_private_directory(overlay_root)?;
+        Ok(Self {
+            session_id,
+            path: overlay_root.join(&profile.disk_file_name),
+            directory: overlay_root.to_path_buf(),
+            base_image_path: image.path().to_path_buf(),
+            base_artifact_size_bytes: image.entry().artifact_size_bytes,
+            image_digest: image.entry().image_digest.clone(),
+            manifest_digest: image.manifest_digest().to_owned(),
+            signer_key_id: image.manifest_signer_key_id().to_owned(),
+            catalog_generation: image.catalog_generation(),
+            virtual_size_bytes: profile.virtual_size_bytes,
+            persistent_disk_key: Some(key),
+            _profile_lock: Some(profile_lock),
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn for_cleanup_test(path: PathBuf, directory: PathBuf) -> Self {
         Self {
@@ -72,7 +114,24 @@ impl GuestImageOverlayV1 {
             signer_key_id: String::new(),
             catalog_generation: 0,
             virtual_size_bytes: 0,
+            #[cfg(target_os = "linux")]
+            persistent_disk_key: None,
+            #[cfg(target_os = "linux")]
+            _profile_lock: None,
         }
+    }
+
+    #[cfg(all(test, target_os = "linux"))]
+    pub(crate) fn for_persistent_cleanup_test(
+        path: PathBuf,
+        directory: PathBuf,
+        key: crate::computer_use::personal_storage::PersonalVmDiskKeyV1,
+        profile_lock: std::fs::File,
+    ) -> Self {
+        let mut overlay = Self::for_cleanup_test(path, directory);
+        overlay.persistent_disk_key = Some(key);
+        overlay._profile_lock = Some(profile_lock);
+        overlay
     }
 
     pub fn session_id(&self) -> &str {
@@ -107,6 +166,22 @@ impl GuestImageOverlayV1 {
         self.virtual_size_bytes
     }
 
+    #[cfg(target_os = "linux")]
+    pub(crate) fn is_persistent_personal(&self) -> bool {
+        self.persistent_disk_key.is_some() && self._profile_lock.is_some()
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) fn persistent_key_fd(
+        &self,
+    ) -> Result<Option<std::fs::File>, super::super::GuestImageOverlayErrorV1> {
+        self.persistent_disk_key
+            .as_ref()
+            .map(crate::computer_use::personal_storage::PersonalVmDiskKeyV1::as_qemu_secret_fd)
+            .transpose()
+            .map_err(|_| super::super::GuestImageOverlayErrorV1::Io)
+    }
+
     /// Rechecks both the immutable base digest and qcow2 backing chain at boot.
     pub fn verify_before_boot(&self) -> Result<(), GuestImageOverlayErrorV1> {
         super::verify_overlay_before_boot(self)
@@ -114,6 +189,10 @@ impl GuestImageOverlayV1 {
 
     /// The VM backend must stop the VM before releasing its disposable overlay.
     pub fn release_after_vm_stopped(&self) -> Result<(), GuestImageOverlayErrorV1> {
+        #[cfg(target_os = "linux")]
+        if self.persistent_disk_key.is_some() {
+            return Ok(());
+        }
         super::validate_private_directory(&self.directory)?;
         let metadata = match std::fs::symlink_metadata(&self.path) {
             Ok(metadata) => metadata,

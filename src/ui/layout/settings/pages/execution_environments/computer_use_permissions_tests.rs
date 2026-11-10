@@ -151,6 +151,9 @@ fn pending_consent_shows_identity_and_purpose_without_deciding_automatically() {
         role_id: "implementer/v1".into(),
         purpose: "inspect the synthetic test application".into(),
         machine_id: "machine-104".into(),
+        target: crate::computer_use::ComputerTargetV1::LocalKvm {
+            machine_id: "machine-104".into(),
+        },
         approved_destination: None,
         allowed_operations: vec![crate::computer_use::ComputerOperationV1::ObserveScreen],
         allowed_apps: vec!["test-gui-fixture".into()],
@@ -195,7 +198,7 @@ fn pending_consent_shows_identity_and_purpose_without_deciding_automatically() {
         "User ID: user-102",
         "Role: implementer/v1",
         "Purpose: inspect the synthetic test application",
-        "Target VM: machine-104",
+        "Target VM: local machine machine-104",
         "Proposed operations: observe screen",
         "Allowed applications: test-gui-fixture",
         "Network access: disabled",
