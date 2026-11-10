@@ -50,6 +50,7 @@ struct AgentReplayState {
 
 pub fn run() -> Result<(), GuestProtocolErrorV1> {
     let config = bootstrap::read_boot_config(Path::new(BOOT_CONFIG))?;
+    artifacts::cleanup_stale()?;
     let mut replay = AgentReplayState {
         highest_sequence: config.initial_action_sequence,
         ..AgentReplayState::default()

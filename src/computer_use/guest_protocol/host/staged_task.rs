@@ -41,6 +41,7 @@ impl AuthenticatedGuestChannelV1 {
             return Err(GuestProtocolErrorV1::Malformed);
         };
         if actor != ComputerActionActorV1::Human
+            || self.remote_transport.is_some()
             || !action.same_helper_action(stage_action)
             || action
                 .helper_authorization
@@ -84,10 +85,14 @@ impl AuthenticatedGuestChannelV1 {
         }
         let timeout = Duration::from_millis(deadline_unix_ms.saturating_sub(now_unix_ms));
         self.channel
+            .as_mut()
+            .ok_or(GuestProtocolErrorV1::UnsupportedCapability)?
             .io()
             .set_read_timeout(Some(timeout))
             .map_err(|_| GuestProtocolErrorV1::OutcomeUnknown)?;
         self.channel
+            .as_mut()
+            .ok_or(GuestProtocolErrorV1::UnsupportedCapability)?
             .io()
             .set_write_timeout(Some(timeout))
             .map_err(|_| GuestProtocolErrorV1::OutcomeUnknown)?;
@@ -121,8 +126,13 @@ impl AuthenticatedGuestChannelV1 {
             deadline_unix_ms,
             GuestMessageV1::StageTaskApplicationFinish,
         )?;
-        let transfer_reply: AuthenticatedGuestEnvelopeV1 =
-            read_frame(self.channel.io()).map_err(|_| GuestProtocolErrorV1::OutcomeUnknown)?;
+        let transfer_reply: AuthenticatedGuestEnvelopeV1 = read_frame(
+            self.channel
+                .as_mut()
+                .ok_or(GuestProtocolErrorV1::UnsupportedCapability)?
+                .io(),
+        )
+        .map_err(|_| GuestProtocolErrorV1::OutcomeUnknown)?;
         self.validate_incoming(
             &transfer_reply,
             &request_id,
@@ -176,9 +186,19 @@ impl AuthenticatedGuestChannelV1 {
             },
             message,
         );
+        let signed = AuthenticatedGuestEnvelopeV1::sign(
+            envelope,
+            self.channel_key
+                .as_ref()
+                .ok_or(GuestProtocolErrorV1::UnsupportedCapability)?
+                .expose(),
+        )?;
         write_frame(
-            self.channel.io(),
-            &AuthenticatedGuestEnvelopeV1::sign(envelope, self.channel_key.expose())?,
+            self.channel
+                .as_mut()
+                .ok_or(GuestProtocolErrorV1::UnsupportedCapability)?
+                .io(),
+            &signed,
         )
         .map_err(|_| GuestProtocolErrorV1::OutcomeUnknown)?;
         self.host_sequence = self.host_sequence.saturating_add(1);

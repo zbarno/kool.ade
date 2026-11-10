@@ -91,9 +91,7 @@ pub(super) fn write_app_helper_config(
     let config = crate::computer_use::apps::guest_helper::GuestAppHelperConfigV1 {
         schema_version: 1,
         session_id: session.identity.session_id.clone(),
-        worker_id: match &session.target {
-            crate::computer_use::ComputerTargetV1::LocalKvm { machine_id } => machine_id.clone(),
-        },
+        worker_id: session.target.guest_worker_id().to_owned(),
         image_digest: session.image_digest.clone(),
         session_class: session.session_class,
         lease_generation: session.lease.generation,

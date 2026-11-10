@@ -192,6 +192,7 @@ fn observe_action(session: &ComputerSessionV1) -> crate::computer_use::ComputerA
         cancellation_generation: session.cancellation_generation,
         operation: ComputerOperationV1::ObserveScreen,
         payload: crate::computer_use::ComputerActionPayloadV1::ObserveScreen,
+        helper_authorization: None,
     }
 }
 

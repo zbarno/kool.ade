@@ -1,8 +1,5 @@
 use super::super::*;
 #[cfg(target_os = "linux")]
-use zeroize::Zeroize;
-
-#[cfg(target_os = "linux")]
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EmbeddedGuestImageLockV1 {

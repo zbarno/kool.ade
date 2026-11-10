@@ -133,7 +133,7 @@ impl ComputerBackend for RemoteComputerBackendV1 {
         };
         let context = GuestAuthenticatedContextV1 {
             session_id: session.identity.session_id.clone(),
-            worker_id: self.enrollment.worker_id.clone(),
+            worker_id: session.target.guest_worker_id().to_owned(),
             lease_generation: session.lease.generation,
             expires_at_unix_ms: session.lease.expires_at_unix_ms,
             boot_id: readiness.guest_boot_id,

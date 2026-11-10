@@ -87,6 +87,7 @@ fn artifact_bridge_round_trips_through_the_fenced_remote_worker_stream() {
         cancellation_generation: session.cancellation_generation,
         operation: ComputerOperationV1::ObserveScreen,
         payload: ComputerActionPayloadV1::ObserveScreen,
+        helper_authorization: None,
     };
     let action_request = request(&session, 4, Body::Action { action });
     assert!(matches!(
