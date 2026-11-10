@@ -13,6 +13,103 @@ macro_rules! computer_use_surface_methods {
             self.computer_use_task_session_view(task_id)
         }
 
+        fn computer_use_personal_profiles(
+            &self,
+        ) -> Result<Vec<crate::computer_use::mcp::ComputerUsePersonalProfileViewV1>, String> {
+            #[cfg(target_os = "linux")]
+            {
+                self.shared_computer_use_controller()
+                    .personal_vm_profile_views_for_current_user()
+                    .map_err(|error| format!("Personal VM profiles are unavailable: {error:?}"))
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                Err("Personal VM profiles are supported only on Linux.".into())
+            }
+        }
+
+        fn delete_computer_use_personal_profile(&mut self, profile_id: &str) -> Result<(), String> {
+            #[cfg(target_os = "linux")]
+            {
+                self.shared_computer_use_controller()
+                    .delete_personal_vm_profile_for_current_user(profile_id)
+                    .map_err(|error| format!("Personal VM profile was not deleted: {error:?}"))
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = profile_id;
+                Err("Personal VM profiles are supported only on Linux.".into())
+            }
+        }
+
+        fn lock_computer_use_personal_profile(
+            &mut self,
+            profile_id: &str,
+            session_id: &str,
+        ) -> Result<(), String> {
+            #[cfg(target_os = "linux")]
+            {
+                self.shared_computer_use_controller()
+                    .lock_personal_vm_session_for_current_user(session_id, profile_id)
+                    .map_err(|error| format!("Personal VM was not locked: {error}"))
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (profile_id, session_id);
+                Err("Personal VM profiles are supported only on Linux.".into())
+            }
+        }
+
+        fn computer_use_personal_vm_consent_requests(
+            &self,
+        ) -> Vec<crate::computer_use::mcp::ComputerUsePersonalVmConsentViewV1> {
+            #[cfg(target_os = "linux")]
+            {
+                self.shared_computer_use_controller()
+                    .personal_vm_consent_requests_for_current_user()
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                Vec::new()
+            }
+        }
+
+        fn request_computer_use_personal_vm_consent(
+            &mut self,
+            choice: crate::computer_use::mcp::ComputerUsePersonalVmChoiceV1,
+        ) -> Result<(), String> {
+            #[cfg(target_os = "linux")]
+            {
+                self.shared_computer_use_controller()
+                    .request_personal_vm_consent_for_current_user(choice)
+                    .map(|_| ())
+                    .map_err(|error| format!("Personal VM consent request failed: {error}"))
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = choice;
+                Err("Personal VM profiles are supported only on Linux.".into())
+            }
+        }
+
+        fn decide_computer_use_personal_vm_consent(
+            &mut self,
+            request_id: &str,
+            approve: bool,
+        ) -> Result<(), String> {
+            #[cfg(target_os = "linux")]
+            {
+                self.shared_computer_use_controller()
+                    .decide_personal_vm_consent_for_current_user(request_id, approve)
+                    .map_err(|error| format!("Personal VM choice was not applied: {error}"))
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let _ = (request_id, approve);
+                Err("Personal VM profiles are supported only on Linux.".into())
+            }
+        }
+
         fn revoke_computer_use_permission(&mut self, session_id: &str) -> Result<(), String> {
             self.revoke_computer_use(session_id)
         }

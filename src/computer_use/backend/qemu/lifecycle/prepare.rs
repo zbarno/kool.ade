@@ -50,7 +50,17 @@ impl LocalKvmComputerBackend {
         session
             .validate_for_host(now_unix_ms, &self.controller_key_id, &self.controller_key)
             .map_err(|_| Error::UntrustedSession)?;
-        if session.session_class != ComputerSessionClassV1::Disposable
+        let persistent_personal =
+            session.session_class == ComputerSessionClassV1::PersonalPersistent;
+        let expected_overlay_root = if persistent_personal {
+            self.personal_overlay_root()
+        } else {
+            self.overlay_root.clone()
+        };
+        if !matches!(
+            session.session_class,
+            ComputerSessionClassV1::Disposable | ComputerSessionClassV1::PersonalPersistent
+        ) || persistent_personal != overlay.is_persistent_personal()
             || !matches!(
                 session.network_profile,
                 crate::computer_use::ComputerNetworkProfileV1::Disabled
@@ -61,9 +71,11 @@ impl LocalKvmComputerBackend {
             || session.image_manifest_digest != overlay.manifest_digest()
             || session.image_signer_key_id != overlay.signer_key_id()
             || target_machine_id(session) != self.host_machine_id
-            || overlay.directory() != self.overlay_root
-            || overlay.path().parent() != Some(self.overlay_root.as_path())
-            || !overlay_filename_matches_session(overlay.path(), &session.identity.session_id)
+            || overlay.directory() != expected_overlay_root
+            || overlay.path().parent() != Some(expected_overlay_root.as_path())
+            || (!persistent_personal
+                && !overlay_filename_matches_session(overlay.path(), &session.identity.session_id))
+            || (persistent_personal && !overlay_filename_matches_profile(overlay.path()))
         {
             return Err(Error::UnsupportedPolicy);
         }
@@ -75,6 +87,7 @@ impl LocalKvmComputerBackend {
         self.probe_impl()?;
         self.check_resource_budget(session, &overlay)?;
         validate_runtime_root(&self.runtime_root)?;
+        validate_runtime_root(&expected_overlay_root)?;
 
         let session_id = session.identity.session_id.clone();
         let machine_id = target_machine_id(session).to_owned();
@@ -108,6 +121,7 @@ impl LocalKvmComputerBackend {
                 image_signer_key_id: overlay.signer_key_id().to_owned(),
                 catalog_generation: overlay.catalog_generation(),
                 overlay_path: overlay.path().to_path_buf(),
+                persistent_personal,
                 state: "prepared".to_owned(),
                 event_sequence: 0,
                 guest_boot_id: None,
@@ -174,6 +188,7 @@ impl LocalKvmComputerBackend {
     pub(super) fn recover_impl(&self) -> Result<Vec<Event>, Error> {
         validate_runtime_root(&self.runtime_root)?;
         validate_runtime_root(&self.overlay_root)?;
+        validate_runtime_root(&self.personal_overlay_root())?;
         if !self.live.lock().map_err(|_| Error::Io)?.is_empty() {
             return Err(Error::InvalidTransition);
         }
@@ -206,7 +221,9 @@ impl LocalKvmComputerBackend {
                     process::terminate_recovered(pid, &process_owner, &self.limits.stop_timeout)?;
                 }
                 cgroups.kill_and_remove(&owner.session_id)?;
-                remove_owned_overlay(&owner.overlay_path)?;
+                if !owner.persistent_personal {
+                    remove_owned_overlay(&owner.overlay_path)?;
+                }
                 recovered.push(Event {
                     sequence: owner
                         .event_sequence
@@ -234,6 +251,11 @@ fn validate_recovery_owner(
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or(Error::OwnershipMismatch)?;
+    let expected_overlay_root = if owner.persistent_personal {
+        overlay_root.join("personal")
+    } else {
+        overlay_root.to_path_buf()
+    };
     if owner.schema_version != 1
         || owner.session_id != session_id
         || owner.machine_id != host_machine_id
@@ -243,8 +265,10 @@ fn validate_recovery_owner(
         || !is_canonical_uuid(&owner.lease_id)
         || owner.lease_generation == 0
         || owner.cancellation_generation == 0
-        || owner.overlay_path.parent() != Some(overlay_root)
-        || !overlay_filename_matches_session(&owner.overlay_path, session_id)
+        || owner.overlay_path.parent() != Some(expected_overlay_root.as_path())
+        || (!owner.persistent_personal
+            && !overlay_filename_matches_session(&owner.overlay_path, session_id))
+        || (owner.persistent_personal && !overlay_filename_matches_profile(&owner.overlay_path))
         || owner.overlay_path.extension().and_then(|ext| ext.to_str()) != Some("qcow2")
         || !matches!(
             owner.state.as_str(),
@@ -268,6 +292,13 @@ fn overlay_filename_matches_session(path: &std::path::Path, session_id: &str) ->
     };
     stem.strip_prefix(&format!("{session_id}-"))
         .is_some_and(is_canonical_uuid)
+}
+
+fn overlay_filename_matches_profile(path: &std::path::Path) -> bool {
+    let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+        return false;
+    };
+    uuid::Uuid::parse_str(stem).is_ok_and(|profile| profile.to_string() == stem)
 }
 
 fn remove_owned_overlay(path: &std::path::Path) -> Result<(), Error> {

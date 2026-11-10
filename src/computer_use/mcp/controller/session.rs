@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 mod response;
-mod startup;
+pub(super) mod startup;
 pub(crate) use response::unix_time_ms;
 pub(super) use response::{completed, denied, failed, response};
 
@@ -245,7 +245,7 @@ impl ComputerUseMcpControllerV1 {
     }
 }
 
-fn cleanup(
+pub(super) fn cleanup(
     runtime: &super::types::Runtime,
     session: &ComputerSessionV1,
     handle: &crate::computer_use::ComputerMachineHandleV1,

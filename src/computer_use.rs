@@ -18,6 +18,12 @@ pub mod mcp;
 #[cfg(target_os = "linux")]
 pub(crate) mod network;
 #[cfg(target_os = "linux")]
+pub(crate) mod personal_storage;
+#[cfg(target_os = "linux")]
+pub use personal_storage::{
+    PersonalVmProfileStoreV1, PersonalVmProfileV1, PersonalVmStorageErrorV1,
+};
+#[cfg(target_os = "linux")]
 pub(crate) mod process_security;
 
 #[cfg(target_os = "linux")]

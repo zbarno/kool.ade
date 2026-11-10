@@ -10,6 +10,8 @@ use std::{ffi::OsStr, path::PathBuf, process::ExitStatus, time::Duration};
 use std::path::Path;
 
 use self::runner::run_bounded;
+#[cfg(target_os = "linux")]
+use self::runner::run_bounded_with_secret_fd;
 
 #[cfg(unix)]
 const MAX_CAPTURE_BYTES: usize = 64 * 1024;
@@ -37,6 +39,16 @@ pub(super) fn run_qemu(
     args: &[&OsStr],
 ) -> Result<BoundedOutput, QemuProcessError> {
     run_bounded(&tool.path, args, QEMU_TIMEOUT)
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn run_qemu_with_secret_fd(
+    tool: &QemuImageToolV1,
+    args: &[&OsStr],
+    secret_fd: libc::c_int,
+    max_file_bytes: u64,
+) -> Result<BoundedOutput, QemuProcessError> {
+    run_bounded_with_secret_fd(&tool.path, args, QEMU_TIMEOUT, secret_fd, max_file_bytes)
 }
 
 pub fn probe_host_qemu_image_tool() -> Result<QemuImageToolV1, QemuProcessError> {

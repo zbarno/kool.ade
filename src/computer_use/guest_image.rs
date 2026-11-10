@@ -5,6 +5,8 @@ mod cache;
 mod floor;
 mod manifest;
 mod overlay;
+#[cfg(target_os = "linux")]
+mod personal_disk;
 mod process;
 
 #[cfg(test)]
@@ -26,6 +28,8 @@ pub use overlay::{
     GuestImageOverlayErrorV1, GuestImageOverlayRequestV1, GuestImageOverlayV1,
     create_guest_image_overlay, verify_guest_image_overlay_before_boot,
 };
+#[cfg(target_os = "linux")]
+pub(crate) use personal_disk::create_encrypted_personal_disk;
 pub use process::{
     QemuImageToolV1, QemuProcessError, probe_host_qemu_image_tool,
     probe_host_qemu_image_tool_for_readiness,
