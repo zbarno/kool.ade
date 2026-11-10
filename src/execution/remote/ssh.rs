@@ -214,10 +214,7 @@ impl VerifiedSshWorker {
             .args(&argv[1..])
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            // The protocol client does not consume diagnostic output. Keep a
-            // bounded, nonblocking sink so a verbose remote command cannot
-            // deadlock the framed stdin/stdout channel.
-            .stderr(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
             .env_remove("SSH_ASKPASS")
             .env_remove("DISPLAY")
             .env_remove("GIT_SSH_COMMAND");
@@ -283,6 +280,27 @@ mod tests {
         assert!(argv.iter().any(|arg| arg == "ProxyCommand=none"));
         assert_eq!(argv.last().unwrap(), FIXED_REMOTE_COMMAND);
         assert!(!argv.iter().any(|argument| argument.contains(";")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn worker_spawn_keeps_stderr_pipe_for_the_transport_diagnostic_reader() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let fake_ssh = root.path().join("fake-ssh");
+        std::fs::write(&fake_ssh, "#!/bin/sh\nexec cat >/dev/null\n").unwrap();
+        let mut permissions = std::fs::metadata(&fake_ssh).unwrap().permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&fake_ssh, permissions).unwrap();
+
+        let mut config = config();
+        config.ssh_binary = fake_ssh;
+        let worker = VerifiedSshWorker { config };
+        let mut child = worker.spawn().unwrap();
+        assert!(child.stderr.is_some());
+        child.kill().unwrap();
+        child.wait().unwrap();
     }
 
     #[test]
