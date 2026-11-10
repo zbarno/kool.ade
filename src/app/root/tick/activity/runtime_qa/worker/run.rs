@@ -104,6 +104,8 @@ pub(super) fn run(
     _progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
     computer_use: Option<super::super::ComputerQaRuntimeContextV1>,
 ) -> Result<(), String> {
+    #[cfg(not(target_os = "linux"))]
+    let _ = (approval_task_revision, claimed_task_revision);
     let (request, artifact_upload) = prepare_dispatch_artifacts(&prepared)?;
     if execution_target == crate::runtime_qa::QaExecutionTargetV1::ComputerUseGuest {
         #[cfg(target_os = "linux")]
