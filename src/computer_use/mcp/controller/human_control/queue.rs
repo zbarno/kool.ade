@@ -137,6 +137,17 @@ impl ComputerUseMcpControllerV1 {
                 ControlCommand::ManageApprovedApp { app_id, operation } => {
                     controller.manage_approved_app(&task, &user, &session, &app_id, operation)
                 }
+                ControlCommand::ApproveSensitiveAction { intent_id } => {
+                    controller.approve_sensitive_action(&task, &user, &session, &intent_id)
+                }
+                ControlCommand::DenySensitiveAction { intent_id } => {
+                    controller.deny_sensitive_action(&task, &user, &session, &intent_id)
+                }
+                ControlCommand::VerifySensitiveActionCompleted { intent_id } => {
+                    controller.verify_sensitive_action_completed(&task, &user, &session, &intent_id)
+                }
+                ControlCommand::MarkSensitiveActionOutcomeUnknown { intent_id } => controller
+                    .mark_sensitive_action_outcome_unknown(&task, &user, &session, &intent_id),
             };
             let error = result.err().map(str::to_owned);
             if let Ok(mut pending) = controller.pending_controls.lock() {

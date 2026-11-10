@@ -90,14 +90,25 @@ flowchart TD
   A[Offline disposable\ncurrent default] -->|new explicit consent + compatible signed image| B[InternetResearch\nplanned availability]
   A -. never automatic .-> C[PersistentPersonal\nunavailable]
   B -. never automatic .-> C
-  A -->|separate exact transaction approval contract| D[High-impact external action\nunavailable]
-  B -->|separate exact transaction approval contract| D
+  A -->|exact one-use ActionIntent review; release gate closed| D[High-impact external action\nunavailable]
+  B -->|exact one-use ActionIntent review; release gate closed| D
 ```
 
 The arrows describe separate authorization decisions, not automatic upgrades.
 No model, task, or guest can promote a session. `restrict_to` can only remove
 apps, operations, network access, and quota. A task artifact grant does not
 grant access to an account or authorize an external transaction.
+
+The controller records exact `ActionIntentV1` proposals and presents their
+risk, destination, affected item, content or amount, screen evidence, expiry,
+and concrete final GUI action in Task Details. Human approval is single-use
+and is invalidated by a changed screen digest or control handoff. Once
+execution begins, completion requires explicit human confirmation; an
+ambiguous result is recorded as unknown and cannot be retried. The broad
+high-impact capability remains rejected by session policy, and InternetResearch
+is unavailable in the current signed image. This implementation does not
+enable real external posts or transactions; real guest UI acceptance remains
+in #392.
 
 ## Permission and consent summary
 

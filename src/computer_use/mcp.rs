@@ -17,7 +17,8 @@ pub use controller::{ComputerUseMcpControllerV1, ComputerUseMcpRuntimeConfigV1};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ComputerActionActorV1, ComputerActionPayloadV1, ComputerIdentityV1,
+    ComputerActionActorV1, ComputerActionIntentStateV1, ComputerActionIntentV1,
+    ComputerActionPayloadV1, ComputerIdentityV1,
     guest_protocol::{GuestActionOutcomeV1, GuestObservationV1},
 };
 
@@ -71,6 +72,18 @@ pub enum ComputerUseControlCommandV1 {
         app_id: String,
         operation: crate::computer_use::apps::GuestAppOperationKindV1,
     },
+    ApproveSensitiveAction {
+        intent_id: String,
+    },
+    DenySensitiveAction {
+        intent_id: String,
+    },
+    VerifySensitiveActionCompleted {
+        intent_id: String,
+    },
+    MarkSensitiveActionOutcomeUnknown {
+        intent_id: String,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -78,6 +91,14 @@ pub struct ComputerUseActionSummaryV1 {
     pub actor: ComputerUseControlOwnerV1,
     pub label: String,
     pub occurred_at_unix_ms: u64,
+}
+
+/// Display-only local view of a pending exact-action approval.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComputerUseActionIntentViewV1 {
+    pub intent: ComputerActionIntentV1,
+    pub final_action: ComputerActionPayloadV1,
+    pub state: ComputerActionIntentStateV1,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -111,6 +132,7 @@ pub struct ComputerUseTaskSessionViewV1 {
     pub control_error: Option<String>,
     pub control_notice: Option<String>,
     pub action_log: Vec<ComputerUseActionSummaryV1>,
+    pub pending_action_intent: Option<ComputerUseActionIntentViewV1>,
 }
 
 /// Display-only local inventory entry for an encrypted personal VM profile.
@@ -210,6 +232,11 @@ pub enum ComputerUseMcpRequestV1 {
         /// human-only ManageApp action; it never conveys authority.
         #[serde(default)]
         idempotency_key: Option<String>,
+    },
+    ProposeSensitiveAction {
+        session_id: String,
+        intent: Box<ComputerActionIntentV1>,
+        final_action: Box<ComputerActionPayloadV1>,
     },
     Pause {
         session_id: String,
