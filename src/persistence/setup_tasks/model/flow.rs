@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 pub const SETUP_FLOW_SCHEMA_VERSION: u8 = 1;
 pub const MAX_FLOW_ID_LEN: usize = 64;
-pub const MAX_FLOW_TASK_REF_LEN: usize = 128;
+pub const MAX_FLOW_TASK_REF_LEN: usize = 180;
 pub const MAX_COMPLETED_RECORDS: usize = 16;
 pub const MAX_SEEN_VERIFIED: usize = 64;
 pub const MAX_SKIPPED_RECORDS: usize = 16;

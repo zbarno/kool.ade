@@ -3,7 +3,7 @@
 //! content. Temp directory and local filesystem only; no external services,
 //! low setup cost.
 
-use super::super::flow::{insert_flow_at, update_flow_at};
+use super::super::flow::{insert_flow_at, replace_terminal_flow_at, update_flow_at};
 use crate::persistence::setup_tasks::{FlowPhaseV1, SetupFlowStateV1, SetupTaskStoreV1};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -113,4 +113,38 @@ fn invalid_stored_flow_is_rejected_instead_of_loaded() {
 
     let err = update_flow_at(&path, |_| true).unwrap_err();
     assert!(err.to_string().to_lowercase().contains("flow"), "{err}");
+}
+
+#[test]
+fn a_live_incumbent_is_kept_even_when_restart_requests_replacement() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("tasks.json");
+    // Incumbent is mid-run: the replace terminal primitive must respect it.
+    seed_store(&path, 3, Some(fresh_flow()));
+
+    let challenger = SetupFlowStateV1::start_new("flow-challenger-1".to_string(), 200).unwrap();
+    assert!(!replace_terminal_flow_at(&path, challenger).unwrap());
+
+    let incumbent = update_flow_at(&path, |_| false).unwrap().unwrap();
+    assert_eq!(incumbent.flow_id, "flow-unit-01");
+    assert!(matches!(incumbent.phase, FlowPhaseV1::Running));
+}
+
+#[test]
+fn a_finished_incumbent_yields_to_an_explicit_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("tasks.json");
+    let mut done = fresh_flow();
+    done.advance(200, |state| {
+        state.phase =
+            FlowPhaseV1::Complete(crate::persistence::setup_tasks::DoneOutcomeV1::FullyPrepared);
+        true
+    });
+    seed_store(&path, 3, Some(done));
+
+    let challenger = SetupFlowStateV1::start_new("flow-fresh-02".to_string(), 300).unwrap();
+    assert!(replace_terminal_flow_at(&path, challenger).unwrap());
+
+    let current = update_flow_at(&path, |_| false).unwrap().unwrap();
+    assert_eq!(current.flow_id, "flow-fresh-02");
 }
