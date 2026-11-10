@@ -98,6 +98,15 @@ pub const fn remote_computer_use_release_gate_open_v1() -> bool {
 
 /// Explicit operator recovery command. It creates a strictly generation-
 /// advancing signed replacement and never replays an uncertain guest action.
+#[cfg(not(target_os = "linux"))]
+pub fn recover_computer_use_worker_session_v1(
+    _worker_id: &str,
+    _session_id: &str,
+    _explicitly_approved: bool,
+) -> anyhow::Result<bool> {
+    anyhow::bail!("remote Computer Use recovery requires Linux with supported KVM isolation")
+}
+
 #[cfg(target_os = "linux")]
 pub fn recover_computer_use_worker_session_v1(
     worker_id: &str,
