@@ -49,6 +49,9 @@ pub fn reconcile_inactive_excluding(
         item.status == WorkStatus::InProgress
             && Some(item.key.as_str()) != active_key
             && !excluded_uids.contains(&item.uid)
+            // Plan-confirmation cards own their lifecycle exclusively;
+            // reconcile_plan_confirmation is the only writer of their status.
+            && item.kind != WorkKind::PlanConfirmation
     }) {
         let next = inactive_status(state, item);
         item.status = next;
