@@ -26,8 +26,11 @@ Browser QA and Linux desktop QA independently from production image policy.
 The machine-wide switch defaults off and requires a local confirmation. Its
 settings live in the user's application-data directory, outside code and
 planning repositories, with user-only file permissions. The registry continues
-to show blocked and not-implemented capabilities when the switch is off;
-Computer Use remains unimplemented (#375, #389).
+to show blocked and not-implemented capabilities when the switch is off.
+Computer Use is a separate experimental local QEMU/KVM capability with its own
+host readiness and release gate; it is not a Runtime QA driver. Wiring Computer
+Use into the Runtime QA workflow remains tracked by #389 and is not claimed as
+available here. See the [Computer Use architecture and operator guide](computer-use-architecture.md).
 
 On Linux amd64, the app selects only the exact immutable QA digest and recipe
 recorded in `containers/images.lock.json`, and only while that digest is
