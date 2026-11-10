@@ -215,11 +215,26 @@ pub(in crate::core::implementation) fn prepare_verified(
                             runner, state, dir,
                         )?;
                         let mut evidence = Vec::new();
-                        if let Some(error) =
-                            checks::run(runner, state, dir, &plan, stamp, &mut evidence)?
-                        {
-                            verification_failure = true;
-                            failure = Some(error);
+                        match checks::run(runner, state, dir, &plan, stamp, &mut evidence) {
+                            Ok(Some(error)) => {
+                                verification_failure = true;
+                                failure = Some(error);
+                            }
+                            Ok(None) => {}
+                            Err(error)
+                                if error
+                                    .downcast_ref::<
+                                        crate::core::implementation::runner::VerificationOutcomeUnknown,
+                                    >()
+                                    .is_some() =>
+                            {
+                                return Err(anyhow::Error::new(status::FailureCause(Failure::new(
+                                    FailureKind::Verification,
+                                    RecoveryDisposition::DoNotRetry,
+                                    format!("Verification outcome unknown; implementation is preserved and no correction was dispatched. {error}"),
+                                ))));
+                            }
+                            Err(error) => return Err(error),
                         }
                         anyhow::ensure!(
                             runner.git(

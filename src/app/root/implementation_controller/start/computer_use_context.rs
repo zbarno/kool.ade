@@ -92,7 +92,7 @@ fn cgroup_discovery_accepts_only_one_existing_unified_hierarchy_path() {
 }
 
 impl KooladeApp {
-    pub(super) fn computer_use_run_context(
+    pub(crate) fn computer_use_run_context(
         &self,
         project_id: uuid::Uuid,
     ) -> Option<crate::core::implementation::ComputerUseRunContext> {

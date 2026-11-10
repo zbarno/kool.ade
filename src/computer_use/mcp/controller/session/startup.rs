@@ -185,10 +185,31 @@ pub(super) fn start_granted_session(
         overlay,
         scheduler_permit,
         None,
-        crate::computer_use::mcp::ComputerUseControlOwnerV1::Agent,
+        initial_control_owner(&caller.role_id),
         false,
         cancelled,
         &mut journal_guard,
         &mut startup_view,
     )
+}
+
+fn initial_control_owner(role_id: &str) -> crate::computer_use::mcp::ComputerUseControlOwnerV1 {
+    if role_id == crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_ROLE_V1 {
+        crate::computer_use::mcp::ComputerUseControlOwnerV1::Human
+    } else {
+        crate::computer_use::mcp::ComputerUseControlOwnerV1::Agent
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn runtime_qa_session_starts_human_owned_while_other_sessions_keep_agent_ownership() {
+    assert_eq!(
+        initial_control_owner(crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_ROLE_V1),
+        crate::computer_use::mcp::ComputerUseControlOwnerV1::Human
+    );
+    assert_eq!(
+        initial_control_owner("implementer/v1"),
+        crate::computer_use::mcp::ComputerUseControlOwnerV1::Agent
+    );
 }
