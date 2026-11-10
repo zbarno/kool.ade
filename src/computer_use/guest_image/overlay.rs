@@ -49,11 +49,14 @@ pub(super) struct QemuImageInfo {
     backing_filename: Option<String>,
     #[serde(rename = "backing-filename-format")]
     backing_format: Option<String>,
+    #[cfg(target_os = "linux")]
     encrypted: Option<bool>,
+    #[cfg(target_os = "linux")]
     #[serde(rename = "format-specific")]
     format_specific: Option<QemuImageFormatSpecific>,
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Deserialize)]
 pub(super) struct QemuImageFormatSpecific {
     #[serde(rename = "type")]
@@ -61,11 +64,13 @@ pub(super) struct QemuImageFormatSpecific {
     data: QemuImageFormatData,
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Deserialize)]
 pub(super) struct QemuImageFormatData {
     encrypt: Option<QemuImageEncryption>,
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Deserialize)]
 pub(super) struct QemuImageEncryption {
     format: String,
