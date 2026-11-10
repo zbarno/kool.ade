@@ -37,13 +37,13 @@ keys, tokens, or OTP codes.
 - `phase` — `Running`, `WaitingForConsent{task_id}`,
   `WaitingForUser{task_id, reason}`, `Finishing`, `Paused`,
   `Complete(outcome)`, or `Halted{reason, detail_task}`.
-- `started` / `skipped` — operations the operator declined; they are not
+- `skipped` — operations the operator declined; they are not
   re-proposed for the life of the run and disappear only when the operator
   explicitly starts a fresh flow.
-- `last_ready` / `last_completed` snapshots power honest readiness-regression
+- `seen_verified` / `last_completed` snapshots power honest readiness-regression
   detection (a check that *was* verifying must not silently vanish).
-- Records are capped (≤32 completed / ≤16 seen / ≤16 halted) and the store
-  enforces the caps at the persistence boundary, so no client can grow the
+- Records are capped (<=16 completed / <=64 seen-verified /
+  <=16 skipped) and the store enforces the caps at the persistence boundary, so no client can grow the
   file unboundedly.
 
 ### Decision driver (pure, clock-free)
@@ -66,8 +66,10 @@ one broker.
 reads the durable flow from disk, observes verified completions, tracks scan
 generations, consults the three controller slots, and applies the emitted
 action (routing a proposed fix straight into the existing
-`request_setup_task_fix` pipeline). A persisted `Running` flow becomes
-`Halted(InterruptedByRestart)` at boot — nothing resumes invisibly.
+`request_setup_task_fix` pipeline). Persisted `Running` or `Finishing` flows become `Halted(InterruptedByRestart)`
+at boot, so nothing resumes invisibly. A held consent (`WaitingForConsent`)
+deliberately re-offers itself after a restart, because the review was
+interrupted and no operation proceeds without a fresh approval.
 
 Commands: **StartSetupFlow** (new or resume; restarting from a finished or
 stopped flow begins a clean slate without dropping already-verified steps),

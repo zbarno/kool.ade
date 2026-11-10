@@ -25,6 +25,11 @@ pub(super) fn paint_if_waiting(
     if waiting_id != task.id {
         return;
     }
+
+    let defers_to_dedicated = matches!(
+        crate::app::setup_workflow::fix_route(task),
+        Some(crate::app::setup_workflow::FixRoute::ClaudeInstall),
+    );
     let explanation = crate::app::setup_explain::SetupExplanation::explain(task);
     ui.group(|ui| {
         ui.label(
@@ -42,7 +47,11 @@ pub(super) fn paint_if_waiting(
         });
         ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
-            if ui
+            if defers_to_dedicated {
+                ui.label(crate::ui::theme::helper_text(
+                    "Approve this install in the dedicated Install Claude Code review below; provider sign-in stays a separate step you control.",
+                ));
+            } else if ui
                 .add(
                     egui::Button::new("Allow this change").fill(crate::ui::theme::ACTION),
                 )

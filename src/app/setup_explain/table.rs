@@ -490,3 +490,60 @@ mod tests {
         assert!(lookup("setup:nope:nowhere").is_none());
     }
 }
+#[test]
+fn every_routable_task_id_gets_curated_copy_never_scanner_fallback() {
+    use crate::app::setup_workflow::fix_route;
+    use crate::persistence::setup_tasks::{SetupTaskV1, State};
+
+    fn task(id: &str) -> SetupTaskV1 {
+        SetupTaskV1 {
+            schema_version: 1,
+            id: id.into(),
+            title: String::new(),
+            explanation: String::new(),
+            next_step: String::new(),
+            dependencies: Vec::new(),
+            blocked_by: Vec::new(),
+            state: State::ReadyToFix,
+            created_at_unix_ms: 1,
+            observed_at_unix_ms: 1,
+            scan_generation: 1,
+            verified_at_unix_ms: None,
+            verified_result: None,
+            attempts: Vec::new(),
+            events: Vec::new(),
+            superseded_by: Vec::new(),
+        }
+    }
+
+    let digest = "a".repeat(64);
+    let ids: Vec<String> = [
+        "setup:linux:rootless:packages".to_owned(),
+        "setup:linux:rootless:subids".to_owned(),
+        "setup:linux:rootless:service".to_owned(),
+        "setup:computer:qemu".to_owned(),
+        "setup:cli:claude:install".to_owned(),
+        format!("setup:images:rust:amd64:{digest}"),
+        format!("setup:images:general:arm64:{digest}"),
+    ]
+    .into_iter()
+    .collect();
+
+    // Contract: every routable operation ships with curated (static or
+    // parametric) consent copy; a regression here degrades silently to the
+    // scanner-wording fallback, so the universe is walked explicitly.
+    for id in &ids {
+        let candidate = task(id);
+        assert!(fix_route(&candidate).is_some(), "expected routable: {id}");
+        let explanation = crate::app::setup_explain::SetupExplanation::explain(&candidate);
+        assert!(
+            !explanation.is_generated_fallback(),
+            "scanner fallback slipped in for {id}"
+        );
+    }
+
+    // Positive control: unrouted ids legitimately use the generated fallback.
+    let mystery = task("setup:mystery:probe");
+    assert!(fix_route(&mystery).is_none());
+    assert!(crate::app::setup_explain::SetupExplanation::explain(&mystery).is_generated_fallback());
+}
