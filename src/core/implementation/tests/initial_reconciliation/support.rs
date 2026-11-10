@@ -147,6 +147,13 @@ fn copy_workspace_files(source: &Path, destination: &Path) {
             fs::create_dir_all(&target).unwrap();
             copy_workspace_files(&entry.path(), &target);
         } else if metadata.is_file() {
+            // A task checkout may already contain the exact version of a
+            // workspace file from the merge being prepared. Re-copying that
+            // file needlessly changes its stat data and can make Git refuse
+            // to abort the in-progress merge as not up to date.
+            if target.is_file() && fs::read(entry.path()).unwrap() == fs::read(&target).unwrap() {
+                continue;
+            }
             if let Some(parent) = target.parent() {
                 fs::create_dir_all(parent).unwrap();
             }
@@ -180,5 +187,59 @@ pub(in crate::core::implementation::tests) fn outcome(
         final_text: value.to_string(),
         envelope: None,
         stderr_tail: String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, SystemTime};
+
+    fn fixture_dirs() -> (PathBuf, PathBuf, PathBuf) {
+        let root =
+            std::env::temp_dir().join(format!("koolade-copy-workspace-{}", uuid::Uuid::new_v4()));
+        let source = root.join("source");
+        let destination = root.join("destination");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(&destination).unwrap();
+        (root, source, destination)
+    }
+
+    #[test]
+    fn identical_workspace_file_is_not_rewritten() {
+        let (root, source, destination) = fixture_dirs();
+        let source_file = source.join("local.txt");
+        let destination_file = destination.join("local.txt");
+        fs::write(&source_file, "same content\n").unwrap();
+        fs::write(&destination_file, "same content\n").unwrap();
+        let expected_time = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
+        std::fs::File::options()
+            .write(true)
+            .open(&destination_file)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(expected_time))
+            .unwrap();
+
+        copy_workspace_files(&source, &destination);
+
+        assert_eq!(fs::read(&destination_file).unwrap(), b"same content\n");
+        assert_eq!(
+            fs::metadata(&destination_file).unwrap().modified().unwrap(),
+            expected_time
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn differing_workspace_file_is_copied() {
+        let (root, source, destination) = fixture_dirs();
+        fs::write(source.join("local.txt"), "new content\n").unwrap();
+        let destination_file = destination.join("local.txt");
+        fs::write(&destination_file, "old content\n").unwrap();
+
+        copy_workspace_files(&source, &destination);
+
+        assert_eq!(fs::read(&destination_file).unwrap(), b"new content\n");
+        fs::remove_dir_all(root).unwrap();
     }
 }
