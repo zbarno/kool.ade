@@ -8,6 +8,9 @@ use crate::computer_use::{
     ComputerTargetV1,
 };
 
+#[path = "tests/r1_real_kvm.rs"]
+mod r1_real_kvm;
+
 fn session() -> ComputerSessionV1 {
     let identity = ComputerIdentityV1 {
         project_id: "00000000-0000-4000-8000-000000000001".into(),
