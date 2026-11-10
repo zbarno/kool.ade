@@ -1,10 +1,10 @@
-name: Computer Use R1 KVM host preflight
+name: Computer Use R1 real KVM acceptance
 
 on:
   workflow_dispatch:
     inputs:
       require_kvm_host:
-        description: Require an online trusted KVM runner and execute its host preflight
+        description: Require an online trusted KVM runner and execute real guest acceptance
         type: boolean
         required: true
         default: true
@@ -28,13 +28,13 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$REF" != refs/heads/main ]]; then
-            echo "Trusted KVM preflight may run only from protected main." >&2
+            echo "Trusted KVM acceptance may run only from protected main." >&2
             exit 1
           fi
           required="$DISPATCH_REQUIRED"
           if [[ "$required" == true ]]; then
             echo "required=true" >> "$GITHUB_OUTPUT"
-            echo "Trusted R1 KVM host preflight is required for this run." >> "$GITHUB_STEP_SUMMARY"
+            echo "Trusted R1 KVM host and real guest acceptance are required for this run." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "required=false" >> "$GITHUB_OUTPUT"
             echo "R1 KVM host preflight was not requested. This workflow run is not real-VM acceptance evidence." >> "$GITHUB_STEP_SUMMARY"
@@ -70,10 +70,16 @@ jobs:
     needs: [decide, runner-availability]
     if: needs.decide.outputs.required == 'true' && needs.runner-availability.outputs.available == 'true'
     runs-on: [self-hosted, linux, x64, computer-use-kvm]
-    timeout-minutes: 10
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Record read-only host evidence
         run: python3 scripts/check-computer-use-r1-kvm-host.py --github-summary "$GITHUB_STEP_SUMMARY"
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Boot signed guest and verify authenticated Computer Use actions and display
+        env:
+          KOOLADE_COMPUTER_USE_R1_REAL_KVM: "1"
+        run: cargo +1.98.1 test --locked --lib computer_use_r1_real_kvm_acceptance -- --nocapture
