@@ -38,6 +38,7 @@ fn accessibility_is_reported_unsupported_without_creating_side_effects() {
         cancellation_generation: 1,
         operation: crate::computer_use::ComputerOperationV1::ReadAccessibility,
         payload: ComputerActionPayloadV1::ReadAccessibility,
+        helper_authorization: None,
     };
     let config = GuestBootConfigV1 {
         schema_version: 1,
@@ -79,6 +80,7 @@ fn guest_app_install_fails_closed_until_a_trusted_package_helper_exists() {
             manifest_sha256: format!("sha256:{}", "a".repeat(64)),
             package_sha256: format!("sha256:{}", "b".repeat(64)),
         },
+        helper_authorization: None,
     };
     let config = GuestBootConfigV1 {
         schema_version: 1,

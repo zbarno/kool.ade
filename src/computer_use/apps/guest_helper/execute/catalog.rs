@@ -175,6 +175,8 @@ mod tests {
             expires_at_unix_ms: 60_000,
             boot_id: "00000000-0000-4000-8000-000000000003".into(),
             allowed_apps: vec!["text-editor".into()],
+            controller_key_id: "00000000-0000-4000-8000-000000000004".into(),
+            controller_verifying_key_hex: "1a".repeat(32),
         };
         assert!(write_boot_marker(&marker, &config).is_ok());
         assert!(write_boot_marker(&marker, &config).is_err());

@@ -10,6 +10,7 @@ use crate::computer_use::artifacts::{
 use std::path::Path;
 
 impl ComputerArtifactBridgeV1 {
+    #[cfg(any(target_os = "linux", test))]
     /// Persist one exact file from a controller-verified QA build manifest.
     /// The in-memory bytes must match both the one-use grant and its digest.
     #[allow(clippy::too_many_arguments)] // Each grant fence is checked independently.

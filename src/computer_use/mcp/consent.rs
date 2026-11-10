@@ -46,6 +46,7 @@ pub struct ComputerUseConsentScopeV1 {
 }
 
 impl ComputerUseConsentScopeV1 {
+    #[cfg(any(target_os = "linux", test))]
     pub(crate) fn validate(&self) -> Result<(), &'static str> {
         self.validate_for_role("implementer/v1")
     }

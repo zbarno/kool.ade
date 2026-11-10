@@ -40,6 +40,7 @@ impl ComputerArtifactBridgeV1 {
         })
     }
 
+    #[cfg(any(target_os = "linux", test))]
     /// Dedicated permission path for a persisted, user-approved Runtime QA
     /// build. Callers must pass the canonical digest from its typed approval
     /// record; generic grants cannot set this field or user approval.

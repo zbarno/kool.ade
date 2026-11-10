@@ -235,7 +235,50 @@ fn action() -> ComputerActionV1 {
         cancellation_generation: 3,
         operation: ComputerOperationV1::ObserveScreen,
         payload: ComputerActionPayloadV1::ObserveScreen,
+        helper_authorization: None,
     }
+}
+
+#[test]
+fn guest_helper_authorization_binds_exact_action_and_nonce() {
+    let signer = ed25519_dalek::SigningKey::from_bytes(&[31; 32]);
+    let wrong_signer = ed25519_dalek::SigningKey::from_bytes(&[32; 32]);
+    let key_id = "00000000-0000-4000-8000-000000000008";
+    let mut signed = action();
+    signed
+        .sign_for_guest_helper(
+            key_id,
+            super::super::super::ComputerActionHelperPhaseV1::Stage,
+            &signer,
+        )
+        .unwrap();
+    assert!(signed.verify_guest_helper_authorization(
+        key_id,
+        super::super::super::ComputerActionHelperPhaseV1::Stage,
+        &signer.verifying_key()
+    ));
+    assert!(!signed.verify_guest_helper_authorization(
+        key_id,
+        super::super::super::ComputerActionHelperPhaseV1::Stage,
+        &wrong_signer.verifying_key()
+    ));
+    assert!(!signed.verify_guest_helper_authorization(
+        "00000000-0000-4000-8000-000000000009",
+        super::super::super::ComputerActionHelperPhaseV1::Stage,
+        &signer.verifying_key()
+    ));
+    assert!(!signed.verify_guest_helper_authorization(
+        key_id,
+        super::super::super::ComputerActionHelperPhaseV1::Launch,
+        &signer.verifying_key()
+    ));
+    let mut changed = signed;
+    changed.action_sequence += 1;
+    assert!(!changed.verify_guest_helper_authorization(
+        key_id,
+        super::super::super::ComputerActionHelperPhaseV1::Stage,
+        &signer.verifying_key()
+    ));
 }
 
 fn session() -> ComputerSessionV1 {

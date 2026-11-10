@@ -5,9 +5,11 @@ pub(super) fn valid_action_scope(
     action: &ComputerActionV1,
     application: &StagedTaskApplicationV1,
     config: &crate::computer_use::apps::GuestAppHelperConfigV1,
+    phase: crate::computer_use::ComputerActionHelperPhaseV1,
     now: u64,
 ) -> bool {
-    action.actor == ComputerActionActorV1::Human
+    config.verifies_action(action, phase)
+        && action.actor == ComputerActionActorV1::Human
         && action.operation == ComputerOperationV1::LaunchApprovedStagedTaskApp
         && action.session_id == config.session_id
         && action.lease_generation == config.lease_generation
@@ -42,6 +44,78 @@ pub(super) fn staged_manifest_matches(root: &Path, expected: &StagedTaskApplicat
     };
     serde_json::from_slice::<StagedTaskApplicationV1>(&bytes)
         .is_ok_and(|actual| actual == *expected)
+}
+
+pub(super) fn persist_signed_action(
+    root: &Path,
+    action: &ComputerActionV1,
+) -> Result<(), std::io::Error> {
+    let bytes =
+        serde_json::to_vec(action).map_err(|error| std::io::Error::other(error.to_string()))?;
+    if bytes.len() > super::super::super::protocol::MAX_HELPER_FRAME {
+        return Err(std::io::Error::other("signed action exceeds helper bound"));
+    }
+    let path = root.join(".koolade-stage-authority.json");
+    let mut options = OpenOptions::new();
+    options
+        .write(true)
+        .create_new(true)
+        .mode(0o400)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    let mut file = options.open(path)?;
+    file.write_all(&bytes)?;
+    file.sync_all()
+}
+
+pub(super) fn staged_authorization_matches(
+    root: &Path,
+    expected: &ComputerActionV1,
+    config: &crate::computer_use::apps::GuestAppHelperConfigV1,
+) -> bool {
+    let path = root.join(".koolade-stage-authority.json");
+    let Ok(metadata) = fs::symlink_metadata(&path) else {
+        return false;
+    };
+    use std::os::unix::fs::MetadataExt;
+    if !metadata.file_type().is_file() || metadata.uid() != 0 || metadata.mode() & 0o222 != 0 {
+        return false;
+    }
+    read_bounded(
+        &path,
+        super::super::super::protocol::MAX_HELPER_FRAME as u64,
+    )
+    .is_ok_and(|bytes| {
+        serde_json::from_slice::<ComputerActionV1>(&bytes).is_ok_and(|saved| {
+            config.verifies_action(
+                &saved,
+                crate::computer_use::ComputerActionHelperPhaseV1::Stage,
+            ) && saved.same_helper_action(expected)
+        })
+    })
+}
+
+pub(super) fn consume_helper_nonce(action: &ComputerActionV1, operation: &str) -> bool {
+    let Some(authorization) = action.helper_authorization.as_ref() else {
+        return false;
+    };
+    if !matches!(operation, "stage" | "launch" | "manage") {
+        return false;
+    }
+    let path = Path::new(super::STAGING_ROOT).join(format!(
+        ".{operation}-{}-{}",
+        action.session_id, authorization.nonce
+    ));
+    create_nonce_marker(&path)
+}
+
+fn create_nonce_marker(path: &Path) -> bool {
+    let mut options = OpenOptions::new();
+    options
+        .write(true)
+        .create_new(true)
+        .mode(0o400)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    options.open(path).is_ok()
 }
 
 pub(super) fn file_matches_receipt(path: &Path, expected_size: u64, expected_sha256: &str) -> bool {
@@ -227,4 +301,17 @@ pub(super) fn hex_digest(bytes: &[u8]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+#[cfg(test)]
+mod authorization_tests {
+    use super::create_nonce_marker;
+
+    #[test]
+    fn helper_nonce_marker_is_one_use() {
+        let root = tempfile::tempdir().unwrap();
+        let marker = root.path().join(".stage-session-nonce");
+        assert!(create_nonce_marker(&marker));
+        assert!(!create_nonce_marker(&marker));
+    }
 }

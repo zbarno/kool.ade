@@ -53,8 +53,13 @@ lease, approval and cancellation generations, verifies every digest and the
 canonical build hash, then writes a read-only per-session file tree. It accepts
 only a native ELF executable matching guest architecture and launches the
 relative path with empty arguments as the unprivileged desktop user. Transfer
-or launch replay is denied, and task app files do not enter the signed release
-catalog or change network permissions. Each P15 task-to-guest grant is minted
+or launch replay is denied. The controller signs the exact staged action and a
+random one-use nonce with its host key; the helper verifies that signature
+against the public key provisioned through read-only QEMU fw_cfg, persists the
+signed action with the staged files, and rejects forged local agent IPC or
+altered manifests. The same proof boundary applies to privileged app-management
+operations. Task app files do not enter the signed release catalog or change
+network permissions. Each P15 task-to-guest grant is minted
 through a controller method that reloads the workspace-scoped
 `QaComputerBuildApprovalV1`, validates it against the current request,
 lifecycle revision, and Computer Use target, then binds the canonical approval

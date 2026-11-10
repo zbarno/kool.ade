@@ -58,7 +58,12 @@ impl LocalKvmComputerBackend {
         let research_proxy = network_gateway
             .as_ref()
             .map(crate::computer_use::network::InternetResearchGatewayV1::address);
-        boot_config::write_app_helper_config(session, &app_helper_config)?;
+        boot_config::write_app_helper_config(
+            session,
+            &self.controller_key_id,
+            &self.controller_key,
+            &app_helper_config,
+        )?;
         if let (Some(bytes), Some(path)) = (
             self.application_catalog_bytes.as_deref(),
             application_catalog.as_deref(),

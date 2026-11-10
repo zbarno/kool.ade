@@ -27,6 +27,7 @@ impl AuthenticatedGuestChannelV1 {
         session: &crate::computer_use::ComputerSessionV1,
         actor: ComputerActionActorV1,
         action: &ComputerActionV1,
+        stage_action: &ComputerActionV1,
         contents: &[StagedTaskArtifactContentV1],
         deadline_unix_ms: u64,
         now_unix_ms: u64,
@@ -40,6 +41,19 @@ impl AuthenticatedGuestChannelV1 {
             return Err(GuestProtocolErrorV1::Malformed);
         };
         if actor != ComputerActionActorV1::Human
+            || !action.same_helper_action(stage_action)
+            || action
+                .helper_authorization
+                .as_ref()
+                .is_none_or(|authorization| {
+                    authorization.phase != crate::computer_use::ComputerActionHelperPhaseV1::Launch
+                })
+            || stage_action
+                .helper_authorization
+                .as_ref()
+                .is_none_or(|authorization| {
+                    authorization.phase != crate::computer_use::ComputerActionHelperPhaseV1::Stage
+                })
             || !self.capabilities.staged_task_app_launch
             || !application.validate_contents(contents).is_ok()
             || application.guest_image_digest != session.image_digest
@@ -80,10 +94,10 @@ impl AuthenticatedGuestChannelV1 {
 
         self.write_stage_message(
             &request_id,
-            action,
+            stage_action,
             deadline_unix_ms,
             GuestMessageV1::StageTaskApplicationStart {
-                action: action.clone(),
+                action: stage_action.clone(),
             },
         )?;
         for (artifact_index, content) in contents.iter().enumerate() {

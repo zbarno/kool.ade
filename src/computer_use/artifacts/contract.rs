@@ -192,6 +192,7 @@ pub struct ComputerClipboardGrantV1 {
 }
 
 impl ComputerTransferGrantV1 {
+    #[cfg(any(target_os = "linux", test))]
     pub(crate) fn from_approved_task_app_request(
         request: ComputerTransferGrantRequestV1,
         approval_receipt_sha256: String,

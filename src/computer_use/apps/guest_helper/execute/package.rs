@@ -60,6 +60,10 @@ pub(super) fn manage(action: &ComputerActionV1, stream: &mut UnixStream) -> Repl
         return ReplyV1::Unsupported;
     };
     if config.session_class != ComputerSessionClassV1::Disposable
+        || !config.verifies_action(
+            action,
+            crate::computer_use::ComputerActionHelperPhaseV1::Manage,
+        )
         || action.session_id != config.session_id
         || action.lease_generation != config.lease_generation
         || action.approval_generation != config.approval_generation
@@ -68,6 +72,7 @@ pub(super) fn manage(action: &ComputerActionV1, stream: &mut UnixStream) -> Repl
         || !config.allowed_apps.contains(app_id)
         || config.expires_at_unix_ms <= now_unix_ms()
         || *image_digest != config.image_digest
+        || !super::task_stage::consume_nonce(action, "manage")
     {
         return ReplyV1::Unsupported;
     }

@@ -75,6 +75,7 @@ impl GuestAppProvisionerV1 {
                 manifest_sha256,
                 package_sha256: manifest.package.package_sha256.clone(),
             },
+            helper_authorization: None,
         })
     }
 }

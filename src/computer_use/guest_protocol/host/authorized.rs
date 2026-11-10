@@ -188,6 +188,7 @@ impl AuthorizedComputerUseSessionV1 {
         journal: &GuestActionJournalV1,
         artifact_bridge: &crate::computer_use::artifacts::ComputerArtifactBridgeV1,
         action: &ComputerActionV1,
+        stage_action: &ComputerActionV1,
         current_task_revision: &str,
         deadline_unix_ms: u64,
         now_unix_ms: u64,
@@ -215,6 +216,18 @@ impl AuthorizedComputerUseSessionV1 {
         else {
             return Err(GuestProtocolErrorV1::Malformed);
         };
+        if !action.verify_guest_helper_authorization(
+            &self.controller_key_id,
+            crate::computer_use::ComputerActionHelperPhaseV1::Launch,
+            &self.controller_key,
+        ) || !stage_action.verify_guest_helper_authorization(
+            &self.controller_key_id,
+            crate::computer_use::ComputerActionHelperPhaseV1::Stage,
+            &self.controller_key,
+        ) || !action.same_helper_action(stage_action)
+        {
+            return Err(GuestProtocolErrorV1::StaleLease);
+        }
         let contents = artifact_bridge
             .load_staged_task_application_for_guest(
                 application,
@@ -229,6 +242,7 @@ impl AuthorizedComputerUseSessionV1 {
             &self.session,
             self.actor,
             action,
+            stage_action,
             &contents,
             deadline_unix_ms,
             now_unix_ms,

@@ -53,6 +53,7 @@ pub struct GuestAppConsentGrantV1 {
 }
 
 impl GuestAppConsentGrantV1 {
+    #[cfg(any(target_os = "linux", test))]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn approved_by_controller(
         identity: ComputerIdentityV1,

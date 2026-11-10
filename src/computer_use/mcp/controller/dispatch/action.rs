@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use crate::computer_use::{
-    ComputerActionV1, ComputerOperationV1,
+    ComputerActionHelperPhaseV1, ComputerActionV1, ComputerOperationV1,
     guest_protocol::{AuthorizedComputerUseSessionV1, GuestProtocolErrorV1},
 };
 
@@ -58,7 +58,7 @@ pub(super) fn action(
     if sequence > active.session.policy.resource_budget.action_limit as u64 {
         return controller.blocked("action_budget_exhausted");
     }
-    let action = ComputerActionV1 {
+    let mut action = ComputerActionV1 {
         schema_version: 1,
         session_id: session_id.to_owned(),
         action_sequence: sequence,
@@ -69,7 +69,46 @@ pub(super) fn action(
         cancellation_generation: active.session.cancellation_generation,
         operation,
         payload,
+        helper_authorization: None,
     };
+    let mut staged_transfer_action = None;
+    if staged_task_revision.is_some()
+        || operation == crate::computer_use::ComputerOperationV1::ManageApp
+    {
+        let Some(runtime) = controller.runtime.as_ref() else {
+            return controller.blocked("trusted_runtime_unavailable");
+        };
+        if staged_task_revision.is_some() {
+            let mut transfer_action = action.clone();
+            if transfer_action
+                .sign_for_guest_helper(
+                    &runtime.controller_key_id,
+                    ComputerActionHelperPhaseV1::Stage,
+                    &runtime.controller_key,
+                )
+                .is_err()
+                || action
+                    .sign_for_guest_helper(
+                        &runtime.controller_key_id,
+                        ComputerActionHelperPhaseV1::Launch,
+                        &runtime.controller_key,
+                    )
+                    .is_err()
+            {
+                return controller.blocked("guest_helper_authorization_failed");
+            }
+            staged_transfer_action = Some(transfer_action);
+        } else if action
+            .sign_for_guest_helper(
+                &runtime.controller_key_id,
+                ComputerActionHelperPhaseV1::Manage,
+                &runtime.controller_key,
+            )
+            .is_err()
+        {
+            return controller.blocked("guest_helper_authorization_failed");
+        }
+    }
     active.inspection_result = None;
     let session = active.session.clone();
     let handle = active.handle.clone();
@@ -96,6 +135,9 @@ pub(super) fn action(
                 &active.journal,
                 &runtime.artifact_bridge,
                 &action,
+                staged_transfer_action
+                    .as_ref()
+                    .ok_or(GuestProtocolErrorV1::Malformed)?,
                 current_task_revision,
                 deadline.min(active.session.lease.expires_at_unix_ms),
                 now,

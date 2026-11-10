@@ -17,6 +17,10 @@ use super::super::protocol::ReplyV1;
 mod validation;
 use self::validation::*;
 
+pub(super) fn consume_nonce(action: &ComputerActionV1, operation: &str) -> bool {
+    validation::consume_helper_nonce(action, operation)
+}
+
 const STAGING_ROOT: &str = "/var/lib/koolade-app-helper/task-staging";
 const MAX_STAGE_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_CHUNK_BYTES: usize = 128 * 1024;
@@ -38,9 +42,15 @@ impl PendingTaskStage {
         };
         let config = super::catalog::helper_config().map_err(|_| ReplyV1::Unsupported)?;
         let now = unix_time_ms();
-        if !valid_action_scope(action, application, &config, now)
-            || application.validate_at(now).is_err()
+        if !valid_action_scope(
+            action,
+            application,
+            &config,
+            crate::computer_use::ComputerActionHelperPhaseV1::Stage,
+            now,
+        ) || application.validate_at(now).is_err()
             || !architecture_matches(application.guest_architecture)
+            || !consume_helper_nonce(action, "stage")
         {
             return Err(ReplyV1::Unsupported);
         }
@@ -176,6 +186,9 @@ impl PendingTaskStage {
         if manifest.write_all(&manifest_bytes).is_err() || manifest.sync_all().is_err() {
             return ReplyV1::Failed;
         }
+        if persist_signed_action(&self.root, &self.action).is_err() {
+            return ReplyV1::Failed;
+        }
         if !set_tree_read_only(&self.root) {
             return ReplyV1::Failed;
         }
@@ -218,15 +231,26 @@ pub(super) fn launch(action: &ComputerActionV1) -> ReplyV1 {
         return ReplyV1::Unsupported;
     };
     let now = unix_time_ms();
-    if !valid_action_scope(action, application, &config, now)
-        || application.validate_at(now).is_err()
+    if !valid_action_scope(
+        action,
+        application,
+        &config,
+        crate::computer_use::ComputerActionHelperPhaseV1::Launch,
+        now,
+    ) || application.validate_at(now).is_err()
         || !architecture_matches(application.guest_architecture)
     {
         return ReplyV1::Unsupported;
     }
     let session_root = session_root_path(action);
     let staged_root = session_root.join(&action.idempotency_key);
-    if !staged_manifest_matches(&staged_root, application) {
+    let Some(authorization) = action.helper_authorization.as_ref() else {
+        return ReplyV1::Unsupported;
+    };
+    if !staged_manifest_matches(&staged_root, application)
+        || !staged_authorization_matches(&staged_root, action, &config)
+        || !consume_helper_nonce(action, "launch")
+    {
         return ReplyV1::Unsupported;
     }
     let executable = staged_root.join(&application.executable_relative_path);
@@ -235,7 +259,7 @@ pub(super) fn launch(action: &ComputerActionV1) -> ReplyV1 {
     };
     if !valid_elf_executable(&bytes, application.guest_architecture)
         || !trusted_staged_executable(&executable, &staged_root)
-        || !create_launch_marker(&session_root, &action.idempotency_key)
+        || !create_launch_marker(&session_root, &authorization.nonce)
     {
         return ReplyV1::Unsupported;
     }

@@ -83,8 +83,13 @@ pub(super) fn write_application_catalog(
 
 pub(super) fn write_app_helper_config(
     session: &ComputerSessionV1,
+    controller_key_id: &str,
+    controller_key: &ed25519_dalek::VerifyingKey,
     path: &Path,
 ) -> Result<(), crate::computer_use::ComputerBackendErrorV1> {
+    if session.controller_proof.signer_key_id != controller_key_id {
+        return Err(crate::computer_use::ComputerBackendErrorV1::InvalidSession);
+    }
     let config = crate::computer_use::apps::guest_helper::GuestAppHelperConfigV1 {
         schema_version: 1,
         session_id: session.identity.session_id.clone(),
@@ -100,6 +105,12 @@ pub(super) fn write_app_helper_config(
         expires_at_unix_ms: session.lease.expires_at_unix_ms,
         boot_id: uuid::Uuid::new_v4().to_string(),
         allowed_apps: session.allowed_apps.iter().cloned().collect(),
+        controller_key_id: controller_key_id.to_owned(),
+        controller_verifying_key_hex: controller_key
+            .to_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect(),
     };
     config
         .validate()
