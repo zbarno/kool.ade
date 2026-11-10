@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 pub const GUEST_PROTOCOL_VERSION_V1: u16 = 1;
 pub const GUEST_CHANNEL_CAPABILITY_V1: &str = "computer_use.channel.v1";
+pub const GUEST_ARTIFACT_CAPABILITY_V1: &str = "computer_use.artifact.v1";
+pub const GUEST_ARTIFACT_CHUNK_MAX_BYTES_V1: usize = 256 * 1024;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -161,6 +163,36 @@ pub enum GuestMessageV1 {
     },
     GuestExit {
         reason: GuestExitReasonV1,
+    },
+    ArtifactWriteChunk {
+        transfer_id: String,
+        file_name: String,
+        offset: u64,
+        total_bytes: u64,
+        sha256: String,
+        bytes: Vec<u8>,
+    },
+    ArtifactWriteAck {
+        transfer_id: String,
+        next_offset: u64,
+        complete: bool,
+    },
+    ArtifactAbort {
+        transfer_id: String,
+    },
+    ArtifactReadChunk {
+        transfer_id: String,
+        file_name: String,
+        offset: u64,
+        max_bytes: u32,
+    },
+    ArtifactReadResult {
+        transfer_id: String,
+        offset: u64,
+        total_bytes: u64,
+        sha256: String,
+        bytes: Vec<u8>,
+        complete: bool,
     },
 }
 

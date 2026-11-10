@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::atomic::AtomicBool;
 
 fn caller() -> ComputerUseCallerV1 {
     ComputerUseCallerV1 {
@@ -16,6 +17,9 @@ fn caller() -> ComputerUseCallerV1 {
 fn scope() -> ComputerUseConsentScopeV1 {
     ComputerUseConsentScopeV1 {
         machine_id: "00000000-0000-4000-8000-000000000011".into(),
+        target: crate::computer_use::ComputerTargetV1::LocalKvm {
+            machine_id: "00000000-0000-4000-8000-000000000011".into(),
+        },
         approved_destination: None,
         allowed_operations: vec![crate::computer_use::ComputerOperationV1::ObserveScreen],
         allowed_apps: vec!["chromium".into(), "test-gui-fixture".into()],
@@ -77,6 +81,57 @@ fn only_an_explicit_ui_decision_approves_a_pending_session_request() {
     );
     assert!(grant.expires_at_unix_ms > grant.approved_at_unix_ms);
     assert!(broker.pending().is_empty());
+}
+
+#[test]
+fn explicit_consent_carries_the_exact_app_selected_remote_worker_target() {
+    let broker = ComputerUseConsentBrokerV1::default();
+    let mut selected_scope = scope();
+    let worker_key = ed25519_dalek::SigningKey::from_bytes(&[17; 32]);
+    let machine_id = "00000000-0000-4000-8000-000000000098";
+    selected_scope.machine_id = machine_id.into();
+    selected_scope.target = crate::computer_use::ComputerTargetV1::RemoteVmWorker {
+        worker_id: "worker-east".into(),
+        machine_id: machine_id.into(),
+        trust: crate::computer_use::ComputerRemoteWorkerTrustV1 {
+            ssh_host_key_fingerprint: format!("SHA256:{}", "A".repeat(43)),
+            worker_attestation_key_id: "00000000-0000-4000-8000-000000000099".into(),
+            worker_attestation_verifying_key_hex: worker_key
+                .verifying_key()
+                .to_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
+            transport_protocol_version:
+                crate::computer_use::COMPUTER_USE_REMOTE_WORKER_PROTOCOL_VERSION_V1,
+            guest_protocol_version: crate::computer_use::guest_protocol::GUEST_PROTOCOL_VERSION_V1,
+        },
+    };
+    let cancelled = AtomicBool::new(false);
+    let requester_broker = broker.clone();
+    let requester = std::thread::spawn(move || {
+        requester_broker.request(
+            &caller(),
+            "inspect the approved remote fixture",
+            selected_scope,
+            &cancelled,
+        )
+    });
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let pending = loop {
+        if let Some(request) = broker.pending().into_iter().next() {
+            break request;
+        }
+        assert!(Instant::now() < deadline, "remote consent did not arrive");
+        std::thread::sleep(Duration::from_millis(1));
+    };
+    assert_eq!(pending.target.worker_id(), "worker-east");
+    assert_eq!(pending.target.target_machine_id(), machine_id);
+    broker.decide(&pending.request_id, true).unwrap();
+    let ComputerUseConsentDecisionV1::Approved(grant) = requester.join().unwrap() else {
+        panic!("explicit remote consent should produce a grant");
+    };
+    assert_eq!(grant.request.target, pending.target);
 }
 
 #[test]

@@ -1,6 +1,6 @@
 use std::{ffi::OsString, net::SocketAddr, path::Path, process::Command};
 
-use crate::computer_use::{ComputerSessionV1, ComputerTargetV1};
+use crate::computer_use::ComputerSessionV1;
 
 use super::super::ComputerBackendErrorV1;
 
@@ -27,9 +27,7 @@ pub(super) fn command_args(
     {
         return Err(ComputerBackendErrorV1::UnsupportedPolicy);
     }
-    let machine_id = match &session.target {
-        ComputerTargetV1::LocalKvm { machine_id } => machine_id,
-    };
+    let machine_id = session.target.target_machine_id();
     let budget = &session.policy.resource_budget;
     let vcpus = budget.cpu_millis.div_ceil(1_000).min(u16::MAX as u32);
     let memory_mib = budget.memory_bytes / (1024 * 1024);

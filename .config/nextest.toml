@@ -31,6 +31,19 @@ filter = 'test(/^(app::root::board_tests::implementation_gates::resume_dispatch_
 test-group = 'rootless-docker'
 threads-required = 'num-test-threads'
 
+# All remote resource-bridge E2E fixtures provision Docker-backed workers on
+# the same rootless daemon. Keep every case enabled while preventing daemon
+# namespace/socket contention among them.
+[[profile.default.overrides]]
+filter = 'test(/^harness::resource_bridge::tests::end_to_end::remote::/)'
+test-group = 'rootless-docker'
+
+# This composite-image lifecycle case shares the same Docker daemon and cached
+# image state as remote worker provisioning above.
+[[profile.default.overrides]]
+filter = 'test(/^execution::docker::backend::tests::docker_engine::system_image::approved_polyglot_composite_is_cached_and_isolated_across_tasks$/)'
+test-group = 'rootless-docker'
+
 [profile.default.junit]
 path = "nextest.xml"
 report-skipped = "all"

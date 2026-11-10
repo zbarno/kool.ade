@@ -9,6 +9,7 @@
 - [computer-use-guest-apps-v1.md](./computer-use-guest-apps-v1.md) - Read for Computer Use guest application catalog and provisioning.
 - [computer-use-guest-images-v1.md](./computer-use-guest-images-v1.md) - Read for Computer Use guest image catalog and cache (CU-03).
 - [computer-use-readiness-v1.md](./computer-use-readiness-v1.md) - Read for Computer Use readiness probe boundary (v1).
+- [computer-use-remote-workers-v1.md](./computer-use-remote-workers-v1.md) - Read for Remote Computer Use workers (v1).
 - [computer-use-threat-model-v1.md](./computer-use-threat-model-v1.md) - Read for Computer Use threat model (v1).
 - [docker-cutover-checklist.md](./docker-cutover-checklist.md) - Read for Docker cutover and release checklist.
 - [docker-engine-prerequisites.md](./docker-engine-prerequisites.md) - Read for Docker Engine prerequisites.

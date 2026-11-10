@@ -43,7 +43,7 @@ jobs:
     needs: [format, clippy, core-implementation, docs]
     name: tests and Docker runtime
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     # The runner must hold locked Docker images and two Rust test/binary
     # link artifacts simultaneously. Debug symbols consumed its remaining
     # disk space before tests could start (os error 28).
@@ -137,9 +137,9 @@ jobs:
         uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
         with:
           tool: nextest@0.9.148
-      - name: Run Docker, SSH, and remaining tests in parallel
+      - name: Run general suite then isolate Docker-heavy worker E2Es
         env:
-          KOOLADE_TEST_SUITE_LABEL: Docker/SSH and remaining tests
+          KOOLADE_TEST_SUITE_LABEL: Parallel general test suite
           KOOLADE_DOCKER_BACKEND_INTEGRATION: "1"
           KOOLADE_TEST_APPROVE_LOCKED_IMAGES: "1"
           KOOLADE_REMOTE_DOCKER_BACKEND_INTEGRATION: "1"
@@ -153,11 +153,12 @@ jobs:
           tail --follow=name --retry "$KOOLADE_TEST_DIAGNOSTICS_FILE" &
           diagnostics_pid=$!
           trap 'kill "$diagnostics_pid" 2>/dev/null || true; wait "$diagnostics_pid" 2>/dev/null || true' EXIT
+          printf '### Parallel general-suite phase\n' >> "$GITHUB_STEP_SUMMARY"
           set +e
           /usr/bin/time -p -o "$RUNNER_TEMP/nextest-time.txt" \
             cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast --test-threads 16 \
-              -E 'not (test(/^core::implementation::tests::/) and not test(/docker_lifecycle/)) and not test(/^core::implementation::tests::docker_lifecycle::cancelled_task_clone_resumes_through_docker_verification_and_waits_for_pr_authorization$/) and not test(/^app::root::board_tests::queue_execution::concurrent_workers::auto_queue_runs_independent_tasks_past_review_and_during_planning$/)'
-          test_status=$?
+              -E 'not (test(/^core::implementation::tests::/) and not test(/docker_lifecycle/)) and not test(/^core::implementation::tests::docker_lifecycle::cancelled_task_clone_resumes_through_docker_verification_and_waits_for_pr_authorization$/) and not test(/^app::root::board_tests::queue_execution::concurrent_workers::auto_queue_runs_independent_tasks_past_review_and_during_planning$/) and not test(/^harness::resource_bridge::tests::end_to_end::remote::/) and not test(/^execution::docker::backend::tests::docker_engine::system_image::approved_polyglot_composite_is_cached_and_isolated_across_tasks$/)'
+          parallel_status=$?
           set -e
 
           cat "$RUNNER_TEMP/nextest-time.txt"
@@ -166,10 +167,33 @@ jobs:
             "$RUNNER_TEMP/nextest-time.txt" \
             target/nextest/default/nextest.xml \
             >> "$GITHUB_STEP_SUMMARY"
-          report_status=$?
+          parallel_report_status=$?
           set -e
-          if [ "$test_status" -ne 0 ]; then exit "$test_status"; fi
-          exit "$report_status"
+          mkdir -p target/nextest/inventory
+          cp target/nextest/default/nextest.xml target/nextest/inventory/parallel-suite.xml
+          export KOOLADE_TEST_SUITE_LABEL="Isolated remote worker and composite Docker tests"
+          printf '### Isolated remote-worker and composite-image phase\n' >> "$GITHUB_STEP_SUMMARY"
+          set +e
+          /usr/bin/time -p -o "$RUNNER_TEMP/isolated-nextest-time.txt" \
+            cargo +1.98.1 nextest run --locked --all-targets --no-fail-fast --test-threads 16 \
+              -E 'test(/^harness::resource_bridge::tests::end_to_end::remote::/) or test(/^execution::docker::backend::tests::docker_engine::system_image::approved_polyglot_composite_is_cached_and_isolated_across_tasks$/)'
+          isolated_status=$?
+          set -e
+
+          cat "$RUNNER_TEMP/isolated-nextest-time.txt"
+          set +e
+          python3 scripts/summarize-nextest-junit.py \
+            "$RUNNER_TEMP/isolated-nextest-time.txt" \
+            target/nextest/default/nextest.xml \
+            >> "$GITHUB_STEP_SUMMARY"
+          isolated_report_status=$?
+          set -e
+          mkdir -p target/nextest/inventory
+          cp target/nextest/default/nextest.xml target/nextest/inventory/remote-worker-isolated.xml
+          if [ "$parallel_status" -ne 0 ]; then exit "$parallel_status"; fi
+          if [ "$parallel_report_status" -ne 0 ]; then exit "$parallel_report_status"; fi
+          if [ "$isolated_status" -ne 0 ]; then exit "$isolated_status"; fi
+          exit "$isolated_report_status"
 
       - name: Record storage and rootless Docker health after test shard
         if: always()
@@ -193,7 +217,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: nextest-inventory-${{ github.run_id }}-${{ github.run_attempt }}
-          path: target/nextest/default/nextest.xml
+          path: target/nextest/inventory/*.xml
           if-no-files-found: error
           retention-days: 14
 

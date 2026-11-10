@@ -13,9 +13,7 @@ pub(super) fn write_boot_config(
     session: &ComputerSessionV1,
     path: &Path,
 ) -> Result<(), crate::computer_use::ComputerBackendErrorV1> {
-    let worker_id = match &session.target {
-        crate::computer_use::ComputerTargetV1::LocalKvm { machine_id } => machine_id.clone(),
-    };
+    let worker_id = session.target.target_machine_id().to_owned();
     let mut allowed_apps = session.allowed_apps.iter().cloned().collect::<Vec<_>>();
     allowed_apps.sort();
     let config = GuestBootConfigV1::issue(
@@ -93,9 +91,7 @@ pub(super) fn write_app_helper_config(
     let config = crate::computer_use::apps::guest_helper::GuestAppHelperConfigV1 {
         schema_version: 1,
         session_id: session.identity.session_id.clone(),
-        worker_id: match &session.target {
-            crate::computer_use::ComputerTargetV1::LocalKvm { machine_id } => machine_id.clone(),
-        },
+        worker_id: session.target.guest_worker_id().to_owned(),
         image_digest: session.image_digest.clone(),
         session_class: session.session_class,
         lease_generation: session.lease.generation,

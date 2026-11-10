@@ -19,6 +19,7 @@ pub use cache::{
     CachedGuestImageV1, ComputerImageDownloadApprovalV1, GuestImageCacheV1, ImageCacheErrorV1,
 };
 pub use floor::GuestImageCatalogGenerationFloorV1;
+pub use manifest::MAX_MANIFEST_BYTES;
 pub use manifest::{
     ComputerGuestArchitectureV1, GuestImageEntryV1, GuestImageManifestTrustV1,
     GuestImageManifestV1, GuestImageStatusV1, VerifiedCatalogGuestImageV1,

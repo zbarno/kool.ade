@@ -24,6 +24,7 @@ use crate::computer_use::{
 
 pub struct ComputerUseMcpRuntimeConfigV1 {
     pub backend: Arc<dyn ComputerBackend>,
+    pub target: crate::computer_use::ComputerTargetV1,
     pub controller_key: ed25519_dalek::SigningKey,
     pub controller_key_id: String,
     pub machine_id: String,
@@ -42,6 +43,7 @@ pub struct ComputerUseMcpRuntimeConfigV1 {
 
 pub(super) struct Runtime {
     pub backend: Arc<dyn ComputerBackend>,
+    pub target: crate::computer_use::ComputerTargetV1,
     pub controller_key: ed25519_dalek::SigningKey,
     pub controller_key_id: String,
     pub machine_id: String,
@@ -152,6 +154,11 @@ impl ComputerUseMcpControllerV1 {
         if !is_uuid(&config.machine_id) || !is_uuid(&config.controller_key_id) {
             return Err("trusted_host_identity_unavailable");
         }
+        if config.target.validate().is_err()
+            || config.target.target_machine_id() != config.machine_id
+        {
+            return Err("trusted_target_identity_unavailable");
+        }
         let probe = config
             .backend
             .probe()
@@ -198,6 +205,7 @@ impl ComputerUseMcpControllerV1 {
             registry,
             runtime: Some(Runtime {
                 backend: config.backend,
+                target: config.target,
                 controller_key: config.controller_key,
                 controller_key_id: config.controller_key_id,
                 machine_id: config.machine_id,

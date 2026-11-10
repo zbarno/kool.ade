@@ -68,7 +68,7 @@ pub(super) fn map_api_error(error: &bollard::errors::Error) -> PrerequisiteFailu
     } else {
         failure(
             PrerequisiteCode::DaemonStopped,
-            "Docker Engine disconnected or did not answer its health request",
+            crate::execution::errors::LOCAL_DOCKER_HEALTH_DISCONNECTED,
             true,
         )
     }

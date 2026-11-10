@@ -35,6 +35,8 @@ const GRANTABLE_APPS: [&str; 5] = [
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ComputerUseConsentScopeV1 {
     pub machine_id: String,
+    /// Exact, app-selected execution target shown for operator approval.
+    pub target: crate::computer_use::ComputerTargetV1,
     pub approved_destination: Option<String>,
     pub allowed_operations: Vec<crate::computer_use::ComputerOperationV1>,
     pub allowed_apps: Vec<String>,
@@ -65,6 +67,7 @@ pub struct ComputerUseConsentRequestV1 {
     pub role_id: String,
     pub purpose: String,
     pub machine_id: String,
+    pub target: crate::computer_use::ComputerTargetV1,
     pub approved_destination: Option<String>,
     pub allowed_operations: Vec<crate::computer_use::ComputerOperationV1>,
     pub allowed_apps: Vec<String>,
@@ -227,6 +230,7 @@ impl ComputerUseConsentBrokerV1 {
                 role_id: caller.role_id.clone(),
                 purpose: purpose.trim().to_owned(),
                 machine_id: scope.machine_id,
+                target: scope.target,
                 approved_destination: scope.approved_destination,
                 allowed_operations: scope.allowed_operations,
                 allowed_apps: scope.allowed_apps,
@@ -294,8 +298,10 @@ fn valid_scope(scope: &ComputerUseConsentScopeV1, role_id: &str) -> bool {
     } else {
         (&GRANTABLE_OPERATIONS[..], &GRANTABLE_APPS[..])
     };
-    uuid::Uuid::parse_str(&scope.machine_id)
-        .is_ok_and(|machine| machine.to_string() == scope.machine_id)
+    scope.target.validate().is_ok()
+        && scope.target.target_machine_id() == scope.machine_id
+        && uuid::Uuid::parse_str(&scope.machine_id)
+            .is_ok_and(|machine| machine.to_string() == scope.machine_id)
         && !scope.allowed_operations.is_empty()
         && allowed_operations.len() == scope.allowed_operations.len()
         && scope

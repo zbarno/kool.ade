@@ -1,16 +1,10 @@
 use super::{
     ComputerIdentityV1, ComputerLeaseV1, ComputerLifecycleV1, ComputerPolicyV1,
-    ComputerSessionClassV1,
+    ComputerSessionClassV1, ComputerTargetV1,
 };
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ComputerTargetV1 {
-    LocalKvm { machine_id: String },
-}
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -99,11 +93,8 @@ impl ComputerSessionV1 {
         {
             return Err("session generation or action quota mismatch");
         }
-        let machine_id = match &self.target {
-            ComputerTargetV1::LocalKvm { machine_id } => machine_id,
-        };
-        if !is_uuid(machine_id)
-            || !valid_digest(&self.image_digest)
+        self.target.validate()?;
+        if !valid_digest(&self.image_digest)
             || !valid_digest(&self.image_manifest_digest)
             || !is_uuid(&self.image_signer_key_id)
         {

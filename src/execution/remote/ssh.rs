@@ -1,6 +1,7 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const FIXED_REMOTE_COMMAND: &str = "koolade worker serve --stdio";
+const COMPUTER_USE_REMOTE_COMMAND: &str = "koolade computer-use-worker serve --stdio --config";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SshWorkerConfig {
@@ -61,6 +62,32 @@ impl SshWorkerConfig {
             "remote worker registration does not match the SSH identity"
         );
         anyhow::ensure!(registration.enabled, "remote worker is disabled locally");
+        self.verify_known_hosts_fingerprint()?;
+        Ok(VerifiedSshWorker {
+            config: self.clone(),
+        })
+    }
+
+    /// Verify the independently enrolled Computer Use SSH identity without
+    /// consulting Docker execution-worker enrollment or health state.
+    pub(crate) fn verify_computer_use_known_host(
+        &self,
+        expected_worker_id: &str,
+        expected_fingerprint: &str,
+    ) -> anyhow::Result<VerifiedSshWorker> {
+        self.validate()?;
+        anyhow::ensure!(
+            self.stable_id == expected_worker_id
+                && self.verified_host_key_fingerprint == expected_fingerprint,
+            "Computer Use worker SSH identity does not match its enrollment"
+        );
+        self.verify_known_hosts_fingerprint()?;
+        Ok(VerifiedSshWorker {
+            config: self.clone(),
+        })
+    }
+
+    fn verify_known_hosts_fingerprint(&self) -> anyhow::Result<()> {
         let output = std::process::Command::new("ssh-keygen")
             .args(["-F", &self.stable_id, "-f"])
             .arg(&self.known_hosts_path)
@@ -75,12 +102,23 @@ impl SshWorkerConfig {
             known_host_fingerprint_matches(&fingerprints, &self.verified_host_key_fingerprint,),
             "SSH host key does not match the trusted worker fingerprint"
         );
-        Ok(VerifiedSshWorker {
-            config: self.clone(),
-        })
+        Ok(())
     }
 
     fn argv(&self) -> Vec<String> {
+        self.argv_for(FIXED_REMOTE_COMMAND)
+    }
+
+    fn computer_use_argv(&self, config_path: &Path) -> anyhow::Result<Vec<String>> {
+        let path = config_path.to_string_lossy();
+        anyhow::ensure!(
+            valid_remote_config_path(&path),
+            "remote Computer Use config path is unsafe"
+        );
+        Ok(self.argv_for(&format!("{COMPUTER_USE_REMOTE_COMMAND} {path}")))
+    }
+
+    fn argv_for(&self, fixed_command: &str) -> Vec<String> {
         vec![
             self.ssh_binary.to_string_lossy().into_owned(),
             "-T".into(),
@@ -117,7 +155,7 @@ impl SshWorkerConfig {
             "-o".into(),
             format!("HostKeyAlias={}", self.stable_id),
             format!("{}@{}", self.ssh_principal, self.host_alias),
-            FIXED_REMOTE_COMMAND.into(),
+            fixed_command.into(),
         ]
     }
 }
@@ -136,6 +174,14 @@ pub(crate) struct VerifiedSshWorker {
 }
 
 impl VerifiedSshWorker {
+    pub(crate) fn stable_id(&self) -> &str {
+        &self.config.stable_id
+    }
+
+    pub(crate) fn host_key_fingerprint(&self) -> &str {
+        &self.config.verified_host_key_fingerprint
+    }
+
     /// Construct argv without a shell; callers must execute it directly.
     pub(crate) fn argv(&self) -> Vec<String> {
         self.config.argv()
@@ -144,7 +190,25 @@ impl VerifiedSshWorker {
     /// Start the fixed worker stream over OpenSSH. Standard input/output are
     /// reserved for the framed protocol; stderr remains separate.
     pub(crate) fn spawn(&self) -> std::io::Result<std::process::Child> {
-        let argv = self.argv();
+        self.spawn_argv(self.argv())
+    }
+
+    /// Start the separately typed Computer Use VM-worker stream. It does not
+    /// invoke the Docker execution worker command or share its RPC envelope.
+    pub(crate) fn spawn_computer_use(
+        &self,
+        config_path: &Path,
+    ) -> std::io::Result<std::process::Child> {
+        let argv = self.config.computer_use_argv(config_path).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "remote worker config path is unsafe",
+            )
+        })?;
+        self.spawn_argv(argv)
+    }
+
+    fn spawn_argv(&self, argv: Vec<String>) -> std::io::Result<std::process::Child> {
         let mut command = std::process::Command::new(&argv[0]);
         command
             .args(&argv[1..])
@@ -175,6 +239,19 @@ fn valid_ssh_principal(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
+fn valid_remote_config_path(value: &str) -> bool {
+    value.starts_with('/')
+        && value.len() <= 512
+        && value.split('/').skip(1).all(|part| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && part
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,6 +280,50 @@ mod tests {
         assert!(argv.iter().any(|arg| arg == "ProxyCommand=none"));
         assert_eq!(argv.last().unwrap(), FIXED_REMOTE_COMMAND);
         assert!(!argv.iter().any(|argument| argument.contains(";")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn worker_spawn_keeps_stderr_pipe_for_the_transport_diagnostic_reader() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let fake_ssh = root.path().join("fake-ssh");
+        std::fs::write(&fake_ssh, "#!/bin/sh\nexec cat >/dev/null\n").unwrap();
+        let mut permissions = std::fs::metadata(&fake_ssh).unwrap().permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&fake_ssh, permissions).unwrap();
+
+        let mut config = config();
+        config.ssh_binary = fake_ssh;
+        let worker = VerifiedSshWorker { config };
+        let mut child = worker.spawn().unwrap();
+        assert!(child.stderr.is_some());
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
+
+    #[test]
+    fn computer_use_ssh_command_accepts_only_an_explicit_safe_worker_config_path() {
+        let mut config = config();
+        config.known_hosts_path = std::env::temp_dir();
+        let argv = config
+            .computer_use_argv(Path::new("/etc/koolade/computer-use-worker.json"))
+            .unwrap();
+        assert_eq!(
+            argv.last().unwrap(),
+            "koolade computer-use-worker serve --stdio --config /etc/koolade/computer-use-worker.json"
+        );
+        assert!(
+            config
+                .computer_use_argv(Path::new("/tmp/../../etc/worker.json"))
+                .is_err()
+        );
+        assert!(
+            config
+                .computer_use_argv(Path::new("/tmp/worker;id"))
+                .is_err()
+        );
     }
 
     #[test]
