@@ -240,6 +240,7 @@ impl ComputerActionV1 {
             .is_ok_and(|payload| verifying_key.verify(&payload, &signature).is_ok())
     }
 
+    #[cfg(any(target_os = "linux", test))]
     pub(crate) fn same_helper_action(&self, other: &Self) -> bool {
         let mut left = self.clone();
         let mut right = other.clone();

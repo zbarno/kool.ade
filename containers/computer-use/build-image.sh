@@ -445,7 +445,8 @@ printf '%s  %s\n' "$agent_digest" "companion-binary" \
   >> "$output_dir/${base_name}.recipe-components.sha256"
 printf '%s  %s\n' "$helper_digest" "app-helper-binary" \
   >> "$output_dir/${base_name}.recipe-components.sha256"
-sha256sum "$output_dir/${base_name}.app-packages.tsv" \
+app_packages_digest="$(sha256sum "$output_dir/${base_name}.app-packages.tsv" | cut -d ' ' -f 1)"
+printf '%s  %s\n' "$app_packages_digest" "${base_name}.app-packages.tsv" \
   >> "$output_dir/${base_name}.recipe-components.sha256"
 recipe_digest="$(sha256sum "$output_dir/${base_name}.recipe-components.sha256" | cut -d ' ' -f 1)"
 printf 'sha256:%s\n' "$recipe_digest" > "$output_dir/${base_name}.recipe.sha256"
