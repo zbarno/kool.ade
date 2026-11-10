@@ -29,6 +29,7 @@ pub(super) fn set_child_limits(
     command: &mut Command,
     max_file_bytes: u64,
     cgroup_procs: &Path,
+    secret_fd: Option<libc::c_int>,
 ) -> Result<(), Error> {
     // The delegated cgroup bounds CPU, memory, and process count. RLIMIT_FSIZE
     // bounds the qcow2 overlay's maximum host allocation even if the guest
@@ -38,8 +39,15 @@ pub(super) fn set_child_limits(
         .map_err(|_| Error::HostNotReady)?;
     unsafe {
         command.pre_exec(move || {
+            libc::umask(0o077);
             if libc::setsid() < 0 {
                 return Err(std::io::Error::last_os_error());
+            }
+            if let Some(fd) = secret_fd {
+                let flags = libc::fcntl(fd, libc::F_GETFD);
+                if flags < 0 || libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
             }
             let limit = libc::rlimit {
                 rlim_cur: max_file_bytes as libc::rlim_t,

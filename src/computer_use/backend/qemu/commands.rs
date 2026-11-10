@@ -11,8 +11,19 @@ pub(super) fn command_args(
     display_socket: &Path,
     boot_config: &Path,
     research_proxy: Option<SocketAddr>,
+    secret_fd: Option<libc::c_int>,
 ) -> Result<Vec<OsString>, ComputerBackendErrorV1> {
     use crate::computer_use::{ComputerCapabilityV1, ComputerNetworkProfileV1};
+    if secret_fd.is_some()
+        != (session.session_class
+            == crate::computer_use::ComputerSessionClassV1::PersonalPersistent)
+        || (secret_fd.is_some()
+            && (session.policy.capability != ComputerCapabilityV1::PersistentPersonal
+                || session.network_profile != ComputerNetworkProfileV1::Disabled
+                || session.policy.network_profile != ComputerNetworkProfileV1::Disabled))
+    {
+        return Err(ComputerBackendErrorV1::UnsupportedPolicy);
+    }
     let machine_id = match &session.target {
         ComputerTargetV1::LocalKvm { machine_id } => machine_id,
     };
@@ -28,10 +39,19 @@ pub(super) fn command_args(
     );
     let smp = format!("{vcpus},sockets=1,cores={vcpus},threads=1");
     let memory = format!("size={memory_mib}M");
-    let drive = format!(
-        "if=none,id=guestdisk,file={},format=qcow2,cache=none,aio=threads,discard=unmap",
-        overlay.display()
-    );
+    let drive = if secret_fd.is_some() {
+        format!(
+            "if=none,id=guestdisk,file={},format=qcow2,cache=none,aio=threads,discard=unmap,encrypt.key-secret=personal_vm_key",
+            overlay.display()
+        )
+    } else {
+        format!(
+            "if=none,id=guestdisk,file={},format=qcow2,cache=none,aio=threads,discard=unmap",
+            overlay.display()
+        )
+    };
+    let secret_object =
+        secret_fd.map(|fd| format!("secret,id=personal_vm_key,file=/proc/self/fd/{fd}"));
     let chardev = format!(
         "socket,id=guestcontrol,path={},server=on,wait=off",
         control_socket.display()
@@ -71,7 +91,7 @@ pub(super) fn command_args(
         }
     }
 
-    let args = vec![
+    let mut args = vec![
         "-name",
         &name,
         "-no-user-config",
@@ -119,6 +139,16 @@ pub(super) fn command_args(
     .into_iter()
     .map(OsString::from)
     .collect::<Vec<_>>();
+    if let Some(secret_object) = secret_object {
+        let object_position = args
+            .iter()
+            .position(|arg| arg == "-drive")
+            .ok_or(ComputerBackendErrorV1::UnsupportedPolicy)?;
+        args.splice(
+            object_position..object_position,
+            [OsString::from("-object"), OsString::from(secret_object)],
+        );
+    }
     Ok(args)
 }
 

@@ -17,6 +17,27 @@ pub(super) fn run_bounded(
     args: &[&OsStr],
     timeout: Duration,
 ) -> Result<BoundedOutput, QemuProcessError> {
+    run_bounded_inner(path, args, timeout, None, None)
+}
+
+#[cfg(target_os = "linux")]
+pub(super) fn run_bounded_with_secret_fd(
+    path: &Path,
+    args: &[&OsStr],
+    timeout: Duration,
+    secret_fd: libc::c_int,
+    max_file_bytes: u64,
+) -> Result<BoundedOutput, QemuProcessError> {
+    run_bounded_inner(path, args, timeout, Some(secret_fd), Some(max_file_bytes))
+}
+
+fn run_bounded_inner(
+    path: &Path,
+    args: &[&OsStr],
+    timeout: Duration,
+    inherited_secret_fd: Option<libc::c_int>,
+    max_file_bytes: Option<u64>,
+) -> Result<BoundedOutput, QemuProcessError> {
     #[cfg(unix)]
     {
         let mut command = Command::new(path);
@@ -27,9 +48,25 @@ pub(super) fn run_bounded(
         use std::os::unix::process::CommandExt;
         // Each tool invocation owns its process group so timeout kills helpers too.
         unsafe {
-            command.pre_exec(|| {
+            command.pre_exec(move || {
+                libc::umask(0o077);
                 if libc::setpgid(0, 0) == -1 {
                     return Err(io::Error::last_os_error());
+                }
+                if let Some(fd) = inherited_secret_fd {
+                    let flags = libc::fcntl(fd, libc::F_GETFD);
+                    if flags < 0 || libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                }
+                if let Some(max_bytes) = max_file_bytes {
+                    let limit = libc::rlimit {
+                        rlim_cur: max_bytes as libc::rlim_t,
+                        rlim_max: max_bytes as libc::rlim_t,
+                    };
+                    if libc::setrlimit(libc::RLIMIT_FSIZE, &limit) < 0 {
+                        return Err(io::Error::last_os_error());
+                    }
                 }
                 #[cfg(target_os = "linux")]
                 {
@@ -117,7 +154,7 @@ pub(super) fn run_bounded(
     }
     #[cfg(not(unix))]
     {
-        let _ = (path, args, timeout);
+        let _ = (path, args, timeout, inherited_secret_fd, max_file_bytes);
         Err(QemuProcessError::Unavailable)
     }
 }

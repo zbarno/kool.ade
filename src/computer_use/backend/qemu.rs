@@ -121,6 +121,10 @@ impl LocalKvmComputerBackend {
         qemu_program()
     }
 
+    pub(super) fn personal_overlay_root(&self) -> PathBuf {
+        self.overlay_root.join("personal")
+    }
+
     fn validate_session(
         &self,
         session: &ComputerSessionV1,

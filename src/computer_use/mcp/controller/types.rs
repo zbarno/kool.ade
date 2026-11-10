@@ -48,6 +48,7 @@ pub(super) struct Runtime {
     pub image: CachedGuestImageV1,
     pub scheduler: Arc<ComputerUseSchedulerV1>,
     pub session_journal: ComputerUseSessionJournalV1,
+    pub personal_profiles: Option<crate::computer_use::PersonalVmProfileStoreV1>,
 }
 
 pub(super) struct ActiveSession {
@@ -67,9 +68,15 @@ pub(super) struct ActiveSession {
     pub require_fresh_agent_observation: bool,
     pub private_input: bool,
     pub active_app: Option<String>,
+    pub personal_profile_id: Option<String>,
     pub action_log: std::collections::VecDeque<ComputerUseActionSummaryV1>,
     pub display_io: Arc<Mutex<()>>,
     pub _scheduler_permit: SessionPermit,
+}
+
+pub(super) struct PendingPersonalVmConsentV1 {
+    pub owner_id: String,
+    pub view: crate::computer_use::mcp::ComputerUsePersonalVmConsentViewV1,
 }
 
 pub(super) struct DisplaySnapshot {
@@ -89,6 +96,7 @@ pub struct ComputerUseMcpControllerV1 {
     pub(super) display_streams: Mutex<BTreeMap<String, Arc<Mutex<DisplaySnapshot>>>>,
     pub(super) view_cache: Mutex<BTreeMap<String, super::super::ComputerUseTaskSessionViewV1>>,
     pub(super) pending_controls: Mutex<BTreeMap<String, Option<String>>>,
+    pub(super) pending_personal_vm_consents: Mutex<BTreeMap<String, PendingPersonalVmConsentV1>>,
     pub(super) recovery_notices: Mutex<BTreeMap<String, String>>,
 }
 
@@ -109,6 +117,7 @@ impl ComputerUseMcpControllerV1 {
             display_streams: Mutex::new(BTreeMap::new()),
             view_cache: Mutex::new(BTreeMap::new()),
             pending_controls: Mutex::new(BTreeMap::new()),
+            pending_personal_vm_consents: Mutex::new(BTreeMap::new()),
             recovery_notices: Mutex::new(BTreeMap::new()),
         }
     }
@@ -156,6 +165,11 @@ impl ComputerUseMcpControllerV1 {
         let session_journal = ComputerUseSessionJournalV1::open(
             &config.overlay_root.with_file_name("session-journal"),
         )?;
+        let personal_profiles = crate::computer_use::PersonalVmProfileStoreV1::open(
+            config.overlay_root.join("personal"),
+            "/usr/bin/secret-tool",
+        )
+        .ok();
         config
             .backend
             .recover()
@@ -177,12 +191,14 @@ impl ComputerUseMcpControllerV1 {
                 image,
                 scheduler,
                 session_journal,
+                personal_profiles,
             }),
             unavailable_reason: None,
             sessions: Mutex::new(BTreeMap::new()),
             display_streams: Mutex::new(BTreeMap::new()),
             view_cache: Mutex::new(BTreeMap::new()),
             pending_controls: Mutex::new(BTreeMap::new()),
+            pending_personal_vm_consents: Mutex::new(BTreeMap::new()),
             recovery_notices: Mutex::new(BTreeMap::new()),
         })
     }

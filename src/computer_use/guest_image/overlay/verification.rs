@@ -70,6 +70,24 @@ pub(crate) fn verify_overlay_before_boot_with_tool(
         .map_err(|_| GuestImageOverlayErrorV1::InvalidOverlay)?;
     let canonical_base = fs::canonicalize(&overlay.base_image_path)
         .map_err(|_| GuestImageOverlayErrorV1::UnsafePath)?;
+    #[cfg(target_os = "linux")]
+    if overlay.persistent_disk_key.is_some() {
+        if decoded.format != "qcow2"
+            || decoded.virtual_size != overlay.virtual_size_bytes
+            || decoded.backing_filename.is_some()
+            || decoded.encrypted != Some(true)
+            || decoded.format_specific.is_none_or(|specific| {
+                specific.format_type != "qcow2"
+                    || specific
+                        .data
+                        .encrypt
+                        .is_none_or(|encryption| encryption.format != "luks")
+            })
+        {
+            return Err(GuestImageOverlayErrorV1::InvalidOverlay);
+        }
+        return Ok(());
+    }
     if decoded.format != "qcow2"
         || decoded.virtual_size != overlay.virtual_size_bytes
         || decoded.backing_format.as_deref() != Some("qcow2")
