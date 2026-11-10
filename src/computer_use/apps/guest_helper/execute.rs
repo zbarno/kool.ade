@@ -2,6 +2,9 @@ mod catalog;
 mod package;
 mod task_stage;
 
+#[cfg(test)]
+mod personal_profile_tests;
+
 use std::{
     os::unix::process::CommandExt,
     path::Path,
