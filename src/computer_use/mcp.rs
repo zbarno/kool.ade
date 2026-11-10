@@ -91,6 +91,39 @@ pub struct ComputerUseTaskSessionViewV1 {
     pub action_log: Vec<ComputerUseActionSummaryV1>,
 }
 
+/// Display-only local inventory entry for an encrypted personal VM profile.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComputerUsePersonalProfileViewV1 {
+    pub profile_id: String,
+    pub created_at_unix_ms: u64,
+    pub retention_until_unix_ms: u64,
+    pub active_session_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ComputerUsePersonalVmChoiceV1 {
+    Create { retention_days: u16 },
+    Unlock { profile_id: String },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComputerUsePersonalVmSessionTargetV1 {
+    pub identity: super::ComputerIdentityV1,
+    pub profile_id: String,
+    pub session_class: super::ComputerSessionClassV1,
+    pub network_profile: super::ComputerNetworkProfileV1,
+    pub initial_control_owner: ComputerUseControlOwnerV1,
+    pub private_input_required: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComputerUsePersonalVmConsentViewV1 {
+    pub request_id: String,
+    pub choice: ComputerUsePersonalVmChoiceV1,
+    pub target: ComputerUsePersonalVmSessionTargetV1,
+    pub expires_at_unix_ms: u64,
+}
+
 pub fn is_supported_computer_use_role_v1(role_id: &str) -> bool {
     SUPPORTED_COMPUTER_USE_ROLES_V1.contains(&role_id)
 }

@@ -1,6 +1,9 @@
 use super::*;
 
+mod personal_profiles;
+
 pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn Surface, task_id: &str) {
+    personal_profiles::paint(ui, surface);
     let sessions = surface.computer_use_task_sessions(task_id);
     egui::CollapsingHeader::new("Computer")
         .id_salt(("task_computer", task_id))

@@ -49,6 +49,26 @@ pub(super) struct QemuImageInfo {
     backing_filename: Option<String>,
     #[serde(rename = "backing-filename-format")]
     backing_format: Option<String>,
+    encrypted: Option<bool>,
+    #[serde(rename = "format-specific")]
+    format_specific: Option<QemuImageFormatSpecific>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct QemuImageFormatSpecific {
+    #[serde(rename = "type")]
+    format_type: String,
+    data: QemuImageFormatData,
+}
+
+#[derive(Deserialize)]
+pub(super) struct QemuImageFormatData {
+    encrypt: Option<QemuImageEncryption>,
+}
+
+#[derive(Deserialize)]
+pub(super) struct QemuImageEncryption {
+    format: String,
 }
 
 /// Re-verify signed catalog, current session lease, revocation, and architecture
@@ -192,6 +212,8 @@ fn create_guest_image_overlay_at(
         signer_key_id: verified.manifest_signer_key_id().to_owned(),
         catalog_generation: verified.catalog_generation(),
         virtual_size_bytes: decoded.virtual_size,
+        persistent_disk_key: None,
+        _profile_lock: None,
     })
 }
 
@@ -275,6 +297,6 @@ fn set_private_file(path: &Path) -> Result<(), GuestImageOverlayErrorV1> {
     Ok(())
 }
 
-fn is_canonical_uuid(value: &str) -> bool {
+pub(super) fn is_canonical_uuid(value: &str) -> bool {
     Uuid::parse_str(value).is_ok_and(|id| id.hyphenated().to_string() == value)
 }

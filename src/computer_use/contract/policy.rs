@@ -96,9 +96,6 @@ impl ComputerPolicyV1 {
         if self.capability == ComputerCapabilityV1::HighImpactExternalAction {
             return Err("high-impact actions are unsupported until exact transaction grants exist");
         }
-        if self.session_class == ComputerSessionClassV1::PersonalPersistent {
-            return Err("persistent sessions are unsupported until encrypted storage grants exist");
-        }
         self.identity.validate()?;
         self.resource_budget.validate()?;
         if self.approval_generation == 0 {
@@ -140,6 +137,30 @@ impl ComputerPolicyV1 {
             && self.session_class != ComputerSessionClassV1::PersonalPersistent
         {
             return Err("persistent capability requires a personal session class");
+        }
+        if self.session_class == ComputerSessionClassV1::PersonalPersistent
+            && (self.capability != ComputerCapabilityV1::PersistentPersonal
+                || self.network_profile != ComputerNetworkProfileV1::Disabled
+                || self.allowed_apps.iter().any(|app| {
+                    !matches!(app.as_str(), "chromium" | "file-manager" | "text-editor")
+                })
+                || self.authorized_operations.iter().any(|operation| {
+                    !matches!(
+                        operation,
+                        ComputerOperationV1::ObserveScreen
+                            | ComputerOperationV1::ObserveWindows
+                            | ComputerOperationV1::ReadAccessibility
+                            | ComputerOperationV1::MouseInput
+                            | ComputerOperationV1::KeyboardInput
+                            | ComputerOperationV1::LaunchAllowedApp
+                            | ComputerOperationV1::WaitFor
+                            | ComputerOperationV1::QueryState
+                    )
+                }))
+        {
+            return Err(
+                "personal sessions require the persistent capability and disabled networking",
+            );
         }
         if self.session_class == ComputerSessionClassV1::Disposable
             && self.capability >= ComputerCapabilityV1::PersistentPersonal

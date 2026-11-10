@@ -80,6 +80,7 @@ fn launch_arguments_have_no_network_monitor_host_mount_or_guest_shell() {
         Path::new("/private/display.sock"),
         Path::new("/private/boot.json"),
         None,
+        None,
     )
     .unwrap();
     let args = args
@@ -108,6 +109,36 @@ fn launch_arguments_have_no_network_monitor_host_mount_or_guest_shell() {
 }
 
 #[test]
+fn personal_qemu_arguments_reference_only_inherited_secret_fd() {
+    let mut session = session();
+    session.session_class = ComputerSessionClassV1::PersonalPersistent;
+    session.policy.session_class = ComputerSessionClassV1::PersonalPersistent;
+    session.policy.capability = ComputerCapabilityV1::PersistentPersonal;
+    let args = command_args(
+        &session,
+        Path::new("/private/personal/profile.qcow2"),
+        Path::new("/private/guest-control.sock"),
+        Path::new("/private/display.sock"),
+        Path::new("/private/boot.json"),
+        None,
+        Some(17),
+    )
+    .unwrap()
+    .iter()
+    .map(|arg| arg.to_string_lossy().into_owned())
+    .collect::<Vec<_>>();
+
+    assert!(args.windows(2).any(|pair| {
+        pair[0] == "-object" && pair[1] == "secret,id=personal_vm_key,file=/proc/self/fd/17"
+    }));
+    assert!(
+        args.iter()
+            .any(|arg| arg.contains("encrypt.key-secret=personal_vm_key"))
+    );
+    assert!(!args.iter().any(|arg| arg.contains("secret-bytes")));
+}
+
+#[test]
 fn launch_argument_paths_reject_qemu_option_delimiters() {
     let session = session();
     let result = command_args(
@@ -116,6 +147,7 @@ fn launch_argument_paths_reject_qemu_option_delimiters() {
         Path::new("/private/guest-control.sock"),
         Path::new("/private/display.sock"),
         Path::new("/private/boot.json"),
+        None,
         None,
     );
     assert_eq!(result, Err(ComputerBackendErrorV1::InvalidOverlay));
@@ -134,6 +166,7 @@ fn internet_research_qemu_network_is_restricted_to_the_loopback_proxy() {
         Path::new("/private/display.sock"),
         Path::new("/private/boot.json"),
         Some("127.0.0.1:49152".parse().unwrap()),
+        None,
     )
     .unwrap()
     .iter()
@@ -156,6 +189,7 @@ fn internet_research_qemu_network_is_restricted_to_the_loopback_proxy() {
             Path::new("/private/display.sock"),
             Path::new("/private/boot.json"),
             Some("127.0.0.1:49152".parse().unwrap()),
+            None,
         ),
         Err(ComputerBackendErrorV1::UnsupportedPolicy)
     );

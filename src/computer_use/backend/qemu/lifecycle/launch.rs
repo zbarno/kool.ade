@@ -23,6 +23,10 @@ impl LocalKvmComputerBackend {
         overlay
             .verify_before_boot()
             .map_err(|_| Error::InvalidOverlay)?;
+        let secret_file = overlay
+            .persistent_key_fd()
+            .map_err(|_| Error::InvalidOverlay)?;
+        let secret_fd = secret_file.as_ref().map(std::os::fd::AsRawFd::as_raw_fd);
         let control_socket = machine.directory.join("guest-control.sock");
         let display_socket = machine.directory.join("display.sock");
         let boot_config = machine.directory.join("guest-boot-config.json");
@@ -56,6 +60,7 @@ impl LocalKvmComputerBackend {
             &display_socket,
             &boot_config,
             research_proxy,
+            secret_fd,
         )
         .map_err(|_| Error::ResourceLimit)?;
         let qemu_path = self.qemu_path();
@@ -67,6 +72,7 @@ impl LocalKvmComputerBackend {
             &mut command,
             session.policy.resource_budget.disk_bytes,
             &cgroup.process_path(&handle.session_id),
+            secret_fd,
         )?;
         let mut child = match command.spawn() {
             Ok(child) => child,
