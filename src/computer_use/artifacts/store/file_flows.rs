@@ -10,6 +10,7 @@ use crate::computer_use::artifacts::{
 use std::path::Path;
 
 impl ComputerArtifactBridgeV1 {
+    #[cfg(target_os = "linux")]
     pub(super) fn authorize_remote_guest_send(
         &self,
         artifact_id: &str,
@@ -35,6 +36,7 @@ impl ComputerArtifactBridgeV1 {
     }
 
     #[allow(clippy::too_many_arguments)] // Each transfer authority fence is independently checked.
+    #[cfg(target_os = "linux")]
     pub(super) fn authorize_remote_guest_receive(
         &self,
         grant_id: &str,
@@ -299,6 +301,107 @@ impl ComputerArtifactBridgeV1 {
             Ok((manifest, bytes))
         })
     }
+
+    /// Stage and send exactly one controller-authorized task file to a remote
+    /// guest. The worker receives only the bounded bytes and basename, never a
+    /// host path or task root.
+    #[cfg(target_os = "linux")]
+    pub fn stage_task_file_to_remote_guest(
+        &self,
+        backend: &crate::computer_use::remote_worker::RemoteComputerBackendV1,
+        grant_id: &str,
+        task_root: &Path,
+        current_task_revision: &str,
+        session: &crate::computer_use::ComputerSessionV1,
+        now_unix_ms: u64,
+    ) -> Result<Receipt, ComputerArtifactBridgeErrorV1> {
+        let receipt = self.stage_task_file(
+            grant_id,
+            task_root,
+            current_task_revision,
+            &session.identity,
+            now_unix_ms,
+        )?;
+        let (manifest, bytes) = self.load_for_guest(
+            &receipt.artifact_id,
+            &session.identity,
+            current_task_revision,
+            session.lease.generation,
+            session.approval_generation,
+            now_unix_ms,
+        )?;
+        backend
+            .write_artifact_to_guest(session, &manifest.display_name, &bytes, now_unix_ms, || {
+                self.authorize_remote_guest_send(
+                    &receipt.artifact_id,
+                    &session.identity,
+                    current_task_revision,
+                    session.lease.generation,
+                    session.approval_generation,
+                    live_now_unix_ms(),
+                )
+                .is_ok()
+            })
+            .map_err(|_| ComputerArtifactBridgeErrorV1::Storage)?;
+        Ok(receipt)
+    }
+
+    /// Read one explicitly granted guest download and stage it only after the
+    /// existing bridge rechecks grant identity, flow, task revision, lease,
+    /// approval generation, content type, digest, and quota.
+    #[cfg(target_os = "linux")]
+    pub fn receive_remote_guest_file(
+        &self,
+        backend: &crate::computer_use::remote_worker::RemoteComputerBackendV1,
+        grant_id: &str,
+        session: &crate::computer_use::ComputerSessionV1,
+        current_task_revision: &str,
+        display_name: &str,
+        now_unix_ms: u64,
+    ) -> Result<Receipt, ComputerArtifactBridgeErrorV1> {
+        let max_bytes = self.authorize_remote_guest_receive(
+            grant_id,
+            &session.identity,
+            current_task_revision,
+            session.lease.generation,
+            session.approval_generation,
+            display_name,
+            now_unix_ms,
+        )?;
+        let (bytes, digest) = backend
+            .read_artifact_from_guest(session, display_name, max_bytes, live_now_unix_ms(), || {
+                self.authorize_remote_guest_receive(
+                    grant_id,
+                    &session.identity,
+                    current_task_revision,
+                    session.lease.generation,
+                    session.approval_generation,
+                    display_name,
+                    live_now_unix_ms(),
+                )
+                .is_ok()
+            })
+            .map_err(|_| ComputerArtifactBridgeErrorV1::Storage)?;
+        self.receive_guest_file(
+            grant_id,
+            &session.identity,
+            current_task_revision,
+            session.lease.generation,
+            session.approval_generation,
+            display_name,
+            &bytes,
+            &digest,
+            live_now_unix_ms(),
+        )
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn live_now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(u64::MAX as u128) as u64)
+        .unwrap_or(u64::MAX)
 }
 
 pub(super) fn manifest_matches_grant(manifest: &Manifest, grant: &Grant) -> bool {
