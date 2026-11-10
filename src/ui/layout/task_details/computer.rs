@@ -101,6 +101,111 @@ fn paint_session(
         }
         Status::Active => {}
     }
+    if let Some(pending) = &session.pending_action_intent {
+        use crate::computer_use::ComputerActionIntentStateV1 as IntentState;
+        ui.separator();
+        ui.heading("Sensitive action approval");
+        ui.colored_label(
+            crate::ui::theme::WARNING,
+            "Review the exact action and current screen before granting this one-time permission.",
+        );
+        let risk = match pending.intent.risk {
+            crate::computer_use::ComputerActionRiskV1::Observation => "Observation",
+            crate::computer_use::ComputerActionRiskV1::LocalReversible => "Local reversible change",
+            crate::computer_use::ComputerActionRiskV1::ExternalMessage => "External message",
+            crate::computer_use::ComputerActionRiskV1::PublicPost => "Public post",
+            crate::computer_use::ComputerActionRiskV1::AccountChange => {
+                "Account configuration change"
+            }
+            crate::computer_use::ComputerActionRiskV1::PrivateDataExport => "Private data export",
+            crate::computer_use::ComputerActionRiskV1::DestructiveOperation => {
+                "Destructive operation"
+            }
+            crate::computer_use::ComputerActionRiskV1::PaidTransaction => "Paid transaction",
+            crate::computer_use::ComputerActionRiskV1::Unclassified => "Unclassified action",
+        };
+        ui.label(format!("Risk: {risk}"));
+        ui.label(format!("Destination: {}", pending.intent.destination));
+        ui.label(format!("Affected item: {}", pending.intent.affected_item));
+        if let Some(content) = &pending.intent.content_preview {
+            ui.label("Exact content:");
+            ui.add(egui::Label::new(content).wrap());
+        }
+        if let (Some(amount), Some(currency)) = (
+            pending.intent.amount_minor_units,
+            pending.intent.currency.as_deref(),
+        ) {
+            ui.label(format!("Exact amount: {amount} minor units {currency}"));
+        }
+        ui.label(format!(
+            "Expires at {} · screen revision {}",
+            pending.intent.expires_at_unix_ms, pending.intent.frame_revision
+        ));
+        ui.label(format!("Final GUI action: {:?}", pending.final_action));
+        ui.label(format!("Approval state: {:?}", pending.state));
+        match pending.state {
+            IntentState::AwaitingApproval => {
+                ui.horizontal_wrapped(|ui| {
+                    button(
+                        ui,
+                        surface,
+                        task_id,
+                        session,
+                        "Approve once",
+                        crate::ui::ComputerUseTaskActionV1::ApproveSensitiveAction(
+                            pending.intent.intent_id.clone(),
+                        ),
+                    );
+                    button(
+                        ui,
+                        surface,
+                        task_id,
+                        session,
+                        "Deny",
+                        crate::ui::ComputerUseTaskActionV1::DenySensitiveAction(
+                            pending.intent.intent_id.clone(),
+                        ),
+                    );
+                });
+            }
+            IntentState::Executing => {
+                ui.horizontal_wrapped(|ui| {
+                    button(
+                        ui,
+                        surface,
+                        task_id,
+                        session,
+                        "Confirm completed",
+                        crate::ui::ComputerUseTaskActionV1::VerifySensitiveActionCompleted(
+                            pending.intent.intent_id.clone(),
+                        ),
+                    );
+                    button(
+                        ui,
+                        surface,
+                        task_id,
+                        session,
+                        "Outcome unknown",
+                        crate::ui::ComputerUseTaskActionV1::MarkSensitiveActionOutcomeUnknown(
+                            pending.intent.intent_id.clone(),
+                        ),
+                    );
+                });
+            }
+            IntentState::ApprovedOnce => {
+                ui.small("One-time permission is ready for this exact GUI action.");
+            }
+            IntentState::OutcomeUnknown => {
+                ui.colored_label(
+                    crate::ui::theme::WARNING,
+                    "The external result is uncertain. Do not retry this action.",
+                );
+            }
+            _ => {
+                ui.small("This intent is no longer actionable.");
+            }
+        }
+    }
     let owner = match session.control_owner {
         crate::computer_use::mcp::ComputerUseControlOwnerV1::Agent => "Agent has control",
         crate::computer_use::mcp::ComputerUseControlOwnerV1::Human => "You have control",

@@ -12,7 +12,8 @@ use super::scheduler::{ComputerUseSchedulerV1, SessionPermit};
 use super::session_journal::ComputerUseSessionJournalV1;
 use crate::computer_use::artifacts::ComputerArtifactBridgeV1;
 use crate::computer_use::{
-    ComputerBackend, ComputerMachineHandleV1, ComputerSessionV1,
+    ComputerActionApprovalV1, ComputerActionIntentStateV1, ComputerActionIntentV1,
+    ComputerActionPayloadV1, ComputerBackend, ComputerMachineHandleV1, ComputerSessionV1,
     guest_image::{
         CachedGuestImageV1, GuestImageCacheV1, GuestImageCatalogGenerationFloorV1,
         GuestImageManifestTrustV1, QemuImageToolV1,
@@ -81,8 +82,16 @@ pub(super) struct ActiveSession {
     pub active_app: Option<String>,
     pub personal_profile_id: Option<String>,
     pub action_log: std::collections::VecDeque<ComputerUseActionSummaryV1>,
+    pub pending_action_intent: Option<PendingComputerActionIntentV1>,
     pub display_io: Arc<Mutex<()>>,
     pub _scheduler_permit: SessionPermit,
+}
+
+pub(super) struct PendingComputerActionIntentV1 {
+    pub intent: ComputerActionIntentV1,
+    pub final_action: ComputerActionPayloadV1,
+    pub state: ComputerActionIntentStateV1,
+    pub approval: Option<ComputerActionApprovalV1>,
 }
 
 pub(super) struct PendingPersonalVmConsentV1 {

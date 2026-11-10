@@ -1,10 +1,12 @@
+use sha2::Digest;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
 
 use crate::computer_use::{
-    ComputerActionHelperPhaseV1, ComputerActionV1, ComputerOperationV1,
+    ComputerActionHelperPhaseV1, ComputerActionIntentStateV1 as IntentState, ComputerActionV1,
+    ComputerOperationV1,
     guest_protocol::{AuthorizedComputerUseSessionV1, GuestProtocolErrorV1},
 };
 
@@ -43,6 +45,105 @@ pub(super) fn action(
     if let Some(reason) = action_blocker(active.uncertain, active.paused, active.started) {
         return controller.blocked(reason);
     }
+    let sensitive_intent_id = if let Some(pending) = active.pending_action_intent.as_mut() {
+        if caller.actor != crate::computer_use::ComputerActionActorV1::Agent
+            || pending.state != IntentState::ApprovedOnce
+            || pending.final_action.sha256().ok() != payload.sha256().ok()
+        {
+            return controller.blocked("sensitive_action_requires_exact_one_time_approval");
+        }
+        let now = unix_time_ms();
+        if pending.intent.validate(now).is_err()
+            || pending
+                .approval
+                .as_ref()
+                .is_none_or(|approval| approval.validate_for(&pending.intent, now).is_err())
+        {
+            let digest = pending.intent.digest().unwrap_or_default();
+            if controller.runtime.as_ref().is_none_or(|runtime| {
+                runtime
+                    .session_journal
+                    .append_action_intent_state(
+                        &active.session,
+                        &active.role_id,
+                        &pending.intent.intent_id,
+                        &digest,
+                        IntentState::Expired,
+                        now,
+                    )
+                    .is_err()
+            }) {
+                return controller.blocked("session_journal_unavailable");
+            }
+            pending.state = IntentState::Expired;
+            pending.approval = None;
+            active.pending_action_intent = None;
+            controller.cache_active_view(active);
+            return controller.blocked("sensitive_action_approval_expired");
+        }
+        let frame_matches = controller
+            .display_streams
+            .lock()
+            .ok()
+            .and_then(|streams| streams.get(session_id).cloned())
+            .and_then(|snapshot| {
+                snapshot
+                    .lock()
+                    .ok()
+                    .and_then(|snapshot| snapshot.frame_png.clone())
+            })
+            .is_some_and(|png| {
+                format!("sha256:{:x}", sha2::Sha256::digest(&png)) == pending.intent.frame_sha256
+            });
+        if !frame_matches {
+            let digest = pending.intent.digest().unwrap_or_default();
+            if controller.runtime.as_ref().is_none_or(|runtime| {
+                runtime
+                    .session_journal
+                    .append_action_intent_state(
+                        &active.session,
+                        &active.role_id,
+                        &pending.intent.intent_id,
+                        &digest,
+                        IntentState::Cancelled,
+                        now,
+                    )
+                    .is_err()
+            }) {
+                return controller.blocked("session_journal_unavailable");
+            }
+            pending.state = IntentState::Cancelled;
+            pending.approval = None;
+            active.pending_action_intent = None;
+            controller.cache_active_view(active);
+            return controller.blocked("action_intent_frame_stale");
+        }
+        pending.state = IntentState::Executing;
+        pending.approval = None;
+        let Some(runtime) = controller.runtime.as_ref() else {
+            return controller.blocked("trusted_runtime_unavailable");
+        };
+        let digest = pending.intent.digest().unwrap_or_default();
+        if runtime
+            .session_journal
+            .append_action_intent_state(
+                &active.session,
+                &active.role_id,
+                &pending.intent.intent_id,
+                &digest,
+                IntentState::Executing,
+                now,
+            )
+            .is_err()
+        {
+            pending.state = IntentState::OutcomeUnknown;
+            controller.cache_active_view(active);
+            return controller.blocked("session_journal_unavailable");
+        }
+        Some(pending.intent.intent_id.clone())
+    } else {
+        None
+    };
     let Some(channel) = active.channel.as_mut() else {
         active.uncertain = true;
         controller.cache_active_view(active);
@@ -161,6 +262,22 @@ pub(super) fn action(
         ) => JournalEvent::OutcomeUnknown,
         Err(_) => JournalEvent::ActionFailed,
     };
+    if let Some(intent_id) = &sensitive_intent_id
+        && let Some(pending) = active.pending_action_intent.as_mut()
+        && pending.intent.intent_id == *intent_id
+        && result.is_err()
+    {
+        pending.state = IntentState::OutcomeUnknown;
+        let digest = pending.intent.digest().unwrap_or_default();
+        let _ = runtime.session_journal.append_action_intent_state(
+            &session,
+            &active.role_id,
+            intent_id,
+            &digest,
+            IntentState::OutcomeUnknown,
+            unix_time_ms(),
+        );
+    }
     if runtime
         .session_journal
         .append_session(

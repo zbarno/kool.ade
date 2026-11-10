@@ -177,6 +177,7 @@ fn task_session_views_are_scoped_to_the_exact_task_and_local_user() {
             control_error: None,
             control_notice: None,
             action_log: Vec::new(),
+            pending_action_intent: None,
         }
     };
     controller.view_cache.lock().unwrap().extend([
