@@ -1,6 +1,6 @@
 # Computer Use: architecture, permissions, and operating guide
 
-Status checked: 2026-11-10, repository revision `66b4ff1d`.
+Status checked: 2026-11-10, repository revision `c04a0d8b`.
 
 This page explains the Computer Use product boundary and current support status.
 The detailed wire and host contracts remain in [Computer Use architecture
@@ -35,9 +35,9 @@ As of the revision above, the boundary is:
 | Signed guest image | Ready as a published artifact; runtime remains host-gated | The catalog and lock in `containers/computer-use/` pin a promoted x86_64 image. Its availability does not make unsupported hosts ready. |
 | Offline disposable session | Experimental and conditional on current host readiness | Offline is the default network policy. The guest is still untrusted and any host action remains controller-mediated. |
 | Internet research guest | **Unavailable** | The published companion protocol is v1 and the app does not offer this network profile for that image. The separately implemented gateway is not permission to browse with the current guest. |
-| Additional guest application installation and task-build launch | **Planned** | Tracked in open [#394](https://github.com/zbarno/kool.ade/issues/394); the current UI may launch only applications already allowed by the signed guest/session policy. |
-| Persistent personal VM and human login | **Unavailable** | Tracked in open [#387](https://github.com/zbarno/kool.ade/issues/387). Encrypted storage code and UI in an unmerged PR are not a release. Persistent identity and credentials remain disabled until R3 security and human-login validation are accepted. |
-| Remote VM workers | **Planned** | Tracked in open [#390](https://github.com/zbarno/kool.ade/issues/390). An unmerged PR does not create a supported worker path. |
+| Task-approved guest application staging and launch | **Experimental** | Implemented behind explicit consent by merged [#394](https://github.com/zbarno/kool.ade/issues/394). Computer QA dispatch, independent evidence, and repair-loop integration remains open in [#389](https://github.com/zbarno/kool.ade/issues/389); this does not clear real-host acceptance in #392. |
+| Persistent personal VM and human login | **Unavailable** | The encrypted profile and consent foundation merged in [PR #571](https://github.com/zbarno/kool.ade/pull/571), but [#387](https://github.com/zbarno/kool.ade/issues/387) remains open. The production R3 gate stays disabled until security and human-login validation are accepted. |
+| Remote VM workers | **Unavailable for supported use** | The separately enrolled worker implementation merged in [PR #572](https://github.com/zbarno/kool.ade/pull/572), but [#390](https://github.com/zbarno/kool.ade/issues/390) remains open pending independent hosted worker verification and release acceptance. |
 | macOS, Windows, Linux arm64 VM hosts | **Unavailable** | The current v1 host claim is x86_64 Linux without nested virtualization. Native unsigned CI packages do not establish VM support. |
 | Production Runtime QA | **Unavailable** | The QA profiles remain disabled by their reviewed image policy; see [Runtime QA operations](runtime-qa-operations.md). Computer Use sessions and QA driver sessions have separate authority. |
 
@@ -194,10 +194,11 @@ Use a disposable test project and non-sensitive account. The intended workflow
 is: open the task, confirm the task revision and allowed app, review the offline
 permission summary, approve the exact session, watch the agent use the app,
 take control when needed, and inspect the recorded outcome. The controller
-keeps authoritative source changes outside the guest. Until task-build launch
-support in #394 is merged and accepted, do not claim an arbitrary task build
-can be installed or launched; the session may only launch the signed guest's
-existing allowlisted apps.
+keeps authoritative source changes outside the guest. A task-approved build
+can be staged and launched through the explicit, grant-bound #394 path. This
+does not complete the independent Computer QA scenario/evidence/repair flow in
+#389 or the real-host acceptance gate in #392; do not treat an app launch alone
+as a QA pass.
 
 ### Example: research a public website
 
@@ -283,9 +284,9 @@ evidence](runtime-qa-release-evidence.md).
 | macOS or Windows host VM | Unavailable; planned | Separate native virtualization backend, reviewed host boundary, image compatibility, and real-host security acceptance. Do not infer support from unsigned desktop packages. |
 | Optional microVM isolation | Planned research | Select a reviewed runtime only after a threat-model comparison, lifecycle/ownership tests, and measured compatibility. It cannot silently replace QEMU. |
 | Guest GPU acceleration | Planned research | Define a narrow device policy and validate isolation, driver provenance, reset/recovery, and information-flow implications before enabling passthrough. |
-| Separately enrolled remote VM worker | Planned; #390 open | Authenticated worker identity, target/capability fencing, credential isolation, transport recovery, and release acceptance. An unmerged PR is not a shipped path. |
-| Persistent personal VM | Unavailable; #387 open | R3 security, protected credentials, exact human login, isolation and takeover review. Keep disabled until all gates are accepted. |
-| Task-approved app install/launch | Planned; #394 open | Signed package/catalog and controller-authenticated one-use staging/launch path; no generic installer command. |
+| Separately enrolled remote VM worker | Implementation merged; #390 open | Independent hosted worker verification and release acceptance remain outstanding. Do not treat the implementation as supported production capability. |
+| Persistent personal VM | Unavailable; #387 open | The encrypted profile foundation merged in #571, but R3 security, protected credentials, exact human login, isolation, and takeover acceptance remain outstanding. Keep the production gate disabled. |
+| Task-approved app install/launch | Experimental; #394 closed | Signed package/catalog and controller-authenticated one-use staging/launch path are implemented. Computer QA dispatch/evidence integration remains in #389; no generic installer command is exposed. |
 
 Development may use rootless container GUI fixtures for deterministic
 integration tests. A container shares the host kernel and is not the guest VM

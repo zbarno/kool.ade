@@ -417,7 +417,7 @@ Right now Kool.ad/e is deliberately opinionated:
 - a CLI adapter being integrated does not guarantee every role works with every version yet
 - authenticated remote execution is not yet shipped
 - browser and Linux desktop Runtime QA have candidate implementations, but their profiles remain disabled pending security and release gates; they are not supported project capabilities yet. See the [operator guide](docs/runtime-qa-operations.md) for current readiness, evidence, and recovery boundaries
-- Computer Use is a separate, experimental VM capability. The signed guest image is published, but real-host acceptance remains open; InternetResearch, persistent personal sessions, and remote VM workers are unavailable or planned. See the [Computer Use architecture and operator guide](docs/computer-use-architecture.md) for exact status, permissions, and roadmap
+- Computer Use is a separate, experimental VM capability. The promoted signed guest image is published, and consent-bound task-app staging/launch is implemented, but real-host acceptance and the Computer QA integration remain open. InternetResearch and persistent personal sessions are unavailable; remote VM workers are implemented but not yet supported pending hosted verification. See the [Computer Use architecture and operator guide](docs/computer-use-architecture.md) for exact status, permissions, and roadmap
 
 If you need something polished, cross-platform, and enterprise-ready today, this is probably early for you.
 
@@ -444,12 +444,12 @@ Kanban planning, task-specific conversations, living specifications, six CLI int
 ### Computer Use: a separate experimental VM boundary
 
 The app contains typed session and policy contracts, a local Linux QEMU/KVM
-backend, and a promoted signed x86_64 guest image. Computer Use remains
+backend, a promoted signed x86_64 guest image, and consent-bound task-app
+staging/launch. Computer Use remains
 experimental until real-host security and lifecycle evidence passes the open
 [release gate #392](https://github.com/zbarno/kool.ade/issues/392). The current
-guest stays offline. Internet research, persistent personal computers,
-additional app installation, remote VM workers, and macOS/Windows VM hosts are
-not current support claims. Computer Use does not reuse Docker or Runtime QA
+guest stays offline. Internet research and persistent personal computers are
+unavailable; remote VM worker support awaits hosted verification. Computer Use does not reuse Docker or Runtime QA
 authority. See the [operator guide](docs/computer-use-architecture.md) and
 [threat matrix](docs/computer-use-threat-model-v1.md).
 

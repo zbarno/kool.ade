@@ -1,6 +1,6 @@
 # Computer Use architecture decision and contracts (v1)
 
-Status checked: 2026-11-10 (`main` revision `66b4ff1d`). The v1 contracts,
+Status checked: 2026-11-10 (`main` revision `c04a0d8b`). The v1 contracts,
 bounded Linux QEMU/KVM lifecycle, authenticated guest transport, and signed
 x86_64 guest image catalog are implemented. The catalog has been promoted and
 the image release is public; local use still depends on host readiness,
