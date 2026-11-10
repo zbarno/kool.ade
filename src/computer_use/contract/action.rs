@@ -7,6 +7,7 @@ pub use gui::{
 
 use crate::computer_use::apps::GuestAppOperationKindV1;
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -124,6 +125,14 @@ pub enum ComputerActionPayloadV1 {
         timeout_ms: u32,
     },
     QueryState,
+}
+
+impl ComputerActionPayloadV1 {
+    /// Hash the exact typed GUI operation for a one-time action approval.
+    pub fn sha256(&self) -> Result<String, &'static str> {
+        let bytes = serde_json::to_vec(self).map_err(|_| "computer action could not be encoded")?;
+        Ok(format!("sha256:{:x}", sha2::Sha256::digest(bytes)))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]

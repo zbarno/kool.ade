@@ -141,6 +141,13 @@ impl ComputerUseMcpControllerV1 {
             control_error: None,
             control_notice: active.inspection_result.clone(),
             action_log: active.action_log.iter().cloned().collect(),
+            pending_action_intent: active.pending_action_intent.as_ref().map(|pending| {
+                crate::computer_use::mcp::ComputerUseActionIntentViewV1 {
+                    intent: pending.intent.clone(),
+                    final_action: pending.final_action.clone(),
+                    state: pending.state,
+                }
+            }),
         };
         if let Ok(mut views) = self.view_cache.lock() {
             views.insert(session.identity.session_id.clone(), view);
@@ -223,6 +230,7 @@ impl ComputerUseMcpControllerV1 {
             control_error: None,
             control_notice: None,
             action_log: Vec::new(),
+            pending_action_intent: None,
         };
         if let Ok(mut views) = self.view_cache.lock() {
             views.insert(caller.identity.session_id.clone(), view);

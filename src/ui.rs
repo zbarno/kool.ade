@@ -262,4 +262,8 @@ pub enum ComputerUseTaskActionV1 {
         app_id: String,
         operation: crate::computer_use::apps::GuestAppOperationKindV1,
     },
+    ApproveSensitiveAction(String),
+    DenySensitiveAction(String),
+    VerifySensitiveActionCompleted(String),
+    MarkSensitiveActionOutcomeUnknown(String),
 }

@@ -86,6 +86,7 @@ pub(super) fn views(
                     label: disposition,
                     occurred_at_unix_ms: event.occurred_at_unix_ms,
                 }],
+                pending_action_intent: None,
             })
         })
         .collect()
