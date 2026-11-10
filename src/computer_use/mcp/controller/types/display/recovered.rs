@@ -53,6 +53,9 @@ pub(super) fn views(
                 agent_role: event.agent_role,
                 session_class: event.session_class,
                 allowed_apps: event.allowed_apps,
+                guest_apps: Vec::new(),
+                guest_app_catalog_status: "signed_app_catalog_unavailable".into(),
+                app_management_available: false,
                 actions_remaining: event.resource_budget.action_limit.saturating_sub(
                     event.action_sequence.unwrap_or_default().min(u32::MAX as u64) as u32,
                 ),

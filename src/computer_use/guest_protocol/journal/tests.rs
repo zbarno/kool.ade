@@ -144,5 +144,6 @@ fn action(sequence: u64, key: &str) -> ComputerActionV1 {
         cancellation_generation: 1,
         operation: ComputerOperationV1::ObserveScreen,
         payload: ComputerActionPayloadV1::ObserveScreen,
+        helper_authorization: None,
     }
 }

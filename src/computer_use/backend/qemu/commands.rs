@@ -4,12 +4,15 @@ use crate::computer_use::{ComputerSessionV1, ComputerTargetV1};
 
 use super::super::ComputerBackendErrorV1;
 
+#[allow(clippy::too_many_arguments)] // Each path is validated and emitted as a separate QEMU asset.
 pub(super) fn command_args(
     session: &ComputerSessionV1,
     overlay: &Path,
     control_socket: &Path,
     display_socket: &Path,
     boot_config: &Path,
+    app_helper_config: &Path,
+    application_catalog: Option<&Path>,
     research_proxy: Option<SocketAddr>,
     secret_fd: Option<libc::c_int>,
 ) -> Result<Vec<OsString>, ComputerBackendErrorV1> {
@@ -77,7 +80,20 @@ pub(super) fn command_args(
         }
         _ => return Err(ComputerBackendErrorV1::UnsupportedPolicy),
     };
-    for path in [overlay, control_socket, display_socket, boot_config] {
+    let helper_fw_cfg = format!(
+        "name=opt/org.koolade.computer-use/app-helper-config,file={}",
+        app_helper_config.display()
+    );
+    for path in [
+        overlay,
+        control_socket,
+        display_socket,
+        boot_config,
+        app_helper_config,
+    ]
+    .into_iter()
+    .chain(application_catalog)
+    {
         let text = path
             .to_str()
             .ok_or(ComputerBackendErrorV1::InvalidOverlay)?;
@@ -130,6 +146,8 @@ pub(super) fn command_args(
         "virtserialport,chardev=guestcontrol,name=org.koolade.computer-control.v1",
         "-fw_cfg",
         &fw_cfg,
+        "-fw_cfg",
+        &helper_fw_cfg,
         "-sandbox",
         "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
         "-overcommit",
@@ -148,6 +166,14 @@ pub(super) fn command_args(
             object_position..object_position,
             [OsString::from("-object"), OsString::from(secret_object)],
         );
+    }
+    if let Some(catalog) = application_catalog {
+        let fw_cfg = format!(
+            "name=opt/org.koolade.computer-use/app-catalog,file={}",
+            catalog.display()
+        );
+        args.push(OsString::from("-fw_cfg"));
+        args.push(OsString::from(fw_cfg));
     }
     Ok(args)
 }

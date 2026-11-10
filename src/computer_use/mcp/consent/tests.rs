@@ -210,3 +210,29 @@ fn scope_proposal_rejects_unapproved_destinations_network_and_excess_budget() {
     invalid_target.machine_id = "machine-from-model".into();
     assert!(invalid_target.validate().is_err());
 }
+
+#[test]
+fn runtime_qa_role_is_limited_to_one_task_app_and_gui_operations() {
+    let mut caller = caller();
+    caller.role_id = super::super::COMPUTER_USE_RUNTIME_QA_ROLE_V1.into();
+    let mut scope = scope();
+    scope.allowed_apps = vec![super::super::COMPUTER_USE_RUNTIME_QA_APP_ID_V1.into()];
+    scope.allowed_operations = super::super::RUNTIME_QA_COMPUTER_USE_OPERATIONS_V1.to_vec();
+    assert!(scope.validate_for_role(&caller.role_id).is_ok());
+
+    let mut widened = scope.clone();
+    widened.allowed_apps.push("chromium".into());
+    assert!(widened.validate_for_role(&caller.role_id).is_err());
+
+    let mut catalog_launch = scope.clone();
+    catalog_launch
+        .allowed_operations
+        .push(crate::computer_use::ComputerOperationV1::LaunchAllowedApp);
+    assert!(catalog_launch.validate_for_role(&caller.role_id).is_err());
+
+    let mut app_management = scope;
+    app_management
+        .allowed_operations
+        .push(crate::computer_use::ComputerOperationV1::ManageApp);
+    assert!(app_management.validate_for_role(&caller.role_id).is_err());
+}

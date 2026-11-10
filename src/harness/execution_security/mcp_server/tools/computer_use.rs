@@ -134,6 +134,7 @@ fn parse(name: &str, args: &Value) -> Result<Request, &'static str> {
                     .unwrap_or(30_000)
                     .try_into()
                     .map_err(|_| "Action timeout is invalid")?,
+                idempotency_key: None,
             })
         }
         "koolade_computer_use_pause" => {

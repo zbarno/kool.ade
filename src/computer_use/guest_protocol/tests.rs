@@ -376,6 +376,8 @@ fn capabilities() -> GuestCapabilitySetV1 {
         keyboard_input: true,
         accessibility_tree: false,
         app_registry: vec!["chromium".into()],
+        app_management: false,
+        staged_task_app_launch: false,
     }
 }
 

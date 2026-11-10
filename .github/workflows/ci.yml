@@ -62,7 +62,7 @@ jobs:
       - name: Start an isolated rootless Docker Engine
         uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
         with:
-          version: v29.9.0
+          version: v29.9.3
           rootless: true
           set-host: true
       - name: Require rootless Linux container support
@@ -72,7 +72,7 @@ jobs:
           command -v ssh-keyscan >/dev/null
           command -v ssh >/dev/null
           test "$(docker info --format '{{.OSType}}')" = linux
-          test "$(docker info --format '{{.ServerVersion}}')" = 29.9.0
+          test "$(docker info --format '{{.ServerVersion}}')" = 29.9.3
           docker info --format '{{json .SecurityOptions}}' \
             | jq -e 'any(.[]; contains("name=rootless"))' >/dev/null
       - name: Install loopback SSH server for authenticated remote E2E
@@ -110,7 +110,7 @@ jobs:
             test -S "$approved_socket"
           fi
           docker --host "unix://$approved_socket" info --format '{{.ServerVersion}}' \
-            | grep --fixed-strings --line-regexp 29.9.0
+            | grep --fixed-strings --line-regexp 29.9.3
       - name: Pre-pull locked Linux test images
         run: |
           set -euo pipefail
@@ -251,7 +251,7 @@ jobs:
       - name: Start an isolated rootless Docker Engine
         uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
         with:
-          version: v29.9.0
+          version: v29.9.3
           rootless: true
           set-host: true
       - name: Require rootless Linux container support
@@ -329,7 +329,7 @@ jobs:
             test -S "$approved_socket"
           fi
           export DOCKER_HOST="unix://$approved_socket"
-          docker info --format '{{.ServerVersion}}' | grep --fixed-strings --line-regexp 29.9.0
+          docker info --format '{{.ServerVersion}}' | grep --fixed-strings --line-regexp 29.9.3
           cargo +1.98.1 nextest run --locked --lib --no-fail-fast --test-threads 1 \
             -E 'test(cancelled_task_clone_resumes_through_docker_verification_and_waits_for_pr_authorization)'
   queue-concurrency:
@@ -355,14 +355,14 @@ jobs:
       - name: Start an isolated rootless Docker Engine
         uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
         with:
-          version: v29.9.0
+          version: v29.9.3
           rootless: true
           set-host: true
       - name: Require rootless container support
         run: |
           set -euo pipefail
           test "$(docker info --format '{{.OSType}}')" = linux
-          test "$(docker info --format '{{.ServerVersion}}')" = 29.9.0
+          test "$(docker info --format '{{.ServerVersion}}')" = 29.9.3
           docker info --format '{{json .SecurityOptions}}' \
             | jq -e 'any(.[]; contains("name=rootless"))' >/dev/null
       - name: Install socket proxy dependency
@@ -392,7 +392,7 @@ jobs:
             test -S "$approved_socket"
           fi
           docker --host "unix://$approved_socket" info --format '{{.ServerVersion}}' \
-            | grep --fixed-strings --line-regexp 29.9.0
+            | grep --fixed-strings --line-regexp 29.9.3
       - name: Pre-pull locked Linux test images
         run: |
           set -euo pipefail

@@ -270,6 +270,8 @@ fn operation_label(operation: &crate::computer_use::ComputerOperationV1) -> &'st
         Operation::MouseInput => "mouse input",
         Operation::KeyboardInput => "keyboard input",
         Operation::LaunchAllowedApp => "launch allowed app",
+        Operation::LaunchApprovedStagedTaskApp => "launch approved staged task app",
+        Operation::ManageApp => "manage approved guest app",
         Operation::WaitFor => "wait for condition",
         Operation::QueryState => "query state",
     }

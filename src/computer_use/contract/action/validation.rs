@@ -111,6 +111,12 @@ impl ComputerActionV1 {
                 ComputerOperationV1::LaunchAllowedApp,
                 ComputerActionPayloadV1::LaunchApp { .. }
             ) | (
+                ComputerOperationV1::ManageApp,
+                ComputerActionPayloadV1::ManageApp { .. }
+            ) | (
+                ComputerOperationV1::LaunchApprovedStagedTaskApp,
+                ComputerActionPayloadV1::LaunchApprovedStagedTaskApp { .. }
+            ) | (
                 ComputerOperationV1::WaitFor,
                 ComputerActionPayloadV1::WaitFor { .. }
             ) | (
@@ -194,7 +200,48 @@ impl ComputerActionV1 {
             {
                 return Err("app identifier is invalid");
             }
+            ComputerActionPayloadV1::ManageApp {
+                app_id,
+                catalog_digest,
+                image_digest,
+                manifest_sha256,
+                package_sha256,
+                ..
+            } if app_id.is_empty()
+                || app_id.len() > 64
+                || !app_id.bytes().all(|b| {
+                    b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.'
+                })
+                || !valid_sha256(catalog_digest)
+                || !valid_sha256(image_digest)
+                || !valid_sha256(manifest_sha256)
+                || !valid_sha256(package_sha256) =>
+            {
+                return Err("guest app operation identity is invalid");
+            }
+            ComputerActionPayloadV1::ManageApp { .. }
+                if self.actor != ComputerActionActorV1::Human =>
+            {
+                return Err("guest app installation requires human control");
+            }
+            ComputerActionPayloadV1::LaunchApprovedStagedTaskApp { .. }
+                if self.actor != ComputerActionActorV1::Human =>
+            {
+                return Err("staged task application launch requires human control");
+            }
+            ComputerActionPayloadV1::LaunchApprovedStagedTaskApp { application }
+                if application.validate_at(now_unix_ms).is_err()
+                    || !policy.allowed_apps.contains(&application.app_id)
+                    || application.guest_image_digest != session.image_digest =>
+            {
+                return Err("staged task application is invalid or outside session approval");
+            }
             ComputerActionPayloadV1::LaunchApp { app_id }
+                if !policy.allowed_apps.contains(app_id) =>
+            {
+                return Err("app is not in the session allowlist");
+            }
+            ComputerActionPayloadV1::ManageApp { app_id, .. }
                 if !policy.allowed_apps.contains(app_id) =>
             {
                 return Err("app is not in the session allowlist");
@@ -207,6 +254,14 @@ impl ComputerActionV1 {
 
 fn is_uuid(value: &str) -> bool {
     uuid::Uuid::parse_str(value).is_ok_and(|id| id.to_string() == value)
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 71
+        && value.starts_with("sha256:")
+        && value[7..]
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
 #[cfg(test)]

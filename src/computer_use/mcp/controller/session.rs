@@ -19,12 +19,13 @@ use super::super::{
 };
 use super::types::ComputerUseMcpControllerV1;
 
-const OPS: [ComputerOperationV1; 7] = [
+const OPS: [ComputerOperationV1; 8] = [
     ComputerOperationV1::ObserveScreen,
     ComputerOperationV1::ObserveWindows,
     ComputerOperationV1::MouseInput,
     ComputerOperationV1::KeyboardInput,
     ComputerOperationV1::LaunchAllowedApp,
+    ComputerOperationV1::ManageApp,
     ComputerOperationV1::WaitFor,
     ComputerOperationV1::QueryState,
 ];
@@ -95,11 +96,23 @@ impl ComputerUseMcpOperationsV1 for ComputerUseMcpControllerV1 {
                 self.blocked("trusted_runtime_or_image_unavailable"),
             ));
         }
+        let (allowed_operations, allowed_apps) =
+            if caller.role_id == crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_ROLE_V1 {
+                (
+                    crate::computer_use::mcp::RUNTIME_QA_COMPUTER_USE_OPERATIONS_V1.to_vec(),
+                    vec![crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_APP_ID_V1.to_owned()],
+                )
+            } else {
+                (
+                    OPS.to_vec(),
+                    APPS.iter().map(|app| (*app).to_owned()).collect(),
+                )
+            };
         Ok(ComputerUseConsentScopeV1 {
             machine_id: runtime.machine_id.clone(),
             approved_destination: None,
-            allowed_operations: OPS.to_vec(),
-            allowed_apps: APPS.iter().map(|app| (*app).to_owned()).collect(),
+            allowed_operations,
+            allowed_apps,
             network_profile: ComputerNetworkProfileV1::Disabled,
             internet_research_available: runtime.image.entry().companion_protocol_version >= 2,
             resource_budget: crate::computer_use::MINIMUM_DISPOSABLE_VM_BUDGET_V1,

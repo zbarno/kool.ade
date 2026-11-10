@@ -79,6 +79,8 @@ fn launch_arguments_have_no_network_monitor_host_mount_or_guest_shell() {
         Path::new("/private/guest-control.sock"),
         Path::new("/private/display.sock"),
         Path::new("/private/boot.json"),
+        Path::new("/private/app-helper.json"),
+        None,
         None,
         None,
     )
@@ -105,6 +107,10 @@ fn launch_arguments_have_no_network_monitor_host_mount_or_guest_shell() {
         pair[0] == "-fw_cfg"
             && pair[1].starts_with("name=opt/org.koolade.computer-use/boot-config,file=")
     }));
+    assert!(args.windows(2).any(|pair| {
+        pair[0] == "-fw_cfg"
+            && pair[1].starts_with("name=opt/org.koolade.computer-use/app-helper-config,file=")
+    }));
     assert!(args.iter().any(|arg| arg.contains("koolade:")));
 }
 
@@ -120,6 +126,8 @@ fn personal_qemu_arguments_reference_only_inherited_secret_fd() {
         Path::new("/private/guest-control.sock"),
         Path::new("/private/display.sock"),
         Path::new("/private/boot.json"),
+        Path::new("/private/app-helper.json"),
+        None,
         None,
         Some(17),
     )
@@ -139,6 +147,29 @@ fn personal_qemu_arguments_reference_only_inherited_secret_fd() {
 }
 
 #[test]
+fn session_attestation_digest_binds_the_canonical_signed_authority() {
+    let mut session = session();
+    let key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
+    session
+        .attest("00000000-0000-4000-8000-000000000008".into(), &key)
+        .unwrap();
+    let digest = session.attestation_sha256().unwrap();
+    assert_eq!(digest.len(), 64);
+    assert!(digest.bytes().all(|byte| byte.is_ascii_hexdigit()));
+
+    let mut changed_authority = session.clone();
+    changed_authority.approval_generation += 1;
+    assert_ne!(digest, changed_authority.attestation_sha256().unwrap());
+
+    let mut changed_proof = session;
+    changed_proof
+        .controller_proof
+        .signature_hex
+        .replace_range(0..2, "ff");
+    assert_ne!(digest, changed_proof.attestation_sha256().unwrap());
+}
+
+#[test]
 fn launch_argument_paths_reject_qemu_option_delimiters() {
     let session = session();
     let result = command_args(
@@ -147,6 +178,8 @@ fn launch_argument_paths_reject_qemu_option_delimiters() {
         Path::new("/private/guest-control.sock"),
         Path::new("/private/display.sock"),
         Path::new("/private/boot.json"),
+        Path::new("/private/app-helper.json"),
+        None,
         None,
         None,
     );
@@ -165,6 +198,8 @@ fn internet_research_qemu_network_is_restricted_to_the_loopback_proxy() {
         Path::new("/private/guest-control.sock"),
         Path::new("/private/display.sock"),
         Path::new("/private/boot.json"),
+        Path::new("/private/app-helper.json"),
+        None,
         Some("127.0.0.1:49152".parse().unwrap()),
         None,
     )
@@ -188,6 +223,8 @@ fn internet_research_qemu_network_is_restricted_to_the_loopback_proxy() {
             Path::new("/private/guest-control.sock"),
             Path::new("/private/display.sock"),
             Path::new("/private/boot.json"),
+            Path::new("/private/app-helper.json"),
+            None,
             Some("127.0.0.1:49152".parse().unwrap()),
             None,
         ),

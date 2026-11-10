@@ -20,6 +20,52 @@ mod action;
 pub(super) use action::operation;
 use action::{ActionContext, action};
 
+pub(super) fn staged_task_action(
+    controller: &ComputerUseMcpControllerV1,
+    active: &mut super::types::ActiveSession,
+    authority: Arc<AuthorizedComputerUseSessionV1>,
+    caller: &ComputerUseCallerV1,
+    session_id: &str,
+    application: crate::computer_use::apps::StagedTaskApplicationV1,
+    cancelled: &AtomicBool,
+) -> ComputerUseMcpResponseV1 {
+    let operation = crate::computer_use::ComputerOperationV1::LaunchApprovedStagedTaskApp;
+    if !active
+        .session
+        .policy
+        .authorized_operations
+        .contains(&operation)
+    {
+        return denied("operation_not_authorized");
+    }
+    let idempotency_key = uuid::Uuid::new_v5(
+        &uuid::Uuid::NAMESPACE_URL,
+        format!(
+            "computer-use-qa-app:{}:{}:{}",
+            session_id, application.build_approval_sha256, application.build_receipt_sha256
+        )
+        .as_bytes(),
+    )
+    .to_string();
+    let staged_task_revision = application.task_revision.clone();
+    action(
+        active,
+        ActionContext {
+            controller,
+            authority,
+            caller,
+            cancelled,
+            session_id,
+            staged_task_revision: Some(&staged_task_revision),
+        },
+        crate::computer_use::ComputerActionPayloadV1::LaunchApprovedStagedTaskApp {
+            application: Box::new(application),
+        },
+        60_000,
+        Some(idempotency_key),
+    )
+}
+
 pub(super) fn dispatch(
     controller: &ComputerUseMcpControllerV1,
     caller: &ComputerUseCallerV1,
@@ -129,9 +175,11 @@ pub(super) fn dispatch(
                     caller,
                     cancelled,
                     session_id: &session_id,
+                    staged_task_revision: None,
                 },
                 payload,
                 60_000,
+                None,
             );
             if caller.actor == crate::computer_use::ComputerActionActorV1::Agent
                 && observation == ComputerUseObservationKindV1::Screenshot
@@ -145,6 +193,7 @@ pub(super) fn dispatch(
         ComputerUseMcpRequestV1::Action {
             payload,
             timeout_ms,
+            idempotency_key,
             ..
         } => action(
             active,
@@ -154,9 +203,11 @@ pub(super) fn dispatch(
                 caller,
                 cancelled,
                 session_id: &session_id,
+                staged_task_revision: None,
             },
             payload,
             timeout_ms,
+            idempotency_key,
         ),
         ComputerUseMcpRequestV1::Pause { .. } => {
             if active.paused {

@@ -5,10 +5,11 @@
 - [bootstrap-release-validation-2026-10-27.md](./bootstrap-release-validation-2026-10-27.md) - Read for Bootstrap release validation record — 2026-10-27.
 - [chg-001-acceptance-evidence.md](./chg-001-acceptance-evidence.md) - Read for CHG-001 acceptance evidence.
 - [coding-tools.md](./coding-tools.md) - Read for Coding tool discovery.
-- [computer-use-architecture-v1.md](./computer-use-architecture-v1.md) - Read for Computer Use v1 architecture and security boundaries.
-- [computer-use-guest-images-v1.md](./computer-use-guest-images-v1.md) - Read for Computer Use signed guest image catalogs, cache, and overlays.
-- [computer-use-readiness-v1.md](./computer-use-readiness-v1.md) - Read for Computer Use machine readiness probe boundaries and current limitations.
-- [computer-use-threat-model-v1.md](./computer-use-threat-model-v1.md) - Read for Computer Use v1 threat model and validation gates.
+- [computer-use-architecture-v1.md](./computer-use-architecture-v1.md) - Read for Computer Use architecture decision and contracts (v1).
+- [computer-use-guest-apps-v1.md](./computer-use-guest-apps-v1.md) - Read for Computer Use guest application catalog and provisioning.
+- [computer-use-guest-images-v1.md](./computer-use-guest-images-v1.md) - Read for Computer Use guest image catalog and cache (CU-03).
+- [computer-use-readiness-v1.md](./computer-use-readiness-v1.md) - Read for Computer Use readiness probe boundary (v1).
+- [computer-use-threat-model-v1.md](./computer-use-threat-model-v1.md) - Read for Computer Use threat model (v1).
 - [docker-cutover-checklist.md](./docker-cutover-checklist.md) - Read for Docker cutover and release checklist.
 - [docker-engine-prerequisites.md](./docker-engine-prerequisites.md) - Read for Docker Engine prerequisites.
 - [docker-release-evidence.md](./docker-release-evidence.md) - Read for Docker release evidence.
@@ -20,14 +21,14 @@
 - [kool-ad-e-redesign.md](./kool-ad-e-redesign.md) - Read for Kool.ad/e redesign and rebrand.
 - [living-specification-policy.md](./living-specification-policy.md) - Read for Published specification policy.
 - [machine-bootstrap.md](./machine-bootstrap.md) - Read for Machine bootstrap readiness and setup guidance.
-- [machine-setup-flow.md](./machine-setup-flow.md) - Read for the Prepare-this-computer setup flow orchestration and consent contract.
-- [manager-knowledge-evaluation.md](./manager-knowledge-evaluation.md) - Read for integrated Manager knowledge trust boundaries and evaluation.
+- [machine-setup-flow.md](./machine-setup-flow.md) - Read for Prepare this computer: the autonomous setup flow.
+- [manager-knowledge-evaluation.md](./manager-knowledge-evaluation.md) - Read for Manager knowledge integration and evaluation.
 - [manager-lifecycle.md](./manager-lifecycle.md) - Read for Man.ager lifecycle contract.
 - [native-desktop-distribution.md](./native-desktop-distribution.md) - Read for Native desktop packaging status.
 - [opportunity-discovery.md](./opportunity-discovery.md) - Read for Opportunity discovery and user authority.
 - [parallel-implementation.md](./parallel-implementation.md) - Read for Parallel implementation and integration.
 - [planner-policy.md](./planner-policy.md) - Read for Planner policy.
-- [project-runtime-composition.md](./project-runtime-composition.md) - Read for Project-specific Docker runtime composition plan and safety boundary.
+- [project-runtime-composition.md](./project-runtime-composition.md) - Read for Project-specific verified Docker runtimes.
 - [project-runtime-contract.md](./project-runtime-contract.md) - Read for Project runtime capability contract.
 - [remote-private-file-grant-protocol-v1.md](./remote-private-file-grant-protocol-v1.md) - Read for Remote private-file grant protocol v1.
 - [runtime-configuration.md](./runtime-configuration.md) - Read for Local configuration for verification.

@@ -8,9 +8,9 @@ mod session;
 mod state;
 
 pub use action::{
-    ComputerActionActorV1, ComputerActionPayloadV1, ComputerActionV1, ComputerFrameReferenceV1,
-    ComputerKeyV1, ComputerOperationV1, ComputerWaitConditionV1, ComputerWindowBoundsV1, KeyCodeV1,
-    MouseButtonV1,
+    ComputerActionActorV1, ComputerActionHelperAuthorizationV1, ComputerActionHelperPhaseV1,
+    ComputerActionPayloadV1, ComputerActionV1, ComputerFrameReferenceV1, ComputerKeyV1,
+    ComputerOperationV1, ComputerWaitConditionV1, ComputerWindowBoundsV1, KeyCodeV1, MouseButtonV1,
 };
 pub use error::{ComputerFailureCodeV1, ComputerStatusV1};
 pub use event::{

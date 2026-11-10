@@ -33,6 +33,13 @@ pub struct GuestCapabilitySetV1 {
     pub keyboard_input: bool,
     pub accessibility_tree: bool,
     pub app_registry: Vec<String>,
+    /// True only when the guest has the restricted signed-package helper.
+    #[serde(default)]
+    pub app_management: bool,
+    /// Task artifacts require the authenticated staging protocol and confined launcher.
+    /// Kept false until both are present in the guest image.
+    #[serde(default)]
+    pub staged_task_app_launch: bool,
 }
 
 impl GuestCapabilitySetV1 {
@@ -129,6 +136,18 @@ pub enum GuestMessageV1 {
     ActionRequest {
         action: ComputerActionV1,
     },
+    StageTaskApplicationStart {
+        action: ComputerActionV1,
+    },
+    StageTaskArtifactChunk {
+        artifact_index: u16,
+        offset: u64,
+        bytes_base64: String,
+    },
+    StageTaskApplicationFinish,
+    StageTaskTransferReply {
+        accepted: bool,
+    },
     ActionReply {
         action_sequence: u64,
         result: GuestOperationResultV1,
@@ -163,6 +182,7 @@ pub enum GuestOperationResultV1 {
     TimedOut,
     Rejected,
     Failed,
+    MissingDependencies,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -194,7 +214,10 @@ pub(crate) fn required_capability(action: &ComputerActionV1) -> &'static str {
         ComputerActionPayloadV1::KeyPress { .. }
         | ComputerActionPayloadV1::KeyChord { .. }
         | ComputerActionPayloadV1::TypeText { .. } => "computer_use.keyboard.v1",
-        ComputerActionPayloadV1::LaunchApp { .. } => "computer_use.app_registry.v1",
+        ComputerActionPayloadV1::LaunchApp { .. } | ComputerActionPayloadV1::ManageApp { .. } => {
+            "computer_use.app_registry.v1"
+        }
+        ComputerActionPayloadV1::LaunchApprovedStagedTaskApp { .. } => "computer_use.staged_app.v1",
         ComputerActionPayloadV1::WaitFor { .. } | ComputerActionPayloadV1::QueryState => {
             "computer_use.state.v1"
         }

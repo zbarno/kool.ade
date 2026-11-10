@@ -3,6 +3,7 @@ mod bootstrap;
 mod platform;
 mod protocol;
 mod replay;
+mod staged_task;
 mod x11;
 use platform::{guest_capabilities, readable, write_exit_notice};
 use protocol::{envelope, write_outcome};
@@ -125,8 +126,33 @@ fn serve_connection(
             return Err(GuestProtocolErrorV1::Replay);
         }
         host_sequence = host_sequence.saturating_add(1);
-        let GuestMessageV1::ActionRequest { action } = &host.message else {
-            return Err(GuestProtocolErrorV1::Malformed);
+        let action = match &host.message {
+            GuestMessageV1::ActionRequest { action } => action,
+            GuestMessageV1::StageTaskApplicationStart { action } => {
+                if host.capability_id != required_capability(action)
+                    || host.request_id != request_id_for_action(config, action)
+                    || host.action_id != action.idempotency_key
+                    || action.session_id != config.session_id
+                    || action.lease_generation != config.lease_generation
+                    || action.actor != crate::computer_use::ComputerActionActorV1::Human
+                    || action.action_sequence <= replay.highest_sequence
+                    || replay.completed.contains_key(&action.action_sequence)
+                    || !canonical_uuid(&action.idempotency_key)
+                {
+                    return Err(GuestProtocolErrorV1::WrongSession);
+                }
+                (host_sequence, guest_sequence) = staged_task::receive_transfer(
+                    port,
+                    config,
+                    &handshake,
+                    host,
+                    action,
+                    host_sequence,
+                    guest_sequence,
+                )?;
+                continue;
+            }
+            _ => return Err(GuestProtocolErrorV1::Malformed),
         };
         if host.capability_id != required_capability(action)
             || host.request_id != request_id_for_action(config, action)

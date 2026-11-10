@@ -4,6 +4,7 @@ use super::{
 };
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -157,6 +158,24 @@ impl ComputerSessionV1 {
     ) -> Result<(), &'static str> {
         self.validate(now_unix_ms)?;
         self.verify_attestation(expected_key_id, verifying_key)
+    }
+
+    /// Stable digest of the signed session authority for Runtime QA targets.
+    /// The v1 encoding binds the domain-separated signing payload, signer ID,
+    /// and signature with explicit lengths, independent of incidental JSON.
+    pub fn attestation_sha256(&self) -> Result<String, &'static str> {
+        self.controller_proof.validate()?;
+        let payload = self.signing_payload()?;
+        let signer = self.controller_proof.signer_key_id.as_bytes();
+        let signature = decode_hex(&self.controller_proof.signature_hex)?;
+        let mut bytes = b"koolade.computer-session-attestation.v1\0".to_vec();
+        bytes.extend((payload.len() as u64).to_be_bytes());
+        bytes.extend(payload);
+        bytes.extend((signer.len() as u64).to_be_bytes());
+        bytes.extend(signer);
+        bytes.extend((signature.len() as u64).to_be_bytes());
+        bytes.extend(signature);
+        Ok(format!("{:x}", Sha256::digest(bytes)))
     }
 
     fn signing_payload(&self) -> Result<Vec<u8>, &'static str> {
