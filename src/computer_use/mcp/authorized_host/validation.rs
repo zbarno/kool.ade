@@ -9,6 +9,7 @@ pub(super) fn session_id(request: &Request) -> Option<&str> {
         Request::StartSession { session_id }
         | Request::Observe { session_id, .. }
         | Request::Action { session_id, .. }
+        | Request::ProposeSensitiveAction { session_id, .. }
         | Request::Pause { session_id }
         | Request::Resume { session_id }
         | Request::Release { session_id } => Some(session_id),

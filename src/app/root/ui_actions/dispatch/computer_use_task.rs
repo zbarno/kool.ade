@@ -69,6 +69,22 @@ pub(super) fn dispatch(app: &mut KooladeApp, task_id: &str, session_id: &str, ac
                     operation,
                 },
             ),
+            Action::ApproveSensitiveAction(intent_id) => controller.queue_control_change(
+                task_id, &user_id, session_id,
+                crate::computer_use::mcp::ComputerUseControlCommandV1::ApproveSensitiveAction { intent_id },
+            ),
+            Action::DenySensitiveAction(intent_id) => controller.queue_control_change(
+                task_id, &user_id, session_id,
+                crate::computer_use::mcp::ComputerUseControlCommandV1::DenySensitiveAction { intent_id },
+            ),
+            Action::VerifySensitiveActionCompleted(intent_id) => controller.queue_control_change(
+                task_id, &user_id, session_id,
+                crate::computer_use::mcp::ComputerUseControlCommandV1::VerifySensitiveActionCompleted { intent_id },
+            ),
+            Action::MarkSensitiveActionOutcomeUnknown(intent_id) => controller.queue_control_change(
+                task_id, &user_id, session_id,
+                crate::computer_use::mcp::ComputerUseControlCommandV1::MarkSensitiveActionOutcomeUnknown { intent_id },
+            ),
         };
         if let Err(error) = result {
             app.toasts

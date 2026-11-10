@@ -125,14 +125,17 @@ controller-issued user grant and approval generation. `restrict_to` intersects
 app and operation sets, chooses the lower capability/network profile, and
 lowers every resource quota. A task grant does not imply account authority.
 Model output cannot mint or renew leases, increase generations, grant
-credentials, choose an image, or change the host target. V1 does not define a
-transaction authorization mechanism: high-impact actions remain unavailable
-until a later policy contract can bind approval to the current exact
-destination and transaction details.
+credentials, choose an image, or change the host target. The controller defines
+an exact, one-use ActionIntent contract bound to the current screen, action,
+identity generations, and operator-visible scope. The broad high-impact
+capability remains unavailable because policy validation rejects it until its
+real-guest security suite and release gates pass; the intent contract does not
+enable transactions or external publishing.
 The `persistent_personal` and `high_impact_external_action` values are present
 to make the capability lattice explicit, but v1 policy validation rejects
 them. Persistent sessions need the separate encryption/key contract; high
-impact actions need an exact transaction grant. InternetResearch is a separate
+impact actions require the ActionIntent grant plus passing real-guest security
+and release gates. InternetResearch is a separate
 consent choice for a disposable guest. It starts an app-owned, loopback-only
 HTTPS CONNECT gateway and attaches it through QEMU's restricted user network
 with one guest-forwarded TCP endpoint. QEMU does not bridge the guest to the

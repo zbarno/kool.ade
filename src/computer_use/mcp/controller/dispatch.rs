@@ -16,11 +16,13 @@ use super::{
 };
 
 mod action;
+mod action_intent;
 #[cfg(test)]
 mod personal_handoff_tests;
 #[cfg(test)]
 pub(super) use action::operation;
 use action::{ActionContext, action};
+pub(super) use action_intent::propose_sensitive_action;
 
 pub(super) fn staged_task_action(
     controller: &ComputerUseMcpControllerV1,
@@ -93,6 +95,7 @@ pub(super) fn dispatch(
         ComputerUseMcpRequestV1::StartSession { session_id }
         | ComputerUseMcpRequestV1::Observe { session_id, .. }
         | ComputerUseMcpRequestV1::Action { session_id, .. }
+        | ComputerUseMcpRequestV1::ProposeSensitiveAction { session_id, .. }
         | ComputerUseMcpRequestV1::Pause { session_id }
         | ComputerUseMcpRequestV1::Resume { session_id }
         | ComputerUseMcpRequestV1::Release { session_id } => session_id.clone(),
@@ -205,6 +208,18 @@ pub(super) fn dispatch(
             payload,
             timeout_ms,
             idempotency_key,
+        ),
+        ComputerUseMcpRequestV1::ProposeSensitiveAction {
+            intent,
+            final_action,
+            ..
+        } => propose_sensitive_action(
+            controller,
+            active,
+            caller,
+            &session_id,
+            &intent,
+            &final_action,
         ),
         ComputerUseMcpRequestV1::Pause { .. } => {
             if active.paused {

@@ -1,4 +1,5 @@
 mod action;
+mod action_intent;
 mod error;
 mod event;
 mod identity;
@@ -12,6 +13,10 @@ pub use action::{
     ComputerActionActorV1, ComputerActionHelperAuthorizationV1, ComputerActionHelperPhaseV1,
     ComputerActionPayloadV1, ComputerActionV1, ComputerFrameReferenceV1, ComputerKeyV1,
     ComputerOperationV1, ComputerWaitConditionV1, ComputerWindowBoundsV1, KeyCodeV1, MouseButtonV1,
+};
+pub use action_intent::{
+    ComputerActionApprovalV1, ComputerActionIntentStateV1, ComputerActionIntentV1,
+    ComputerActionRiskV1,
 };
 pub use error::{ComputerFailureCodeV1, ComputerStatusV1};
 pub use event::{

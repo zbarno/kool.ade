@@ -173,6 +173,7 @@ pub(super) fn activate_after_overlay(
             active_app: None,
             personal_profile_id: profile_id,
             action_log: std::collections::VecDeque::new(),
+            pending_action_intent: None,
             display_io: std::sync::Arc::new(std::sync::Mutex::new(())),
             _scheduler_permit: scheduler_permit,
         },
