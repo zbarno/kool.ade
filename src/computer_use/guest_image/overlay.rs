@@ -212,7 +212,9 @@ fn create_guest_image_overlay_at(
         signer_key_id: verified.manifest_signer_key_id().to_owned(),
         catalog_generation: verified.catalog_generation(),
         virtual_size_bytes: decoded.virtual_size,
+        #[cfg(target_os = "linux")]
         persistent_disk_key: None,
+        #[cfg(target_os = "linux")]
         _profile_lock: None,
     })
 }

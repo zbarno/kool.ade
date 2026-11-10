@@ -43,8 +43,10 @@ pub struct GuestImageOverlayV1 {
     pub(super) signer_key_id: String,
     pub(super) catalog_generation: u64,
     pub(super) virtual_size_bytes: u64,
+    #[cfg(target_os = "linux")]
     pub(crate) persistent_disk_key:
         Option<crate::computer_use::personal_storage::PersonalVmDiskKeyV1>,
+    #[cfg(target_os = "linux")]
     pub(crate) _profile_lock: Option<std::fs::File>,
 }
 
@@ -62,6 +64,7 @@ pub struct GuestImageOverlayRequestV1<'a> {
 }
 
 impl GuestImageOverlayV1 {
+    #[cfg(target_os = "linux")]
     pub(crate) fn from_personal_profile(
         session_id: String,
         profile: &crate::computer_use::PersonalVmProfileV1,
@@ -111,12 +114,14 @@ impl GuestImageOverlayV1 {
             signer_key_id: String::new(),
             catalog_generation: 0,
             virtual_size_bytes: 0,
+            #[cfg(target_os = "linux")]
             persistent_disk_key: None,
+            #[cfg(target_os = "linux")]
             _profile_lock: None,
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub(crate) fn for_persistent_cleanup_test(
         path: PathBuf,
         directory: PathBuf,
@@ -161,10 +166,12 @@ impl GuestImageOverlayV1 {
         self.virtual_size_bytes
     }
 
+    #[cfg(target_os = "linux")]
     pub(crate) fn is_persistent_personal(&self) -> bool {
         self.persistent_disk_key.is_some() && self._profile_lock.is_some()
     }
 
+    #[cfg(target_os = "linux")]
     pub(crate) fn persistent_key_fd(
         &self,
     ) -> Result<Option<std::fs::File>, super::super::GuestImageOverlayErrorV1> {
@@ -182,6 +189,7 @@ impl GuestImageOverlayV1 {
 
     /// The VM backend must stop the VM before releasing its disposable overlay.
     pub fn release_after_vm_stopped(&self) -> Result<(), GuestImageOverlayErrorV1> {
+        #[cfg(target_os = "linux")]
         if self.persistent_disk_key.is_some() {
             return Ok(());
         }

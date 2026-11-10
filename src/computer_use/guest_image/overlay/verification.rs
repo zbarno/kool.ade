@@ -70,6 +70,7 @@ pub(crate) fn verify_overlay_before_boot_with_tool(
         .map_err(|_| GuestImageOverlayErrorV1::InvalidOverlay)?;
     let canonical_base = fs::canonicalize(&overlay.base_image_path)
         .map_err(|_| GuestImageOverlayErrorV1::UnsafePath)?;
+    #[cfg(target_os = "linux")]
     if overlay.persistent_disk_key.is_some() {
         if decoded.format != "qcow2"
             || decoded.virtual_size != overlay.virtual_size_bytes
