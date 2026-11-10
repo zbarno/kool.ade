@@ -215,6 +215,8 @@ fn secure_file(path: &Path) -> std::io::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     }
+    #[cfg(not(unix))]
+    let _ = path;
     Ok(())
 }
 fn validate_file(metadata: &fs::Metadata) -> std::io::Result<()> {
