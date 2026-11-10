@@ -10,6 +10,63 @@ use crate::computer_use::artifacts::{
 use std::path::Path;
 
 impl ComputerArtifactBridgeV1 {
+    pub(super) fn authorize_remote_guest_send(
+        &self,
+        artifact_id: &str,
+        identity: &ComputerIdentityV1,
+        current_task_revision: &str,
+        lease_generation: u64,
+        approval_generation: u64,
+        now_unix_ms: u64,
+    ) -> Result<(), ComputerArtifactBridgeErrorV1> {
+        self.with_lock(|| {
+            let manifest = self.load_manifest(artifact_id)?;
+            let grant = self.active_grant(&manifest.grant_id, identity, now_unix_ms)?;
+            if manifest.flow != Flow::TaskArtifactToGuest
+                || !manifest_matches_grant(&manifest, &grant)
+                || manifest.task_revision != current_task_revision
+                || manifest.lease_generation != lease_generation
+                || manifest.approval_generation != approval_generation
+            {
+                return Err(ComputerArtifactBridgeErrorV1::StaleRevision);
+            }
+            Ok(())
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)] // Each transfer authority fence is independently checked.
+    pub(super) fn authorize_remote_guest_receive(
+        &self,
+        grant_id: &str,
+        identity: &ComputerIdentityV1,
+        current_task_revision: &str,
+        lease_generation: u64,
+        approval_generation: u64,
+        display_name: &str,
+        now_unix_ms: u64,
+    ) -> Result<u64, ComputerArtifactBridgeErrorV1> {
+        self.with_lock(|| {
+            let grant = self.active_grant(grant_id, identity, now_unix_ms)?;
+            self.ensure_unused(grant_id)?;
+            let authorized_name = Path::new(&grant.relative_path)
+                .file_name()
+                .and_then(|part| part.to_str());
+            if !matches!(
+                grant.flow,
+                Flow::GuestArtifactToTask | Flow::UserDownloadFromGuest
+            ) || grant.task_revision != current_task_revision
+                || grant.lease_generation != lease_generation
+                || grant.approval_generation != approval_generation
+                || !validation::valid_display_name(display_name)
+                || authorized_name != Some(display_name)
+                || path_contains_private_component(&grant.relative_path)
+            {
+                return Err(ComputerArtifactBridgeErrorV1::StaleRevision);
+            }
+            Ok(grant.max_bytes)
+        })
+    }
+
     #[cfg(any(target_os = "linux", test))]
     /// Persist one exact file from a controller-verified QA build manifest.
     /// The in-memory bytes must match both the one-use grant and its digest.

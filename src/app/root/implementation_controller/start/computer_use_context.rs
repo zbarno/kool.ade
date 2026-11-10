@@ -180,7 +180,8 @@ fn current_host_controller(
 ) -> crate::computer_use::mcp::ComputerUseMcpControllerV1 {
     use crate::artifacts::planning_store::{PlanningStore, StoreMode};
     use crate::computer_use::{
-        ComputerResourceLimitsV1, LocalKvmComputerBackend,
+        ComputerRemoteWorkerTrustV1, ComputerResourceLimitsV1, ComputerTargetV1,
+        LocalKvmComputerBackend,
         artifacts::ComputerArtifactBridgeV1,
         guest_image::{
             ComputerGuestArchitectureV1, GuestImageCacheV1, GuestImageCatalogGenerationFloorV1,
@@ -201,8 +202,13 @@ fn current_host_controller(
             StoreMode::ManagedLocal,
         );
         let artifact_bridge = ComputerArtifactBridgeV1::new(transfer_store);
-        let machine_id = current_host_machine_id()?;
-        let cgroup_root = current_cgroup_v2_path()?;
+        let selected_worker = crate::persistence::computer_use_remote_workers::selected()
+            .map_err(|_| "remote_worker_enrollment_unavailable")?;
+        let local_machine_id = if selected_worker.is_none() {
+            Some(current_host_machine_id()?)
+        } else {
+            None
+        };
         let cache = GuestImageCacheV1::open_existing(storage.join("images"))
             .map_err(|_| "trusted_image_unavailable")?;
         let generation_floor =
@@ -236,14 +242,44 @@ fn current_host_controller(
         {
             return Err("trusted_image_unavailable");
         }
-        let mut key_seed = [0u8; 32];
-        key_seed[..16].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
-        key_seed[16..].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
-        let controller_key = ed25519_dalek::SigningKey::from_bytes(&key_seed);
-        key_seed.zeroize();
-        let controller_key_id = uuid::Uuid::new_v4().to_string();
-        let backend = std::sync::Arc::new(
-            LocalKvmComputerBackend::new(
+        let (controller_key_id, controller_key) =
+            crate::persistence::computer_use_controller_key::load_or_create_computer_use_controller_key_v1()
+                .map_err(|_| "trusted_controller_key_unavailable")?;
+        let (backend, target, machine_id): (
+            std::sync::Arc<dyn crate::computer_use::ComputerBackend>,
+            ComputerTargetV1,
+            String,
+        ) = if let Some(enrollment) = selected_worker {
+            enrollment
+                .validate()
+                .map_err(|_| "remote_worker_enrollment_unavailable")?;
+            let target = ComputerTargetV1::RemoteVmWorker {
+                worker_id: enrollment.worker_id.clone(),
+                machine_id: enrollment.machine_id.clone(),
+                trust: ComputerRemoteWorkerTrustV1 {
+                    ssh_host_key_fingerprint: enrollment.ssh_host_key_fingerprint.clone(),
+                    worker_attestation_key_id: enrollment.worker_attestation_key_id.clone(),
+                    worker_attestation_verifying_key_hex: enrollment
+                        .worker_attestation_verifying_key_hex
+                        .clone(),
+                    transport_protocol_version: enrollment.transport_protocol_version,
+                    guest_protocol_version: enrollment.guest_protocol_version,
+                },
+            };
+            let backend = crate::computer_use::remote_worker::RemoteComputerBackendV1::new(
+                enrollment.clone(),
+                std::path::PathBuf::new(),
+                std::path::PathBuf::new(),
+                controller_key_id.clone(),
+                controller_key.verifying_key(),
+                storage.join("remote-worker-controller"),
+            )
+            .map_err(|_| "remote_worker_enrollment_unavailable")?;
+            (std::sync::Arc::new(backend), target, enrollment.machine_id)
+        } else {
+            let machine_id = local_machine_id.expect("local machine identity was loaded");
+            let cgroup_root = current_cgroup_v2_path()?;
+            let backend = LocalKvmComputerBackend::new(
                 storage.join("runtime"),
                 storage.join("overlays"),
                 cgroup_root,
@@ -253,10 +289,18 @@ fn current_host_controller(
                 ComputerResourceLimitsV1::default(),
             )
             .map_err(|_| "trusted_runtime_unavailable")?
-            .with_application_catalog_bytes(application_catalog_bytes.clone()),
-        );
+            .with_application_catalog_bytes(application_catalog_bytes.clone());
+            (
+                std::sync::Arc::new(backend),
+                ComputerTargetV1::LocalKvm {
+                    machine_id: machine_id.clone(),
+                },
+                machine_id,
+            )
+        };
         Ok::<_, &'static str>(ComputerUseMcpRuntimeConfigV1 {
             backend,
+            target,
             controller_key,
             controller_key_id,
             machine_id,

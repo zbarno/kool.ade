@@ -26,6 +26,7 @@ pub use personal_storage::{
 };
 #[cfg(target_os = "linux")]
 pub(crate) mod process_security;
+pub mod remote_worker;
 
 #[cfg(target_os = "linux")]
 pub(crate) use host_executable::validate_trusted_system_executable;

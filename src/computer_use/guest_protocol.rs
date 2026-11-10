@@ -17,6 +17,8 @@ pub use host::{
     AuthenticatedGuestChannelV1, AuthorizedComputerUseSessionV1, ComputerUseAuthorityRegistryV1,
     ComputerUsePermissionV1, GuestHostTransportV1,
 };
+#[cfg(target_os = "linux")]
+pub(crate) use host::{GuestActionTransportV1, GuestAuthenticatedContextV1};
 pub use journal::{
     GuestActionJournalStatusV1, GuestActionJournalV1, GuestJournalErrorV1, GuestReplayDecisionV1,
 };

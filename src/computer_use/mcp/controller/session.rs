@@ -110,6 +110,7 @@ impl ComputerUseMcpOperationsV1 for ComputerUseMcpControllerV1 {
             };
         Ok(ComputerUseConsentScopeV1 {
             machine_id: runtime.machine_id.clone(),
+            target: runtime.target.clone(),
             approved_destination: None,
             allowed_operations,
             allowed_apps,
@@ -139,9 +140,15 @@ impl ComputerUseMcpOperationsV1 for ComputerUseMcpControllerV1 {
         if cancelled.load(Ordering::Acquire) {
             return denied("cancelled");
         }
+        if request.target.is_remote_vm_worker()
+            && !crate::computer_use::remote_worker::remote_computer_use_release_gate_open_v1()
+        {
+            return self.blocked("remote_worker_release_gate_closed");
+        }
         if request.identity != caller.identity
             || request.role_id != caller.role_id
             || request.machine_id != runtime.machine_id
+            || request.target != runtime.target
             || request.approved_destination.is_some()
             || !request
                 .available_network_profiles

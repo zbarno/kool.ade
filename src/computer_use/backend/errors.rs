@@ -5,6 +5,7 @@ pub enum ComputerBackendErrorV1 {
     InvalidSession,
     UntrustedSession,
     UnsupportedPolicy,
+    UnsupportedTarget,
     InvalidOverlay,
     DuplicateSession,
     MachineSlotLimit,

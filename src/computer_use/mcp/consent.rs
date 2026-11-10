@@ -294,7 +294,9 @@ fn valid_scope(scope: &ComputerUseConsentScopeV1, role_id: &str) -> bool {
     } else {
         (&GRANTABLE_OPERATIONS[..], &GRANTABLE_APPS[..])
     };
-    uuid::Uuid::parse_str(&scope.machine_id)
+    scope.target.validate().is_ok()
+        && scope.target.target_machine_id() == scope.machine_id
+        && uuid::Uuid::parse_str(&scope.machine_id)
         .is_ok_and(|machine| machine.to_string() == scope.machine_id)
         && !scope.allowed_operations.is_empty()
         && allowed_operations.len() == scope.allowed_operations.len()

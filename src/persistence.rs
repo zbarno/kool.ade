@@ -14,6 +14,8 @@ pub mod archived_tasks;
 pub mod bootstrap_conversations;
 pub mod cancelled_work;
 pub mod chat_store;
+pub(crate) mod computer_use_controller_key;
+pub mod computer_use_remote_workers;
 pub mod dependency_authorization;
 pub mod discovery_log;
 pub mod execution_environment_settings;

@@ -151,6 +151,7 @@ pub(super) fn start_granted_session(
         now_unix_ms: now,
         image: &image,
         session_class: ComputerSessionClassV1::Disposable,
+        target: request.target.clone(),
     });
     session
         .attest(runtime.controller_key_id.clone(), &runtime.controller_key)

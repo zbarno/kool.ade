@@ -91,9 +91,7 @@ impl AuthorizedComputerUseSessionV1 {
             .revoked
             .read()
             .map_err(|_| GuestProtocolErrorV1::StaleLease)?;
-        let machine_id = match &self.session.target {
-            crate::computer_use::ComputerTargetV1::LocalKvm { machine_id } => machine_id.clone(),
-        };
+        let machine_id = self.session.target.worker_id().to_owned();
         Ok(ComputerUsePermissionV1 {
             identity: self.session.identity.clone(),
             actor: self.actor,
@@ -158,12 +156,11 @@ impl AuthorizedComputerUseSessionV1 {
             return Err(GuestProtocolErrorV1::StaleLease);
         }
         self.validate_session_and_actor(now_unix_ms)?;
-        let machine_id = match &self.session.target {
-            crate::computer_use::ComputerTargetV1::LocalKvm { machine_id } => machine_id,
-        };
-        if channel.config.session_id != self.session.identity.session_id
-            || channel.config.worker_id != *machine_id
-            || channel.config.lease_generation != self.session.lease.generation
+        let worker_id = self.session.target.worker_id();
+        if channel.context.session_id != self.session.identity.session_id
+            || channel.context.worker_id != worker_id
+            || channel.context.lease_generation != self.session.lease.generation
+            || channel.remote_transport.is_some() != self.session.target.is_remote_vm_worker()
         {
             return Err(GuestProtocolErrorV1::WrongSession);
         }
