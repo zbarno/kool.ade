@@ -160,6 +160,9 @@ pub fn workflow_context_for_turn(
             "GENERATE TASK STORIES. The user explicitly approved the current reviewed specification. Generate the complete detailed task set now."
         }
         crate::core::workflow::TurnPurpose::ComparePlans => compare_plans::PROSE,
+        crate::core::workflow::TurnPurpose::ReadinessEvaluation => {
+            "READINESS EVALUATION. From the current plan documents, update the persisted readiness assessment for the supplied feature: evaluate every required axis, record each unresolved blocker with its exact reason, and record whether the plan is ready. Ask no new questions, request no approvals, and make no document edits beyond the readiness record itself."
+        }
     };
     let current_feature_id =
         comparison_feature.or_else(|| state.active_feature.as_ref().map(|(id, _)| id.as_str()));

@@ -170,6 +170,15 @@ impl KooladeApp {
                             .danger(format!("Cannot save refreshed planning parent: {error}"));
                     }
                 }
+                {
+                    // Evaluation turn requests are handled by the periodic
+                    // sweep (single launcher); only announce here.
+                    for event in
+                        crate::app::root::plan_confirmation_sync::sync(project).announcements
+                    {
+                        self.toasts.info(event);
+                    }
+                }
                 self.record_plan_author_provenance(
                     project,
                     &normalized.document_updates,

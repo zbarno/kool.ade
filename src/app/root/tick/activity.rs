@@ -16,9 +16,15 @@ impl KooladeApp {
         let mut plan_repair = None;
         let mut code_review_repair = None;
         let mut planner_generation_readiness = None;
+        let mut plan_confirmation_evaluation = None;
         if let Screen::Connected(project) = &mut self.screen {
             crate::app::manager::operational_recovery::advance(project);
             reconcile_inactive_planning_work(project);
+            let effects = crate::app::root::plan_confirmation_sync::sync(project);
+            plan_confirmation_evaluation = effects.evaluations_wanted.into_iter().next();
+            for event in effects.announcements {
+                self.toasts.info(event);
+            }
             planner_generation_readiness = advance_clarification_planner(project);
             advance_plan_review(project);
             advance_code_review_arbitration(project);
@@ -56,6 +62,19 @@ impl KooladeApp {
                 crate::core::workflow::TurnPurpose::Interview,
                 Some(&feature_id),
                 Some(key),
+            );
+        }
+        if let Some(evaluation) = plan_confirmation_evaluation {
+            // One evaluation at a time; the reconciler queues the rest
+            // (prompt-once per spec revision).
+            self.start_turn_for_work(
+                &format!(
+                    "Evaluate planning readiness for \"{}\": recompute the persisted readiness assessment strictly from the current plan document and record every unresolved blocker verbatim.",
+                    evaluation.feature_title
+                ),
+                crate::core::workflow::TurnPurpose::ReadinessEvaluation,
+                None,
+                Some(evaluation.work_key),
             );
         }
         if let Some((ticket, work_id)) = code_review_repair {

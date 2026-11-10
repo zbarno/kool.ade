@@ -32,6 +32,8 @@ pub enum TurnPurpose {
     ReviewForGeneration,
     GenerateTasks,
     ComparePlans,
+    /// Recompute the persisted readiness assessment from the plan document.
+    ReadinessEvaluation,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
