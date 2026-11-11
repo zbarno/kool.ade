@@ -260,7 +260,7 @@ sudo tee "$work_dir/rootfs/etc/systemd/system/koolade-computer-use-agent.service
 Description=Kool.ad/e authenticated Computer Use guest companion
 Requires=koolade-computer-use-bootstrap.service
 Requires=koolade-computer-use-app-helper.service
-After=koolade-computer-use-bootstrap.service koolade-computer-use-app-helper.service graphical.target
+After=koolade-computer-use-bootstrap.service koolade-computer-use-app-helper.service
 
 [Service]
 Type=simple
@@ -285,7 +285,7 @@ MemoryMax=256M
 TasksMax=64
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical.target
 UNIT
 chroot_guest systemctl enable koolade-computer-use-bootstrap.service
 sudo tee "$work_dir/rootfs/etc/systemd/system/koolade-computer-use-app-helper.service" >/dev/null <<'UNIT'
