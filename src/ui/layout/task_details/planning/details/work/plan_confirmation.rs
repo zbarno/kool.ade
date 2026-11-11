@@ -204,6 +204,11 @@ fn paint_decide_area(
                 }
                 None => {}
             }
+            ui.separator();
+            ui.label(theme::helper_text(
+                "If neither plan fits, describe what you actually need below; it is submitted as your reply to this card and never treated as an approval.",
+            ));
+            super::decision::free_text(ui, surface, &work.key);
         } else {
             let blocked_by_review = action
                 .review_verdict

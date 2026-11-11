@@ -69,6 +69,12 @@ pub(super) fn paint(
                 ));
             }
         }
+        // Escape route: reject every proposed option and answer in the
+        // person's own words. It travels the same typed reply channel as any
+        // other answer and is never coerced into a listed option.
+        ui.collapsing("Other (write my own answer)", |ui| {
+            free_text(ui, surface, item.conversation_key());
+        });
     }
 }
 
