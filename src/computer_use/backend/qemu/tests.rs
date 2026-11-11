@@ -190,6 +190,31 @@ fn launch_argument_paths_reject_qemu_option_delimiters() {
 }
 
 #[test]
+fn launch_argument_paths_keep_linux_socket_paths_within_the_safe_limit() {
+    let session = session();
+    let ninety_six = format!("/{}", "x".repeat(95));
+    let ninety_seven = format!("/{}", "x".repeat(96));
+    let args = |overlay: &Path| {
+        command_args(
+            &session,
+            overlay,
+            Path::new("/private/guest-control.sock"),
+            Path::new("/private/display.sock"),
+            Path::new("/private/boot.json"),
+            Path::new("/private/app-helper.json"),
+            None,
+            None,
+            None,
+        )
+    };
+    assert!(args(Path::new(&ninety_six)).is_ok());
+    assert_eq!(
+        args(Path::new(&ninety_seven)),
+        Err(ComputerBackendErrorV1::InvalidOverlay)
+    );
+}
+
+#[test]
 fn internet_research_qemu_network_is_restricted_to_the_loopback_proxy() {
     let mut session = session();
     session.network_profile = ComputerNetworkProfileV1::InternetResearch;
