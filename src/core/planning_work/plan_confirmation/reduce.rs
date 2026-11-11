@@ -126,6 +126,14 @@ pub(super) fn reconcile_feature(
             report,
         );
     };
+    // Any card of this feature held by an in-flight write wins the whole
+    // pass: no collapse, no field refresh, no stamping — revisited next pass.
+    if candidates
+        .iter()
+        .any(|index| excluded_keys.contains(work[*index].key.as_str()))
+    {
+        return Ok(());
+    }
     let mut extras: Vec<usize> = candidates
         .into_iter()
         .filter(|index| Some(*index) != keeper_choice)
@@ -136,9 +144,6 @@ pub(super) fn reconcile_feature(
         work.remove(extra);
         report.changed = true;
         report.duplicates_removed += 1;
-    }
-    if excluded_keys.contains(work[keeper].key.as_str()) {
-        return Ok(()); // Owned by a concurrent write; revisit next pass.
     }
     records::update_record(
         &mut work[keeper],
@@ -190,11 +195,18 @@ fn classify_not_ready(message: &str) -> PlanNotReadyCause {
 /// for every card whose blocker class needs an evaluation turn. Markers live
 /// in the payloads written this pass, so repeats with identical evidence
 /// cannot double-prompt.
-pub(super) fn manage_evaluation_prompts(work: &mut [Work], report: &mut PlanConfirmationReport) {
+pub(super) fn manage_evaluation_prompts(
+    work: &mut [Work],
+    report: &mut PlanConfirmationReport,
+    excluded_keys: &BTreeSet<String>,
+) {
     for item in work.iter_mut() {
         let Some(payload) = item.plan_confirmation.as_mut() else {
             continue;
         };
+        if excluded_keys.contains(item.key.as_str()) {
+            continue; // Owned by an in-flight turn; stamping resumes next pass.
+        }
         let promotable =
             !payload.ready && payload.cause != Some(PlanNotReadyCause::MalformedDocument);
         if promotable
@@ -202,13 +214,17 @@ pub(super) fn manage_evaluation_prompts(work: &mut [Work], report: &mut PlanConf
                 != Some(payload.snapshot_spec_revision.as_str())
         {
             payload.evaluation_prompted_for = Some(payload.snapshot_spec_revision.clone());
+            // A stamp flip is a payload change even when no other field moved;
+            // without this the save is skipped and every pass re-prompts.
+            report.changed = true;
             report.evaluations_wanted.push(ReadinessEvaluationRequest {
                 work_key: item.key.clone(),
                 feature_id: item.feature_id.clone().unwrap_or_default(),
                 feature_title: item.title.clone(),
             });
-        } else if !promotable {
+        } else if !promotable && payload.evaluation_prompted_for.is_some() {
             payload.evaluation_prompted_for = None;
+            report.changed = true; // Clear once and persist; steady state stays quiet.
         }
     }
 }

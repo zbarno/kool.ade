@@ -130,7 +130,7 @@ pub fn reconcile(
     for (feature_id, body) in state.active_features.iter() {
         reduce::reconcile_feature(state, feature_id, body, work, &mut report, excluded_keys)?;
     }
-    reduce::manage_evaluation_prompts(work.as_mut_slice(), &mut report);
+    reduce::manage_evaluation_prompts(work.as_mut_slice(), &mut report, excluded_keys);
     Ok(report)
 }
 

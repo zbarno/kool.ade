@@ -225,6 +225,107 @@ fn two_features_get_independent_cards() {
 }
 
 #[test]
+fn prompt_stamp_flip_on_quiet_pass_marks_changed() {
+    // A store-resident card whose evaluation stamp was never persisted must
+    // still get its stamp saved on the next pass, even when no other field
+    // changed — otherwise every pass re-prompts an evaluation turn.
+    let uid = feature_uid();
+    let fx = fixture();
+    let state = with_feature(&fx, "F1", &draft_body(&uid));
+    let mut work = vec![intent_root(&uid)];
+    run(&state, &mut work).unwrap();
+    let card_index = work
+        .iter()
+        .position(|item| item.kind == WorkKind::PlanConfirmation)
+        .unwrap();
+    work[card_index]
+        .plan_confirmation
+        .as_mut()
+        .unwrap()
+        .evaluation_prompted_for = None;
+
+    let report = run(&state, &mut work).unwrap();
+    assert!(
+        report.changed,
+        "a stamp-only flip is a payload change and must be persisted"
+    );
+    assert_eq!(report.evaluations_wanted.len(), 1);
+
+    // Steady state afterwards: stamp sticks, no re-prompt, no churn.
+    let settled = work.clone();
+    let second = run(&state, &mut work).unwrap();
+    assert!(!second.changed);
+    assert!(second.evaluations_wanted.is_empty());
+    assert_eq!(work, settled);
+}
+
+#[test]
+fn evaluation_stamp_cleared_once_and_excluded_cards_unstamped() {
+    fn seeded_card(ready: bool, stamp: Option<&str>) -> Work {
+        let mut card = Work::new(
+            "plan-confirmation-seed".into(),
+            "Seed".into(),
+            "seed".into(),
+            "Starting".into(),
+        );
+        card.kind = WorkKind::PlanConfirmation;
+        card.feature_id = Some("F1".into());
+        card.plan_confirmation = Some(PlanConfirmationV1 {
+            schema_version: PLAN_CONFIRMATION_SCHEMA,
+            feature_uid: "fid".into(),
+            snapshot_content_hash: "a".repeat(64),
+            snapshot_spec_revision: "rev-1".into(),
+            pin_is_published: false,
+            ready,
+            cause: if ready {
+                None
+            } else {
+                Some(PlanNotReadyCause::AssessmentNeeded)
+            },
+            blockers: if ready {
+                vec![]
+            } else {
+                vec!["waiting".into()]
+            },
+            evaluation_prompted_for: stamp.map(str::to_owned),
+            announced_ready: None,
+            evaluated_at_unix_ms: 1,
+        });
+        card
+    }
+    let empty = std::collections::BTreeSet::new();
+
+    // Ready card with a lingering stamp: clears once, then stays quiet.
+    let mut work = vec![seeded_card(true, Some("rev-1"))];
+    let mut report = super::PlanConfirmationReport::default();
+    super::reduce::manage_evaluation_prompts(&mut work, &mut report, &empty);
+    assert!(report.changed, "the clear must persist exactly once");
+    assert!(
+        work[0]
+            .plan_confirmation
+            .as_ref()
+            .unwrap()
+            .evaluation_prompted_for
+            .is_none()
+    );
+    let mut calm = super::PlanConfirmationReport::default();
+    super::reduce::manage_evaluation_prompts(&mut work, &mut calm, &empty);
+    assert!(!calm.changed, "steady state must not churn");
+
+    // Promotable card that is excluded (in-flight turn) is left untouched:
+    // no stamp, no evaluation request, no spurious changed flag.
+    let mut work = vec![seeded_card(false, None)];
+    let mut excluded = std::collections::BTreeSet::new();
+    excluded.insert(work[0].key.clone());
+    let before = work[0].clone();
+    let mut report = super::PlanConfirmationReport::default();
+    super::reduce::manage_evaluation_prompts(&mut work, &mut report, &excluded);
+    assert!(!report.changed);
+    assert!(report.evaluations_wanted.is_empty());
+    assert_eq!(work[0], before);
+}
+
+#[test]
 fn in_progress_cards_are_protected_from_generic_lifecycle_demotion() {
     use crate::core::planning_work::reconcile_inactive;
     let uid = feature_uid();

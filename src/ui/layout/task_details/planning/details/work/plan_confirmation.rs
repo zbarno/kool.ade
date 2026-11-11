@@ -134,7 +134,7 @@ fn paint_decide_area(
     ui: &mut egui::Ui,
     surface: &mut dyn Surface,
     work: &crate::core::planning_work::Work,
-    _payload: &PlanConfirmationV1,
+    payload: &PlanConfirmationV1,
 ) {
     use crate::ui::feature_approval;
     use crate::ui::theme;
@@ -151,11 +151,17 @@ fn paint_decide_area(
             })
             && (!action.approved || action.retry_review)
     }) else {
-        // Not an anomaly to shout about: the action set refreshes on the
-        // next reconciliation pass.
+        // Fail closed and say exactly what is happening: the card stays a
+        // concrete object (bound snapshot below) instead of an empty area.
         ui.label(theme::helper_text(
-            "The decision controls are regenerating from the stored plan.",
+            "Approval controls are momentarily unavailable while the stored plan \n\
+             re-binds. Nothing was approved and nothing was lost; the controls \n\
+             return on the next pass.",
         ));
+        ui.label(theme::metadata_text(format!(
+            "Bound snapshot {} · spec revision {}",
+            payload.snapshot_content_hash, payload.snapshot_spec_revision
+        )));
         return;
     };
 
