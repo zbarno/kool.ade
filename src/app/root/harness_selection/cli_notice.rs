@@ -142,6 +142,7 @@ mod tests {
 
     fn detected(provider: &str, auth: ReadinessState, checked_at_unix_ms: u64) -> DetectedHarness {
         DetectedHarness {
+            verified_at_unix_ms: None,
             status: format!("{provider} ready"),
             version: Some("1.0.0".into()),
             executable: Some(format!("/synthetic/bin/{provider}")),

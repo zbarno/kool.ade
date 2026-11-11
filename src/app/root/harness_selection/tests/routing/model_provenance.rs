@@ -37,6 +37,7 @@ fn route_provenance_does_not_mislabel_a_discovered_model_hint_as_requested() {
         discovered: std::collections::BTreeMap::from([(
             "pi".into(),
             DetectedHarness {
+                verified_at_unix_ms: None,
                 status: "pi ready".into(),
                 version: Some("1.0.0".into()),
                 executable: Some("/synthetic/bin/pi".into()),

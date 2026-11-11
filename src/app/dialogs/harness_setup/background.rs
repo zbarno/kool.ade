@@ -1,22 +1,19 @@
 //! App-lifetime, bounded refresh of CLI routing evidence. Discovery and
 //! operator choices are different kinds of state: refresh never rewrites routes.
+//! Sweeps start once at app start and afterward only on an explicit request
+//! (unroutable provider, dialog refresh); nothing polls on a timer.
 use std::collections::BTreeMap;
 use std::sync::{
     Mutex, OnceLock,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
 
 use crate::harness::discovery::{ModelCatalogStatus, ProbeDiagnosticCode, ProbeResult};
-#[cfg(test)]
-use crate::persistence::harness_settings::DISCOVERY_FRESHNESS_MS;
 use crate::persistence::harness_settings::{self, HarnessSettings};
 
 use super::{discovery::update_settings_from_probe, probe_result, probes};
 
-const EARLY_REFRESH_MS: u64 = 3 * 60 * 1000;
-const RETRY_INTERVAL: Duration = Duration::from_secs(60);
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 struct CompletedScan {
@@ -29,8 +26,10 @@ struct CompletedScan {
 #[derive(Default)]
 struct Coordinator {
     worker: Option<JoinHandle<CompletedScan>>,
-    last_attempt: Option<Instant>,
     requested: bool,
+    /// Becomes true once the app-start sweep has retired. Startup sweeps are
+    /// exempt from the request requirement; everything after is request-driven.
+    startup_sweep_done: bool,
 }
 
 fn coordinator() -> &'static Mutex<Coordinator> {
@@ -58,19 +57,53 @@ pub(crate) fn request_refresh() {
         .requested = true;
 }
 
-fn refresh_due(settings: &HarnessSettings, now: u64) -> bool {
-    // First run, newly installed providers, and expiring evidence all use
-    // the same scheduler. Include absent providers in periodic rescans.
-    probes::PROVIDERS.iter().any(|provider| {
-        settings
-            .discovered
-            .get(*provider)
-            .is_none_or(|entry| !entry.is_fresh_at(now.saturating_add(EARLY_REFRESH_MS)))
-    })
+/// Decide whether a sweep may start: the one app-start sweep, or any sweep
+/// after an explicit request. Nothing starts from elapsed time alone.
+fn sweep_should_start(startup_sweep_done: bool, requested: bool) -> bool {
+    !startup_sweep_done || requested
 }
 
-fn scan() -> CompletedScan {
-    let (settings, _) = harness_settings::load();
+#[cfg(debug_assertions)]
+thread_local! {
+    /// Test-build permission for background sweeps; production runs never
+    /// consult it. Dormant by default so dialog unit tests neither spawn
+    /// probe workers nor consume scan generations by accident.
+    static BACKGROUND_SWEEPS_PERMITTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// RAII permission for a test to exercise background sweep admission. Release
+/// builds permit sweeps unconditionally; in test builds the scheduler stays
+/// dormant on every thread until a test explicitly opts in.
+#[allow(dead_code)]
+#[cfg(debug_assertions)]
+pub(crate) fn with_background_sweeps_permitted<R>(run: impl FnOnce() -> R) -> R {
+    let previous = BACKGROUND_SWEEPS_PERMITTED.with(|permit| permit.get());
+    BACKGROUND_SWEEPS_PERMITTED.with(|permit| permit.set(true));
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            BACKGROUND_SWEEPS_PERMITTED.with(|permit| permit.set(self.0));
+        }
+    }
+    // The guard is constructed before `run()` so an unwinding closure still
+    // restores the previous permit on this (possibly pool-reused) thread
+    // instead of leaking dormancy off for later tests.
+    let _restore = Restore(previous);
+    run()
+}
+
+fn background_sweeps_permitted() -> bool {
+    #[cfg(debug_assertions)]
+    {
+        BACKGROUND_SWEEPS_PERMITTED.with(|permit| permit.get())
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        true
+    }
+}
+
+fn scan(original_paths: BTreeMap<String, String>) -> CompletedScan {
     let started_at = harness_settings::current_unix_ms();
     let generation = NEXT_GENERATION.fetch_add(1, Ordering::Relaxed);
     let cancellation = std::sync::Arc::new(AtomicBool::new(false));
@@ -85,7 +118,7 @@ fn scan() -> CompletedScan {
     CompletedScan {
         started_at,
         generation,
-        original_paths: settings.manual_executable_paths,
+        original_paths,
         results,
     }
 }
@@ -125,10 +158,14 @@ fn merge_results(settings: &mut HarnessSettings, scan: CompletedScan) -> bool {
     changed
 }
 
-/// Called on normal app ticks, including Welcome. Only one worker runs at a
-/// time; a monotonic retry interval prevents an expired record from causing a
-/// frame-by-frame probe loop after failures or a system clock adjustment.
+/// Called on normal app ticks, including Welcome. Starts the one app-start
+/// sweep, then sweeps only while an explicit request is armed. A single
+/// worker runs at a time; rapid repeat requests serialize on the worker and
+/// the scan-generation/cancellation machinery.
 pub(crate) fn poll_auto_refresh() {
+    if !background_sweeps_permitted() {
+        return;
+    }
     let mut state = coordinator()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -139,67 +176,51 @@ pub(crate) fn poll_auto_refresh() {
     {
         return;
     }
-    if let Some(worker) = state.worker.take()
-        && let Ok(completed) = worker.join()
-    {
-        let (mut settings, diagnostic) = harness_settings::load();
-        if diagnostic.is_none()
-            && merge_results(&mut settings, completed)
-            && let Err(error) = harness_settings::save(&settings)
-        {
-            eprintln!("Kool.ad/e CLI discovery: failed to save refresh: {error}");
+    if let Some(worker) = state.worker.take() {
+        match worker.join() {
+            Ok(completed) => {
+                let (mut settings, diagnostic) = harness_settings::load();
+                if diagnostic.is_none()
+                    && merge_results(&mut settings, completed)
+                    && let Err(error) = harness_settings::save(&settings)
+                {
+                    eprintln!("Kool.ad/e CLI discovery: failed to save refresh: {error}");
+                }
+            }
+            Err(payload) => {
+                eprintln!(
+                    "Kool.ad/e CLI discovery: background sweep aborted unexpectedly: {payload:?}"
+                );
+            }
         }
+        // A retired sweep counts as the startup sweep however it ended, so an
+        // aborting or panicking scan cannot spin a startup respawn loop.
+        state.startup_sweep_done = true;
     }
 
-    let now = harness_settings::current_unix_ms();
-    let settings = harness_settings::load().0;
-    if !state.requested && !refresh_due(&settings, now) {
+    if !sweep_should_start(state.startup_sweep_done, state.requested) {
         return;
     }
-    if state
-        .last_attempt
-        .is_some_and(|when| when.elapsed() < RETRY_INTERVAL)
-    {
-        return;
-    }
-    state.last_attempt = Some(Instant::now());
+    // Capture the manual-path guard map on the requesting thread: the
+    // sweep worker must not interpret whichever settings store its own
+    // thread would resolve.
+    let original_paths = harness_settings::load().0.manual_executable_paths;
     state.requested = false;
-    state.worker = Some(std::thread::spawn(scan));
+    state.worker = Some(std::thread::spawn(move || scan(original_paths)));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn checks_before_expiration_and_when_no_provider_was_discovered() {
-        let now = 1_000_000_000;
-        let empty = HarnessSettings::default();
-        assert!(refresh_due(&empty, now));
-        let mut settings = HarnessSettings::default();
-        for id in probes::PROVIDERS {
-            settings.discovered.insert(
-                id.to_string(),
-                crate::persistence::harness_settings::DetectedHarness {
-                    status: "unavailable".into(),
-                    version: None,
-                    executable: None,
-                    diagnostic: None,
-                    ready: false,
-                    models: vec![],
-                    default_model: None,
-                    model_catalog_fresh: false,
-                    configuration_required: false,
-                    implementation_available: false,
-                    capability_snapshot: None,
-                    checked_at_unix_ms: now,
-                },
-            );
-        }
-        assert!(!refresh_due(&settings, now));
-        assert!(refresh_due(
-            &settings,
-            now + DISCOVERY_FRESHNESS_MS - EARLY_REFRESH_MS + 1
-        ));
+    fn startup_sweep_is_one_shot_and_later_sweeps_need_a_request() {
+        // The app-start sweep always starts ...
+        assert!(sweep_should_start(false, false));
+        // ... and so does an explicit request after it has retired ...
+        assert!(sweep_should_start(true, true));
+        // ... but nothing is scheduled from elapsed time alone.
+        assert!(!sweep_should_start(true, false));
+        assert!(sweep_should_start(false, true));
     }
 
     #[test]

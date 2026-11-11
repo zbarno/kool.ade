@@ -16,6 +16,10 @@ pub(super) struct HarnessProbe {
     /// does not establish that the provider is authenticated.
     pub authentication: ReadinessState,
     pub implementation_available: bool,
+    /// Set when account access is currently proven for this provider (by a
+    /// live verification or an unexpired receipt). Absent for providers
+    /// whose checks are non-generative.
+    pub verified_at_unix_ms: Option<u64>,
 }
 
 pub(super) fn is_executable_file(path: &std::path::Path) -> bool {

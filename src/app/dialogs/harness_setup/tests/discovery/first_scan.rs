@@ -89,6 +89,7 @@ fn stale_routed_provider_refreshes_even_when_an_unrelated_provider_is_fresh() {
                 (
                     "codex".into(),
                     DetectedHarness {
+                        verified_at_unix_ms: None,
                         status: "available".into(),
                         ready: true,
                         checked_at_unix_ms: NOW,
@@ -98,6 +99,7 @@ fn stale_routed_provider_refreshes_even_when_an_unrelated_provider_is_fresh() {
                 (
                     "pi".into(),
                     DetectedHarness {
+                        verified_at_unix_ms: None,
                         status: "available".into(),
                         ready: true,
                         checked_at_unix_ms: NOW.saturating_sub(DISCOVERY_FRESHNESS_MS + 1),
@@ -150,5 +152,6 @@ fn detected(provider: &str) -> crate::persistence::harness_settings::DetectedHar
         implementation_available: false,
         capability_snapshot: None,
         checked_at_unix_ms: 0,
+        verified_at_unix_ms: None,
     }
 }

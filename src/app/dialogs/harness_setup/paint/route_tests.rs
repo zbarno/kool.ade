@@ -18,6 +18,7 @@ fn context_only_planning_is_available_in_role_route_picker_without_docker() {
         configuration_required: false,
         implementation_available: false,
         checked_at_unix_ms: now,
+        verified_at_unix_ms: None,
         capability_snapshot: Some(HarnessCapabilitySnapshotV1 {
             schema_version: 1,
             provider_id: "opencode".into(),

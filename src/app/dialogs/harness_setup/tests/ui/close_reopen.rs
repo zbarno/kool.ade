@@ -37,6 +37,7 @@ fn closing_and_reopening_keeps_cached_discovery_until_a_new_result_arrives() {
             capability_snapshot: Some(snapshot),
             checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms()
                 .saturating_sub(crate::persistence::harness_settings::DISCOVERY_FRESHNESS_MS + 1),
+            verified_at_unix_ms: None,
         },
     );
 

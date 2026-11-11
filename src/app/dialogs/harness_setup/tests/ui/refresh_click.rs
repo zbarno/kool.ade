@@ -36,6 +36,7 @@ fn rediscover_button_double_click_cancels_the_first_scan_generation() {
             implementation_available: true,
             capability_snapshot: Some(capability_snapshot),
             checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
+            verified_at_unix_ms: None,
         },
     );
     crate::persistence::harness_settings::with_settings_path(settings_path.clone(), || {
@@ -175,6 +176,7 @@ fn double_click_inside_the_production_cooldown_declines_the_second_start() {
             implementation_available: true,
             capability_snapshot: Some(capability_snapshot),
             checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
+            verified_at_unix_ms: None,
         },
     );
     crate::persistence::harness_settings::with_settings_path(settings_path.clone(), || {
