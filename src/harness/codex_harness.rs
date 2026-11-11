@@ -25,6 +25,10 @@ pub struct CodexProbeReport {
     pub binary: Option<PathBuf>,
     pub ready: bool,
     pub readiness: CodexReadiness,
+    /// Set when account access is currently proven: either by a successful
+    /// bounded live verification in this probe, or by a receipt that is
+    /// still inside its TTL.
+    pub verified_at_unix_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

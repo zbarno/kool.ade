@@ -37,6 +37,10 @@ pub(in crate::app::dialogs::harness_setup) fn update_settings_from_probe(
             configuration_required: report.configuration_required,
             implementation_available: report.implementation_available
                 && report.authentication == crate::execution::contract::ReadinessState::Ready,
+            // A regression (logout, removed executable, probe failure) replaces
+            // the entry wholesale; the receipt dies with the entry unless a
+            // new report re-establishes it.
+            verified_at_unix_ms: report.verified_at_unix_ms,
             checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
             capability_snapshot: Some(capability_snapshot),
         },

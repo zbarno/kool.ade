@@ -127,6 +127,7 @@ fn reviewer_diagnostic_uses_the_fresh_qa_route_capability() {
         discovered: BTreeMap::from([(
             id.into(),
             DetectedHarness {
+                verified_at_unix_ms: None,
                 status: "ready".into(),
                 version: Some("1.0".into()),
                 executable: Some("/synthetic/cli".into()),

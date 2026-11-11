@@ -17,6 +17,7 @@ fn discovery_keeps_adapter_failures_independent_without_forcing_a_fallback() {
         configuration_required: true,
         authentication: crate::execution::contract::ReadinessState::Unavailable,
         implementation_available: false,
+        verified_at_unix_ms: None,
     };
     let mut settings = HarnessSettings::default();
     super::super::super::discovery::apply_probe_results(
@@ -56,6 +57,7 @@ fn configured_codex_default_is_preserved_when_authentication_is_unverified() {
         configuration_required: false,
         authentication: crate::execution::contract::ReadinessState::Unknown,
         implementation_available: false,
+        verified_at_unix_ms: None,
     };
     let mut settings = HarnessSettings {
         default_harness: Some("codex".into()),
@@ -133,6 +135,7 @@ fn unrelated_provider_failure_preserves_saved_manual_path_and_default() {
         configuration_required: false,
         authentication: crate::execution::contract::ReadinessState::Unknown,
         implementation_available: false,
+        verified_at_unix_ms: None,
     };
     let mut settings = settings_before.clone();
 

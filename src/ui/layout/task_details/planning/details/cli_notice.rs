@@ -94,6 +94,7 @@ mod tests {
         settings.discovered.insert(
             "pi".into(),
             DetectedHarness {
+                verified_at_unix_ms: None,
                 status: "available".into(),
                 version: Some("0.84.4".into()),
                 executable: Some("/synthetic/pi".into()),

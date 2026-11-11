@@ -1,8 +1,34 @@
 # Coding tool discovery
 
-Kool.ad/e asks the installed Codex app-server for its paginated, non-hidden model catalog and shows the reported slugs and default in Coding tools settings. OpenAI documents that `model/list` can return a bundled or cached catalog; it is not an account entitlement check. For current account-specific choices, OpenAI recommends querying `/v1/models` with that account's OAuth access token. Kool.ad/e does not read a Codex credential store or make that account-specific request, so a listed model can still be unavailable to the signed-in account. Codex task routes are currently blocked because Kool.ad/e cannot contain organization-managed hooks. For enabled providers, the application manages MCP tools and repository commands run through the application-owned Docker ExecutionSession.
+Kool.ad/e asks the installed Codex app-server for its paginated, non-hidden model catalog and shows the reported slugs and default in Coding tools settings. OpenAI documents that `model/list` can return a bundled or cached catalog; it is not an account entitlement check, so a listed model can still be unavailable to the signed-in account. Login banners and catalog listings therefore never mark Codex ready; account access is established only by the bounded live verification described below. For enabled providers, the application manages MCP tools and repository commands run through the application-owned Docker ExecutionSession.
 
 Sources: [Codex app-server](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server), [Models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference).
+
+## Account access verification (Codex)
+
+Discovery establishes Codex account access with one bounded live call:
+a tiny `codex exec` round trip in a read-only, ephemeral sandbox with a 60-
+second timeout and output caps. A clean exit with a reply proves the signed-in
+account can actually run a model; anything else stays “authentication
+unverified”, and the diagnostic is redacted so credential-shaped text never
+reaches settings, logs, or UI. Routine discovery spends at most one such call;
+opportunistic checks that only need to refuse execution rely on local evidence
+and a stored receipt instead of spending a model call.
+
+A successful verification is persisted as a per-provider receipt for 24 hours.
+The execution gate trusts a fresh receipt without calling a model again, so
+relaunches do not burn repeated calls; an expired receipt simply re-verifies at
+the next discovery. Changing an executable path or otherwise intervening in a
+provider invalidates its receipt.
+
+Background discovery sweeps start once at app start, then only on an explicit
+request (the dialog’s per-provider “Check” button, “Rediscover tools”, or an
+unroutable-provider notice). Nothing re-scans on a timer; discovery freshness
+decides presentation, not scheduling.
+
+Codex task routes remain blocked while organization-managed hooks cannot be
+contained inside the app's execution boundary; use another provider for
+Kool.ad/e tasks meanwhile.
 
 
 ## Role routes

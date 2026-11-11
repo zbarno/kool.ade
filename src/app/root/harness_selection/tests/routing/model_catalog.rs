@@ -14,6 +14,7 @@ fn configured_model_missing_from_refreshed_catalog_fails_closed() {
         discovered: std::collections::BTreeMap::from([(
             "pi".into(),
             DetectedHarness {
+                verified_at_unix_ms: None,
                 status: "pi ready".into(),
                 version: Some("1.0.0".into()),
                 executable: Some("/synthetic/bin/pi".into()),
@@ -55,6 +56,7 @@ fn route_label_reports_configured_default_model_before_harness_usage() {
         discovered: std::collections::BTreeMap::from([(
             "pi".into(),
             DetectedHarness {
+                verified_at_unix_ms: None,
                 status: "pi ready".into(),
                 version: Some("1.0.0".into()),
                 executable: Some("/synthetic/bin/pi".into()),
@@ -94,6 +96,7 @@ fn role_route_blocks_when_the_cli_default_model_is_unreported() {
         discovered: std::collections::BTreeMap::from([(
             "pi".into(),
             DetectedHarness {
+                verified_at_unix_ms: None,
                 status: "pi ready".into(),
                 version: Some("1.0.0".into()),
                 executable: Some("/synthetic/bin/pi".into()),
@@ -136,6 +139,7 @@ fn stale_discovery_cannot_route_a_saved_model() {
         discovered: std::collections::BTreeMap::from([(
             "pi".into(),
             DetectedHarness {
+                verified_at_unix_ms: None,
                 status: "pi ready".into(),
                 version: Some("1.0.0".into()),
                 executable: Some("/tools/pi".into()),
@@ -178,6 +182,7 @@ fn failed_optional_catalog_probe_does_not_treat_saved_models_as_fresh() {
         discovered: std::collections::BTreeMap::from([(
             "opencode".into(),
             DetectedHarness {
+                verified_at_unix_ms: None,
                 status: "opencode ready".into(),
                 version: Some("1.0.0".into()),
                 executable: Some("/tools/opencode".into()),

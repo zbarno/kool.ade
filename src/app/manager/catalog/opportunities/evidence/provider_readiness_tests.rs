@@ -2,6 +2,7 @@ use super::readiness_state;
 
 fn provider(checked_at_unix_ms: u64) -> crate::persistence::harness_settings::DetectedHarness {
     crate::persistence::harness_settings::DetectedHarness {
+        verified_at_unix_ms: None,
         status: "unavailable".into(),
         version: None,
         executable: None,

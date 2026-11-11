@@ -14,6 +14,7 @@ fn probe() -> HarnessProbe {
         configuration_required: false,
         authentication: ReadinessState::Ready,
         implementation_available: false,
+        verified_at_unix_ms: None,
     }
 }
 
