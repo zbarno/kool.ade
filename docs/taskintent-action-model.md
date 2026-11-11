@@ -86,7 +86,9 @@ Routing semantics:
 
 - Custom text travels the **same typed reply channel** as selecting a listed
   option (task-ticket reply), so it is a real decision input, not ambient
-  chat. Exact text is preserved in the card conversation.
+  chat. The person's text is preserved verbatim in the card conversation,
+  prefixed by the app-standard `My answer:` framing label shared with every
+  other answer painter.
 - It is **never coerced** into an option ID/index; downstream consumers treat
   it as the user's own answer to the decision.
 - Binary security/consent confirmations deliberately have no `Other`

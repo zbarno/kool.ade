@@ -198,6 +198,38 @@ fn excluded_key_is_left_alone() {
 }
 
 #[test]
+fn excluded_duplicate_defers_the_whole_pass() {
+    let uid = feature_uid();
+    let fx = fixture();
+    let state = with_feature(&fx, "F1", &draft_body(&uid));
+    let mut work = vec![intent_root(&uid)];
+    run(&state, &mut work).unwrap();
+    let stray_source = work
+        .iter()
+        .find(|item| item.kind == WorkKind::PlanConfirmation)
+        .expect("card")
+        .clone();
+    let mut stray = stray_source;
+    stray.uid = uuid::Uuid::new_v4().hyphenated().to_string();
+    stray.key = "plan-confirmation-stray-busy".into();
+    work.push(stray);
+
+    let mut excluded = std::collections::BTreeSet::new();
+    excluded.insert("plan-confirmation-stray-busy".to_owned());
+    let before = work.clone();
+    let report = super::reconcile(&state, &mut work, &excluded).unwrap();
+    assert!(
+        !report.changed,
+        "an excluded duplicate must not be collapsed"
+    );
+    assert_eq!(report.duplicates_removed, 0);
+    assert_eq!(
+        work, before,
+        "no card is touched while any is owned by a writer"
+    );
+}
+
+#[test]
 fn two_features_get_independent_cards() {
     let uid_a = feature_uid();
     let uid_b = feature_uid();
