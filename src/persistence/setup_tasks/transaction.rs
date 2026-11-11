@@ -18,7 +18,7 @@ mod tests;
 mod transitions;
 
 pub use flow::update_flow;
-pub use flow::{insert_flow, load_flow};
+pub use flow::{insert_flow, insert_or_replace_terminal_flow, load_flow};
 pub use transitions::apply_transition;
 #[cfg(test)]
 pub(super) use transitions::apply_transition_at;

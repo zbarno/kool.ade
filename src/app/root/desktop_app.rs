@@ -69,6 +69,7 @@ impl KooladeApp {
                                             &self.machine_setup_tasks,
                                             &self.setup_attention,
                                             self.setup_probe.is_some(),
+                                            self.setup_flow_cache.as_ref(),
                                             &mut welcome_selection,
                                         );
                                 });
@@ -88,6 +89,7 @@ impl KooladeApp {
                                     &self.machine_setup_tasks,
                                     &self.setup_attention,
                                     self.setup_probe.is_some(),
+                                    self.setup_flow_cache.as_ref(),
                                     &mut welcome_selection,
                                 );
                             });
@@ -121,6 +123,15 @@ impl KooladeApp {
                 self.dispatch_ui_command(crate::ui::ApplicationCommand::RequestSetupTaskFix {
                     task_id,
                 });
+            }
+            if welcome_setup_action.start_flow {
+                self.dispatch_ui_command(crate::ui::ApplicationCommand::StartSetupFlow);
+            }
+            if welcome_setup_action.pause_flow {
+                self.dispatch_ui_command(crate::ui::ApplicationCommand::PauseSetupFlow);
+            }
+            if welcome_setup_action.stop_flow {
+                self.dispatch_ui_command(crate::ui::ApplicationCommand::StopSetupFlow);
             }
             if let Some(selection) = welcome_selection.as_deref() {
                 let tasks = self.machine_setup_tasks.clone();

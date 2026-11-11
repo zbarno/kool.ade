@@ -211,6 +211,18 @@ fn personal_guest_file_transfer_fails_closed_until_personal_sessions_exist() {
 }
 
 #[test]
+fn generic_task_artifact_grant_cannot_claim_human_approval() {
+    let (_temp, bridge) = bridge();
+    let request = grant_request(
+        &identity(),
+        ComputerArtifactFlowV1::TaskArtifactToGuest,
+        "build/app",
+        true,
+    );
+    assert!(bridge.issue_grant(request).is_err());
+}
+
+#[test]
 fn artifact_listing_and_application_are_isolated_to_the_issuing_task_identity() {
     let (_temp, bridge) = bridge();
     let owner = identity();

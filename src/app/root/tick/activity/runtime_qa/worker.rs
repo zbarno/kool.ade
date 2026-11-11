@@ -150,12 +150,16 @@ pub(super) fn acquire_lock_and_claim(
     Ok((lock, task))
 }
 
+#[allow(clippy::too_many_arguments)] // The worker receives one immutable dispatch claim plus its existing cancellation channels.
 pub(super) fn start(
     project: &Project,
     prepared: PreparedRequest,
     scenarios: Vec<QaScenarioV1>,
+    execution_target: crate::runtime_qa::QaExecutionTargetV1,
+    approval_task_revision: u64,
     harness: Box<dyn crate::harness::AiHarness>,
     expected_revision: u64,
+    computer_use: Option<super::ComputerQaRuntimeContextV1>,
 ) -> Result<crate::runtime_qa::QaWorkerHandle, StartError> {
     let request = prepared.request.clone();
     let store_root = crate::runtime_qa::RuntimeQaStore::local_root_for_workspace(
@@ -168,13 +172,14 @@ pub(super) fn start(
     })?;
     let lock_path = store_root.join(&request.qa_run_id).join("worker.lock");
     let lifecycle = crate::core::lifecycle::LifecycleStore::new(&prepared.planning_store);
-    let (lock, _) = acquire_lock_and_claim(
+    let (lock, claimed_task) = acquire_lock_and_claim(
         &lock_path,
         &lifecycle,
         &request.parent_task_uid,
         expected_revision,
         &request,
     )?;
+    let claimed_task_revision = claimed_task.revision;
     let cancel = Arc::new(AtomicBool::new(false));
     let worker_cancel = Arc::clone(&cancel);
     let (cancel_sender, cancel_receiver) = tokio::sync::watch::channel(false);
@@ -187,11 +192,15 @@ pub(super) fn start(
             let result = run(
                 prepared,
                 scenarios,
+                execution_target,
+                approval_task_revision,
+                claimed_task_revision,
                 harness,
                 store_root,
                 worker_cancel,
                 cancel_receiver,
                 progress_sender,
+                computer_use,
             );
             let _ = sender.send(result);
         })

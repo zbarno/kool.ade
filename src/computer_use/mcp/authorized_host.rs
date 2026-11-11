@@ -254,6 +254,7 @@ impl RegistryBoundComputerUseMcpHostV1 {
         let session = authority.session();
         let policy = &session.policy;
         policy.identity == request.identity
+            && session.target == request.target
             && target_machine_id(session) == request.machine_id
             && request.approved_destination.is_none()
             && request

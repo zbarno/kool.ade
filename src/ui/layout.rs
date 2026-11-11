@@ -8,6 +8,7 @@ mod board_state;
 pub(crate) mod brand;
 mod chat_panel;
 mod header;
+mod machine_flow_copy;
 mod new_task;
 mod project_activity;
 mod settings;
@@ -17,6 +18,7 @@ mod task_details;
 mod task_properties;
 mod workspace_tabs;
 
+pub(crate) use machine_flow_copy::{flow_controls, phase_blurb};
 pub(crate) use setup_welcome::{
     WelcomeSetupAction, paint_board as paint_welcome_setup_board,
     paint_details as paint_welcome_setup_details,

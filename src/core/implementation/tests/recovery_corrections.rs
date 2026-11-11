@@ -111,6 +111,44 @@ fn failed_verification_at_correction_limit_never_publishes() {
 }
 
 #[test]
+fn unknown_docker_verification_outcome_never_dispatches_a_correction() {
+    let s = Sandbox::new();
+    let _executor = super::super::runner::install_test_verification_executor(|_, _, _| {
+        Err(anyhow::Error::new(
+            super::super::runner::VerificationOutcomeUnknown,
+        ))
+    });
+    let calls = Arc::new(AtomicUsize::new(0));
+    let error = s.run("complete", calls.clone()).unwrap_err();
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(error.to_string().contains("Verification outcome unknown"));
+    assert!(!s.root.join("pr-created").exists());
+    let state = load(&s.planning_store.root, &s.ticket).unwrap();
+    assert_eq!(state.status, ImplementationStatus::Blocked);
+    assert!(state.detail.contains("no correction was dispatched"));
+    let evidence_dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
+    let evidence = fs::read_dir(evidence_dir)
+        .unwrap()
+        .flatten()
+        .find(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .ends_with("-verification.json")
+        })
+        .expect("uncertain verification evidence is persisted");
+    let evidence: serde_json::Value =
+        serde_json::from_slice(&fs::read(evidence.path()).unwrap()).unwrap();
+    assert!(
+        evidence[0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("outcome is unknown")
+    );
+}
+
+#[test]
 fn blocked_report_at_correction_limit_never_publishes() {
     assert_correction_does_not_publish("blocked", 6, "Automatic correction limit");
 }

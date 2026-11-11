@@ -3,6 +3,7 @@
 //! These contracts intentionally do not share authority with Docker execution.
 //! Typed VM lifecycle operations bind them to the local Linux QEMU/KVM backend.
 
+pub mod apps;
 pub mod artifacts;
 mod backend;
 mod contract;
@@ -18,7 +19,14 @@ pub mod mcp;
 #[cfg(target_os = "linux")]
 pub(crate) mod network;
 #[cfg(target_os = "linux")]
+pub(crate) mod personal_storage;
+#[cfg(target_os = "linux")]
+pub use personal_storage::{
+    PersonalVmProfileStoreV1, PersonalVmProfileV1, PersonalVmStorageErrorV1,
+};
+#[cfg(target_os = "linux")]
 pub(crate) mod process_security;
+pub mod remote_worker;
 
 #[cfg(target_os = "linux")]
 pub(crate) use host_executable::validate_trusted_system_executable;

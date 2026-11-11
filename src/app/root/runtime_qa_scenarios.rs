@@ -70,15 +70,43 @@ impl KooladeApp {
         expected_proposal_sha256: &str,
     ) {
         let result = match &self.screen {
-            Screen::Connected(project) => {
-                approve(project, ticket, expected_revision, expected_proposal_sha256)
-            }
+            Screen::Connected(project) => approve(
+                project,
+                ticket,
+                expected_revision,
+                expected_proposal_sha256,
+                crate::runtime_qa::QaExecutionTargetV1::IsolatedContainer,
+            ),
             Screen::Welcome => {
                 Err("Connect a project before approving runtime QA scenarios.".into())
             }
         };
         match result {
             Ok(()) => self.toasts.success("Approved the exact runtime QA scenario proposal. The dispatcher will revalidate it before any QA run."),
+            Err(error) => self.toasts.warning(error),
+        }
+    }
+
+    pub(super) fn approve_runtime_qa_computer_scenarios(
+        &mut self,
+        ticket: &str,
+        expected_revision: u64,
+        expected_proposal_sha256: &str,
+    ) {
+        let result = match &self.screen {
+            Screen::Connected(project) => approve(
+                project,
+                ticket,
+                expected_revision,
+                expected_proposal_sha256,
+                crate::runtime_qa::QaExecutionTargetV1::ComputerUseGuest,
+            ),
+            Screen::Welcome => {
+                Err("Connect a project before approving Computer QA scenarios.".into())
+            }
+        };
+        match result {
+            Ok(()) => self.toasts.success("Approved the exact scenarios and task build for Computer QA. The dispatcher will request separate Human consent before starting a disposable guest."),
             Err(error) => self.toasts.warning(error),
         }
     }
@@ -150,6 +178,7 @@ fn approve(
     ticket: &str,
     expected_revision: u64,
     expected_proposal_sha256: &str,
+    execution_target: crate::runtime_qa::QaExecutionTargetV1,
 ) -> Result<(), String> {
     let (request, task_revision, source_evidence, _, _, store_root) =
         request_for_ticket(project, ticket)?;
@@ -168,18 +197,32 @@ fn approve(
     if proposal_sha256 != expected_proposal_sha256 || proposal.task_revision != expected_revision {
         return Err("This scenario proposal is stale or its exact hash does not match the displayed proposal.".into());
     }
-    if store
-        .load_approved_scenario_proposal(&request, expected_revision)
-        .is_ok()
-    {
-        return Ok(());
+    if let Ok(existing) = store.load_approved_scenario_proposal(&request, expected_revision) {
+        return if existing.execution_target == execution_target {
+            Ok(())
+        } else {
+            Err("Runtime QA target was already approved; create a fresh reviewed request to change it.".into())
+        };
     }
     let receipt_uid = uuid::Uuid::new_v5(
         &uuid::Uuid::parse_str(&request.parent_task_uid).map_err(|error| error.to_string())?,
-        format!("runtime-qa-scenario-approval:v1:{expected_revision}:{proposal_sha256}").as_bytes(),
+        format!("runtime-qa-scenario-approval:v2:{expected_revision}:{proposal_sha256}:{execution_target:?}").as_bytes(),
     )
     .hyphenated()
     .to_string();
+    let mut evidence_refs = vec![
+        format!("runtime-qa:{}/approved-scenarios", request.qa_run_id),
+        format!(
+            "runtime-qa:{}/proposal:{proposal_sha256}:task-revision:{expected_revision}",
+            request.qa_run_id
+        ),
+    ];
+    if execution_target == crate::runtime_qa::QaExecutionTargetV1::ComputerUseGuest {
+        evidence_refs.push(format!(
+            "runtime-qa:{}/execution-target:computer-use-guest",
+            request.qa_run_id
+        ));
+    }
     let approval = GateReceipt {
         receipt_uid,
         subject_uid: request.parent_task_uid.clone(),
@@ -187,13 +230,7 @@ fn approve(
         actor: GateActor::User,
         decision: GateDecision::Approved,
         recorded_at_unix_ms: now_ms(),
-        evidence_refs: vec![
-            format!("runtime-qa:{}/approved-scenarios", request.qa_run_id),
-            format!(
-                "runtime-qa:{}/proposal:{proposal_sha256}:task-revision:{expected_revision}",
-                request.qa_run_id
-            ),
-        ],
+        evidence_refs,
         prompt_sha256: None,
         prompt_manifest: None,
         reviewer_run_id: None,
@@ -202,7 +239,13 @@ fn approve(
         author_session_id: None,
     };
     approval.validate()?;
-    store.approve_scenario_proposal(&request, &proposal, expected_revision, &approval)
+    store.approve_scenario_proposal_for_target(
+        &request,
+        &proposal,
+        expected_revision,
+        execution_target,
+        &approval,
+    )
 }
 
 fn now_ms() -> u64 {

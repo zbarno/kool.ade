@@ -1,11 +1,15 @@
 # Computer Use architecture decision and contracts (v1)
 
-Status: the v1 contracts, bounded Linux QEMU/KVM lifecycle, and authenticated
-guest transport are implemented. The backend verifies signed sessions and
-overlays, runs offline disposable guests under delegated cgroup limits,
-authenticates the guest companion before readiness, and recovers only recorded
-owned processes. The candidate image remains unpromoted pending separate real
-host and catalog acceptance.
+Status checked: 2026-11-10 (`main` revision `c04a0d8b`). The v1 contracts,
+bounded Linux QEMU/KVM lifecycle, authenticated guest transport, and signed
+x86_64 guest image catalog are implemented. The catalog has been promoted and
+the image release is public; local use still depends on host readiness,
+anti-rollback state, and cached image verification. Computer Use remains
+**Experimental** until the separate real-host and release acceptance in #392
+is complete. The published image uses companion protocol v1, so InternetResearch
+is not offered. Persistent-personal and high-impact policy variants remain
+unavailable. See the [current operator, permission, and roadmap guide](computer-use-architecture.md)
+for capability-specific status; an open PR or passing fixture is not a release.
 
 ## Decision
 
@@ -121,14 +125,17 @@ controller-issued user grant and approval generation. `restrict_to` intersects
 app and operation sets, chooses the lower capability/network profile, and
 lowers every resource quota. A task grant does not imply account authority.
 Model output cannot mint or renew leases, increase generations, grant
-credentials, choose an image, or change the host target. V1 does not define a
-transaction authorization mechanism: high-impact actions remain unavailable
-until a later policy contract can bind approval to the current exact
-destination and transaction details.
+credentials, choose an image, or change the host target. The controller defines
+an exact, one-use ActionIntent contract bound to the current screen, action,
+identity generations, and operator-visible scope. The broad high-impact
+capability remains unavailable because policy validation rejects it until its
+real-guest security suite and release gates pass; the intent contract does not
+enable transactions or external publishing.
 The `persistent_personal` and `high_impact_external_action` values are present
 to make the capability lattice explicit, but v1 policy validation rejects
 them. Persistent sessions need the separate encryption/key contract; high
-impact actions need an exact transaction grant. InternetResearch is a separate
+impact actions require the ActionIntent grant plus passing real-guest security
+and release gates. InternetResearch is a separate
 consent choice for a disposable guest. It starts an app-owned, loopback-only
 HTTPS CONNECT gateway and attaches it through QEMU's restricted user network
 with one guest-forwarded TCP endpoint. QEMU does not bridge the guest to the
@@ -344,7 +351,12 @@ temporary local application store and task checkout, with no external service.
 They do not exercise an authenticated VM file transport or the desktop file
 chooser; real VM transfer remains a #392 integration acceptance.
 
-## Greenfield implementation plan
+## Greenfield implementation plan (historical sequence)
+
+This sequence records the original implementation order. It is not a current
+feature-status list: several contracts, the local backend, guest companion,
+and artifact bridge have since been implemented. See the current-status guide
+linked above before making support claims.
 
 1. CU-01 freezes contracts, authority boundaries, lifecycle and threats.
 2. CU-02 probes Linux/KVM and reports typed readiness without mutating host

@@ -53,6 +53,7 @@ pub(in crate::app::root) mod runtime_dependencies;
 pub(crate) mod runtime_qa_applicability;
 mod runtime_qa_scenarios;
 mod setup_attention;
+mod setup_flow;
 mod setup_repair;
 mod specification_chat;
 mod specification_trace_navigation;
@@ -131,6 +132,16 @@ pub struct KooladeApp {
     setup_task_state_path: std::path::PathBuf,
     setup_retry_requested: bool,
     setup_refresh_pending: Option<bool>,
+    /// Last driver beat actually executed for the setup flow (wall clock ms).
+    last_setup_flow_beat: Option<u64>,
+    /// Whether boot-time restart recovery ran for the persisted flow.
+    setup_flow_boot_synced: bool,
+    /// When the flow last triggered (observed) an authoritative rescan.
+    setup_flow_rescanned_at: Option<u64>,
+    /// Store generation already accounted for by the flow pump.
+    setup_flow_seen_generation: Option<u64>,
+    /// Cached flow position for UI reads; refreshed on every pump/command.
+    setup_flow_cache: Option<crate::persistence::setup_tasks::SetupFlowStateV1>,
     setup_image_preparation: super::bootstrap_image_prepare::Controller,
     claude_install: super::bootstrap_remediation::ClaudeInstallController,
     setup_remediation: super::bootstrap_remediation::Controller,

@@ -4,6 +4,7 @@ mod cancellation;
 mod dispatch;
 mod human_control;
 mod human_input;
+mod personal_profiles;
 mod scheduler;
 mod session;
 mod session_journal;

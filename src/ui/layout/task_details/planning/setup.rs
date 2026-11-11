@@ -1,5 +1,6 @@
 use super::*;
 
+mod consent;
 mod conversation;
 mod guide;
 mod history;
@@ -30,6 +31,8 @@ pub(super) fn paint_machine_setup(
         ui.label(crate::ui::theme::metadata_text(platform_label(host)));
     });
     ui.add_space(crate::ui::theme::spacing::M);
+
+    consent::paint_if_waiting(ui, surface, task);
 
     if uses_split_panes(ui.available_width()) {
         ui.columns(2, |columns| {

@@ -97,6 +97,41 @@ pub trait Surface {
     ) -> Vec<crate::computer_use::mcp::ComputerUseTaskSessionViewV1> {
         Vec::new()
     }
+    /// Local-only encrypted profile inventory. Providers never receive it.
+    fn computer_use_personal_profiles(
+        &self,
+    ) -> Result<Vec<crate::computer_use::mcp::ComputerUsePersonalProfileViewV1>, String> {
+        Ok(Vec::new())
+    }
+    /// Delete an explicitly selected local profile after key-first erasure.
+    fn delete_computer_use_personal_profile(&mut self, _profile_id: &str) -> Result<(), String> {
+        Err("Personal VM profiles are unavailable on this host.".into())
+    }
+    fn lock_computer_use_personal_profile(
+        &mut self,
+        _profile_id: &str,
+        _session_id: &str,
+    ) -> Result<(), String> {
+        Err("Personal VM profile locking is unavailable on this host.".into())
+    }
+    fn computer_use_personal_vm_consent_requests(
+        &self,
+    ) -> Vec<crate::computer_use::mcp::ComputerUsePersonalVmConsentViewV1> {
+        Vec::new()
+    }
+    fn request_computer_use_personal_vm_consent(
+        &mut self,
+        _choice: crate::computer_use::mcp::ComputerUsePersonalVmChoiceV1,
+    ) -> Result<(), String> {
+        Err("Personal VM consent is unavailable on this host.".into())
+    }
+    fn decide_computer_use_personal_vm_consent(
+        &mut self,
+        _request_id: &str,
+        _approve: bool,
+    ) -> Result<(), String> {
+        Err("Personal VM consent is unavailable on this host.".into())
+    }
     /// Revoke one app-owned Computer Use grant immediately.
     fn revoke_computer_use_permission(&mut self, _session_id: &str) -> Result<(), String> {
         Err("Computer Use permission control is unavailable in this workspace.".into())
@@ -252,6 +287,10 @@ pub trait Surface {
         false
     }
     fn setup_provider_install(&mut self, _ui: &mut egui::Ui, _task_id: &str) {}
+    /// Position of the "Prepare this computer" flow, when one is active.
+    fn setup_flow_position(&self) -> Option<crate::persistence::setup_tasks::SetupFlowStateV1> {
+        None
+    }
     fn bootstrap_conversation(
         &mut self,
         _task_id: &str,

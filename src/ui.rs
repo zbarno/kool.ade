@@ -59,6 +59,11 @@ pub enum ApplicationCommand {
         expected_task_revision: u64,
         proposal_sha256: String,
     },
+    ApproveRuntimeQaComputerScenarios {
+        ticket: String,
+        expected_task_revision: u64,
+        proposal_sha256: String,
+    },
     ReviewRuntimeQaApplicability {
         ticket: String,
     },
@@ -101,6 +106,16 @@ pub enum ApplicationCommand {
         task_id: String,
     },
     ApproveSetupTaskFix {
+        task_id: String,
+    },
+    /// Begin, resume, or restart the deterministic "Prepare this computer" flow.
+    StartSetupFlow,
+    /// Park the setup flow; in-flight work settles, nothing new begins.
+    PauseSetupFlow,
+    /// Stop the setup flow outright (resumable, never destructive).
+    StopSetupFlow,
+    /// Decline one offered setup operation; the flow stops proposing it.
+    DeclineSetupOperation {
         task_id: String,
     },
     CreatePlanningTask {
@@ -243,4 +258,12 @@ pub enum ComputerUseTaskActionV1 {
     SetPrivateInput(bool),
     DisplayInput(crate::computer_use::ComputerDisplayInputV1),
     LaunchApprovedApp(String),
+    ManageApprovedApp {
+        app_id: String,
+        operation: crate::computer_use::apps::GuestAppOperationKindV1,
+    },
+    ApproveSensitiveAction(String),
+    DenySensitiveAction(String),
+    VerifySensitiveActionCompleted(String),
+    MarkSensitiveActionOutcomeUnknown(String),
 }

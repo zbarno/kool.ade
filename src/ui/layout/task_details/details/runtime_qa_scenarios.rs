@@ -44,14 +44,30 @@ pub(super) fn paint(
             });
         }
         if proposal.approved {
-            ui.label(if proposal.experimental { "Approved exact experimental proposal. The existing isolated QA dispatcher will revalidate prerequisites before launch." } else { "Approved exact proposal. Runtime QA may start after the dispatcher revalidates it." });
-        } else if ui.button(if proposal.experimental { "Approve scenarios and run experimental QA" } else { "Approve these exact scenarios" }).clicked() {
-            let Some(proposal_sha256) = proposal.proposal_sha256.clone() else { return; };
-            surface.dispatch(crate::ui::ApplicationCommand::ApproveRuntimeQaScenarios {
-                ticket: ticket.to_owned(),
-                expected_task_revision: proposal.task_revision,
-                proposal_sha256,
+            ui.label(match (proposal.experimental, proposal.approved_execution_target) {
+                (true, _) => "Approved exact experimental proposal. The isolated QA dispatcher will revalidate prerequisites before launch.",
+                (_, Some(crate::runtime_qa::QaExecutionTargetV1::ComputerUseGuest)) => "Approved exact scenarios for Computer QA. A separate Human consent step for this task build and disposable guest is required before launch.",
+                _ => "Approved exact proposal for isolated-container Runtime QA. The dispatcher will revalidate it before launch.",
             });
+        } else {
+            let Some(proposal_sha256) = proposal.proposal_sha256.clone() else { return; };
+            if ui.button(if proposal.experimental { "Approve scenarios and run experimental QA" } else { "Approve these exact scenarios in the isolated QA container" }).clicked() {
+                surface.dispatch(crate::ui::ApplicationCommand::ApproveRuntimeQaScenarios {
+                    ticket: ticket.to_owned(),
+                    expected_task_revision: proposal.task_revision,
+                    proposal_sha256: proposal_sha256.clone(),
+                });
+            }
+            if proposal.computer_qa_available {
+                ui.colored_label(crate::ui::theme::WARNING, "Computer QA stages only this approved build into a disposable guest with networking disabled. A separate Human consent prompt follows this approval.");
+                if ui.button("Approve these exact scenarios for Computer QA").clicked() {
+                    surface.dispatch(crate::ui::ApplicationCommand::ApproveRuntimeQaComputerScenarios {
+                        ticket: ticket.to_owned(),
+                        expected_task_revision: proposal.task_revision,
+                        proposal_sha256,
+                    });
+                }
+            }
         }
     });
 }

@@ -11,6 +11,14 @@ const CATALOG_SIGNER_PUBLIC_KEY: [u8; 32] = [
 ];
 const MINIMUM_CATALOG_GENERATION: u64 = 1;
 
+/// The image release key is also pinned for the independently domain-separated
+/// application catalog until the product provisions a dedicated app key.
+pub(crate) fn application_catalog_signer() -> Result<(String, VerifyingKey), ImageCacheErrorV1> {
+    let key = VerifyingKey::from_bytes(&CATALOG_SIGNER_PUBLIC_KEY)
+        .map_err(|_| ImageCacheErrorV1::InvalidTrustStore)?;
+    Ok((CATALOG_SIGNER_KEY_ID.to_owned(), key))
+}
+
 /// Construct trust only from the key embedded in this application release.
 pub fn application_guest_image_manifest_trust_v1()
 -> Result<GuestImageManifestTrustV1, ImageCacheErrorV1> {

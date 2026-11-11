@@ -40,6 +40,7 @@ fn owner(overlay_path: PathBuf) -> MachineOwnerRecordV1 {
         image_signer_key_id: "00000000-0000-4000-8000-000000000007".into(),
         catalog_generation: 1,
         overlay_path,
+        persistent_personal: false,
         state: "booting".into(),
         event_sequence: 2,
         guest_boot_id: None,
@@ -94,5 +95,39 @@ fn recovery_requires_session_bound_overlay_and_machine_identity() {
             "00000000-0000-4000-8000-000000000005",
         ),
         Err(Error::OwnershipMismatch)
+    );
+}
+
+#[test]
+fn personal_recovery_record_preserves_profile_disk_under_separate_root() {
+    let temp = tempfile::tempdir().unwrap();
+    let directory = temp
+        .path()
+        .join("runtime/sessions/00000000-0000-4000-8000-000000000004");
+    std::fs::create_dir_all(&directory).unwrap();
+    let personal_root = temp.path().join("overlays/personal");
+    let profile_id = "00000000-0000-4000-8000-000000000008";
+    let mut owner = owner(personal_root.join(format!("{profile_id}.qcow2")));
+    owner.persistent_personal = true;
+
+    validate_recovery_owner(
+        &owner,
+        &directory,
+        &temp.path().join("overlays"),
+        "00000000-0000-4000-8000-000000000005",
+    )
+    .unwrap();
+    owner.overlay_path = temp
+        .path()
+        .join("overlays")
+        .join(format!("{}-{}.qcow2", owner.session_id, profile_id));
+    assert!(
+        validate_recovery_owner(
+            &owner,
+            &directory,
+            &temp.path().join("overlays"),
+            "00000000-0000-4000-8000-000000000005"
+        )
+        .is_err()
     );
 }

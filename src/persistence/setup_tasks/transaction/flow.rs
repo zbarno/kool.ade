@@ -46,6 +46,29 @@ fn update_flow_impl(
     })
 }
 
+/// Replace the recorded flow, but only when absent or finished. A live
+/// (running/paused/waiting) flow always wins, which keeps racing startups
+/// from forking an in-progress preparation.
+fn insert_or_replace_terminal_impl(
+    path: &std::path::Path,
+    state: SetupFlowStateV1,
+) -> Result<bool> {
+    update_at(path, |store| {
+        let dominated = store
+            .setup_flow
+            .as_ref()
+            .is_some_and(|incumbent| incumbent.phase.is_terminal());
+        if store.setup_flow.is_some() && !dominated {
+            return Ok((false, false));
+        }
+        let mut state = state;
+        state.validate_identity()?;
+        state.trim_records();
+        store.setup_flow = Some(state);
+        Ok((true, true))
+    })
+}
+
 /// Current flow position, or `None` before the operator starts the flow.
 pub fn load_flow() -> Result<Option<SetupFlowStateV1>> {
     load_at(&super::path()?)
@@ -65,9 +88,23 @@ pub fn update_flow(
     update_flow_impl(&super::path()?, update)
 }
 
+/// Start a fresh flow when none exists; an unfinished incumbent always
+/// wins, a finished one is replaced so an explicit restart is a clean slate.
+pub fn insert_or_replace_terminal_flow(state: SetupFlowStateV1) -> Result<bool> {
+    insert_or_replace_terminal_impl(&super::path()?, state)
+}
+
 #[cfg(test)]
 pub(super) fn insert_flow_at(path: &std::path::Path, state: SetupFlowStateV1) -> Result<bool> {
     insert_at_impl(path, state)
+}
+
+#[cfg(test)]
+pub(super) fn replace_terminal_flow_at(
+    path: &std::path::Path,
+    state: SetupFlowStateV1,
+) -> Result<bool> {
+    insert_or_replace_terminal_impl(path, state)
 }
 
 #[cfg(test)]

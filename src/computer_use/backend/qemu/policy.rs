@@ -2,7 +2,7 @@ use sha2::{Digest, Sha256};
 
 use crate::computer_use::{
     ComputerBackendErrorV1 as Error, ComputerMachineHandleV1 as Handle, ComputerSessionV1,
-    ComputerTargetV1, guest_image::GuestImageOverlayV1,
+    guest_image::GuestImageOverlayV1,
 };
 
 use super::super::registry::MachineOwnerRecordV1;
@@ -52,9 +52,23 @@ pub(super) fn verify_record(
     Ok(())
 }
 
-pub(super) fn target_machine_id(session: &ComputerSessionV1) -> &str {
+pub(super) fn target_machine_id<'a>(
+    session: &'a ComputerSessionV1,
+    remote_worker_id: Option<&str>,
+) -> Result<&'a str, Error> {
     match &session.target {
-        ComputerTargetV1::LocalKvm { machine_id } => machine_id,
+        crate::computer_use::ComputerTargetV1::RemoteVmWorker {
+            worker_id,
+            machine_id,
+            ..
+        } if remote_worker_id == Some(worker_id.as_str()) => Ok(machine_id),
+        crate::computer_use::ComputerTargetV1::RemoteVmWorker { .. } => {
+            Err(Error::UnsupportedTarget)
+        }
+        target if remote_worker_id.is_none() => {
+            target.local_machine_id().ok_or(Error::UnsupportedTarget)
+        }
+        _ => Err(Error::UnsupportedTarget),
     }
 }
 

@@ -35,6 +35,7 @@ fn now_ms() -> u64 {
 /// paths or service network identities.
 pub enum QaTargetAuthorization<'a> {
     LinuxDesktop(&'a QaValidatedTargetV1),
+    ComputerVm(&'a super::QaComputerTargetV1),
     HeadlessService(&'a QaTaskServiceLeaseV1),
     Web(&'a QaTaskServiceLeaseV1),
 }
@@ -43,6 +44,12 @@ pub enum QaTargetAuthorization<'a> {
 /// execute only the supplied immutable request and validated scenario.
 pub trait QaScenarioDriver {
     fn platform(&self) -> QaPlatform;
+
+    /// Computer QA requires a separately reviewed app-owned driver. Existing
+    /// preview drivers default to false and cannot inherit VM authority.
+    fn supports_computer_qa(&self) -> bool {
+        false
+    }
 
     fn run_scenario(
         &mut self,
@@ -123,6 +130,12 @@ impl<'a> RuntimeQaOrchestrator<'a> {
                 lease.validate_for(request)?;
             }
             (QaTargetAuthorization::Web(lease), QaPlatform::Web) => lease.validate_for(request)?,
+            (QaTargetAuthorization::ComputerVm(target), QaPlatform::LinuxDesktop) => {
+                target.validate_for(request)?;
+                if !driver.supports_computer_qa() {
+                    return Err("Computer QA is unavailable: no app-owned verified guest staging and launch driver is installed".into());
+                }
+            }
             _ => return Err("QA target authorization does not match the selected driver".into()),
         }
         let role = validate_prompt_manifest(&prompt)?;
@@ -169,7 +182,11 @@ impl<'a> RuntimeQaOrchestrator<'a> {
             outputs.push(output);
         }
         let completed_at_unix_ms = now_ms().max(started_at_unix_ms);
-        let report = assemble_report(request, scenarios, outputs)?;
+        let computer_qa_target = match &authorization {
+            QaTargetAuthorization::ComputerVm(target) => Some((**target).clone()),
+            _ => None,
+        };
+        let report = assemble_report(request, scenarios, outputs, computer_qa_target)?;
         let ReportAssembly {
             mut evidence,
             screenshots,

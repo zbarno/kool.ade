@@ -130,11 +130,13 @@ fn readiness_regression(flow: &SetupFlowStateV1, tasks: &[SetupTaskV1]) -> Optio
         .map(|task| task.id.clone())
 }
 
-fn slot_busy(slots: &[SlotStatus], route: FixRoute, task_id: &str) -> bool {
+// The three controller families are serial executors, so a proposed
+// operation waits whenever its OWN family is occupied (any task); the
+// task_id argument stays for attribution and future parallel slots.
+fn slot_busy(slots: &[SlotStatus], route: FixRoute, _task_id: &str) -> bool {
     let family: SlotFamily = route.into();
     slots.iter().any(|slot| {
         slot.family == Some(family)
-            && slot.task_id.as_deref() == Some(task_id)
             && matches!(
                 slot.phase,
                 SlotPhase::Preview | SlotPhase::Running | SlotPhase::Settling

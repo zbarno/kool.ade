@@ -30,7 +30,11 @@ fn checked_image_domain_requires_linux_amd64_host() {
 fn bundled_catalog_stays_unverified_without_local_floor_and_cache() {
     let lock: serde_json::Value = serde_json::from_str(super::IMAGE_LOCK).unwrap();
     assert_eq!(lock["status"], "promoted");
-    assert_eq!(lock["catalog_generation"], 1);
+    assert!(
+        lock["catalog_generation"]
+            .as_u64()
+            .is_some_and(|generation| generation > 0)
+    );
     assert!(
         lock["images"]
             .as_array()

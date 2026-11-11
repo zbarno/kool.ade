@@ -15,6 +15,8 @@ pub(super) struct SessionBuild<'a> {
     pub expires_at_unix_ms: u64,
     pub now_unix_ms: u64,
     pub image: &'a CachedGuestImageV1,
+    pub session_class: ComputerSessionClassV1,
+    pub target: ComputerTargetV1,
 }
 
 pub(super) fn build(input: SessionBuild<'_>) -> ComputerSessionV1 {
@@ -27,15 +29,15 @@ pub(super) fn build(input: SessionBuild<'_>) -> ComputerSessionV1 {
         expires_at_unix_ms,
         now_unix_ms,
         image,
+        session_class,
+        target,
     } = input;
     ComputerSessionV1 {
         schema_version: 1,
         session_started_at_unix_ms: now_unix_ms,
         identity: caller.identity.clone(),
-        session_class: ComputerSessionClassV1::Disposable,
-        target: ComputerTargetV1::LocalKvm {
-            machine_id: runtime.machine_id.clone(),
-        },
+        session_class,
+        target,
         image_digest: image.entry().image_digest.clone(),
         image_manifest_digest: image.manifest_digest().to_owned(),
         image_signer_key_id: image.manifest_signer_key_id().to_owned(),
