@@ -6,11 +6,31 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(test)]
+use std::{fs::OpenOptions, os::unix::fs::OpenOptionsExt, process::Command};
+
 use crate::computer_use::ComputerBackendErrorV1 as Error;
 
 const RETRY_INTERVAL: Duration = Duration::from_millis(50);
 
-pub(super) fn connect_control_socket(path: &Path, timeout: Duration) -> Result<UnixStream, Error> {
+#[cfg(test)]
+pub(super) fn capture_qemu_stderr(command: &mut Command, runtime_dir: &Path) -> Result<(), Error> {
+    let path = runtime_dir.join("qemu-stderr.log");
+    let stderr = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(|_| Error::Io)?;
+    command.stderr(stderr);
+    Ok(())
+}
+
+pub(super) fn connect_control_socket(
+    path: &Path,
+    timeout: Duration,
+    mut process_alive: impl FnMut() -> Result<bool, Error>,
+) -> Result<UnixStream, Error> {
     let deadline = Instant::now() + timeout;
     loop {
         match UnixStream::connect(path) {
@@ -19,8 +39,14 @@ pub(super) fn connect_control_socket(path: &Path, timeout: Duration) -> Result<U
                 if matches!(
                     error.kind(),
                     ErrorKind::NotFound | ErrorKind::ConnectionRefused | ErrorKind::WouldBlock
-                ) && Instant::now() < deadline =>
+                ) =>
             {
+                if !process_alive()? {
+                    return Err(Error::QemuExited);
+                }
+                if Instant::now() >= deadline {
+                    return Err(Error::GuestChannelUnavailable);
+                }
                 thread::sleep(
                     RETRY_INTERVAL.min(deadline.saturating_duration_since(Instant::now())),
                 );
@@ -46,7 +72,7 @@ mod tests {
             listener.accept().unwrap();
         });
 
-        let stream = connect_control_socket(&path, Duration::from_secs(2)).unwrap();
+        let stream = connect_control_socket(&path, Duration::from_secs(2), || Ok(true)).unwrap();
         drop(stream);
         server.join().unwrap();
     }
@@ -56,8 +82,18 @@ mod tests {
         let temporary = tempfile::tempdir().unwrap();
         let path = temporary.path().join("missing-control.sock");
         assert!(matches!(
-            connect_control_socket(&path, Duration::from_millis(100)),
+            connect_control_socket(&path, Duration::from_millis(100), || Ok(true)),
             Err(Error::GuestChannelUnavailable)
+        ));
+    }
+
+    #[test]
+    fn returns_when_qemu_exits_before_opening_the_control_socket() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("missing-control.sock");
+        assert!(matches!(
+            connect_control_socket(&path, Duration::from_secs(30), || Ok(false)),
+            Err(Error::QemuExited)
         ));
     }
 }

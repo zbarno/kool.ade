@@ -166,7 +166,18 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             .map_err(|error| format!("QEMU/KVM boot: {error:?}"))?;
         let mut channel = backend
             .authenticate_guest(&session, &handle, unix_time_ms()?)
-            .map_err(|error| format!("guest companion handshake: {error:?}"))?;
+            .map_err(|error| {
+                let log = root
+                    .join("runtime/sessions")
+                    .join(&session.identity.session_id)
+                    .join("qemu-stderr.log");
+                let stderr = fs::read(log).unwrap_or_default();
+                let stderr = String::from_utf8_lossy(&stderr)
+                    .chars()
+                    .take(2_000)
+                    .collect::<String>();
+                format!("guest companion handshake: {error:?}; QEMU stderr: {stderr}")
+            })?;
         backend
             .wait_ready(&session, &handle, Duration::from_secs(120), unix_time_ms()?)
             .map_err(|error| format!("guest readiness: {error:?}"))?;

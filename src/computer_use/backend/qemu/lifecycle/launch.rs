@@ -87,6 +87,10 @@ impl LocalKvmComputerBackend {
         process::validate_qemu_program(&qemu_path)?;
         let mut command = Command::new(qemu_path);
         commands::configure_command(&mut command, &args, &machine.directory);
+        #[cfg(test)]
+        if std::env::var("KOOLADE_COMPUTER_USE_R1_REAL_KVM").as_deref() == Ok("1") {
+            connect::capture_qemu_stderr(&mut command, &machine.directory)?;
+        }
         let cgroup = CgroupV2::new(&self.cgroup_root)?;
         process::set_child_limits(
             &mut command,
@@ -258,7 +262,19 @@ impl LocalKvmComputerBackend {
         {
             let socket = machine.directory.join("guest-control.sock");
             drop(machines);
-            let stream = connect_control_socket(&socket, self.limits.boot_timeout)?;
+            let stream = connect_control_socket(&socket, self.limits.boot_timeout, || {
+                let mut machines = self.owned_machine(session, handle, now_unix_ms)?;
+                let machine = machines
+                    .get_mut(&handle.session_id)
+                    .ok_or(Error::OwnershipMismatch)?;
+                let Some(child) = machine.child.as_mut() else {
+                    return Ok(false);
+                };
+                child
+                    .try_wait()
+                    .map(|status| status.is_none())
+                    .map_err(|_| Error::Io)
+            })?;
             stream
                 .set_read_timeout(Some(self.limits.boot_timeout))
                 .map_err(|_| Error::Io)?;
