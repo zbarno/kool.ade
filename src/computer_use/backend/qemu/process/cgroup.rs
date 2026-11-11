@@ -55,7 +55,7 @@ impl CgroupV2 {
         fs::create_dir(&path).map_err(|error| {
             #[cfg(test)]
             if std::env::var("KOOLADE_COMPUTER_USE_R1_REAL_KVM").as_deref() == Ok("1") {
-                eprintln!("R1 cgroup create {}: {error}", path.display());
+                eprintln!("R1 cgroup create failed: {error}");
             }
             #[cfg(not(test))]
             let _ = error;
@@ -122,7 +122,7 @@ fn write_control(path: &Path, bytes: &[u8]) -> Result<(), Error> {
     result.map_err(|error| {
         #[cfg(test)]
         if std::env::var("KOOLADE_COMPUTER_USE_R1_REAL_KVM").as_deref() == Ok("1") {
-            eprintln!("R1 cgroup write {}: {error}", path.display());
+            eprintln!("R1 cgroup write failed: {error}");
         }
         #[cfg(not(test))]
         let _ = error;
