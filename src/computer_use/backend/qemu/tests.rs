@@ -192,8 +192,8 @@ fn launch_argument_paths_reject_qemu_option_delimiters() {
 #[test]
 fn launch_argument_paths_keep_linux_socket_paths_within_the_safe_limit() {
     let session = session();
-    let ninety_six = format!("/{}", "x".repeat(95));
-    let ninety_seven = format!("/{}", "x".repeat(96));
+    let one_hundred = format!("/{}", "x".repeat(99));
+    let one_hundred_one = format!("/{}", "x".repeat(100));
     let args = |overlay: &Path| {
         command_args(
             &session,
@@ -207,10 +207,36 @@ fn launch_argument_paths_keep_linux_socket_paths_within_the_safe_limit() {
             None,
         )
     };
-    assert!(args(Path::new(&ninety_six)).is_ok());
+    assert!(args(Path::new(&one_hundred)).is_ok());
     assert_eq!(
-        args(Path::new(&ninety_seven)),
+        args(Path::new(&one_hundred_one)),
         Err(ComputerBackendErrorV1::InvalidOverlay)
+    );
+}
+
+#[test]
+fn launch_arguments_accept_the_session_scoped_app_helper_path() {
+    let session = session();
+    let runtime =
+        Path::new("/tmp/.tmp123456/runtime/sessions/00000000-0000-4000-8000-000000000004");
+    let args = command_args(
+        &session,
+        Path::new("/private/overlay.qcow2"),
+        &runtime.join("guest-control.sock"),
+        &runtime.join("display.sock"),
+        &runtime.join("guest-boot-config.json"),
+        &runtime.join("guest-app-helper-config.json"),
+        None,
+        None,
+        None,
+    );
+    assert!(args.is_ok());
+    assert_eq!(
+        runtime
+            .join("guest-app-helper-config.json")
+            .as_os_str()
+            .len(),
+        98
     );
 }
 

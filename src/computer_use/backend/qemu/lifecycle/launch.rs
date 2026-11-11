@@ -80,8 +80,7 @@ impl LocalKvmComputerBackend {
             application_catalog.as_deref(),
             research_proxy,
             secret_fd,
-        )
-        .map_err(|_| Error::ResourceLimit)?;
+        )?;
         let qemu_path = self.qemu_path();
         process::validate_qemu_program(&qemu_path)?;
         let mut command = Command::new(qemu_path);
