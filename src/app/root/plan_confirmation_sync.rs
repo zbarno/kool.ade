@@ -31,6 +31,16 @@ fn busy_keys(project: &Project) -> std::collections::BTreeSet<String> {
     if let Some(key) = project.active_planning_work.clone() {
         busy.insert(key);
     }
+    // Cancelled cards stay cancelled: the reconciler must never resurrect
+    // operator-cancelled work.
+    for work in &project.planning_work {
+        if project
+            .cancelled_work
+            .contains(&crate::persistence::cancelled_work::planning_id(&work.uid))
+        {
+            busy.insert(work.key.clone());
+        }
+    }
     busy
 }
 
