@@ -34,7 +34,7 @@ pub use answered::reconcile_answered_child;
 pub use plan_confirmation::{
     PLAN_CONFIRMATION_SCHEMA, PlanConfirmationAnnouncement, PlanConfirmationReport,
     PlanConfirmationV1, PlanNotReadyCause, ReadinessEvaluationRequest,
-    reconcile as reconcile_plan_confirmation,
+    reconcile as reconcile_plan_confirmation, reconcile_with_prompt_claim,
 };
 #[cfg(test)]
 mod tests;

@@ -171,10 +171,11 @@ impl KooladeApp {
                     }
                 }
                 {
-                    // Evaluation turn requests are handled by the periodic
-                    // sweep (single launcher); only announce here.
+                    // This pass only announces. It must not stamp a readiness
+                    // request that the periodic dispatcher has not claimed.
                     for event in
-                        crate::app::root::plan_confirmation_sync::sync(project).announcements
+                        crate::app::root::plan_confirmation_sync::sync_for_announcement(project)
+                            .announcements
                     {
                         self.toasts.info(event);
                     }

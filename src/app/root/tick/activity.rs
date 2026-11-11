@@ -21,7 +21,11 @@ impl KooladeApp {
         if let Screen::Connected(project) = &mut self.screen {
             crate::app::manager::operational_recovery::advance(project);
             reconcile_inactive_planning_work(project);
-            let effects = crate::app::root::plan_confirmation_sync::sync(project);
+            let can_claim_readiness_prompt = project.active_turn.is_none();
+            let effects = crate::app::root::plan_confirmation_sync::sync_with_prompt_claim(
+                project,
+                can_claim_readiness_prompt,
+            );
             plan_confirmation_evaluation = effects.evaluations_wanted.into_iter().next();
             for event in effects.announcements {
                 self.toasts.info(event);
