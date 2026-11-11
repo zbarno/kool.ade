@@ -219,6 +219,8 @@ if [ -f "$HOME/.Xauthority" ]; then
 fi
 AUTO
 chroot_guest chown -R koolade:koolade /home/koolade
+chroot_guest install -d -o koolade-agent -g koolade-display -m 2770 \
+  /home/koolade/Downloads
 chroot_guest chmod 0710 /home/koolade
 sudo truncate -s 0 "$work_dir/rootfs/etc/machine-id"
 sudo ln -sfn /etc/machine-id "$work_dir/rootfs/var/lib/dbus/machine-id"
@@ -276,6 +278,7 @@ RestartSec=1
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=read-only
+ReadWritePaths=/home/koolade/Downloads
 RuntimeDirectory=koolade-computer-use-agent
 RuntimeDirectoryMode=0700
 PrivateTmp=yes
