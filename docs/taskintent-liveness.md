@@ -99,7 +99,7 @@ make retry admission bounded and idempotent.
 | 11. Held versus abandoned OS locks | This audit does not establish a complete lock-liveness and safe-cleanup matrix. |
 | 12. Stranded task graph converges | No cross-lifecycle liveness checker currently proves bounded convergence. |
 | 13. Restart with all specified stale/active inputs | Stage-specific restart coverage exists; the combined scenario remains to be established. |
-| 14. Authorization, provider, QA, and publication safeguards | Existing subsystem regressions remain authoritative; coordinator changes must preserve them. |
+| 14. Authorization, provider, QA, and publication safeguards | Existing subsystem regressions remain authoritative; a focused result-classifier regression preserves Docker health-disconnect uncertainty, and the existing uncertain-verification consumer regression proves it blocks without dispatching a correction. Coordinator changes must preserve these boundaries. |
 
 Issue #581 should remain open until these gaps have implementation and
 executable evidence. Manual/end-user validation remains independent of issue
