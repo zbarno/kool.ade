@@ -1,11 +1,26 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "computer-use-images-v1-2-284600b1fa87",
-  "catalogGeneration": 2,
-  "issuedAtUnixMs": 1794397648409,
-  "expiresAtUnixMs": 1802173648409,
+  "catalogVersion": "computer-use-images-v1-3-08759e57cdfa",
+  "catalogGeneration": 3,
+  "issuedAtUnixMs": 1794420477728,
+  "expiresAtUnixMs": 1802196477728,
   "signerKeyId": "76fe57c9-0102-424b-9bb2-90b7ca745006",
   "images": [
+    {
+      "architecture": "x86_64",
+      "image_digest": "sha256:08759e57cdfafcdd77047a41269774d0e65bb7ff600522c32a48a0f9f02f3389",
+      "image_size_bytes": 4294967296,
+      "artifact_size_bytes": 682557440,
+      "artifact_name": "koolade-computer-use-guest-x86_64.qcow2",
+      "guest_release": "debian-bookworm-6849dc169e33",
+      "source_revision": "6849dc169e33f09f5a12a7025365b2e73bd37e34",
+      "build_recipe_sha256": "sha256:426f2d96e35dcdf6a8a22faba3dd111d3d58c3a849fd0d812b660cae9d056022",
+      "sbom_sha256": "sha256:c24b767f1f4e7635a31372c2f341a44870843770cea2b6d3bdabb3e5a3681544",
+      "build_attestation_sha256": "sha256:e468402bd9a81b3fe336c566bcea89b574a9c7db07dd1d039b1e392397ce8586",
+      "companion_protocol_version": 1,
+      "companion_sha256": "sha256:407f699a0f74e33bc34ca6c930096abac08e605add64b441fbc265a4f285d1db",
+      "status": "approved"
+    },
     {
       "architecture": "x86_64",
       "image_digest": "sha256:284600b1fa878fb194b0f18fe2538271420999341537966c1f3b15f06cea3acf",
@@ -19,7 +34,7 @@
       "build_attestation_sha256": "sha256:58627ca7a10ae69a5108dcd1ce50d55547474fc044b5555393c55055a31342cb",
       "companion_protocol_version": 1,
       "companion_sha256": "sha256:5201deaf1359e4ce738700831c263d475eea9ea934664f8390cd2ab464100278",
-      "status": "approved"
+      "status": "revoked"
     },
     {
       "architecture": "x86_64",
@@ -37,5 +52,5 @@
       "status": "revoked"
     }
   ],
-  "signatureHex": "3afc640ba894423232ba2d98d244454a24b047bde5d8ac9a7d5019967c774b682116b68e4e414f21eea86c04567a6baee9e868651cea1640a716b805f3564804"
+  "signatureHex": "362ea5baebf9ace2607f5225fa86d2b9b16a3ded4d866b892376f3fafca11448117988ec5f85229f4f5f2eef9bd37b9f8f56d1bc0574d924b012f7a8d7476203"
 }
