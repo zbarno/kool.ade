@@ -81,6 +81,7 @@ pub(super) fn invalidate_discovery(
             entry.checked_at_unix_ms = 0;
             entry.implementation_available = false;
             entry.model_catalog_fresh = false;
+            entry.verified_at_unix_ms = None;
             entry.capability_snapshot = None;
         }
     }

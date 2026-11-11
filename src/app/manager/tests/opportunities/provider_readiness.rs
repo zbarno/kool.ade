@@ -31,6 +31,7 @@ fn manager_provider_unavailability_is_scoped_and_never_leaks_to_product_scan() {
             discovered: std::collections::BTreeMap::from([(
                 "pi".into(),
                 crate::persistence::harness_settings::DetectedHarness {
+                    verified_at_unix_ms: None,
                     status: "unavailable".into(),
                     version: None,
                     executable: None,
@@ -202,6 +203,7 @@ fn ready_provider(
             .collect(),
     };
     crate::persistence::harness_settings::DetectedHarness {
+        verified_at_unix_ms: None,
         status: "synthetic ready provider".into(),
         version: Some("1.0.0".into()),
         executable: Some("/synthetic/bin/pi".into()),

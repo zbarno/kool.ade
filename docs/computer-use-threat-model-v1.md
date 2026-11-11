@@ -19,29 +19,30 @@ they do not claim real VM isolation.
 | Guest-to-host clipboard path traversal | Critical | No host-mounted clipboard/file bridge; later bridge uses typed bounded artifacts | `wire_decoder_rejects_unknown_permissions_credentials_paths_and_versions`; CU09 traversal tests |
 | Malicious or rolled-back snapshot | High | Immutable verified base, per-session overlay, digest/approval recheck | CU03 digest/tamper and overlay isolation tests |
 | Remote worker impersonation | Critical | V1 targets local KVM only; future remote worker needs separate authenticated identity binding | CU01-T-local-target-only; CU14 handshake tests |
-| Approval spoofing or stale purchase replay | Critical | Controller-only approval generation; v1 has no high-impact transaction grant; uncertain effects are never retried | `event_stream_fences_sequences_actors_and_uncertain_external_effects`; CU12 exact-action approval/replay E2E |
-| Duplicate billing or external side effect after timeout | Critical | Idempotency and explicit uncertain outcome; no automatic retry after ambiguous completion | `event_stream_fences_sequences_actors_and_uncertain_external_effects`; CU12 failure-injection E2E |
+| Approval spoofing or stale purchase replay | Critical | Controller-owned, one-use approval binds the complete intent, identity generations, screen digest, and exact final action; high-impact capability remains denied by policy | `computer_action_intent` contract tests; real guest approval/replay E2E remains #392 |
+| Duplicate billing or external side effect after timeout | Critical | Attempted approved action consumes its one-use grant; ambiguous result becomes OutcomeUnknown and cannot be retried | `computer_action_intent` state tests; real guest failure-injection E2E remains #392 |
 | VM isolation mistaken for logged-in account safety | Critical | Docs/UI must state account risk; persistent sessions separately gated and encrypted | CU01-T-no-implicit-persistence; CU11 identity/takeover security review |
 | Model or guest mints/renews authority | Critical | Controller-only policy and lease issuance; strict schemas; generation fence | `controller_attestation_binds_identity_policy_lease_target_and_image`; `wire_decoder_rejects_unknown_permissions_credentials_paths_and_versions`; `lease_renewal_must_advance_identity_fence_and_expiry`; CU05/07 authority tests |
 | Guest changes task repository or publishes output | Critical | Controller owns source of truth; guest returns evidence only; controller applies under task claim | `golden_wire_contracts_validate_and_round_trip_without_shape_drift`; CU13 claim-fenced integration |
 
 ## Explicit limitations
 
-InternetResearch is an opt-in public HTTPS tunnel for disposable guests. It
-uses host DNS resolution, rejects a target if any resolved address is private
-or reserved, and pins the upstream socket to one approved resolution. The
-proxy cannot inspect encrypted HTTPS methods, paths, forms, or WebSocket
-messages, so it does not prevent a user from logging in or submitting an
-external action. The UI warns against credentials and sensitive actions; a
-separate CU-12 capability/policy is required before those actions can be
-claimed as controlled. The current signed guest image uses companion protocol
-v1, so UI consent does not offer research networking until a compatible image
-is promoted. The real guest denial, redirect/rebinding, bypass, and revoke
-checks remain in #392 and are not claimed as passed here.
+InternetResearch is designed as an opt-in public HTTPS tunnel for disposable
+guests. Its implementation uses host DNS resolution, rejects a target if any
+resolved address is private or reserved, and pins the upstream socket to one
+approved resolution. The proxy cannot inspect encrypted HTTPS methods, paths,
+forms, or WebSocket messages, so it does not prevent a user from logging in or
+submitting an external action. A separate CU-12 capability/policy is required
+before those actions can be claimed as controlled. The promoted signed guest
+image currently advertises companion protocol v1, so UI consent does not offer
+research networking. The real guest denial, redirect/rebinding, bypass, and
+revoke checks remain in #392 and are not claimed as passed here.
 
 The guest companion authenticates the local channel and the host journal
 prevents automatic replay after uncertain outcomes. This does not prove real
 VM isolation, disk encryption, viewer authentication, secure secret entry,
 or content redaction. Those require owning components and end-to-end tests in
-the linked issues. Logged-in accounts remain exposed to whatever a guest application
-can do inside that account, even when the VM boundary works as designed.
+the linked issues. Logged-in accounts remain exposed to whatever a guest
+application can do inside that account, even when the VM boundary works as
+designed. Persistent personal sessions and human-login acceptance remain
+unavailable until their separate security gates are complete.

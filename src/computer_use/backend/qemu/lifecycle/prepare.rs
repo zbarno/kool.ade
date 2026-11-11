@@ -70,7 +70,7 @@ impl LocalKvmComputerBackend {
             || session.image_digest != overlay.image_digest()
             || session.image_manifest_digest != overlay.manifest_digest()
             || session.image_signer_key_id != overlay.signer_key_id()
-            || target_machine_id(session) != self.host_machine_id
+            || target_machine_id(session, self.remote_worker_id.as_deref())? != self.host_machine_id
             || overlay.directory() != expected_overlay_root
             || overlay.path().parent() != Some(expected_overlay_root.as_path())
             || (!persistent_personal
@@ -90,7 +90,7 @@ impl LocalKvmComputerBackend {
         validate_runtime_root(&expected_overlay_root)?;
 
         let session_id = session.identity.session_id.clone();
-        let machine_id = target_machine_id(session).to_owned();
+        let machine_id = target_machine_id(session, self.remote_worker_id.as_deref())?.to_owned();
         let directory = self.runtime_root.join("sessions").join(&session_id);
         let result = with_registry_lock(&self.runtime_root, || {
             if count_machine_slots(&self.runtime_root, &machine_id)?

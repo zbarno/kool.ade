@@ -90,6 +90,7 @@ pub(super) fn discover(runtime_available: bool) -> HarnessProbe {
                 == crate::harness::opencode_harness::OpenCodeReadiness::ConfigurationRequired,
         authentication,
         implementation_available: ready && runtime_available,
+        verified_at_unix_ms: None,
         status: probe.status,
     }
 }

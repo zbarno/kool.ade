@@ -38,19 +38,50 @@ pub(super) fn start_granted_session(
     controller.cache_queued_view(caller, budget.clone(), lease_expiry);
     let mut startup_view = StartupViewGuard::new(controller, &caller.identity.session_id);
     let lease_id = uuid::Uuid::new_v4().to_string();
-    let mut allowed_apps = request
-        .allowed_apps
-        .iter()
-        .filter(|app| APPS.contains(&app.as_str()))
-        .cloned()
-        .collect::<std::collections::BTreeSet<_>>();
-    if request.network_profile == crate::computer_use::ComputerNetworkProfileV1::InternetResearch {
-        if allowed_apps.remove("chromium") {
-            allowed_apps.insert("chromium-research".into());
-        }
-    } else {
-        allowed_apps.remove("chromium-research");
-    }
+    let (allowed_apps, authorized_operations) =
+        if caller.role_id == crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_ROLE_V1 {
+            (
+                request
+                    .allowed_apps
+                    .iter()
+                    .filter(|app| {
+                        app.as_str() == crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_APP_ID_V1
+                    })
+                    .cloned()
+                    .collect(),
+                request
+                    .allowed_operations
+                    .iter()
+                    .copied()
+                    .filter(|op| {
+                        crate::computer_use::mcp::RUNTIME_QA_COMPUTER_USE_OPERATIONS_V1.contains(op)
+                    })
+                    .collect(),
+            )
+        } else {
+            let mut allowed_apps = request
+                .allowed_apps
+                .iter()
+                .filter(|app| APPS.contains(&app.as_str()))
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>();
+            if request.network_profile
+                == crate::computer_use::ComputerNetworkProfileV1::InternetResearch
+            {
+                if allowed_apps.remove("chromium") {
+                    allowed_apps.insert("chromium-research".into());
+                }
+            } else {
+                allowed_apps.remove("chromium-research");
+            }
+            let authorized_operations = request
+                .allowed_operations
+                .iter()
+                .copied()
+                .filter(|op| OPS.contains(op))
+                .collect();
+            (allowed_apps, authorized_operations)
+        };
     let policy = ComputerPolicyV1 {
         schema_version: 1,
         identity: caller.identity.clone(),
@@ -64,12 +95,7 @@ pub(super) fn start_granted_session(
         },
         network_profile: request.network_profile,
         allowed_apps,
-        authorized_operations: request
-            .allowed_operations
-            .iter()
-            .copied()
-            .filter(|op| OPS.contains(op))
-            .collect(),
+        authorized_operations,
         approval_generation: 1,
         resource_budget: budget.clone(),
     };
@@ -125,6 +151,7 @@ pub(super) fn start_granted_session(
         now_unix_ms: now,
         image: &image,
         session_class: ComputerSessionClassV1::Disposable,
+        target: request.target.clone(),
     });
     session
         .attest(runtime.controller_key_id.clone(), &runtime.controller_key)
@@ -158,10 +185,31 @@ pub(super) fn start_granted_session(
         overlay,
         scheduler_permit,
         None,
-        crate::computer_use::mcp::ComputerUseControlOwnerV1::Agent,
+        initial_control_owner(&caller.role_id),
         false,
         cancelled,
         &mut journal_guard,
         &mut startup_view,
     )
+}
+
+fn initial_control_owner(role_id: &str) -> crate::computer_use::mcp::ComputerUseControlOwnerV1 {
+    if role_id == crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_ROLE_V1 {
+        crate::computer_use::mcp::ComputerUseControlOwnerV1::Human
+    } else {
+        crate::computer_use::mcp::ComputerUseControlOwnerV1::Agent
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn runtime_qa_session_starts_human_owned_while_other_sessions_keep_agent_ownership() {
+    assert_eq!(
+        initial_control_owner(crate::computer_use::mcp::COMPUTER_USE_RUNTIME_QA_ROLE_V1),
+        crate::computer_use::mcp::ComputerUseControlOwnerV1::Human
+    );
+    assert_eq!(
+        initial_control_owner("implementer/v1"),
+        crate::computer_use::mcp::ComputerUseControlOwnerV1::Agent
+    );
 }

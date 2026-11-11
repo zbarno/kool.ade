@@ -161,6 +161,7 @@ fn explicit_implementation_route_requires_provider_implementation_availability()
         DetectedHarness, HarnessSettings, IMPLEMENTATION, WorkRoute,
     };
     let detected = |id: &str, implementation_available| DetectedHarness {
+        verified_at_unix_ms: None,
         status: format!("{id} ready"),
         version: Some("1.0.0".into()),
         executable: Some(format!("/tools/{id}")),
@@ -210,6 +211,7 @@ fn task_routes_reject_manager_unavailable_harness_and_stale_model() {
         discovered: std::collections::BTreeMap::from([(
             "opencode".into(),
             DetectedHarness {
+                verified_at_unix_ms: None,
                 status: "opencode ready".into(),
                 version: Some("1.0.0".into()),
                 executable: Some("/synthetic/bin/opencode".into()),

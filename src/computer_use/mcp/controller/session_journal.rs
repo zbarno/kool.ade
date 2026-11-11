@@ -9,8 +9,9 @@ use serde::{Deserialize, Serialize};
 use sha2::Digest;
 
 use crate::computer_use::{
-    ComputerActionActorV1, ComputerActionV1, ComputerIdentityV1, ComputerNetworkProfileV1,
-    ComputerOperationV1, ComputerResourceBudgetV1, ComputerSessionClassV1, ComputerSessionV1,
+    ComputerActionActorV1, ComputerActionIntentStateV1, ComputerActionV1, ComputerIdentityV1,
+    ComputerNetworkProfileV1, ComputerOperationV1, ComputerResourceBudgetV1,
+    ComputerSessionClassV1, ComputerSessionV1,
 };
 
 mod storage;
@@ -40,6 +41,7 @@ pub(super) enum SessionEventKindV1 {
     ActionApplied,
     ActionFailed,
     OutcomeUnknown,
+    ActionIntentStateChanged,
     AgentPaused,
     HumanTakeover,
     AgentResumed,
@@ -78,6 +80,12 @@ pub(super) struct SessionJournalEventV1 {
     pub action_id: Option<String>,
     pub action_actor: Option<ComputerActionActorV1>,
     pub action_operation: Option<ComputerOperationV1>,
+    #[serde(default)]
+    pub action_intent_id: Option<String>,
+    #[serde(default)]
+    pub action_intent_sha256: Option<String>,
+    #[serde(default)]
+    pub action_intent_state: Option<ComputerActionIntentStateV1>,
     pub occurred_at_unix_ms: u64,
 }
 
@@ -153,6 +161,52 @@ impl ComputerUseSessionJournalV1 {
             action_id: action.map(|action| action.idempotency_key.clone()),
             action_actor: action.map(|action| action.actor),
             action_operation: action.map(|action| action.operation),
+            action_intent_id: None,
+            action_intent_sha256: None,
+            action_intent_state: None,
+            occurred_at_unix_ms,
+        })
+    }
+
+    pub fn append_action_intent_state(
+        &self,
+        session: &ComputerSessionV1,
+        agent_role: &str,
+        intent_id: &str,
+        intent_sha256: &str,
+        state: ComputerActionIntentStateV1,
+        occurred_at_unix_ms: u64,
+    ) -> Result<u64, &'static str> {
+        let policy_bytes =
+            serde_json::to_vec(&session.policy).map_err(|_| "session_journal_invalid_event")?;
+        let policy_sha256 = format!("sha256:{:x}", sha2::Sha256::digest(policy_bytes));
+        self.append(SessionJournalEventV1 {
+            schema_version: 1,
+            sequence: 0,
+            event_id: uuid::Uuid::new_v4().to_string(),
+            kind: SessionEventKindV1::ActionIntentStateChanged,
+            reconciled_from: None,
+            boot_fingerprint: None,
+            identity: session.identity.clone(),
+            session_class: session.session_class,
+            agent_role: agent_role.to_owned(),
+            lease_id: session.lease.lease_id.clone(),
+            lease_generation: session.lease.generation,
+            approval_generation: session.approval_generation,
+            cancellation_generation: session.cancellation_generation,
+            image_digest: session.image_digest.clone(),
+            policy_sha256,
+            network_profile: session.network_profile,
+            allowed_apps: session.allowed_apps.iter().cloned().collect(),
+            resource_budget: session.policy.resource_budget.clone(),
+            expires_at_unix_ms: session.lease.expires_at_unix_ms,
+            action_sequence: None,
+            action_id: None,
+            action_actor: None,
+            action_operation: None,
+            action_intent_id: Some(intent_id.to_owned()),
+            action_intent_sha256: Some(intent_sha256.to_owned()),
+            action_intent_state: Some(state),
             occurred_at_unix_ms,
         })
     }
@@ -162,6 +216,37 @@ impl ComputerUseSessionJournalV1 {
         event.sequence = 0;
         self.with_locked_file(|file| {
             let mut events = storage::read_events(file)?;
+            if event.kind == SessionEventKindV1::ActionIntentStateChanged {
+                let intent_id = event
+                    .action_intent_id
+                    .as_deref()
+                    .ok_or("session_journal_invalid_event")?;
+                let intent_digest = event
+                    .action_intent_sha256
+                    .as_deref()
+                    .ok_or("session_journal_invalid_event")?;
+                let next = event
+                    .action_intent_state
+                    .ok_or("session_journal_invalid_event")?;
+                if let Some(previous) = events.iter().rev().find(|previous| {
+                    previous.kind == SessionEventKindV1::ActionIntentStateChanged
+                        && previous.action_intent_id.as_deref() == Some(intent_id)
+                }) {
+                    if previous.action_intent_sha256.as_deref() != Some(intent_digest)
+                        || previous.identity != event.identity
+                        || previous.lease_generation != event.lease_generation
+                        || previous.approval_generation != event.approval_generation
+                        || previous.cancellation_generation != event.cancellation_generation
+                        || !previous
+                            .action_intent_state
+                            .is_some_and(|state| state.can_transition_to(next))
+                    {
+                        return Err("session_journal_invalid_transition");
+                    }
+                } else if next != ComputerActionIntentStateV1::Prepared {
+                    return Err("session_journal_invalid_transition");
+                }
+            }
             if events.len() >= storage::MAX_JOURNAL_EVENTS {
                 return Err("session_journal_capacity_exceeded");
             }

@@ -19,6 +19,7 @@ fn invalid_manual_path_shows_status_and_auto_detect_reset() {
             discovered: std::collections::BTreeMap::from([(
                 "pi".into(),
                 DetectedHarness {
+                    verified_at_unix_ms: None,
                     status: "pi (unavailable)".into(),
                     version: None,
                     executable: None,

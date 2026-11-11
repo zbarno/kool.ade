@@ -160,6 +160,7 @@ fn settings_with_routes(work_routes: BTreeMap<String, WorkRoute>) -> HarnessSett
         (
             provider.into(),
             DetectedHarness {
+                verified_at_unix_ms: None,
                 status: format!("{provider} ready"),
                 version: Some("1.0.0".into()),
                 executable: Some(format!("/synthetic/bin/{provider}")),

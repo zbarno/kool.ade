@@ -4,6 +4,8 @@ use std::{process::Command, thread, time::Instant};
 
 #[path = "launch/boot_config.rs"]
 mod boot_config;
+mod connect;
+use connect::connect_control_socket;
 
 impl LocalKvmComputerBackend {
     pub(super) fn boot_impl(
@@ -30,6 +32,11 @@ impl LocalKvmComputerBackend {
         let control_socket = machine.directory.join("guest-control.sock");
         let display_socket = machine.directory.join("display.sock");
         let boot_config = machine.directory.join("guest-boot-config.json");
+        let app_helper_config = machine.directory.join("guest-app-helper-config.json");
+        let application_catalog = self
+            .application_catalog_bytes
+            .as_ref()
+            .map(|_| machine.directory.join("guest-app-catalog.json"));
         if control_socket.exists() || display_socket.exists() {
             return Err(Error::OwnershipMismatch);
         }
@@ -53,20 +60,55 @@ impl LocalKvmComputerBackend {
         let research_proxy = network_gateway
             .as_ref()
             .map(crate::computer_use::network::InternetResearchGatewayV1::address);
-        let args = commands::command_args(
+        boot_config::write_app_helper_config(
+            session,
+            &self.controller_key_id,
+            &self.controller_key,
+            &app_helper_config,
+        )?;
+        if let (Some(bytes), Some(path)) = (
+            self.application_catalog_bytes.as_deref(),
+            application_catalog.as_deref(),
+        ) {
+            boot_config::write_application_catalog(bytes, path)?;
+        }
+        #[allow(unused_mut)]
+        let mut args = commands::command_args(
             session,
             overlay.path(),
             &control_socket,
             &display_socket,
             &boot_config,
+            &app_helper_config,
+            application_catalog.as_deref(),
             research_proxy,
             secret_fd,
-        )
-        .map_err(|_| Error::ResourceLimit)?;
+        )?;
         let qemu_path = self.qemu_path();
         process::validate_qemu_program(&qemu_path)?;
+        #[cfg(test)]
+        if std::env::var("KOOLADE_COMPUTER_USE_R1_REAL_KVM").as_deref() == Ok("1") {
+            if let Some(serial) = args.iter().position(|arg| arg == "-serial") {
+                args[serial + 1] = format!(
+                    "file:{}",
+                    machine.directory.join("guest-serial.log").display()
+                )
+                .into();
+            }
+            if let Some(monitor) = args.iter().position(|arg| arg == "-monitor") {
+                args[monitor + 1] = format!(
+                    "unix:{},server=on,wait=off",
+                    machine.directory.join("qemu-monitor.sock").display()
+                )
+                .into();
+            }
+        }
         let mut command = Command::new(qemu_path);
         commands::configure_command(&mut command, &args, &machine.directory);
+        #[cfg(test)]
+        if std::env::var("KOOLADE_COMPUTER_USE_R1_REAL_KVM").as_deref() == Ok("1") {
+            connect::capture_qemu_stderr(&mut command, &machine.directory)?;
+        }
         let cgroup = CgroupV2::new(&self.cgroup_root)?;
         process::set_child_limits(
             &mut command,
@@ -237,8 +279,20 @@ impl LocalKvmComputerBackend {
         #[cfg(unix)]
         {
             let socket = machine.directory.join("guest-control.sock");
-            let stream = std::os::unix::net::UnixStream::connect(socket)
-                .map_err(|_| Error::GuestChannelUnavailable)?;
+            drop(machines);
+            let stream = connect_control_socket(&socket, self.limits.boot_timeout, || {
+                let mut machines = self.owned_machine(session, handle, now_unix_ms)?;
+                let machine = machines
+                    .get_mut(&handle.session_id)
+                    .ok_or(Error::OwnershipMismatch)?;
+                let Some(child) = machine.child.as_mut() else {
+                    return Ok(false);
+                };
+                child
+                    .try_wait()
+                    .map(|status| status.is_none())
+                    .map_err(|_| Error::Io)
+            })?;
             stream
                 .set_read_timeout(Some(self.limits.boot_timeout))
                 .map_err(|_| Error::Io)?;
@@ -285,7 +339,15 @@ impl LocalKvmComputerBackend {
                 session,
                 now_unix_ms,
             )
-            .map_err(|_| Error::GuestReadinessUnverified)?;
+            .map_err(|error| {
+                #[cfg(test)]
+                if std::env::var("KOOLADE_COMPUTER_USE_R1_REAL_KVM").as_deref() == Ok("1") {
+                    eprintln!("R1 guest handshake detail: {error:?}");
+                }
+                #[cfg(not(test))]
+                let _ = error;
+                Error::GuestReadinessUnverified
+            })?;
         match state.as_str() {
             "booting" => {
                 self.mark_guest_ready_impl(session, handle, readiness, now_unix_ms)?;

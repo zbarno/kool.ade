@@ -11,6 +11,7 @@ pub(super) fn settings(ctx: &egui::Context) {
         settings.discovered.insert(
             id.into(),
             DetectedHarness {
+                verified_at_unix_ms: None,
                 status: if ready {
                     "Ready to use"
                 } else {

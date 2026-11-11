@@ -25,6 +25,8 @@ use crate::{
     },
 };
 
+#[cfg(target_os = "linux")]
+mod computer_guest;
 mod execution;
 #[cfg(test)]
 mod rootless_dispatch;
@@ -88,16 +90,51 @@ fn prepare_dispatch_artifacts(
     Ok((request, artifact_upload))
 }
 
+#[allow(clippy::too_many_arguments)] // Keep the request, task claim, reviewer, cancellation, and optional host capability explicit at the worker boundary.
 pub(super) fn run(
     prepared: PreparedRequest,
     scenarios: Vec<QaScenarioV1>,
+    execution_target: crate::runtime_qa::QaExecutionTargetV1,
+    approval_task_revision: u64,
+    claimed_task_revision: u64,
     harness: Box<dyn crate::harness::AiHarness>,
     store_root: PathBuf,
     cancelled: Arc<AtomicBool>,
     mut docker_cancel: tokio::sync::watch::Receiver<bool>,
     _progress: std::sync::mpsc::Sender<crate::harness::LiveProgress>,
+    computer_use: Option<super::super::ComputerQaRuntimeContextV1>,
 ) -> Result<(), String> {
+    #[cfg(not(target_os = "linux"))]
+    let _ = (approval_task_revision, claimed_task_revision);
     let (request, artifact_upload) = prepare_dispatch_artifacts(&prepared)?;
+    if execution_target == crate::runtime_qa::QaExecutionTargetV1::ComputerUseGuest {
+        #[cfg(target_os = "linux")]
+        {
+            let computer_use = computer_use.ok_or_else(|| {
+            "Computer QA is unavailable because the app-owned consent and disposable guest context is missing".to_owned()
+        })?;
+            let store = RuntimeQaStore::new(store_root);
+            return computer_guest::run(
+                &prepared,
+                &request,
+                approval_task_revision,
+                claimed_task_revision,
+                &scenarios,
+                &artifact_upload,
+                harness,
+                &store,
+                cancelled,
+                computer_use,
+            );
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = computer_use;
+            return Err(
+                "Computer QA guest dispatch is supported only on the trusted Linux host".into(),
+            );
+        }
+    }
     if request.mode == crate::runtime_qa::QaRunMode::Experimental {
         let engine = crate::execution::docker::environment::DockerEnvironmentStatus::detect();
         if !super::super::prerequisites::experimental_engine_supported(

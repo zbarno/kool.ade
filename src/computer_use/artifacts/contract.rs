@@ -40,6 +40,10 @@ pub struct ComputerTransferGrantV1 {
     pub lease_generation: u64,
     pub approval_generation: u64,
     pub user_approved: bool,
+    /// Canonical hash of a persisted human-approved QA build record. Present
+    /// only for the dedicated task-build-to-guest permission path.
+    #[serde(default)]
+    pub approval_receipt_sha256: Option<String>,
 }
 
 /// Inputs are accepted only from trusted app/controller code after its user or
@@ -77,6 +81,8 @@ pub struct ComputerArtifactManifestV1 {
     pub expires_at_unix_ms: u64,
     pub lease_generation: u64,
     pub approval_generation: u64,
+    #[serde(default)]
+    pub approval_receipt_sha256: Option<String>,
     /// Payload text is not included in task/model activity by this contract.
     pub private_content: bool,
 }
@@ -107,6 +113,7 @@ impl ComputerArtifactManifestV1 {
             expires_at_unix_ms: grant.expires_at_unix_ms,
             lease_generation: grant.lease_generation,
             approval_generation: grant.approval_generation,
+            approval_receipt_sha256: grant.approval_receipt_sha256.clone(),
             private_content: true,
         }
     }
@@ -122,18 +129,38 @@ impl ComputerArtifactManifestV1 {
             || self.size_bytes == 0
             || self.size_bytes > COMPUTER_ARTIFACT_MAX_BYTES_V1
             || !valid_sha256(&self.sha256)
-            || super::validation::media_type_for_name(&self.display_name).as_deref()
-                != Some(self.media_type.as_str())
+            || !valid_manifest_media_type(self)
             || self.created_at_unix_ms == 0
             || self.expires_at_unix_ms <= self.created_at_unix_ms
             || self.lease_generation == 0
             || self.approval_generation == 0
+            || self
+                .approval_receipt_sha256
+                .as_deref()
+                .is_some_and(|digest| !valid_bare_sha256(digest))
+            || (self.flow != ComputerArtifactFlowV1::TaskArtifactToGuest
+                && self.approval_receipt_sha256.is_some())
             || !self.private_content
         {
             return Err("Computer Use artifact manifest is invalid");
         }
         Ok(())
     }
+}
+
+fn valid_manifest_media_type(manifest: &ComputerArtifactManifestV1) -> bool {
+    super::validation::media_type_for_name(&manifest.display_name).as_deref()
+        == Some(manifest.media_type.as_str())
+        || (manifest.flow == ComputerArtifactFlowV1::TaskArtifactToGuest
+            && super::validation::media_type_for_name(&manifest.display_name).is_none()
+            && manifest.media_type == "application/octet-stream")
+}
+
+fn valid_bare_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// Small result returned to UI/task activity; bytes are fetched separately.
@@ -165,6 +192,23 @@ pub struct ComputerClipboardGrantV1 {
 }
 
 impl ComputerTransferGrantV1 {
+    #[cfg(any(target_os = "linux", test))]
+    pub(crate) fn from_approved_task_app_request(
+        request: ComputerTransferGrantRequestV1,
+        approval_receipt_sha256: String,
+    ) -> Result<Self, &'static str> {
+        if request.flow != ComputerArtifactFlowV1::TaskArtifactToGuest
+            || request.user_approved
+            || !valid_bare_sha256(&approval_receipt_sha256)
+        {
+            return Err("task app transfer requires a validated persisted approval receipt");
+        }
+        let mut grant = Self::from_request(request)?;
+        grant.user_approved = true;
+        grant.approval_receipt_sha256 = Some(approval_receipt_sha256);
+        Ok(grant)
+    }
+
     pub(crate) fn from_request(
         request: ComputerTransferGrantRequestV1,
     ) -> Result<Self, &'static str> {
@@ -209,6 +253,7 @@ impl ComputerTransferGrantV1 {
             lease_generation: request.lease_generation,
             approval_generation: request.approval_generation,
             user_approved: request.user_approved,
+            approval_receipt_sha256: None,
         })
     }
 
@@ -226,6 +271,14 @@ impl ComputerTransferGrantV1 {
             || self.expires_at_unix_ms - self.issued_at_unix_ms > 15 * 60 * 1000
             || self.lease_generation == 0
             || self.approval_generation == 0
+            || self
+                .approval_receipt_sha256
+                .as_deref()
+                .is_some_and(|digest| !valid_bare_sha256(digest))
+            || (self.flow == ComputerArtifactFlowV1::TaskArtifactToGuest
+                && self.user_approved != self.approval_receipt_sha256.is_some())
+            || (self.flow != ComputerArtifactFlowV1::TaskArtifactToGuest
+                && self.approval_receipt_sha256.is_some())
         {
             return Err("Computer Use transfer grant is expired, invalid, or exceeds its bounds");
         }
@@ -233,10 +286,7 @@ impl ComputerTransferGrantV1 {
             ComputerArtifactFlowV1::UserApprovedFileToPersonalGuest if !self.user_approved => {
                 return Err("personal guest file transfer requires explicit user approval");
             }
-            ComputerArtifactFlowV1::TaskArtifactToGuest
-            | ComputerArtifactFlowV1::GuestArtifactToTask
-                if self.user_approved =>
-            {
+            ComputerArtifactFlowV1::GuestArtifactToTask if self.user_approved => {
                 return Err("task artifact grants cannot claim user file approval");
             }
             ComputerArtifactFlowV1::UserDownloadFromGuest if !self.user_approved => {

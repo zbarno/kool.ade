@@ -220,6 +220,7 @@ mod visibility_tests {
         settings.discovered.insert(
             "pi".into(),
             crate::persistence::harness_settings::DetectedHarness {
+                verified_at_unix_ms: None,
                 status: "not installed".into(),
                 version: None,
                 executable: None,

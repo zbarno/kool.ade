@@ -89,16 +89,17 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                     || assessment.configuration_required,
                 authentication,
                 implementation_available: ready && runtime_available,
+                verified_at_unix_ms: None,
                 status,
             }
         }
         "codex" => {
             let codex = crate::harness::CodexHarness::probe_report();
             let (configured_models, configured_default) = configured_model_catalog(id);
-            let (available_models, available_default, catalog_diagnostic) =
+            let (available_models, available_default, catalog_diagnostic, catalog_ok) =
                 match codex.binary.as_deref() {
                     Some(binary) => match codex_models::discover(binary) {
-                        Ok((models, default_model)) => (models, default_model, None),
+                        Ok((models, default_model)) => (models, default_model, None, true),
                         Err(error) => (
                             Vec::new(),
                             None,
@@ -106,13 +107,17 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                                 "Codex model catalog could not be refreshed: {}",
                                 crate::error::redact_secrets(&error.to_string())
                             )),
+                            false,
                         ),
                     },
-                    None => (Vec::new(), None, None),
+                    None => (Vec::new(), None, None, false),
                 };
             // `login status`, app-server startup, and `model/list` do not prove
-            // account-specific access, so Codex catalogs remain stale until a safe check exists.
-            let model_catalog_fresh = false;
+            // account-specific access; a successful bounded live verification is
+            // what licenses the catalog as account-current for the session.
+            let verified_now =
+                codex.readiness == crate::harness::codex_harness::CodexReadiness::Ready;
+            let model_catalog_fresh = verified_now && catalog_ok;
             let diagnostic = [
                 (!codex.diagnostic.is_empty()).then_some(codex.diagnostic),
                 catalog_diagnostic,
@@ -131,6 +136,7 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                 _ => ReadinessState::Unknown,
             };
             let ready = codex.ready;
+            let verified_at_unix_ms = codex.verified_at_unix_ms.filter(|_| verified_now);
             HarnessProbe {
                 id: id.into(),
                 version: codex.version.clone(),
@@ -144,6 +150,7 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                     == crate::harness::codex_harness::CodexReadiness::AuthenticationRequired,
                 authentication,
                 implementation_available: ready && runtime_available,
+                verified_at_unix_ms,
                 status: codex.status,
             }
         }
@@ -177,6 +184,7 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                     == crate::harness::claude_harness::ClaudeReadiness::AuthenticationRequired,
                 authentication,
                 implementation_available: ready && runtime_available,
+                verified_at_unix_ms: None,
                 status: probe.status,
             }
         }
@@ -217,6 +225,7 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                 configuration_required: false,
                 authentication,
                 implementation_available: ready && runtime_available,
+                verified_at_unix_ms: None,
                 status,
             }
         }
@@ -247,6 +256,7 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
                 configuration_required: probe.configuration_required,
                 authentication,
                 implementation_available: ready && runtime_available,
+                verified_at_unix_ms: None,
                 status: probe.status,
             }
         }
@@ -263,6 +273,7 @@ fn discover_provider_unbounded(id: &str, runtime_available: bool) -> HarnessProb
             configuration_required: false,
             authentication: ReadinessState::Unknown,
             implementation_available: false,
+            verified_at_unix_ms: None,
         },
     }
 }

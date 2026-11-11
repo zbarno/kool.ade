@@ -140,6 +140,7 @@ pub(super) fn from_harness_probe(
         failure_stage,
         diagnostic_code,
         diagnostic_message: message,
+        verified_at_unix_ms: report.verified_at_unix_ms,
     }
     .bounded()
 }
@@ -254,5 +255,6 @@ pub(super) fn into_harness_probe(result: &ProbeResult) -> HarnessProbe {
         authentication: result.authentication,
         implementation_available: result.execution_capability.safe_for_implementation
             == ReadinessState::Ready,
+        verified_at_unix_ms: result.verified_at_unix_ms,
     }
 }

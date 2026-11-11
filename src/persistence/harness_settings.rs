@@ -5,6 +5,9 @@ use std::collections::BTreeMap;
 
 const FILE: &str = "harness-settings.json";
 pub const DISCOVERY_FRESHNESS_MS: u64 = 15 * 60 * 1000;
+/// How long a successful bounded live verification (small model round trip)
+/// proves account access before discovery performs one more verification.
+pub const VERIFICATION_RECEIPT_TTL_MS: u64 = 24 * 60 * 60 * 1000;
 const CURRENT_SCHEMA_VERSION: u8 = 5;
 
 #[cfg(test)]
@@ -113,6 +116,12 @@ pub struct DetectedHarness {
     pub capability_snapshot: Option<crate::execution::contract::HarnessCapabilitySnapshotV1>,
     /// Unix time when this provider result and model catalog were last refreshed.
     pub checked_at_unix_ms: u64,
+    /// Time a bounded live verification (small model round trip) last
+    /// succeeded for this provider. While this receipt is young, discovery
+    /// trusts it instead of repeating the verification call. Absent for
+    /// providers whose checks are inherently non-generative.
+    #[serde(default)]
+    pub verified_at_unix_ms: Option<u64>,
 }
 
 impl DetectedHarness {
@@ -190,6 +199,13 @@ impl DetectedHarness {
         self.checked_at_unix_ms > 0
             && self.checked_at_unix_ms <= now_unix_ms
             && now_unix_ms.saturating_sub(self.checked_at_unix_ms) <= DISCOVERY_FRESHNESS_MS
+    }
+
+    /// Whether a stored live-verification receipt is still inside its TTL.
+    pub fn verification_is_current_at(&self, now_unix_ms: u64) -> bool {
+        self.verified_at_unix_ms.is_some_and(|at| {
+            at <= now_unix_ms && now_unix_ms.saturating_sub(at) <= VERIFICATION_RECEIPT_TTL_MS
+        })
     }
 
     pub fn supports_role_at(

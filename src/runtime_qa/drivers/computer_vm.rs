@@ -1,8 +1,5 @@
-// This typed adapter is intentionally not selected by production dispatch
-// until #394 supplies the authenticated P15 transfer and approved app launch
-// implementation. Keep the adapter testable without exposing an unverified
-// guest path in the application.
-#![allow(dead_code)]
+// Production selection is owned by the Runtime QA app dispatcher. Guest
+// authority remains the authenticated Computer Use controller session.
 
 mod action_contract;
 
@@ -82,9 +79,7 @@ impl ComputerQaDisplayV1 {
 }
 
 /// Adapts Computer Use guest actions into the existing Runtime QA evidence,
-/// review, and repair lifecycle. It does not provide the host/session adapter;
-/// production selection must remain disabled until one verifies staging and
-/// launch authority.
+/// review, and repair lifecycle.
 pub(crate) struct ComputerQaScenarioDriverV1<'a, G> {
     pub request: &'a QaRunRequestV1,
     pub target: &'a QaComputerTargetV1,

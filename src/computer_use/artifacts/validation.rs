@@ -111,6 +111,22 @@ pub(super) fn validate_content(name: &str, bytes: &[u8]) -> Result<String, &'sta
     Ok(media_type)
 }
 
+/// Build outputs may be extensionless ELF binaries or other opaque files.
+/// They are accepted only on the task-to-guest flow, whose exact path, task
+/// revision, size, and lease are bound by a controller-issued P15 grant.
+pub(super) fn validate_task_build_content(
+    name: &str,
+    bytes: &[u8],
+) -> Result<String, &'static str> {
+    if media_type_for_name(name).is_some() {
+        return validate_content(name, bytes);
+    }
+    if bytes.is_empty() || bytes.len() as u64 > super::COMPUTER_ARTIFACT_MAX_BYTES_V1 {
+        return Err("task build content is empty or exceeds the transfer quota");
+    }
+    Ok("application/octet-stream".to_owned())
+}
+
 fn validate_archive_bounds(name: &str, bytes: &[u8]) -> Result<(), &'static str> {
     let extension = Path::new(name)
         .extension()

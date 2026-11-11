@@ -31,6 +31,12 @@ fn main() -> eframe::Result {
     {
         println!("Kool.ad/e {}", env!("CARGO_PKG_VERSION"));
         println!("\nUsage: koolade [--version | --help | worker serve --stdio]");
+        println!("       koolade computer-use-worker serve --stdio --config <private-config>");
+        println!("       koolade computer-use-target enroll --config <enrollment.json>");
+        println!("       koolade computer-use-target select --worker-id <id>");
+        println!(
+            "       koolade computer-use-target recover --worker-id <id> --session-id <uuid> --approve"
+        );
         println!("       koolade --internal-mcp-server <config-path>");
         return Ok(());
     }
@@ -47,6 +53,151 @@ fn main() -> eframe::Result {
             std::process::exit(1);
         }
         return Ok(());
+    }
+    if command.as_deref() == Some(std::ffi::OsStr::new("computer-use-target")) {
+        let Some(subcommand) = args.next() else {
+            eprintln!(
+                "Usage: koolade computer-use-target enroll --config <enrollment.json> | select --worker-id <id>"
+            );
+            std::process::exit(2);
+        };
+        let result = if subcommand == std::ffi::OsStr::new("recover") {
+            let mut worker_id: Option<std::ffi::OsString> = None;
+            let mut session_id: Option<std::ffi::OsString> = None;
+            let mut approve = false;
+            while let Some(argument) = args.next() {
+                if argument == std::ffi::OsStr::new("--worker-id") && worker_id.is_none() {
+                    worker_id = args.next();
+                } else if argument == std::ffi::OsStr::new("--session-id") && session_id.is_none() {
+                    session_id = args.next();
+                } else if argument == std::ffi::OsStr::new("--approve") && !approve {
+                    approve = true;
+                } else {
+                    eprintln!(
+                        "Usage: koolade computer-use-target recover --worker-id <id> --session-id <uuid> --approve"
+                    );
+                    std::process::exit(2);
+                }
+            }
+            let (Some(worker_id), Some(session_id)) = (worker_id, session_id) else {
+                eprintln!(
+                    "Usage: koolade computer-use-target recover --worker-id <id> --session-id <uuid> --approve"
+                );
+                std::process::exit(2);
+            };
+            (|| -> anyhow::Result<()> {
+                let worker_id = worker_id
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("worker ID is not UTF-8"))?;
+                let session_id = session_id
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("session ID is not UTF-8"))?;
+                let action_unknown =
+                    koolade::computer_use::remote_worker::recover_computer_use_worker_session_v1(
+                        worker_id, session_id, approve,
+                    )?;
+                if action_unknown {
+                    println!(
+                        "Worker session transport recovered. A prior guest action remains outcome-unknown and was not replayed; release or inspect it before further input."
+                    );
+                } else {
+                    println!("Worker session transport recovered with a new signed lease.");
+                }
+                Ok(())
+            })()
+        } else if subcommand == std::ffi::OsStr::new("enroll")
+            && args.next().as_deref() == Some(std::ffi::OsStr::new("--config"))
+        {
+            let Some(path) = args.next() else {
+                eprintln!("Computer Use enrollment config path is missing.");
+                std::process::exit(2);
+            };
+            if args.next().is_some() {
+                eprintln!("Unexpected Computer Use enrollment arguments.");
+                std::process::exit(2);
+            }
+            (|| -> anyhow::Result<()> {
+                let metadata = std::fs::symlink_metadata(&path)?;
+                anyhow::ensure!(
+                    metadata.is_file()
+                        && !metadata.file_type().is_symlink()
+                        && metadata.len() <= 32 * 1024,
+                    "enrollment config is unsafe or too large"
+                );
+                let bytes = std::fs::read(path)?;
+                let enrollment: koolade::computer_use::remote_worker::ComputerRemoteWorkerEnrollmentV1 = serde_json::from_slice(&bytes)?;
+                let worker_id = enrollment.worker_id.clone();
+                koolade::persistence::computer_use_remote_workers::enroll(enrollment)?;
+                println!("Enrolled Computer Use worker {worker_id}.");
+                Ok(())
+            })()
+        } else if subcommand == std::ffi::OsStr::new("select")
+            && args.next().as_deref() == Some(std::ffi::OsStr::new("--worker-id"))
+        {
+            let Some(worker_id) = args.next() else {
+                eprintln!("Computer Use worker ID is missing.");
+                std::process::exit(2);
+            };
+            if args.next().is_some() {
+                eprintln!("Unexpected Computer Use selection arguments.");
+                std::process::exit(2);
+            }
+            (|| -> anyhow::Result<()> {
+                let worker_id = worker_id
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("worker ID is not UTF-8"))?;
+                koolade::persistence::computer_use_remote_workers::select(worker_id)?;
+                println!(
+                    "Selected Computer Use worker {worker_id}. The remote worker release gate remains closed until independent certification."
+                );
+                Ok(())
+            })()
+        } else {
+            eprintln!(
+                "Usage: koolade computer-use-target enroll --config <enrollment.json> | select --worker-id <id>"
+            );
+            std::process::exit(2);
+        };
+        if let Err(error) = result {
+            eprintln!("Computer Use target operation failed: {error:#}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+    if command.as_deref() == Some(std::ffi::OsStr::new("computer-use-worker")) {
+        if args.next().as_deref() != Some(std::ffi::OsStr::new("serve"))
+            || args.next().as_deref() != Some(std::ffi::OsStr::new("--stdio"))
+            || args.next().as_deref() != Some(std::ffi::OsStr::new("--config"))
+        {
+            eprintln!("Usage: koolade computer-use-worker serve --stdio --config <private-config>");
+            std::process::exit(2);
+        }
+        let Some(config) = args.next() else {
+            eprintln!("Computer Use worker config path is missing.");
+            std::process::exit(2);
+        };
+        if args.next().is_some() {
+            eprintln!("Unexpected Computer Use worker arguments.");
+            std::process::exit(2);
+        }
+        #[cfg(target_os = "linux")]
+        {
+            if let Err(error) =
+                koolade::computer_use::remote_worker::serve_computer_use_worker_stdio_v1(
+                    std::path::Path::new(&config),
+                )
+            {
+                eprintln!("Kool.ad/e Computer Use worker stopped: {error:#}");
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = config;
+            eprintln!("Remote Computer Use workers require Linux with supported KVM isolation.");
+            std::process::exit(1);
+        }
     }
     if command.as_deref() == Some(std::ffi::OsStr::new("--internal-mcp-server")) {
         let Some(config) = args.next() else {

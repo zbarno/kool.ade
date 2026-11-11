@@ -1,6 +1,7 @@
 use super::filesystem::{path_contains_private_component, read_owned_task_file};
 use super::{ComputerArtifactBridgeErrorV1, ComputerArtifactBridgeV1};
 use crate::computer_use::ComputerIdentityV1;
+use crate::computer_use::apps::{StagedTaskApplicationV1, StagedTaskArtifactContentV1};
 use crate::computer_use::artifacts::{
     ComputerArtifactFlowV1 as Flow, ComputerArtifactManifestV1 as Manifest,
     ComputerArtifactReceiptV1 as Receipt, ComputerTransferGrantV1 as Grant,
@@ -9,6 +10,164 @@ use crate::computer_use::artifacts::{
 use std::path::Path;
 
 impl ComputerArtifactBridgeV1 {
+    #[cfg(target_os = "linux")]
+    pub(super) fn authorize_remote_guest_send(
+        &self,
+        artifact_id: &str,
+        identity: &ComputerIdentityV1,
+        current_task_revision: &str,
+        lease_generation: u64,
+        approval_generation: u64,
+        now_unix_ms: u64,
+    ) -> Result<(), ComputerArtifactBridgeErrorV1> {
+        self.with_lock(|| {
+            let manifest = self.load_manifest(artifact_id)?;
+            let grant = self.active_grant(&manifest.grant_id, identity, now_unix_ms)?;
+            if manifest.flow != Flow::TaskArtifactToGuest
+                || !manifest_matches_grant(&manifest, &grant)
+                || manifest.task_revision != current_task_revision
+                || manifest.lease_generation != lease_generation
+                || manifest.approval_generation != approval_generation
+            {
+                return Err(ComputerArtifactBridgeErrorV1::StaleRevision);
+            }
+            Ok(())
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)] // Each transfer authority fence is independently checked.
+    #[cfg(target_os = "linux")]
+    pub(super) fn authorize_remote_guest_receive(
+        &self,
+        grant_id: &str,
+        identity: &ComputerIdentityV1,
+        current_task_revision: &str,
+        lease_generation: u64,
+        approval_generation: u64,
+        display_name: &str,
+        now_unix_ms: u64,
+    ) -> Result<u64, ComputerArtifactBridgeErrorV1> {
+        self.with_lock(|| {
+            let grant = self.active_grant(grant_id, identity, now_unix_ms)?;
+            self.ensure_unused(grant_id)?;
+            let authorized_name = Path::new(&grant.relative_path)
+                .file_name()
+                .and_then(|part| part.to_str());
+            if !matches!(
+                grant.flow,
+                Flow::GuestArtifactToTask | Flow::UserDownloadFromGuest
+            ) || grant.task_revision != current_task_revision
+                || grant.lease_generation != lease_generation
+                || grant.approval_generation != approval_generation
+                || !validation::valid_display_name(display_name)
+                || authorized_name != Some(display_name)
+                || path_contains_private_component(&grant.relative_path)
+            {
+                return Err(ComputerArtifactBridgeErrorV1::StaleRevision);
+            }
+            Ok(grant.max_bytes)
+        })
+    }
+
+    #[cfg(any(target_os = "linux", test))]
+    /// Persist one exact file from a controller-verified QA build manifest.
+    /// The in-memory bytes must match both the one-use grant and its digest.
+    #[allow(clippy::too_many_arguments)] // Each grant fence is checked independently.
+    pub(crate) fn stage_approved_task_build_bytes(
+        &self,
+        grant_id: &str,
+        identity: &ComputerIdentityV1,
+        current_task_revision: &str,
+        relative_path: &str,
+        expected_sha256: &str,
+        lease_generation: u64,
+        approval_generation: u64,
+        approval_receipt_sha256: &str,
+        bytes: &[u8],
+        now_unix_ms: u64,
+    ) -> Result<Receipt, ComputerArtifactBridgeErrorV1> {
+        self.with_lock(|| {
+            let grant = self.active_grant(grant_id, identity, now_unix_ms)?;
+            self.ensure_unused(grant_id)?;
+            if grant.flow != Flow::TaskArtifactToGuest
+                || !grant.user_approved
+                || grant.approval_receipt_sha256.as_deref() != Some(approval_receipt_sha256)
+                || grant.task_revision != current_task_revision
+                || grant.relative_path != relative_path
+                || grant.lease_generation != lease_generation
+                || grant.approval_generation != approval_generation
+                || bytes.len() as u64 != grant.max_bytes
+                || sha256(bytes) != expected_sha256
+            {
+                return Err(ComputerArtifactBridgeErrorV1::StaleRevision);
+            }
+            let receipt = self.store_content(&grant, relative_path, bytes, now_unix_ms)?;
+            self.mark_used(grant_id, &receipt.artifact_id)?;
+            Ok(receipt)
+        })
+    }
+
+    /// Atomically load a sorted staged-app receipt set only while every
+    /// one-use task-to-guest grant remains bound to this identity/revision and
+    /// the active lease and approval generations.
+    pub fn load_staged_task_application_for_guest(
+        &self,
+        application: &StagedTaskApplicationV1,
+        identity: &ComputerIdentityV1,
+        current_task_revision: &str,
+        lease_generation: u64,
+        approval_generation: u64,
+        now_unix_ms: u64,
+    ) -> Result<Vec<StagedTaskArtifactContentV1>, ComputerArtifactBridgeErrorV1> {
+        application
+            .validate_at(now_unix_ms)
+            .map_err(|_| ComputerArtifactBridgeErrorV1::Invalid)?;
+        if application.task_revision != current_task_revision {
+            return Err(ComputerArtifactBridgeErrorV1::StaleRevision);
+        }
+        self.with_lock(|| {
+            let mut contents = Vec::with_capacity(application.artifacts.len());
+            for artifact in &application.artifacts {
+                let manifest = self.load_manifest(&artifact.receipt.artifact_id)?;
+                let grant =
+                    self.active_grant(&artifact.transfer_grant_id, identity, now_unix_ms)?;
+                if manifest.grant_id != artifact.transfer_grant_id
+                    || manifest.flow != Flow::TaskArtifactToGuest
+                    || !grant.user_approved
+                    || grant.approval_receipt_sha256.as_deref()
+                        != Some(application.build_approval_sha256.as_str())
+                    || manifest.approval_receipt_sha256.as_deref()
+                        != Some(application.build_approval_sha256.as_str())
+                    || !manifest_matches_grant(&manifest, &grant)
+                    || manifest.identity != *identity
+                    || manifest.task_revision != current_task_revision
+                    || manifest.lease_generation != lease_generation
+                    || manifest.approval_generation != approval_generation
+                    || manifest.relative_path != artifact.relative_path
+                    || manifest.artifact_id != artifact.receipt.artifact_id
+                    || manifest.display_name != artifact.receipt.display_name
+                    || manifest.size_bytes != artifact.receipt.size_bytes
+                    || manifest.sha256 != artifact.receipt.sha256
+                    || manifest.media_type != artifact.receipt.media_type
+                    || manifest.expires_at_unix_ms != artifact.receipt.expires_at_unix_ms
+                    || grant.lease_generation != lease_generation
+                    || grant.approval_generation != approval_generation
+                {
+                    return Err(ComputerArtifactBridgeErrorV1::StaleRevision);
+                }
+                let bytes = self.load_bytes(&manifest)?;
+                contents.push(StagedTaskArtifactContentV1 {
+                    artifact: artifact.clone(),
+                    bytes,
+                });
+            }
+            application
+                .validate_contents(&contents)
+                .map_err(|_| ComputerArtifactBridgeErrorV1::Invalid)?;
+            Ok(contents)
+        })
+    }
+
     /// Copy one explicitly granted task file into private staging for a guest.
     /// Source root and revision come from trusted task-controller state.
     pub fn stage_task_file(
@@ -142,6 +301,107 @@ impl ComputerArtifactBridgeV1 {
             Ok((manifest, bytes))
         })
     }
+
+    /// Stage and send exactly one controller-authorized task file to a remote
+    /// guest. The worker receives only the bounded bytes and basename, never a
+    /// host path or task root.
+    #[cfg(target_os = "linux")]
+    pub fn stage_task_file_to_remote_guest(
+        &self,
+        backend: &crate::computer_use::remote_worker::RemoteComputerBackendV1,
+        grant_id: &str,
+        task_root: &Path,
+        current_task_revision: &str,
+        session: &crate::computer_use::ComputerSessionV1,
+        now_unix_ms: u64,
+    ) -> Result<Receipt, ComputerArtifactBridgeErrorV1> {
+        let receipt = self.stage_task_file(
+            grant_id,
+            task_root,
+            current_task_revision,
+            &session.identity,
+            now_unix_ms,
+        )?;
+        let (manifest, bytes) = self.load_for_guest(
+            &receipt.artifact_id,
+            &session.identity,
+            current_task_revision,
+            session.lease.generation,
+            session.approval_generation,
+            now_unix_ms,
+        )?;
+        backend
+            .write_artifact_to_guest(session, &manifest.display_name, &bytes, now_unix_ms, || {
+                self.authorize_remote_guest_send(
+                    &receipt.artifact_id,
+                    &session.identity,
+                    current_task_revision,
+                    session.lease.generation,
+                    session.approval_generation,
+                    live_now_unix_ms(),
+                )
+                .is_ok()
+            })
+            .map_err(|_| ComputerArtifactBridgeErrorV1::Storage)?;
+        Ok(receipt)
+    }
+
+    /// Read one explicitly granted guest download and stage it only after the
+    /// existing bridge rechecks grant identity, flow, task revision, lease,
+    /// approval generation, content type, digest, and quota.
+    #[cfg(target_os = "linux")]
+    pub fn receive_remote_guest_file(
+        &self,
+        backend: &crate::computer_use::remote_worker::RemoteComputerBackendV1,
+        grant_id: &str,
+        session: &crate::computer_use::ComputerSessionV1,
+        current_task_revision: &str,
+        display_name: &str,
+        now_unix_ms: u64,
+    ) -> Result<Receipt, ComputerArtifactBridgeErrorV1> {
+        let max_bytes = self.authorize_remote_guest_receive(
+            grant_id,
+            &session.identity,
+            current_task_revision,
+            session.lease.generation,
+            session.approval_generation,
+            display_name,
+            now_unix_ms,
+        )?;
+        let (bytes, digest) = backend
+            .read_artifact_from_guest(session, display_name, max_bytes, live_now_unix_ms(), || {
+                self.authorize_remote_guest_receive(
+                    grant_id,
+                    &session.identity,
+                    current_task_revision,
+                    session.lease.generation,
+                    session.approval_generation,
+                    display_name,
+                    live_now_unix_ms(),
+                )
+                .is_ok()
+            })
+            .map_err(|_| ComputerArtifactBridgeErrorV1::Storage)?;
+        self.receive_guest_file(
+            grant_id,
+            &session.identity,
+            current_task_revision,
+            session.lease.generation,
+            session.approval_generation,
+            display_name,
+            &bytes,
+            &digest,
+            live_now_unix_ms(),
+        )
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn live_now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis().min(u64::MAX as u128) as u64)
+        .unwrap_or(u64::MAX)
 }
 
 pub(super) fn manifest_matches_grant(manifest: &Manifest, grant: &Grant) -> bool {
@@ -154,4 +414,5 @@ pub(super) fn manifest_matches_grant(manifest: &Manifest, grant: &Grant) -> bool
         && manifest.expires_at_unix_ms == grant.expires_at_unix_ms
         && manifest.lease_generation == grant.lease_generation
         && manifest.approval_generation == grant.approval_generation
+        && manifest.approval_receipt_sha256 == grant.approval_receipt_sha256
 }

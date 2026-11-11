@@ -15,7 +15,10 @@ fn codex_login_and_model_list_do_not_prove_account_access_or_select_provider() {
         &binary,
         r##"#!/bin/sh
 if [ "$1" = "--version" ]; then echo 'codex-cli 1.2.3 token=synthetic-secret'; exit 0; fi
-if [ "$1" = "exec" ]; then echo '--json --cd --sandbox --ephemeral --model --config --disable --ignore-user-config --skip-git-repo-check'; exit 0; fi
+if [ "$1" = "exec" ]; then
+  if [ "$2" = "--help" ]; then echo '--json --cd --sandbox --ephemeral --model --config --disable --ignore-user-config --skip-git-repo-check'; exit 0; fi
+  touch "$HOME/verify-called"; echo 'verification declined: no model entitlement' >&2; exit 1
+fi
 if [ "$1" = "login" ]; then echo 'Logged in'; exit 0; fi
 if [ "$1" = "app-server" ]; then
   while read -r message; do
@@ -40,6 +43,8 @@ exit 1
     environment.remove(crate::harness::codex_harness::CODEX_MODEL_ENV);
 
     let report = discover_provider("codex", true);
+    // The bounded live verification was the deciding step: it ran, and it failed.
+    assert!(root.join("verify-called").exists());
     assert!(!report.ready);
     assert_eq!(report.authentication, ReadinessState::Unknown);
     assert!(!report.configuration_required);
@@ -133,7 +138,10 @@ fn codex_model_output_with_secret_text_is_rejected_before_persistence() {
         &binary,
         r##"#!/bin/sh
 if [ "$1" = "--version" ]; then echo 'codex-cli 1.2.3'; exit 0; fi
-if [ "$1" = "exec" ]; then echo '--json --cd --sandbox --ephemeral --model --config --disable --ignore-user-config --skip-git-repo-check'; exit 0; fi
+if [ "$1" = "exec" ]; then
+  if [ "$2" = "--help" ]; then echo '--json --cd --sandbox --ephemeral --model --config --disable --ignore-user-config --skip-git-repo-check'; exit 0; fi
+  echo 'verification declined: no model entitlement' >&2; exit 1
+fi
 if [ "$1" = "login" ]; then echo 'Logged in'; exit 0; fi
 if [ "$1" = "app-server" ]; then
   while read -r message; do

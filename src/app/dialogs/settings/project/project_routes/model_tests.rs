@@ -7,6 +7,7 @@ use crate::execution::contract::{
 fn project_routes_require_a_verified_default_or_offer_only_listed_models() {
     let now = crate::persistence::harness_settings::current_unix_ms();
     let mut entry = crate::persistence::harness_settings::DetectedHarness {
+        verified_at_unix_ms: None,
         status: "opencode ready".into(),
         version: Some("1.0.0".into()),
         executable: Some("/synthetic/bin/opencode".into()),

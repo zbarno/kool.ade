@@ -20,6 +20,23 @@ pub(super) struct Runner {
         Option<Arc<dyn crate::execution::session::AuthorizationGenerationVerifier>>,
 }
 
+/// Verification could not determine whether the command completed. This is
+/// terminal for the current implementation attempt: rerunning a verification
+/// command or dispatching another implementation attempt could duplicate
+/// externally visible work based on an unknown result.
+#[derive(Debug)]
+pub(super) struct VerificationOutcomeUnknown;
+
+impl std::fmt::Display for VerificationOutcomeUnknown {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(
+            "Docker verification outcome is unknown after an engine health disconnect; the command was not replayed and no implementation correction was dispatched",
+        )
+    }
+}
+
+impl std::error::Error for VerificationOutcomeUnknown {}
+
 #[cfg(test)]
 /// Test-only command executor installed by the isolated implementation sandbox.
 /// Production builds have no executor slot and always use the Docker backend.

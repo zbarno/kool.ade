@@ -1,0 +1,85 @@
+name: Computer Use R1 real KVM acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      require_kvm_host:
+        description: Require an online trusted KVM runner and execute real guest acceptance
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  decide:
+    name: Decide whether trusted KVM preflight is required
+    runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.policy.outputs.required }}
+    steps:
+      - id: policy
+        name: Set explicit opt-in policy
+        env:
+          DISPATCH_REQUIRED: ${{ inputs.require_kvm_host }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$REF" != refs/heads/main ]]; then
+            echo "Trusted KVM acceptance may run only from protected main." >&2
+            exit 1
+          fi
+          required="$DISPATCH_REQUIRED"
+          if [[ "$required" == true ]]; then
+            echo "required=true" >> "$GITHUB_OUTPUT"
+            echo "Trusted R1 KVM host and real guest acceptance are required for this run." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "required=false" >> "$GITHUB_OUTPUT"
+            echo "R1 KVM host preflight was not requested. This workflow run is not real-VM acceptance evidence." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  runner-availability:
+    name: Require an online trusted KVM runner
+    needs: decide
+    if: needs.decide.outputs.required == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.runners.outputs.available }}
+    steps:
+      - id: runners
+        name: Verify an online runner has the required labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          available="$(gh api --paginate --slurp "repos/$GH_REPOSITORY/actions/runners?per_page=100" \
+            | jq '[.[].runners[] | select(.status == "online") | select([.labels[].name] | contains(["self-hosted", "linux", "x64", "computer-use-kvm"]))] | length')"
+          if [[ "$available" -lt 1 ]]; then
+            echo "No online self-hosted Linux x64 runner labeled computer-use-kvm is registered." >&2
+            echo "Register a trusted, isolated runner before requiring R1 real-host preflight." >&2
+            exit 1
+          fi
+          echo "available=true" >> "$GITHUB_OUTPUT"
+          echo "Found $available online runner(s) with the complete trusted KVM label set." >> "$GITHUB_STEP_SUMMARY"
+
+  host-preflight:
+    name: Verify trusted KVM host prerequisites
+    needs: [decide, runner-availability]
+    if: needs.decide.outputs.required == 'true' && needs.runner-availability.outputs.available == 'true'
+    runs-on: [self-hosted, linux, x64, computer-use-kvm]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Record read-only host evidence
+        run: python3 scripts/check-computer-use-r1-kvm-host.py --github-summary "$GITHUB_STEP_SUMMARY"
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal
+      - name: Boot signed guest and verify authenticated Computer Use actions and display
+        env:
+          KOOLADE_COMPUTER_USE_R1_REAL_KVM: "1"
+        run: cargo +1.98.1 test --locked --lib computer_use_r1_real_kvm_acceptance -- --nocapture

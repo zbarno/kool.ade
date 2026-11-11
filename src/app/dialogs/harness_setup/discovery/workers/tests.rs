@@ -27,6 +27,7 @@ fn synthetic_probe(id: &str, ready: bool) -> super::super::super::HarnessProbe {
         configuration_required: false,
         authentication: crate::execution::contract::ReadinessState::Ready,
         implementation_available: false,
+        verified_at_unix_ms: None,
     }
 }
 

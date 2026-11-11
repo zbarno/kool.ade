@@ -106,6 +106,7 @@ mod tests {
             configuration_required: false,
             authentication: crate::execution::contract::ReadinessState::Unknown,
             implementation_available: true,
+            verified_at_unix_ms: None,
         }
     }
 
