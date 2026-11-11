@@ -311,6 +311,7 @@ fn configured_alternate_implementation_route_fails_closed_without_repository_acc
         discovered: std::collections::BTreeMap::from([(
             "opencode".into(),
             crate::persistence::harness_settings::DetectedHarness {
+                verified_at_unix_ms: None,
                 status: "opencode ready".into(),
                 version: Some("1.0.0".into()),
                 executable: Some("/synthetic/bin/opencode".into()),

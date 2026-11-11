@@ -36,6 +36,7 @@ fn request() -> crate::harness::PlanningRequest {
 fn selected_helper_ignores_unrelated_default_and_rejects_repository_requests() {
     let now = crate::persistence::harness_settings::current_unix_ms();
     let harness = crate::persistence::harness_settings::DetectedHarness {
+        verified_at_unix_ms: None,
         status: "opencode ready".into(),
         version: Some("1.0.0".into()),
         executable: Some("/synthetic/bin/opencode".into()),

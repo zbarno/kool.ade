@@ -132,6 +132,7 @@ fn codex_settings_show_models_when_the_docker_execution_session_is_unavailable()
             discovered: std::collections::BTreeMap::from([(
                 "codex".into(),
                 DetectedHarness {
+                    verified_at_unix_ms: None,
                     status: "codex ready".into(),
                     version: Some("0.162.0".into()),
                     executable: Some("/example/bin/codex".into()),

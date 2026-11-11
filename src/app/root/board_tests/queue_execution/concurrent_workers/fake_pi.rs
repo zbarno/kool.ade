@@ -112,6 +112,7 @@ pub(super) fn configure_harness_settings(root: &Path) -> HarnessEnvironment {
             discovered: std::collections::BTreeMap::from([(
                 "pi".into(),
                 crate::persistence::harness_settings::DetectedHarness {
+                    verified_at_unix_ms: None,
                     status: "pi fixture 1.0".into(),
                     version: Some("1.0.0".into()),
                     executable: Some(

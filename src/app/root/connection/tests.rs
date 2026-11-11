@@ -16,6 +16,7 @@ fn stale_discovery_keeps_task_reply_as_a_draft_until_refresh() {
     with_settings_path(settings_path, || {
         let now = current_unix_ms();
         let stale = DetectedHarness {
+            verified_at_unix_ms: None,
             status: "pi 0.9.0".into(),
             version: Some("0.9.0".into()),
             executable: Some("/example/pi".into()),

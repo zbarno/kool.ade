@@ -143,6 +143,7 @@ fn pi_guide_tracks_tool_discovery_from_pending_to_live_report() {
             configuration_required: false,
             implementation_available: true,
             checked_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
+            verified_at_unix_ms: None,
             capability_snapshot: None,
         },
     );

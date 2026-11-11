@@ -25,6 +25,7 @@ fn retry_button_rechecks_only_the_selected_provider() {
     settings.discovered.insert(
         "pi".into(),
         DetectedHarness {
+            verified_at_unix_ms: None,
             status: "available".into(),
             version: Some("1.2.3".into()),
             executable: Some("/synthetic/pi".into()),
@@ -42,6 +43,7 @@ fn retry_button_rechecks_only_the_selected_provider() {
     settings.discovered.insert(
         "codex".into(),
         DetectedHarness {
+            verified_at_unix_ms: None,
             status: "available".into(),
             version: Some("0.162.0".into()),
             executable: Some("/synthetic/codex".into()),
@@ -165,6 +167,7 @@ fn retry_clicked_inside_the_cooldown_explains_the_wait_without_scanning() {
     settings.discovered.insert(
         "pi".into(),
         DetectedHarness {
+            verified_at_unix_ms: None,
             status: "available".into(),
             version: Some("1.2.3".into()),
             executable: Some("/synthetic/pi".into()),
