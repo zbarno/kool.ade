@@ -61,7 +61,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/computer-use-guest-target" "$RUNNER_TEMP/computer-use-companions"
           docker run --rm \
             --volume "$GITHUB_WORKSPACE:/workspace" \
-            --volume /etc/ssl/certs:/etc/ssl/certs:ro \
+            --volume /etc/ssl/certs:/runner-certs:ro \
             --volume "$HOME/.cargo/registry:/cargo/registry:ro" \
             --volume "$HOME/.cargo/git:/cargo/git:ro" \
             --volume "$HOME/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu:/rust:ro" \
@@ -77,6 +77,7 @@ jobs:
               apt_options=(
                 -o Acquire::Check-Valid-Until=false
                 -o Acquire::Retries=5
+                -o Acquire::https::CaInfo=/runner-certs/ca-certificates.crt
                 -o Dir::Etc::sourcelist=/tmp/bookworm-snapshot.list
                 -o Dir::Etc::sourceparts=-
               )
