@@ -69,6 +69,12 @@ pub(super) fn paint(
                 ));
             }
         }
+        // Escape route: reject every proposed option and answer in the
+        // person's own words. It travels the same typed reply channel as any
+        // other answer and is never coerced into a listed option.
+        ui.collapsing("Other (write my own answer)", |ui| {
+            free_text(ui, surface, item.conversation_key());
+        });
     }
 }
 
@@ -115,10 +121,10 @@ pub(super) fn free_text(ui: &mut egui::Ui, surface: &mut dyn Surface, key: &str)
         )
         .clicked()
     {
-        let pending = (
-            surface.task_messages(key).len(),
-            format!("My answer: {}", answer.trim()),
-        );
+        // Preserve the person's exact text (trimming only guards emptiness
+        // above); the typed reply channel carries it verbatim.
+        let draft = format!("My answer: {answer}");
+        let pending = (surface.task_messages(key).len(), draft.clone());
         ui.ctx().data_mut(|data| {
             data.insert_temp(pending_id, pending);
             data.insert_temp(saved_id, false);
@@ -126,7 +132,7 @@ pub(super) fn free_text(ui: &mut egui::Ui, surface: &mut dyn Surface, key: &str)
         surface.dispatch(crate::ui::ApplicationCommand::TaskDetail(
             crate::ui::task_detail::Command::SubmitReply {
                 ticket: key.to_owned(),
-                draft: format!("My answer: {}", answer.trim()),
+                draft,
                 decision: false,
             },
         ));

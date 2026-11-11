@@ -2,6 +2,7 @@ use super::*;
 mod approval;
 use approval::paint_approval;
 mod git_intents;
+mod plan_confirmation;
 mod related_task;
 mod task_intent;
 
@@ -28,7 +29,26 @@ pub(super) fn paint(
     }
     // Put a pending approval before the TaskIntent history/map so the action
     // remains visible in the bounded details viewport.
-    paint_approval(ui, surface, work);
+    let plan_confirmation_present = planning.iter().any(|item| {
+        item.kind == WorkKind::PlanConfirmation
+            && item.task_intent_uid.as_deref() == Some(work.uid.as_str())
+    });
+    if work.kind == WorkKind::PlanConfirmation {
+        if plan_confirmation::paint(ui, surface, work, planning) {
+            paint_controls(ui, surface, work, board);
+            return;
+        }
+    } else if work.kind == WorkKind::Feature && plan_confirmation_present {
+        // The canonical decision home is the "Review and approve plan" card;
+        // point there instead of duplicating the approval surface.
+        ui.label(crate::ui::theme::section_heading("Plan approval"));
+        ui.label(crate::ui::theme::helper_text(
+            "Approve or request changes on the “Review and approve plan” card in this queue. That card is the single source of truth for this decision.",
+        ));
+        ui.add_space(crate::ui::theme::spacing::S);
+    } else {
+        paint_approval(ui, surface, work);
+    }
     task_intent::paint(ui, Some(surface), board, work);
     ui.heading(&work.title);
     ui.label(super::super::super::action::concise_detail(&work.detail));

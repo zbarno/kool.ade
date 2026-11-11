@@ -71,17 +71,22 @@ pub(super) fn update(
                         crate::domain::Authority::Human | crate::domain::Authority::Review
                     )
                 });
-            work.status = if superseded_reply {
-                crate::core::planning_work::WorkStatus::NeedsAttention
-            } else {
-                crate::core::planning_work::completed_turn_status(
-                    work.kind,
-                    work.feature_id.is_some(),
-                    needs_input,
-                    normalized.task_batch.is_some(),
-                    will_continue,
-                )
-            };
+            // Plan-confirmation cards are owned by the plan-confirmation
+            // reconciler; turn completion (including readiness-evaluation
+            // passes) must not stamp their status.
+            if work.kind != crate::core::planning_work::WorkKind::PlanConfirmation {
+                work.status = if superseded_reply {
+                    crate::core::planning_work::WorkStatus::NeedsAttention
+                } else {
+                    crate::core::planning_work::completed_turn_status(
+                        work.kind,
+                        work.feature_id.is_some(),
+                        needs_input,
+                        normalized.task_batch.is_some(),
+                        will_continue,
+                    )
+                };
+            }
             work.detail = if missing_documentation {
                 "Documentation refresh returned no document updates. Completion requires a verified refresh or an explicit review of a no-change result.".into()
             } else if superseded_reply {

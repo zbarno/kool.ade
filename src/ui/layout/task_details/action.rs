@@ -168,6 +168,11 @@ pub(super) fn paint(
                 "I'm not sure. Please explain the choices and what each would change.".into(),
             );
         }
+        // Escape route: answer in the person's own words instead of every
+        // listed option. Typed reply channel; never coerced into an option.
+        ui.collapsing("Other (write my own answer)", |ui| {
+            answer::paint(ui, surface, state, false);
+        });
     }
     let requested_changes = review::changes_requested(state.record);
     let needs_text = state.open_ask.is_some()

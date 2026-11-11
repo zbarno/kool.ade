@@ -106,6 +106,9 @@ pub(super) fn paint_change(
                 }
             }
         }
+        ui.separator();
+        ui.label("Or write your own answer:");
+        super::answer::paint(ui, surface, state, false);
     });
 }
 

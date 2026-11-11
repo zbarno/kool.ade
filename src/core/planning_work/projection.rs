@@ -71,6 +71,7 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
                 work.kind,
                 WorkKind::TaskGeneration
                     | WorkKind::PlanReviewDisposition
+                    | WorkKind::PlanConfirmation
                     | WorkKind::CodeReviewDisposition
                     | WorkKind::QaFindingDisposition
             ) && work.feature_uid.as_deref() == Some(&metadata.uid)
@@ -108,6 +109,7 @@ pub fn cards(state: &crate::core::state::PlannerState, work: &[Work]) -> Vec<Wor
                 follow_up_task: None,
                 code_review_disposition: None,
                 operational_recovery: None,
+                plan_confirmation: None,
                 detail: "Feature planning".into(),
                 record_revision: 0,
                 record_baseline: None,

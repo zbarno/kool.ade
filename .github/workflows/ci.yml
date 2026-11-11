@@ -61,8 +61,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install isolated rootless-daemon prerequisites
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes uidmap slirp4netns
+          set -uo pipefail
+          # Runner apt mirrors occasionally drop mid-fetch (e.g. a rotated
+          # azure.archive.ubuntu.com alias); retry rather than fail the job.
+          installed=0
+          for attempt in 1 2 3 4 5 6; do
+            if sudo apt-get update && sudo apt-get install --yes uidmap slirp4netns; then
+              installed=1
+              break
+            fi
+            echo "::warning::apt attempt $attempt failed; retrying in 30s"
+            sleep 30
+          done
+          if [ "$installed" -ne 1 ]; then
+            echo "::error::could not install uidmap slirp4netns after 6 attempts" >&2
+            exit 1
+          fi
       - name: Prepare rootless Docker systemd session
         run: bash scripts/prepare-rootless-docker-session.sh
       - name: Start an isolated rootless Docker Engine
@@ -83,8 +97,22 @@ jobs:
             | jq -e 'any(.[]; contains("name=rootless"))' >/dev/null
       - name: Install loopback SSH server for authenticated remote E2E
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes openssh-server socat
+          set -uo pipefail
+          # Runner apt mirrors occasionally drop mid-fetch (e.g. a rotated
+          # azure.archive.ubuntu.com alias); retry rather than fail the job.
+          installed=0
+          for attempt in 1 2 3 4 5 6; do
+            if sudo apt-get update && sudo apt-get install --yes openssh-server socat; then
+              installed=1
+              break
+            fi
+            echo "::warning::apt attempt $attempt failed; retrying in 30s"
+            sleep 30
+          done
+          if [ "$installed" -ne 1 ]; then
+            echo "::error::could not install openssh-server socat after 6 attempts" >&2
+            exit 1
+          fi
           fixture_password="$(openssl rand -hex 32)"
           printf '%s:%s\n' "$USER" "$fixture_password" | sudo chpasswd
           unset fixture_password
@@ -378,8 +406,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install isolated rootless-daemon prerequisites
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes uidmap slirp4netns
+          set -uo pipefail
+          # Runner apt mirrors occasionally drop mid-fetch (e.g. a rotated
+          # azure.archive.ubuntu.com alias); retry rather than fail the job.
+          installed=0
+          for attempt in 1 2 3 4 5 6; do
+            if sudo apt-get update && sudo apt-get install --yes uidmap slirp4netns; then
+              installed=1
+              break
+            fi
+            echo "::warning::apt attempt $attempt failed; retrying in 30s"
+            sleep 30
+          done
+          if [ "$installed" -ne 1 ]; then
+            echo "::error::could not install uidmap slirp4netns after 6 attempts" >&2
+            exit 1
+          fi
       - name: Prepare rootless Docker systemd session
         run: bash scripts/prepare-rootless-docker-session.sh
       - name: Start an isolated rootless Docker Engine
@@ -396,7 +438,24 @@ jobs:
           docker info --format '{{json .SecurityOptions}}' \
             | jq -e 'any(.[]; contains("name=rootless"))' >/dev/null
       - name: Install socket proxy dependency
-        run: sudo apt-get install --yes socat
+        run: |
+          set -uo pipefail
+          # Runner apt mirrors occasionally drop mid-fetch (e.g. a rotated
+          # azure.archive.ubuntu.com alias); retry rather than fail the job.
+          installed=0
+          for attempt in 1 2 3 4 5 6; do
+            if sudo apt-get install --yes socat; then
+              installed=1
+              break
+            fi
+            echo "::warning::apt attempt $attempt failed; retrying in 30s"
+            sleep 30
+          done
+          if [ "$installed" -ne 1 ]; then
+            echo "::error::could not install socat after 6 attempts" >&2
+            exit 1
+          fi
+
       - name: Route rootless Docker through the approved user socket
         run: |
           set -euo pipefail

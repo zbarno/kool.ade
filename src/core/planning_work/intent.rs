@@ -127,6 +127,7 @@ impl Work {
             follow_up_task: None,
             code_review_disposition: None,
             operational_recovery: None,
+            plan_confirmation: None,
             detail,
             record_revision: 0,
             record_baseline: None,

@@ -46,6 +46,7 @@ pub(crate) use spec_reconciliation::SpecReconciliation;
 #[path = "root/baseline_invitation_tests.rs"]
 mod baseline_invitation_tests;
 mod initialization;
+mod plan_confirmation_sync;
 pub(crate) mod planner_pass;
 mod planning_work;
 mod requested_action;

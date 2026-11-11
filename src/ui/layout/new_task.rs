@@ -109,6 +109,7 @@ pub(super) fn paint(ui: &mut Ui, surface: &mut dyn Surface) {
                     WorkKind::TaskGeneration => {
                         "Generate implementation tasks from an approved specification."
                     }
+                    WorkKind::PlanConfirmation => "Kool.ad/e maintains this card automatically.",
                     WorkKind::PlanReviewDisposition => {
                         "Resolve a Manager disposition for an independent plan-review finding."
                     }

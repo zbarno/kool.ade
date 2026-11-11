@@ -28,8 +28,14 @@ use validation::validate;
 pub use validation::{routing_for_feature, save, save_expected};
 mod answered;
 pub mod operational_recovery;
+mod plan_confirmation;
 mod reconcile;
 pub use answered::reconcile_answered_child;
+pub use plan_confirmation::{
+    PLAN_CONFIRMATION_SCHEMA, PlanConfirmationAnnouncement, PlanConfirmationReport,
+    PlanConfirmationV1, PlanNotReadyCause, ReadinessEvaluationRequest,
+    reconcile as reconcile_plan_confirmation,
+};
 #[cfg(test)]
 mod tests;
 
@@ -53,6 +59,7 @@ pub enum WorkKind {
     Question,
     TaskGeneration,
     PlanReviewDisposition,
+    PlanConfirmation,
     CodeReviewDisposition,
     QaFindingDisposition,
 }
@@ -80,6 +87,7 @@ impl WorkKind {
             Self::Question => "Question",
             Self::TaskGeneration => "Task generation",
             Self::PlanReviewDisposition => "Plan review",
+            Self::PlanConfirmation => "Review and approve plan",
             Self::CodeReviewDisposition => "Code review",
             Self::QaFindingDisposition => "Runtime QA finding",
         }
@@ -95,6 +103,7 @@ impl WorkKind {
             Self::DocumentationRefresh => routes::DOCUMENTATION,
             Self::TaskGeneration => routes::TASK_GENERATION,
             Self::PlanReviewDisposition
+            | Self::PlanConfirmation
             | Self::CodeReviewDisposition
             | Self::QaFindingDisposition => routes::MANAGER,
         }
@@ -125,6 +134,9 @@ impl WorkKind {
             }
             Self::PlanReviewDisposition => {
                 "Resolve one Manager disposition for a persisted independent plan-review finding. Preserve the user's goal, cite the reviewed evidence, and require fresh user confirmation after any plan change."
+            }
+            Self::PlanConfirmation => {
+                "This card tracks the user's approval of the current immutable plan. Assess plan readiness objectively (specification completeness, answered blocking questions, traced acceptance tests) and persist the readiness checklist with the current specification revision. Do not modify plan content and never represent any approval as granted; the user approves only through the card's approval action."
             }
             Self::CodeReviewDisposition => {
                 "Resolve one Manager disposition for a persisted independent code-review finding. Preserve the approved specification, make the smallest scoped repair, and require fresh verification and independent review after code changes."
@@ -221,6 +233,9 @@ pub struct Work {
     pub code_review_disposition: Option<CodeReviewFindingDispositionV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub operational_recovery: Option<operational_recovery::RecoveryV1>,
+    /// Canonical plan-approval binding for `WorkKind::PlanConfirmation` cards.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plan_confirmation: Option<plan_confirmation::PlanConfirmationV1>,
     pub detail: String,
     /// Revision captured when this record was loaded; not part of legacy
     /// aggregate serialization.

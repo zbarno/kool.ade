@@ -99,6 +99,26 @@ pub(super) fn validate(work: &[Work]) -> anyhow::Result<()> {
             ),
             (_, None) => {}
         }
+        match (&item.kind, &item.plan_confirmation) {
+            (WorkKind::PlanConfirmation, Some(payload)) => {
+                payload.validate()?;
+                anyhow::ensure!(
+                    item.feature_uid.as_deref() == Some(payload.feature_uid.as_str()),
+                    "Plan confirmation payload must bind the card's feature identity"
+                );
+                anyhow::ensure!(
+                    item.status != WorkStatus::Todo,
+                    "Plan confirmation cards start in a state that names the next actor"
+                );
+            }
+            (WorkKind::PlanConfirmation, None) => {
+                anyhow::bail!("Plan confirmation work is missing its plan binding");
+            }
+            (_, Some(_)) => {
+                anyhow::bail!("Plan confirmation payload is only valid on plan-confirmation work")
+            }
+            (_, None) => {}
+        }
         if let Some(uid) = &item.parent_uid {
             anyhow::ensure!(
                 uuid::Uuid::parse_str(uid).is_ok(),
