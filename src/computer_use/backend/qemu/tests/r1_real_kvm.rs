@@ -57,7 +57,6 @@ fn computer_use_r1_real_kvm_acceptance() {
 }
 
 fn run_real_kvm_acceptance() -> Result<(), String> {
-    let now = unix_time_ms()?;
     let temporary = tempfile::tempdir().map_err(|error| error.to_string())?;
     let root = temporary.path();
     let cache = GuestImageCacheV1::new(root.join("images"))
@@ -79,6 +78,9 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         )
         .map_err(|error| format!("approved image download and verification: {error}"))?;
 
+    // Start the short-lived session budget only after the potentially slow
+    // image download, otherwise the guest test expires before overlay setup.
+    let now = unix_time_ms()?;
     let mut session = super::session();
     session.session_started_at_unix_ms = now;
     session.image_digest = image.entry().image_digest.clone();
