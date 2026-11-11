@@ -40,6 +40,7 @@
 - [spec-reconciliation.md](./spec-reconciliation.md) - Read for Specification reconciliation records.
 - [task-conversations-progress.md](./task-conversations-progress.md) - Read for Task conversation acceptance audit.
 - [task-failure-diagnosis.md](./task-failure-diagnosis.md) - Read for Diagnosing interrupted task implementation.
+- [taskintent-action-model.md](./taskintent-action-model.md) - Read for the TaskIntent-first action model, plan-confirmation card lifecycle, and decision-surface inventory.
 - [ui-polish-review.md](./ui-polish-review.md) - Read for Workspace UI review.
 - [welcome-onboarding-acceptance.md](./welcome-onboarding-acceptance.md) - Read for Welcome workspace setup acceptance.
 - [welcome-onboarding-usability.md](./welcome-onboarding-usability.md) - Read for Welcome and connect manual validation.
