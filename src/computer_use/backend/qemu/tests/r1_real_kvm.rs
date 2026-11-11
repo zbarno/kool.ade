@@ -94,6 +94,9 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         ComputerOperationV1::LaunchAllowedApp,
     ]);
     session.policy.resource_budget = MINIMUM_DISPOSABLE_VM_BUDGET_V1;
+    // The approved guest image itself has a 4 GiB virtual disk, so the test
+    // session must authorize at least that much overlay capacity.
+    session.policy.resource_budget.disk_bytes = image.entry().image_size_bytes;
     session.lifecycle = ComputerLifecycleV1::Preparing;
     session.lease.issued_at_unix_ms = now;
     session.lease.expires_at_unix_ms = now.saturating_add(10 * 60 * 1_000);
