@@ -1,11 +1,26 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "computer-use-images-v1-1-6ae802274b9b",
-  "catalogGeneration": 1,
-  "issuedAtUnixMs": 1794172849494,
-  "expiresAtUnixMs": 1801948849494,
+  "catalogVersion": "computer-use-images-v1-2-284600b1fa87",
+  "catalogGeneration": 2,
+  "issuedAtUnixMs": 1794397648409,
+  "expiresAtUnixMs": 1802173648409,
   "signerKeyId": "76fe57c9-0102-424b-9bb2-90b7ca745006",
   "images": [
+    {
+      "architecture": "x86_64",
+      "image_digest": "sha256:284600b1fa878fb194b0f18fe2538271420999341537966c1f3b15f06cea3acf",
+      "image_size_bytes": 4294967296,
+      "artifact_size_bytes": 682557440,
+      "artifact_name": "koolade-computer-use-guest-x86_64.qcow2",
+      "guest_release": "debian-bookworm-11bd0850651d",
+      "source_revision": "11bd0850651d6fd12c5d5518433945365bc81042",
+      "build_recipe_sha256": "sha256:8994a85d16d3b0de803d239e06a3c5bd9720ba82d5c44f14ecdf01a7804f545c",
+      "sbom_sha256": "sha256:c24b767f1f4e7635a31372c2f341a44870843770cea2b6d3bdabb3e5a3681544",
+      "build_attestation_sha256": "sha256:58627ca7a10ae69a5108dcd1ce50d55547474fc044b5555393c55055a31342cb",
+      "companion_protocol_version": 1,
+      "companion_sha256": "sha256:5201deaf1359e4ce738700831c263d475eea9ea934664f8390cd2ab464100278",
+      "status": "approved"
+    },
     {
       "architecture": "x86_64",
       "image_digest": "sha256:6ae802274b9bea94f4365fc9a4923cff0496039fd4a283bb95e87fe8bfce127c",
@@ -19,8 +34,8 @@
       "build_attestation_sha256": "sha256:334ef45dc4c34ee968b55d57fa9c08ced71364f41f7149e7130d031b573cd15d",
       "companion_protocol_version": 1,
       "companion_sha256": "sha256:5cca0759643252236c22d8ba48d1ce70b391c10769feaf5c75502042d1f89426",
-      "status": "approved"
+      "status": "revoked"
     }
   ],
-  "signatureHex": "06fd2621c6fdca9ad6bfcd42d6677de062e38f6f0188b40d5ec08b08b867da7d44a518999b4dff3af63b1d431f0ac7773cc735a1af94d27b8757381f6e8e0b03"
+  "signatureHex": "3afc640ba894423232ba2d98d244454a24b047bde5d8ac9a7d5019967c774b682116b68e4e414f21eea86c04567a6baee9e868651cea1640a716b805f3564804"
 }
