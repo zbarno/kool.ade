@@ -106,9 +106,7 @@ impl Runner {
                 destination_sha,
                 self.authorization_verifier.clone(),
             )
-            .map_err(|error| {
-                anyhow::anyhow!("Docker verification is unavailable: {}", error.message)
-            })?;
+            .map_err(classify_execution_error)?;
         let mut announced_capacity_wait = false;
         let output = loop {
             match session
