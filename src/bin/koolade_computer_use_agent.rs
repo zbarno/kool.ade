@@ -15,8 +15,8 @@ fn main() {
     } else {
         koolade::computer_use::guest_protocol::agent::run()
     };
-    if result.is_err() {
-        eprintln!("computer-use companion stopped because its trusted channel is unavailable");
+    if let Err(error) = result {
+        eprintln!("computer-use companion stopped: {error:?}");
         std::process::exit(1);
     }
 }

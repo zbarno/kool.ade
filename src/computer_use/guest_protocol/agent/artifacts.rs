@@ -1,4 +1,6 @@
 use sha2::{Digest, Sha256};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::{
     collections::HashMap,
     fs::{self, OpenOptions},
@@ -111,6 +113,9 @@ fn write_chunk_in(
             transfers.remove(transfer_id);
             return Err(GuestProtocolErrorV1::Malformed);
         }
+        #[cfg(unix)]
+        fs::set_permissions(&temp, fs::Permissions::from_mode(0o640))
+            .map_err(|_| GuestProtocolErrorV1::Io)?;
         let destination = root.join(file_name);
         fs::hard_link(&temp, &destination).map_err(|_| GuestProtocolErrorV1::Io)?;
         fs::remove_file(&temp).map_err(|_| GuestProtocolErrorV1::Io)?;
@@ -242,19 +247,21 @@ fn read_chunk_in(
 
 fn downloads_root() -> Result<std::path::PathBuf, GuestProtocolErrorV1> {
     let path = Path::new(DOWNLOADS);
-    fs::create_dir_all(path).map_err(|_| GuestProtocolErrorV1::Io)?;
     let metadata = fs::symlink_metadata(path).map_err(|_| GuestProtocolErrorV1::Io)?;
     if !metadata.is_dir() || metadata.file_type().is_symlink() {
         return Err(GuestProtocolErrorV1::Malformed);
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        if metadata.uid() != unsafe { libc::geteuid() } {
+        use std::os::unix::fs::MetadataExt;
+        let display = unsafe { libc::getgrnam(c"koolade-display".as_ptr()) };
+        if display.is_null()
+            || metadata.uid() != unsafe { libc::geteuid() }
+            || metadata.gid() != unsafe { (*display).gr_gid }
+            || metadata.mode() & 0o007 != 0
+        {
             return Err(GuestProtocolErrorV1::Malformed);
         }
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-            .map_err(|_| GuestProtocolErrorV1::Io)?;
     }
     Ok(path.to_path_buf())
 }
