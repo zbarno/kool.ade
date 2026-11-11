@@ -61,13 +61,19 @@ impl ExecutionError {
             )
     }
 
-    /// A local Docker readiness probe failed before an execution session or
-    /// command was created. Retrying this exact, retryable failure cannot
-    /// replay user work.
-    pub fn is_retryable_local_docker_health_disconnect(&self) -> bool {
+    /// Identifies the exact local Docker engine health-disconnect failure.
+    /// This describes the error only; callers must decide whether retrying
+    /// is safe based on whether user work may already have started.
+    pub fn is_local_docker_health_disconnect(&self) -> bool {
         self.kind == ExecutionErrorKind::EnvironmentUnavailable
-            && self.retryable
             && self.message == LOCAL_DOCKER_HEALTH_DISCONNECTED
+    }
+
+    /// A retryable health disconnect from the readiness probe before an
+    /// execution session or command was created. Retrying here cannot replay
+    /// user work.
+    pub fn is_retryable_local_docker_health_disconnect(&self) -> bool {
+        self.retryable && self.is_local_docker_health_disconnect()
     }
 }
 

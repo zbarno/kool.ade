@@ -3,6 +3,9 @@ use crate::core::implementation::repository_cache::RepositoryCache;
 use crate::core::implementation::{Implementation, TaskRepositoryKind};
 use std::{path::Path, time::Duration};
 
+mod result_failure;
+use result_failure::{classify_execution_error, classify_result_failure};
+
 impl Runner {
     pub(in crate::core::implementation) fn check_storage(
         &self,
@@ -134,6 +137,12 @@ impl Runner {
             }
             text.push_str(&output.stderr);
         }
+        if let Some(error) = classify_result_failure(output.result.failure.as_ref()) {
+            // A health disconnect reported in the completed result means the
+            // verification command may already have run. Preserve its typed
+            // uncertainty so the caller blocks without dispatching a repair.
+            return Err(error);
+        }
         anyhow::ensure!(
             output.result.exit_code == Some(0)
                 && output.result.failure.is_none()
@@ -242,14 +251,6 @@ impl Runner {
     }
 }
 
-fn classify_execution_error(error: crate::execution::errors::ExecutionError) -> anyhow::Error {
-    if error.is_retryable_local_docker_health_disconnect() {
-        anyhow::Error::new(super::VerificationOutcomeUnknown)
-    } else {
-        anyhow::anyhow!("Docker verification failed: {}", error.message)
-    }
-}
-
 fn is_nuget_audit_failure(error: &anyhow::Error) -> bool {
     error
         .to_string()
@@ -259,45 +260,7 @@ fn is_nuget_audit_failure(error: &anyhow::Error) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_execution_error, is_nuget_audit_failure};
-
-    #[test]
-    fn docker_health_disconnect_after_command_start_is_typed_as_unknown() {
-        let error = crate::execution::errors::ExecutionError::new(
-            crate::execution::errors::ExecutionErrorKind::EnvironmentUnavailable,
-            crate::execution::errors::LOCAL_DOCKER_HEALTH_DISCONNECTED,
-            true,
-        );
-        let classified = classify_execution_error(error);
-
-        assert!(
-            classified
-                .downcast_ref::<super::super::VerificationOutcomeUnknown>()
-                .is_some()
-        );
-        assert!(classified.to_string().contains("outcome is unknown"));
-    }
-
-    #[test]
-    fn non_health_errors_remain_ordinary_verification_failures() {
-        let error = crate::execution::errors::ExecutionError::new(
-            crate::execution::errors::ExecutionErrorKind::ExecutionFailed,
-            "test command exited with status 1",
-            false,
-        );
-        let classified = classify_execution_error(error);
-
-        assert!(
-            classified
-                .downcast_ref::<super::super::VerificationOutcomeUnknown>()
-                .is_none()
-        );
-        assert!(
-            classified
-                .to_string()
-                .contains("Docker verification failed")
-        );
-    }
+    use super::is_nuget_audit_failure;
 
     #[test]
     fn refresh_retry_is_limited_to_fatal_nuget_audit_errors() {
