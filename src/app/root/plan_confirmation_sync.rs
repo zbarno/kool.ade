@@ -48,12 +48,25 @@ fn busy_keys(project: &Project) -> std::collections::BTreeSet<String> {
     busy
 }
 
+#[cfg(test)]
 pub(crate) fn sync(project: &mut Project) -> Effects {
+    sync_with_prompt_claim(project, true)
+}
+
+/// Update the card and announce state changes without claiming the readiness
+/// prompt. Used by result adoption; the periodic activity launcher claims it
+/// when the single main-turn slot is available.
+pub(crate) fn sync_for_announcement(project: &mut Project) -> Effects {
+    sync_with_prompt_claim(project, false)
+}
+
+pub(crate) fn sync_with_prompt_claim(project: &mut Project, allow_prompt_claim: bool) -> Effects {
     let busy = busy_keys(project);
-    let Ok(report) = crate::core::planning_work::reconcile_plan_confirmation(
+    let Ok(report) = crate::core::planning_work::reconcile_with_prompt_claim(
         &project.state,
         &mut project.planning_work,
         &busy,
+        allow_prompt_claim,
     ) else {
         // Fail closed: an unreadable plan leaves the card untouched rather
         // than guessing.

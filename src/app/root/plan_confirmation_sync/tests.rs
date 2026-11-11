@@ -400,3 +400,47 @@ fn cancelled_card_is_protected_from_resurrection() {
     assert_eq!(the_card(&project).uid, card_uid);
     remove_planning_store_for(&repo.root);
 }
+
+#[test]
+/// Production boundary: post-answer adoption may reconcile and announce a
+/// not-ready plan before the periodic scheduler owns dispatch. Persisted state
+/// must leave the prompt unstamped so the later idle sweep can claim and return
+/// one evaluation request.
+/// A pure reducer test cannot prove the app seam persists this distinction.
+/// Uses the real private store and a temporary local Git project; no external
+/// services, standard fixture setup cost.
+fn announcement_only_sync_leaves_readiness_prompt_unclaimed_for_the_idle_sweep() {
+    let repo = repo("deferred-evaluation");
+    let uid = feature_uid();
+    let mut project = seed(&repo, &uid, false);
+
+    let announced = super::sync_for_announcement(&mut project);
+    assert!(announced.evaluations_wanted.is_empty());
+    let payload = the_card(&project).plan_confirmation.as_ref().unwrap();
+    assert_eq!(payload.evaluation_prompted_for, None);
+
+    let mut reloaded = project_from(&repo.root);
+    reloaded.planning_work = crate::core::planning_work::load(&reloaded.state.planning_store)
+        .expect("announcement-only state reloads");
+    let idle = sync(&mut reloaded);
+    assert_eq!(idle.evaluations_wanted.len(), 1);
+    assert_eq!(idle.evaluations_wanted[0].work_key, the_card(&reloaded).key);
+    assert_eq!(
+        the_card(&reloaded)
+            .plan_confirmation
+            .as_ref()
+            .unwrap()
+            .evaluation_prompted_for
+            .as_deref(),
+        Some(
+            the_card(&reloaded)
+                .plan_confirmation
+                .as_ref()
+                .unwrap()
+                .snapshot_spec_revision
+                .as_str()
+        )
+    );
+    assert!(sync(&mut reloaded).evaluations_wanted.is_empty());
+    remove_planning_store_for(&repo.root);
+}

@@ -41,7 +41,7 @@ provider, authorization, and evidence fences.
 
 | Concern | Current authority | Behavior already present |
 |---|---|---|
-| Last planning answer | Answer application and `reconcile_answered_child`; plan-confirmation reducer | The parent is refreshed after an applied answer. The #568 plan-confirmation card evaluates readiness from persisted evidence and becomes either a snapshot-bound review task or a concrete blocker. |
+| Last planning answer | Answer application and `reconcile_answered_child`; plan-confirmation reducer and periodic activity sweep | The parent is refreshed after an applied answer. The #568 plan-confirmation card evaluates readiness from persisted evidence and becomes either a snapshot-bound review task or a concrete blocker. Adoption announces card changes without stamping an unclaimed readiness request; an idle pass claims and returns one prompt. Provider preflight failure and automatic resumption still require separate coverage. |
 | Planning work without a live turn | `reconcile_inactive_planning_work` and core `reconcile_inactive` | Orphaned `InProgress` records are returned to a state-specific review/action state; active turn keys, cancellation, and specialized workers are excluded. |
 | Saved-answer failure | Manager operational recovery | Stable recovery identity includes the source task and answer; exact feature identity is checked; native investigation and retries have cooldowns and attempt limits; unsafe identity cases remain actionable blockers. |
 | Plan / code review arbitration | Existing review lifecycle and periodic activity dispatch | Where stage-specific recovery exists, interrupted claims are reconciled and returned to bounded retry or visible attention states. Retry coverage is not uniform across review and QA paths. |
@@ -87,7 +87,7 @@ make retry admission bounded and idempotent.
 
 | Issue #581 scenario | Current evidence / status |
 |---|---|
-| 1. Last answer yields review task or explicit blocker | Implemented through #568; see `plan_confirmation_sync` private-store tests and `core::planning_work::plan_confirmation` reducer tests. |
+| 1. Last answer yields review task or explicit blocker | Implemented through #568; app-level deferred-prompt coverage verifies an announcement-only pass survives a private-store reload and the idle sweep claims and returns one readiness request. |
 | 2. Full approved-plan-to-merged lifecycle | Not proven end to end by the current component-level lifecycle integrations. |
 | 3. Model narration cannot grant readiness or approval | Existing typed readiness/approval boundaries; retain targeted security regressions as coordinator work lands. |
 | 4. Stale feature identity recovery | Exact-UID recovery and blocked identity-conflict paths exist; full crash/replay matrix remains to be established. |

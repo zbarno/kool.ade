@@ -126,11 +126,25 @@ pub fn reconcile(
     work: &mut Vec<Work>,
     excluded_keys: &BTreeSet<String>,
 ) -> anyhow::Result<PlanConfirmationReport> {
+    reconcile_with_prompt_claim(state, work, excluded_keys, true)
+}
+
+/// Reconcile cards while allowing the application to defer the readiness
+/// prompt claim. An announcement-only caller must pass `false`; this leaves
+/// the prompt unstamped so the periodic launcher can claim it later.
+pub fn reconcile_with_prompt_claim(
+    state: &PlannerState,
+    work: &mut Vec<Work>,
+    excluded_keys: &BTreeSet<String>,
+    allow_prompt_claim: bool,
+) -> anyhow::Result<PlanConfirmationReport> {
     let mut report = PlanConfirmationReport::default();
     for (feature_id, body) in state.active_features.iter() {
         reduce::reconcile_feature(state, feature_id, body, work, &mut report, excluded_keys)?;
     }
-    reduce::manage_evaluation_prompts(work.as_mut_slice(), &mut report, excluded_keys);
+    if allow_prompt_claim {
+        reduce::manage_evaluation_prompts(work.as_mut_slice(), &mut report, excluded_keys);
+    }
     Ok(report)
 }
 
