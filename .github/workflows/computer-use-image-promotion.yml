@@ -73,10 +73,9 @@ jobs:
             > "$RUNNER_TEMP/sbom-attestation.json"
           jq -s 'add' "$RUNNER_TEMP/image-attestation.json" "$RUNNER_TEMP/sbom-attestation.json" \
             > "$RUNNER_TEMP/verified-attestations.json"
-      - name: Build companion from promoted source
+      - name: Build catalog promotion verifier
         run: |
           set -euo pipefail
-          cargo +1.98.1 build --locked --release --bin koolade-computer-use-agent
           cargo +1.98.1 build --locked --release --bin computer-use-image-promotion
       - name: Sign catalog with application-pinned key
         env:
@@ -88,7 +87,7 @@ jobs:
           [[ "$CATALOG_GENERATION" =~ ^[1-9][0-9]*$ ]]
           mkdir -p "$RUNNER_TEMP/promotion"
           printf '%s' "$COMPUTER_USE_CATALOG_SIGNING_KEY" | target/release/computer-use-image-promotion sign \
-            "$RUNNER_TEMP/candidate" target/release/koolade-computer-use-agent \
+            "$RUNNER_TEMP/candidate" "$RUNNER_TEMP/candidate/koolade-computer-use-agent" \
             "$RUNNER_TEMP/promotion" containers/computer-use/catalog-v1.json \
             containers/computer-use/images.lock.json "$GITHUB_SHA" "$CATALOG_GENERATION" \
             "$RUNNER_TEMP/verified-attestations.json"

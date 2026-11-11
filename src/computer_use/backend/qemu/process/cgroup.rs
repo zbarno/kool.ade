@@ -52,7 +52,15 @@ impl CgroupV2 {
     ) -> Result<(), Error> {
         self.probe()?;
         let path = self.path(&session.identity.session_id);
-        fs::create_dir(&path).map_err(|_| Error::HostNotReady)?;
+        fs::create_dir(&path).map_err(|error| {
+            #[cfg(test)]
+            if std::env::var("KOOLADE_COMPUTER_USE_R1_REAL_KVM").as_deref() == Ok("1") {
+                eprintln!("R1 cgroup create {}: {error}", path.display());
+            }
+            #[cfg(not(test))]
+            let _ = error;
+            Error::HostNotReady
+        })?;
         let budget = &session.policy.resource_budget;
         let quota = u64::from(budget.cpu_millis).saturating_mul(100);
         let limits = (|| {
@@ -107,9 +115,17 @@ impl CgroupV2 {
 }
 
 fn write_control(path: &Path, bytes: &[u8]) -> Result<(), Error> {
-    let mut file = OpenOptions::new()
+    let result = OpenOptions::new()
         .write(true)
         .open(path)
-        .map_err(|_| Error::HostNotReady)?;
-    file.write_all(bytes).map_err(|_| Error::HostNotReady)
+        .and_then(|mut file| file.write_all(bytes));
+    result.map_err(|error| {
+        #[cfg(test)]
+        if std::env::var("KOOLADE_COMPUTER_USE_R1_REAL_KVM").as_deref() == Ok("1") {
+            eprintln!("R1 cgroup write {}: {error}", path.display());
+        }
+        #[cfg(not(test))]
+        let _ = error;
+        Error::HostNotReady
+    })
 }

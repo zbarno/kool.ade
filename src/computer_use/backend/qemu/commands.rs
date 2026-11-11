@@ -61,7 +61,7 @@ pub(super) fn command_args(
         "socket,id=guestcontrol,path={},server=on,wait=off",
         control_socket.display()
     );
-    let vnc = format!("unix:{},share=deny,clipboard=off", display_socket.display());
+    let vnc = format!("unix:{},share=allow-exclusive", display_socket.display());
     let fw_cfg = format!(
         "name=opt/org.koolade.computer-use/boot-config,file={}",
         boot_config.display()

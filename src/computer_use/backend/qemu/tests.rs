@@ -105,7 +105,14 @@ fn launch_arguments_have_no_network_monitor_host_mount_or_guest_shell() {
     assert!(!args.iter().any(|arg| arg.contains("virtio-9p")));
     assert!(!args.iter().any(|arg| arg.contains("-kernel")));
     assert!(!args.iter().any(|arg| arg.contains("-append")));
-    assert!(args.iter().any(|arg| arg.contains("clipboard=off")));
+    assert!(args.windows(2).any(|pair| {
+        pair[0] == "-vnc" && pair[1] == "unix:/private/display.sock,share=allow-exclusive"
+    }));
+    assert!(
+        args.windows(2)
+            .any(|pair| pair[0] == "-display" && pair[1] == "none")
+    );
+    assert!(!args.iter().any(|arg| arg.contains("qemu-vdagent")));
     assert!(args.windows(2).any(|pair| {
         pair[0] == "-fw_cfg"
             && pair[1].starts_with("name=opt/org.koolade.computer-use/boot-config,file=")

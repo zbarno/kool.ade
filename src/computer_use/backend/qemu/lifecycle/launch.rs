@@ -72,7 +72,8 @@ impl LocalKvmComputerBackend {
         ) {
             boot_config::write_application_catalog(bytes, path)?;
         }
-        let args = commands::command_args(
+        #[allow(unused_mut)]
+        let mut args = commands::command_args(
             session,
             overlay.path(),
             &control_socket,
@@ -85,6 +86,23 @@ impl LocalKvmComputerBackend {
         )?;
         let qemu_path = self.qemu_path();
         process::validate_qemu_program(&qemu_path)?;
+        #[cfg(test)]
+        if std::env::var("KOOLADE_COMPUTER_USE_R1_REAL_KVM").as_deref() == Ok("1") {
+            if let Some(serial) = args.iter().position(|arg| arg == "-serial") {
+                args[serial + 1] = format!(
+                    "file:{}",
+                    machine.directory.join("guest-serial.log").display()
+                )
+                .into();
+            }
+            if let Some(monitor) = args.iter().position(|arg| arg == "-monitor") {
+                args[monitor + 1] = format!(
+                    "unix:{},server=on,wait=off",
+                    machine.directory.join("qemu-monitor.sock").display()
+                )
+                .into();
+            }
+        }
         let mut command = Command::new(qemu_path);
         commands::configure_command(&mut command, &args, &machine.directory);
         #[cfg(test)]
@@ -321,7 +339,15 @@ impl LocalKvmComputerBackend {
                 session,
                 now_unix_ms,
             )
-            .map_err(|_| Error::GuestReadinessUnverified)?;
+            .map_err(|error| {
+                #[cfg(test)]
+                if std::env::var("KOOLADE_COMPUTER_USE_R1_REAL_KVM").as_deref() == Ok("1") {
+                    eprintln!("R1 guest handshake detail: {error:?}");
+                }
+                #[cfg(not(test))]
+                let _ = error;
+                Error::GuestReadinessUnverified
+            })?;
         match state.as_str() {
             "booting" => {
                 self.mark_guest_ready_impl(session, handle, readiness, now_unix_ms)?;
