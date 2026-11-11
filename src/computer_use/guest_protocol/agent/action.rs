@@ -177,6 +177,33 @@ pub(super) fn execute_action(
                 return wait_for_app_window(action, app_id, config, replay);
             }
         }
+        Payload::ManageApp { app_id, .. } => {
+            if action.actor != crate::computer_use::ComputerActionActorV1::Human
+                || !config.allowed_apps.iter().any(|allowed| allowed == app_id)
+            {
+                ResultStatus::UnsupportedCapability
+            } else {
+                match crate::computer_use::apps::guest_helper::manage(action) {
+                    Ok(result) => result,
+                    Err(GuestProtocolErrorV1::UnsupportedCapability) => {
+                        ResultStatus::UnsupportedCapability
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+        Payload::LaunchApprovedStagedTaskApp { application } => {
+            if action.actor != crate::computer_use::ComputerActionActorV1::Human
+                || !config
+                    .allowed_apps
+                    .iter()
+                    .any(|allowed| allowed == &application.app_id)
+            {
+                ResultStatus::UnsupportedCapability
+            } else {
+                crate::computer_use::apps::guest_helper::launch_staged_task(action)?
+            }
+        }
         Payload::WaitFor {
             condition,
             timeout_ms,

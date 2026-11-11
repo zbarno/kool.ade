@@ -32,6 +32,12 @@ pub(super) fn run(
             &serde_json::to_vec_pretty(evidence)?,
         )?;
         if let Err(error) = result {
+            if error
+                .downcast_ref::<crate::core::implementation::runner::VerificationOutcomeUnknown>()
+                .is_some()
+            {
+                return Err(error);
+            }
             return Ok(Some(format!(
                 "Verification command failed: {command}\n{error}"
             )));

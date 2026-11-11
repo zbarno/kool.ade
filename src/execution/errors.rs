@@ -6,6 +6,8 @@ pub const REMOTE_START_CAPACITY_REJECTION_MESSAGE: &str =
     "Remote worker Start request failed: remote worker execution capacity is full";
 pub const LOCAL_START_CAPACITY_REJECTION: &str = "Local worker CPU or memory reservation is full";
 pub const LOCAL_CAPACITY_UNKNOWN_REJECTION: &str = "Cannot start a local execution while CPU or memory capacity is unknown and another execution owns host capacity";
+pub const LOCAL_DOCKER_HEALTH_DISCONNECTED: &str =
+    "Docker Engine disconnected or did not answer its health request";
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -58,6 +60,15 @@ impl ExecutionError {
                 LOCAL_START_CAPACITY_REJECTION | LOCAL_CAPACITY_UNKNOWN_REJECTION
             )
     }
+
+    /// A local Docker readiness probe failed before an execution session or
+    /// command was created. Retrying this exact, retryable failure cannot
+    /// replay user work.
+    pub fn is_retryable_local_docker_health_disconnect(&self) -> bool {
+        self.kind == ExecutionErrorKind::EnvironmentUnavailable
+            && self.retryable
+            && self.message == LOCAL_DOCKER_HEALTH_DISCONNECTED
+    }
 }
 
 impl std::fmt::Display for ExecutionError {
@@ -105,6 +116,42 @@ mod tests {
                 true,
             )
             .is_retryable_local_capacity_rejection()
+        );
+    }
+
+    #[test]
+    fn local_docker_health_disconnect_is_retryable_only_before_execution() {
+        assert!(
+            ExecutionError::new(
+                ExecutionErrorKind::EnvironmentUnavailable,
+                LOCAL_DOCKER_HEALTH_DISCONNECTED,
+                true,
+            )
+            .is_retryable_local_docker_health_disconnect()
+        );
+        assert!(
+            !ExecutionError::new(
+                ExecutionErrorKind::EnvironmentUnavailable,
+                LOCAL_DOCKER_HEALTH_DISCONNECTED,
+                false,
+            )
+            .is_retryable_local_docker_health_disconnect()
+        );
+        assert!(
+            !ExecutionError::new(
+                ExecutionErrorKind::ExecutionFailed,
+                LOCAL_DOCKER_HEALTH_DISCONNECTED,
+                true,
+            )
+            .is_retryable_local_docker_health_disconnect()
+        );
+        assert!(
+            !ExecutionError::new(
+                ExecutionErrorKind::EnvironmentUnavailable,
+                "Docker Engine is unavailable",
+                true,
+            )
+            .is_retryable_local_docker_health_disconnect()
         );
     }
 }

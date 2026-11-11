@@ -30,6 +30,9 @@ fn grant(caller: &ComputerUseCallerV1) -> ComputerUseConsentGrantV1 {
             role_id: caller.role_id.clone(),
             purpose: "inspect UI".into(),
             machine_id: "00000000-0000-4000-8000-000000000006".into(),
+            target: crate::computer_use::ComputerTargetV1::LocalKvm {
+                machine_id: "00000000-0000-4000-8000-000000000006".into(),
+            },
             approved_destination: None,
             allowed_operations: vec![crate::computer_use::ComputerOperationV1::ObserveScreen],
             allowed_apps: vec!["chromium".into()],
@@ -151,6 +154,9 @@ fn task_session_views_are_scoped_to_the_exact_task_and_local_user() {
             agent_role: "implementer/v1".into(),
             session_class: crate::computer_use::ComputerSessionClassV1::Disposable,
             allowed_apps: vec!["chromium".into()],
+            guest_apps: Vec::new(),
+            guest_app_catalog_status: "signed_app_catalog_unavailable".into(),
+            app_management_available: false,
             resource_budget: crate::computer_use::MINIMUM_DISPOSABLE_VM_BUDGET_V1,
             actions_remaining: 100,
             lifecycle: crate::computer_use::ComputerLifecycleV1::Delegated,
@@ -171,6 +177,7 @@ fn task_session_views_are_scoped_to_the_exact_task_and_local_user() {
             control_error: None,
             control_notice: None,
             action_log: Vec::new(),
+            pending_action_intent: None,
         }
     };
     controller.view_cache.lock().unwrap().extend([

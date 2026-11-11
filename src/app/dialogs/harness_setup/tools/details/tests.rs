@@ -8,6 +8,7 @@ use crate::{
 
 fn opencode(model_catalog: ReadinessState, fresh: bool) -> DetectedHarness {
     DetectedHarness {
+        verified_at_unix_ms: None,
         status: "opencode ready".into(),
         version: Some("1.0.0".into()),
         executable: Some("/example/bin/opencode".into()),

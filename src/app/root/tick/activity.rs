@@ -13,6 +13,7 @@ pub(crate) fn synchronize_self_improvement_run_for_test(
 impl KooladeApp {
     pub(super) fn advance_activity(&mut self) {
         self.retry_pending_task_reply();
+        let runtime_qa_computer_use = self.runtime_qa_computer_use_context();
         let mut plan_repair = None;
         let mut code_review_repair = None;
         let mut planner_generation_readiness = None;
@@ -29,7 +30,11 @@ impl KooladeApp {
             advance_plan_review(project);
             advance_code_review_arbitration(project);
             advance_dependency_review(project, &mut self.task_harness);
-            runtime_qa::advance_runtime_qa(project, &mut self.task_harness);
+            runtime_qa::advance_runtime_qa(
+                project,
+                &mut self.task_harness,
+                runtime_qa_computer_use,
+            );
             spec_reconciliation::advance_spec_reconciliation(project, &mut self.task_harness);
             self_improvement::synchronize(project);
             opportunities::schedule_due(project);
@@ -183,6 +188,29 @@ impl KooladeApp {
         }
         if let Some(ready) = planner_generation_readiness {
             self.continue_feature_generation(ready);
+        }
+    }
+}
+
+impl KooladeApp {
+    fn runtime_qa_computer_use_context(&self) -> Option<runtime_qa::ComputerQaRuntimeContextV1> {
+        #[cfg(target_os = "linux")]
+        {
+            let project_id = match &self.screen {
+                Screen::Connected(project) => project.state.planning_store.project_id,
+                _ => return None,
+            };
+            let context = self.computer_use_run_context(project_id)?;
+            Some(runtime_qa::ComputerQaRuntimeContextV1 {
+                host: context.host,
+                controller: self.shared_computer_use_controller(),
+                project_id: context.project_id,
+                user_id: context.user_id,
+            })
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            None
         }
     }
 }

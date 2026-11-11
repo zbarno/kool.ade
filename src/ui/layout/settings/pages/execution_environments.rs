@@ -3,6 +3,7 @@ use crate::{
     persistence::{execution_environment_settings::ExecutionEnvironmentSettings, remote_workers},
     ui::theme,
 };
+mod computer_use_onboarding;
 mod computer_use_permissions;
 mod experimental;
 mod runtime_qa;
@@ -41,6 +42,8 @@ pub(super) fn paint(ui: &mut egui::Ui, surface: &mut dyn crate::ui::Surface) -> 
         smoke_pending,
         smoke_result.as_deref(),
     );
+    computer_use_onboarding::paint(ui);
+    ui.add_space(theme::spacing::M);
     let permissions = surface.computer_use_permissions();
     let consent_requests = surface.pending_computer_use_consent_requests();
     let surface = std::cell::RefCell::new(surface);

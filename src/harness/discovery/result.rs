@@ -151,6 +151,9 @@ pub struct ProbeResult {
     pub failure_stage: Option<ProbeKind>,
     pub diagnostic_code: Option<ProbeDiagnosticCode>,
     pub diagnostic_message: Option<String>,
+    /// Set when account access is currently proven (live verification or
+    /// unexpired receipt); absent for non-generative checks.
+    pub verified_at_unix_ms: Option<u64>,
 }
 
 impl Default for ProbeResult {
@@ -173,6 +176,7 @@ impl Default for ProbeResult {
             failure_stage: None,
             diagnostic_code: None,
             diagnostic_message: None,
+            verified_at_unix_ms: None,
         }
     }
 }

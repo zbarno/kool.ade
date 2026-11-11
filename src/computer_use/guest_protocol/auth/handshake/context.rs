@@ -16,9 +16,7 @@ pub(super) fn validate_config_for_session(
         .lease
         .validate(now_unix_ms)
         .map_err(|_| GuestProtocolErrorV1::StaleLease)?;
-    let worker_id = match &session.target {
-        crate::computer_use::ComputerTargetV1::LocalKvm { machine_id } => machine_id,
-    };
+    let worker_id = session.target.target_machine_id();
     let mut allowed_apps = session.allowed_apps.iter().cloned().collect::<Vec<_>>();
     allowed_apps.sort();
     if config.session_id != session.identity.session_id

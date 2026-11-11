@@ -1,15 +1,22 @@
 use std::{ffi::OsString, net::SocketAddr, path::Path, process::Command};
 
-use crate::computer_use::{ComputerSessionV1, ComputerTargetV1};
+use crate::computer_use::ComputerSessionV1;
 
 use super::super::ComputerBackendErrorV1;
 
+// Linux sockaddr_un paths allow 107 bytes plus NUL. Keep this bound for every
+// path passed to QEMU, including UUID-named overlay files.
+const MAX_QEMU_PATH_BYTES: usize = 107;
+
+#[allow(clippy::too_many_arguments)] // Each path is validated and emitted as a separate QEMU asset.
 pub(super) fn command_args(
     session: &ComputerSessionV1,
     overlay: &Path,
     control_socket: &Path,
     display_socket: &Path,
     boot_config: &Path,
+    app_helper_config: &Path,
+    application_catalog: Option<&Path>,
     research_proxy: Option<SocketAddr>,
     secret_fd: Option<libc::c_int>,
 ) -> Result<Vec<OsString>, ComputerBackendErrorV1> {
@@ -24,9 +31,7 @@ pub(super) fn command_args(
     {
         return Err(ComputerBackendErrorV1::UnsupportedPolicy);
     }
-    let machine_id = match &session.target {
-        ComputerTargetV1::LocalKvm { machine_id } => machine_id,
-    };
+    let machine_id = session.target.target_machine_id();
     let budget = &session.policy.resource_budget;
     let vcpus = budget.cpu_millis.div_ceil(1_000).min(u16::MAX as u32);
     let memory_mib = budget.memory_bytes / (1024 * 1024);
@@ -56,7 +61,7 @@ pub(super) fn command_args(
         "socket,id=guestcontrol,path={},server=on,wait=off",
         control_socket.display()
     );
-    let vnc = format!("unix:{},share=deny,clipboard=off", display_socket.display());
+    let vnc = format!("unix:{},share=allow-exclusive", display_socket.display());
     let fw_cfg = format!(
         "name=opt/org.koolade.computer-use/boot-config,file={}",
         boot_config.display()
@@ -77,11 +82,24 @@ pub(super) fn command_args(
         }
         _ => return Err(ComputerBackendErrorV1::UnsupportedPolicy),
     };
-    for path in [overlay, control_socket, display_socket, boot_config] {
+    let helper_fw_cfg = format!(
+        "name=opt/org.koolade.computer-use/app-helper-config,file={}",
+        app_helper_config.display()
+    );
+    for path in [
+        overlay,
+        control_socket,
+        display_socket,
+        boot_config,
+        app_helper_config,
+    ]
+    .into_iter()
+    .chain(application_catalog)
+    {
         let text = path
             .to_str()
             .ok_or(ComputerBackendErrorV1::InvalidOverlay)?;
-        if text.len() > 80
+        if text.len() > MAX_QEMU_PATH_BYTES
             || !text.starts_with('/')
             || !text.bytes().all(|byte| {
                 byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'_' | b'-' | b'.' | b' ')
@@ -130,6 +148,8 @@ pub(super) fn command_args(
         "virtserialport,chardev=guestcontrol,name=org.koolade.computer-control.v1",
         "-fw_cfg",
         &fw_cfg,
+        "-fw_cfg",
+        &helper_fw_cfg,
         "-sandbox",
         "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
         "-overcommit",
@@ -148,6 +168,14 @@ pub(super) fn command_args(
             object_position..object_position,
             [OsString::from("-object"), OsString::from(secret_object)],
         );
+    }
+    if let Some(catalog) = application_catalog {
+        let fw_cfg = format!(
+            "name=opt/org.koolade.computer-use/app-catalog,file={}",
+            catalog.display()
+        );
+        args.push(OsString::from("-fw_cfg"));
+        args.push(OsString::from(fw_cfg));
     }
     Ok(args)
 }

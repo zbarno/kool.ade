@@ -70,22 +70,28 @@ reviewed package action is offered on the three supported Linux recipes when
 QEMU is missing or lacks KVM acceleration. The disposable VM ability remains
 blocked until both QEMU and KVM are verified.
 The guest-image library exposes a pre-session signed catalog verifier and a
-read-only cached-artifact integrity check. The scan reads the bundled image
-lock without host access: this build's lock is explicitly `not_promoted` and
-empty, so the image task is unsupported. A malformed or promoted-but-unverified
-lock remains unknown. The image task gates storage and viewer tasks; storage
-also depends on the QEMU task because `qemu-img` is required for overlays.
-Storage gates personal encryption. Docker execution
-readiness is assessed independently, so a VM finding does not make ordinary
-Docker work unavailable. Its state comes from the completed, persisted setup
-scan; UI rendering does not launch a Docker probe.
+read-only cached-artifact integrity check. The bundled image lock is currently
+`promoted` and pins the signed x86_64 catalog. The readiness scan reports the
+image as Ready only when the catalog signature, pinned lock digest/generation,
+existing anti-rollback floor, and cached image bytes all verify for this host.
+The first-run setup flow may not yet have an initialized floor or cached image;
+that remains Unknown until the app's authenticated image setup path completes.
+A malformed, revoked, mismatched, or otherwise unverified catalog remains
+Unknown. The image task gates storage and viewer tasks; storage also depends on
+the QEMU task because `qemu-img` is required for overlays. Storage gates
+personal encryption. Docker execution readiness is assessed independently, so
+a VM finding does not make ordinary Docker work unavailable. Its state comes
+from the completed, persisted setup scan; UI rendering does not launch a
+Docker probe.
 
 Internet computer mode has a separate `setup:computer:network` task. A local
 filtered HTTPS gateway is implemented for explicit disposable InternetResearch
-grants, but the current signed guest companion protocol is v1, so consent does
-not offer networking and the disposable computer profile stays offline. The
-network readiness task remains Unverified until a compatible signed image is
-promoted and the independent real-guest security matrix in #392 passes.
+grants, but the promoted signed guest image advertises companion protocol v1.
+This build therefore does not offer networking and the disposable computer
+profile stays offline. The network readiness task remains Unverified until a
+compatible signed image advertises the required companion protocol and the
+independent real-guest security matrix in #392 passes. Catalog promotion alone
+does not enable a network profile.
 
 Current typed Linux kernel and user namespace observations are consumed by the
 KVM finding; a missing or inaccessible current-generation observation remains

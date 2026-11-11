@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 pub const GUEST_PROTOCOL_VERSION_V1: u16 = 1;
 pub const GUEST_CHANNEL_CAPABILITY_V1: &str = "computer_use.channel.v1";
+pub const GUEST_ARTIFACT_CAPABILITY_V1: &str = "computer_use.artifact.v1";
+pub const GUEST_ARTIFACT_CHUNK_MAX_BYTES_V1: usize = 256 * 1024;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -33,6 +35,13 @@ pub struct GuestCapabilitySetV1 {
     pub keyboard_input: bool,
     pub accessibility_tree: bool,
     pub app_registry: Vec<String>,
+    /// True only when the guest has the restricted signed-package helper.
+    #[serde(default)]
+    pub app_management: bool,
+    /// Task artifacts require the authenticated staging protocol and confined launcher.
+    /// Kept false until both are present in the guest image.
+    #[serde(default)]
+    pub staged_task_app_launch: bool,
 }
 
 impl GuestCapabilitySetV1 {
@@ -129,6 +138,18 @@ pub enum GuestMessageV1 {
     ActionRequest {
         action: ComputerActionV1,
     },
+    StageTaskApplicationStart {
+        action: ComputerActionV1,
+    },
+    StageTaskArtifactChunk {
+        artifact_index: u16,
+        offset: u64,
+        bytes_base64: String,
+    },
+    StageTaskApplicationFinish,
+    StageTaskTransferReply {
+        accepted: bool,
+    },
     ActionReply {
         action_sequence: u64,
         result: GuestOperationResultV1,
@@ -142,6 +163,36 @@ pub enum GuestMessageV1 {
     },
     GuestExit {
         reason: GuestExitReasonV1,
+    },
+    ArtifactWriteChunk {
+        transfer_id: String,
+        file_name: String,
+        offset: u64,
+        total_bytes: u64,
+        sha256: String,
+        bytes: Vec<u8>,
+    },
+    ArtifactWriteAck {
+        transfer_id: String,
+        next_offset: u64,
+        complete: bool,
+    },
+    ArtifactAbort {
+        transfer_id: String,
+    },
+    ArtifactReadChunk {
+        transfer_id: String,
+        file_name: String,
+        offset: u64,
+        max_bytes: u32,
+    },
+    ArtifactReadResult {
+        transfer_id: String,
+        offset: u64,
+        total_bytes: u64,
+        sha256: String,
+        bytes: Vec<u8>,
+        complete: bool,
     },
 }
 
@@ -163,6 +214,7 @@ pub enum GuestOperationResultV1 {
     TimedOut,
     Rejected,
     Failed,
+    MissingDependencies,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -194,7 +246,10 @@ pub(crate) fn required_capability(action: &ComputerActionV1) -> &'static str {
         ComputerActionPayloadV1::KeyPress { .. }
         | ComputerActionPayloadV1::KeyChord { .. }
         | ComputerActionPayloadV1::TypeText { .. } => "computer_use.keyboard.v1",
-        ComputerActionPayloadV1::LaunchApp { .. } => "computer_use.app_registry.v1",
+        ComputerActionPayloadV1::LaunchApp { .. } | ComputerActionPayloadV1::ManageApp { .. } => {
+            "computer_use.app_registry.v1"
+        }
+        ComputerActionPayloadV1::LaunchApprovedStagedTaskApp { .. } => "computer_use.staged_app.v1",
         ComputerActionPayloadV1::WaitFor { .. } | ComputerActionPayloadV1::QueryState => {
             "computer_use.state.v1"
         }

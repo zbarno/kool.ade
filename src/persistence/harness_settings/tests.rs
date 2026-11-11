@@ -24,6 +24,7 @@ fn settings_round_trip_persists_default_and_discovery_diagnostics() {
         discovered: BTreeMap::from([(
             "pi".into(),
             DetectedHarness {
+                verified_at_unix_ms: None,
                 status: "pi 0.30.1".into(),
                 version: Some("0.30.1".into()),
                 executable: Some("/example/bin/pi".into()),
@@ -69,6 +70,7 @@ fn unavailable_tools_remain_recorded_without_rewriting_the_default() {
         discovered: BTreeMap::from([(
             "pi".into(),
             DetectedHarness {
+                verified_at_unix_ms: None,
                 status: "pi (not installed)".into(),
                 version: None,
                 executable: None,
@@ -140,6 +142,7 @@ fn unknown_settings_versions_are_reported_and_not_interpreted() {
 fn discovery_results_expire_and_future_timestamps_are_not_fresh() {
     let now = current_unix_ms();
     let detected = DetectedHarness {
+        verified_at_unix_ms: None,
         status: "pi ready".into(),
         version: Some("1.0".into()),
         executable: Some("/tools/pi".into()),
@@ -157,4 +160,90 @@ fn discovery_results_expire_and_future_timestamps_are_not_fresh() {
     assert!(detected.is_fresh_at(now + DISCOVERY_FRESHNESS_MS));
     assert!(!detected.is_fresh_at(now + DISCOVERY_FRESHNESS_MS + 1));
     assert!(!detected.is_fresh_at(now.saturating_sub(1)));
+}
+
+#[test]
+fn verification_receipts_follow_their_ttl_boundaries() {
+    fn receipt(verified_at: Option<u64>) -> DetectedHarness {
+        DetectedHarness {
+            status: "codex ready".into(),
+            version: Some("0.166.0".into()),
+            executable: Some("/tools/codex".into()),
+            diagnostic: None,
+            ready: true,
+            models: Vec::new(),
+            default_model: None,
+            model_catalog_fresh: false,
+            configuration_required: false,
+            implementation_available: true,
+            capability_snapshot: None,
+            checked_at_unix_ms: 0,
+            verified_at_unix_ms: verified_at,
+        }
+    }
+    let now = current_unix_ms();
+    assert!(receipt(Some(now)).verification_is_current_at(now));
+    assert!(receipt(Some(now - VERIFICATION_RECEIPT_TTL_MS)).verification_is_current_at(now));
+    assert!(
+        !receipt(Some(now.saturating_sub(VERIFICATION_RECEIPT_TTL_MS + 1)))
+            .verification_is_current_at(now)
+    );
+    // Future timestamps (clock skew) are never trusted, nor is a missing receipt.
+    assert!(!receipt(Some(now + 1)).verification_is_current_at(now));
+    assert!(!receipt(None).verification_is_current_at(now));
+}
+
+#[test]
+fn settings_round_trip_keeps_receipts_and_reads_legacy_entries_without_them() {
+    let path = temp_file();
+    let now = current_unix_ms();
+    let entry = DetectedHarness {
+        status: "codex ready".into(),
+        version: Some("0.166.0".into()),
+        executable: Some("/tools/codex".into()),
+        diagnostic: None,
+        ready: true,
+        models: vec!["gpt-5".into()],
+        default_model: Some("gpt-5".into()),
+        model_catalog_fresh: true,
+        configuration_required: false,
+        implementation_available: true,
+        capability_snapshot: None,
+        checked_at_unix_ms: now,
+        verified_at_unix_ms: Some(now),
+    };
+    let mut settings = HarnessSettings::default();
+    settings.discovered.insert("codex".into(), entry.clone());
+    save_to(&path, &settings).unwrap();
+
+    let (loaded, diagnostic) = load_from(&path);
+    assert!(diagnostic.is_none());
+    assert_eq!(
+        loaded.discovered["codex"].verified_at_unix_ms,
+        Some(now),
+        "a persisted verification receipt must survive the round trip"
+    );
+
+    // Files written before the receipt existed omit the key; they must load
+    // untouched (as unverified), never be reset or rejected.
+    let mut legacy: serde_json::Value = serde_json::to_value(&settings).unwrap();
+    legacy["schemaVersion"] = serde_json::Value::from(5);
+    legacy["discovered"]["codex"]
+        .as_object_mut()
+        .unwrap()
+        .remove("verifiedAtUnixMs");
+    std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let (legacy_loaded, diagnostic) = load_from(&path);
+    assert!(
+        diagnostic.is_none(),
+        "legacy entries without the receipt key must load cleanly, got: {diagnostic:?}"
+    );
+    let legacy_entry = legacy_loaded
+        .discovered
+        .get("codex")
+        .expect("removing the receipt key must not drop or reject the rest of the entry");
+    assert_eq!(legacy_entry.verified_at_unix_ms, None);
+    assert!(legacy_entry.ready);
+    assert_eq!(legacy_entry.models, vec!["gpt-5".to_string()]);
+    std::fs::remove_file(path).unwrap();
 }

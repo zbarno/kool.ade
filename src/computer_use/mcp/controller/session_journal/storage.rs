@@ -72,6 +72,18 @@ pub(super) fn validate_event(event: &SessionJournalEventV1) -> Result<(), &'stat
         || event.action_id.is_some() != event.action_sequence.is_some()
         || event.action_actor.is_some() != event.action_operation.is_some()
         || event.action_sequence.is_some() != event.action_operation.is_some()
+        || event
+            .action_intent_id
+            .as_ref()
+            .is_some_and(|id| !canonical_uuid(id))
+        || event
+            .action_intent_sha256
+            .as_ref()
+            .is_some_and(|digest| !valid_digest(digest))
+        || event.action_intent_id.is_some() != event.action_intent_sha256.is_some()
+        || event.action_intent_id.is_some() != event.action_intent_state.is_some()
+        || (event.kind == SessionEventKindV1::ActionIntentStateChanged)
+            != event.action_intent_state.is_some()
         || (event.reconciled_from.is_some() && event.kind != SessionEventKindV1::SessionInterrupted)
     {
         return Err("session_journal_invalid_event");

@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "tests/personal_auth.rs"]
+mod personal_auth;
+
 const SESSION: &str = "00000000-0000-4000-8000-000000000001";
 
 #[test]
@@ -72,6 +75,53 @@ fn persisted_events_contain_no_action_payload_or_observation_fields() {
     assert!(!contents.contains("password"));
 }
 
+#[test]
+fn action_intent_journal_enforces_durable_one_way_transitions_without_scope_data() {
+    use ComputerActionIntentStateV1 as State;
+
+    let root = tempfile::tempdir().unwrap();
+    let journal = ComputerUseSessionJournalV1::open(root.path()).unwrap();
+    let intent_id = "00000000-0000-4000-8000-000000000020";
+    let digest = format!("sha256:{}", "d".repeat(64));
+    for state in [
+        State::Prepared,
+        State::AwaitingApproval,
+        State::ApprovedOnce,
+        State::Executing,
+        State::OutcomeUnknown,
+    ] {
+        journal
+            .append(action_intent_state_event(intent_id, &digest, state))
+            .unwrap();
+    }
+    assert!(
+        journal
+            .append(action_intent_state_event(
+                intent_id,
+                &digest,
+                State::Prepared
+            ))
+            .is_err()
+    );
+    let contents = std::fs::read_to_string(root.path().join(JOURNAL_FILE)).unwrap();
+    assert!(!contents.contains("content_preview"));
+    assert!(!contents.contains("destination"));
+    assert!(contents.contains("outcome_unknown"));
+}
+
+fn action_intent_state_event(
+    intent_id: &str,
+    digest: &str,
+    state: ComputerActionIntentStateV1,
+) -> SessionJournalEventV1 {
+    let mut event = event(SessionEventKindV1::ActionIntentStateChanged);
+    event.boot_fingerprint = None;
+    event.action_intent_id = Some(intent_id.to_owned());
+    event.action_intent_sha256 = Some(digest.to_owned());
+    event.action_intent_state = Some(state);
+    event
+}
+
 fn event(kind: SessionEventKindV1) -> SessionJournalEventV1 {
     SessionJournalEventV1 {
         schema_version: 1,
@@ -102,6 +152,9 @@ fn event(kind: SessionEventKindV1) -> SessionJournalEventV1 {
         action_id: None,
         action_actor: None,
         action_operation: None,
+        action_intent_id: None,
+        action_intent_sha256: None,
+        action_intent_state: None,
         occurred_at_unix_ms: 10,
     }
 }

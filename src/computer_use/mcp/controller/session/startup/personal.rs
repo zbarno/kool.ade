@@ -207,6 +207,7 @@ fn activate_personal_overlay(
         now_unix_ms: now,
         image: &runtime.image,
         session_class: ComputerSessionClassV1::PersonalPersistent,
+        target: runtime.target.clone(),
     });
     session
         .attest(runtime.controller_key_id.clone(), &runtime.controller_key)

@@ -8,6 +8,9 @@ use crate::computer_use::{
     ComputerTargetV1,
 };
 
+#[path = "tests/r1_real_kvm.rs"]
+mod r1_real_kvm;
+
 fn session() -> ComputerSessionV1 {
     let identity = ComputerIdentityV1 {
         project_id: "00000000-0000-4000-8000-000000000001".into(),
@@ -79,6 +82,8 @@ fn launch_arguments_have_no_network_monitor_host_mount_or_guest_shell() {
         Path::new("/private/guest-control.sock"),
         Path::new("/private/display.sock"),
         Path::new("/private/boot.json"),
+        Path::new("/private/app-helper.json"),
+        None,
         None,
         None,
     )
@@ -100,10 +105,21 @@ fn launch_arguments_have_no_network_monitor_host_mount_or_guest_shell() {
     assert!(!args.iter().any(|arg| arg.contains("virtio-9p")));
     assert!(!args.iter().any(|arg| arg.contains("-kernel")));
     assert!(!args.iter().any(|arg| arg.contains("-append")));
-    assert!(args.iter().any(|arg| arg.contains("clipboard=off")));
+    assert!(args.windows(2).any(|pair| {
+        pair[0] == "-vnc" && pair[1] == "unix:/private/display.sock,share=allow-exclusive"
+    }));
+    assert!(
+        args.windows(2)
+            .any(|pair| pair[0] == "-display" && pair[1] == "none")
+    );
+    assert!(!args.iter().any(|arg| arg.contains("qemu-vdagent")));
     assert!(args.windows(2).any(|pair| {
         pair[0] == "-fw_cfg"
             && pair[1].starts_with("name=opt/org.koolade.computer-use/boot-config,file=")
+    }));
+    assert!(args.windows(2).any(|pair| {
+        pair[0] == "-fw_cfg"
+            && pair[1].starts_with("name=opt/org.koolade.computer-use/app-helper-config,file=")
     }));
     assert!(args.iter().any(|arg| arg.contains("koolade:")));
 }
@@ -120,6 +136,8 @@ fn personal_qemu_arguments_reference_only_inherited_secret_fd() {
         Path::new("/private/guest-control.sock"),
         Path::new("/private/display.sock"),
         Path::new("/private/boot.json"),
+        Path::new("/private/app-helper.json"),
+        None,
         None,
         Some(17),
     )
@@ -139,6 +157,29 @@ fn personal_qemu_arguments_reference_only_inherited_secret_fd() {
 }
 
 #[test]
+fn session_attestation_digest_binds_the_canonical_signed_authority() {
+    let mut session = session();
+    let key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
+    session
+        .attest("00000000-0000-4000-8000-000000000008".into(), &key)
+        .unwrap();
+    let digest = session.attestation_sha256().unwrap();
+    assert_eq!(digest.len(), 64);
+    assert!(digest.bytes().all(|byte| byte.is_ascii_hexdigit()));
+
+    let mut changed_authority = session.clone();
+    changed_authority.approval_generation += 1;
+    assert_ne!(digest, changed_authority.attestation_sha256().unwrap());
+
+    let mut changed_proof = session;
+    changed_proof
+        .controller_proof
+        .signature_hex
+        .replace_range(0..2, "ff");
+    assert_ne!(digest, changed_proof.attestation_sha256().unwrap());
+}
+
+#[test]
 fn launch_argument_paths_reject_qemu_option_delimiters() {
     let session = session();
     let result = command_args(
@@ -147,10 +188,63 @@ fn launch_argument_paths_reject_qemu_option_delimiters() {
         Path::new("/private/guest-control.sock"),
         Path::new("/private/display.sock"),
         Path::new("/private/boot.json"),
+        Path::new("/private/app-helper.json"),
+        None,
         None,
         None,
     );
     assert_eq!(result, Err(ComputerBackendErrorV1::InvalidOverlay));
+}
+
+#[test]
+fn launch_argument_paths_keep_linux_socket_paths_within_the_safe_limit() {
+    let session = session();
+    let one_hundred_seven = format!("/{}", "x".repeat(106));
+    let one_hundred_eight = format!("/{}", "x".repeat(107));
+    let args = |overlay: &Path| {
+        command_args(
+            &session,
+            overlay,
+            Path::new("/private/guest-control.sock"),
+            Path::new("/private/display.sock"),
+            Path::new("/private/boot.json"),
+            Path::new("/private/app-helper.json"),
+            None,
+            None,
+            None,
+        )
+    };
+    assert!(args(Path::new(&one_hundred_seven)).is_ok());
+    assert_eq!(
+        args(Path::new(&one_hundred_eight)),
+        Err(ComputerBackendErrorV1::InvalidOverlay)
+    );
+}
+
+#[test]
+fn launch_arguments_accept_the_session_scoped_app_helper_path() {
+    let session = session();
+    let runtime =
+        Path::new("/tmp/.tmp123456/runtime/sessions/00000000-0000-4000-8000-000000000004");
+    let args = command_args(
+        &session,
+        Path::new("/private/overlay.qcow2"),
+        &runtime.join("guest-control.sock"),
+        &runtime.join("display.sock"),
+        &runtime.join("guest-boot-config.json"),
+        &runtime.join("guest-app-helper-config.json"),
+        None,
+        None,
+        None,
+    );
+    assert!(args.is_ok());
+    assert_eq!(
+        runtime
+            .join("guest-app-helper-config.json")
+            .as_os_str()
+            .len(),
+        98
+    );
 }
 
 #[test]
@@ -165,6 +259,8 @@ fn internet_research_qemu_network_is_restricted_to_the_loopback_proxy() {
         Path::new("/private/guest-control.sock"),
         Path::new("/private/display.sock"),
         Path::new("/private/boot.json"),
+        Path::new("/private/app-helper.json"),
+        None,
         Some("127.0.0.1:49152".parse().unwrap()),
         None,
     )
@@ -188,6 +284,8 @@ fn internet_research_qemu_network_is_restricted_to_the_loopback_proxy() {
             Path::new("/private/guest-control.sock"),
             Path::new("/private/display.sock"),
             Path::new("/private/boot.json"),
+            Path::new("/private/app-helper.json"),
+            None,
             Some("127.0.0.1:49152".parse().unwrap()),
             None,
         ),

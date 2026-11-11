@@ -87,7 +87,7 @@ pub(super) fn install_boot_config() -> Result<(), GuestProtocolErrorV1> {
     let mut output = match options.open(&path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            let user = unsafe { libc::getpwnam(c"koolade".as_ptr()) };
+            let user = unsafe { libc::getpwnam(c"koolade-agent".as_ptr()) };
             if user.is_null() {
                 return Err(GuestProtocolErrorV1::WrongSession);
             }
@@ -101,7 +101,7 @@ pub(super) fn install_boot_config() -> Result<(), GuestProtocolErrorV1> {
         }
         Err(_) => return Err(GuestProtocolErrorV1::Io),
     };
-    let user = unsafe { libc::getpwnam(c"koolade".as_ptr()) };
+    let user = unsafe { libc::getpwnam(c"koolade-agent".as_ptr()) };
     if user.is_null()
         || unsafe {
             libc::fchown(
@@ -118,4 +118,45 @@ pub(super) fn install_boot_config() -> Result<(), GuestProtocolErrorV1> {
         .write_all(&bytes)
         .map_err(|_| GuestProtocolErrorV1::Io)?;
     output.sync_all().map_err(|_| GuestProtocolErrorV1::Io)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn config() -> GuestBootConfigV1 {
+        GuestBootConfigV1 {
+            schema_version: 1,
+            session_id: "00000000-0000-4000-8000-000000000001".into(),
+            worker_id: "00000000-0000-4000-8000-000000000002".into(),
+            lease_generation: 1,
+            initial_action_sequence: 0,
+            expires_at_unix_ms: 60_000,
+            boot_id: "00000000-0000-4000-8000-000000000003".into(),
+            secret_hex: "11".repeat(32),
+            allowed_apps: vec![],
+        }
+    }
+
+    #[test]
+    fn boot_secret_reader_rejects_desktop_uid_and_group_or_other_access() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("boot.json");
+        std::fs::write(&path, serde_json::to_vec(&config()).unwrap()).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400)).unwrap();
+
+        let owner = unsafe { libc::geteuid() };
+        assert!(read_config_for_uid(&path, owner).is_ok());
+        assert_eq!(
+            read_config_for_uid(&path, owner.saturating_add(1)).unwrap_err(),
+            GuestProtocolErrorV1::WrongSession
+        );
+
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o440)).unwrap();
+        assert_eq!(
+            read_config_for_uid(&path, owner).unwrap_err(),
+            GuestProtocolErrorV1::WrongSession
+        );
+    }
 }

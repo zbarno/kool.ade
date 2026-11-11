@@ -8,14 +8,12 @@ pub(super) fn supports_generic_computer_action(action: &QaDriverActionV1) -> boo
         QaDriverActionV1::WaitForWindow
             | QaDriverActionV1::ListWindows
             | QaDriverActionV1::FocusWindow { .. }
-            | QaDriverActionV1::ResizeWindow { .. }
             | QaDriverActionV1::Click { .. }
             | QaDriverActionV1::DoubleClick { .. }
             | QaDriverActionV1::Drag { .. }
             | QaDriverActionV1::TypeText { .. }
             | QaDriverActionV1::KeyChord { .. }
             | QaDriverActionV1::Scroll { .. }
-            | QaDriverActionV1::AssertRegionVisible { .. }
     )
 }
 

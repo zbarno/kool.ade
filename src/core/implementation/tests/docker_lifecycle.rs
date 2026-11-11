@@ -34,9 +34,43 @@ fn cancelled_task_clone_resumes_through_docker_verification_and_waits_for_pr_aut
     );
     assert!(!s.root.join("pr-created").exists());
 
-    let resumed = s
-        .run("resume", calls.clone())
-        .unwrap_or_else(|error| panic!("Docker-backed resume failed: {error:#}"));
+    let resumed = match s.run("resume", calls.clone()) {
+        Ok(resumed) => resumed,
+        Err(error) if error.to_string().contains("Verification outcome unknown") => {
+            assert_eq!(calls.load(Ordering::SeqCst), 2);
+            let blocked = load(&s.planning_store.root, &s.ticket)
+                .expect("uncertain Docker verification state is durable");
+            assert_eq!(blocked.status, ImplementationStatus::Blocked);
+            assert!(blocked.detail.contains("no correction was dispatched"));
+            assert_eq!(
+                fs::read_to_string(blocked.task_repository.join("implemented.txt")).unwrap(),
+                "implemented\n"
+            );
+            assert!(!s.root.join("pr-created").exists());
+            assert_eq!(s.git(&s.repo, &["status", "--porcelain"]), user_status);
+            let evidence_dir = state_dir(&s.planning_store.root, &s.ticket).unwrap();
+            let evidence = fs::read_dir(evidence_dir)
+                .unwrap()
+                .flatten()
+                .find(|entry| {
+                    entry
+                        .file_name()
+                        .to_string_lossy()
+                        .ends_with("-verification.json")
+                })
+                .expect("uncertain Docker verification evidence is retained");
+            let evidence: serde_json::Value =
+                serde_json::from_slice(&fs::read(evidence.path()).unwrap()).unwrap();
+            assert!(
+                evidence[0]["error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("outcome is unknown")
+            );
+            return;
+        }
+        Err(error) => panic!("Docker-backed resume failed: {error:#}"),
+    };
 
     let actual_calls = calls.load(Ordering::SeqCst);
     let correction_summaries = if actual_calls == 2 {

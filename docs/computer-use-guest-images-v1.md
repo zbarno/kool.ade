@@ -10,6 +10,13 @@ after [PR #555](https://github.com/zbarno/kool.ade/pull/555) merged. The
 contains the qcow2 image, signed catalog, image lock, SBOM, and verified
 attestations. Its approved x86_64 image digest is
 `sha256:6ae802274b9bea94f4365fc9a4923cff0496039fd4a283bb95e87fe8bfce127c`.
+The first real KVM run against that release found that its companion references
+`pidfd_spawnp` and `pidfd_getpid` from glibc 2.39, which Debian Bookworm does not
+provide. The companion therefore exits before authenticating. The candidate
+workflow now builds both guest binaries against the pinned Bookworm runtime,
+checks their dynamic dependencies there, and promotion reuses those exact
+artifact binaries. A newly promoted catalog generation must pass the real KVM
+acceptance before the guest stack can be reported ready.
 Real KVM GUI readiness and overlay validation are tracked separately in #392.
 The current host support claim is x86_64 Linux without nested virtualization.
 Readiness reports macOS, Windows, ARM hosts, and nested virtualization as
@@ -34,15 +41,18 @@ validation before any promotion.
 
 `.github/workflows/computer-use-images.yml` runs only on an explicit dispatch or
 when the recipe changes in a pull request. It retains a candidate artifact and
-deterministic CycloneDX package-component inventory for review. A manual run
+deterministic CycloneDX package-component inventory for review. It builds the
+guest companions in a digest-pinned Debian Bookworm environment matching the
+guest's glibc baseline, runs `ldd -r` against both binaries, and includes those
+exact binaries in the candidate artifact. A manual run
 from `main` adds GitHub OIDC build-provenance and SBOM attestations. Those
 attestations do not substitute for the app-pinned Ed25519 catalog signer. The
 candidate is not a runtime catalog and does not change the Docker lock, Docker
 promotion workflow, or Docker images. The separate
 `.github/workflows/computer-use-image-promotion.yml` workflow accepts only a
 successful candidate run from the current `main` revision. It verifies image
-provenance and the CycloneDX SBOM attestation, rebuilds the companion from that
-revision, and checks its digest against the candidate sidecar. It signs with
+provenance and the CycloneDX SBOM attestation, then checks the candidate's
+Bookworm-built companion digest against the image sidecar. It signs with
 `COMPUTER_USE_CATALOG_SIGNING_KEY`, then verifies the signature with the
 application-pinned public key before creating a draft release and a review
 branch that changes only the catalog and guest image lock. Open that branch as

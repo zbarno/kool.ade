@@ -45,7 +45,23 @@ pub(super) fn paint(
                         "TLS contents cannot be inspected; do not enter credentials or submit purchases, posts, or other sensitive actions.",
                     );
                 }
-                ui.label(format!("Target VM: {}", request.machine_id));
+                ui.label(match &request.target {
+                    crate::computer_use::ComputerTargetV1::LocalKvm { machine_id }
+                    | crate::computer_use::ComputerTargetV1::LocalVm { machine_id, .. } => {
+                        format!("Target VM: local machine {machine_id}")
+                    }
+                    crate::computer_use::ComputerTargetV1::RemoteVmWorker {
+                        worker_id,
+                        machine_id,
+                        ..
+                    } => format!("Target VM: enrolled worker {worker_id}, machine {machine_id}"),
+                });
+                if request.target.is_remote_vm_worker() {
+                    ui.colored_label(
+                        theme::WARNING,
+                        "Remote VM workers are experimental and unavailable until independent worker certification passes.",
+                    );
+                }
                 ui.label(format!(
                     "Proposed operations: {}",
                     request
@@ -270,6 +286,8 @@ fn operation_label(operation: &crate::computer_use::ComputerOperationV1) -> &'st
         Operation::MouseInput => "mouse input",
         Operation::KeyboardInput => "keyboard input",
         Operation::LaunchAllowedApp => "launch allowed app",
+        Operation::LaunchApprovedStagedTaskApp => "launch approved staged task app",
+        Operation::ManageApp => "manage approved guest app",
         Operation::WaitFor => "wait for condition",
         Operation::QueryState => "query state",
     }
