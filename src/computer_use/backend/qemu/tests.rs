@@ -192,8 +192,8 @@ fn launch_argument_paths_reject_qemu_option_delimiters() {
 #[test]
 fn launch_argument_paths_keep_linux_socket_paths_within_the_safe_limit() {
     let session = session();
-    let one_hundred = format!("/{}", "x".repeat(99));
-    let one_hundred_one = format!("/{}", "x".repeat(100));
+    let one_hundred_seven = format!("/{}", "x".repeat(106));
+    let one_hundred_eight = format!("/{}", "x".repeat(107));
     let args = |overlay: &Path| {
         command_args(
             &session,
@@ -207,9 +207,9 @@ fn launch_argument_paths_keep_linux_socket_paths_within_the_safe_limit() {
             None,
         )
     };
-    assert!(args(Path::new(&one_hundred)).is_ok());
+    assert!(args(Path::new(&one_hundred_seven)).is_ok());
     assert_eq!(
-        args(Path::new(&one_hundred_one)),
+        args(Path::new(&one_hundred_eight)),
         Err(ComputerBackendErrorV1::InvalidOverlay)
     );
 }

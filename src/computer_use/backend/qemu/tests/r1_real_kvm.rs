@@ -59,13 +59,19 @@ fn computer_use_r1_real_kvm_acceptance() {
 fn run_real_kvm_acceptance() -> Result<(), String> {
     let temporary = tempfile::tempdir().map_err(|error| error.to_string())?;
     let root = temporary.path();
-    let cache = GuestImageCacheV1::new(root.join("images"))
+    // Reuse the public signed image across opt-in retries; failed guest boots
+    // should not require another 682 MB download.
+    let image_cache_root = std::env::temp_dir().join(format!("koolade-r1-kvm-cache-{}", unsafe {
+        libc::geteuid()
+    }));
+    let cache = GuestImageCacheV1::new(image_cache_root.join("images"))
         .map_err(|error| format!("image cache: {error}"))?;
-    let floor = GuestImageCatalogGenerationFloorV1::initialize_for_first_install(
-        root.join("catalog-floor"),
-        1,
-    )
-    .map_err(|error| format!("catalog floor: {error}"))?;
+    let floor_root = image_cache_root.join("catalog-floor");
+    let floor = GuestImageCatalogGenerationFloorV1::open(floor_root.clone())
+        .or_else(|_| {
+            GuestImageCatalogGenerationFloorV1::initialize_for_first_install(floor_root, 1)
+        })
+        .map_err(|error| format!("catalog floor: {error}"))?;
     let trust = application_guest_image_manifest_trust_v1()
         .map_err(|error| format!("pinned image trust: {error}"))?;
     let image = cache

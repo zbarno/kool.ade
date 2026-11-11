@@ -4,9 +4,9 @@ use crate::computer_use::ComputerSessionV1;
 
 use super::super::ComputerBackendErrorV1;
 
-// Linux sockaddr_un paths allow 107 bytes plus NUL. Keep enough headroom for
-// the session-scoped socket paths used beneath a short-lived test/runtime root.
-const MAX_QEMU_PATH_BYTES: usize = 100;
+// Linux sockaddr_un paths allow 107 bytes plus NUL. Keep this bound for every
+// path passed to QEMU, including UUID-named overlay files.
+const MAX_QEMU_PATH_BYTES: usize = 107;
 
 #[allow(clippy::too_many_arguments)] // Each path is validated and emitted as a separate QEMU asset.
 pub(super) fn command_args(
