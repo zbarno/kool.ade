@@ -4,6 +4,8 @@ use std::{process::Command, thread, time::Instant};
 
 #[path = "launch/boot_config.rs"]
 mod boot_config;
+mod connect;
+use connect::connect_control_socket;
 
 impl LocalKvmComputerBackend {
     pub(super) fn boot_impl(
@@ -255,8 +257,8 @@ impl LocalKvmComputerBackend {
         #[cfg(unix)]
         {
             let socket = machine.directory.join("guest-control.sock");
-            let stream = std::os::unix::net::UnixStream::connect(socket)
-                .map_err(|_| Error::GuestChannelUnavailable)?;
+            drop(machines);
+            let stream = connect_control_socket(&socket, self.limits.boot_timeout)?;
             stream
                 .set_read_timeout(Some(self.limits.boot_timeout))
                 .map_err(|_| Error::Io)?;
