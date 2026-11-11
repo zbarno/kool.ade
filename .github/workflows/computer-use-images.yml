@@ -105,7 +105,8 @@ jobs:
                 fi
               done
               install -m 0755 /target/release/koolade-computer-use-agent /out/
-              install -m 0755 /target/release/koolade_computer_use_app_helper /out/
+              install -m 0755 /target/release/koolade_computer_use_app_helper \
+                /out/koolade-computer-use-app-helper
             '
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
