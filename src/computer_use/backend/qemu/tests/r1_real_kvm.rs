@@ -1,8 +1,6 @@
 use std::{
     collections::BTreeSet,
-    fs,
-    path::{Path, PathBuf},
-    thread,
+    fs, thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -21,6 +19,10 @@ use crate::computer_use::{
 
 use super::super::{LocalKvmComputerBackend, policy::target_machine_id};
 use crate::computer_use::ComputerResourceLimitsV1;
+
+#[path = "r1_real_kvm/cgroup.rs"]
+mod cgroup;
+use cgroup::current_cgroup_root;
 
 const REAL_KVM_ENV: &str = "KOOLADE_COMPUTER_USE_R1_REAL_KVM";
 const MANIFEST: &[u8] = include_bytes!("../../../../../containers/computer-use/catalog-v1.json");
@@ -289,26 +291,6 @@ fn action(
         payload,
         helper_authorization: None,
     }
-}
-
-fn current_cgroup_root() -> Result<PathBuf, String> {
-    let contents = fs::read_to_string("/proc/self/cgroup").map_err(|error| error.to_string())?;
-    let mut records = contents.lines().filter_map(|line| {
-        let mut fields = line.splitn(3, ':');
-        match (fields.next()?, fields.next()?, fields.next()?) {
-            ("0", "", path) => Some(path),
-            _ => None,
-        }
-    });
-    let relative = records.next().ok_or("unified cgroup path missing")?;
-    if records.next().is_some() || !relative.starts_with('/') {
-        return Err("unified cgroup path is invalid".into());
-    }
-    let root = Path::new("/sys/fs/cgroup").join(relative.trim_start_matches('/'));
-    if fs::canonicalize(&root).map_err(|error| error.to_string())? != root {
-        return Err("unified cgroup path is not canonical".into());
-    }
-    Ok(root)
 }
 
 fn unix_time_ms() -> Result<u64, String> {

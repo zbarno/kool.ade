@@ -112,21 +112,41 @@ def cgroup_root(
     relative = Path(records[0].lstrip("/"))
     if any(part in {"..", "."} for part in relative.parts):
         fail("unified cgroup path contains an unsafe component")
-    root = mount_root / relative
+    current = mount_root / relative
     try:
-        if root.resolve(strict=True) != root or not root.is_dir():
+        if current.resolve(strict=True) != current or not current.is_dir():
             fail("unified cgroup path is not a canonical directory")
-        available = set((root / "cgroup.controllers").read_text().split())
-        enabled = {value.lstrip("+") for value in (root / "cgroup.subtree_control").read_text().split()}
     except OSError as error:
         fail(f"delegated cgroup controls are unavailable: {error}")
-    if not REQUIRED_CONTROLLERS <= available or not REQUIRED_CONTROLLERS <= enabled:
+    found_controllers = False
+    found_process_control = False
+    candidate = current
+    while candidate == mount_root or mount_root in candidate.parents:
+        try:
+            if candidate.resolve(strict=True) != candidate:
+                fail("unified cgroup path is not a canonical directory")
+            available = set((candidate / "cgroup.controllers").read_text().split())
+            enabled = {
+                value.lstrip("+")
+                for value in (candidate / "cgroup.subtree_control").read_text().split()
+            }
+        except OSError:
+            pass
+        else:
+            if REQUIRED_CONTROLLERS <= available and REQUIRED_CONTROLLERS <= enabled:
+                found_controllers = True
+                if (candidate / "cgroup.procs").is_file():
+                    found_process_control = True
+                    if os.access(candidate, os.W_OK | os.X_OK):
+                        return candidate
+        if candidate == mount_root:
+            break
+        candidate = candidate.parent
+    if not found_controllers:
         fail("delegated cgroup v2 cpu, memory, and pids controllers are not enabled")
-    if not (root / "cgroup.procs").is_file():
+    if not found_process_control:
         fail("delegated cgroup v2 process control is unavailable")
-    if not os.access(root, os.W_OK | os.X_OK):
-        fail("delegated cgroup directory is not writable by the runner account")
-    return root
+    fail("delegated cgroup directory is not writable by the runner account")
 
 
 def check() -> dict[str, object]:
@@ -141,6 +161,7 @@ def check() -> dict[str, object]:
         fail(f"/dev/kvm is not accessible for read/write: {error}")
     else:
         os.close(fd)
+    cgroup_root()
     return {
         "host": "Linux x86_64",
         "qemu_system": qemu_version(QEMU_SYSTEM),
