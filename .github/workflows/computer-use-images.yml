@@ -61,6 +61,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/computer-use-guest-target" "$RUNNER_TEMP/computer-use-companions"
           docker run --rm \
             --volume "$GITHUB_WORKSPACE:/workspace" \
+            --volume /etc/ssl/certs:/etc/ssl/certs:ro \
             --volume "$HOME/.cargo/registry:/cargo/registry:ro" \
             --volume "$HOME/.cargo/git:/cargo/git:ro" \
             --volume "$HOME/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu:/rust:ro" \
@@ -81,7 +82,7 @@ jobs:
               )
               apt-get "${apt_options[@]}" update
               apt-get "${apt_options[@]}" install --yes --no-install-recommends \
-                build-essential cmake pkg-config libasound2-dev libfontconfig1-dev \
+                ca-certificates build-essential cmake pkg-config libasound2-dev libfontconfig1-dev \
                 libfreetype6-dev libgl1-mesa-dev libwayland-dev libx11-dev \
                 libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libxrandr-dev
               mkdir -p /tmp/cargo-home
