@@ -2,6 +2,7 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "check-computer-use-r1-kvm-host.py"
@@ -27,6 +28,21 @@ class ComputerUseR1KvmHostTests(unittest.TestCase):
             proc = root / "proc-cgroup"
             proc.write_text("0::/user.slice/runner.slice\n", encoding="utf-8")
             self.assertEqual(HOST.cgroup_root(proc, root), cgroup)
+
+    def test_finds_nearest_delegated_ancestor_of_runner_cgroup(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            delegated = self.create_cgroup(root)
+            runner = delegated / "runner.scope"
+            runner.mkdir()
+            (runner / "cgroup.controllers").write_text("cpu memory pids\n", encoding="utf-8")
+            (runner / "cgroup.subtree_control").write_text("", encoding="utf-8")
+            (runner / "cgroup.procs").write_text("", encoding="utf-8")
+            proc = root / "proc-cgroup"
+            proc.write_text(
+                "0::/user.slice/runner.slice/runner.scope\n", encoding="utf-8"
+            )
+            self.assertEqual(HOST.cgroup_root(proc, root), delegated)
 
     def test_rejects_missing_controllers(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -69,6 +85,26 @@ class ComputerUseR1KvmHostTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "canonical directory"):
                 HOST.cgroup_root(proc, root)
             self.assertTrue((root / "actual").exists())
+
+    def test_host_check_requires_delegated_cgroup_validation(self):
+        with (
+            mock.patch.object(HOST.platform, "system", return_value="Linux"),
+            mock.patch.object(HOST.platform, "machine", return_value="x86_64"),
+            mock.patch.object(HOST.os, "geteuid", return_value=1000),
+            mock.patch.object(HOST, "nested_hypervisor"),
+            mock.patch.object(HOST.os, "open", return_value=3),
+            mock.patch.object(HOST.os, "close"),
+            mock.patch.object(HOST, "qemu_version", return_value="QEMU version 8.2.2"),
+            mock.patch.object(HOST, "qemu_accelerators", return_value="kvm available"),
+            mock.patch.object(
+                HOST,
+                "cgroup_root",
+                side_effect=RuntimeError("delegated cgroup was checked"),
+            ) as check_cgroup,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "delegated cgroup was checked"):
+                HOST.check()
+        check_cgroup.assert_called_once_with()
 
 
 if __name__ == "__main__":

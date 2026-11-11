@@ -1,7 +1,9 @@
 use std::{
     collections::BTreeSet,
     fs,
-    path::{Path, PathBuf},
+    io::{Read, Write},
+    os::unix::net::UnixStream,
+    path::Path,
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -21,6 +23,10 @@ use crate::computer_use::{
 
 use super::super::{LocalKvmComputerBackend, policy::target_machine_id};
 use crate::computer_use::ComputerResourceLimitsV1;
+
+#[path = "r1_real_kvm/cgroup.rs"]
+mod cgroup;
+use cgroup::current_cgroup_root;
 
 const REAL_KVM_ENV: &str = "KOOLADE_COMPUTER_USE_R1_REAL_KVM";
 const MANIFEST: &[u8] = include_bytes!("../../../../../containers/computer-use/catalog-v1.json");
@@ -55,16 +61,21 @@ fn computer_use_r1_real_kvm_acceptance() {
 }
 
 fn run_real_kvm_acceptance() -> Result<(), String> {
-    let now = unix_time_ms()?;
     let temporary = tempfile::tempdir().map_err(|error| error.to_string())?;
     let root = temporary.path();
-    let cache = GuestImageCacheV1::new(root.join("images"))
+    // Reuse the public signed image across opt-in retries; failed guest boots
+    // should not require another 682 MB download.
+    let image_cache_root = std::env::temp_dir().join(format!("koolade-r1-kvm-cache-{}", unsafe {
+        libc::geteuid()
+    }));
+    let cache = GuestImageCacheV1::new(image_cache_root.join("images"))
         .map_err(|error| format!("image cache: {error}"))?;
-    let floor = GuestImageCatalogGenerationFloorV1::initialize_for_first_install(
-        root.join("catalog-floor"),
-        1,
-    )
-    .map_err(|error| format!("catalog floor: {error}"))?;
+    let floor_root = image_cache_root.join("catalog-floor");
+    let floor = GuestImageCatalogGenerationFloorV1::open(floor_root.clone())
+        .or_else(|_| {
+            GuestImageCatalogGenerationFloorV1::initialize_for_first_install(floor_root, 1)
+        })
+        .map_err(|error| format!("catalog floor: {error}"))?;
     let trust = application_guest_image_manifest_trust_v1()
         .map_err(|error| format!("pinned image trust: {error}"))?;
     let image = cache
@@ -77,7 +88,12 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         )
         .map_err(|error| format!("approved image download and verification: {error}"))?;
 
+    // Start the short-lived session budget only after the potentially slow
+    // image download, otherwise the guest test expires before overlay setup.
+    let now = unix_time_ms()?;
     let mut session = super::session();
+    session.identity.session_id = uuid::Uuid::new_v4().to_string();
+    session.policy.identity = session.identity.clone();
     session.session_started_at_unix_ms = now;
     session.image_digest = image.entry().image_digest.clone();
     session.image_manifest_digest = image.manifest_digest().to_owned();
@@ -90,6 +106,12 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         ComputerOperationV1::LaunchAllowedApp,
     ]);
     session.policy.resource_budget = MINIMUM_DISPOSABLE_VM_BUDGET_V1;
+    // QEMU and its desktop guest share the cgroup memory limit; leave room for
+    // QEMU's own device and thread allocations alongside the guest's RAM.
+    session.policy.resource_budget.memory_bytes = 2 * 1024 * 1024 * 1024;
+    // The approved guest image itself has a 4 GiB virtual disk, so the test
+    // session must authorize at least that much overlay capacity.
+    session.policy.resource_budget.disk_bytes = image.entry().image_size_bytes;
     session.lifecycle = ComputerLifecycleV1::Preparing;
     session.lease.issued_at_unix_ms = now;
     session.lease.expires_at_unix_ms = now.saturating_add(10 * 60 * 1_000);
@@ -106,7 +128,7 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
     let backend = LocalKvmComputerBackend::new(
         root.join("runtime"),
         root.join("overlays"),
-        cgroup_root,
+        cgroup_root.clone(),
         machine_id,
         controller_key_id.to_owned(),
         controller_key.verifying_key(),
@@ -151,9 +173,41 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
         backend
             .boot(&session, &handle, unix_time_ms()?)
             .map_err(|error| format!("QEMU/KVM boot: {error:?}"))?;
-        let mut channel = backend
-            .authenticate_guest(&session, &handle, unix_time_ms()?)
-            .map_err(|error| format!("guest companion handshake: {error:?}"))?;
+        let monitor_socket = root
+            .join("runtime/sessions")
+            .join(&session.identity.session_id)
+            .join("qemu-monitor.sock");
+        let authenticated = backend.authenticate_guest(&session, &handle, unix_time_ms()?);
+        let mut channel = authenticated
+            .map_err(|error| {
+                let log = root
+                    .join("runtime/sessions")
+                    .join(&session.identity.session_id)
+                    .join("qemu-stderr.log");
+                let stderr = fs::read(log).unwrap_or_default();
+                let stderr = String::from_utf8_lossy(&stderr)
+                    .chars()
+                    .take(2_000)
+                    .collect::<String>();
+                let serial = fs::read_to_string(root
+                    .join("runtime/sessions")
+                    .join(&session.identity.session_id)
+                    .join("guest-serial.log"))
+                    .unwrap_or_default();
+                let serial = serial.chars().take(4_000).collect::<String>();
+                let cgroup = cgroup_root.join(format!("koolade-{}", session.identity.session_id));
+                let pids_current = fs::read_to_string(cgroup.join("pids.current"))
+                    .unwrap_or_else(|error| format!("unavailable: {error}"));
+                let pids_events = fs::read_to_string(cgroup.join("pids.events"))
+                    .unwrap_or_else(|error| format!("unavailable: {error}"));
+                let memory_current = fs::read_to_string(cgroup.join("memory.current"))
+                    .unwrap_or_else(|error| format!("unavailable: {error}"));
+                let memory_events = fs::read_to_string(cgroup.join("memory.events"))
+                    .unwrap_or_else(|error| format!("unavailable: {error}"));
+                let monitor = monitor_snapshot(&monitor_socket)
+                    .unwrap_or_else(|error| format!("unavailable: {error}"));
+                format!("guest companion handshake: {error:?}; QEMU stderr: {stderr}; guest serial: {serial}; monitor: {monitor}; cgroup pids.current={pids_current:?}; pids.events={pids_events:?}; memory.current={memory_current:?}; memory.events={memory_events:?}")
+            })?;
         backend
             .wait_ready(&session, &handle, Duration::from_secs(120), unix_time_ms()?)
             .map_err(|error| format!("guest readiness: {error:?}"))?;
@@ -265,7 +319,10 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
     let _ = backend.stop(&session, &handle, unix_time_ms()?);
     let cleanup = backend.release(&session, &handle, unix_time_ms()?);
     if let Err(error) = cleanup {
-        return Err(format!("VM cleanup: {error:?}"));
+        return Err(format!(
+            "VM cleanup: {error:?}; acceptance result: {}",
+            result.err().unwrap_or_else(|| "passed".into())
+        ));
     }
     result
 }
@@ -291,26 +348,6 @@ fn action(
     }
 }
 
-fn current_cgroup_root() -> Result<PathBuf, String> {
-    let contents = fs::read_to_string("/proc/self/cgroup").map_err(|error| error.to_string())?;
-    let mut records = contents.lines().filter_map(|line| {
-        let mut fields = line.splitn(3, ':');
-        match (fields.next()?, fields.next()?, fields.next()?) {
-            ("0", "", path) => Some(path),
-            _ => None,
-        }
-    });
-    let relative = records.next().ok_or("unified cgroup path missing")?;
-    if records.next().is_some() || !relative.starts_with('/') {
-        return Err("unified cgroup path is invalid".into());
-    }
-    let root = Path::new("/sys/fs/cgroup").join(relative.trim_start_matches('/'));
-    if fs::canonicalize(&root).map_err(|error| error.to_string())? != root {
-        return Err("unified cgroup path is not canonical".into());
-    }
-    Ok(root)
-}
-
 fn unix_time_ms() -> Result<u64, String> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -318,4 +355,42 @@ fn unix_time_ms() -> Result<u64, String> {
         .as_millis()
         .try_into()
         .map_err(|_| "system clock overflow".into())
+}
+
+fn monitor_snapshot(path: &Path) -> Result<String, String> {
+    let mut stream = UnixStream::connect(path).map_err(|error| error.to_string())?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| error.to_string())?;
+    let mut output = Vec::new();
+    let mut buffer = [0; 4096];
+    loop {
+        let read = stream
+            .read(&mut buffer)
+            .map_err(|error| error.to_string())?;
+        if read == 0 {
+            return Err("monitor closed before prompt".into());
+        }
+        output.extend_from_slice(&buffer[..read]);
+        if output.ends_with(b"(qemu) ") {
+            break;
+        }
+    }
+    stream
+        .write_all(b"info chardev\ninfo block\ninfo status\n")
+        .map_err(|error| error.to_string())?;
+    output.clear();
+    loop {
+        let read = stream
+            .read(&mut buffer)
+            .map_err(|error| error.to_string())?;
+        if read == 0 {
+            break;
+        }
+        output.extend_from_slice(&buffer[..read]);
+        if output.ends_with(b"(qemu) ") || output.len() >= 16_384 {
+            break;
+        }
+    }
+    Ok(String::from_utf8_lossy(&output).into_owned())
 }

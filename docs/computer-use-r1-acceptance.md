@@ -20,8 +20,11 @@ preflight on that runner. The runner must be an unprivileged Linux x86_64 host
 with read/write `/dev/kvm`, trusted root-owned `/usr/bin/qemu-system-x86_64`
 and `/usr/bin/qemu-img`, QEMU's reported KVM accelerator, no detected nested
 hypervisor, and delegated cgroup v2 `cpu`, `memory`, and `pids` controllers.
-Missing prerequisites fail the required run. The preflight does not change
-permissions or host configuration. After preflight, the workflow runs the
+The preflight checks the runner's current cgroup and its ancestors, selecting
+the nearest writable delegated subtree with all three controllers enabled;
+this supports runners launched in a child scope under a delegated systemd
+service. Missing prerequisites fail the required run. The preflight does not
+change permissions or host configuration. After preflight, the workflow runs the
 `computer_use_r1_real_kvm_acceptance` Rust test, which downloads and verifies
 the pinned signed x86_64 guest image, creates a disposable overlay, boots the
 guest through the production QEMU/KVM backend, authenticates the companion,

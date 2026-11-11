@@ -41,7 +41,9 @@ impl Default for ComputerResourceLimitsV1 {
             max_vcpus: 8,
             max_memory_bytes: 16 * 1024 * 1024 * 1024,
             max_overlay_bytes: 32 * 1024 * 1024 * 1024,
-            max_processes: 32,
+            // Linux pids.max counts QEMU worker threads as well as processes.
+            // Desktop guests can exceed 32 QEMU tasks during boot and disk I/O.
+            max_processes: 128,
             parallel_slots_per_machine: 1,
             boot_timeout: Duration::from_secs(120),
             stop_timeout: Duration::from_secs(10),

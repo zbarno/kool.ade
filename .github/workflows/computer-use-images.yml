@@ -41,17 +41,92 @@ jobs:
             --entrypoint node koolade-personal-auth-fixture \
             --test /opt/koolade-runtime-qa/personal-fixture/browser_restart.test.mjs
 
+  guest-companions:
+    name: Build guest companions for Debian Bookworm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust toolchain and fetch locked dependencies
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          cargo +1.98.1 fetch --locked
+          mkdir -p "$HOME/.cargo/registry" "$HOME/.cargo/git"
+      - name: Build companions against the guest's glibc baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/computer-use-guest-target" "$RUNNER_TEMP/computer-use-companions"
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace" \
+            --volume /etc/ssl/certs:/runner-certs:ro \
+            --volume "$HOME/.cargo/registry:/cargo/registry:ro" \
+            --volume "$HOME/.cargo/git:/cargo/git:ro" \
+            --volume "$HOME/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu:/rust:ro" \
+            --volume "$RUNNER_TEMP/computer-use-guest-target:/target" \
+            --volume "$RUNNER_TEMP/computer-use-companions:/out" \
+            --workdir /workspace \
+            debian:bookworm@sha256:d74df7598108a173a621eda4d58a2adbf850b2d9a9d81bc2cca1a6c21174a880 \
+            bash -euc '
+              printf "%s\\n" \
+                "deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20261101T000000Z bookworm main" \
+                "deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/20261101T000000Z bookworm-security main" \
+                > /tmp/bookworm-snapshot.list
+              apt_options=(
+                -o Acquire::Check-Valid-Until=false
+                -o Acquire::Retries=5
+                -o Acquire::https::CaInfo=/runner-certs/ca-certificates.crt
+                -o Dir::Etc::sourcelist=/tmp/bookworm-snapshot.list
+                -o Dir::Etc::sourceparts=-
+              )
+              apt-get "${apt_options[@]}" update
+              apt-get "${apt_options[@]}" install --yes --no-install-recommends \
+                ca-certificates build-essential cmake pkg-config libasound2-dev libfontconfig1-dev \
+                libfreetype6-dev libgl1-mesa-dev libwayland-dev libx11-dev \
+                libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libxrandr-dev
+              mkdir -p /tmp/cargo-home
+              ln -s /cargo/registry /tmp/cargo-home/registry
+              ln -s /cargo/git /tmp/cargo-home/git
+              export CARGO_HOME=/tmp/cargo-home CARGO_TARGET_DIR=/target
+              export RUSTC=/rust/bin/rustc PATH=/rust/bin:$PATH
+              cargo build --locked --offline --release \
+                --bin koolade-computer-use-agent --bin koolade_computer_use_app_helper
+              for binary in \
+                /target/release/koolade-computer-use-agent \
+                /target/release/koolade_computer_use_app_helper; do
+                if ! ldd -r "$binary" > /tmp/ldd-output 2>&1; then
+                  cat /tmp/ldd-output >&2
+                  exit 1
+                fi
+                if grep -E "not found|GLIBC_[0-9.]+.*not found" /tmp/ldd-output; then
+                  exit 1
+                fi
+              done
+              install -m 0755 /target/release/koolade-computer-use-agent /out/
+              install -m 0755 /target/release/koolade_computer_use_app_helper \
+                /out/koolade-computer-use-app-helper
+            '
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: computer-use-guest-companions-${{ github.sha }}
+          path: ${{ runner.temp }}/computer-use-companions/
+          if-no-files-found: error
+          retention-days: 14
+
   candidate:
+    needs: guest-companions
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.98.1 --profile minimal
-      - name: Build guest companion
-        run: cargo +1.98.1 build --locked --release --bin koolade-computer-use-agent --bin koolade_computer_use_app_helper
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: computer-use-guest-companions-${{ github.sha }}
+          path: ${{ runner.temp }}/computer-use-companions
       - name: Install image builder tools
         run: |
           sudo apt-get update
@@ -67,8 +142,9 @@ jobs:
           set -euo pipefail
           first="$RUNNER_TEMP/computer-use-image-first"
           second="$RUNNER_TEMP/computer-use-image-second"
-          agent="$GITHUB_WORKSPACE/target/release/koolade-computer-use-agent"
-          app_helper="$GITHUB_WORKSPACE/target/release/koolade_computer_use_app_helper"
+          agent="$RUNNER_TEMP/computer-use-companions/koolade-computer-use-agent"
+          app_helper="$RUNNER_TEMP/computer-use-companions/koolade-computer-use-app-helper"
+          chmod 0755 "$agent" "$app_helper"
           containers/computer-use/build-image.sh "$first" "$agent" "$app_helper"
           containers/computer-use/build-image.sh "$second" "$agent" "$app_helper"
           image="koolade-computer-use-guest-x86_64.qcow2"
@@ -149,6 +225,8 @@ jobs:
           done
           mkdir -p "$RUNNER_TEMP/computer-use-image"
           cp -a "$first/." "$RUNNER_TEMP/computer-use-image/"
+          cp "$agent" "$RUNNER_TEMP/computer-use-image/koolade-computer-use-agent"
+          cp "$app_helper" "$RUNNER_TEMP/computer-use-image/koolade-computer-use-app-helper"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: computer-use-guest-candidate-${{ github.sha }}
