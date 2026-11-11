@@ -134,7 +134,7 @@ pub fn reconcile(
     for (feature_id, body) in state.active_features.iter() {
         reconcile_feature(state, feature_id, body, work, &mut report, excluded_keys)?;
     }
-    manage_evaluation_prompts(work, &mut report);
+    manage_evaluation_prompts(work.as_mut_slice(), &mut report);
     Ok(report)
 }
 
@@ -290,6 +290,7 @@ fn reconcile_feature(
     )
 }
 
+#[allow(clippy::too_many_arguments)] // Flattened event carries every factor shaping the decision.
 fn create_record(
     work: &mut Vec<Work>,
     root: &RootAnchor,
@@ -361,6 +362,7 @@ fn create_record(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)] // Each lifecycle factor is individually significant.
 fn update_record(
     card: &mut Work,
     root: &RootAnchor,
@@ -542,7 +544,7 @@ fn classify_not_ready(message: &str) -> PlanNotReadyCause {
 /// for every card whose blocker class needs an evaluation turn. Markers live
 /// in the payloads written this pass, so repeats with identical evidence
 /// cannot double-prompt.
-fn manage_evaluation_prompts(work: &mut Vec<Work>, report: &mut PlanConfirmationReport) {
+fn manage_evaluation_prompts(work: &mut [Work], report: &mut PlanConfirmationReport) {
     for item in work.iter_mut() {
         let Some(payload) = item.plan_confirmation.as_mut() else {
             continue;
@@ -621,10 +623,10 @@ fn find_intent_root(work: &[Work], feature_uid: &str) -> Option<RootAnchor> {
 fn confirmation_key(feature_uid: &str, cycle_uid: Option<&str>) -> String {
     let tail: String = feature_uid.replace('-', "").chars().take(12).collect();
     match cycle_uid {
-        Some(cycle) => format!(
-            "plan-confirmation-{tail}-{}",
-            &cycle.replace('-', "").chars().take(8).collect::<String>()
-        ),
+        Some(cycle) => {
+            let segment: String = cycle.replace('-', "").chars().take(8).collect();
+            format!("plan-confirmation-{tail}-{segment}")
+        }
         None => format!("plan-confirmation-{tail}"),
     }
 }
@@ -633,6 +635,7 @@ fn should_notify(previous: Option<bool>, ready: bool, drift: bool, confirmed: bo
     (drift && confirmed) || previous.is_none() || previous == Some(!ready)
 }
 
+#[allow(clippy::too_many_arguments)] // Every identity is needed to route copy correctly.
 fn push_announcement(
     work_uid: &str,
     work_key: &str,

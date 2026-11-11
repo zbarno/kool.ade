@@ -4,7 +4,6 @@
 //! (real assessment turns, approvals, drift) live in app-level tests.
 
 use super::*;
-use std::path::PathBuf;
 
 fn feature_uid() -> String {
     uuid::Uuid::new_v4().hyphenated().to_string()
@@ -12,7 +11,6 @@ fn feature_uid() -> String {
 
 struct Fixture {
     _code: tempfile::TempDir,
-    code_root: PathBuf,
     state: PlannerState,
 }
 
@@ -42,7 +40,6 @@ fn fixture() -> Fixture {
     let project = crate::app::session::test_support::project_from(&code_root);
     Fixture {
         _code: temp,
-        code_root,
         state: project.state,
     }
 }

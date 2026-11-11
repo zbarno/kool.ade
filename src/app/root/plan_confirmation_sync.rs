@@ -10,6 +10,10 @@
 use crate::app::session::Project;
 use crate::core::planning_work::ReadinessEvaluationRequest;
 
+#[cfg(test)]
+#[path = "plan_confirmation_sync/tests.rs"]
+mod tests;
+
 pub(crate) struct Effects {
     pub announcements: Vec<String>,
     pub evaluations_wanted: Vec<ReadinessEvaluationRequest>,
