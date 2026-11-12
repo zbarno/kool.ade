@@ -15,9 +15,9 @@ not a pass.
 
 | Capability | Implementation and automated evidence | Real-host / release evidence | Current gate and remaining proof |
 | --- | --- | --- | --- |
-| R1 offline disposable VM | Signed generation 4 guest image is catalog-pinned. The fw_cfg sysfs zero-size bug was fixed by [PR #593](https://github.com/zbarno/kool.ade/pull/593), and two independently configured worker fixtures were added in [PR #595](https://github.com/zbarno/kool.ade/pull/595). Both PRs are merged; their hosted checks passed. | The local Linux x86_64 host passed the read-only preflight inside a transient `systemd-run --user --scope --property=Delegate=yes` scope. The prior real QEMU run against generation 4 failed before `ClientHello`; the guest helper fix is not in that signed image. | Main candidate build and attestation [43189760047](https://github.com/zbarno/kool.ade/actions/runs/43189760047) passed. Promotion run [43192209496](https://github.com/zbarno/kool.ade/actions/runs/43192209496) passed and created draft generation 5 plus catalog review [PR #596](https://github.com/zbarno/kool.ade/pull/596); its hosted checks and review are pending. No online `computer-use-kvm` Actions runner is registered. Run production real-KVM acceptance after the reviewed catalog change merges and the signed release is published; add guest/host isolation negatives and repeated cleanup evidence before enabling R1. |
+| R1 offline disposable VM | Signed generation 5 guest image is catalog-pinned. The fw_cfg sysfs zero-size bug was fixed by [PR #593](https://github.com/zbarno/kool.ade/pull/593), and two independently configured worker fixtures were added in [PR #595](https://github.com/zbarno/kool.ade/pull/595). Both PRs are merged; their hosted checks passed. | The local Linux x86_64 host passed the read-only preflight inside a transient `systemd-run --user --scope --property=Delegate=yes` scope. Three real-KVM attempts against published generation 5 failed at the guest companion handshake (`Io` / `GuestReadinessUnverified`); the host-side guest-control socket disappeared during teardown, and a display capture at 35 seconds was black. | Candidate build and attestation [43189760047](https://github.com/zbarno/kool.ade/actions/runs/43189760047), catalog promotion [43192209496](https://github.com/zbarno/kool.ade/actions/runs/43192209496), and publication [43197389090](https://github.com/zbarno/kool.ade/actions/runs/43197389090) passed. Generation 5 was published after [PR #596](https://github.com/zbarno/kool.ade/pull/596) merged. Diagnose guest startup and rerun production real-KVM acceptance; add guest/host isolation negatives and repeated cleanup evidence before enabling R1. No online `computer-use-kvm` Actions runner is registered. |
 | Host readiness and novice setup (#378) | The readiness and setup implementation is merged; preflight checks Linux architecture, QEMU/KVM access, root-owned QEMU binaries, and delegated cgroup v2 controllers. | The current host passed preflight only when run from a delegated transient user scope. | Attach a successful real guest boot/action/cleanup run to #392. A preflight alone is host-prerequisite evidence, not VM acceptance. |
-| Guest image and authenticated companion (#379, #380, #381) | Generation 4 is the current published signed catalog entry. PR #593 fixes reading fw_cfg sysfs content when metadata reports length zero while preserving bounded reads. Its local regression tests and hosted checks passed. | Main candidate run 43189760047 passed build, reproducibility, and provenance attestation. Promotion run 43192209496 validated and signed generation 5. Its catalog update is under review in [PR #596](https://github.com/zbarno/kool.ade/pull/596); the draft release is not published until that PR merges. No post-fix guest boot has run yet. | Review and merge the catalog promotion PR, then verify the new signed image digest, companion digest, authenticated handshake, GUI action, display stream, and cleanup on KVM. |
+| Guest image and authenticated companion (#379, #380, #381) | Generation 5 is the current published signed catalog entry. PR #593 fixes reading fw_cfg sysfs content when metadata reports length zero while preserving bounded reads. Its local regression tests and hosted checks passed. | Candidate build [43189760047](https://github.com/zbarno/kool.ade/actions/runs/43189760047), promotion [43192209496](https://github.com/zbarno/kool.ade/actions/runs/43192209496), catalog PR [#596](https://github.com/zbarno/kool.ade/pull/596), and publication [43197389090](https://github.com/zbarno/kool.ade/actions/runs/43197389090) are complete. The local real-KVM acceptance downloaded and verified the published image but failed before the authenticated handshake; no guest readiness, GUI action, or cleanup acceptance is established. | Diagnose the guest startup failure and rerun the signed image through handshake, GUI action, display stream, and cleanup on KVM. |
 | GUI actions, viewer/takeover, guest apps, artifacts, and QA repair (#382, #383, #385, #389, #394) | The component issues are merged with automated contract, policy, artifact, provisioning, and UI coverage. The guest reports accessibility-tree inspection as unsupported in v1. | No successful post-fix real-VM end-to-end run is recorded. The R1 real-KVM workflow is the configured production boundary; mock and synthetic-browser tests do not prove this path. | Verify app launch, frame/input round trip, artifact isolation, seeded QA repair, live viewer/takeover/handback, and cleanup through the signed guest on the configured real-VM path. Capture viewport/accessibility results and performance timings. |
 | R2 public Internet research (#386) | The restricted research network profile and proxy boundary are implemented and covered by policy/component tests. | No real-VM outbound-network, metadata, private-destination, or proxy-bypass matrix is recorded in #392. | Keep claims limited to the implemented profile until real-VM network-denial and allowed-destination evidence is attached. |
 | R3 encrypted personal VM and synthetic authentication (#387) | The implementation is merged. The synthetic IdP/MFA/browser-restart job passed in candidate run 43189760047. | No personal persistent VM was accepted on a real host. | `PERSONAL_VM_R3_ENABLED` is `false`; keep personal mode unavailable until its threat-model and real-host evidence are accepted. |
@@ -27,24 +27,19 @@ not a pass.
 
 ## Reproducibility record
 
-The last published signed catalog is generation 4, manifest digest
-`sha256:d74a675415b7ec16365bd97da55c2fbc0a5b51168ea89ec8f716fca2743c66c5`,
-with approved x86_64 image digest
-`sha256:91fdae70e2e1a4ea756b4efbaa85de0fef0d70e6485119bf7b5a2a957b73887f`
-and companion protocol version 1. Its companion digest is
-`sha256:3d9643a033bb3edc4bbb41367d9b27d9b878b51b376cef670ea0aeedc0839a96`.
-The source revision for that guest image is
-`ee89d354cec4664b9adf5b329c58ab23b7990542`.
-
-The generation 5 candidate is based on `7d2975712055662e49add1a1607535826f4b8287`.
+The last published signed catalog is generation 5, released as
+`computer-use-images-v1-5-38f46622092e` after publication run
+[43197389090](https://github.com/zbarno/kool.ade/actions/runs/43197389090).
+It is based on `7d2975712055662e49add1a1607535826f4b8287`.
 Its image digest is
 `sha256:38f46622092ecbbc64b10d1720dba678f696ec12d8ef89428a242a10d0845b41`,
 its companion digest is
 `sha256:8219429f4657625f1afc57cbddca57e197e4635dfdb3c1810c12da6cf960ca8a`,
 and its signed catalog manifest digest is
 `sha256:0b9b6034ea7220ef09e48d29d1b66cda2f308289e5da6aaa481705229faa1992`.
-The catalog update is [PR #596](https://github.com/zbarno/kool.ade/pull/596),
-and its associated GitHub release remains a draft until that PR merges.
+The catalog update merged in [PR #596](https://github.com/zbarno/kool.ade/pull/596).
+The local acceptance run against this published digest failed at the guest
+companion handshake; the image has not passed real-host acceptance.
 
 The local preflight host was Linux x86_64, kernel
 `7.2.15-76070215-generic`, an 11th Gen Intel Core i7-1195G7, with QEMU and
