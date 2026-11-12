@@ -18,13 +18,7 @@ impl ClaimLease {
             ));
         }
         let directory = ensure_private_directory(state_root)?;
-        let mut key = sha2::Sha256::new();
-        use sha2::Digest;
-        key.update(project_uid.as_bytes());
-        key.update([0]);
-        key.update(task_uid.as_bytes());
-        let filename = format!("{}.lock", hex(&key.finalize()));
-        let lock_path = directory.join(filename);
+        let lock_path = lease_path(&directory, project_uid, task_uid);
         let lock = open_lock_file(&lock_path, true)?;
         match lock.try_lock_exclusive() {
             Ok(()) => {}
@@ -41,6 +35,60 @@ impl ClaimLease {
             token,
             execution_attempt: None,
         })
+    }
+
+    pub(crate) fn is_held_by_another_process(
+        state_root: &Path,
+        project_uid: uuid::Uuid,
+        task_uid: &str,
+    ) -> Result<bool, ClaimError> {
+        if task_uid.trim().is_empty() {
+            return Err(ClaimError::CoordinationRejected(
+                "Task identity is empty".into(),
+            ));
+        }
+        if !state_root.is_absolute() {
+            return Err(ClaimError::LocalStorage(
+                "KOOLADE_HOME must resolve to an absolute path".into(),
+            ));
+        }
+        let root_metadata = match fs::symlink_metadata(state_root) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(local_storage(error)),
+        };
+        if !root_metadata.is_dir() || root_metadata.file_type().is_symlink() {
+            return Err(ClaimError::LocalStorage(
+                "KOOLADE_HOME is not a trusted directory".into(),
+            ));
+        }
+        let directory = state_root.join("task-fences");
+        let metadata = match fs::symlink_metadata(&directory) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(local_storage(error)),
+        };
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Err(ClaimError::LocalStorage(
+                "Task fence directory is not a trusted directory".into(),
+            ));
+        }
+        validate_private_directory(&metadata)?;
+        let path = lease_path(&directory, project_uid, task_uid);
+        match fs::symlink_metadata(&path) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(local_storage(error)),
+        };
+        let lock = open_lock_file(&path, false)?;
+        match lock.try_lock_exclusive() {
+            Ok(()) => {
+                FileExt::unlock(&lock).map_err(local_storage)?;
+                Ok(false)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(true),
+            Err(error) => Err(local_storage(error)),
+        }
     }
 
     pub(crate) fn verify(&self) -> Result<(), ClaimError> {
@@ -105,6 +153,15 @@ impl ClaimLease {
             ))
         }
     }
+}
+
+fn lease_path(directory: &Path, project_uid: uuid::Uuid, task_uid: &str) -> PathBuf {
+    let mut key = sha2::Sha256::new();
+    use sha2::Digest;
+    key.update(project_uid.as_bytes());
+    key.update([0]);
+    key.update(task_uid.as_bytes());
+    directory.join(format!("{}.lock", hex(&key.finalize())))
 }
 
 fn ensure_private_directory(state_root: &Path) -> Result<PathBuf, ClaimError> {

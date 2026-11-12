@@ -170,7 +170,17 @@ fn desktop_general_capacity_bootstrap_is_measured_after_the_bounded_pull() {
         desktop: true,
     };
     let engine = EngineDiscovery::with_test_verified_desktop_transport(endpoint, api.clone());
-    let staging = tempfile::tempdir().unwrap();
+    // This fixture checks a minimum free-space threshold. CI and local test
+    // runs may put the default temp directory on a small tmpfs, so allow the
+    // runner to supply a larger private temp root when needed.
+    let staging = std::env::var_os("KOOLADE_TEST_DESKTOP_STAGING_DIR")
+        .map(|root| {
+            tempfile::Builder::new()
+                .prefix("k-")
+                .tempdir_in(root)
+                .unwrap()
+        })
+        .unwrap_or_else(|| tempfile::tempdir().unwrap());
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

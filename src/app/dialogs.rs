@@ -18,6 +18,7 @@ mod mcp;
 mod persona_card;
 mod settings;
 
+pub(crate) use harness_setup::cli_auto_refresh_in_flight;
 #[cfg(not(test))]
 pub(crate) use harness_setup::poll_cli_auto_refresh;
 pub(crate) use harness_setup::probe_bootstrap_clis;

@@ -106,6 +106,93 @@ fn board_approval_adds_a_task_generation_card_that_generates_stories_on_request(
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn done_task_intent_children_keep_the_unmet_plan_gate_visible_on_the_board() {
+    // Production boundary: the app's feature-action projection is grouped into
+    // the rendered Board alongside its TaskIntent root. A lifecycle reducer
+    // cannot prove that a Done root and Done children leave the gate card
+    // visible and actionable. Uses a local synthetic Git project and egui;
+    // no Docker, network, or model service. Setup cost is moderate.
+    let _shield = crate::core::gitops::test_support::shield("done-children-plan-gate");
+    let (mut app, root_dir, _) = setup();
+    ensure_test_plan_adopted(&mut app, "CHG-004");
+    record_test_plan_author(&mut app, "CHG-004");
+
+    let mut root = crate::core::planning_work::Work::new(
+        "task:intent-done-gate".into(),
+        "Feature: Saved searches".into(),
+        "Persist and restore saved searches".into(),
+        "Planning records are already Done".into(),
+    );
+    let root_uid = root.uid.clone();
+    let feature_uid = match &app.screen {
+        crate::app::root::Screen::Connected(project) => {
+            let (_, body) = project
+                .state
+                .active_features
+                .iter()
+                .find(|(id, _)| id == "CHG-004")
+                .expect("fixture feature remains active");
+            crate::domain::ArtifactIdentity::from_markdown(body)
+                .unwrap()
+                .unwrap()
+                .uid
+        }
+        crate::app::root::Screen::Welcome => panic!("approval fixture remains connected"),
+    };
+    root.kind = crate::core::planning_work::WorkKind::Feature;
+    root.status = crate::core::planning_work::WorkStatus::Done;
+    root.task_intent_uid = Some(root_uid.clone());
+    root.feature_uid = Some(feature_uid);
+    root.feature_id = Some("CHG-004".into());
+    let mut children = (0..2)
+        .map(|_| {
+            let mut child = crate::core::planning_work::Work::new(
+                uuid::Uuid::new_v4().hyphenated().to_string(),
+                "Resolved planning item".into(),
+                "Planning work was marked Done".into(),
+                String::new(),
+            );
+            child.kind = crate::core::planning_work::WorkKind::Question;
+            child.status = crate::core::planning_work::WorkStatus::Done;
+            child.parent_uid = Some(root_uid.clone());
+            child.task_intent_uid = Some(root_uid.clone());
+            child
+        })
+        .collect::<Vec<_>>();
+
+    let crate::app::root::Screen::Connected(project) = &mut app.screen else {
+        panic!("approval fixture remains connected");
+    };
+    project.planning_work = vec![root.clone()];
+    project.planning_work.append(&mut children);
+    project.save_planning_work().unwrap();
+
+    let board = app.planning_board();
+    let projected_root = board
+        .planning_work
+        .iter()
+        .find(|work| work.uid == root_uid)
+        .unwrap();
+    assert_ne!(
+        board.task_intent_lifecycle(projected_root),
+        crate::core::task_intent::TaskIntentLifecycle::Complete,
+        "Done planning children cannot satisfy the unconfirmed plan gate"
+    );
+    assert!(
+        app.feature_actions(None)
+            .iter()
+            .any(|action| action.id == "CHG-004" && !action.user_confirmed),
+        "the typed plan-confirmation action remains available"
+    );
+
+    let context = egui::Context::default();
+    let output = frame(&mut app, &context, vec![]);
+    assert!(text_position(&output, "Review specification").is_some());
+    assert!(text_position(&output, "CHG-004: Saved searches").is_some());
+    remove_fixture_root(&root_dir);
+}
+
 /// Production boundary: plan review completion persists its task action even
 /// when confirmation did not originate from the board. Pure UI tests cannot
 /// verify the durable planning-work store. External dependency: local Git;

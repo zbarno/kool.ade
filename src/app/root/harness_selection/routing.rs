@@ -6,6 +6,9 @@ use crate::harness::{
     PiHarness,
 };
 
+mod capability_refresh;
+pub(crate) use capability_refresh::{CapabilityRefreshRouteState, capability_refresh_route_state};
+
 pub(crate) fn configured_harness_for_project(
     override_harness: &mut Option<Box<dyn AiHarness>>,
     work_type: Option<&str>,
@@ -158,26 +161,20 @@ pub(super) fn routed_harness<'a>(
     ) {
         return Box::new(UnavailableHarness::guidance(reason.into()));
     }
+    let requested_model = route
+        .and_then(|route| route.model.as_deref())
+        .filter(|model| !model.trim().is_empty());
+    let stale_binding =
+        capability_refresh::stale_binding(settings, harness_id, role, category, requested_model);
     let detected = settings.discovered.get(harness_id);
     let now = crate::persistence::harness_settings::current_unix_ms();
-    let discovery_fresh = detected.is_some_and(|entry| entry.is_fresh_at(now));
-    if detected
-        .and_then(|entry| entry.capability_snapshot.as_ref())
-        .is_none_or(|snapshot| !snapshot.profile_evidence_is_current())
+    if let Some(unavailable) =
+        capability_refresh::refreshing_harness(detected, harness_id, now, stale_binding.clone())
     {
-        crate::app::dialogs::request_cli_auto_refresh();
-        return Box::new(UnavailableHarness::guidance(format!(
-            "CLI {harness_id} role profile or authentication source changed. Kool.ad/e is refreshing its eligibility evidence; retry when verification completes."
-        )));
+        return Box::new(unavailable);
     }
     let authenticated =
         detected.is_some_and(|entry| has_current_authenticated_snapshot(harness_id, entry, now));
-    if !discovery_fresh {
-        crate::app::dialogs::request_cli_auto_refresh();
-        return Box::new(UnavailableHarness::guidance(format!(
-            "CLI {harness_id} is being reverified automatically. Retry shortly if it does not resume; unverified execution remains blocked."
-        )));
-    }
     if !detected.is_some_and(|entry| entry.ready) {
         return Box::new(UnavailableHarness::guidance(format!(
             "Harness {harness_id} is currently unavailable. Review its Coding tools diagnostic; no fallback will run this task."

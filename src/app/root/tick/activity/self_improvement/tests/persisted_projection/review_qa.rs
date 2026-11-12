@@ -174,41 +174,35 @@ pub(super) fn verify_reviewer_and_qa_projection(
     assert_eq!(run.runtime_qa_uids.len(), 1);
     assert!(run.spec_receipt_uid.is_none());
 
-    // Production boundary: pass a deterministic no-change SpecReconciler
-    // result through the app's worker-result polling and completion handler.
-    // A reducer-only projection test cannot prove that the real completion
-    // handler persists its application-policy receipt and creates a separate
-    // PR-preparation work item without authorizing publication. This uses the
-    // local fixture stores and synthetic reviewer/QA receipts above; there is
-    // no provider, Docker, or network dependency, with one headless app setup.
-    let crate::app::root::Screen::Connected(project) = &mut app.screen else {
-        panic!("fixture should remain connected")
+    let (work_uid, authorization) =
+        pr_lifecycle::complete_spec_racing_pr_authorization(app, lifecycle, task_uid);
+    let completion_pending = match &app.screen {
+        crate::app::root::Screen::Connected(project) => project.activity.pending.clone(),
+        _ => panic!("fixture should remain connected"),
     };
-    crate::app::root::spec_reconciliation::test_support::complete(
-        project,
-        task_uid,
-        crate::harness::prompt_catalog::SpecDeltaV1 { deltas: Vec::new() },
-        false,
-    );
     let completed = lifecycle.load_task(task_uid).unwrap();
     assert_eq!(
         completed.phase,
         TaskPhase::Done,
         "specification completion was blocked: {:?}",
-        project.activity.pending
+        completion_pending
     );
     let old_work_uid = completed
         .pr_work_item_uid
         .as_deref()
         .expect("spec reconciliation creates a scoped PR-preparation item");
+    assert_eq!(old_work_uid, work_uid);
     let work = lifecycle.load_pr_preparation(old_work_uid).unwrap();
     assert_eq!(work.task_uid, task_uid);
     assert_eq!(work.included_task_uids, vec![task_uid.to_owned()]);
     assert_eq!(
         work.status,
-        crate::core::lifecycle::PullRequestPreparationStatus::AwaitingAuthorization
+        crate::core::lifecycle::PullRequestPreparationStatus::Publishing
     );
-    assert!(work.publication_authorization.is_none());
+    assert_eq!(
+        work.publication_authorization.as_ref(),
+        Some(&authorization)
+    );
 
     super::synchronize_app_run(app, lifecycle, runs, run_uid).unwrap();
     assert_eq!(runs.load(run_uid).unwrap().phase, Phase::PrPending);

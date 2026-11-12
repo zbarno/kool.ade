@@ -7,6 +7,7 @@ mod cycles;
 mod decisions;
 mod history;
 mod intent;
+mod liveness;
 mod projection;
 mod storage;
 mod validation;
@@ -24,6 +25,7 @@ pub use history::{
     capture_authoritative_events,
 };
 pub(super) use intent::normalize_task_intents;
+pub use liveness::liveness_recovery_task;
 use validation::validate;
 pub use validation::{routing_for_feature, save, save_expected};
 mod answered;
@@ -236,6 +238,9 @@ pub struct Work {
     /// Canonical plan-approval binding for `WorkKind::PlanConfirmation` cards.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_confirmation: Option<plan_confirmation::PlanConfirmationV1>,
+    /// Bounded automatic Planner attempts for a TaskIntent liveness recovery task.
+    #[serde(default, skip_serializing_if = "u8_is_zero")]
+    pub liveness_recovery_attempts: u8,
     pub detail: String,
     /// Revision captured when this record was loaded; not part of legacy
     /// aggregate serialization.
@@ -246,6 +251,10 @@ pub struct Work {
     #[serde(skip)]
     #[doc(hidden)]
     pub record_baseline: Option<String>,
+}
+
+fn u8_is_zero(value: &u8) -> bool {
+    *value == 0
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

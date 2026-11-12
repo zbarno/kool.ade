@@ -91,6 +91,33 @@ pub(super) fn exercise_task_details_resume(
     source_sha: &str,
     old_worker_lease: std::fs::File,
 ) {
+    // An unrelated optional VM setup item remains open while this ordinary
+    // approved task resumes. This is the dispatch-boundary regression for
+    // issue #581 acceptance scenario 10.
+    use crate::persistence::setup_tasks::{SetupTaskEventV1, SetupTaskStateV1, SetupTaskV1};
+    let setup_state = SetupTaskStateV1::ReadyToFix;
+    app.machine_setup_tasks = vec![SetupTaskV1 {
+        schema_version: 1,
+        id: "setup:optional-vm-smoke".into(),
+        title: "Optional VM smoke-test setup".into(),
+        explanation: "An optional VM smoke-test profile is not available.".into(),
+        next_step: "Prepare that profile only if a future task requires it.".into(),
+        dependencies: Vec::new(),
+        blocked_by: Vec::new(),
+        state: setup_state,
+        created_at_unix_ms: 1,
+        observed_at_unix_ms: 1,
+        scan_generation: 1,
+        verified_at_unix_ms: None,
+        verified_result: None,
+        attempts: Vec::new(),
+        events: vec![SetupTaskEventV1 {
+            observed_at_unix_ms: 1,
+            scan_generation: 1,
+            state: setup_state,
+        }],
+        superseded_by: Vec::new(),
+    }];
     let (attempt_tx, attempt_rx) = mpsc::channel();
     app.task_harness = Some(Box::new(LeaseProbeHarness {
         attempts: attempt_tx,

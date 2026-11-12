@@ -1,9 +1,13 @@
 # TaskIntent forward progress and recovery
 
-Status: architecture audit for issue #581. This document describes the
-current implementation on `main` and separates implemented component behavior
-from the cross-lifecycle guarantees that remain work in progress. It does not
-claim that every nonterminal TaskIntent is currently guaranteed to advance.
+Status: architecture audit and in-progress implementation for issue #581. This
+document describes the baseline implementation on `main` and records this
+branch separately. The branch has focused implementation and regression
+coverage, but several combined lifecycle and restart acceptance scenarios
+remain incomplete. Validation results are recorded with the change review so
+this document does not become stale as code and test counts change.
+This document does not claim that every nonterminal TaskIntent is guaranteed to
+advance.
 
 ## Authority and transition graph
 
@@ -55,26 +59,32 @@ feature/task phase transitions and gate receipts are in the
 
 ## Gaps against the no-silent-stall invariant
 
+This branch adds durable Manager run outcomes/checkpoints, exact selected-route
+resume after capability refresh, and a periodic TaskIntent liveness sweep. The
+sweep creates a cycle-scoped recovery task when it finds no active turn, held
+task lease, task-scoped open decision, or recognized lifecycle owner. Its
+failure and restart matrix still needs executable validation; it is not yet
+evidence that every graph state converges.
+
 The following are not established by the component mechanisms above and must
 not be inferred from a green unit test of an individual reducer:
 
-1. There is no cross-lifecycle sweep that visits every current nonterminal
-   TaskIntent cycle and proves it has a live lease, an eligible owned/dispatchable
-   operation, or one canonical blocker with an executable resolution path.
-2. Manager/activity events do not yet share a durable `started → completed /
-   failed / timed_out / retried` outcome and checkpoint contract. Existing
-   TaskIntent history records committed state changes and gate evidence; it is
-   not a complete Manager event cursor or dropped/out-of-order event ledger.
-3. Harness preflight requests refresh when selected capability evidence is
-   stale, and that attempt returns a pre-dispatch error. Other invalid or
-   unsupported route conditions construct an unavailable harness. The code
-   does not itself prove that the exact queued operation resumes after a
-   successful refresh; it must continue to fail closed and preserve route
-   selection while this is addressed.
-4. A plan-confirmation reconciliation error currently returns no effects. The
+1. The cross-lifecycle sweep now has a persisted recovery-dispatch test across
+   restart, Manager event sequence gaps have restart-time detection coverage,
+   and ready/unready plan-card save failure now has app-seam fault injection
+   for visible retry and successful persistence after store recovery; unready
+   evaluation is emitted only after its prompt claim is saved. Duplicate-output
+   races and the combined recovery matrix still need application-level fault
+   injection.
+2. Exact route-preserving resume after capability refresh is implemented in
+   this branch. An app-store restart regression now reloads the durable queue,
+   verifies fresh proof admits the original ticket, and persists exactly one
+   resumed attempt. Real provider verification and worker execution through a
+   full application restart remain to be established.
+3. A plan-confirmation reconciliation error currently returns no effects. The
    safe no-mutation behavior is correct, but this seam alone does not guarantee
    a durable user-visible blocker for every storage or validation failure.
-5. Existing restart recovery is stage-specific. It does not yet prove the
+4. Existing restart recovery is stage-specific. It does not yet prove the
    complete issue #581 restart matrix across pending answers, active workers,
    cancelled tasks, stale snapshots, and changed Git baselines.
 
@@ -83,22 +93,37 @@ state store, or event ledger. Follow-up work should extend the existing
 authoritative records and dispatch seams, preserve crash-recovery evidence, and
 make retry admission bounded and idempotent.
 
+## Before / after inventory
+
+| Area | Before this branch | Current branch evidence |
+|---|---|---|
+| Manager supervision | Lifecycle work could depend on an in-memory Manager result; saved activity lacked a complete run checkpoint/outcome sequence for restart reconciliation. | Manager checkpoints and typed outcomes persist, sequence gaps remain visible, and timeout plus subprocess-kill tests verify bounded replay of the same event batch across app restart. Combined event-order and lifecycle replay coverage remains. |
+| Selected provider proof | A stale selected route could return a pre-dispatch blocker without scheduling the queued operation after proof became fresh. | The queue rechecks the persisted provider/role/model binding after restart and admits the original ticket once when proof is current. Full provider execution after application restart remains. |
+| TaskIntent liveness | No cross-lifecycle sweep created an owned recovery action for a stranded cycle. | A periodic sweep creates and dispatches one cycle-scoped recovery child, preserves an existing actionable child, bounds restart retries, and reports unreadable task-lease state instead of treating it as a live owner. Combined failure and graph convergence coverage remain. |
+| Authorization and identity | Readiness, review, feature identity, and publication gates already had typed receipts and revision/UID fences. | Those authorities remain in place; the branch does not make narration or child counts authoritative. The combined race and restart matrices remain. |
+
+The original local artifacts cited by issue #581 predate some of the private
+state boundaries introduced by #484. They are useful regression scenarios but
+do not establish defects in obsolete `.packet` planning stores or current
+storage. A zero-byte lock file likewise does not establish a held OS lock; the
+new lock tests verify ownership through the operating system.
+
 ## Acceptance evidence map
 
 | Issue #581 scenario | Current evidence / status |
 |---|---|
-| 1. Last answer yields review task or explicit blocker | Implemented through #568; app-level deferred-prompt coverage verifies an announcement-only pass survives a private-store reload and the idle sweep claims and returns one readiness request. |
-| 2. Full approved-plan-to-merged lifecycle | Not proven end to end by the current component-level lifecycle integrations. |
-| 3. Model narration cannot grant readiness or approval | Existing typed readiness/approval boundaries; retain targeted security regressions as coordinator work lands. |
-| 4. Stale feature identity recovery | Exact-UID recovery and blocked identity-conflict paths exist; full crash/replay matrix remains to be established. |
-| 5. Stale selected harness resumes exact work | Not proven; preflight refresh returns a pre-dispatch error and no automatic exact-operation resumption is established. |
-| 6–7. Manager outcomes, malformed envelopes, event gap replay | Not proven by a durable Manager event outcome/cursor contract. |
-| 8. Concurrent completion, restart, approval, and ticks | Individual stores use revision fencing/idempotency; combined race matrix remains to be established. |
-| 9. All children Done while a gate is unmet | TaskIntent projection consults authoritative feature/task phases and does not derive success from child counts; retain a focused regression across each required gate. |
-| 10. Optional setup does not block ordinary work | Existing setup and routing boundaries are separate; a full lifecycle regression remains to be established. |
-| 11. Held versus abandoned OS locks | This audit does not establish a complete lock-liveness and safe-cleanup matrix. |
-| 12. Stranded task graph converges | No cross-lifecycle liveness checker currently proves bounded convergence. |
-| 13. Restart with all specified stale/active inputs | Stage-specific restart coverage exists; the combined scenario remains to be established. |
+| 1. Last answer yields review task or explicit blocker | Implemented through #568; app-level deferred-prompt coverage verifies an announcement-only pass survives a private-store reload and the idle sweep claims and returns one readiness request. A new app-path test persists an applied answer, runs inactive-work reconciliation and plan sync, and verifies one snapshot-bound review task when ready or one specific missing-evidence action when blocked. Ready and unready save-failure cases verify the error is announced, dirty state retries after store recovery, one canonical action survives reload, and an unready evaluation is dispatched only after its prompt claim is durable. |
+| 2. Full approved-plan-to-merged lifecycle | A deterministic persisted lifecycle test now traverses answered planning questions, user plan confirmation, independent plan review, task records, implementation/code review, failed and passing QA with repair, spec reconciliation, explicit PR authorization, opened/merged provider state, and the shared board TaskIntent projection. It verifies Preparing PR → PR open → Merged after store reload. Real provider/worker execution and automatic cross-stage scheduling remain outside this synthetic acceptance path. |
+| 3. Model narration cannot grant readiness or approval | The persisted lifecycle acceptance test deliberately supplies a stale `Verified` task projection while the PR authorization record is pending; the shared TaskIntent projection stays at Preparing PR until the typed user receipt and provider outcome are persisted. |
+| 4. Stale feature identity recovery | An app-restart regression reloads one failed saved answer and a verified private feature snapshot, restores only its exact UID through the native Manager worker, and verifies the answer remains once with one stable recovery task. A second app-restart regression injects a same-display, different-UID replacement and verifies the saved answer remains once, one canonical recovery task reaches `NeedsAttention`, and native repair does not loop. A broader conflict/restart matrix remains. |
+| 5. Stale selected harness resumes exact work | An app-store restart regression reloads a blocked ticket, applies fresh proof for its unchanged route, and runs the production Auto queue through ImplementationController; the synthetic worker receives the original task UID and the queue records one resumed attempt. A second production Auto-queue regression injects failed proof refresh and verifies the durable UserAction blocker keeps that ticket out of dispatch. Provider evidence and worker are synthetic, so live provider re-verification remains unproven; route-level tests separately verify that an unavailable selected provider has no fallback. |
+| 6–7. Manager outcomes, malformed envelopes, event gap replay | Supervised timeout and subprocess-kill fault-injection tests prove durable outcomes and replay of the exact source event after app recovery. Malformed-envelope retention has a private-store preservation test. App-level restart regressions cover both a missing sequence and reordered outcomes: the gap case retains its existing TaskIntent action, while the reordered case retains the original checkpoint; each blocks replay and reproduces the blocker after restart. Combined completed-lifecycle replay with reordered Manager outcomes remains. |
+| 8. Concurrent completion, restart, approval, and ticks | The lifecycle-store acceptance races two approval receipts against the same persisted PR-work revision and verifies exactly one wins. A second store test races spec completion with user authorization, reopens the store, rejects stale completion replay, and preserves one receipt. The headless app test races its production spec-completion handler with typed authorization, persists the implementation record, restarts the app fixture, reloads that record, and runs ordinary activity ticks. It asserts the same exact receipt remains and the parent task projection is `Publishing`; a later forced tick must leave the full run record and revision unchanged. Both stores are then reopened for projection replay; stale completion replay is independently proved by the lifecycle-store race test. A separate headless app regression verifies an active recovery turn prevents a duplicate child or claim. |
+| 9. All children Done while a gate is unmet | Focused projection tests keep all-Done planning children from satisfying plan approval, runtime QA, or publication; each state remains non-complete and reports its next action. Rendered Board regressions cover the Done root and planning children with an unconfirmed plan action, a validated persisted pending Runtime QA projection, and a separate validated pending PR authorization projection. Both gate-pending cases assert the exact nonterminal TaskIntent phase and render the actionable next step. These Board tests use persisted snapshots rather than replaying lifecycle events; lifecycle event/replay correctness is covered by separate lifecycle acceptance tests. |
+| 10. Optional setup does not block ordinary work | The app-restart Task Details → queue → worker test leaves an unrelated optional VM smoke-test setup item at Ready to fix while resuming the exact approved task lease. A production setup-pump test begins at a persisted required OS-action gate, reloads a valid Verified task record, and advances the same setup flow automatically through completion without a Resume command. The test seeds typed evidence rather than running host verification; cross-workspace dispatch while the required prerequisite is pending remains to be proven. |
+| 11. Held versus abandoned OS locks | Focused OS-lock tests distinguish a live owner from an abandoned zero-byte lock file: another owner is rejected while held and can acquire after the original handle closes. Execution-history retention tests refuse to prune a task while its OS lease is held and serialize retention with record updates. A new production test simultaneously holds the project-state gate and PlanningStore transaction lock and verifies their files remain in distinct private namespaces. Lifecycle cleanup for temporary investigations and obsolete project shells remains outside these focused retention tests. |
+| 12. Stranded task graph converges | A cycle-scoped queued recovery task is dispatched through the scoped Planner, retried once after restart, then becomes `NeedsAttention`; the sweep preserves an existing actionable child instead of adding a duplicate recovery card. A new app-tick regression polls a scoped synthetic recovery failure, persists its specific blocker as `NeedsAttention`, then reloads the store and verifies repeated ticks retain one canonical action. Unreadable task-lease state is surfaced, a stale PlanningStore revision rolls back the in-memory card and converges after resync, and a lifecycle-record read error now creates a stable cycle-scoped recovery action with the diagnostic persisted in the private planning-work store. The app test reloads that action and confirms the normal liveness dispatcher claims it in the same activity pass; other tests confirm recovery is deferred while a QA controller is active or a clarification Planner is queued. Orphaned in-progress recovery is requeued within its attempt limit. Refresh after revision drift preserves and saves a dirty local record when its durable baseline is unchanged, while a same-record conflict preserves the newer saved detail and status through production inactive-work reconciliation. The combined graph convergence matrix remains incomplete. |
+| 13. Restart with all specified stale/active inputs | An expanded headless app-restart regression now combines a pending saved answer, held task lock, cancelled sibling, partial clone progress, approved source SHAs, stale plan-confirmation hash, and changed feature/Git baseline in one persisted workspace. After the app fixture reloads its private store, workspace resync refreshes the changed feature; plan sync updates the existing card to the new immutable snapshot. Assertions retain one actionable review card, cancellation, worker fencing, clone contents, and non-complete task state. The lock is held by the test process rather than a surviving worker subprocess; a separate production `attempt_connect` regression verifies cancellation and saved-answer reconciliation at connection startup. |
 | 14. Authorization, provider, QA, and publication safeguards | Existing subsystem regressions remain authoritative; a focused result-classifier regression preserves Docker health-disconnect uncertainty, and the existing uncertain-verification consumer regression proves it blocks without dispatching a correction. Coordinator changes must preserve these boundaries. |
 
 Issue #581 should remain open until these gaps have implementation and

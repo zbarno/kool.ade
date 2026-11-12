@@ -61,6 +61,16 @@ pub(crate) fn sync_for_announcement(project: &mut Project) -> Effects {
 }
 
 pub(crate) fn sync_with_prompt_claim(project: &mut Project, allow_prompt_claim: bool) -> Effects {
+    if project.activity.pending_planning_work
+        && let Err(error) = project.save_planning_work()
+    {
+        return Effects {
+            announcements: vec![format!(
+                "Planning work is still waiting to be saved: {error}. Retrying shortly."
+            )],
+            evaluations_wanted: Vec::new(),
+        };
+    }
     let busy = busy_keys(project);
     let Ok(report) = crate::core::planning_work::reconcile_with_prompt_claim(
         &project.state,
@@ -86,6 +96,19 @@ pub(crate) fn sync_with_prompt_claim(project: &mut Project, allow_prompt_claim: 
     if let Err(error) = project.save_planning_work() {
         // Retry machinery: mark dirty so the periodic reconcile retries.
         project.activity.pending_planning_work = true;
+        // A failed save cannot consume a one-shot evaluation prompt. Keep the
+        // claim unstamped so the next successful sync can persist it and emit
+        // the request together.
+        for evaluation in &effects.evaluations_wanted {
+            if let Some(payload) = project
+                .planning_work
+                .iter_mut()
+                .find(|work| work.key == evaluation.work_key)
+                .and_then(|work| work.plan_confirmation.as_mut())
+            {
+                payload.evaluation_prompted_for = None;
+            }
+        }
         effects.announcements = vec![format!(
             "Couldn't save the plan review card: {error}. Retrying shortly."
         )];

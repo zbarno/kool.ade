@@ -52,6 +52,50 @@ fn interrupted_transaction_recovers_after_restart_then_retries() {
     assert_eq!(restarted.read("planning/b.md").unwrap(), b"after b");
 }
 
+/// Production boundary: the project-state gate and PlanningStore transaction
+/// journal use separate kernel-backed locks and private roots. A path/size test
+/// cannot prove both owners can coexist without blocking or aliasing. Local
+/// temporary files only; no services; low setup cost.
+#[test]
+fn project_state_and_transaction_locks_keep_distinct_live_namespaces() {
+    let temp = TempDir::new();
+    let code = temp.root.join("code");
+    let planning = temp.root.join("planning");
+    std::fs::create_dir_all(&code).unwrap();
+    std::fs::create_dir_all(&planning).unwrap();
+    let store = PlanningStore::new(uuid::Uuid::new_v4(), &planning, StoreMode::ManagedLocal);
+    let project_gate = crate::artifacts::locks::acquire_project_state_gate(&code).unwrap();
+    let transaction_root = transaction_root(&store).unwrap();
+    let transaction_guard = acquire_lock(&transaction_root, &store_identity(&store)).unwrap();
+    let project_lock_root = crate::persistence::state_root().join("locks");
+    let project_lock = std::fs::read_dir(&project_lock_root)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("project-state-")
+        })
+        .expect("the live project-state lock is recorded in its own namespace");
+    let transaction_lock = std::fs::read_dir(&transaction_root)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("koolade-planning-store-lock-")
+        })
+        .expect("the live transaction lock is recorded in its own namespace");
+    assert_ne!(project_lock, transaction_lock);
+    assert_ne!(project_lock.parent(), transaction_lock.parent());
+    assert!(project_lock.exists());
+    assert!(transaction_lock.exists());
+    drop(transaction_guard);
+    drop(project_gate);
+}
+
 #[test]
 fn interrupted_transaction_recovers_across_git_availability_changes() {
     let temp = TempDir::new();

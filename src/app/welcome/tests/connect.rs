@@ -1,5 +1,7 @@
 use super::super::*;
 use crate::error::AppError;
+#[path = "connect/restart_reconcile.rs"]
+mod restart_reconcile;
 #[test]
 fn connecting_missing_path_errors_friendly() {
     match attempt_connect("") {

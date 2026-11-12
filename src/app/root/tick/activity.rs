@@ -1,5 +1,7 @@
 use super::*;
 
+mod liveness;
+
 #[cfg(test)]
 pub(crate) fn synchronize_self_improvement_run_for_test(
     project: &mut crate::app::session::Project,
@@ -16,6 +18,7 @@ impl KooladeApp {
         let runtime_qa_computer_use = self.runtime_qa_computer_use_context();
         let mut plan_repair = None;
         let mut code_review_repair = None;
+        let mut liveness_recovery = None;
         let mut planner_generation_readiness = None;
         let mut plan_confirmation_evaluation = None;
         if let Screen::Connected(project) = &mut self.screen {
@@ -57,12 +60,20 @@ impl KooladeApp {
                 project.activity.last_save = Some(Instant::now());
             }
             manager::advance(project, &mut self.task_harness);
+            liveness::reconcile(project);
             plan_repair = crate::app::manager::next_plan_repair(project);
             if plan_repair.is_none() {
                 code_review_repair = crate::app::manager::next_code_review_repair(project);
             }
             if code_review_repair.is_none() {
                 code_review_repair = crate::app::manager::next_qa_finding_repair(project);
+            }
+            if plan_repair.is_none()
+                && code_review_repair.is_none()
+                && planner_generation_readiness.is_none()
+                && plan_confirmation_evaluation.is_none()
+            {
+                liveness_recovery = liveness::next_recovery(project);
             }
         }
         if let Some((key, request, feature_id)) = plan_repair {
@@ -114,6 +125,14 @@ impl KooladeApp {
                     }
                 }
             }
+        }
+        if let Some((key, request, feature_id)) = liveness_recovery {
+            self.start_turn_for_work(
+                &request,
+                crate::core::workflow::TurnPurpose::Interview,
+                feature_id.as_deref(),
+                Some(key),
+            );
         }
         if let Screen::Connected(project) = &mut self.screen
             && let Some((feature_id, arbitration)) =

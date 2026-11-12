@@ -1,5 +1,8 @@
 use crate::harness::{AiHarness, PlanningRequest};
 
+mod unavailable;
+pub(super) use unavailable::UnavailableHarness;
+
 pub(super) struct RoutedHarness {
     pub(super) inner: Box<dyn AiHarness>,
     pub(super) harness_id: String,
@@ -8,6 +11,17 @@ pub(super) struct RoutedHarness {
 }
 
 impl AiHarness for RoutedHarness {
+    fn capability_refresh_binding(&self) -> Option<crate::harness::CapabilityRefreshBindingV1> {
+        Some(crate::harness::CapabilityRefreshBindingV1 {
+            provider_id: self.provenance.provider_id.clone(),
+            role: self.provenance.role,
+            work_category: self.provenance.work_category.clone()?,
+            selected_model: self.provenance.selected_model.clone()?,
+            requested_model: self.provenance.requested_model.clone(),
+            observed_at_unix_ms: crate::persistence::harness_settings::current_unix_ms(),
+        })
+    }
+
     fn supports_context_retrieval(&self) -> bool {
         self.inner.supports_context_retrieval()
     }
@@ -160,6 +174,14 @@ pub(super) struct ImplementationQaHarness {
 }
 
 impl AiHarness for ImplementationQaHarness {
+    fn capability_refresh_binding(&self) -> Option<crate::harness::CapabilityRefreshBindingV1> {
+        self.implementation.capability_refresh_binding()
+    }
+
+    fn route_blocker(&self) -> Option<String> {
+        self.implementation.route_blocker()
+    }
+
     fn supports_context_retrieval(&self) -> bool {
         self.implementation.supports_context_retrieval()
     }
@@ -246,65 +268,5 @@ impl AiHarness for ImplementationQaHarness {
     ) -> Result<Option<crate::harness::RetrievalPlan>, crate::error::AppError> {
         self.implementation
             .plan_retrieval_with_model(request, model)
-    }
-}
-
-pub(super) struct UnavailableHarness {
-    pub(super) message: String,
-    /// A saved route identifier this build cannot resolve is framed as a
-    /// "saved route unavailable" error; anything else is user-facing guidance
-    /// and must render verbatim.
-    pub(super) saved_route: bool,
-}
-
-impl AiHarness for UnavailableHarness {
-    fn label(&self) -> String {
-        format!("{} (unavailable)", self.message)
-    }
-
-    fn route_blocker(&self) -> Option<String> {
-        Some(self.error().to_string())
-    }
-
-    fn check_available(&self) -> Result<String, crate::error::AppError> {
-        Err(self.error())
-    }
-
-    fn execute(
-        &self,
-        _request: &PlanningRequest,
-    ) -> Result<crate::harness::HarnessOutcome, crate::error::AppError> {
-        Err(self.error())
-    }
-}
-
-impl UnavailableHarness {
-    fn error(&self) -> crate::error::AppError {
-        crate::error::AppError::Other(if self.saved_route {
-            format!(
-                "The saved coding harness route '{}' is unavailable in this Kool.ad/e build. Open Coding tool configuration to choose an available harness.",
-                self.message
-            )
-        } else {
-            self.message.clone()
-        })
-    }
-}
-
-impl UnavailableHarness {
-    /// Operator guidance rendered verbatim.
-    pub(super) fn guidance(message: String) -> Self {
-        Self {
-            message,
-            saved_route: false,
-        }
-    }
-
-    /// A persisted route identifier this build cannot resolve.
-    pub(super) fn unknown_saved_route(route_id: String) -> Self {
-        Self {
-            message: route_id,
-            saved_route: true,
-        }
     }
 }
