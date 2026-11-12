@@ -325,7 +325,8 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
 ProtectKernelLogs=yes
-RestrictSUIDSGID=yes
+# This root helper launches only approved applications and drops each child to
+# the locked desktop account with setgroups, setgid, and setuid.
 LockPersonality=yes
 MemoryMax=128M
 TasksMax=16
