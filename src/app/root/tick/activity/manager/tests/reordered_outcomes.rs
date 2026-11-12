@@ -50,6 +50,7 @@ fn restart_blocks_reordered_manager_outcomes_without_losing_checkpoint() {
             "Keep the existing TaskIntent action available.".into(),
             "Manager supervision was interrupted.".into(),
         );
+        root.status = crate::core::planning_work::WorkStatus::InProgress;
         root.task_intent_uid = Some(root.uid.clone());
         let cycle_uid = root.uid.clone();
         root.task_intent_cycles = vec![crate::core::planning_work::TaskIntentCycleV1 {
@@ -138,6 +139,16 @@ fn restart_blocks_reordered_manager_outcomes_without_losing_checkpoint() {
     assert_eq!(
         recovered_action.status,
         crate::core::planning_work::WorkStatus::NeedsAttention
+    );
+    let recovered_root = project
+        .planning_work
+        .iter()
+        .find(|work| work.key == "task:manager-reorder-root")
+        .expect("reordered Manager outcomes do not drop the TaskIntent root");
+    assert_eq!(
+        recovered_root.status,
+        crate::core::planning_work::WorkStatus::NeedsAttention,
+        "reordered Manager outcomes preserve a nonterminal actionable blocker"
     );
     assert!(
         project
