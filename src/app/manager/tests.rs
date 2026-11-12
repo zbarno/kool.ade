@@ -42,6 +42,29 @@ fn manager_cannot_grant_custom_npm_registry_without_user_action() {
     }
 }
 
+#[test]
+fn completed_manager_run_removes_its_temporary_investigation_receipts() {
+    let directory = tempfile::tempdir().unwrap();
+    let receipt_root = directory.path().join("koolade-investigation-synthetic-run");
+    std::fs::create_dir(&receipt_root).unwrap();
+    std::fs::write(receipt_root.join("receipt.json"), "synthetic receipt").unwrap();
+    let mut manager = Manager::completed_for_test(Err("synthetic completed result".into()));
+    manager.investigation_receipt_root = Some(receipt_root.clone());
+
+    assert!(matches!(
+        manager.result(),
+        Some(Err(error)) if error == "synthetic completed result"
+    ));
+    assert!(
+        !receipt_root.exists(),
+        "a finished Manager run removes its temporary receipt handoff"
+    );
+    assert!(
+        directory.path().exists(),
+        "the parent temporary root is retained"
+    );
+}
+
 /// `base` minus `ago` seconds.
 fn ago(base: Instant, ago: u64) -> Instant {
     base - Duration::from_secs(ago)
