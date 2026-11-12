@@ -8,12 +8,20 @@ use crate::computer_use::{
 use super::protocol::{ReplyV1, RequestV1, read_message, write_message};
 
 pub(crate) fn launch(app_id: &str) -> Result<(), GuestProtocolErrorV1> {
-    let reply = request(RequestV1::Launch {
-        app_id: app_id.to_owned(),
-    })?;
+    let mut stream =
+        UnixStream::connect(super::protocol::SOCKET).map_err(|_| GuestProtocolErrorV1::Io)?;
+    write_message(
+        &mut stream,
+        &RequestV1::Launch {
+            app_id: app_id.to_owned(),
+        },
+    )?;
+    let reply: ReplyV1 = read_message(&mut stream)?;
     match reply {
         ReplyV1::Completed => Ok(()),
-        _ => Err(GuestProtocolErrorV1::UnsupportedCapability),
+        ReplyV1::Unsupported => Err(GuestProtocolErrorV1::UnsupportedCapability),
+        ReplyV1::Failed => Err(GuestProtocolErrorV1::Io),
+        _ => Err(GuestProtocolErrorV1::Malformed),
     }
 }
 
