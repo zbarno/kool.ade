@@ -4,6 +4,8 @@ use super::*;
 #[path = "pr_lifecycle/authorization_race.rs"]
 mod authorization_race;
 pub(super) use authorization_race::complete_spec_racing_pr_authorization;
+#[path = "pr_lifecycle/reordered_manager.rs"]
+mod reordered_manager;
 
 /// Production boundary: the app scheduler reads persisted PR authorization and
 /// status together with implementation evidence before advancing Evolve state.
@@ -224,4 +226,7 @@ pub(super) fn verify_persisted_pr_state_projection(
     assert_eq!(activated.phase, Phase::Activated);
     assert_eq!(activated.activated_version.as_deref(), Some("0.1.0-test"));
     assert_app_idle(app);
+    reordered_manager::verify_merged_task_intent_survives_reordered_manager(
+        app, lifecycle, task_uid, work_uid,
+    );
 }

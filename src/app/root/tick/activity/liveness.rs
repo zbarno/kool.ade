@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 
 mod dispatch;
 pub(super) use dispatch::next_recovery;
+mod projection;
 mod read_failure;
 
 #[cfg(test)]
@@ -86,10 +87,20 @@ pub(super) fn reconcile(project: &mut Project) {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        let task_phases = task_records
-            .iter()
-            .map(|task| task.phase)
-            .collect::<Vec<_>>();
+        let task_phases = match projection::task_phases(&lifecycle, &task_records) {
+            Ok(phases) => phases,
+            Err(error) => {
+                push_pending_once(
+                    project,
+                    "TaskIntent liveness could not inspect lifecycle publication state",
+                    format!(
+                        "TaskIntent liveness could not inspect lifecycle publication state for feature {}; it will retry: {error}",
+                        feature_uid.unwrap_or("unknown")
+                    ),
+                );
+                continue;
+            }
+        };
         let deployment = if let Some(uid) = feature_uid {
             match (
                 lifecycle.load_deployment_evidence(uid),
