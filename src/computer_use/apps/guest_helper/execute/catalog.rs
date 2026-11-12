@@ -122,7 +122,6 @@ pub(super) fn read_fw_cfg(path: &str, max_bytes: u64) -> Result<Vec<u8>, &'stati
     if !metadata.file_type().is_file()
         || metadata.uid() != 0
         || metadata.mode() & 0o022 != 0
-        || metadata.len() == 0
         || metadata.len() > max_bytes
     {
         return Err("app helper fw_cfg input is unsafe or oversized");
@@ -131,10 +130,25 @@ pub(super) fn read_fw_cfg(path: &str, max_bytes: u64) -> Result<Vec<u8>, &'stati
     options
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    options
+    let file = options
         .open(path)
-        .and_then(|file| file.take(max_bytes + 1).read_to_end(&mut bytes))
+        .map_err(|_| "app helper fw_cfg input cannot be read")?;
+    read_bounded_fw_cfg(file, metadata.len(), max_bytes)
+}
+
+fn read_bounded_fw_cfg(
+    reader: impl Read,
+    reported_len: u64,
+    max_bytes: u64,
+) -> Result<Vec<u8>, &'static str> {
+    if reported_len > max_bytes {
+        return Err("app helper fw_cfg input is unsafe or oversized");
+    }
+    let capacity = usize::try_from(reported_len.min(max_bytes)).unwrap_or_default();
+    let mut bytes = Vec::with_capacity(capacity);
+    reader
+        .take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)
         .map_err(|_| "app helper fw_cfg input cannot be read")?;
     if bytes.is_empty() || bytes.len() as u64 > max_bytes {
         return Err("app helper fw_cfg input exceeds its limit");
@@ -157,6 +171,25 @@ fn package_installed(package_id: &str, version: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn fw_cfg_reader_accepts_content_when_sysfs_reports_zero_size() {
+        let config = br#"{"schema_version":1}"#;
+        assert_eq!(
+            read_bounded_fw_cfg(Cursor::new(config), 0, 64).unwrap(),
+            config
+        );
+    }
+
+    #[test]
+    fn fw_cfg_reader_enforces_limit_when_sysfs_reports_zero_size() {
+        let oversized = vec![b'x'; 65];
+        assert_eq!(
+            read_bounded_fw_cfg(Cursor::new(oversized), 0, 64),
+            Err("app helper fw_cfg input exceeds its limit")
+        );
+    }
 
     #[test]
     fn helper_restart_denies_reusing_the_session_boot_marker() {
