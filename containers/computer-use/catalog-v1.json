@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "catalogVersion": "computer-use-images-v1-7-ae9b237d0fbb",
-  "catalogGeneration": 7,
-  "issuedAtUnixMs": 1794501690033,
-  "expiresAtUnixMs": 1802277690033,
+  "catalogVersion": "computer-use-images-v1-8-44aae137a3a7",
+  "catalogGeneration": 8,
+  "issuedAtUnixMs": 1794512250132,
+  "expiresAtUnixMs": 1802288250132,
   "signerKeyId": "76fe57c9-0102-424b-9bb2-90b7ca745006",
   "images": [
     {
@@ -53,6 +53,21 @@
     },
     {
       "architecture": "x86_64",
+      "image_digest": "sha256:44aae137a3a7e88ac20cbb9678af3fb97d1e68887df980fdec72cf4271bd91b3",
+      "image_size_bytes": 4294967296,
+      "artifact_size_bytes": 682557440,
+      "artifact_name": "koolade-computer-use-guest-x86_64.qcow2",
+      "guest_release": "debian-bookworm-9b8e23c88f88",
+      "source_revision": "9b8e23c88f888965fed4df92b3eb13c24112c2e9",
+      "build_recipe_sha256": "sha256:b68e73b5272f8a07775b6fa7b1172455eff91ce894ac7c76df9403de5e97da4b",
+      "sbom_sha256": "sha256:c24b767f1f4e7635a31372c2f341a44870843770cea2b6d3bdabb3e5a3681544",
+      "build_attestation_sha256": "sha256:0d2f561c3aeb328c056235589eb56705ceb45d8ccd2b188c5b1b0cb13dacf006",
+      "companion_protocol_version": 1,
+      "companion_sha256": "sha256:0e21febb0bb124f3b171291f3dbf888341e259f3c33fedd11cd4641c0d319755",
+      "status": "approved"
+    },
+    {
+      "architecture": "x86_64",
       "image_digest": "sha256:6ae802274b9bea94f4365fc9a4923cff0496039fd4a283bb95e87fe8bfce127c",
       "image_size_bytes": 4294967296,
       "artifact_size_bytes": 682098688,
@@ -94,7 +109,7 @@
       "build_attestation_sha256": "sha256:02035f194aa3e86ae6f89f38dcf55b13e19ba7cdf18053860ce8d88747f45754",
       "companion_protocol_version": 1,
       "companion_sha256": "sha256:06dce222f6d23ca8dd0bad71e1204fbea22bed5c82f0e5e093ed7fa44ad1404b",
-      "status": "approved"
+      "status": "revoked"
     },
     {
       "architecture": "x86_64",
@@ -112,5 +127,5 @@
       "status": "revoked"
     }
   ],
-  "signatureHex": "247bd4810abec6bcca886b942ea9239de3225a227530b8d544ff75e9352153bdd1f3771b702d89b47b200c14fbd0ec5bececb42884e3ed31848fdf4be7beb903"
+  "signatureHex": "6ba5f502e39b68e8c121b033f8b2cccb79bc45e43ad0a8cdf06292219e27607d162e3480215cb7ca8acc75b695388f3ef06936d1075e8c2cdbdae8cb7d37150c"
 }
