@@ -10,6 +10,7 @@
 - [computer-use-guest-apps-v1.md](./computer-use-guest-apps-v1.md) - Read for Computer Use guest application catalog and provisioning.
 - [computer-use-guest-images-v1.md](./computer-use-guest-images-v1.md) - Read for Computer Use guest image catalog and cache (CU-03).
 - [computer-use-personal-auth-fixture-v1.md](./computer-use-personal-auth-fixture-v1.md) - Read for Personal VM synthetic authentication fixture v1.
+- [computer-use-release-evidence.md](./computer-use-release-evidence.md) - Read for Computer Use cross-tier release evidence and enablement gates.
 - [computer-use-r1-acceptance.md](./computer-use-r1-acceptance.md) - Read for Computer Use R1 offline acceptance infrastructure.
 - [computer-use-readiness-v1.md](./computer-use-readiness-v1.md) - Read for Computer Use readiness probe boundary (v1).
 - [computer-use-remote-workers-v1.md](./computer-use-remote-workers-v1.md) - Read for Remote Computer Use workers (v1).
