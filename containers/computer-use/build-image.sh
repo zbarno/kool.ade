@@ -221,7 +221,15 @@ AUTO
 chroot_guest chown -R koolade:koolade /home/koolade
 chroot_guest install -d -o koolade-agent -g koolade-display -m 2770 \
   /home/koolade/Downloads
+# Let the isolated agent traverse the desktop user's home to reach its own
+# Downloads directory, without granting it permission to list that home.
+chroot_guest chown koolade:koolade-agent /home/koolade
 chroot_guest chmod 0710 /home/koolade
+if ! chroot_guest su -s /bin/sh koolade-agent -c \
+  'test -x /home/koolade/Downloads && test ! -r /home/koolade'; then
+  echo "guest agent cannot traverse its private Downloads directory safely" >&2
+  exit 1
+fi
 sudo truncate -s 0 "$work_dir/rootfs/etc/machine-id"
 sudo ln -sfn /etc/machine-id "$work_dir/rootfs/var/lib/dbus/machine-id"
 sudo rm -f "$work_dir/rootfs/var/lib/systemd/random-seed"
