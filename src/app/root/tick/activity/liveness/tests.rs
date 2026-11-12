@@ -4,6 +4,8 @@ use super::*;
 mod existing_child_action;
 #[path = "tests/filesystem_failure.rs"]
 mod filesystem_failure;
+#[path = "tests/graph_matrix.rs"]
+mod graph_matrix;
 #[path = "tests/persist_failure.rs"]
 mod persist_failure;
 #[path = "tests/repeated_ticks.rs"]
