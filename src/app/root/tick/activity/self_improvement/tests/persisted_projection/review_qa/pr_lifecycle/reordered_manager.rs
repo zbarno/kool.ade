@@ -130,6 +130,31 @@ pub(super) fn verify_merged_task_intent_survives_reordered_manager(
         &checkpoint,
     );
 
+    let publication_path = match &app.screen {
+        Screen::Connected(project) => project
+            .state
+            .planning_store
+            .root
+            .join("state/lifecycle_pr_work_items")
+            .join(format!("{work_uid}.json")),
+        _ => panic!("completed lifecycle fixture remains connected"),
+    };
+    let publication_backup = publication_path.with_extension("reordered-manager-backup");
+    std::fs::rename(&publication_path, &publication_backup).unwrap();
+    app.advance_activity();
+    let Screen::Connected(project) = &app.screen else {
+        panic!("fixture remains connected while publication state is unreadable")
+    };
+    assert!(project.activity.pending.iter().any(|event| {
+        event.starts_with("TaskIntent liveness could not inspect lifecycle publication state")
+    }));
+    assert!(project.planning_work.iter().all(|work| {
+        !work
+            .key
+            .starts_with(&format!("task:manager-liveness:{merged_root_uid}:"))
+    }));
+    std::fs::rename(publication_backup, publication_path).unwrap();
+
     let mut restarted = board_tests::restart_fixture(std::mem::take(app));
     if let Screen::Connected(project) = &mut restarted.screen {
         project.activity.manager_history = crate::persistence::manager_activity::load(&slug);
