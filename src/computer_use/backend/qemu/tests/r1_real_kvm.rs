@@ -260,9 +260,19 @@ fn run_real_kvm_acceptance() -> Result<(), String> {
             )
             .map_err(|error| format!("Chromium launch action: {error:?}"))?;
         let launch_frame = launch_result.observation.ok_or_else(|| {
+            let session_root = root
+                .join("runtime/sessions")
+                .join(&session.identity.session_id);
+            let serial = fs::read_to_string(session_root.join("guest-serial.log"))
+                .unwrap_or_default();
+            let serial = serial.chars().take(4_000).collect::<String>();
+            let qemu_stderr = fs::read_to_string(session_root.join("qemu-stderr.log"))
+                .unwrap_or_default();
+            let qemu_stderr = qemu_stderr.chars().take(2_000).collect::<String>();
             format!(
-                "Chromium launch returned no guest frame (result={:?})",
-                launch_result.reply.result
+                "Chromium launch returned no guest frame (result={:?}, guest_capabilities={:?}); guest serial: {serial}; QEMU stderr: {qemu_stderr}",
+                launch_result.reply.result,
+                channel.capabilities()
             )
         })?;
         if launch_frame.width_px == 0

@@ -98,7 +98,7 @@ pub(super) fn launch_as_desktop_user(app_id: &str) -> ReplyV1 {
             });
             ReplyV1::Completed
         }
-        Err(_) => ReplyV1::Unsupported,
+        Err(_) => ReplyV1::Failed,
     }
 }
 

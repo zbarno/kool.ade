@@ -169,12 +169,16 @@ pub(super) fn execute_action(
             }
         }
         Payload::LaunchApp { app_id } => {
-            if !config.allowed_apps.iter().any(|allowed| allowed == app_id)
-                || platform::launch_allowed_app(app_id).is_err()
-            {
+            if !config.allowed_apps.iter().any(|allowed| allowed == app_id) {
                 ResultStatus::UnsupportedCapability
             } else {
-                return wait_for_app_window(action, app_id, config, replay);
+                match platform::launch_allowed_app(app_id) {
+                    Ok(()) => return wait_for_app_window(action, app_id, config, replay),
+                    Err(GuestProtocolErrorV1::UnsupportedCapability) => {
+                        ResultStatus::UnsupportedCapability
+                    }
+                    Err(_) => ResultStatus::Failed,
+                }
             }
         }
         Payload::ManageApp { app_id, .. } => {
