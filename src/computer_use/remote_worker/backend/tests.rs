@@ -262,7 +262,7 @@ impl ComputerRemoteWorkerRuntimeV1 for FakeRuntime {
             session.identity.session_id.clone(),
             session.lease.lease_id.clone(),
             session.lease.generation,
-            MACHINE_ID.into(),
+            self.config.machine_id.clone(),
         );
         Ok((
             handle,
@@ -401,4 +401,5 @@ fn invalid_data(message: &'static str) -> io::Error {
 mod support;
 use support::event;
 mod artifact_bridge;
+mod independent_workers;
 mod recovery;

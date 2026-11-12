@@ -78,6 +78,13 @@ operators, or network interruption were tested. Product scheduling remains
 disabled until those checks pass and the release gate is deliberately
 certified. Remote persistent personal sessions are out of scope.
 
+The independent-worker stdio fixture test starts two separately configured
+worker servers with distinct IDs, machine identities, host fingerprints and
+attestation keys. It verifies that each session stays on its enrolled worker,
+that a wrong host fingerprint is rejected before an operation, and that a
+session signed for one worker cannot start on the other. These are in-process
+fixtures over separate streams, not physical hosts or real SSH connections.
+
 The guest companion and QEMU backend currently have no file-transfer channel.
 The controller artifact bridge enforces grant, task revision, lease,
 approval-generation, digest, expiry, and store-quota checks, but remote worker
