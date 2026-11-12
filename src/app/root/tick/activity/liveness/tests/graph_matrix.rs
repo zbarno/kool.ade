@@ -1,12 +1,12 @@
 use super::*;
 
-/// Production boundary: one app liveness sweep classifies several persisted
-/// TaskIntent cycles with different owner/action states and converges only the
-/// stranded cycle to one durable recovery task. Separate reducer tests cannot
-/// prove multi-cycle filtering and PlanningStore idempotency together. Uses
-/// local private stores only, no Docker/network; moderate one-fixture setup.
+/// Production boundary: repeated app liveness sweeps classify multiple
+/// persisted TaskIntent cycles and create one durable recovery for each of
+/// three stranded statuses while preserving owned cycles. Reducer tests cannot
+/// prove multi-cycle filtering and PlanningStore idempotency together. Local
+/// private stores only, no Docker/network; setup is one app fixture and reload.
 #[test]
-fn mixed_taskintent_graphs_converge_only_the_unowned_stranded_cycle() {
+fn mixed_taskintent_graphs_converge_stranded_cycles_without_recovering_owned_cycles() {
     let mut app = crate::app::root::board_tests::fixture();
     let crate::app::root::Screen::Connected(project) = &mut app.screen else {
         unreachable!()
@@ -19,7 +19,30 @@ fn mixed_taskintent_graphs_converge_only_the_unowned_stranded_cycle() {
     );
     stranded.task_intent_uid = Some(stranded.uid.clone());
     set_cycle(&mut stranded);
+    stranded.status = WorkStatus::Todo;
     let stranded_uid = stranded.uid.clone();
+
+    let mut needs_attention = Work::new(
+        "task:matrix-stranded-attention".into(),
+        "Recover the interrupted attention cycle".into(),
+        "Continue the exact authorized operation.".into(),
+        "The recovery owner stopped before creating its next action.".into(),
+    );
+    needs_attention.task_intent_uid = Some(needs_attention.uid.clone());
+    set_cycle(&mut needs_attention);
+    needs_attention.status = WorkStatus::NeedsAttention;
+    let needs_attention_uid = needs_attention.uid.clone();
+
+    let mut interrupted = Work::new(
+        "task:matrix-stranded-interrupted".into(),
+        "Recover the abandoned Planner cycle".into(),
+        "Continue the exact authorized operation.".into(),
+        "The Planner owner disappeared before recording an outcome.".into(),
+    );
+    interrupted.task_intent_uid = Some(interrupted.uid.clone());
+    set_cycle(&mut interrupted);
+    interrupted.status = WorkStatus::InProgress;
+    let interrupted_uid = interrupted.uid.clone();
 
     let mut awaiting_decision = Work::new(
         "task:matrix-decision".into(),
@@ -87,6 +110,8 @@ fn mixed_taskintent_graphs_converge_only_the_unowned_stranded_cycle() {
 
     project.planning_work = vec![
         stranded,
+        needs_attention,
+        interrupted,
         awaiting_decision,
         action_root,
         action,
@@ -101,13 +126,29 @@ fn mixed_taskintent_graphs_converge_only_the_unowned_stranded_cycle() {
         .expect("seed the mixed graph in the private store");
 
     reconcile(project);
-    let recovery = project
+    let initial_recoveries = project
         .planning_work
         .iter()
-        .find(|work| work.key.starts_with("task:manager-liveness:"))
+        .filter(|work| work.key.starts_with("task:manager-liveness:"))
+        .map(|work| {
+            (
+                work.parent_uid
+                    .clone()
+                    .expect("recovery has a parent cycle"),
+                work.uid.clone(),
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(
+        initial_recoveries.len(),
+        3,
+        "each stranded cycle gets one action"
+    );
+    let recovery_uid = initial_recoveries
+        .get(&stranded_uid)
         .unwrap_or_else(|| {
             panic!(
-                "only the stranded cycle needs recovery; pending={:?}; work={:?}",
+                "the original stranded cycle needs recovery; pending={:?}; work={:?}",
                 project.activity.pending,
                 project
                     .planning_work
@@ -120,10 +161,8 @@ fn mixed_taskintent_graphs_converge_only_the_unowned_stranded_cycle() {
                     ))
                     .collect::<Vec<_>>()
             )
-        });
-    let recovery_uid = recovery.uid.clone();
-    assert_eq!(recovery.parent_uid.as_deref(), Some(stranded_uid.as_str()));
-    assert_eq!(recovery.status, WorkStatus::Todo);
+        })
+        .clone();
 
     for _ in 0..3 {
         reconcile(project);
@@ -134,9 +173,28 @@ fn mixed_taskintent_graphs_converge_only_the_unowned_stranded_cycle() {
         .iter()
         .filter(|work| work.key.starts_with("task:manager-liveness:"))
         .collect::<Vec<_>>();
-    assert_eq!(recoveries.len(), 1);
-    assert_eq!(recoveries[0].uid, recovery_uid);
-    assert_eq!(recoveries[0].status, WorkStatus::Todo);
+    assert_eq!(recoveries.len(), 3);
+    for (parent_uid, expected_uid) in [
+        (stranded_uid.as_str(), recovery_uid.as_str()),
+        (
+            needs_attention_uid.as_str(),
+            initial_recoveries
+                .get(&needs_attention_uid)
+                .unwrap()
+                .as_str(),
+        ),
+        (
+            interrupted_uid.as_str(),
+            initial_recoveries.get(&interrupted_uid).unwrap().as_str(),
+        ),
+    ] {
+        let recovery = recoveries
+            .iter()
+            .find(|work| work.parent_uid.as_deref() == Some(parent_uid))
+            .expect("each stranded cycle keeps its recovery owner");
+        assert_eq!(recovery.uid, expected_uid);
+        assert_eq!(recovery.status, WorkStatus::Todo);
+    }
     for uid in &non_stranded_uids {
         assert!(
             persisted
