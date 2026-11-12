@@ -7,10 +7,8 @@ use std::{fs, io::Read, path::Path, process::Command};
 
 #[test]
 fn authorized_broker_request_prepares_a_verified_npm_cache_hit() {
-    let test_root = std::env::temp_dir().join(format!(
-        "koolade-resource-authorized-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let test_root =
+        std::env::temp_dir().join(format!("k-rsrc-authorized-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&test_root).unwrap();
     let _home = crate::test_support::KooladeHomeGuard::set(&test_root.join("state"));
     let worktree = test_root.join("worktree");

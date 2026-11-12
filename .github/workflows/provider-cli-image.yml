@@ -1,0 +1,139 @@
+name: Provider CLI image candidates
+
+on:
+  pull_request:
+    paths:
+      - "containers/provider-cli/**"
+      - "containers/base-images.lock.json"
+      - ".github/workflows/provider-cli-image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: provider-cli-images-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package-validator:
+    name: Provider package archive validation
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate integrity and archive extraction guards
+        run: python3 -m unittest discover -s containers/provider-cli/tests -v
+      - name: Compile provider package preparation utility
+        run: python3 -m py_compile containers/provider-cli/prepare.py
+
+  build-native-candidate:
+    needs: package-validator
+    name: Build and smoke provider CLIs (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Production boundary: these tests start the actual integrity-pinned
+      # provider binaries inside the candidate image under rootless Docker,
+      # with no network, read-only rootfs, dropped capabilities, and bounded
+      # resources. Unit tests cannot prove native ABI compatibility or CLI
+      # startup in this container. This needs network to download the pinned
+      # npm tarballs and native rootless Docker; setup is costly due to the
+      # large provider binaries (hundreds of MB per architecture).
+      - name: Prepare rootless Docker systemd session
+        run: bash scripts/prepare-rootless-docker-session.sh
+      - name: Start an isolated rootless Docker Engine
+        uses: docker/setup-docker-action@2bf61fb9464cc67f0cbdeabed6aa0380accd1c70 # v5
+        with:
+          version: v29.9.0
+          rootless: true
+          set-host: true
+      - name: Require rootless Linux container support
+        run: |
+          set -euo pipefail
+          test "$(docker info --format '{{.OSType}}')" = linux
+          docker info --format '{{json .SecurityOptions}}' \
+            | jq -e 'any(.[]; contains("name=rootless"))' >/dev/null
+          docker info --format '{{json .SecurityOptions}}' \
+            | jq -e 'any(.[]; contains("name=seccomp"))' >/dev/null
+      - name: Select the architecture-specific Node base image
+        id: image
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          base_image="$(jq -er --arg platform "$PLATFORM" \
+            '.profiles.node[] | select(.platform == $platform) | .reference' \
+            containers/base-images.lock.json)"
+          [[ "$base_image" =~ @sha256:[0-9a-f]{64}$ ]]
+          printf 'base_image=%s\n' "$base_image" >> "$GITHUB_OUTPUT"
+      - name: Download and verify exact provider package binaries
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          set -euo pipefail
+          python3 containers/provider-cli/prepare.py \
+            --architecture "$ARCHITECTURE" \
+            --output containers/provider-cli/binaries
+          suffix="amd64"
+          if [[ "$ARCHITECTURE" == arm64 ]]; then suffix="arm64"; fi
+          codex_version="$(jq -er --arg key "codex-linux-$suffix" '.packages[$key].version' \
+            containers/provider-cli/packages.lock.json)"
+          codex_version="${codex_version%-linux-*}"
+          claude_version="$(jq -er --arg key "claude-linux-$suffix" '.packages[$key].version' \
+            containers/provider-cli/packages.lock.json)"
+          [[ "$codex_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]
+          [[ "$claude_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$ ]]
+          printf 'CODEX_VERSION=%s\nCLAUDE_VERSION=%s\n' \
+            "$codex_version" "$claude_version" >> "$GITHUB_ENV"
+      - name: Build provider CLI image with no build-time network
+        env:
+          BASE_IMAGE: ${{ steps.image.outputs.base_image }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --platform "$PLATFORM" \
+            --network=none \
+            --provenance=false \
+            --sbom=false \
+            --build-arg SOURCE_DATE_EPOCH=0 \
+            --build-arg "BASE_IMAGE=$BASE_IMAGE" \
+            --build-arg "CODEX_VERSION=$CODEX_VERSION" \
+            --build-arg "CLAUDE_VERSION=$CLAUDE_VERSION" \
+            --tag koolade-provider-cli:candidate \
+            --load \
+            containers/provider-cli
+      - name: Verify contained image identity and CLI startup
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          identity="$(docker image inspect koolade-provider-cli:candidate \
+            --format '{{.Os}} {{.Architecture}} {{.Config.User}}')"
+          expected_arch="${PLATFORM#linux/}"
+          test "$identity" = "linux $expected_arch 10001:10001"
+          docker run --rm --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --pids-limit 64 --memory 1g \
+            --tmpfs /tmp:rw,nosuid,nodev,noexec,size=32m \
+            --tmpfs /home/executor:rw,nosuid,nodev,noexec,size=32m,uid=10001,gid=10001 \
+            --env HOME=/home/executor \
+            --env "EXPECTED_CODEX_VERSION=$CODEX_VERSION" \
+            --env "EXPECTED_CLAUDE_VERSION=$CLAUDE_VERSION" \
+            --entrypoint /bin/sh koolade-provider-cli:candidate -eu -c \
+            'test "$(id -u):$(id -g)" = "10001:10001"; \
+             codex_output="$(codex --version)"; \
+             claude_output="$(claude --version)"; \
+             printf "%s\n" "$codex_output" | grep -Fq "$EXPECTED_CODEX_VERSION"; \
+             printf "%s\n" "$claude_output" | grep -Fq "$EXPECTED_CLAUDE_VERSION"; \
+             test ! -e /var/run/docker.sock; \
+             if touch /provider-root-write 2>/dev/null; then exit 1; fi'

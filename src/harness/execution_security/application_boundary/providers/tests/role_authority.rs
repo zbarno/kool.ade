@@ -180,7 +180,7 @@ fn computer_use_tools_have_the_same_six_provider_surface() {
     // provider MCP end-to-end fixture does.
     let socket_root = tempfile::Builder::new()
         .prefix("k-")
-        .tempdir_in("/tmp")
+        .tempdir_in(std::env::temp_dir())
         .unwrap();
     let mut boundary = super::test_boundary(ToolAccess::None);
     let task_id = "00000000-0000-4000-8000-000000000002";
